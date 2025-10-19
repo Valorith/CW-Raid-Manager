@@ -84,13 +84,22 @@ export async function updateRaidEvent(
 
   await ensureCanManageRaid(userId, existing.guildId);
 
+  const targetZonesUpdate =
+    data.targetZones === undefined
+      ? undefined
+      : (data.targetZones as Prisma.InputJsonValue);
+  const targetBossesUpdate =
+    data.targetBosses === undefined
+      ? undefined
+      : (data.targetBosses as Prisma.InputJsonValue);
+
   return prisma.raidEvent.update({
     where: { id: raidId },
     data: {
       name: data.name ?? existing.name,
       startTime: (data.startTime as Date | undefined) ?? existing.startTime,
-      targetZones: (data.targetZones as Prisma.JsonValue | undefined) ?? existing.targetZones,
-      targetBosses: (data.targetBosses as Prisma.JsonValue | undefined) ?? existing.targetBosses,
+      targetZones: targetZonesUpdate ?? (existing.targetZones as Prisma.InputJsonValue),
+      targetBosses: targetBossesUpdate ?? (existing.targetBosses as Prisma.InputJsonValue),
       notes: data.notes ?? existing.notes,
       isActive: data.isActive ?? existing.isActive
     }
