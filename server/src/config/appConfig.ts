@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -13,6 +14,12 @@ type FileConfig = {
   };
   client?: {
     baseUrl?: string;
+  };
+  database?: {
+    url?: string;
+  };
+  session?: {
+    secret?: string;
   };
   auth?: {
     google?: {
@@ -30,8 +37,8 @@ const envSchema = z.object({
     .default('4000')
     .transform((value) => parseInt(value, 10)),
   CLIENT_URL: z.string().url().optional(),
-  DATABASE_URL: z.string().url(),
-  SESSION_SECRET: z.string().min(16),
+  DATABASE_URL: z.string().url().optional(),
+  SESSION_SECRET: z.string().min(16).optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().url().optional()
@@ -70,6 +77,18 @@ const env = envSchema.parse({
 
 const fileConfig = loadFileConfig();
 
+const databaseUrl = env.DATABASE_URL ?? fileConfig.database?.url ?? null;
+
+if (!env.DATABASE_URL && fileConfig.database?.url && !process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = fileConfig.database.url;
+}
+
+if (!databaseUrl) {
+  console.warn(
+    'DATABASE_URL is not defined. Database access will be disabled until it is configured.'
+  );
+}
+
 if (!env.CLIENT_URL && !fileConfig.client?.baseUrl) {
   console.warn(
     'CLIENT_URL is not defined in the environment or app.config.json. Defaulting to http://localhost:5173.'
@@ -77,6 +96,15 @@ if (!env.CLIENT_URL && !fileConfig.client?.baseUrl) {
 }
 
 const clientUrl = fileConfig.client?.baseUrl ?? env.CLIENT_URL ?? 'http://localhost:5173';
+
+const sessionSecret =
+  env.SESSION_SECRET ?? fileConfig.session?.secret ?? randomBytes(32).toString('hex');
+
+if (!env.SESSION_SECRET && !fileConfig.session?.secret) {
+  console.warn(
+    'SESSION_SECRET is not defined. Generated a temporary secret; active sessions reset on restart.'
+  );
+}
 
 const googleClientId = env.GOOGLE_CLIENT_ID ?? fileConfig.auth?.google?.clientId;
 const googleClientSecret = env.GOOGLE_CLIENT_SECRET ?? fileConfig.auth?.google?.clientSecret;
@@ -118,7 +146,7 @@ export const appConfig = {
   host: fileConfig.server?.host ?? '0.0.0.0',
   port: fileConfig.server?.port ?? env.PORT,
   clientUrl,
-  databaseUrl: env.DATABASE_URL,
-  sessionSecret: env.SESSION_SECRET,
+  databaseUrl,
+  sessionSecret,
   google: googleConfig
 } as const;
