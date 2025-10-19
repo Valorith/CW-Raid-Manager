@@ -1,4 +1,4 @@
-import Fastify, { FastifyInstance } from 'fastify';
+import fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
@@ -13,7 +13,7 @@ import { googleOAuthPlugin } from './plugins/googleOAuth.js';
 import { registerRoutes } from './routes/index.js';
 
 export function buildServer(): FastifyInstance {
-  const server = Fastify({
+  const server = fastify({
     logger: {
       level: appConfig.nodeEnv === 'development' ? 'debug' : 'info'
     }

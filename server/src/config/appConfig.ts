@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -6,34 +7,55 @@ import { z } from 'zod';
 
 const __dirname = dirname(fileURLToPath(new URL('.', import.meta.url)));
 
-type FileConfig = {
-  server?: {
-    host?: string;
-    port?: number;
-  };
-  client?: {
-    baseUrl?: string;
-  };
-  auth?: {
-    google?: {
-      callbackUrl?: string;
-    };
-  };
-};
+const fileConfigSchema = z
+  .object({
+    server: z
+      .object({
+        host: z.string().min(1).optional(),
+        port: z.number().int().positive().optional()
+      })
+      .optional(),
+    client: z
+      .object({
+        baseUrl: z.string().url().optional()
+      })
+      .optional(),
+    database: z
+      .object({
+        url: z.string().min(1).optional()
+      })
+      .optional(),
+    session: z
+      .object({
+        secret: z.string().min(16).optional()
+      })
+      .optional(),
+    auth: z
+      .object({
+        google: z
+          .object({
+            clientId: z.string().min(1).optional(),
+            clientSecret: z.string().min(1).optional(),
+            callbackUrl: z.string().url().optional()
+          })
+          .optional()
+      })
+      .optional()
+  })
+  .partial();
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z
-    .string()
-    .default('4000')
-    .transform((value) => parseInt(value, 10)),
-  CLIENT_URL: z.string().url(),
-  DATABASE_URL: z.string().url(),
-  SESSION_SECRET: z.string().min(16),
-  GOOGLE_CLIENT_ID: z.string(),
-  GOOGLE_CLIENT_SECRET: z.string(),
-  GOOGLE_CALLBACK_URL: z.string().url()
-});
+const nodeEnvSchema = z.enum(['development', 'production', 'test']);
+const portSchema = z.coerce.number().int().positive();
+
+const clientUrlSchema = z.string().url();
+const databaseUrlSchema = z.string().min(1);
+const sessionSecretSchema = z.string().min(16);
+const googleCallbackSchema = z.string().url();
+const mysqlIdentifierSchema = z.string().min(1);
+const mysqlPasswordSchema = z.string();
+const mysqlPortSchema = z.coerce.number().int().positive();
+
+type FileConfig = z.infer<typeof fileConfigSchema>;
 
 function loadFileConfig(): FileConfig {
   const explicitPath = process.env.APP_CONFIG_PATH;
@@ -46,36 +68,187 @@ function loadFileConfig(): FileConfig {
 
   try {
     const contents = readFileSync(pathToUse, 'utf-8');
-    return JSON.parse(contents) as FileConfig;
+    const parsed = JSON.parse(contents) as unknown;
+    const result = fileConfigSchema.safeParse(parsed);
+
+    if (!result.success) {
+      console.warn(
+        'app.config.json is invalid. Falling back to environment variables.',
+        result.error.flatten()
+      );
+      return {};
+    }
+
+    return result.data;
   } catch (error) {
     console.warn('Failed to parse app.config.json. Falling back to environment variables.', error);
     return {};
   }
 }
 
-const env = envSchema.parse({
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT,
-  CLIENT_URL: process.env.CLIENT_URL,
-  DATABASE_URL: process.env.DATABASE_URL,
-  SESSION_SECRET: process.env.SESSION_SECRET,
-  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-  GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL
-});
-
 const fileConfig = loadFileConfig();
 
-export const appConfig = {
-  nodeEnv: env.NODE_ENV,
-  host: fileConfig.server?.host ?? '0.0.0.0',
-  port: fileConfig.server?.port ?? env.PORT,
-  clientUrl: fileConfig.client?.baseUrl ?? env.CLIENT_URL,
-  databaseUrl: env.DATABASE_URL,
-  sessionSecret: env.SESSION_SECRET,
-  google: {
-    clientId: env.GOOGLE_CLIENT_ID,
-    clientSecret: env.GOOGLE_CLIENT_SECRET,
-    callbackUrl: fileConfig.auth?.google?.callbackUrl ?? env.GOOGLE_CALLBACK_URL
+const rawNodeEnv = process.env.NODE_ENV;
+const nodeEnvResult = nodeEnvSchema.safeParse(rawNodeEnv);
+const nodeEnv = nodeEnvResult.success ? nodeEnvResult.data : 'development';
+
+if (!nodeEnvResult.success && rawNodeEnv !== undefined) {
+  console.warn(
+    `Invalid NODE_ENV value "${rawNodeEnv}". Falling back to "development".`,
+    nodeEnvResult.error.flatten()
+  );
+}
+
+const rawPort = process.env.PORT ?? fileConfig.server?.port ?? undefined;
+const portResult = portSchema.safeParse(rawPort ?? 4000);
+const port = portResult.success ? portResult.data : 4000;
+
+if (!portResult.success && rawPort !== undefined) {
+  console.warn(`Invalid PORT value "${rawPort}". Falling back to 4000.`, portResult.error.flatten());
+}
+
+function readOptionalEnv<T>(key: string, schema: z.ZodType<T>): T | undefined {
+  const rawValue = process.env[key];
+
+  if (rawValue === undefined || rawValue === '') {
+    return undefined;
   }
+
+  const result = schema.safeParse(rawValue);
+
+  if (!result.success) {
+    console.warn(`Invalid value provided for ${key}.`, result.error.flatten());
+    return undefined;
+  }
+
+  return result.data;
+}
+
+const envClientUrl =
+  readOptionalEnv('CLIENT_URL', clientUrlSchema) ??
+  (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : undefined);
+
+const envDatabaseUrlDirect = readOptionalEnv('DATABASE_URL', databaseUrlSchema);
+const envMysqlUrl = readOptionalEnv('MYSQL_URL', databaseUrlSchema);
+const envMysqlPublicUrl = readOptionalEnv('MYSQL_PUBLIC_URL', databaseUrlSchema);
+
+const mysqlDatabaseName =
+  readOptionalEnv('MYSQL_DATABASE', mysqlIdentifierSchema) ??
+  readOptionalEnv('MYSQLDATABASE', mysqlIdentifierSchema);
+const mysqlHost = readOptionalEnv('MYSQLHOST', mysqlIdentifierSchema);
+const mysqlPort = readOptionalEnv('MYSQLPORT', mysqlPortSchema);
+const mysqlUser = readOptionalEnv('MYSQLUSER', mysqlIdentifierSchema);
+const mysqlPassword =
+  readOptionalEnv('MYSQLPASSWORD', mysqlPasswordSchema) ??
+  readOptionalEnv('MYSQL_ROOT_PASSWORD', mysqlPasswordSchema);
+
+function buildMysqlUrl(): string | undefined {
+  if (!mysqlHost || !mysqlUser || !mysqlDatabaseName) {
+    return undefined;
+  }
+
+  const encodedUser = encodeURIComponent(mysqlUser);
+  const encodedPassword = mysqlPassword ? `:${encodeURIComponent(mysqlPassword)}` : '';
+  const authority = `${encodedUser}${encodedPassword}@${mysqlHost}${mysqlPort ? `:${mysqlPort}` : ''}`;
+
+  return `mysql://${authority}/${encodeURIComponent(mysqlDatabaseName)}`;
+}
+
+const mysqlUrlFromParts = buildMysqlUrl();
+
+if (!mysqlUrlFromParts && (mysqlHost || mysqlPort || mysqlUser || mysqlPassword || mysqlDatabaseName)) {
+  console.warn(
+    'Detected partial MySQL configuration. Set MYSQLHOST, MYSQLPORT, MYSQLUSER, MYSQLPASSWORD, and MYSQL_DATABASE to construct DATABASE_URL automatically.'
+  );
+}
+
+const envDatabaseUrl =
+  envDatabaseUrlDirect ?? envMysqlUrl ?? envMysqlPublicUrl ?? mysqlUrlFromParts ?? undefined;
+
+if (!envDatabaseUrlDirect && envDatabaseUrl && !process.env.DATABASE_URL) {
+  console.info('DATABASE_URL not provided. Using derived MySQL connection string.');
+  process.env.DATABASE_URL = envDatabaseUrl;
+}
+
+const envSessionSecret = readOptionalEnv('SESSION_SECRET', sessionSecretSchema);
+const envGoogleClientId = readOptionalEnv('GOOGLE_CLIENT_ID', z.string().min(1));
+const envGoogleClientSecret = readOptionalEnv('GOOGLE_CLIENT_SECRET', z.string().min(1));
+const envGoogleCallbackUrl = readOptionalEnv('GOOGLE_CALLBACK_URL', googleCallbackSchema);
+
+const databaseUrl = envDatabaseUrl ?? fileConfig.database?.url ?? null;
+
+if (!envDatabaseUrl && fileConfig.database?.url && !process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = fileConfig.database.url;
+}
+
+if (!databaseUrl) {
+  console.warn(
+    'DATABASE_URL is not defined. Configure DATABASE_URL, MYSQL_URL, or MYSQL* variables so the API can reach the database.'
+  );
+}
+
+const clientUrl = fileConfig.client?.baseUrl ?? envClientUrl ?? 'http://localhost:5173';
+
+if (!envClientUrl && !fileConfig.client?.baseUrl) {
+  console.warn(
+    'CLIENT_URL is not defined in the environment or app.config.json. Defaulting to http://localhost:5173.'
+  );
+}
+
+const sessionSecret =
+  envSessionSecret ?? fileConfig.session?.secret ?? randomBytes(32).toString('hex');
+
+if (!envSessionSecret && fileConfig.session?.secret && !process.env.SESSION_SECRET) {
+  process.env.SESSION_SECRET = fileConfig.session.secret;
+}
+
+if (!envSessionSecret && !fileConfig.session?.secret) {
+  console.warn(
+    'SESSION_SECRET is not defined. Generated a temporary secret; active sessions reset on restart.'
+  );
+}
+
+const googleClientId = envGoogleClientId ?? fileConfig.auth?.google?.clientId;
+const googleClientSecret = envGoogleClientSecret ?? fileConfig.auth?.google?.clientSecret;
+const googleCallbackUrl =
+  envGoogleCallbackUrl ??
+  fileConfig.auth?.google?.callbackUrl ??
+  (clientUrl ? `${clientUrl.replace(/\/?$/, '')}/api/auth/google/callback` : undefined);
+
+let googleConfig: {
+  clientId: string;
+  clientSecret: string;
+  callbackUrl: string;
+} | null = null;
+
+if (googleClientId && !googleClientSecret) {
+  console.warn('GOOGLE_CLIENT_SECRET is missing. Google OAuth will be disabled.');
+}
+
+if (googleClientSecret && !googleClientId) {
+  console.warn('GOOGLE_CLIENT_ID is missing. Google OAuth will be disabled.');
+}
+
+if (googleClientId && googleClientSecret) {
+  if (!googleCallbackUrl) {
+    throw new Error(
+      'Google OAuth requires GOOGLE_CALLBACK_URL or auth.google.callbackUrl in config/app.config.json.'
+    );
+  }
+
+  googleConfig = {
+    clientId: googleClientId,
+    clientSecret: googleClientSecret,
+    callbackUrl: googleCallbackUrl
+  };
+}
+
+export const appConfig = {
+  nodeEnv,
+  host: fileConfig.server?.host ?? '0.0.0.0',
+  port,
+  clientUrl,
+  databaseUrl,
+  sessionSecret,
+  google: googleConfig
 } as const;
