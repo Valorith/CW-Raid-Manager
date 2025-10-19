@@ -130,6 +130,8 @@ Railway can host both the Fastify API and the Vue client behind a single project
 
    The wrapper ensures `DATABASE_URL` is present even when Railway only supplies the `MYSQL_*` variables.
 
+   > The helper accepts `--allow-missing` for commands (like `prisma generate`) that do not require a live database connection; otherwise the process exits early so migrations/startup never proceed without credentials.
+
 6. **Redeploy on changes.**  
    Push to the connected branch or run `railway up` to trigger a new build. Railway rebuilds the workspaces and restarts the service with the latest code.
 

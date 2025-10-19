@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node ../scripts/run-with-db-url.cjs tsx watch --clear-screen=false src/index.ts",
-    "build": "node ../scripts/run-with-db-url.cjs prisma generate && tsc",
+    "build": "node ../scripts/run-with-db-url.cjs --allow-missing prisma generate && tsc",
     "start": "node ../scripts/run-with-db-url.cjs node build/index.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
-    "prisma:generate": "node ../scripts/run-with-db-url.cjs prisma generate",
+    "prisma:generate": "node ../scripts/run-with-db-url.cjs --allow-missing prisma generate",
     "prisma:migrate": "node ../scripts/run-with-db-url.cjs prisma migrate dev",
     "prisma:deploy": "node ../scripts/run-with-db-url.cjs prisma migrate deploy"
   },

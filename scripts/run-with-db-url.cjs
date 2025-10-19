@@ -6,6 +6,38 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
+function parseArgs(rawArgs) {
+  const options = {
+    allowMissing: false
+  };
+
+  const commandParts = [];
+  let commandSeen = false;
+
+  for (const arg of rawArgs) {
+    if (!commandSeen && arg?.startsWith('--')) {
+      if (arg === '--allow-missing') {
+        options.allowMissing = true;
+        continue;
+      }
+
+      console.error(`[with-db-url] Unknown option "${arg}".`);
+      process.exit(1);
+    }
+
+    commandSeen = true;
+    commandParts.push(arg);
+  }
+
+  if (commandParts.length === 0) {
+    console.error('[with-db-url] Usage: node run-with-db-url.cjs [--allow-missing] <command> [...args]');
+    process.exit(1);
+  }
+
+  const [command, ...args] = commandParts;
+  return { command, args, options };
+}
+
 function loadEnvFiles() {
   let dotenv;
   try {
@@ -62,7 +94,7 @@ function deriveDatabaseUrl(env) {
   )}`;
 }
 
-function ensureDatabaseUrl() {
+function ensureDatabaseUrl({ allowMissing }) {
   loadEnvFiles();
 
   const derived = deriveDatabaseUrl(process.env);
@@ -72,15 +104,26 @@ function ensureDatabaseUrl() {
     console.info('[with-db-url] Using derived DATABASE_URL value for this command.');
   }
 
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.trim() === '') {
-    console.error(
-      '[with-db-url] DATABASE_URL is not set and could not be derived. Provide DATABASE_URL or the standard Railway MySQL variables (MYSQL_URL or MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQL_DATABASE).'
-    );
-    process.exit(1);
+  if (process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '') {
+    return;
   }
+
+  if (allowMissing) {
+    const placeholder = 'mysql://user:password@localhost:3306/placeholder';
+    process.env.DATABASE_URL = placeholder;
+    console.warn(
+      `[with-db-url] DATABASE_URL is not set. Using placeholder value (${placeholder}) for tooling that does not need a live connection.`
+    );
+    return;
+  }
+
+  console.error(
+    '[with-db-url] DATABASE_URL is not set and could not be derived. Provide DATABASE_URL or the standard Railway MySQL variables (MYSQL_URL or MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQL_DATABASE).'
+  );
+  process.exit(1);
 }
 
-function runCommand(command, args) {
+function runCommand({ command, args }) {
   const child = spawn(command, args, {
     stdio: 'inherit',
     shell: process.platform === 'win32',
@@ -102,16 +145,9 @@ function runCommand(command, args) {
 }
 
 function main() {
-  const [command, ...args] = process.argv.slice(2);
-
-  if (!command) {
-    console.error('[with-db-url] Usage: node run-with-db-url.cjs <command> [...args]');
-    process.exit(1);
-  }
-
-  ensureDatabaseUrl();
-  runCommand(command, args);
+  const parsed = parseArgs(process.argv.slice(2));
+  ensureDatabaseUrl(parsed.options);
+  runCommand(parsed);
 }
 
 main();
-
