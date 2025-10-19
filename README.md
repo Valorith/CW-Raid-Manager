@@ -45,6 +45,7 @@ CW Raid Manager/
 2. **Edit `server/.env`** with your secrets and connection details:
 
    - `DATABASE_URL` must point to a MySQL database (schema will be managed by Prisma).
+   - `CLIENT_URL` should be the base URL the client is served from (e.g., `http://localhost:5173` in development).
    - `SESSION_SECRET` should be a long, random string.
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL` must align with your Google OAuth configuration. The callback URL must also be registered in the Google Cloud Console.
 
@@ -92,6 +93,40 @@ The dev server proxies `/api/*` requests to the Fastify instance.
 - `npm run lint` – Lints server and client code.
 - `npm run format` – Runs Prettier across server/client source.
 - `npm run --workspace server prisma:migrate` – Prisma migration helper (dev).
+
+## Deploying to Railway
+
+Railway can host both the Fastify API and the Vue client behind a single project. The platform automatically builds each workspace using the commands in `package.json`, so make sure the repository is connected to Railway (either through GitHub or the CLI) before starting.
+
+1. **Create a new Railway project.**  
+   Install the [Railway CLI](https://docs.railway.app/develop/cli) and run `railway login`, then `railway init` from the repository root to link the app to a new Railway project. You can also connect the GitHub repo through the Railway dashboard.
+
+2. **Provision the database.**  
+   Add a MySQL service from the Railway dashboard. Copy the connection URL and set it as the `DATABASE_URL` environment variable for the web service (Railway automatically manages `DATABASE_URL` if the services are linked).
+
+3. **Configure environment variables.**
+   Define the following variables on the web service:
+
+   - `DATABASE_URL` – MySQL connection string provided by Railway.
+   - `CLIENT_URL` – Base URL for the deployed client (usually the same Railway domain).
+   - `SESSION_SECRET` – Random string used to sign sessions.
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` – OAuth credentials; update your Google app to allow Railway’s domain as a callback.
+   - `GOOGLE_CALLBACK_URL` – Typically `https://<railway-domain>/api/auth/google/callback`.
+   - `APP_CONFIG_PATH` – Optional override if you store a custom `app.config.json` path; otherwise commit the desired config into `config/app.config.json`.
+
+4. **Set build and start commands.**
+   Railway detects the root `package.json`. Ensure the service uses:
+
+   - Build command: `npm run build`
+   - Start command: `npm run start`
+
+   The build step generates the production Vue bundle in `client/dist` and compiles the Fastify server. The start command serves the API and the built client from the same process, matching Railway's single-service deployment model.
+
+5. **Run migrations.**  
+   From the repository root, execute `railway run npm run --workspace server prisma:migrate deploy` to apply the Prisma schema to the Railway MySQL database. Repeat whenever schema changes are committed.
+
+6. **Redeploy on changes.**  
+   Push changes to the connected GitHub branch or run `railway up` to trigger a new build. Railway will rebuild the workspaces and restart the service with the latest code.
 
 ## Handling Roster Imports
 

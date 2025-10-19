@@ -2,7 +2,10 @@ import Fastify, { FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
-import fastifySensible from '@fastify/sensible';
+import fastifyStatic from '@fastify/static';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 import { appConfig } from './config/appConfig.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
@@ -15,7 +18,13 @@ export function buildServer(): FastifyInstance {
     }
   });
 
-  server.register(fastifySensible);
+  const currentDir = dirname(fileURLToPath(new URL('.', import.meta.url)));
+  const clientDistPath = join(currentDir, '../../client/dist');
+  const clientIndexPath = join(clientDistPath, 'index.html');
+  const clientIndexHtml = existsSync(clientIndexPath)
+    ? readFileSync(clientIndexPath, 'utf-8')
+    : null;
+
   server.register(fastifyCookie, {
     secret: appConfig.sessionSecret,
     parseOptions: {
@@ -44,6 +53,27 @@ export function buildServer(): FastifyInstance {
   registerRoutes(server);
 
   server.get('/health', async () => ({ status: 'ok' }));
+
+  if (clientIndexHtml) {
+    server.register(fastifyStatic, {
+      root: clientDistPath,
+      prefix: '/',
+      decorateReply: false
+    });
+
+    server.setNotFoundHandler((request, reply) => {
+      if (
+        request.method === 'GET' &&
+        !request.url.startsWith('/api') &&
+        request.headers.accept?.includes('text/html')
+      ) {
+        reply.type('text/html').send(clientIndexHtml);
+        return;
+      }
+
+      reply.status(404).send({ error: 'Not Found' });
+    });
+  }
 
   return server;
 }
