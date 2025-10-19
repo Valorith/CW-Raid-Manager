@@ -15,7 +15,7 @@ function resolveCommand(command) {
 function run(command, args) {
   const child = spawn(resolveCommand(command), args, {
     stdio: 'inherit',
-    shell: false,
+    shell: isWindows, // use a shell on Windows to avoid spawn EINVAL issues
     windowsHide: false
   });
 
