@@ -13,11 +13,23 @@ export interface AttendanceRecordInput {
   flags?: string | null;
 }
 
+function normalizeNullableJsonInput(value: unknown) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return Prisma.JsonNull;
+  }
+
+  return value as Prisma.InputJsonValue;
+}
+
 interface CreateAttendanceEventInput {
   raidEventId: string;
   createdById: string;
   note?: string | null;
-  snapshot?: Prisma.JsonValue;
+  snapshot?: unknown;
   records: AttendanceRecordInput[];
 }
 
@@ -67,7 +79,7 @@ export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
       raidEventId: input.raidEventId,
       createdById: input.createdById,
       note: input.note,
-      snapshot: input.snapshot,
+      snapshot: normalizeNullableJsonInput(input.snapshot),
       records: {
         create: input.records.map((record) => ({
           characterId: record.characterId ?? undefined,

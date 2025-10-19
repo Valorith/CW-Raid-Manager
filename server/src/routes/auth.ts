@@ -9,9 +9,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   server.get('/google/callback', async (request, reply) => {
     try {
       const token = await server.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+      const accessToken = token.token.access_token;
+
       const googleUserResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: {
-          Authorization: `Bearer ${token.access_token}`
+          Authorization: `Bearer ${accessToken}`
         }
       });
 
