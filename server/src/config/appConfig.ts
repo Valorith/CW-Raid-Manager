@@ -51,6 +51,9 @@ const clientUrlSchema = z.string().url();
 const databaseUrlSchema = z.string().min(1);
 const sessionSecretSchema = z.string().min(16);
 const googleCallbackSchema = z.string().url();
+const mysqlIdentifierSchema = z.string().min(1);
+const mysqlPasswordSchema = z.string();
+const mysqlPortSchema = z.coerce.number().int().positive();
 
 type FileConfig = z.infer<typeof fileConfigSchema>;
 
@@ -125,7 +128,48 @@ const envClientUrl =
   readOptionalEnv('CLIENT_URL', clientUrlSchema) ??
   (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : undefined);
 
-const envDatabaseUrl = readOptionalEnv('DATABASE_URL', databaseUrlSchema);
+const envDatabaseUrlDirect = readOptionalEnv('DATABASE_URL', databaseUrlSchema);
+const envMysqlUrl = readOptionalEnv('MYSQL_URL', databaseUrlSchema);
+const envMysqlPublicUrl = readOptionalEnv('MYSQL_PUBLIC_URL', databaseUrlSchema);
+
+const mysqlDatabaseName =
+  readOptionalEnv('MYSQL_DATABASE', mysqlIdentifierSchema) ??
+  readOptionalEnv('MYSQLDATABASE', mysqlIdentifierSchema);
+const mysqlHost = readOptionalEnv('MYSQLHOST', mysqlIdentifierSchema);
+const mysqlPort = readOptionalEnv('MYSQLPORT', mysqlPortSchema);
+const mysqlUser = readOptionalEnv('MYSQLUSER', mysqlIdentifierSchema);
+const mysqlPassword =
+  readOptionalEnv('MYSQLPASSWORD', mysqlPasswordSchema) ??
+  readOptionalEnv('MYSQL_ROOT_PASSWORD', mysqlPasswordSchema);
+
+function buildMysqlUrl(): string | undefined {
+  if (!mysqlHost || !mysqlUser || !mysqlDatabaseName) {
+    return undefined;
+  }
+
+  const encodedUser = encodeURIComponent(mysqlUser);
+  const encodedPassword = mysqlPassword ? `:${encodeURIComponent(mysqlPassword)}` : '';
+  const authority = `${encodedUser}${encodedPassword}@${mysqlHost}${mysqlPort ? `:${mysqlPort}` : ''}`;
+
+  return `mysql://${authority}/${encodeURIComponent(mysqlDatabaseName)}`;
+}
+
+const mysqlUrlFromParts = buildMysqlUrl();
+
+if (!mysqlUrlFromParts && (mysqlHost || mysqlPort || mysqlUser || mysqlPassword || mysqlDatabaseName)) {
+  console.warn(
+    'Detected partial MySQL configuration. Set MYSQLHOST, MYSQLPORT, MYSQLUSER, MYSQLPASSWORD, and MYSQL_DATABASE to construct DATABASE_URL automatically.'
+  );
+}
+
+const envDatabaseUrl =
+  envDatabaseUrlDirect ?? envMysqlUrl ?? envMysqlPublicUrl ?? mysqlUrlFromParts ?? undefined;
+
+if (!envDatabaseUrlDirect && envDatabaseUrl && !process.env.DATABASE_URL) {
+  console.info('DATABASE_URL not provided. Using derived MySQL connection string.');
+  process.env.DATABASE_URL = envDatabaseUrl;
+}
+
 const envSessionSecret = readOptionalEnv('SESSION_SECRET', sessionSecretSchema);
 const envGoogleClientId = readOptionalEnv('GOOGLE_CLIENT_ID', z.string().min(1));
 const envGoogleClientSecret = readOptionalEnv('GOOGLE_CLIENT_SECRET', z.string().min(1));
@@ -139,7 +183,7 @@ if (!envDatabaseUrl && fileConfig.database?.url && !process.env.DATABASE_URL) {
 
 if (!databaseUrl) {
   console.warn(
-    'DATABASE_URL is not defined. Database access will be disabled until it is configured.'
+    'DATABASE_URL is not defined. Configure DATABASE_URL, MYSQL_URL, or MYSQL* variables so the API can reach the database.'
   );
 }
 

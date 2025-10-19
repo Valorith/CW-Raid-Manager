@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { appConfig } from '../config/appConfig.js';
 
 const missingDatabaseMessage =
-  'Database access attempted but DATABASE_URL is not configured. Please set DATABASE_URL or provide config.database.url.';
+  'Database access attempted but no connection string is configured. Set DATABASE_URL (or MYSQL_URL / MYSQL* variables) or provide config.database.url.';
 
 function createPrismaClient(): PrismaClient {
   if (appConfig.databaseUrl) {
