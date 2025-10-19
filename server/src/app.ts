@@ -2,6 +2,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
+import fastifySensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -19,11 +20,15 @@ export function buildServer(): FastifyInstance {
   });
 
   const currentDir = dirname(fileURLToPath(new URL('.', import.meta.url)));
-  const clientDistPath = join(currentDir, '../../client/dist');
-  const clientIndexPath = join(clientDistPath, 'index.html');
-  const clientIndexHtml = existsSync(clientIndexPath)
-    ? readFileSync(clientIndexPath, 'utf-8')
-    : null;
+  const clientDistCandidates = [
+    join(currentDir, '../../client/dist'),
+    join(currentDir, '../../../client/dist')
+  ];
+  const clientIndexPath = clientDistCandidates
+    .map((candidate) => join(candidate, 'index.html'))
+    .find((candidate) => existsSync(candidate));
+  const clientDistPath = clientIndexPath ? dirname(clientIndexPath) : null;
+  const clientIndexHtml = clientIndexPath ? readFileSync(clientIndexPath, 'utf-8') : null;
 
   server.register(fastifyCookie, {
     secret: appConfig.sessionSecret,
@@ -48,13 +53,14 @@ export function buildServer(): FastifyInstance {
       fileSize: 1024 * 1024 * 2 // 2 MB per upload cap to prevent abuse
     }
   });
+  server.register(fastifySensible);
   server.register(googleOAuthPlugin);
 
   registerRoutes(server);
 
   server.get('/health', async () => ({ status: 'ok' }));
 
-  if (clientIndexHtml) {
+  if (clientIndexHtml && clientDistPath) {
     server.register(fastifyStatic, {
       root: clientDistPath,
       prefix: '/',

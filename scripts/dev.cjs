@@ -2,11 +2,21 @@ const { spawn } = require('node:child_process');
 
 const processes = [];
 let shuttingDown = false;
+const isWindows = process.platform === 'win32';
+
+function resolveCommand(command) {
+  if (!isWindows) {
+    return command;
+  }
+
+  return command.endsWith('.cmd') ? command : `${command}.cmd`;
+}
 
 function run(command, args) {
-  const child = spawn(command, args, {
+  const child = spawn(resolveCommand(command), args, {
     stdio: 'inherit',
-    shell: process.platform === 'win32'
+    shell: false,
+    windowsHide: false
   });
 
   processes.push(child);
