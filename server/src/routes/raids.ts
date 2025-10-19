@@ -1,0 +1,133 @@
+import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+
+import { authenticate } from '../middleware/authenticate.js';
+import {
+  createRaidEvent,
+  ensureUserCanViewGuild,
+  getRaidEventById,
+  listRaidEventsForGuild,
+  roleCanEditRaid,
+  updateRaidEvent
+} from '../services/raidService.js';
+
+export async function raidsRoutes(server: FastifyInstance): Promise<void> {
+  server.get(
+    '/guild/:guildId',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        guildId: z.string()
+      });
+      const { guildId } = paramsSchema.parse(request.params);
+
+      try {
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+      } catch (error) {
+        request.log.warn({ error }, 'User attempted unauthorized raid access.');
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      const raids = await listRaidEventsForGuild(guildId);
+      return { raids };
+    }
+  );
+
+  server.get(
+    '/:raidId',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      try {
+        await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+      } catch (error) {
+        request.log.warn({ error }, 'User attempted unauthorized raid access.');
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      return { raid };
+    }
+  );
+
+  server.post('/', { preHandler: [authenticate] }, async (request, reply) => {
+    const bodySchema = z.object({
+      guildId: z.string(),
+      name: z.string().min(3).max(120),
+      startTime: z.string().datetime({ offset: true }),
+      targetZones: z.array(z.string().min(1)).min(1),
+      targetBosses: z.array(z.string().min(1)).min(1),
+      notes: z.string().max(2000).optional()
+    });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid raid payload.');
+    }
+
+    try {
+      const raid = await createRaidEvent({
+        guildId: parsed.data.guildId,
+        name: parsed.data.name,
+        startTime: new Date(parsed.data.startTime),
+        targetZones: parsed.data.targetZones,
+        targetBosses: parsed.data.targetBosses,
+        notes: parsed.data.notes,
+        createdById: request.user.userId
+      });
+
+      return reply.code(201).send({ raid });
+    } catch (error) {
+      request.log.warn({ error }, 'Failed to create raid event.');
+      return reply.forbidden('You do not have permission to create raid events for this guild.');
+    }
+  });
+
+  server.patch('/:raidId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      raidId: z.string()
+    });
+    const { raidId } = paramsSchema.parse(request.params);
+
+    const bodySchema = z
+      .object({
+        name: z.string().min(3).max(120).optional(),
+        startTime: z.string().datetime({ offset: true }).optional(),
+        targetZones: z.array(z.string().min(1)).min(1).optional(),
+        targetBosses: z.array(z.string().min(1)).min(1).optional(),
+        notes: z.string().max(2000).optional(),
+        isActive: z.boolean().optional()
+      })
+      .refine((value) => Object.keys(value).length > 0, {
+        message: 'At least one field must be updated.'
+      });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest(parsed.error.message);
+    }
+
+    try {
+      const raid = await updateRaidEvent(raidId, request.user.userId, {
+        ...parsed.data,
+        startTime: parsed.data.startTime ? new Date(parsed.data.startTime) : undefined
+      });
+      return { raid };
+    } catch (error) {
+      request.log.warn({ error }, 'Failed to update raid event.');
+      return reply.forbidden('You do not have permission to modify this raid event.');
+    }
+  });
+}

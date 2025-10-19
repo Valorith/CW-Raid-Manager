@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  displayName        String
+  googleId           String?            @unique
+  guildMemberships   GuildMembership[]
+  characters         Character[]
+  createdGuilds      Guild[]            @relation("GuildCreator")
+  createdRaids       RaidEvent[]        @relation("RaidCreator")
+  createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+}
+
+model Guild {
+  id           String            @id @default(cuid())
+  name         String            @unique
+  slug         String            @unique
+  description  String?
+  createdById  String
+  createdBy    User              @relation("GuildCreator", fields: [createdById], references: [id])
+  members      GuildMembership[]
+  characters   Character[]
+  raids        RaidEvent[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model GuildMembership {
+  id        String    @id @default(cuid())
+  guildId   String
+  userId    String
+  role      GuildRole
+  guild     Guild     @relation(fields: [guildId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([guildId, userId])
+}
+
+enum GuildRole {
+  LEADER
+  OFFICER
+  RAID_LEADER
+  MEMBER
+}
+
+model Character {
+  id                String             @id @default(cuid())
+  name              String             @unique
+  level             Int
+  class             CharacterClass
+  archetype         CharacterArchetype?
+  userId            String
+  guildId           String?
+  isMain            Boolean            @default(true)
+  user              User               @relation(fields: [userId], references: [id])
+  guild             Guild?             @relation(fields: [guildId], references: [id])
+  attendanceRecords AttendanceRecord[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+enum CharacterClass {
+  BARD
+  BEASTLORD
+  BERSERKER
+  CLERIC
+  DRUID
+  ENCHANTER
+  MAGICIAN
+  MONK
+  NECROMANCER
+  PALADIN
+  RANGER
+  ROGUE
+  SHADOWKNIGHT
+  SHAMAN
+  WARRIOR
+  WIZARD
+  UNKNOWN
+}
+
+enum CharacterArchetype {
+  PRIEST
+  MELEE
+  CASTER
+  HYBRID
+}
+
+model RaidEvent {
+  id             String            @id @default(cuid())
+  guildId        String
+  createdById    String
+  name           String
+  startTime      DateTime
+  targetZones    Json
+  targetBosses   Json
+  notes          String?
+  isActive       Boolean           @default(true)
+  guild          Guild             @relation(fields: [guildId], references: [id])
+  createdBy      User              @relation("RaidCreator", fields: [createdById], references: [id])
+  attendance     AttendanceEvent[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+}
+
+model AttendanceEvent {
+  id              String             @id @default(cuid())
+  raidEventId     String
+  createdById     String
+  note            String?
+  snapshot        Json?
+  raid            RaidEvent          @relation(fields: [raidEventId], references: [id])
+  createdBy       User               @relation("AttendanceCreator", fields: [createdById], references: [id])
+  records         AttendanceRecord[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model AttendanceRecord {
+  id                String            @id @default(cuid())
+  attendanceEventId String
+  characterId       String?
+  characterName     String
+  level             Int?
+  class             CharacterClass?
+  groupNumber       Int?
+  status            AttendanceStatus  @default(PRESENT)
+  flags             String?
+  attendanceEvent   AttendanceEvent   @relation(fields: [attendanceEventId], references: [id])
+  character         Character?        @relation(fields: [characterId], references: [id])
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  BENCHED
+}

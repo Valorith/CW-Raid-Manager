@@ -1,0 +1,18 @@
+1	Loladin	60	Paladin	Group Leader	
+1	Vaylea	60	Bard		
+1	Zouzhul	60	Shaman		
+1	Skaar	60	Shadow Knight		
+1	Watchout	60	Warrior		
+2	Podo	60	Cleric	Group Leader	
+2	Darude	60	Bard		
+2	Dirt	60	Monk		
+2	Xiayu	60	Monk		
+2	Yuying	60	Shaman		
+2	Plagued	60	Rogue		
+3	Togg	60	Shaman	Group Leader	
+3	Zurkon	60	Magician		
+3	Malur	60	Necromancer		
+3	Urmar	60	Magician		
+3	Bardasaurusrex	60	Bard		
+4	Kleric	60	Cleric	Raid Leader	
+4	Valtar	60	Beastlord		
