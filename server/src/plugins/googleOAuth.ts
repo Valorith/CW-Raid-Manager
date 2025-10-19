@@ -1,4 +1,4 @@
-import fastifyOAuth2, { OAuth2Namespace } from '@fastify/oauth2';
+import fastifyOAuth2, { OAuth2Namespace, fastifyOauth2 as fastifyOAuth2Plugin } from '@fastify/oauth2';
 import fp from 'fastify-plugin';
 
 import { appConfig } from '../config/appConfig.js';
@@ -18,7 +18,7 @@ export const googleOAuthPlugin = fp(async (fastify) => {
         id: appConfig.google.clientId,
         secret: appConfig.google.clientSecret
       },
-      auth: fastifyOAuth2.GOOGLE_CONFIGURATION
+      auth: fastifyOAuth2Plugin.GOOGLE_CONFIGURATION
     },
     startRedirectPath: '/api/auth/google',
     callbackUri: appConfig.google.callbackUrl
