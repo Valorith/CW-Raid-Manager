@@ -6,7 +6,7 @@ import { appConfig } from '../config/appConfig.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    googleOAuth2: OAuth2Namespace;
+    googleOAuth2?: OAuth2Namespace;
   }
 }
 
@@ -14,6 +14,11 @@ const oauthPlugin = fastifyOauth2 as unknown as FastifyPluginCallback<FastifyOAu
 const googleConfiguration = (fastifyOauth2 as unknown as { GOOGLE_CONFIGURATION: ProviderConfiguration }).GOOGLE_CONFIGURATION;
 
 export const googleOAuthPlugin = fp(async (fastify) => {
+  if (!appConfig.google) {
+    fastify.log.warn('Google OAuth credentials missing. Skipping Google OAuth plugin registration.');
+    return;
+  }
+
   fastify.register(oauthPlugin, {
     name: 'googleOAuth2',
     scope: ['profile', 'email'],
