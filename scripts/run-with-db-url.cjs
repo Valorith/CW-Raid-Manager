@@ -117,9 +117,22 @@ function ensureDatabaseUrl({ allowMissing }) {
     return;
   }
 
+  const inspected = {
+    DATABASE_URL: process.env.DATABASE_URL ? '<present>' : '<missing>',
+    MYSQL_URL: process.env.MYSQL_URL ? '<present>' : '<missing>',
+    MYSQL_PUBLIC_URL: process.env.MYSQL_PUBLIC_URL ? '<present>' : '<missing>',
+    MYSQLHOST: process.env.MYSQLHOST ? '<present>' : '<missing>',
+    MYSQLPORT: process.env.MYSQLPORT ? '<present>' : '<missing>',
+    MYSQLUSER: process.env.MYSQLUSER ? '<present>' : '<missing>',
+    MYSQLPASSWORD: process.env.MYSQLPASSWORD ? '<present>' : '<missing>',
+    MYSQL_DATABASE: process.env.MYSQL_DATABASE ? '<present>' : '<missing>',
+    MYSQLDATABASE: process.env.MYSQLDATABASE ? '<present>' : '<missing>'
+  };
+
   console.error(
     '[with-db-url] DATABASE_URL is not set and could not be derived. Provide DATABASE_URL or the standard Railway MySQL variables (MYSQL_URL or MYSQLHOST/MYSQLPORT/MYSQLUSER/MYSQLPASSWORD/MYSQL_DATABASE).'
   );
+  console.error('[with-db-url] Current MYSQL-related env inspection:', inspected);
   process.exit(1);
 }
 
