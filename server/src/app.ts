@@ -21,14 +21,24 @@ export function buildServer(): FastifyInstance {
 
   const currentDir = dirname(fileURLToPath(new URL('.', import.meta.url)));
   const clientDistCandidates = [
+    process.env.CLIENT_DIST_PATH,
+    join(process.cwd(), 'client/dist'),
     join(currentDir, '../../client/dist'),
     join(currentDir, '../../../client/dist')
-  ];
+  ].filter((candidate): candidate is string => Boolean(candidate));
   const clientIndexPath = clientDistCandidates
     .map((candidate) => join(candidate, 'index.html'))
     .find((candidate) => existsSync(candidate));
   const clientDistPath = clientIndexPath ? dirname(clientIndexPath) : null;
   const clientIndexHtml = clientIndexPath ? readFileSync(clientIndexPath, 'utf-8') : null;
+  if (clientIndexPath) {
+    server.log.info({ clientDistPath }, 'Serving client assets from build output');
+  } else {
+    server.log.warn(
+      { clientDistCandidates },
+      'Client build output not found; SPA routes will return 404 responses.'
+    );
+  }
 
   server.register(fastifyCookie, {
     secret: appConfig.sessionSecret,
