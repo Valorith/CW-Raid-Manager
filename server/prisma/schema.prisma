@@ -104,6 +104,8 @@ model RaidEvent {
   createdById    String
   name           String
   startTime      DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
   targetZones    Json
   targetBosses   Json
   notes          String?

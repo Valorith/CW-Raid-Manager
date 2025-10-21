@@ -8,6 +8,8 @@ interface CreateRaidInput {
   createdById: string;
   name: string;
   startTime: Date;
+  startedAt?: Date | null;
+  endedAt?: Date | null;
   targetZones: string[];
   targetBosses: string[];
   notes?: string | null;
@@ -16,6 +18,8 @@ interface CreateRaidInput {
 interface UpdateRaidInput {
   name?: string;
   startTime?: Date;
+  startedAt?: Date | null;
+  endedAt?: Date | null;
   targetZones?: string[];
   targetBosses?: string[];
   notes?: string | null;
@@ -62,6 +66,8 @@ export async function createRaidEvent(input: CreateRaidInput) {
       createdById: input.createdById,
       name: input.name,
       startTime: input.startTime,
+      startedAt: input.startedAt ?? null,
+      endedAt: input.endedAt ?? null,
       targetZones: input.targetZones,
       targetBosses: input.targetBosses,
       notes: input.notes
@@ -98,6 +104,8 @@ export async function updateRaidEvent(
     data: {
       name: data.name ?? existing.name,
       startTime: (data.startTime as Date | undefined) ?? existing.startTime,
+      startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
+      endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
       targetZones: targetZonesUpdate ?? (existing.targetZones as Prisma.InputJsonValue),
       targetBosses: targetBossesUpdate ?? (existing.targetBosses as Prisma.InputJsonValue),
       notes: data.notes ?? existing.notes,
@@ -127,6 +135,46 @@ export async function getRaidEventById(raidId: string) {
           records: true
         }
       }
+    }
+  });
+}
+
+export async function startRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  return prisma.raidEvent.update({
+    where: { id: raidId },
+    data: {
+      startedAt: new Date(),
+      isActive: true
+    }
+  });
+}
+
+export async function endRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  return prisma.raidEvent.update({
+    where: { id: raidId },
+    data: {
+      endedAt: new Date(),
+      isActive: false
     }
   });
 }

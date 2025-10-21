@@ -17,7 +17,7 @@
           <li v-for="member in guild.members" :key="member.id" class="list__item">
             <div>
               <strong>{{ member.user.displayName }}</strong>
-              <span class="muted">{{ roleLabels[member.role] }}</span>
+              <span class="muted role">({{ roleLabels[member.role] }})</span>
             </div>
           </li>
         </ul>
@@ -30,8 +30,8 @@
         <ul class="list">
           <li v-for="character in guild.characters" :key="character.id" class="list__item">
             <div>
-              <strong>{{ character.name }}</strong>
-              <span class="muted">Lv {{ character.level }} {{ character.class }}</span>
+              <strong>{{ character.name }} ({{ character.level }})</strong>
+              <span class="muted roster-meta">{{ character.class }}</span>
             </div>
             <span class="muted small">{{ character.user.displayName }}</span>
           </li>
@@ -47,16 +47,23 @@
       <p v-if="loadingRaids" class="muted">Loading raids…</p>
       <p v-else-if="raids.length === 0" class="muted">No raid events scheduled yet.</p>
       <ul class="raid-list">
-        <li v-for="raid in raids" :key="raid.id" class="raid-list__item">
+        <li
+          v-for="raid in raids"
+          :key="raid.id"
+          class="raid-list__item"
+          role="button"
+          tabindex="0"
+          @click="openRaid(raid.id)"
+          @keydown.enter.prevent="openRaid(raid.id)"
+          @keydown.space.prevent="openRaid(raid.id)"
+        >
           <div>
             <strong>{{ raid.name }}</strong>
-            <span class="muted">
+            <span class="muted raid-meta">
               {{ formatDate(raid.startTime) }} • {{ raid.targetZones.join(', ') }}
             </span>
           </div>
-          <RouterLink class="btn btn--outline" :to="{ name: 'RaidDetail', params: { raidId: raid.id } }">
-            Manage
-          </RouterLink>
+          <span class="muted arrow">Open</span>
         </li>
       </ul>
     </section>
@@ -73,7 +80,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 import { api, type GuildDetail, type RaidEventSummary } from '../services/api';
@@ -85,6 +92,7 @@ const guild = ref<GuildDetail | null>(null);
 const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
+const router = useRouter();
 
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
@@ -116,6 +124,10 @@ function formatDate(date: string) {
 function handleRaidCreated() {
   showRaidModal.value = false;
   loadRaids();
+}
+
+function openRaid(raidId: string) {
+  router.push({ name: 'RaidDetail', params: { raidId } });
 }
 
 onMounted(() => {
@@ -193,10 +205,31 @@ onMounted(() => {
   background: rgba(30, 41, 59, 0.4);
   padding: 1rem;
   border-radius: 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.raid-list__item:hover,
+.raid-list__item:focus {
+  background: rgba(59, 130, 246, 0.15);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .muted {
   color: #94a3b8;
+}
+
+.arrow {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.role,
+.roster-meta,
+.raid-meta {
+  margin-left: 0.25rem;
 }
 
 .raids {

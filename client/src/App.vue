@@ -2,7 +2,7 @@
   <div class="app-shell">
     <header class="app-header">
       <div class="brand">
-        <span class="brand__title">CW Raid Manager</span>
+        <RouterLink to="/dashboard" class="brand__title">CW Raid Manager</RouterLink>
       </div>
       <nav class="nav">
         <RouterLink to="/dashboard" class="nav__link">Dashboard</RouterLink>
@@ -69,6 +69,8 @@ onMounted(async () => {
   font-weight: 700;
   font-size: 1.25rem;
   letter-spacing: 0.08em;
+  color: #f1f5f9;
+  text-decoration: none;
 }
 
 .nav {

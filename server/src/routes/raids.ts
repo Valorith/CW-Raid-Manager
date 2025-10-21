@@ -7,8 +7,9 @@ import {
   ensureUserCanViewGuild,
   getRaidEventById,
   listRaidEventsForGuild,
-  roleCanEditRaid,
-  updateRaidEvent
+  updateRaidEvent,
+  startRaidEvent,
+  endRaidEvent
 } from '../services/raidService.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
@@ -67,6 +68,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       guildId: z.string(),
       name: z.string().min(3).max(120),
       startTime: z.string().datetime({ offset: true }),
+      startedAt: z.string().datetime({ offset: true }).optional(),
+      endedAt: z.string().datetime({ offset: true }).optional(),
       targetZones: z.array(z.string().min(1)).min(1),
       targetBosses: z.array(z.string().min(1)).min(1),
       notes: z.string().max(2000).optional()
@@ -82,6 +85,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         guildId: parsed.data.guildId,
         name: parsed.data.name,
         startTime: new Date(parsed.data.startTime),
+        startedAt: parsed.data.startedAt ? new Date(parsed.data.startedAt) : undefined,
+        endedAt: parsed.data.endedAt ? new Date(parsed.data.endedAt) : undefined,
         targetZones: parsed.data.targetZones,
         targetBosses: parsed.data.targetBosses,
         notes: parsed.data.notes,
@@ -105,6 +110,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       .object({
         name: z.string().min(3).max(120).optional(),
         startTime: z.string().datetime({ offset: true }).optional(),
+        startedAt: z.string().datetime({ offset: true }).nullable().optional(),
+        endedAt: z.string().datetime({ offset: true }).nullable().optional(),
         targetZones: z.array(z.string().min(1)).min(1).optional(),
         targetBosses: z.array(z.string().min(1)).min(1).optional(),
         notes: z.string().max(2000).optional(),
@@ -122,7 +129,19 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
     try {
       const raid = await updateRaidEvent(raidId, request.user.userId, {
         ...parsed.data,
-        startTime: parsed.data.startTime ? new Date(parsed.data.startTime) : undefined
+        startTime: parsed.data.startTime ? new Date(parsed.data.startTime) : undefined,
+        startedAt:
+          parsed.data.startedAt !== undefined
+            ? parsed.data.startedAt
+              ? new Date(parsed.data.startedAt)
+              : null
+            : undefined,
+        endedAt:
+          parsed.data.endedAt !== undefined
+            ? parsed.data.endedAt
+              ? new Date(parsed.data.endedAt)
+              : null
+            : undefined
       });
       return { raid };
     } catch (error) {
@@ -130,4 +149,46 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       return reply.forbidden('You do not have permission to modify this raid event.');
     }
   });
+
+  server.post(
+    '/:raidId/start',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        const raid = await startRaidEvent(raidId, request.user.userId);
+        return { raid };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to start raid event.');
+        return reply.forbidden('You do not have permission to start this raid.');
+      }
+    }
+  );
+
+  server.post(
+    '/:raidId/end',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        const raid = await endRaidEvent(raidId, request.user.userId);
+        return { raid };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to end raid event.');
+        return reply.forbidden('You do not have permission to end this raid.');
+      }
+    }
+  );
 }

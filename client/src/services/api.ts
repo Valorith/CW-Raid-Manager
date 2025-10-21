@@ -45,12 +45,32 @@ export interface RaidEventSummary {
   guildId: string;
   name: string;
   startTime: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
   targetZones: string[];
   targetBosses: string[];
   notes?: string | null;
   isActive: boolean;
 }
 
+export interface AttendanceEventSummary {
+  id: string;
+  createdAt: string;
+  note?: string | null;
+  records: AttendanceRecordInput[];
+}
+
+export interface RaidDetail extends RaidEventSummary {
+  guild: {
+    id: string;
+    name: string;
+  };
+  createdBy: {
+    id: string;
+    displayName: string;
+  };
+  attendance: AttendanceEventSummary[];
+}
 export interface AttendanceRecordInput {
   characterId?: string;
   characterName: string;
@@ -92,8 +112,25 @@ export const api = {
     return response.data.raids;
   },
 
-  async fetchRaid(raidId: string) {
+  async fetchRaid(raidId: string): Promise<RaidDetail> {
     const response = await axios.get(`/api/raids/${raidId}`);
+    return response.data.raid;
+  },
+
+  async updateRaid(
+    raidId: string,
+    payload: {
+      name?: string;
+      startTime?: string;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      targetZones?: string[];
+      targetBosses?: string[];
+      notes?: string;
+      isActive?: boolean;
+    }
+  ) {
+    const response = await axios.patch(`/api/raids/${raidId}`, payload);
     return response.data.raid;
   },
 
@@ -101,6 +138,8 @@ export const api = {
     guildId: string;
     name: string;
     startTime: string;
+    startedAt?: string;
+    endedAt?: string;
     targetZones: string[];
     targetBosses: string[];
     notes?: string;
@@ -133,5 +172,15 @@ export const api = {
   async fetchAttendance(raidEventId: string) {
     const response = await axios.get(`/api/attendance/raid/${raidEventId}`);
     return response.data.attendanceEvents;
+  },
+
+  async startRaid(raidId: string) {
+    const response = await axios.post(`/api/raids/${raidId}/start`);
+    return response.data.raid;
+  },
+
+  async endRaid(raidId: string) {
+    const response = await axios.post(`/api/raids/${raidId}/end`);
+    return response.data.raid;
   }
 };

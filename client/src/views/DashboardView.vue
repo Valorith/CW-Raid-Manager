@@ -24,8 +24,8 @@
         <ul v-else class="list">
           <li v-for="character in characters" :key="character.id" class="list__item">
             <div>
-              <strong>{{ character.name }}</strong>
-              <span class="muted">Lv {{ character.level }} {{ character.class }}</span>
+              <strong>{{ character.name }} ({{ character.level }})</strong>
+              <span class="muted character-meta">{{ character.class }}</span>
             </div>
             <span v-if="character.guild" class="tag">{{ character.guild.name }}</span>
           </li>
@@ -156,5 +156,9 @@ onMounted(() => {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.character-meta {
+  margin-left: 0.25rem;
 }
 </style>
