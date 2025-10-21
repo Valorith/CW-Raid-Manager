@@ -5,7 +5,7 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifySensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
 import { existsSync, readFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { appConfig } from './config/appConfig.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
@@ -18,10 +18,11 @@ export function buildServer() {
     });
     const currentDir = dirname(fileURLToPath(new URL('.', import.meta.url)));
     const clientDistCandidates = [
-        process.env.CLIENT_DIST_PATH,
-        join(process.cwd(), 'client/dist'),
-        join(currentDir, '../../client/dist'),
-        join(currentDir, '../../../client/dist')
+        process.env.CLIENT_DIST_PATH ? resolve(process.env.CLIENT_DIST_PATH) : null,
+        resolve(process.cwd(), '../client/dist'),
+        resolve(process.cwd(), 'client/dist'),
+        resolve(currentDir, '../../client/dist'),
+        resolve(currentDir, '../../../client/dist')
     ].filter((candidate) => Boolean(candidate));
     const clientIndexPath = clientDistCandidates
         .map((candidate) => join(candidate, 'index.html'))
