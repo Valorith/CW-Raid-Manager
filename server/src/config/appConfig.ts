@@ -187,11 +187,15 @@ if (!databaseUrl) {
   );
 }
 
-const clientUrl = fileConfig.client?.baseUrl ?? envClientUrl ?? 'http://localhost:5173';
+const clientUrl = envClientUrl ?? fileConfig.client?.baseUrl ?? 'http://localhost:5173';
 
 if (!envClientUrl && !fileConfig.client?.baseUrl) {
   console.warn(
     'CLIENT_URL is not defined in the environment or app.config.json. Defaulting to http://localhost:5173.'
+  );
+} else if (!envClientUrl && fileConfig.client?.baseUrl) {
+  console.info(
+    'Using CLIENT_URL from config/app.config.json. Set CLIENT_URL in the environment to override for deployments.'
   );
 }
 
