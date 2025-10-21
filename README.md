@@ -110,7 +110,7 @@ Railway can host both the Fastify API and the Vue client behind a single project
    - `CLIENT_URL` – Base URL for the deployed client (usually `https://<railway-domain>`). When absent, the server falls back to the generated `RAILWAY_STATIC_URL`.
    - `SESSION_SECRET` – Long, random string used to sign cookies and JWTs.
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` – OAuth credentials configured for the Railway domain.
-   - `GOOGLE_CALLBACK_URL` – Typically `https://<railway-domain>/api/auth/google/callback`.
+   - `GOOGLE_CALLBACK_URL` – Must exactly match the Google console redirect (`https://<railway-domain>/api/auth/google/callback`).
    - Optional: `APP_CONFIG_PATH` if you store a custom `config/app.config.json`.
 
 4. **Set build/start commands in Railway.**
