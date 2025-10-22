@@ -1,7 +1,7 @@
-import { AttendanceStatus, CharacterClass } from '@prisma/client';
+import { AttendanceEventType, AttendanceStatus, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createAttendanceEvent, getAttendanceEvent, listAttendanceEvents } from '../services/attendanceService.js';
+import { createAttendanceEvent, deleteAttendanceEvent, getAttendanceEvent, listAttendanceEvents } from '../services/attendanceService.js';
 import { ensureUserCanEditRaid, ensureUserCanViewGuild, getRaidEventById } from '../services/raidService.js';
 import { parseRaidRoster } from '../utils/raidRosterParser.js';
 export async function attendanceRoutes(server) {
@@ -88,6 +88,7 @@ export async function attendanceRoutes(server) {
         const bodySchema = z.object({
             note: z.string().max(2000).optional(),
             snapshot: z.any().optional(),
+            eventType: z.nativeEnum(AttendanceEventType).optional(),
             records: z.array(recordSchema).min(1)
         });
         const parsed = bodySchema.safeParse(request.body);
@@ -100,6 +101,7 @@ export async function attendanceRoutes(server) {
                 createdById: request.user.userId,
                 note: parsed.data.note,
                 snapshot: parsed.data.snapshot,
+                eventType: parsed.data.eventType,
                 records: parsed.data.records.map((record) => ({
                     ...record,
                     status: record.status ?? AttendanceStatus.PRESENT
@@ -111,5 +113,24 @@ export async function attendanceRoutes(server) {
             request.log.warn({ error }, 'Failed to create attendance event.');
             return reply.forbidden('You do not have permission to create attendance events for this raid.');
         }
+    });
+    server.delete('/event/:attendanceEventId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            attendanceEventId: z.string()
+        });
+        const { attendanceEventId } = paramsSchema.parse(request.params);
+        const attendanceEvent = await getAttendanceEvent(attendanceEventId);
+        if (!attendanceEvent) {
+            return reply.notFound('Attendance event not found.');
+        }
+        try {
+            await ensureUserCanEditRaid(attendanceEvent.raid.id, request.user.userId);
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Unauthorized attendance delete attempt.');
+            return reply.forbidden('You do not have permission to delete this attendance event.');
+        }
+        await deleteAttendanceEvent(attendanceEventId);
+        return reply.code(204).send();
     });
 }

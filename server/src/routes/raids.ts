@@ -9,8 +9,11 @@ import {
   listRaidEventsForGuild,
   updateRaidEvent,
   startRaidEvent,
-  endRaidEvent
+  endRaidEvent,
+  restartRaidEvent,
+  deleteRaidEvent
 } from '../services/raidService.js';
+import { canManageGuild } from '../services/guildService.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
   server.get(
@@ -24,15 +27,26 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       });
       const { guildId } = paramsSchema.parse(request.params);
 
+      let membershipRole: Awaited<ReturnType<typeof ensureUserCanViewGuild>>;
       try {
-        await ensureUserCanViewGuild(request.user.userId, guildId);
+        membershipRole = await ensureUserCanViewGuild(request.user.userId, guildId);
       } catch (error) {
         request.log.warn({ error }, 'User attempted unauthorized raid access.');
         return reply.forbidden('You are not a member of this guild.');
       }
 
       const raids = await listRaidEventsForGuild(guildId);
-      return { raids };
+      const canManage = canManageGuild(membershipRole);
+
+      const enrichedRaids = raids.map((raid) => ({
+        ...raid,
+        permissions: {
+          canManage,
+          role: membershipRole
+        }
+      }));
+
+      return { raids: enrichedRaids };
     }
   );
 
@@ -52,14 +66,25 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         return reply.notFound('Raid event not found.');
       }
 
+      let membershipRole: Awaited<ReturnType<typeof ensureUserCanViewGuild>>;
       try {
-        await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+        membershipRole = await ensureUserCanViewGuild(request.user.userId, raid.guildId);
       } catch (error) {
         request.log.warn({ error }, 'User attempted unauthorized raid access.');
         return reply.forbidden('You are not a member of this guild.');
       }
 
-      return { raid };
+      const canManage = canManageGuild(membershipRole);
+
+      return {
+        raid: {
+          ...raid,
+          permissions: {
+            canManage,
+            role: membershipRole
+          }
+        }
+      };
     }
   );
 
@@ -166,7 +191,16 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         return { raid };
       } catch (error) {
         request.log.warn({ error }, 'Failed to start raid event.');
-        return reply.forbidden('You do not have permission to start this raid.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to start this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to start raid.');
       }
     }
   );
@@ -187,7 +221,79 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         return { raid };
       } catch (error) {
         request.log.warn({ error }, 'Failed to end raid event.');
-        return reply.forbidden('You do not have permission to end this raid.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to end this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to end raid.');
+      }
+    }
+  );
+
+  server.post(
+    '/:raidId/restart',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        const raid = await restartRaidEvent(raidId, request.user.userId);
+        return { raid };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to restart raid event.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message === 'Raid has not been ended.') {
+            return reply.badRequest('Raid must be ended before it can be restarted.');
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to restart this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to restart raid.');
+      }
+    }
+  );
+
+  server.delete(
+    '/:raidId',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        await deleteRaidEvent(raidId, request.user.userId);
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to delete raid event.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to delete this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to delete raid.');
       }
     }
   );

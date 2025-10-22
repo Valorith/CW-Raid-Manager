@@ -1,4 +1,4 @@
-import { AttendanceStatus, CharacterClass, Prisma } from '@prisma/client';
+import { AttendanceEventType, AttendanceStatus, CharacterClass, Prisma } from '@prisma/client';
 
 import { prisma } from '../utils/prisma.js';
 import { ensureUserCanEditRaid } from './raidService.js';
@@ -30,7 +30,8 @@ interface CreateAttendanceEventInput {
   createdById: string;
   note?: string | null;
   snapshot?: unknown;
-  records: AttendanceRecordInput[];
+  records?: AttendanceRecordInput[];
+  eventType?: AttendanceEventType;
 }
 
 export async function listAttendanceEvents(raidEventId: string) {
@@ -71,6 +72,16 @@ export async function getAttendanceEvent(attendanceEventId: string) {
   });
 }
 
+export async function deleteAttendanceEvent(attendanceEventId: string) {
+  await prisma.attendanceRecord.deleteMany({
+    where: { attendanceEventId }
+  });
+
+  await prisma.attendanceEvent.delete({
+    where: { id: attendanceEventId }
+  });
+}
+
 export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
   await ensureUserCanEditRaid(input.raidEventId, input.createdById);
 
@@ -78,19 +89,23 @@ export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
     data: {
       raidEventId: input.raidEventId,
       createdById: input.createdById,
+      eventType: input.eventType ?? AttendanceEventType.LOG,
       note: input.note,
       snapshot: normalizeNullableJsonInput(input.snapshot),
-      records: {
-        create: input.records.map((record) => ({
-          characterId: record.characterId ?? undefined,
-          characterName: record.characterName,
-          level: record.level ?? undefined,
-          class: record.class ?? undefined,
-          groupNumber: record.groupNumber ?? undefined,
-          status: record.status ?? AttendanceStatus.PRESENT,
-          flags: record.flags ?? undefined
-        }))
-      }
+      records:
+        input.records && input.records.length > 0
+          ? {
+              create: input.records.map((record) => ({
+                characterId: record.characterId ?? undefined,
+                characterName: record.characterName,
+                level: record.level ?? undefined,
+                class: record.class ?? undefined,
+                groupNumber: record.groupNumber ?? undefined,
+                status: record.status ?? AttendanceStatus.PRESENT,
+                flags: record.flags ?? undefined
+              }))
+            }
+          : undefined
     },
     include: {
       records: true

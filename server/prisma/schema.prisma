@@ -69,6 +69,8 @@ model Character {
   attendanceRecords AttendanceRecord[]
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+
+  @@map("Characters")
 }
 
 enum CharacterClass {
@@ -98,6 +100,13 @@ enum CharacterArchetype {
   HYBRID
 }
 
+enum AttendanceEventType {
+  LOG
+  START
+  END
+  RESTART
+}
+
 model RaidEvent {
   id             String            @id @default(cuid())
   guildId        String
@@ -121,6 +130,7 @@ model AttendanceEvent {
   id              String             @id @default(cuid())
   raidEventId     String
   createdById     String
+  eventType       AttendanceEventType @default(LOG)
   note            String?
   snapshot        Json?
   raid            RaidEvent          @relation(fields: [raidEventId], references: [id])

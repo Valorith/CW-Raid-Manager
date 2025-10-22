@@ -1,7 +1,7 @@
 1	Loladin	60	Paladin	Group Leader	
-1	Vaylea	60	Bard		
+1	Ozan	60	Bard		
 1	Zouzhul	60	Shaman		
-1	Skaar	60	Shadow Knight		
+1	Valgor	60	Warrior		
 1	Watchout	60	Warrior		
 2	Podo	60	Cleric	Group Leader	
 2	Darude	60	Bard		

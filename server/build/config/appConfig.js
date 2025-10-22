@@ -137,9 +137,12 @@ if (!envDatabaseUrl && fileConfig.database?.url && !process.env.DATABASE_URL) {
 if (!databaseUrl) {
     console.warn('DATABASE_URL is not defined. Configure DATABASE_URL, MYSQL_URL, or MYSQL* variables so the API can reach the database.');
 }
-const clientUrl = fileConfig.client?.baseUrl ?? envClientUrl ?? 'http://localhost:5173';
+const clientUrl = envClientUrl ?? fileConfig.client?.baseUrl ?? 'http://localhost:5173';
 if (!envClientUrl && !fileConfig.client?.baseUrl) {
     console.warn('CLIENT_URL is not defined in the environment or app.config.json. Defaulting to http://localhost:5173.');
+}
+else if (!envClientUrl && fileConfig.client?.baseUrl) {
+    console.info('Using CLIENT_URL from config/app.config.json. Set CLIENT_URL in the environment to override for deployments.');
 }
 const sessionSecret = envSessionSecret ?? fileConfig.session?.secret ?? randomBytes(32).toString('hex');
 if (!envSessionSecret && fileConfig.session?.secret && !process.env.SESSION_SECRET) {

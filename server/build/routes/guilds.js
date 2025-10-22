@@ -1,4 +1,5 @@
 import { GuildRole } from '@prisma/client';
+import { updateGuildMemberRole } from '../services/guildService.js';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { canManageGuild, createGuild, getGuildById, getUserGuildRole, listGuilds } from '../services/guildService.js';
@@ -58,6 +59,39 @@ export async function guildRoutes(server) {
             }
         });
         return { guild };
+    });
+    server.patch('/:guildId/members/:memberId/role', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            memberId: z.string()
+        });
+        const { guildId, memberId } = paramsSchema.parse(request.params);
+        const bodySchema = z.object({
+            role: z.nativeEnum(GuildRole)
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid role update payload.');
+        }
+        try {
+            const membership = await updateGuildMemberRole({
+                actorUserId: request.user.userId,
+                guildId,
+                targetUserId: memberId,
+                newRole: parsedBody.data.role
+            });
+            return { membership };
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to update guild member role.');
+            if (error instanceof Error) {
+                if (error.message === 'Guild not found.' || error.message === 'Membership not found.') {
+                    return reply.notFound(error.message);
+                }
+                return reply.forbidden(error.message);
+            }
+            return reply.badRequest('Unable to update member role.');
+        }
     });
     server.post('/:guildId/memberships', { preHandler: [authenticate] }, async (request, reply) => {
         const paramsSchema = z.object({

@@ -17,7 +17,25 @@
           <li v-for="member in guild.members" :key="member.id" class="list__item">
             <div>
               <strong>{{ member.user.displayName }}</strong>
-              <span class="muted role">({{ roleLabels[member.role] }})</span>
+              <span class="muted role"> ({{ roleLabels[member.role] }})</span>
+            </div>
+            <div v-if="canAdjustMember(member)" class="member-actions">
+              <label class="muted small" :for="`role-${member.id}`">Role</label>
+              <select
+                :id="`role-${member.id}`"
+                :value="member.role"
+                :disabled="updatingMemberId === member.id"
+                @change="updateMemberRole(member, ($event.target as HTMLSelectElement).value as GuildRole)"
+              >
+                <option
+                  v-for="role in availableRoles(member)"
+                  :key="role"
+                  :value="role"
+                  :disabled="role === member.role"
+                >
+                  {{ roleLabels[role] ?? role }}
+                </option>
+              </select>
             </div>
           </li>
         </ul>
@@ -79,20 +97,29 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 import { api, type GuildDetail, type RaidEventSummary } from '../services/api';
+import type { GuildRole } from '../services/types';
+import { guildRoleOrder } from '../services/types';
+import { useAuthStore } from '../stores/auth';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
+
+type GuildMember = GuildDetail['members'][number];
 
 const guild = ref<GuildDetail | null>(null);
 const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const router = useRouter();
+const updatingMemberId = ref<string | null>(null);
+
+const authStore = useAuthStore();
+const currentUserId = computed(() => authStore.user?.userId ?? null);
 
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
@@ -114,6 +141,96 @@ async function loadRaids() {
   }
 }
 
+const actorRole = computed<GuildRole | null>(() => {
+  if (!guild.value || !currentUserId.value) {
+    return null;
+  }
+
+  const membership = guild.value.members.find((member) => member.user.id === currentUserId.value);
+  return membership?.role ?? null;
+});
+
+function canAdjustMember(member: GuildMember) {
+  const actor = actorRole.value;
+  if (!actor) {
+    return false;
+  }
+
+  if (member.user.id === currentUserId.value && actor !== 'LEADER') {
+    return false;
+  }
+
+  if (member.role === 'LEADER') {
+    return actor === 'LEADER' && member.user.id === currentUserId.value;
+  }
+
+  if (member.role === 'OFFICER') {
+    return actor === 'LEADER';
+  }
+
+  return actor === 'LEADER' || actor === 'OFFICER';
+}
+
+function availableRoles(member: GuildMember): GuildRole[] {
+  const actor = actorRole.value;
+  const allowed = new Set<GuildRole>();
+  allowed.add(member.role);
+
+  if (!actor) {
+    return guildRoleOrder.filter((role) => allowed.has(role));
+  }
+
+  if (actor === 'LEADER') {
+    ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER'].forEach((role) => allowed.add(role as GuildRole));
+  } else if (actor === 'OFFICER') {
+    if (member.role !== 'LEADER' && member.role !== 'OFFICER') {
+      ['RAID_LEADER', 'MEMBER'].forEach((role) => allowed.add(role as GuildRole));
+    }
+  }
+
+  return guildRoleOrder.filter((role) => allowed.has(role));
+}
+
+async function updateMemberRole(member: GuildMember, role: GuildRole) {
+  if (role === member.role || updatingMemberId.value === member.id) {
+    return;
+  }
+
+  updatingMemberId.value = member.id;
+  try {
+    await api.updateGuildMemberRole(guildId, member.user.id, role);
+    await loadGuild();
+  } catch (error) {
+    window.alert(extractErrorMessage(error, 'Unable to update guild member role.'));
+  } finally {
+    updatingMemberId.value = null;
+  }
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error && 'response' in error) {
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (data && typeof data === 'object') {
+      const message =
+        'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? (data as { message: string }).message
+          : 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : null;
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
@@ -130,8 +247,16 @@ function openRaid(raidId: string) {
   router.push({ name: 'RaidDetail', params: { raidId } });
 }
 
-onMounted(() => {
-  loadGuild();
+onMounted(async () => {
+  if (!authStore.user) {
+    try {
+      await authStore.fetchCurrentUser();
+    } catch (error) {
+      console.warn('Failed to fetch current user for guild context.', error);
+    }
+  }
+
+  await loadGuild();
   loadRaids();
 });
 </script>
@@ -187,6 +312,32 @@ onMounted(() => {
   background: rgba(30, 41, 59, 0.4);
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.member-actions label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.member-actions select {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  color: #f8fafc;
+}
+
+.member-actions select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .raid-list {

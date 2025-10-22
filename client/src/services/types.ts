@@ -20,3 +20,5 @@ export type CharacterClass =
   | 'UNKNOWN';
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'BENCHED';
+
+export const guildRoleOrder: GuildRole[] = ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER'];

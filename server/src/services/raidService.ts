@@ -50,7 +50,8 @@ export async function listRaidEventsForGuild(guildId: string) {
       attendance: {
         select: {
           id: true,
-          createdAt: true
+          createdAt: true,
+          eventType: true
         }
       }
     }
@@ -154,6 +155,7 @@ export async function startRaidEvent(raidId: string, userId: string) {
     where: { id: raidId },
     data: {
       startedAt: new Date(),
+      endedAt: null,
       isActive: true
     }
   });
@@ -176,6 +178,64 @@ export async function endRaidEvent(raidId: string, userId: string) {
       endedAt: new Date(),
       isActive: false
     }
+  });
+}
+
+export async function restartRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  if (!existing.endedAt) {
+    throw new Error('Raid has not been ended.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  const updated = await prisma.raidEvent.update({
+    where: { id: raidId },
+    data: {
+      startedAt: new Date(),
+      endedAt: null,
+      isActive: true
+    }
+  });
+
+  return updated;
+}
+
+export async function deleteRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    select: {
+      guildId: true
+    }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  await prisma.attendanceRecord.deleteMany({
+    where: {
+      attendanceEvent: {
+        raidEventId: raidId
+      }
+    }
+  });
+
+  await prisma.attendanceEvent.deleteMany({
+    where: { raidEventId: raidId }
+  });
+
+  await prisma.raidEvent.delete({
+    where: { id: raidId }
   });
 }
 

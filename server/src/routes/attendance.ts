@@ -1,10 +1,11 @@
 import { FastifyInstance } from 'fastify';
-import { AttendanceStatus, CharacterClass } from '@prisma/client';
+import { AttendanceEventType, AttendanceStatus, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
 import {
   createAttendanceEvent,
+  deleteAttendanceEvent,
   getAttendanceEvent,
   listAttendanceEvents
 } from '../services/attendanceService.js';
@@ -115,6 +116,7 @@ export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
     const bodySchema = z.object({
       note: z.string().max(2000).optional(),
       snapshot: z.any().optional(),
+      eventType: z.nativeEnum(AttendanceEventType).optional(),
       records: z.array(recordSchema).min(1)
     });
 
@@ -129,6 +131,7 @@ export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
         createdById: request.user.userId,
         note: parsed.data.note,
         snapshot: parsed.data.snapshot,
+        eventType: parsed.data.eventType,
         records: parsed.data.records.map((record) => ({
           ...record,
           status: record.status ?? AttendanceStatus.PRESENT
@@ -140,5 +143,27 @@ export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
       request.log.warn({ error }, 'Failed to create attendance event.');
       return reply.forbidden('You do not have permission to create attendance events for this raid.');
     }
+  });
+
+  server.delete('/event/:attendanceEventId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      attendanceEventId: z.string()
+    });
+    const { attendanceEventId } = paramsSchema.parse(request.params);
+
+    const attendanceEvent = await getAttendanceEvent(attendanceEventId);
+    if (!attendanceEvent) {
+      return reply.notFound('Attendance event not found.');
+    }
+
+    try {
+      await ensureUserCanEditRaid(attendanceEvent.raid.id, request.user.userId);
+    } catch (error) {
+      request.log.warn({ error }, 'Unauthorized attendance delete attempt.');
+      return reply.forbidden('You do not have permission to delete this attendance event.');
+    }
+
+    await deleteAttendanceEvent(attendanceEventId);
+    return reply.code(204).send();
   });
 }

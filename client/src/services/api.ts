@@ -51,12 +51,23 @@ export interface RaidEventSummary {
   targetBosses: string[];
   notes?: string | null;
   isActive: boolean;
+  permissions?: {
+    canManage: boolean;
+    role: GuildRole;
+  };
+  attendance?: Array<{
+    id: string;
+    createdAt: string;
+    eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
+  }>;
 }
+
 
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
   note?: string | null;
+  eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
   records: AttendanceRecordInput[];
 }
 
@@ -82,6 +93,10 @@ export interface AttendanceRecordInput {
 }
 
 export const api = {
+  async fetchCurrentUser() {
+    const response = await axios.get('/api/auth/me');
+    return response.data.user ?? null;
+  },
   async fetchGuilds(): Promise<GuildSummary[]> {
     const response = await axios.get('/api/guilds');
     return response.data.guilds;
@@ -163,7 +178,12 @@ export const api = {
 
   async createAttendanceEvent(
     raidEventId: string,
-    payload: { note?: string; snapshot?: unknown; records: AttendanceRecordInput[] }
+    payload: {
+      note?: string;
+      snapshot?: unknown;
+      records: AttendanceRecordInput[];
+      eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
+    }
   ) {
     const response = await axios.post(`/api/attendance/raid/${raidEventId}`, payload);
     return response.data.attendanceEvent;
@@ -182,5 +202,26 @@ export const api = {
   async endRaid(raidId: string) {
     const response = await axios.post(`/api/raids/${raidId}/end`);
     return response.data.raid;
-  }
+  },
+
+  async restartRaid(raidId: string) {
+    const response = await axios.post(`/api/raids/${raidId}/restart`);
+    return response.data.raid;
+  },
+
+  async deleteRaid(raidId: string) {
+    await axios.delete(`/api/raids/${raidId}`);
+  },
+
+  async deleteAttendanceEvent(attendanceEventId: string) {
+    await axios.delete(`/api/attendance/event/${attendanceEventId}`);
+  },
+
+  async updateGuildMemberRole(guildId: string, memberId: string, role: GuildRole) {
+    const response = await axios.patch(`/api/guilds/${guildId}/members/${memberId}/role`, {
+      role
+    });
+    return response.data.membership;
+  },
+
 };

@@ -6,8 +6,20 @@
         <p class="muted">
           {{ formatDate(raid.startTime) }} • Targets: {{ raid.targetZones.join(', ') }}
         </p>
+        <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
-      <button class="btn" @click="fileInput?.click()">Upload Attendance</button>
+      <div class="header-actions">
+        <button class="btn" :disabled="!canManageRaid" @click="fileInput?.click()">
+          Upload Attendance
+        </button>
+        <button
+          class="btn btn--danger"
+          :disabled="!canManageRaid"
+          @click="confirmDeleteRaid"
+        >
+          Delete Raid
+        </button>
+      </div>
       <input
         ref="fileInput"
         type="file"
@@ -26,17 +38,24 @@
         <div class="actions timing-actions">
           <button
             class="btn"
-            :disabled="startingRaid || !!raid?.startedAt"
+            :disabled="startingRaid || !!raid?.startedAt || !canManageRaid"
             @click="handleStartRaid"
           >
             {{ startingRaid ? 'Starting…' : raid?.startedAt ? 'Started' : 'Start Raid' }}
           </button>
           <button
             class="btn btn--outline"
-            :disabled="endingRaid || !raid?.startedAt || !!raid?.endedAt"
+            :disabled="endingRaid || !raid?.startedAt || !!raid?.endedAt || !canManageRaid"
             @click="handleEndRaid"
           >
             {{ endingRaid ? 'Ending…' : raid?.endedAt ? 'Ended' : 'End Raid' }}
+          </button>
+          <button
+            class="btn btn--outline"
+            :disabled="restartingRaid || !canRestartRaid"
+            @click="handleRestartRaid"
+          >
+            {{ restartingRaid ? 'Restarting…' : 'Restart Raid' }}
           </button>
         </div>
       </header>
@@ -53,6 +72,7 @@
             v-model="startedAtInput"
             type="datetime-local"
             class="timing-input"
+            :disabled="!canManageRaid"
           />
         </div>
         <div class="timing-field">
@@ -62,18 +82,27 @@
             v-model="endedAtInput"
             type="datetime-local"
             class="timing-input"
+            :disabled="!canManageRaid"
           />
         </div>
       </div>
 
       <div class="timing-controls">
-        <button class="btn btn--outline" :disabled="!timesDirty || savingTimes" @click="resetTiming">
+        <button
+          class="btn btn--outline"
+          :disabled="!timesDirty || savingTimes || !canManageRaid"
+          @click="resetTiming"
+        >
           Reset
         </button>
-        <button class="btn" :disabled="!timesDirty || savingTimes" @click="saveTiming">
+        <button class="btn" :disabled="!timesDirty || savingTimes || !canManageRaid" @click="saveTiming">
           {{ savingTimes ? 'Saving…' : 'Save Times' }}
         </button>
       </div>
+      <p v-if="actionError" class="error">{{ actionError }}</p>
+      <p v-else-if="!canManageRaid" class="muted">
+        You do not have permission to manage raid timing or attendance.
+      </p>
     </section>
 
     <section class="card">
@@ -87,77 +116,83 @@
           v-for="event in attendanceEvents"
           :key="event.id"
           class="attendance-list__item"
-          @click="openAttendanceEvent(event)"
         >
-          <div>
-            <strong>{{ formatDate(event.createdAt) }}</strong>
-            <span class="muted attendees">({{ event.records.length }} attendees logged)</span>
+          <div class="event-main" @click.stop="openAttendanceEvent(event)">
+            <div class="event-header">
+              <strong>{{ formatDate(event.createdAt) }}</strong>
+              <span
+                v-if="resolveEventTypeBadge(event.eventType)"
+                :class="['badge', resolveEventTypeBadge(event.eventType)?.variant]"
+              >
+                {{ resolveEventTypeBadge(event.eventType)?.label }}
+              </span>
+            </div>
+            <span class="muted attendees">{{ resolveEventSubtitle(event) }}</span>
           </div>
-          <span class="muted arrow">View</span>
+          <div class="event-actions">
+            <button class="icon-button" @click.stop="openAttendanceEvent(event)">
+              View
+            </button>
+            <button
+              v-if="canManageRaid"
+              class="icon-button icon-button--danger"
+              :disabled="deletingAttendanceId === event.id"
+              @click.stop="confirmDeleteAttendance(event)"
+            >
+              {{ deletingAttendanceId === event.id ? 'Deleting…' : 'Delete' }}
+            </button>
+          </div>
         </li>
       </ul>
     </section>
 
-    <section v-if="rosterPreview" class="card">
-      <header class="card__header">
-        <div>
-          <h2>Roster Preview</h2>
-          <p class="muted">{{ rosterMeta?.filename }}</p>
-        </div>
-        <div class="actions">
-          <button class="btn btn--outline" @click="discardPreview">Discard</button>
-          <button class="btn" :disabled="submittingAttendance" @click="saveAttendance">
-            {{ submittingAttendance ? 'Saving…' : 'Save Attendance' }}
-          </button>
-        </div>
-      </header>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Group</th>
-              <th>Name</th>
-              <th>Level</th>
-              <th>Class</th>
-              <th>Flags</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(entry, index) in rosterPreview" :key="index">
-              <td>{{ entry.groupNumber ?? '–' }}</td>
-              <td>{{ entry.characterName }}</td>
-              <td>{{ entry.level ?? '–' }}</td>
-              <td>{{ entry.class }}</td>
-              <td>{{ entry.flags || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </section>
+      </section>
   <p v-else class="muted">Loading raid…</p>
 
+  <RosterPreviewModal
+    v-if="rosterPreview && showRosterModal"
+    :entries="rosterPreview"
+    :meta="rosterMeta"
+    :saving="submittingAttendance"
+    @close="handleRosterModalClose"
+    @discard="handleRosterModalDiscard"
+    @save="handleRosterModalSave"
+  />
   <AttendanceEventModal
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
     @close="closeAttendanceEvent"
   />
+  <ConfirmationModal
+    v-if="confirmModal.visible"
+    :title="confirmModal.title"
+    :description="confirmModal.message"
+    :confirm-label="confirmModal.confirmLabel"
+    :cancel-label="confirmModal.cancelLabel"
+    @confirm="resolveConfirmation(true)"
+    @cancel="resolveConfirmation(false)"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
+import ConfirmationModal from '../components/ConfirmationModal.vue';
+import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import { api } from '../services/api';
 import type { AttendanceRecordInput, RaidDetail } from '../services/api';
 
 const route = useRoute();
+const router = useRouter();
 const raidId = route.params.raidId as string;
 
 const raid = ref<RaidDetail | null>(null);
 const attendanceEvents = ref<any[]>([]);
+const deletingAttendanceId = ref<string | null>(null);
 const attendanceLoading = ref(false);
+const showRosterModal = ref(false);
 const rosterPreview = ref<AttendanceRecordInput[] | null>(null);
 const rosterMeta = ref<{ filename: string; uploadedAt: string } | null>(null);
 const submittingAttendance = ref(false);
@@ -170,11 +205,55 @@ const initialEndedAt = ref('');
 const savingTimes = ref(false);
 const startingRaid = ref(false);
 const endingRaid = ref(false);
+const restartingRaid = ref(false);
+const confirmModal = reactive({
+  visible: false,
+  title: '',
+  message: undefined as string | undefined,
+  confirmLabel: 'Confirm',
+  cancelLabel: 'Cancel'
+});
+
+let confirmResolver: ((value: boolean) => void) | null = null;
+const actionError = ref<string | null>(null);
+const pendingEventTypes = ref<Array<'START' | 'END' | 'RESTART'>>([]);
+const canManageRaid = computed(() => {
+  const permissions = raid.value?.permissions;
+  if (!permissions) {
+    return false;
+  }
+
+  if (typeof permissions.canManage === 'boolean') {
+    return permissions.canManage;
+  }
+
+  const role = permissions.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
+const canRestartRaid = computed(() => canManageRaid.value && Boolean(raid.value?.endedAt));
+const roleLabels: Record<string, string> = {
+  LEADER: 'Guild Leader',
+  OFFICER: 'Officer',
+  RAID_LEADER: 'Raid Leader',
+  MEMBER: 'Member'
+};
+const userGuildRoleLabel = computed(() => {
+  const role = raid.value?.permissions?.role;
+  if (!role) {
+    return null;
+  }
+  return roleLabels[role] ?? role
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+});
 
 async function loadRaid() {
   const data = await api.fetchRaid(raidId);
   raid.value = data;
   setTimingInputs(data);
+  actionError.value = null;
 }
 
 async function loadAttendance() {
@@ -197,6 +276,7 @@ async function handleFileUpload(event: Event) {
     const response = await api.uploadRoster(raidId, file);
     rosterPreview.value = response.data.preview as AttendanceRecordInput[];
     rosterMeta.value = response.data.meta;
+    showRosterModal.value = true;
   } finally {
     if (fileInput.value) {
       fileInput.value.value = '';
@@ -204,27 +284,38 @@ async function handleFileUpload(event: Event) {
   }
 }
 
-function discardPreview() {
+function discardPreview(removePending = true) {
   rosterPreview.value = null;
   rosterMeta.value = null;
+  showRosterModal.value = false;
+  if (removePending && pendingEventTypes.value.length > 0) {
+    pendingEventTypes.value.pop();
+  }
 }
 
-async function saveAttendance() {
+async function saveAttendance(entries?: AttendanceRecordInput[]) {
+  if (entries) {
+    rosterPreview.value = entries;
+  }
+
   if (!rosterPreview.value) {
     return;
   }
 
   submittingAttendance.value = true;
   try {
+    const eventType = pendingEventTypes.value.shift();
     await api.createAttendanceEvent(raidId, {
       note: `Imported from ${rosterMeta.value?.filename ?? 'roster file'}`,
       snapshot: {
         filename: rosterMeta.value?.filename,
         uploadedAt: rosterMeta.value?.uploadedAt
       },
-      records: rosterPreview.value
+      records: rosterPreview.value,
+      eventType
     });
-    discardPreview();
+    discardPreview(false);
+    showRosterModal.value = false;
     loadAttendance();
   } finally {
     submittingAttendance.value = false;
@@ -295,15 +386,108 @@ async function saveTiming() {
   }
 }
 
-function promptAttendanceUpload(action: 'start' | 'end') {
-  const actionLabel = action === 'start' ? 'start' : 'end';
-  const shouldUpload = window.confirm(
-    `Raid ${actionLabel} time recorded. Would you like to upload an attendance log now?`
-  );
-  if (shouldUpload) {
-    // trigger existing file upload workflow
-    setTimeout(() => fileInput.value?.click(), 0);
+function showConfirmation(options: {
+  title: string;
+  message?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+}) {
+  return new Promise<boolean>((resolve) => {
+    confirmModal.visible = true;
+    confirmModal.title = options.title;
+    confirmModal.message = options.message;
+    confirmModal.confirmLabel = options.confirmLabel ?? 'Confirm';
+    confirmModal.cancelLabel = options.cancelLabel ?? 'Cancel';
+    confirmResolver = resolve;
+  });
+}
+
+function resolveConfirmation(result: boolean) {
+  confirmModal.visible = false;
+  confirmModal.title = '';
+  confirmModal.message = undefined;
+  confirmModal.confirmLabel = 'Confirm';
+  confirmModal.cancelLabel = 'Cancel';
+  const resolver = confirmResolver;
+  confirmResolver = null;
+  resolver?.(result);
+}
+
+
+function confirmDeleteAttendance(event: any) {
+  if (!canManageRaid.value) {
+    return;
   }
+
+  showConfirmation({
+    title: 'Delete Attendance Event',
+    message: 'This will remove the attendance snapshot and all associated records.',
+    confirmLabel: 'Delete Event',
+    cancelLabel: 'Cancel'
+  }).then(async (confirmed) => {
+    if (!confirmed) {
+      return;
+    }
+
+    deletingAttendanceId.value = event.id;
+    actionError.value = null;
+
+    try {
+      await api.deleteAttendanceEvent(event.id);
+      attendanceEvents.value = attendanceEvents.value.filter((item) => item.id !== event.id);
+      if (selectedAttendanceEvent.value?.id === event.id) {
+        selectedAttendanceEvent.value = null;
+      }
+    } catch (error) {
+      actionError.value = extractErrorMessage(error, 'Unable to delete attendance event. Please try again.');
+    } finally {
+      deletingAttendanceId.value = null;
+    }
+  });
+}
+
+
+function handleRosterModalClose() {
+  discardPreview();
+}
+
+function handleRosterModalDiscard() {
+  discardPreview();
+}
+
+async function handleRosterModalSave(entries: AttendanceRecordInput[]) {
+  await saveAttendance(entries);
+}
+
+function triggerAttendanceUpload() {
+  requestAnimationFrame(() => {
+    fileInput.value?.click();
+  });
+}
+
+function confirmDeleteRaid() {
+  if (!canManageRaid.value) {
+    return;
+  }
+
+  showConfirmation({
+    title: 'Delete Raid',
+    message: 'This will remove the raid and all associated attendance events. This action cannot be undone.',
+    confirmLabel: 'Delete Raid',
+    cancelLabel: 'Cancel'
+  }).then(async (confirmed) => {
+    if (!confirmed) {
+      return;
+    }
+
+    actionError.value = null;
+    try {
+      await api.deleteRaid(raidId);
+      router.push({ name: 'Raids' });
+    } catch (error) {
+      actionError.value = extractErrorMessage(error, 'Unable to delete raid. Please try again.');
+    }
+  });
 }
 
 async function handleStartRaid() {
@@ -312,10 +496,26 @@ async function handleStartRaid() {
   }
 
   startingRaid.value = true;
+  actionError.value = null;
   try {
     await api.startRaid(raidId);
+    pendingEventTypes.value.push('START');
+    const shouldUpload = await showConfirmation({
+      title: 'Raid Started',
+      message: 'Raid start time recorded. Upload an attendance log now?',
+      confirmLabel: 'Upload Log',
+      cancelLabel: 'Later'
+    });
+    if (shouldUpload) {
+      triggerAttendanceUpload();
+    }
     await loadRaid();
-    promptAttendanceUpload('start');
+    await loadAttendance();
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to start raid. Please try again.');
+    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'START') {
+      pendingEventTypes.value.pop();
+    }
   } finally {
     startingRaid.value = false;
   }
@@ -327,12 +527,109 @@ async function handleEndRaid() {
   }
 
   endingRaid.value = true;
+  actionError.value = null;
   try {
     await api.endRaid(raidId);
+    pendingEventTypes.value.push('END');
+    const shouldUpload = await showConfirmation({
+      title: 'Raid Ended',
+      message: 'Raid end time recorded. Upload the final attendance log?',
+      confirmLabel: 'Upload Log',
+      cancelLabel: 'Later'
+    });
+    if (shouldUpload) {
+      triggerAttendanceUpload();
+    }
     await loadRaid();
-    promptAttendanceUpload('end');
+    await loadAttendance();
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to end raid. Please try again.');
+    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'END') {
+      pendingEventTypes.value.pop();
+    }
   } finally {
     endingRaid.value = false;
+  }
+}
+
+async function handleRestartRaid() {
+  if (restartingRaid.value || !canRestartRaid.value) {
+    return;
+  }
+
+  restartingRaid.value = true;
+  actionError.value = null;
+  try {
+    await api.restartRaid(raidId);
+    pendingEventTypes.value.push('RESTART');
+    const shouldUpload = await showConfirmation({
+      title: 'Raid Restarted',
+      message: 'Raid restart recorded. Upload a fresh attendance log now?',
+      confirmLabel: 'Upload Log',
+      cancelLabel: 'Later'
+    });
+    if (shouldUpload) {
+      triggerAttendanceUpload();
+    }
+    await loadRaid();
+    await loadAttendance();
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to restart raid. Please try again.');
+    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'RESTART') {
+      pendingEventTypes.value.pop();
+    }
+  } finally {
+    restartingRaid.value = false;
+  }
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error && 'response' in error) {
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (data && typeof data === 'object') {
+      const message =
+        'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? (data as { message: string }).message
+          : 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : null;
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
+function resolveEventTypeBadge(eventType?: string | null) {
+  switch (eventType) {
+    case 'START':
+      return { label: 'Raid Started', variant: 'badge--positive' };
+    case 'END':
+      return { label: 'Raid Ended', variant: 'badge--negative' };
+    case 'RESTART':
+      return { label: 'Raid Restarted', variant: 'badge--positive' };
+    default:
+      return null;
+  }
+}
+
+function resolveEventSubtitle(event: any) {
+  switch (event.eventType) {
+    case 'START':
+      return 'Raid start recorded';
+    case 'END':
+      return 'Raid end recorded';
+    case 'RESTART':
+      return 'Raid restart recorded';
+    default:
+      return `${Array.isArray(event.records) ? event.records.length : 0} attendees logged`;
   }
 }
 
@@ -361,6 +658,42 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(59, 130, 246, 0.2);
+  color: #bfdbfe;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 0.35rem;
+}
+
+.badge--positive {
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+}
+
+.badge--negative {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
 }
 
 .card {
@@ -404,6 +737,11 @@ onMounted(() => {
   color: #f8fafc;
 }
 
+.timing-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .timing-controls {
   display: flex;
   justify-content: flex-end;
@@ -413,6 +751,11 @@ onMounted(() => {
 .timing-actions {
   display: flex;
   gap: 0.75rem;
+}
+
+.error {
+  color: #f87171;
+  margin: 0;
 }
 
 .attendance-list {
@@ -440,8 +783,21 @@ onMounted(() => {
   transform: translateY(-1px);
 }
 
+.event-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.event-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .attendees {
-  margin-left: 0.5rem;
+  margin-left: 0;
 }
 
 .arrow {
@@ -484,4 +840,77 @@ th {
   display: flex;
   gap: 0.75rem;
 }
+
+.btn--outline {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  color: #e2e8f0;
+}
+
+.btn--outline:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.btn--danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
+.btn--danger:hover {
+  background: rgba(248, 113, 113, 0.25);
+  color: #fee2e2;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn--outline:disabled {
+  border-color: rgba(148, 163, 184, 0.2);
+  color: rgba(226, 232, 240, 0.5);
+}
+
+.btn--danger:disabled {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(248, 113, 113, 0.2);
+  color: rgba(252, 165, 165, 0.5);
+}
+
+
+.event-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.icon-button:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
+}
+
+.icon-button--danger {
+  color: #fca5a5;
+}
+
+.icon-button--danger:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fee2e2;
+}
+
 </style>
