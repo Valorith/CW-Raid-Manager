@@ -5,7 +5,9 @@
         <h1 class="guild-title">{{ guild.name }}</h1>
         <p v-if="guild.description" class="guild-subtitle muted">{{ guild.description }}</p>
       </div>
-      <button class="plan-raid-button" @click="showRaidModal = true">Plan Raid</button>
+      <button v-if="canPlanRaid" class="plan-raid-button" @click="showRaidModal = true">
+        Plan Raid
+      </button>
     </header>
 
     <div class="grid">
@@ -59,12 +61,16 @@
           </li>
         </ul>
         <div v-if="memberTotalPages > 1" class="pagination">
-          <button class="btn btn--outline" :disabled="memberPage === 1" @click="setMemberPage(memberPage - 1)">
+          <button
+            class="pagination__button"
+            :disabled="memberPage === 1"
+            @click="setMemberPage(memberPage - 1)"
+          >
             Previous
           </button>
-          <span>Page {{ memberPage }} of {{ memberTotalPages }}</span>
+          <span class="pagination__label">Page {{ memberPage }} of {{ memberTotalPages }}</span>
           <button
-            class="btn btn--outline"
+            class="pagination__button"
             :disabled="memberPage === memberTotalPages"
             @click="setMemberPage(memberPage + 1)"
           >
@@ -127,15 +133,15 @@
         </ul>
         <div v-if="characterTotalPages > 1" class="pagination">
           <button
-            class="btn btn--outline"
+            class="pagination__button"
             :disabled="characterPage === 1"
             @click="setCharacterPage(characterPage - 1)"
           >
             Previous
           </button>
-          <span>Page {{ characterPage }} of {{ characterTotalPages }}</span>
+          <span class="pagination__label">Page {{ characterPage }} of {{ characterTotalPages }}</span>
           <button
-            class="btn btn--outline"
+            class="pagination__button"
             :disabled="characterPage === characterTotalPages"
             @click="setCharacterPage(characterPage + 1)"
           >
@@ -154,7 +160,7 @@
       <p v-else-if="raids.length === 0" class="muted">No raid events scheduled yet.</p>
       <ul class="raid-list">
         <li
-          v-for="raid in raids"
+          v-for="raid in renderableRaids"
           :key="raid.id"
           class="raid-list__item"
           role="button"
@@ -166,7 +172,7 @@
           <div>
             <strong>{{ raid.name }}</strong>
             <span class="muted raid-meta">
-              {{ formatDate(raid.startTime) }} • {{ raid.targetZones.join(', ') }}
+              {{ formatDate(raid.startTime) }} • {{ formatTargetZones(raid.targetZones) }}
             </span>
           </div>
           <span class="muted arrow">Open</span>
@@ -206,11 +212,21 @@ const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const router = useRouter();
 const updatingMemberId = ref<string | null>(null);
+const renderableRaids = computed(() => raids.value.filter(isRaidRenderable));
 
 const authStore = useAuthStore();
 const currentUserId = computed(() => authStore.user?.userId ?? null);
 
 const characterClassOptions = computed(() => buildCharacterFilterOptions(characterClassLabels));
+
+const canPlanRaid = computed(() => {
+  const role = actorRole.value;
+  if (!role) {
+    return false;
+  }
+
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
 
 
 const memberSearch = ref('');
@@ -260,9 +276,10 @@ const filteredCharacters = computed(() => {
 
   return guild.value.characters.filter((character) => {
     const name = character.name.toLowerCase();
-    const className = character.class.toLowerCase();
+    const className = (character.class ?? '').toString().toLowerCase();
     const owner = preferredUserName(character.user)?.toLowerCase() ?? '';
-    const matchesQuery = !query || name.includes(query) || className.includes(query) || owner.includes(query);
+    const matchesQuery =
+      !query || name.includes(query) || className.includes(query) || owner.includes(query);
 
     let matchesFilter = true;
     if (filter === 'MAIN') {
@@ -326,7 +343,8 @@ async function loadGuild() {
 async function loadRaids() {
   loadingRaids.value = true;
   try {
-    raids.value = await api.fetchRaidsForGuild(guildId);
+    const response = await api.fetchRaidsForGuild(guildId);
+    raids.value = response.raids ?? [];
   } finally {
     loadingRaids.value = false;
   }
@@ -430,11 +448,20 @@ function formatCharacterClass(characterClass?: CharacterClass | null) {
   return characterClassLabels[characterClass] ?? characterClass;
 }
 
-function formatDate(date: string) {
+function formatDate(date?: string | null) {
+  if (!date) {
+    return '—';
+  }
+
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return '—';
+  }
+
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short'
-  }).format(new Date(date));
+  }).format(parsed);
 }
 
 function preferredUserName(user: { displayName?: string; nickname?: string | null }) {
@@ -446,8 +473,47 @@ function handleRaidCreated() {
   loadRaids();
 }
 
-function openRaid(raidId: string) {
+function openRaid(raidId?: string | null) {
+  if (!raidId) {
+    return;
+  }
+
   router.push({ name: 'RaidDetail', params: { raidId } });
+}
+
+function formatTargetZones(zones: RaidEventSummary['targetZones']) {
+  if (Array.isArray(zones) && zones.length > 0) {
+    return zones.join(', ');
+  }
+
+  if (typeof zones === 'string' && zones.trim().length > 0) {
+    return zones;
+  }
+
+  return 'Unknown Target';
+}
+
+function isRaidRenderable(raid: RaidEventSummary) {
+  if (!raid || !raid.id || !raid.name) {
+    return false;
+  }
+
+  if (raid.startedAt && !raid.endedAt) {
+    return true;
+  }
+
+  if (raid.endedAt) {
+    return false;
+  }
+
+  const now = new Date();
+  const start = raid.startTime ? new Date(raid.startTime) : null;
+
+  if (start && !Number.isNaN(start.getTime())) {
+    return start >= now;
+  }
+
+  return false;
 }
 
 onMounted(async () => {
@@ -634,9 +700,36 @@ onMounted(async () => {
   gap: 0.75rem;
 }
 
-.pagination span {
+.pagination__label {
   color: #94a3b8;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.pagination__button {
+  padding: 0.45rem 0.9rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.55rem;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.pagination__button:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
+  transform: translateY(-1px);
+}
+
+.pagination__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .character-info {

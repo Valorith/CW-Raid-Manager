@@ -511,6 +511,7 @@ async function handleStartRaid() {
     }
     await loadRaid();
     await loadAttendance();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to start raid. Please try again.');
     if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'START') {
@@ -542,6 +543,7 @@ async function handleEndRaid() {
     }
     await loadRaid();
     await loadAttendance();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to end raid. Please try again.');
     if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'END') {
@@ -573,6 +575,7 @@ async function handleRestartRaid() {
     }
     await loadRaid();
     await loadAttendance();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to restart raid. Please try again.');
     if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'RESTART') {

@@ -34,6 +34,22 @@
         </template>
       </div>
     </header>
+    <div v-if="activeRaid" class="active-raid-banner">
+      <div class="active-raid-banner__content">
+        <div class="active-raid-banner__status">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span class="label">Active Raid</span>
+          <strong>{{ activeRaid.name }}</strong>
+          <span class="muted">Started {{ formatDate(activeRaid.startedAt ?? activeRaid.startTime) }}</span>
+        </div>
+        <RouterLink
+          class="btn btn--accent"
+          :to="{ name: 'RaidDetail', params: { raidId: activeRaid.id } }"
+        >
+          View Raid
+        </RouterLink>
+      </div>
+    </div>
     <main class="app-content">
       <RouterView />
     </main>
@@ -41,12 +57,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 
 import { useAuthStore } from './stores/auth';
+import { api, type RaidEventSummary } from './services/api';
 
 const authStore = useAuthStore();
+const activeRaid = ref<RaidEventSummary | null>(null);
+const loadingActiveRaid = ref(false);
+
+function handleActiveRaidEvent() {
+  if (primaryGuild.value) {
+    loadActiveRaid(primaryGuild.value.id);
+  }
+}
 
 const primaryGuild = computed(() => authStore.primaryGuild);
 
@@ -68,7 +93,57 @@ async function logout() {
 
 onMounted(async () => {
   await authStore.fetchCurrentUser();
+  if (primaryGuild.value) {
+    await loadActiveRaid(primaryGuild.value.id);
+  }
+
+  window.addEventListener('active-raid-updated', handleActiveRaidEvent);
 });
+
+onBeforeUnmount(() => {
+  window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
+});
+
+watch(
+  () => primaryGuild.value?.id,
+  async (guildId) => {
+    if (guildId) {
+      await loadActiveRaid(guildId);
+    } else {
+      activeRaid.value = null;
+    }
+  }
+);
+
+async function loadActiveRaid(guildId: string) {
+  loadingActiveRaid.value = true;
+  try {
+    const response = await api.fetchRaidsForGuild(guildId);
+    const active = response.raids
+      .filter((raid) => (raid.startedAt || raid.isActive) && !raid.endedAt)
+      .sort((a, b) =>
+        new Date(b.startedAt ?? b.startTime).getTime() - new Date(a.startedAt ?? a.startTime).getTime()
+      )[0];
+
+    activeRaid.value = active ?? null;
+  } catch (error) {
+    console.warn('Unable to fetch active raid indicator.', error);
+    activeRaid.value = null;
+  } finally {
+    loadingActiveRaid.value = false;
+  }
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) {
+    return 'recently';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(new Date(value));
+}
 </script>
 
 <style scoped>
@@ -185,5 +260,90 @@ onMounted(async () => {
 .app-content {
   padding: 2rem;
   flex: 1;
+}
+
+.active-raid-banner {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(14, 165, 233, 0.12));
+  border-bottom: 1px solid rgba(34, 197, 94, 0.3);
+  padding: 0.7rem 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.active-raid-banner__content {
+  max-width: 960px;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.active-raid-banner__status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+}
+
+.active-raid-banner__status .label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.active-raid-banner__status strong {
+  font-size: 1.05rem;
+}
+
+.muted {
+  color: #cbd5f5;
+}
+
+.pulse-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(74, 222, 128, 0.9);
+  box-shadow: 0 0 0 rgba(74, 222, 128, 0.4);
+  animation: pulse 1.8s infinite;
+}
+
+.btn--accent {
+  padding: 0.55rem 1.25rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(14, 165, 233, 0.75));
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  color: #0f172a;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.25);
+  text-decoration: none;
+}
+
+.btn--accent:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(74, 222, 128, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(74, 222, 128, 0);
+  }
 }
 </style>

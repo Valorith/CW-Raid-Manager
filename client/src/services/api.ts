@@ -218,9 +218,14 @@ export const api = {
     return response.data.character;
   },
 
-  async fetchRaidsForGuild(guildId: string): Promise<RaidEventSummary[]> {
+  async fetchRaidsForGuild(
+    guildId: string
+  ): Promise<{ raids: RaidEventSummary[]; permissions: { canManage: boolean; role: GuildRole } }> {
     const response = await axios.get(`/api/raids/guild/${guildId}`);
-    return response.data.raids;
+    return {
+      raids: response.data.raids ?? [],
+      permissions: response.data.permissions ?? { canManage: false, role: 'MEMBER' }
+    };
   },
 
   async fetchRaid(raidId: string): Promise<RaidDetail> {

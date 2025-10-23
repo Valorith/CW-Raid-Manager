@@ -3,53 +3,65 @@
     <header class="section-header">
       <div>
         <h1>Raid Planner</h1>
-        <p>Select a guild to view and manage scheduled raids.</p>
       </div>
-      <button class="btn" :disabled="!selectedGuildId" @click="openRaidModal">New Raid</button>
+      <button class="btn" :disabled="!selectedGuildId || !canCreateRaid" @click="openRaidModal">
+        New Raid
+      </button>
     </header>
-
-    <label class="selector">
-      <span>Guild</span>
-      <select v-model="selectedGuildId" @change="loadRaids">
-        <option value="">Choose guild</option>
-        <option v-for="guild in guilds" :key="guild.id" :value="guild.id">
-          {{ guild.name }}
-        </option>
-      </select>
-    </label>
 
     <div v-if="selectedGuildId">
       <p v-if="loadingRaids" class="muted">Loading raids…</p>
-      <p v-else-if="raids.length === 0" class="muted">No raids scheduled.</p>
 
-      <ul class="raid-list">
-        <li
-          v-for="raid in raids"
-          :key="raid.id"
-          class="raid-list__item"
-          role="button"
-          tabindex="0"
-          @click="openRaid(raid.id)"
-          @keydown.enter.prevent="openRaid(raid.id)"
-          @keydown.space.prevent="openRaid(raid.id)"
-        >
-          <div class="raid-info">
-            <strong>{{ raid.name }}</strong>
-            <span class="muted">
-              ({{ formatDate(raid.startTime) }}) • {{ raid.targetZones.join(', ') }}
-            </span>
-          </div>
-          <div class="raid-meta">
-            <span :class="['badge', getRaidStatus(raid.id).variant]">
-              {{ getRaidStatus(raid.id).label }}
-            </span>
-            <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
-              Open
-            </button>
-          </div>
-        </li>
-      </ul>
+      <div v-else>
+        <div class="tabs">
+          <button
+            :class="['tab', { 'tab--active': activeTab === 'active' }]"
+            type="button"
+            @click="activeTab = 'active'"
+          >
+            Active
+          </button>
+          <button
+            :class="['tab', { 'tab--active': activeTab === 'history' }]"
+            type="button"
+            @click="activeTab = 'history'"
+          >
+            History
+          </button>
+        </div>
+
+        <p v-if="displayedRaids.length === 0" class="muted empty-state">{{ emptyStateMessage }}</p>
+
+        <ul v-else class="raid-list">
+          <li
+            v-for="raid in displayedRaids"
+            :key="raid.id"
+            class="raid-list__item"
+            role="button"
+            tabindex="0"
+            @click="openRaid(raid.id)"
+            @keydown.enter.prevent="openRaid(raid.id)"
+            @keydown.space.prevent="openRaid(raid.id)"
+          >
+            <div class="raid-info">
+              <strong>{{ raid.name }}</strong>
+              <span class="muted">
+                ({{ formatDate(raid.startTime) }}) • {{ raid.targetZones.join(', ') }}
+              </span>
+            </div>
+            <div class="raid-meta">
+              <span :class="['badge', getRaidStatus(raid.id).variant]">
+                {{ getRaidStatus(raid.id).label }}
+              </span>
+              <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
+                Open
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
     </div>
+    <div v-else class="empty-state">Join a guild to plan and review raids.</div>
     <RaidModal
       v-if="showRaidModal"
       :guild-id="selectedGuildId"
@@ -60,18 +72,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 
-import { api, type GuildSummary, type RaidEventSummary } from '../services/api';
+import { api, type RaidEventSummary } from '../services/api';
+import type { GuildRole } from '../services/types';
+import { useAuthStore } from '../stores/auth';
 
 type RaidStatusVariant = 'badge--neutral' | 'badge--positive' | 'badge--negative';
 type RaidStatusBadge = { label: string; variant: RaidStatusVariant };
 
-const guilds = ref<GuildSummary[]>([]);
 const raids = ref<RaidEventSummary[]>([]);
+const selectedGuildPermissions = ref<{ canManage: boolean; role: GuildRole } | null>(null);
 const raidStatus = computed(() => {
   const map = new Map<string, RaidStatusBadge>();
 
@@ -114,36 +128,51 @@ const raidStatus = computed(() => {
   return map;
 });
 
+const authStore = useAuthStore();
 const selectedGuildId = ref('');
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const router = useRouter();
-
-async function loadGuilds() {
-  guilds.value = await api.fetchGuilds();
-  if (guilds.value.length === 1) {
-    selectedGuildId.value = guilds.value[0].id;
-    loadRaids();
-  }
-}
+const activeTab = ref<'active' | 'history'>('active');
 
 async function loadRaids() {
   if (!selectedGuildId.value) {
     raids.value = [];
+    selectedGuildPermissions.value = null;
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
     return;
   }
 
   loadingRaids.value = true;
+  activeTab.value = 'active';
   try {
-    raids.value = await api.fetchRaidsForGuild(selectedGuildId.value);
+    const response = await api.fetchRaidsForGuild(selectedGuildId.value);
+    raids.value = response.raids;
+    selectedGuildPermissions.value = response.permissions ?? null;
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } finally {
     loadingRaids.value = false;
   }
 }
 
+const canCreateRaid = computed(() => selectedGuildPermissions.value?.canManage ?? false);
+
+const activeRaids = computed(() => raids.value.filter((raid) => !isHistoryRaid(raid)));
+const historyRaids = computed(() => raids.value.filter((raid) => isHistoryRaid(raid)));
+
+const displayedRaids = computed(() =>
+  activeTab.value === 'active' ? activeRaids.value : historyRaids.value
+);
+
+const emptyStateMessage = computed(() =>
+  activeTab.value === 'active'
+    ? 'No active raids scheduled.'
+    : 'No completed raids found.'
+);
+
 
 function openRaidModal() {
-  if (!selectedGuildId.value) {
+  if (!selectedGuildId.value || !canCreateRaid.value) {
     return;
   }
   showRaidModal.value = true;
@@ -174,7 +203,38 @@ function formatDate(date: string) {
   }).format(new Date(date));
 }
 
-onMounted(loadGuilds);
+function isHistoryRaid(raid: RaidEventSummary) {
+  if (raid.endedAt) {
+    return true;
+  }
+
+  const start = new Date(raid.startTime);
+  const now = new Date();
+  const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+  return start <= twoDaysAgo;
+}
+
+watch(
+  () => authStore.primaryGuild,
+  (guild) => {
+    const newId = guild?.id ?? '';
+    if (newId !== selectedGuildId.value) {
+      selectedGuildId.value = newId;
+      if (selectedGuildId.value) {
+        loadRaids();
+      } else {
+        raids.value = [];
+        selectedGuildPermissions.value = null;
+      }
+    }
+  },
+  { immediate: true }
+);
+
+watch(selectedGuildId, () => {
+  activeTab.value = 'active';
+});
 </script>
 
 <style scoped>
@@ -190,19 +250,84 @@ onMounted(loadGuilds);
   justify-content: space-between;
 }
 
-.selector {
+.tabs {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: min(320px, 100%);
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  margin: 1.5rem auto;
 }
 
-.selector select {
-  background: rgba(30, 41, 59, 0.8);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.75rem;
-  padding: 0.75rem;
-  color: #f8fafc;
+.tab {
+  padding: 0.55rem 1.4rem;
+  background: rgba(30, 41, 59, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  color: #cbd5f5;
+  font-size: 0.9rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.tab:hover {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(148, 163, 184, 0.45);
+  color: #e0f2fe;
+}
+
+.tab--active {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #bae6fd;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  gap: 0.75rem;
+}
+
+.pagination__label {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.pagination__button {
+  padding: 0.45rem 0.9rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.55rem;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.pagination__button:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
+  transform: translateY(-1px);
+}
+
+.pagination__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.empty-state {
+  text-align: center;
+  margin: 2rem 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
 }
 
 .raid-list {

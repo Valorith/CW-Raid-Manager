@@ -46,7 +46,13 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         }
       }));
 
-      return { raids: enrichedRaids };
+      return {
+        raids: enrichedRaids,
+        permissions: {
+          canManage,
+          role: membershipRole
+        }
+      };
     }
   );
 

@@ -138,15 +138,15 @@
         </ul>
         <div v-if="attendanceTotalPages > 1" class="pagination">
           <button
-            class="btn btn--outline"
+            class="pagination__button"
             :disabled="attendancePage === 1"
             @click="setAttendancePage(attendancePage - 1)"
           >
             Previous
           </button>
-          <span>Page {{ attendancePage }} of {{ attendanceTotalPages }}</span>
+          <span class="pagination__label">Page {{ attendancePage }} of {{ attendanceTotalPages }}</span>
           <button
-            class="btn btn--outline"
+            class="pagination__button"
             :disabled="attendancePage === attendanceTotalPages"
             @click="setAttendancePage(attendancePage + 1)"
           >
@@ -736,6 +736,46 @@ onMounted(() => {
   height: 20px;
   object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  gap: 0.75rem;
+}
+
+.pagination__label {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.pagination__button {
+  padding: 0.45rem 0.9rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.55rem;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.pagination__button:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
+  transform: translateY(-1px);
+}
+
+.pagination__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .badge {
