@@ -126,7 +126,8 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
-    server.post('/:guildId/memberships', { preHandler: [authenticate] }, async (request, reply) => {
+
+  server.post('/:guildId/memberships', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({
       guildId: z.string()
     });
@@ -172,4 +173,53 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.code(201).send({ membership });
   });
+
+  server.delete(
+    '/:guildId/members/:memberId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        guildId: z.string(),
+        memberId: z.string()
+      });
+      const { guildId, memberId } = paramsSchema.parse(request.params);
+
+      const actorMembership = await getUserGuildRole(request.user.userId, guildId);
+      if (!actorMembership || (actorMembership.role !== GuildRole.LEADER && actorMembership.role !== GuildRole.OFFICER)) {
+        return reply.forbidden('Only guild leaders or officers can remove members.');
+      }
+
+      const targetMembership = await prisma.guildMembership.findUnique({
+        where: {
+          guildId_userId: {
+            guildId,
+            userId: memberId
+          }
+        }
+      });
+
+      if (!targetMembership) {
+        return reply.notFound('Membership not found.');
+      }
+
+      if (targetMembership.role === GuildRole.LEADER && actorMembership.role !== GuildRole.LEADER) {
+        return reply.forbidden('Only the guild leader can remove another leader.');
+      }
+
+      if (targetMembership.role === GuildRole.OFFICER && actorMembership.role !== GuildRole.LEADER) {
+        return reply.forbidden('Only the guild leader can remove officers.');
+      }
+
+      await prisma.guildMembership.delete({
+        where: {
+          guildId_userId: {
+            guildId,
+            userId: memberId
+          }
+        }
+      });
+
+      return reply.code(204).send();
+    }
+  );
 }

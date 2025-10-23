@@ -57,6 +57,14 @@
                   {{ roleLabels[role] ?? role }}
                 </option>
               </select>
+              <button
+                v-if="canRemoveMember(member)"
+                class="btn btn--danger btn--small"
+                :disabled="removingMemberId === member.id"
+                @click="removeMember(member)"
+              >
+                {{ removingMemberId === member.id ? 'Removing…' : 'Remove' }}
+              </button>
             </div>
           </li>
         </ul>
@@ -212,6 +220,7 @@ const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const router = useRouter();
 const updatingMemberId = ref<string | null>(null);
+const removingMemberId = ref<string | null>(null);
 const renderableRaids = computed(() => raids.value.filter(isRaidRenderable));
 
 const authStore = useAuthStore();
@@ -416,6 +425,50 @@ async function updateMemberRole(member: GuildMember, role: GuildRole) {
   }
 }
 
+function canRemoveMember(member: GuildMember) {
+  const actor = actorRole.value;
+  if (!actor) {
+    return false;
+  }
+
+  if (member.user.id === currentUserId.value) {
+    return false;
+  }
+
+  if (member.role === 'LEADER') {
+    return actor === 'LEADER';
+  }
+
+  if (member.role === 'OFFICER') {
+    return actor === 'LEADER';
+  }
+
+  return actor === 'LEADER' || actor === 'OFFICER';
+}
+
+async function removeMember(member: GuildMember) {
+  if (!guild.value || removingMemberId.value) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Remove ${preferredUserName(member.user)} from ${guild.value.name}?`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  removingMemberId.value = member.id;
+  try {
+    await api.deleteGuildMember(guildId, member.user.id);
+    await loadGuild();
+  } catch (error) {
+    window.alert(extractErrorMessage(error, 'Unable to remove guild member.'));
+  } finally {
+    removingMemberId.value = null;
+  }
+}
+
 function extractErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error && 'response' in error) {
     const response = (error as { response?: { data?: unknown } }).response;
@@ -612,6 +665,29 @@ onMounted(async () => {
 
 .member-actions select:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn--danger {
+  padding: 0.35rem 0.75rem;
+  background: rgba(248, 113, 113, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.25);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fee2e2;
+  transform: translateY(-1px);
+}
+
+.btn--danger:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

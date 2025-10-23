@@ -365,4 +365,8 @@ export const api = {
     return response.data.membership;
   },
 
+  async deleteGuildMember(guildId: string, memberId: string) {
+    await axios.delete(`/api/guilds/${guildId}/members/${memberId}`);
+  },
+
 };
