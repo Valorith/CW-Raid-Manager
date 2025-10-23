@@ -1,5 +1,6 @@
 import { GuildRole } from '@prisma/client';
 
+import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { slugify } from '../utils/slugify.js';
 
@@ -10,7 +11,7 @@ interface CreateGuildInput {
 }
 
 export async function listGuilds() {
-  return prisma.guild.findMany({
+  const guilds = await prisma.guild.findMany({
     orderBy: {
       name: 'asc'
     },
@@ -27,17 +28,26 @@ export async function listGuilds() {
           user: {
             select: {
               id: true,
-              displayName: true
+              displayName: true,
+              nickname: true
             }
           }
         }
       }
     }
   });
+
+  return guilds.map((guild) => ({
+    ...guild,
+    members: guild.members.map((member) => ({
+      ...member,
+      user: withPreferredDisplayName(member.user)
+    }))
+  }));
 }
 
 export async function getGuildById(id: string) {
-  return prisma.guild.findUnique({
+  const guild = await prisma.guild.findUnique({
     where: { id },
     include: {
       members: {
@@ -45,7 +55,8 @@ export async function getGuildById(id: string) {
           user: {
             select: {
               id: true,
-              displayName: true
+              displayName: true,
+              nickname: true
             }
           }
         }
@@ -56,37 +67,55 @@ export async function getGuildById(id: string) {
           name: true,
           class: true,
           level: true,
+          isMain: true,
           user: {
             select: {
               id: true,
-              displayName: true
+              displayName: true,
+              nickname: true
             }
           }
         }
       }
     }
   });
+
+  if (!guild) {
+    return null;
+  }
+
+  return {
+    ...guild,
+    members: guild.members.map((member) => ({
+      ...member,
+      user: withPreferredDisplayName(member.user)
+    })),
+    characters: guild.characters.map((character) => ({
+      ...character,
+      user: withPreferredDisplayName(character.user)
+    }))
+  };
 }
 
 async function ensureUniqueSlug(name: string): Promise<string> {
   const baseSlug = slugify(name);
   let slug = baseSlug;
   let counter = 1;
+  let existing = await prisma.guild.findUnique({ where: { slug } });
 
-  while (true) {
-    const existing = await prisma.guild.findUnique({ where: { slug } });
-    if (!existing) {
-      return slug;
-    }
+  while (existing) {
     counter += 1;
     slug = `${baseSlug}-${counter}`;
+    existing = await prisma.guild.findUnique({ where: { slug } });
   }
+
+  return slug;
 }
 
 export async function createGuild({ name, description, creatorUserId }: CreateGuildInput) {
   const slug = await ensureUniqueSlug(name);
 
-  return prisma.guild.create({
+  const guild = await prisma.guild.create({
     data: {
       name,
       slug,
@@ -107,6 +136,13 @@ export async function createGuild({ name, description, creatorUserId }: CreateGu
       }
     }
   });
+  return {
+    ...guild,
+    members: guild.members.map((member) => ({
+      ...member,
+      user: withPreferredDisplayName(member.user)
+    }))
+  };
 }
 
 export async function getUserGuildRole(userId: string, guildId: string) {

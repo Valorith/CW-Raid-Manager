@@ -1,11 +1,11 @@
 <template>
   <section v-if="guild" class="guild-detail">
-    <header class="section-header">
-      <div>
-        <h1>{{ guild.name }}</h1>
-        <p class="muted">{{ guild.description || 'No description provided.' }}</p>
+    <header class="section-header section-header--guild">
+      <div class="guild-header guild-header--stack">
+        <h1 class="guild-title">{{ guild.name }}</h1>
+        <p v-if="guild.description" class="guild-subtitle muted">{{ guild.description }}</p>
       </div>
-      <button class="btn" @click="showRaidModal = true">Plan Raid</button>
+      <button class="plan-raid-button" @click="showRaidModal = true">Plan Raid</button>
     </header>
 
     <div class="grid">
@@ -13,10 +13,29 @@
         <header class="card__header">
           <h2>Members</h2>
         </header>
-        <ul class="list">
-          <li v-for="member in guild.members" :key="member.id" class="list__item">
+        <div class="list-filters list-filters--members">
+          <input
+            v-model="memberSearch"
+            type="search"
+            class="input input--search"
+            placeholder="Search members"
+          />
+          <div class="member-filter-buttons">
+            <button
+              v-for="role in ['ALL', ...guildRoleOrder]"
+              :key="role"
+              :class="['member-filter-button', { 'member-filter-button--active': memberRoleFilter === role }]"
+              @click="memberRoleFilter = role as GuildRole | 'ALL'"
+            >
+              {{ role === 'ALL' ? 'All' : roleLabels[role as GuildRole] ?? role }}
+            </button>
+          </div>
+        </div>
+        <p v-if="filteredMembers.length === 0" class="muted">No members match your search.</p>
+        <ul v-else class="list">
+          <li v-for="member in paginatedMembers" :key="member.id" class="list__item">
             <div>
-              <strong>{{ member.user.displayName }}</strong>
+              <strong>{{ preferredUserName(member.user) }}</strong>
               <span class="muted role"> ({{ roleLabels[member.role] }})</span>
             </div>
             <div v-if="canAdjustMember(member)" class="member-actions">
@@ -39,21 +58,90 @@
             </div>
           </li>
         </ul>
+        <div v-if="memberTotalPages > 1" class="pagination">
+          <button class="btn btn--outline" :disabled="memberPage === 1" @click="setMemberPage(memberPage - 1)">
+            Previous
+          </button>
+          <span>Page {{ memberPage }} of {{ memberTotalPages }}</span>
+          <button
+            class="btn btn--outline"
+            :disabled="memberPage === memberTotalPages"
+            @click="setMemberPage(memberPage + 1)"
+          >
+            Next
+          </button>
+        </div>
       </article>
 
       <article class="card">
         <header class="card__header">
-          <h2>Roster</h2>
+          <h2>Characters</h2>
         </header>
-        <ul class="list">
-          <li v-for="character in guild.characters" :key="character.id" class="list__item">
-            <div>
-              <strong>{{ character.name }} ({{ character.level }})</strong>
-              <span class="muted roster-meta">{{ character.class }}</span>
+        <div class="list-filters list-filters--characters">
+          <input
+            v-model="characterSearch"
+            type="search"
+            class="input input--search input--search--wide"
+            placeholder="Search characters"
+          />
+          <div class="roster-filter-buttons">
+            <button
+              v-for="option in characterClassOptions"
+              :key="option.value"
+              :style="{ background: option.gradient, borderColor: option.border }"
+              :class="['roster-filter-button', { 'roster-filter-button--active': characterClassFilter === option.value }]"
+              @click="characterClassFilter = option.value"
+            >
+              <span class="roster-filter-icon">
+                <template v-if="option.icon">
+                  <img :src="option.icon" :alt="option.label" />
+                </template>
+                <template v-else>
+                  <span class="roster-filter-icon-text">{{ option.label }}</span>
+                </template>
+              </span>
+              <span v-if="option.icon" class="roster-filter-label">{{ option.label }}</span>
+            </button>
+          </div>
+        </div>
+        <p v-if="filteredCharacters.length === 0" class="muted">No characters match your search.</p>
+        <ul v-else class="list">
+          <li v-for="character in paginatedCharacters" :key="character.id" class="list__item">
+            <div class="character-info">
+              <div class="character-primary">
+                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <span v-if="character.isMain" class="badge badge--main">Main</span>
+              </div>
+              <span class="roster-meta muted">
+                <img
+                  v-if="getCharacterClassIcon(character.class)"
+                  :src="getCharacterClassIcon(character.class)"
+                  :alt="formatCharacterClass(character.class)"
+                  class="class-icon"
+                />
+                <span>{{ formatCharacterClass(character.class) }}</span>
+              </span>
             </div>
-            <span class="muted small">{{ character.user.displayName }}</span>
+            <span class="muted small">{{ preferredUserName(character.user) }}</span>
           </li>
         </ul>
+        <div v-if="characterTotalPages > 1" class="pagination">
+          <button
+            class="btn btn--outline"
+            :disabled="characterPage === 1"
+            @click="setCharacterPage(characterPage - 1)"
+          >
+            Previous
+          </button>
+          <span>Page {{ characterPage }} of {{ characterTotalPages }}</span>
+          <button
+            class="btn btn--outline"
+            :disabled="characterPage === characterTotalPages"
+            @click="setCharacterPage(characterPage + 1)"
+          >
+            Next
+          </button>
+        </div>
       </article>
     </div>
 
@@ -97,14 +185,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 import { api, type GuildDetail, type RaidEventSummary } from '../services/api';
-import type { GuildRole } from '../services/types';
-import { guildRoleOrder } from '../services/types';
+import type { GuildRole, CharacterClass } from '../services/types';
+import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../services/types';
 import { useAuthStore } from '../stores/auth';
+import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -120,6 +209,108 @@ const updatingMemberId = ref<string | null>(null);
 
 const authStore = useAuthStore();
 const currentUserId = computed(() => authStore.user?.userId ?? null);
+
+const characterClassOptions = computed(() => buildCharacterFilterOptions(characterClassLabels));
+
+
+const memberSearch = ref('');
+const memberRoleFilter = ref<GuildRole | 'ALL'>('ALL');
+const memberPage = ref(1);
+const membersPerPage = 10;
+
+const characterSearch = ref('');
+const characterClassFilter = ref<'ALL' | 'MAIN' | CharacterClass>('ALL');
+const characterPage = ref(1);
+const charactersPerPage = 10;
+
+const filteredMembers = computed(() => {
+  if (!guild.value) {
+    return [] as GuildMember[];
+  }
+
+  const query = memberSearch.value.trim().toLowerCase();
+  const roleFilter = memberRoleFilter.value;
+
+  return guild.value.members.filter((member) => {
+    const name = preferredUserName(member.user)?.toLowerCase() ?? '';
+    const roleLabel = roleLabels[member.role]?.toLowerCase() ?? member.role.toLowerCase();
+    const matchesQuery = !query || name.includes(query) || roleLabel.includes(query);
+    const matchesRole = roleFilter === 'ALL' || member.role === roleFilter;
+
+    return matchesQuery && matchesRole;
+  });
+});
+
+const memberTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredMembers.value.length / membersPerPage));
+});
+
+const paginatedMembers = computed(() => {
+  const start = (memberPage.value - 1) * membersPerPage;
+  return filteredMembers.value.slice(start, start + membersPerPage);
+});
+
+const filteredCharacters = computed(() => {
+  if (!guild.value) {
+    return [] as GuildDetail['characters'];
+  }
+
+  const query = characterSearch.value.trim().toLowerCase();
+  const filter = characterClassFilter.value;
+
+  return guild.value.characters.filter((character) => {
+    const name = character.name.toLowerCase();
+    const className = character.class.toLowerCase();
+    const owner = preferredUserName(character.user)?.toLowerCase() ?? '';
+    const matchesQuery = !query || name.includes(query) || className.includes(query) || owner.includes(query);
+
+    let matchesFilter = true;
+    if (filter === 'MAIN') {
+      matchesFilter = !!character.isMain;
+    } else if (filter !== 'ALL') {
+      matchesFilter = character.class === filter;
+    }
+
+    return matchesQuery && matchesFilter;
+  });
+});
+
+const characterTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredCharacters.value.length / charactersPerPage));
+});
+
+const paginatedCharacters = computed(() => {
+  const start = (characterPage.value - 1) * charactersPerPage;
+  return filteredCharacters.value.slice(start, start + charactersPerPage);
+});
+
+watch([memberSearch, memberRoleFilter, () => guild.value?.members], () => {
+  memberPage.value = 1;
+}, { deep: true });
+
+watch(memberTotalPages, (total) => {
+  if (memberPage.value > total) {
+    memberPage.value = total;
+  }
+});
+
+watch([characterSearch, characterClassFilter, () => guild.value?.characters], () => {
+  characterPage.value = 1;
+}, { deep: true });
+
+watch(characterTotalPages, (total) => {
+  if (characterPage.value > total) {
+    characterPage.value = total;
+  }
+});
+
+function setMemberPage(page: number) {
+  memberPage.value = Math.min(Math.max(1, page), memberTotalPages.value);
+}
+
+function setCharacterPage(page: number) {
+  characterPage.value = Math.min(Math.max(1, page), characterTotalPages.value);
+}
 
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
@@ -231,11 +422,23 @@ function extractErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function formatCharacterClass(characterClass?: CharacterClass | null) {
+  if (!characterClass) {
+    return '—';
+  }
+
+  return characterClassLabels[characterClass] ?? characterClass;
+}
+
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(date));
+}
+
+function preferredUserName(user: { displayName?: string; nickname?: string | null }) {
+  return user.nickname ?? user.displayName ?? '';
 }
 
 function handleRaidCreated() {
@@ -268,10 +471,16 @@ onMounted(async () => {
   gap: 2rem;
 }
 
-.section-header {
+.section-header--guild {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+.section-header--guild .plan-raid-button {
+  align-self: center;
 }
 
 .grid {
@@ -340,6 +549,125 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
+.guild-header {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.75rem 2rem;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(14, 165, 233, 0.08));
+  box-shadow: 0 20px 36px rgba(15, 23, 42, 0.55);
+  position: relative;
+  overflow: hidden;
+}
+
+.guild-header.guild-header--stack {
+  align-items: center;
+  text-align: center;
+}
+
+.guild-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.15), transparent 55%);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.guild-title {
+  margin: 0;
+  font-size: clamp(2.5rem, 5vw, 3.25rem);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 800;
+  color: #e2e8f0;
+  background: linear-gradient(135deg, #f8fafc, #a5b4fc 45%, #38bdf8 75%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 12px 30px rgba(15, 23, 42, 0.65);
+}
+
+.guild-subtitle {
+  font-size: 0.95rem;
+  margin-top: 0.5rem;
+  max-width: 520px;
+  line-height: 1.6;
+}
+
+.list-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.list-filters--characters {
+  gap: 1.25rem;
+}
+
+.input--search--wide {
+  width: 100%;
+}
+
+.input--search {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  color: #f8fafc;
+}
+
+.input--search::placeholder {
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  gap: 0.75rem;
+}
+
+.pagination span {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.character-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.character-primary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.badge--main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.45), rgba(251, 191, 36, 0.25));
+  color: #fef3c7;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(252, 211, 77, 0.4);
+  box-shadow: 0 2px 6px rgba(250, 204, 21, 0.18);
+}
+
+
 .raid-list {
   display: flex;
   flex-direction: column;
@@ -383,6 +711,21 @@ onMounted(async () => {
   margin-left: 0.25rem;
 }
 
+.roster-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.class-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
 .raids {
   display: flex;
   flex-direction: column;
@@ -392,4 +735,155 @@ onMounted(async () => {
 .small {
   font-size: 0.85rem;
 }
+
+.plan-raid-button {
+  padding: 0.55rem 1.25rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.85), rgba(14, 165, 233, 0.85));
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  color: #f8fafc;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.25);
+}
+
+.plan-raid-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.plan-raid-button:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: 2px;
+}
+
+.member-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.member-filter-button {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  color: #cbd5f5;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.member-filter-button:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #f8fafc;
+}
+
+.member-filter-button:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 2px;
+}
+
+.member-filter-button--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #f8fafc;
+}
+
+.roster-filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.roster-filter-button {
+  position: relative;
+  border-radius: 1rem;
+  width: 78px;
+  height: 90px;
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: #f8fafc;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.45);
+  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+
+.roster-filter-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.4), transparent 60%);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.roster-filter-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 28px rgba(15, 23, 42, 0.55);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.roster-filter-button:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+}
+
+.roster-filter-button--active {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 32px rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.roster-filter-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+.roster-filter-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.6));
+}
+
+.roster-filter-icon-text {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.roster-filter-label {
+  display: block;
+  position: relative;
+  z-index: 1;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
 </style>

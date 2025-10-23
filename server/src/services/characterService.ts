@@ -12,6 +12,13 @@ interface CreateCharacterInput {
   isMain?: boolean;
 }
 
+export class MainCharacterLimitError extends Error {
+  constructor() {
+    super('You can only designate up to two main characters.');
+    this.name = 'MainCharacterLimitError';
+  }
+}
+
 export async function listCharactersForUser(userId: string) {
   return prisma.character.findMany({
     where: { userId },
@@ -28,6 +35,12 @@ export async function listCharactersForUser(userId: string) {
 }
 
 export async function createCharacter(input: CreateCharacterInput) {
+  const desiredIsMain = input.isMain === undefined ? false : input.isMain;
+
+  if (desiredIsMain) {
+    await assertMainCapacity(input.userId);
+  }
+
   return prisma.character.create({
     data: {
       name: input.name,
@@ -36,7 +49,7 @@ export async function createCharacter(input: CreateCharacterInput) {
       archetype: input.archetype,
       guildId: input.guildId ?? undefined,
       userId: input.userId,
-      isMain: input.isMain ?? true
+      isMain: desiredIsMain
     },
     include: {
       guild: {
@@ -62,6 +75,10 @@ export async function updateCharacter(
     throw new Error('Character not found.');
   }
 
+  if (data.isMain === true && character.isMain === false) {
+    await assertMainCapacity(userId, characterId);
+  }
+
   return prisma.character.update({
     where: { id: characterId },
     data: {
@@ -81,4 +98,24 @@ export async function updateCharacter(
       }
     }
   });
+}
+
+async function assertMainCapacity(userId: string, excludeCharacterId?: string) {
+  const count = await prisma.character.count({
+    where: {
+      userId,
+      isMain: true,
+      ...(excludeCharacterId
+        ? {
+            id: {
+              not: excludeCharacterId
+            }
+          }
+        : {})
+    }
+  });
+
+  if (count >= 2) {
+    throw new MainCharacterLimitError();
+  }
 }

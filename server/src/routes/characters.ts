@@ -6,7 +6,8 @@ import { authenticate } from '../middleware/authenticate.js';
 import {
   createCharacter,
   listCharactersForUser,
-  updateCharacter
+  updateCharacter,
+  MainCharacterLimitError
 } from '../services/characterService.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -40,12 +41,21 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
       }
     }
 
-    const character = await createCharacter({
-      ...parsed.data,
-      userId: request.user.userId
-    });
+    try {
+      const character = await createCharacter({
+        ...parsed.data,
+        userId: request.user.userId
+      });
 
-    return reply.code(201).send({ character });
+      return reply.code(201).send({ character });
+    } catch (error) {
+      if (error instanceof MainCharacterLimitError) {
+        return reply.badRequest(error.message);
+      }
+
+      request.log.error({ error }, 'Failed to create character.');
+      return reply.internalServerError('Unable to create character.');
+    }
   });
 
   server.patch('/:characterId', { preHandler: [authenticate] }, async (request, reply) => {
@@ -85,8 +95,16 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
       const character = await updateCharacter(characterId, request.user.userId, parsed.data);
       return { character };
     } catch (error) {
+      if (error instanceof MainCharacterLimitError) {
+        return reply.badRequest(error.message);
+      }
+
+      if (error instanceof Error && error.message === 'Character not found.') {
+        return reply.notFound('Character not found.');
+      }
+
       request.log.warn({ error }, 'Failed to update character.');
-      return reply.notFound('Character not found.');
+      return reply.internalServerError('Unable to update character.');
     }
   });
 }

@@ -3,19 +3,20 @@
     <header class="section-header">
       <div>
         <h1>Dashboard</h1>
-        <p>Quick overview of your characters and upcoming raids.</p>
+        <p>Quick overview of your characters and recent raid attendance.</p>
       </div>
-      <RouterLink class="btn" to="/raids">View Raids</RouterLink>
     </header>
 
     <div class="grid">
       <article class="card">
         <header class="card__header">
           <h2>Your Characters</h2>
-          <button class="btn btn--outline" @click="showCharacterForm = true">
+          <button class="btn btn--secondary" @click="showCharacterForm = true">
             Add Character
           </button>
         </header>
+
+        <p v-if="characterError" class="character-error">{{ characterError }}</p>
 
         <p v-if="loadingCharacters" class="muted">Loading characters...</p>
         <p v-else-if="characters.length === 0" class="muted">
@@ -23,11 +24,39 @@
         </p>
         <ul v-else class="list">
           <li v-for="character in characters" :key="character.id" class="list__item">
-            <div>
-              <strong>{{ character.name }} ({{ character.level }})</strong>
-              <span class="muted character-meta">{{ character.class }}</span>
+            <div class="character-summary">
+              <div class="character-heading">
+                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <span v-if="character.isMain" class="badge badge--main">Main</span>
+              </div>
+              <span class="character-meta muted">
+                <img
+                  v-if="getCharacterClassIcon(character.class)"
+                  :src="getCharacterClassIcon(character.class)"
+                  :alt="formatClass(character.class as CharacterClass) || character.class"
+                  class="class-icon"
+                />
+                <span>{{ formatClass(character.class as CharacterClass) || character.class }}</span>
+              </span>
             </div>
-            <span v-if="character.guild" class="tag">{{ character.guild.name }}</span>
+            <div class="character-actions">
+              <span v-if="character.guild" class="tag">{{ character.guild.name }}</span>
+              <button
+                class="btn btn--small btn--toggle-main"
+                :class="{
+                  'btn--toggle-main--active': character.isMain,
+                  'btn--toggle-main--inactive': !character.isMain
+                }"
+                :disabled="
+                  updatingCharacterId === character.id || (mainCount >= 2 && !character.isMain)
+                "
+                @click="toggleCharacterMain(character)"
+              >
+                <span v-if="updatingCharacterId === character.id">Updating…</span>
+                <span v-else-if="character.isMain">Unset Main</span>
+                <span v-else>Set as Main</span>
+              </button>
+            </div>
           </li>
         </ul>
       </article>
@@ -36,15 +65,101 @@
         <header class="card__header">
           <h2>Recent Raid Attendance</h2>
         </header>
-        <p class="muted">
+        <p v-if="loadingAttendance" class="muted">Loading attendance…</p>
+        <p v-else-if="attendanceError" class="error">{{ attendanceError }}</p>
+        <p v-else-if="recentAttendance.length === 0" class="muted">
           Attendance analytics will appear here as raid events are logged.
         </p>
+        <ul v-else class="attendance-list">
+          <li
+            v-for="event in paginatedAttendance"
+            :key="event.id"
+            :class="['attendance-list__item', { 'attendance-list__item--expanded': isExpanded(event.id) }]"
+          >
+            <button
+              class="attendance-list__toggle"
+              type="button"
+              @click="toggleAttendance(event.id)"
+              :aria-expanded="isExpanded(event.id)"
+            >
+              <div class="attendance-list__header">
+                <div>
+                  <strong>{{ event.raid.name }}</strong>
+                  <div class="attendance-list__meta muted small">
+                    {{ formatDate(event.createdAt) }} • {{ event.raid.guild.name }}
+                  </div>
+                  <div class="attendance-list__summary muted small">
+                    {{ event.characters.length }} attendee{{ event.characters.length === 1 ? '' : 's' }} recorded
+                  </div>
+                </div>
+                <div class="attendance-list__header-right">
+                  <span class="attendance-badge" :class="eventBadgeVariant(event.eventType)">
+                    {{ formatEventType(event.eventType) }}
+                  </span>
+                  <span
+                    class="attendance-toggle-icon"
+                    :class="{ 'attendance-toggle-icon--expanded': isExpanded(event.id) }"
+                    aria-hidden="true"
+                  >
+                    >
+                  </span>
+                </div>
+              </div>
+            </button>
+            <div v-if="isExpanded(event.id)" class="attendance-details">
+              <ul class="attendance-records">
+                <li
+                  v-for="record in event.characters"
+                  :key="record.id"
+                  class="attendance-records__item"
+                >
+                  <div class="attendance-records__main">
+                    <div class="record-heading">
+                      <span class="record-name">{{ record.characterName }}</span>
+                      <span v-if="record.isMain" class="badge badge--main">Main</span>
+                    </div>
+                    <span v-if="record.class" class="record-class muted small">
+                      <img
+                        v-if="getCharacterClassIcon(record.class)"
+                        :src="getCharacterClassIcon(record.class)"
+                        :alt="formatClass(record.class)"
+                        class="class-icon"
+                      />
+                      <span>{{ formatClass(record.class) }}</span>
+                    </span>
+                  </div>
+                  <span class="attendance-badge" :class="statusBadgeVariant(record.status)">
+                    {{ formatStatus(record.status) }}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+        <div v-if="attendanceTotalPages > 1" class="pagination">
+          <button
+            class="btn btn--outline"
+            :disabled="attendancePage === 1"
+            @click="setAttendancePage(attendancePage - 1)"
+          >
+            Previous
+          </button>
+          <span>Page {{ attendancePage }} of {{ attendanceTotalPages }}</span>
+          <button
+            class="btn btn--outline"
+            :disabled="attendancePage === attendanceTotalPages"
+            @click="setAttendancePage(attendancePage + 1)"
+          >
+            Next
+          </button>
+        </div>
       </article>
     </div>
 
     <CharacterModal
       v-if="showCharacterForm"
       :guilds="guilds"
+      :can-set-main="mainCount < 2"
       @close="showCharacterForm = false"
       @created="handleCharacterCreated"
     />
@@ -52,21 +167,56 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import CharacterModal from '../components/CharacterModal.vue';
-import { api, type GuildSummary } from '../services/api';
+import { api, type GuildSummary, type RecentAttendanceEntry, type UserCharacter } from '../services/api';
+import { characterClassLabels, getCharacterClassIcon } from '../services/types';
+import type { AttendanceStatus, CharacterClass } from '../services/types';
 
-const characters = ref<any[]>([]);
+const characters = ref<UserCharacter[]>([]);
 const guilds = ref<GuildSummary[]>([]);
 const loadingCharacters = ref(false);
 const showCharacterForm = ref(false);
+const recentAttendance = ref<RecentAttendanceEntry[]>([]);
+const loadingAttendance = ref(false);
+const attendanceError = ref<string | null>(null);
+const attendancePage = ref(1);
+const attendancePerPage = 5;
+const expandedAttendanceIds = ref<string[]>([]);
+const updatingCharacterId = ref<string | null>(null);
+const characterError = ref<string | null>(null);
+
+const attendanceTotalPages = computed(() => {
+  if (recentAttendance.value.length === 0) {
+    return 1;
+  }
+  return Math.ceil(recentAttendance.value.length / attendancePerPage);
+});
+
+const paginatedAttendance = computed(() => {
+  const start = (attendancePage.value - 1) * attendancePerPage;
+  return recentAttendance.value.slice(start, start + attendancePerPage);
+});
+
+const mainCount = computed(() => characters.value.filter((character) => character.isMain).length);
+
+watch(
+  mainCount,
+  (value) => {
+    if (value < 2 && characterError.value) {
+      characterError.value = null;
+    }
+  },
+  { immediate: false }
+);
 
 async function loadCharacters() {
   loadingCharacters.value = true;
   try {
     characters.value = await api.fetchUserCharacters();
+    characterError.value = null;
   } finally {
     loadingCharacters.value = false;
   }
@@ -76,14 +226,165 @@ async function loadGuilds() {
   guilds.value = await api.fetchGuilds();
 }
 
+async function loadRecentAttendance() {
+  loadingAttendance.value = true;
+  attendanceError.value = null;
+  try {
+    recentAttendance.value = await api.fetchRecentAttendance(25);
+    attendancePage.value = 1;
+    expandedAttendanceIds.value = [];
+  } catch (error) {
+    attendanceError.value = extractErrorMessage(error, 'Unable to load raid attendance.');
+  } finally {
+    loadingAttendance.value = false;
+  }
+}
+
 function handleCharacterCreated() {
   showCharacterForm.value = false;
   loadCharacters();
+  loadRecentAttendance();
+  characterError.value = null;
 }
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(new Date(value));
+}
+
+function formatStatus(status: AttendanceStatus) {
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
+
+function statusBadgeVariant(status: AttendanceStatus) {
+  switch (status) {
+    case 'PRESENT':
+      return 'attendance-badge--positive';
+    case 'ABSENT':
+      return 'attendance-badge--negative';
+    case 'LATE':
+      return 'attendance-badge--warning';
+    case 'BENCHED':
+      return 'attendance-badge--neutral';
+    default:
+      return '';
+  }
+}
+
+function formatEventType(eventType: RecentAttendanceEntry['eventType']) {
+  switch (eventType) {
+    case 'START':
+      return 'Raid Started';
+    case 'END':
+      return 'Raid Ended';
+    case 'RESTART':
+      return 'Raid Restarted';
+    default:
+      return 'Attendance Log';
+  }
+}
+
+function eventBadgeVariant(eventType: RecentAttendanceEntry['eventType']) {
+  switch (eventType) {
+    case 'END':
+      return 'attendance-badge--negative';
+    case 'START':
+    case 'RESTART':
+      return 'attendance-badge--positive';
+    default:
+      return 'attendance-badge--neutral';
+  }
+}
+
+function formatClass(characterClass?: CharacterClass | null) {
+  if (!characterClass) {
+    return null;
+  }
+  return characterClassLabels[characterClass] ?? characterClass;
+}
+
+function toggleAttendance(eventId: string) {
+  if (expandedAttendanceIds.value.includes(eventId)) {
+    expandedAttendanceIds.value = expandedAttendanceIds.value.filter((id) => id !== eventId);
+  } else {
+    expandedAttendanceIds.value = [...expandedAttendanceIds.value, eventId];
+  }
+}
+
+function isExpanded(eventId: string) {
+  return expandedAttendanceIds.value.includes(eventId);
+}
+
+function setAttendancePage(page: number) {
+  const normalized = Math.max(1, Math.min(page, attendanceTotalPages.value));
+  attendancePage.value = normalized;
+  expandedAttendanceIds.value = [];
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null) {
+    if ('response' in error && typeof (error as any).response === 'object') {
+      const response = (error as { response?: { data?: unknown } }).response;
+      const data = response?.data;
+      if (typeof data === 'object' && data !== null) {
+        if ('message' in data && typeof (data as { message?: unknown }).message === 'string') {
+          return (data as { message: string }).message;
+        }
+        if ('error' in data && typeof (data as { error?: unknown }).error === 'string') {
+          return (data as { error: string }).error as string;
+        }
+      }
+    }
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+  }
+  return fallback;
+}
+
+async function toggleCharacterMain(character: UserCharacter) {
+  if (updatingCharacterId.value) {
+    return;
+  }
+
+  const targetValue = !character.isMain;
+  if (targetValue && mainCount.value >= 2) {
+    characterError.value = 'You can only designate up to two main characters.';
+    return;
+  }
+
+  updatingCharacterId.value = character.id;
+  characterError.value = null;
+
+  try {
+    await api.updateCharacter(character.id, { isMain: targetValue });
+    await loadCharacters();
+    await loadRecentAttendance();
+  } catch (error) {
+    characterError.value = extractErrorMessage(
+      error,
+      'Unable to update the main designation for this character.'
+    );
+  } finally {
+    updatingCharacterId.value = null;
+  }
+}
+
+watch(
+  () => recentAttendance.value.length,
+  () => {
+    if (attendancePage.value > attendanceTotalPages.value) {
+      attendancePage.value = attendanceTotalPages.value;
+    }
+  }
+);
 
 onMounted(() => {
   loadCharacters();
   loadGuilds();
+  loadRecentAttendance();
 });
 </script>
 
@@ -158,7 +459,302 @@ onMounted(() => {
   letter-spacing: 0.05em;
 }
 
+.character-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.character-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .character-meta {
-  margin-left: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.character-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.btn--small {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.btn--toggle-main {
+  border-width: 1px;
+  border-style: solid;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+
+.btn--toggle-main--inactive {
+  background: rgba(30, 41, 59, 0.45);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #cbd5f5;
+}
+
+.btn--toggle-main--inactive:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #e0f2fe;
+  transform: translateY(-1px);
+}
+
+.btn--toggle-main--active {
+  background: rgba(250, 204, 21, 0.18);
+  border-color: rgba(250, 204, 21, 0.4);
+  color: #fde68a;
+}
+
+.btn--toggle-main--active:hover:not(:disabled) {
+  background: rgba(250, 204, 21, 0.25);
+  border-color: rgba(250, 204, 21, 0.5);
+  transform: translateY(-1px);
+}
+
+.btn--toggle-main:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.character-error {
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.75rem;
+  background: rgba(248, 113, 113, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+  font-size: 0.9rem;
+}
+
+.btn--secondary {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #cbd5f5;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.35);
+  transition: background 0.2s ease, transform 0.12s ease, border-color 0.2s ease;
+}
+
+.btn--secondary:hover {
+  transform: translateY(-2px);
+  background: rgba(51, 65, 85, 0.85);
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.btn--secondary:focus {
+  outline: 2px solid rgba(148, 163, 184, 0.45);
+  outline-offset: 2px;
+}
+
+.attendance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attendance-list__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.9rem;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.attendance-list__item--expanded {
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.4);
+}
+
+.attendance-list__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attendance-list__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.attendance-list__meta {
+  margin-top: 0.25rem;
+}
+
+.attendance-list__summary {
+  margin-top: 0.2rem;
+}
+
+.attendance-list__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.attendance-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  transform: rotate(90deg);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.attendance-toggle-icon--expanded {
+  transform: rotate(-90deg);
+  background: rgba(96, 165, 250, 0.25);
+}
+
+.attendance-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.attendance-badge--positive {
+  background: rgba(45, 212, 191, 0.2);
+  color: #99f6e4;
+  border-color: rgba(45, 212, 191, 0.45);
+}
+
+.attendance-badge--negative {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.attendance-badge--warning {
+  background: rgba(250, 204, 21, 0.2);
+  color: #fef3c7;
+  border-color: rgba(250, 204, 21, 0.45);
+}
+
+.attendance-badge--neutral {
+  background: rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.attendance-details {
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  padding-top: 0.75rem;
+}
+
+.attendance-records {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attendance-records__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.7rem;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.attendance-records__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.record-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.record-name {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.record-class {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.class-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.badge--main {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.45), rgba(251, 191, 36, 0.25));
+  color: #fef3c7;
+  border-color: rgba(252, 211, 77, 0.4);
+  box-shadow: 0 2px 6px rgba(250, 204, 21, 0.18);
 }
 </style>

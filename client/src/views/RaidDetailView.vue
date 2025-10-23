@@ -116,8 +116,9 @@
           v-for="event in attendanceEvents"
           :key="event.id"
           class="attendance-list__item"
+          @click="openAttendanceEvent(event)"
         >
-          <div class="event-main" @click.stop="openAttendanceEvent(event)">
+          <div class="event-main">
             <div class="event-header">
               <strong>{{ formatDate(event.createdAt) }}</strong>
               <span
@@ -129,19 +130,14 @@
             </div>
             <span class="muted attendees">{{ resolveEventSubtitle(event) }}</span>
           </div>
-          <div class="event-actions">
-            <button class="icon-button" @click.stop="openAttendanceEvent(event)">
-              View
-            </button>
-            <button
-              v-if="canManageRaid"
-              class="icon-button icon-button--danger"
-              :disabled="deletingAttendanceId === event.id"
-              @click.stop="confirmDeleteAttendance(event)"
-            >
-              {{ deletingAttendanceId === event.id ? 'Deleting…' : 'Delete' }}
-            </button>
-          </div>
+          <button
+            v-if="canManageRaid"
+            class="icon-button icon-button--danger"
+            :disabled="deletingAttendanceId === event.id"
+            @click.stop="confirmDeleteAttendance(event)"
+          >
+            {{ deletingAttendanceId === event.id ? 'Deleting…' : 'Delete' }}
+          </button>
         </li>
       </ul>
     </section>
@@ -182,14 +178,18 @@ import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import { api } from '../services/api';
-import type { AttendanceRecordInput, RaidDetail } from '../services/api';
+import type {
+  AttendanceEventSummary,
+  AttendanceRecordInput,
+  RaidDetail
+} from '../services/api';
 
 const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
 
 const raid = ref<RaidDetail | null>(null);
-const attendanceEvents = ref<any[]>([]);
+const attendanceEvents = ref<AttendanceEventSummary[]>([]);
 const deletingAttendanceId = ref<string | null>(null);
 const attendanceLoading = ref(false);
 const showRosterModal = ref(false);
@@ -197,7 +197,7 @@ const rosterPreview = ref<AttendanceRecordInput[] | null>(null);
 const rosterMeta = ref<{ filename: string; uploadedAt: string } | null>(null);
 const submittingAttendance = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
-const selectedAttendanceEvent = ref<any | null>(null);
+const selectedAttendanceEvent = ref<AttendanceEventSummary | null>(null);
 const startedAtInput = ref('');
 const endedAtInput = ref('');
 const initialStartedAt = ref('');

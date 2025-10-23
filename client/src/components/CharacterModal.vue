@@ -38,9 +38,13 @@
         </label>
 
         <label class="form__checkbox">
-          <input v-model="form.isMain" type="checkbox" />
+          <input v-model="form.isMain" type="checkbox" :disabled="!props.canSetMain" />
           <span>Main character</span>
         </label>
+        <p v-if="!props.canSetMain" class="hint muted">
+          You already have two main characters. Unset one before promoting another.
+        </p>
+        <p v-if="errorMessage" class="form__error">{{ errorMessage }}</p>
 
         <footer class="form__actions">
           <button class="btn btn--outline" type="button" @click="close">Cancel</button>
@@ -54,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { reactive, ref, watch } from 'vue';
 
 import type { GuildSummary } from '../services/api';
 import type { CharacterClass } from '../services/types';
@@ -62,6 +66,7 @@ import { api } from '../services/api';
 
 const props = defineProps<{
   guilds: GuildSummary[];
+  canSetMain: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -93,17 +98,37 @@ const form = reactive({
   level: 60,
   class: '' as CharacterClass | '',
   guildId: '',
-  isMain: true
+  isMain: false
 });
 
 const submitting = ref(false);
+const errorMessage = ref('');
+
+watch(
+  () => props.canSetMain,
+  (value) => {
+    if (!value) {
+      form.isMain = false;
+    } else if (!submitting.value) {
+      form.isMain = true;
+    }
+  },
+  { immediate: true }
+);
 
 function close() {
+  form.name = '';
+  form.level = 60;
+  form.class = '' as CharacterClass | '';
+  form.guildId = '';
+  form.isMain = props.canSetMain;
+  errorMessage.value = '';
   emit('close');
 }
 
 async function submit() {
   submitting.value = true;
+  errorMessage.value = '';
   try {
     await api.createCharacter({
       name: form.name,
@@ -112,10 +137,41 @@ async function submit() {
       guildId: form.guildId || undefined,
       isMain: form.isMain
     });
+    form.name = '';
+    form.level = 60;
+    form.class = '' as CharacterClass | '';
+    form.guildId = '';
+    form.isMain = props.canSetMain;
+    errorMessage.value = '';
     emit('created');
+  } catch (error) {
+    errorMessage.value = extractErrorMessage(error, 'Unable to create character.');
+    submitting.value = false;
+    return;
   } finally {
     submitting.value = false;
   }
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null) {
+    if ('response' in error && typeof (error as any).response === 'object') {
+      const response = (error as { response?: { data?: unknown } }).response;
+      const data = response?.data;
+      if (typeof data === 'object' && data !== null) {
+        if ('message' in data && typeof (data as { message?: unknown }).message === 'string') {
+          return (data as { message: string }).message;
+        }
+        if ('error' in data && typeof (data as { error?: unknown }).error === 'string') {
+          return (data as { error: string }).error as string;
+        }
+      }
+    }
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+  }
+  return fallback;
 }
 </script>
 
@@ -174,6 +230,16 @@ async function submit() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.form__error {
+  margin: 0;
+  color: #fecaca;
 }
 
 .form__actions {

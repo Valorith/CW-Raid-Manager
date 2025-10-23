@@ -14,6 +14,7 @@ export interface GuildSummary {
     user: {
       id: string;
       displayName: string;
+      nickname?: string | null;
     };
   }>;
 }
@@ -27,6 +28,7 @@ export interface GuildDetail extends GuildSummary {
     user: {
       id: string;
       displayName: string;
+      nickname?: string | null;
     };
   }>;
 }
@@ -38,6 +40,18 @@ export interface CharacterPayload {
   guildId?: string;
   archetype?: string | null;
   isMain?: boolean;
+}
+
+export interface UserCharacter {
+  id: string;
+  name: string;
+  level: number;
+  class: CharacterClass;
+  guild?: {
+    id: string;
+    name: string;
+  } | null;
+  isMain: boolean;
 }
 
 export interface RaidEventSummary {
@@ -68,7 +82,7 @@ export interface AttendanceEventSummary {
   createdAt: string;
   note?: string | null;
   eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
-  records: AttendanceRecordInput[];
+  records: AttendanceRecordSummary[];
 }
 
 export interface RaidDetail extends RaidEventSummary {
@@ -79,6 +93,7 @@ export interface RaidDetail extends RaidEventSummary {
   createdBy: {
     id: string;
     displayName: string;
+    nickname?: string | null;
   };
   attendance: AttendanceEventSummary[];
 }
@@ -90,6 +105,79 @@ export interface AttendanceRecordInput {
   groupNumber?: number | null;
   status?: AttendanceStatus;
   flags?: string | null;
+}
+
+export interface AttendanceRecordSummary {
+  id: string;
+  characterId: string | null;
+  characterName: string;
+  level?: number | null;
+  class?: CharacterClass | null;
+  groupNumber?: number | null;
+  status?: AttendanceStatus | null;
+  flags?: string | null;
+  isMain: boolean;
+}
+
+export interface RecentAttendanceRecord {
+  id: string;
+  characterId: string | null;
+  characterName: string;
+  status: AttendanceStatus;
+  flags?: string | null;
+  level?: number | null;
+  class?: CharacterClass | null;
+  isMain: boolean;
+}
+
+export interface RecentAttendanceEntry {
+  id: string;
+  createdAt: string;
+  eventType: 'LOG' | 'START' | 'END' | 'RESTART';
+  note?: string | null;
+  raid: {
+    id: string;
+    name: string;
+    startTime: string;
+    guild: {
+      id: string;
+      name: string;
+    };
+  };
+  characters: RecentAttendanceRecord[];
+}
+
+export interface AccountProfile {
+  userId: string;
+  email: string;
+  displayName: string;
+  nickname: string | null;
+}
+
+function normalizeAttendanceRecord(record: any): AttendanceRecordSummary {
+  return {
+    id: record.id,
+    characterId: record.characterId ?? null,
+    characterName: record.characterName,
+    level: record.level ?? null,
+    class: record.class ?? null,
+    groupNumber: record.groupNumber ?? null,
+    status: record.status ?? null,
+    flags: record.flags ?? null,
+    isMain: Boolean(record.isMain)
+  };
+}
+
+function normalizeAttendanceEvent(event: any): AttendanceEventSummary {
+  return {
+    id: event.id,
+    createdAt: event.createdAt,
+    note: event.note ?? null,
+    eventType: event.eventType ?? undefined,
+    records: Array.isArray(event.records)
+      ? event.records.map(normalizeAttendanceRecord)
+      : []
+  };
 }
 
 export const api = {
@@ -112,13 +200,21 @@ export const api = {
     return response.data.guild;
   },
 
-  async fetchUserCharacters(): Promise<any[]> {
+  async fetchUserCharacters(): Promise<UserCharacter[]> {
     const response = await axios.get('/api/characters');
     return response.data.characters;
   },
 
   async createCharacter(payload: CharacterPayload) {
     const response = await axios.post('/api/characters', payload);
+    return response.data.character;
+  },
+
+  async updateCharacter(
+    characterId: string,
+    payload: Partial<Pick<CharacterPayload, 'name' | 'level' | 'class' | 'archetype' | 'guildId' | 'isMain'>>
+  ) {
+    const response = await axios.patch(`/api/characters/${characterId}`, payload);
     return response.data.character;
   },
 
@@ -129,7 +225,13 @@ export const api = {
 
   async fetchRaid(raidId: string): Promise<RaidDetail> {
     const response = await axios.get(`/api/raids/${raidId}`);
-    return response.data.raid;
+    const raid = response.data.raid;
+    return {
+      ...raid,
+      attendance: Array.isArray(raid?.attendance)
+        ? raid.attendance.map(normalizeAttendanceEvent)
+        : []
+    };
   },
 
   async updateRaid(
@@ -184,14 +286,48 @@ export const api = {
       records: AttendanceRecordInput[];
       eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
     }
-  ) {
+  ): Promise<AttendanceEventSummary> {
     const response = await axios.post(`/api/attendance/raid/${raidEventId}`, payload);
-    return response.data.attendanceEvent;
+    return normalizeAttendanceEvent(response.data.attendanceEvent);
   },
 
-  async fetchAttendance(raidEventId: string) {
+  async fetchAttendance(raidEventId: string): Promise<AttendanceEventSummary[]> {
     const response = await axios.get(`/api/attendance/raid/${raidEventId}`);
-    return response.data.attendanceEvents;
+    const events = response.data.attendanceEvents ?? [];
+    return Array.isArray(events) ? events.map(normalizeAttendanceEvent) : [];
+  },
+
+  async fetchAccountProfile(): Promise<AccountProfile | null> {
+    const response = await axios.get('/api/account/profile');
+    return response.data.profile ?? null;
+  },
+
+  async updateAccountProfile(payload: { nickname?: string | null }): Promise<AccountProfile> {
+    const response = await axios.patch('/api/account/profile', payload);
+    return response.data.profile;
+  },
+
+  async fetchRecentAttendance(limit?: number): Promise<RecentAttendanceEntry[]> {
+    const response = await axios.get('/api/attendance/user/recent', {
+      params: limit ? { limit } : undefined
+    });
+    const attendance = response.data.attendance ?? [];
+    if (!Array.isArray(attendance)) {
+      return [];
+    }
+
+    return attendance.map((event: any) => ({
+      ...event,
+      characters: Array.isArray(event.characters)
+        ? event.characters.map((record: any) => {
+            const normalized = normalizeAttendanceRecord(record);
+            return {
+              ...normalized,
+              status: (record.status ?? normalized.status ?? 'PRESENT') as AttendanceStatus
+            };
+          })
+        : []
+    }));
   },
 
   async startRaid(raidId: string) {

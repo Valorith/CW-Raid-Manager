@@ -76,7 +76,22 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       select: {
         id: true,
         email: true,
-        displayName: true
+        displayName: true,
+        nickname: true,
+        guildMemberships: {
+          select: {
+            role: true,
+            guild: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'asc'
+          }
+        }
       }
     });
 
@@ -88,7 +103,13 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       user: {
         userId: user.id,
         email: user.email,
-        displayName: user.displayName
+        displayName: user.nickname ?? user.displayName,
+        nickname: user.nickname ?? null,
+        guilds: user.guildMemberships.map((membership) => ({
+          id: membership.guild.id,
+          name: membership.guild.name,
+          role: membership.role
+        }))
       }
     };
   });

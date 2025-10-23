@@ -7,7 +7,8 @@ import {
   createAttendanceEvent,
   deleteAttendanceEvent,
   getAttendanceEvent,
-  listAttendanceEvents
+  listAttendanceEvents,
+  listRecentAttendanceForUser
 } from '../services/attendanceService.js';
 import {
   ensureUserCanEditRaid,
@@ -17,6 +18,22 @@ import {
 import { parseRaidRoster } from '../utils/raidRosterParser.js';
 
 export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
+  server.get('/user/recent', { preHandler: [authenticate] }, async (request, reply) => {
+    const querySchema = z.object({
+      limit: z.coerce.number().int().min(1).max(50).optional()
+    });
+
+    const parsedQuery = querySchema.safeParse(request.query ?? {});
+    if (!parsedQuery.success) {
+      return reply.badRequest('Invalid query parameters.');
+    }
+
+    const limit = parsedQuery.data.limit ?? 10;
+
+    const attendance = await listRecentAttendanceForUser(request.user.userId, limit);
+    return { attendance };
+  });
+
   server.get('/raid/:raidEventId', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({
       raidEventId: z.string()

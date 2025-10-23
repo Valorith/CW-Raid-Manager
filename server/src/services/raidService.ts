@@ -1,5 +1,6 @@
 import { GuildRole, Prisma } from '@prisma/client';
 
+import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 
@@ -35,7 +36,7 @@ async function ensureCanManageRaid(userId: string, guildId: string) {
 }
 
 export async function listRaidEventsForGuild(guildId: string) {
-  return prisma.raidEvent.findMany({
+  const raids = await prisma.raidEvent.findMany({
     where: { guildId },
     orderBy: {
       startTime: 'desc'
@@ -44,7 +45,8 @@ export async function listRaidEventsForGuild(guildId: string) {
       createdBy: {
         select: {
           id: true,
-          displayName: true
+          displayName: true,
+          nickname: true
         }
       },
       attendance: {
@@ -56,6 +58,10 @@ export async function listRaidEventsForGuild(guildId: string) {
       }
     }
   });
+  return raids.map((raid) => ({
+    ...raid,
+    createdBy: withPreferredDisplayName(raid.createdBy)
+  }));
 }
 
 export async function createRaidEvent(input: CreateRaidInput) {
@@ -116,7 +122,7 @@ export async function updateRaidEvent(
 }
 
 export async function getRaidEventById(raidId: string) {
-  return prisma.raidEvent.findUnique({
+  const raid = await prisma.raidEvent.findUnique({
     where: { id: raidId },
     include: {
       guild: {
@@ -128,7 +134,8 @@ export async function getRaidEventById(raidId: string) {
       createdBy: {
         select: {
           id: true,
-          displayName: true
+          displayName: true,
+          nickname: true
         }
       },
       attendance: {
@@ -138,6 +145,13 @@ export async function getRaidEventById(raidId: string) {
       }
     }
   });
+  if (!raid) {
+    return null;
+  }
+  return {
+    ...raid,
+    createdBy: withPreferredDisplayName(raid.createdBy)
+  };
 }
 
 export async function startRaidEvent(raidId: string, userId: string) {

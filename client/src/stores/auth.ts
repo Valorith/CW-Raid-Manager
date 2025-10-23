@@ -1,10 +1,20 @@
 import axios from 'axios';
 import { defineStore } from 'pinia';
 
+import type { GuildRole } from '../services/types';
+
 export interface AuthenticatedUser {
   userId: string;
   email: string;
   displayName?: string;
+  nickname?: string | null;
+  guilds: UserGuildSummary[];
+}
+
+export interface UserGuildSummary {
+  id: string;
+  name: string;
+  role: GuildRole;
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -13,7 +23,10 @@ export const useAuthStore = defineStore('auth', {
     loading: false
   }),
   getters: {
-    isAuthenticated: (state) => !!state.user
+    isAuthenticated: (state) => !!state.user,
+    preferredName: (state) =>
+      state.user?.nickname ?? state.user?.displayName ?? null,
+    primaryGuild: (state) => state.user?.guilds?.[0] ?? null
   },
   actions: {
     async fetchCurrentUser() {
@@ -24,7 +37,9 @@ export const useAuthStore = defineStore('auth', {
           this.user = {
             userId: response.data.user.userId,
             email: response.data.user.email,
-            displayName: response.data.user.displayName
+            displayName: response.data.user.displayName,
+            nickname: response.data.user.nickname ?? null,
+            guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : []
           };
         } else {
           this.user = null;

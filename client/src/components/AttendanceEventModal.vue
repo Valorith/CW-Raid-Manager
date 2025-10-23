@@ -41,9 +41,25 @@
           </thead>
           <tbody>
             <tr v-for="(record, index) in event.records" :key="index">
-              <td>{{ record.characterName }}</td>
+              <td class="name-cell">
+                <span class="name-wrapper">
+                  {{ record.characterName }}
+                  <span v-if="record.isMain" class="badge badge--main">Main</span>
+                </span>
+              </td>
               <td>{{ record.level ?? '—' }}</td>
-              <td>{{ record.class ?? '—' }}</td>
+              <td class="class-cell">
+                <span v-if="record.class" class="class-wrapper">
+                  <img
+                    v-if="getCharacterClassIcon(record.class)"
+                    :src="getCharacterClassIcon(record.class)"
+                    :alt="formatClass(record.class)"
+                    class="class-icon"
+                  />
+                  <span>{{ formatClass(record.class) }}</span>
+                </span>
+                <span v-else>—</span>
+              </td>
               <td>{{ formatStatus(record.status) }}</td>
               <td>{{ record.groupNumber ?? '—' }}</td>
               <td>{{ record.flags || '—' }}</td>
@@ -58,22 +74,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import type { AttendanceStatus } from '../services/types';
-
-interface AttendanceRecord {
-  characterName: string;
-  level?: number | null;
-  class?: string | null;
-  status?: AttendanceStatus | null;
-  groupNumber?: number | null;
-  flags?: string | null;
-}
+import type { AttendanceRecordSummary } from '../services/api';
+import type { AttendanceStatus, CharacterClass } from '../services/types';
+import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 
 interface AttendanceEvent {
   id: string;
   createdAt: string;
   note?: string | null;
-  records: AttendanceRecord[];
+  records: AttendanceRecordSummary[];
 }
 
 const props = defineProps<{
@@ -113,6 +122,14 @@ const visibleStatuses = computed(() =>
 
 function close() {
   emit('close');
+}
+
+function formatClass(characterClass?: CharacterClass | null) {
+  if (!characterClass) {
+    return '—';
+  }
+
+  return characterClassLabels[characterClass] ?? characterClass;
 }
 
 function formatStatus(status?: AttendanceStatus | null) {
@@ -223,6 +240,53 @@ td {
   text-align: left;
   padding: 0.75rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.name-cell {
+  white-space: nowrap;
+}
+
+.name-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.class-cell {
+  white-space: nowrap;
+}
+
+.class-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.class-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.badge--main {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.45), rgba(251, 191, 36, 0.25));
+  color: #fef3c7;
+  border-color: rgba(252, 211, 77, 0.4);
+  box-shadow: 0 2px 6px rgba(250, 204, 21, 0.18);
 }
 
 tbody tr:nth-child(even) {
