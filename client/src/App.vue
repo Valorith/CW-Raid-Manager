@@ -8,6 +8,7 @@
         <RouterLink to="/dashboard" class="nav__link">Dashboard</RouterLink>
         <RouterLink :to="guildNavTo" class="nav__link">{{ guildNavLabel }}</RouterLink>
         <RouterLink to="/raids" class="nav__link">Raids</RouterLink>
+        <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
       </nav>
       <div class="auth">
         <RouterLink

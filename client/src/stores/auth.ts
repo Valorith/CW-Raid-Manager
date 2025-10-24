@@ -8,13 +8,26 @@ export interface AuthenticatedUser {
   email: string;
   displayName?: string;
   nickname?: string | null;
+  isAdmin: boolean;
   guilds: UserGuildSummary[];
+  pendingApplication: PendingGuildApplication | null;
 }
 
 export interface UserGuildSummary {
   id: string;
   name: string;
   role: GuildRole;
+}
+
+export interface PendingGuildApplication {
+  id: string;
+  guildId: string;
+  status: string;
+  guild: {
+    id: string;
+    name: string;
+    description?: string | null;
+  };
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -24,9 +37,10 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     isAuthenticated: (state) => !!state.user,
-    preferredName: (state) =>
-      state.user?.nickname ?? state.user?.displayName ?? null,
-    primaryGuild: (state) => state.user?.guilds?.[0] ?? null
+    preferredName: (state) => state.user?.nickname ?? state.user?.displayName ?? null,
+    isAdmin: (state) => state.user?.isAdmin ?? false,
+    primaryGuild: (state) => state.user?.guilds?.[0] ?? null,
+    pendingApplication: (state) => state.user?.pendingApplication ?? null
   },
   actions: {
     async fetchCurrentUser() {
@@ -39,7 +53,9 @@ export const useAuthStore = defineStore('auth', {
             email: response.data.user.email,
             displayName: response.data.user.displayName,
             nickname: response.data.user.nickname ?? null,
-            guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : []
+            isAdmin: Boolean(response.data.user.isAdmin),
+            guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
+            pendingApplication: response.data.user.pendingApplication ?? null
           };
         } else {
           this.user = null;

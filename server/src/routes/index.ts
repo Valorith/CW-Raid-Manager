@@ -6,6 +6,7 @@ import { charactersRoutes } from './characters.js';
 import { guildRoutes } from './guilds.js';
 import { raidsRoutes } from './raids.js';
 import { accountRoutes } from './account.js';
+import { adminRoutes } from './admin.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -14,4 +15,5 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(raidsRoutes, { prefix: '/api/raids' });
   server.register(attendanceRoutes, { prefix: '/api/attendance' });
   server.register(accountRoutes, { prefix: '/api/account' });
+  server.register(adminRoutes, { prefix: '/api/admin' });
 }

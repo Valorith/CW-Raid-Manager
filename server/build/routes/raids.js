@@ -27,7 +27,13 @@ export async function raidsRoutes(server) {
                 role: membershipRole
             }
         }));
-        return { raids: enrichedRaids };
+        return {
+            raids: enrichedRaids,
+            permissions: {
+                canManage,
+                role: membershipRole
+            }
+        };
     });
     server.get('/:raidId', {
         preHandler: [authenticate]

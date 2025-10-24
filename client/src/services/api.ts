@@ -31,6 +31,9 @@ export interface GuildDetail extends GuildSummary {
       nickname?: string | null;
     };
   }>;
+  applicants?: GuildApplicant[];
+  permissions?: GuildPermissions;
+  viewerApplication?: GuildApplicationSummary | null;
 }
 
 export interface CharacterPayload {
@@ -52,6 +55,34 @@ export interface UserCharacter {
     name: string;
   } | null;
   isMain: boolean;
+}
+
+export interface GuildApplicationSummary {
+  id: string;
+  guildId: string;
+  status: string;
+  guild?: {
+    id: string;
+    name: string;
+    description?: string | null;
+  } | null;
+}
+
+export interface GuildApplicant {
+  id: string;
+  createdAt: string;
+  user: {
+    id: string;
+    displayName: string;
+    nickname?: string | null;
+  };
+}
+
+export interface GuildPermissions {
+  canViewDetails: boolean;
+  canManageMembers: boolean;
+  canViewApplicants: boolean;
+  userRole?: GuildRole | null;
 }
 
 export interface RaidEventSummary {
@@ -154,6 +185,53 @@ export interface AccountProfile {
   nickname: string | null;
 }
 
+export interface AdminUserGuildMembership {
+  guild: {
+    id: string;
+    name: string;
+  };
+  role: GuildRole;
+  createdAt: string;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  email: string;
+  displayName: string;
+  nickname?: string | null;
+  isAdmin: boolean;
+  createdAt: string;
+  updatedAt: string;
+  guildMemberships: AdminUserGuildMembership[];
+}
+
+export interface AdminGuildSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  slug: string;
+  memberCount: number;
+  characterCount: number;
+  raidCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminGuildMemberSummary {
+  user: {
+    id: string;
+    email: string;
+    displayName: string;
+    nickname?: string | null;
+  };
+  role: GuildRole;
+  joinedAt: string;
+}
+
+export interface AdminGuildDetail extends AdminGuildSummary {
+  members: AdminGuildMemberSummary[];
+}
+
 function normalizeAttendanceRecord(record: any): AttendanceRecordSummary {
   return {
     id: record.id,
@@ -177,6 +255,78 @@ function normalizeAttendanceEvent(event: any): AttendanceEventSummary {
     records: Array.isArray(event.records)
       ? event.records.map(normalizeAttendanceRecord)
       : []
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => {
+        if (typeof entry === 'string') {
+          return entry.trim();
+        }
+        if (entry === null || entry === undefined) {
+          return '';
+        }
+        return String(entry).trim();
+      })
+      .filter((entry) => entry.length > 0);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+
+  return [];
+}
+
+function normalizeNullableDate(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = new Date(value as string);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function normalizeDateString(value: unknown): string {
+  const normalized = normalizeNullableDate(value);
+  return normalized ?? '';
+}
+
+function normalizeRaidSummary(
+  raid: any,
+  options?: { includeAttendance?: boolean }
+): RaidEventSummary {
+  const includeAttendance = options?.includeAttendance ?? false;
+
+  const attendance = includeAttendance && Array.isArray(raid?.attendance)
+    ? raid.attendance.map((event: any) => ({
+        id: event.id,
+        createdAt: event.createdAt,
+        eventType: event.eventType ?? undefined
+      }))
+    : [];
+
+  return {
+    id: raid?.id ?? '',
+    guildId: raid?.guildId ?? '',
+    name: raid?.name ?? '',
+    startTime: normalizeDateString(raid?.startTime),
+    startedAt: normalizeNullableDate(raid?.startedAt),
+    endedAt: normalizeNullableDate(raid?.endedAt),
+    targetZones: normalizeStringArray(raid?.targetZones),
+    targetBosses: normalizeStringArray(raid?.targetBosses),
+    notes: typeof raid?.notes === 'string' ? raid.notes : raid?.notes ?? null,
+    isActive: Boolean(raid?.isActive),
+    permissions: raid?.permissions ?? undefined,
+    attendance
   };
 }
 
@@ -222,8 +372,13 @@ export const api = {
     guildId: string
   ): Promise<{ raids: RaidEventSummary[]; permissions: { canManage: boolean; role: GuildRole } }> {
     const response = await axios.get(`/api/raids/guild/${guildId}`);
+    const normalizedRaids = Array.isArray(response.data.raids)
+      ? response.data.raids.map((raid: any) =>
+          normalizeRaidSummary(raid, { includeAttendance: true })
+        )
+      : [];
     return {
-      raids: response.data.raids ?? [],
+      raids: normalizedRaids,
       permissions: response.data.permissions ?? { canManage: false, role: 'MEMBER' }
     };
   },
@@ -231,8 +386,10 @@ export const api = {
   async fetchRaid(raidId: string): Promise<RaidDetail> {
     const response = await axios.get(`/api/raids/${raidId}`);
     const raid = response.data.raid;
+    const normalizedSummary = normalizeRaidSummary(raid);
     return {
       ...raid,
+      ...normalizedSummary,
       attendance: Array.isArray(raid?.attendance)
         ? raid.attendance.map(normalizeAttendanceEvent)
         : []
@@ -368,5 +525,90 @@ export const api = {
   async deleteGuildMember(guildId: string, memberId: string) {
     await axios.delete(`/api/guilds/${guildId}/members/${memberId}`);
   },
+
+  async applyToGuild(guildId: string) {
+    const response = await axios.post(`/api/guilds/${guildId}/applications`);
+    return response.data.application;
+  },
+
+  async withdrawGuildApplication(guildId: string) {
+    await axios.delete(`/api/guilds/${guildId}/applications`);
+  },
+
+  async fetchMyGuildApplication(): Promise<GuildApplicationSummary | null> {
+    const response = await axios.get('/api/guilds/applications/me');
+    return response.data.application ?? null;
+  },
+
+  async approveGuildApplication(guildId: string, applicationId: string) {
+    await axios.post(`/api/guilds/${guildId}/applications/${applicationId}/approve`);
+  },
+
+  async denyGuildApplication(guildId: string, applicationId: string) {
+    await axios.post(`/api/guilds/${guildId}/applications/${applicationId}/deny`);
+  },
+
+  async fetchAdminUsers(): Promise<AdminUserSummary[]> {
+    const response = await axios.get('/api/admin/users');
+    return Array.isArray(response.data.users) ? response.data.users : [];
+  },
+
+  async updateAdminUser(
+    userId: string,
+    payload: { admin?: boolean; displayName?: string; nickname?: string | null; email?: string }
+  ): Promise<AdminUserSummary> {
+    const response = await axios.patch(`/api/admin/users/${userId}`, payload);
+    return response.data.user;
+  },
+
+  async deleteAdminUser(userId: string) {
+    await axios.delete(`/api/admin/users/${userId}`);
+  },
+
+  async fetchAdminGuilds(): Promise<AdminGuildSummary[]> {
+    const response = await axios.get('/api/admin/guilds');
+    return Array.isArray(response.data.guilds) ? response.data.guilds : [];
+  },
+
+  async fetchAdminGuildDetail(guildId: string): Promise<AdminGuildDetail> {
+    const response = await axios.get(`/api/admin/guilds/${guildId}`);
+    return response.data.guild;
+  },
+
+  async updateAdminGuild(
+    guildId: string,
+    payload: { name?: string; description?: string | null }
+  ): Promise<AdminGuildSummary> {
+    const response = await axios.patch(`/api/admin/guilds/${guildId}`, payload);
+    return response.data.guild;
+  },
+
+  async deleteAdminGuild(guildId: string) {
+    await axios.delete(`/api/admin/guilds/${guildId}`);
+  },
+
+  async addAdminGuildMember(
+    guildId: string,
+    payload: { userId: string; role: GuildRole }
+  ): Promise<AdminGuildMemberSummary> {
+    const response = await axios.post(`/api/admin/guilds/${guildId}/members`, payload);
+    return response.data.membership;
+  },
+
+  async updateAdminGuildMemberRole(
+    guildId: string,
+    userId: string,
+    payload: { role: GuildRole }
+  ): Promise<AdminGuildMemberSummary> {
+    const response = await axios.patch(
+      `/api/admin/guilds/${guildId}/members/${userId}`,
+      payload
+    );
+    return response.data.membership;
+  },
+
+  async removeAdminGuildMember(guildId: string, userId: string) {
+    await axios.delete(`/api/admin/guilds/${guildId}/members/${userId}`);
+  }
 
 };

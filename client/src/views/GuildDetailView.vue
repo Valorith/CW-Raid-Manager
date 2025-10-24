@@ -1,5 +1,6 @@
 <template>
-  <section v-if="guild" class="guild-detail">
+  <section v-if="guild">
+    <div v-if="canViewDetails" class="guild-detail">
     <header class="section-header section-header--guild">
       <div class="guild-header guild-header--stack">
         <h1 class="guild-title">{{ guild.name }}</h1>
@@ -24,12 +25,12 @@
           />
           <div class="member-filter-buttons">
             <button
-              v-for="role in ['ALL', ...guildRoleOrder]"
+              v-for="role in memberRoleFilterOptions"
               :key="role"
               :class="['member-filter-button', { 'member-filter-button--active': memberRoleFilter === role }]"
-              @click="memberRoleFilter = role as GuildRole | 'ALL'"
+              @click="memberRoleFilter = role"
             >
-              {{ role === 'ALL' ? 'All' : roleLabels[role as GuildRole] ?? role }}
+              {{ formatMemberFilterLabel(role) }}
             </button>
           </div>
         </div>
@@ -38,33 +39,54 @@
           <li v-for="member in paginatedMembers" :key="member.id" class="list__item">
             <div>
               <strong>{{ preferredUserName(member.user) }}</strong>
-              <span class="muted role"> ({{ roleLabels[member.role] }})</span>
+              <span class="muted role"> ({{ formatMemberRole(member) }})</span>
+              <span v-if="isApplicantEntry(member)" class="muted applicant-meta">
+                Applied {{ formatDate(member.createdAt) }}
+              </span>
             </div>
             <div v-if="canAdjustMember(member)" class="member-actions">
-              <label class="muted small" :for="`role-${member.id}`">Role</label>
-              <select
-                :id="`role-${member.id}`"
-                :value="member.role"
-                :disabled="updatingMemberId === member.id"
-                @change="updateMemberRole(member, ($event.target as HTMLSelectElement).value as GuildRole)"
-              >
-                <option
-                  v-for="role in availableRoles(member)"
-                  :key="role"
-                  :value="role"
-                  :disabled="role === member.role"
+              <template v-if="isApplicantEntry(member)">
+                <button
+                  class="btn btn--accent btn--small"
+                  :disabled="approvingApplicantId === member.id"
+                  @click="approveApplicant(member)"
                 >
-                  {{ roleLabels[role] ?? role }}
-                </option>
-              </select>
-              <button
-                v-if="canRemoveMember(member)"
-                class="btn btn--danger btn--small"
-                :disabled="removingMemberId === member.id"
-                @click="removeMember(member)"
-              >
-                {{ removingMemberId === member.id ? 'Removing…' : 'Remove' }}
-              </button>
+                  {{ approvingApplicantId === member.id ? 'Approving…' : 'Approve' }}
+                </button>
+                <button
+                  class="btn btn--danger btn--small"
+                  :disabled="denyingApplicantId === member.id"
+                  @click="denyApplicant(member)"
+                >
+                  {{ denyingApplicantId === member.id ? 'Denying…' : 'Deny' }}
+                </button>
+              </template>
+              <template v-else>
+                <label class="muted small" :for="`role-${member.id}`">Role</label>
+                <select
+                  :id="`role-${member.id}`"
+                  :value="member.role"
+                  :disabled="updatingMemberId === member.id"
+                  @change="updateMemberRole(member, ($event.target as HTMLSelectElement).value as GuildRole)"
+                >
+                  <option
+                    v-for="role in availableRoles(member)"
+                    :key="role"
+                    :value="role"
+                    :disabled="role === member.role"
+                  >
+                    {{ roleLabels[role] ?? role }}
+                  </option>
+                </select>
+                <button
+                  v-if="canRemoveMember(member)"
+                  class="btn btn--danger btn--small"
+                  :disabled="removingMemberId === member.id"
+                  @click="removeMember(member)"
+                >
+                  {{ removingMemberId === member.id ? 'Removing…' : 'Remove' }}
+                </button>
+              </template>
             </div>
           </li>
         </ul>
@@ -168,19 +190,19 @@
       <p v-else-if="raids.length === 0" class="muted">No raid events scheduled yet.</p>
       <ul class="raid-list">
         <li
-          v-for="raid in renderableRaids"
-          :key="raid.id"
+          v-for="raidItem in renderableRaids"
+          :key="raidItem.id"
           class="raid-list__item"
           role="button"
           tabindex="0"
-          @click="openRaid(raid.id)"
-          @keydown.enter.prevent="openRaid(raid.id)"
-          @keydown.space.prevent="openRaid(raid.id)"
+          @click="openRaid(raidItem.id)"
+          @keydown.enter.prevent="openRaid(raidItem.id)"
+          @keydown.space.prevent="openRaid(raidItem.id)"
         >
           <div>
-            <strong>{{ raid.name }}</strong>
+            <strong>{{ raidItem.name }}</strong>
             <span class="muted raid-meta">
-              {{ formatDate(raid.startTime) }} • {{ formatTargetZones(raid.targetZones) }}
+              {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
             </span>
           </div>
           <span class="muted arrow">Open</span>
@@ -188,12 +210,45 @@
       </ul>
     </section>
 
-    <RaidModal
-      v-if="showRaidModal"
-      :guild-id="guild.id"
-      @close="showRaidModal = false"
-      @created="handleRaidCreated"
-    />
+      <RaidModal
+        v-if="showRaidModal"
+        :guild-id="guild.id"
+        @close="showRaidModal = false"
+        @created="handleRaidCreated"
+      />
+    </div>
+    <div v-else class="guild-summary">
+      <div class="guild-summary__body">
+        <h1>{{ guild.name }}</h1>
+        <p v-if="guild.description" class="muted">
+          {{ guild.description }}
+        </p>
+        <div class="guild-summary__actions">
+          <button
+            v-if="canApplyToGuild"
+            class="cta-button cta-button--apply"
+            :disabled="applying"
+            @click="applyToCurrentGuild"
+          >
+            {{ applying ? 'Applying…' : 'Apply to Join' }}
+          </button>
+          <button
+            v-if="showWithdrawButton"
+            class="cta-button cta-button--withdraw"
+            :disabled="withdrawingApplication"
+            @click="withdrawCurrentApplication"
+          >
+            {{ withdrawingApplication ? 'Withdrawing…' : 'Withdraw Application' }}
+          </button>
+        </div>
+        <p v-if="pendingForThisGuild" class="muted small">Application pending review.</p>
+        <p v-else-if="pendingElsewhere" class="muted small">
+          You already have an active application with {{ pendingApplication?.guild?.name ?? 'another guild' }}.
+          Withdraw it before applying here.
+        </p>
+        <p v-if="applicationError" class="error">{{ applicationError }}</p>
+      </div>
+    </div>
   </section>
   <p v-else class="muted">Loading guild…</p>
 </template>
@@ -203,7 +258,13 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
-import { api, type GuildDetail, type RaidEventSummary } from '../services/api';
+import {
+  api,
+  type GuildDetail,
+  type RaidEventSummary,
+  type GuildApplicant,
+  type GuildApplicationSummary
+} from '../services/api';
 import type { GuildRole, CharacterClass } from '../services/types';
 import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../services/types';
 import { useAuthStore } from '../stores/auth';
@@ -213,6 +274,14 @@ const route = useRoute();
 const guildId = route.params.guildId as string;
 
 type GuildMember = GuildDetail['members'][number];
+interface ApplicantMember {
+  id: string;
+  role: 'APPLICANT';
+  user: GuildMember['user'];
+  createdAt: string;
+  isApplicant: true;
+}
+type GuildMemberEntry = GuildMember | ApplicantMember;
 
 const guild = ref<GuildDetail | null>(null);
 const raids = ref<RaidEventSummary[]>([]);
@@ -238,8 +307,31 @@ const canPlanRaid = computed(() => {
 });
 
 
+const pendingApplication = computed(() => authStore.pendingApplication);
+const viewerApplication = computed(() => guild.value?.viewerApplication ?? null);
+const hasPrimaryGuild = computed(() => Boolean(authStore.primaryGuild));
+const pendingForThisGuild = computed(() => {
+  if (viewerApplication.value?.status === 'PENDING') {
+    return true;
+  }
+  return pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING';
+});
+const pendingElsewhere = computed(() => {
+  if (!pendingApplication.value) {
+    return false;
+  }
+  return pendingApplication.value.guildId !== guildId && pendingApplication.value.status === 'PENDING';
+});
+
+const canApplyToGuild = computed(() => !canViewDetails.value && !hasPrimaryGuild.value && !pendingForThisGuild.value && !pendingElsewhere.value);
+const showWithdrawButton = computed(() => pendingForThisGuild.value);
+
+const applying = ref(false);
+const withdrawingApplication = ref(false);
+const applicationError = ref<string | null>(null);
+
 const memberSearch = ref('');
-const memberRoleFilter = ref<GuildRole | 'ALL'>('ALL');
+const memberRoleFilter = ref<'ALL' | GuildRole | 'APPLICANT'>('ALL');
 const memberPage = ref(1);
 const membersPerPage = 10;
 
@@ -248,21 +340,64 @@ const characterClassFilter = ref<'ALL' | 'MAIN' | CharacterClass>('ALL');
 const characterPage = ref(1);
 const charactersPerPage = 10;
 
-const filteredMembers = computed(() => {
-  if (!guild.value) {
-    return [] as GuildMember[];
+const guildPermissions = computed(() => guild.value?.permissions ?? null);
+const canViewDetails = computed(() => guildPermissions.value?.canViewDetails ?? false);
+const canManageMembers = computed(() => guildPermissions.value?.canManageMembers ?? false);
+const canViewApplicants = computed(() => guildPermissions.value?.canViewApplicants ?? false);
+
+const applicantEntries = computed<ApplicantMember[]>(() => {
+  if (!canViewApplicants.value || !guild.value?.applicants) {
+    return [];
   }
 
+  return guild.value.applicants.map((application) => ({
+    id: application.id,
+    role: 'APPLICANT' as const,
+    createdAt: application.createdAt,
+    user: application.user,
+    isApplicant: true
+  }));
+});
+
+const combinedMembers = computed<GuildMemberEntry[]>(() => {
+  const baseMembers = guild.value?.members ?? [];
+  if (!canViewApplicants.value) {
+    return baseMembers;
+  }
+
+  return [...baseMembers, ...applicantEntries.value];
+});
+
+const memberRoleFilterOptions = computed(() => {
+  const base: Array<'ALL' | GuildRole | 'APPLICANT'> = ['ALL', ...guildRoleOrder];
+  if (canViewApplicants.value) {
+    return [...base, 'APPLICANT'];
+  }
+  return base;
+});
+
+const filteredMembers = computed(() => {
   const query = memberSearch.value.trim().toLowerCase();
   const roleFilter = memberRoleFilter.value;
 
-  return guild.value.members.filter((member) => {
+  return combinedMembers.value.filter((member) => {
     const name = preferredUserName(member.user)?.toLowerCase() ?? '';
-    const roleLabel = roleLabels[member.role]?.toLowerCase() ?? member.role.toLowerCase();
+    const roleLabel = 'role' in member ? roleLabels[(member as GuildMember).role]?.toLowerCase() ?? (member as GuildMember).role.toLowerCase() : 'applicant';
     const matchesQuery = !query || name.includes(query) || roleLabel.includes(query);
-    const matchesRole = roleFilter === 'ALL' || member.role === roleFilter;
 
-    return matchesQuery && matchesRole;
+    if (roleFilter === 'ALL') {
+      return matchesQuery;
+    }
+
+    if (roleFilter === 'APPLICANT') {
+      return matchesQuery && isApplicantEntry(member);
+    }
+
+    if (isApplicantEntry(member)) {
+      return false;
+    }
+
+    return matchesQuery && member.role === roleFilter;
   });
 });
 
@@ -310,9 +445,13 @@ const paginatedCharacters = computed(() => {
   return filteredCharacters.value.slice(start, start + charactersPerPage);
 });
 
-watch([memberSearch, memberRoleFilter, () => guild.value?.members], () => {
-  memberPage.value = 1;
-}, { deep: true });
+watch(
+  [memberSearch, memberRoleFilter, () => guild.value?.members, () => guild.value?.applicants],
+  () => {
+    memberPage.value = 1;
+  },
+  { deep: true }
+);
 
 watch(memberTotalPages, (total) => {
   if (memberPage.value > total) {
@@ -330,6 +469,14 @@ watch(characterTotalPages, (total) => {
   }
 });
 
+watch(canViewDetails, (value) => {
+  if (value) {
+    loadRaids();
+  } else {
+    raids.value = [];
+  }
+});
+
 function setMemberPage(page: number) {
   memberPage.value = Math.min(Math.max(1, page), memberTotalPages.value);
 }
@@ -342,7 +489,8 @@ const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
   OFFICER: 'Officer',
   RAID_LEADER: 'Raid Leader',
-  MEMBER: 'Member'
+  MEMBER: 'Member',
+  APPLICANT: 'Applicant'
 };
 
 async function loadGuild() {
@@ -368,7 +516,11 @@ const actorRole = computed<GuildRole | null>(() => {
   return membership?.role ?? null;
 });
 
-function canAdjustMember(member: GuildMember) {
+function canAdjustMember(member: GuildMemberEntry) {
+  if (isApplicantEntry(member)) {
+    return canViewApplicants.value;
+  }
+
   const actor = actorRole.value;
   if (!actor) {
     return false;
@@ -389,7 +541,11 @@ function canAdjustMember(member: GuildMember) {
   return actor === 'LEADER' || actor === 'OFFICER';
 }
 
-function availableRoles(member: GuildMember): GuildRole[] {
+function availableRoles(member: GuildMemberEntry): GuildRole[] {
+  if (isApplicantEntry(member)) {
+    return [];
+  }
+
   const actor = actorRole.value;
   const allowed = new Set<GuildRole>();
   allowed.add(member.role);
@@ -425,7 +581,11 @@ async function updateMemberRole(member: GuildMember, role: GuildRole) {
   }
 }
 
-function canRemoveMember(member: GuildMember) {
+function canRemoveMember(member: GuildMemberEntry) {
+  if (isApplicantEntry(member)) {
+    return false;
+  }
+
   const actor = actorRole.value;
   if (!actor) {
     return false;
@@ -446,8 +606,8 @@ function canRemoveMember(member: GuildMember) {
   return actor === 'LEADER' || actor === 'OFFICER';
 }
 
-async function removeMember(member: GuildMember) {
-  if (!guild.value || removingMemberId.value) {
+async function removeMember(member: GuildMemberEntry) {
+  if (!guild.value || removingMemberId.value || isApplicantEntry(member)) {
     return;
   }
 
@@ -466,6 +626,46 @@ async function removeMember(member: GuildMember) {
     window.alert(extractErrorMessage(error, 'Unable to remove guild member.'));
   } finally {
     removingMemberId.value = null;
+  }
+}
+
+const approvingApplicantId = ref<string | null>(null);
+const denyingApplicantId = ref<string | null>(null);
+
+async function approveApplicant(applicant: ApplicantMember) {
+  if (approvingApplicantId.value || denyingApplicantId.value) {
+    return;
+  }
+
+  approvingApplicantId.value = applicant.id;
+  try {
+    await api.approveGuildApplication(guildId, applicant.id);
+    await loadGuild();
+  } catch (error) {
+    window.alert(extractErrorMessage(error, 'Unable to approve application.'));
+  } finally {
+    approvingApplicantId.value = null;
+  }
+}
+
+async function denyApplicant(applicant: ApplicantMember) {
+  if (approvingApplicantId.value || denyingApplicantId.value) {
+    return;
+  }
+
+  const confirmed = window.confirm('Deny this guild application?');
+  if (!confirmed) {
+    return;
+  }
+
+  denyingApplicantId.value = applicant.id;
+  try {
+    await api.denyGuildApplication(guildId, applicant.id);
+    await loadGuild();
+  } catch (error) {
+    window.alert(extractErrorMessage(error, 'Unable to deny application.'));
+  } finally {
+    denyingApplicantId.value = null;
   }
 }
 
@@ -526,6 +726,40 @@ function handleRaidCreated() {
   loadRaids();
 }
 
+async function applyToCurrentGuild() {
+  if (applying.value || !guild.value) {
+    return;
+  }
+
+  applicationError.value = null;
+  applying.value = true;
+  try {
+    await api.applyToGuild(guildId);
+    await Promise.all([loadGuild(), authStore.fetchCurrentUser()]);
+  } catch (error) {
+    applicationError.value = extractErrorMessage(error, 'Unable to submit guild application.');
+  } finally {
+    applying.value = false;
+  }
+}
+
+async function withdrawCurrentApplication() {
+  if (withdrawingApplication.value) {
+    return;
+  }
+
+  withdrawingApplication.value = true;
+  applicationError.value = null;
+  try {
+    await api.withdrawGuildApplication(guildId);
+    await Promise.all([loadGuild(), authStore.fetchCurrentUser()]);
+  } catch (error) {
+    applicationError.value = extractErrorMessage(error, 'Unable to withdraw guild application.');
+  } finally {
+    withdrawingApplication.value = false;
+  }
+}
+
 function openRaid(raidId?: string | null) {
   if (!raidId) {
     return;
@@ -569,6 +803,30 @@ function isRaidRenderable(raid: RaidEventSummary) {
   return false;
 }
 
+function isApplicantEntry(member: GuildMemberEntry): member is ApplicantMember {
+  return (member as ApplicantMember).isApplicant === true;
+}
+
+function formatMemberFilterLabel(role: string) {
+  if (role === 'ALL') {
+    return 'All';
+  }
+
+  if (role === 'APPLICANT') {
+    return 'Applicants';
+  }
+
+  return roleLabels[role as GuildRole] ?? role;
+}
+
+function formatMemberRole(member: GuildMemberEntry) {
+  if (isApplicantEntry(member)) {
+    return 'Applicant';
+  }
+
+  return roleLabels[member.role] ?? member.role;
+}
+
 onMounted(async () => {
   if (!authStore.user) {
     try {
@@ -579,7 +837,9 @@ onMounted(async () => {
   }
 
   await loadGuild();
-  loadRaids();
+  if (canViewDetails.value) {
+    await loadRaids();
+  }
 });
 </script>
 
@@ -668,6 +928,30 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
+.btn--accent {
+  padding: 0.35rem 0.75rem;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.7), rgba(59, 130, 246, 0.5));
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.55rem;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.2);
+}
+
+.btn--accent:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(59, 130, 246, 0.35);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.btn--accent:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .btn--danger {
   padding: 0.35rem 0.75rem;
   background: rgba(248, 113, 113, 0.18);
@@ -689,6 +973,13 @@ onMounted(async () => {
 .btn--danger:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.applicant-meta {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
 }
 
 .guild-header {
@@ -928,6 +1219,75 @@ onMounted(async () => {
 .plan-raid-button:focus {
   outline: 2px solid rgba(59, 130, 246, 0.5);
   outline-offset: 2px;
+}
+
+.guild-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.5rem;
+  padding: 2rem;
+}
+
+.guild-summary__body {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.guild-summary__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.cta-button {
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.85rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.12s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.cta-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.cta-button--apply {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.9), rgba(99, 102, 241, 0.85));
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #0b1120;
+}
+
+.cta-button--apply:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px rgba(56, 189, 248, 0.28);
+  border-color: rgba(191, 219, 254, 0.75);
+}
+
+.cta-button--withdraw {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.12), rgba(71, 85, 105, 0.18));
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #d1d9e5;
+}
+
+.cta-button--withdraw:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(248, 113, 113, 0.2);
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fee2e2;
+}
+
+.error {
+  color: #fca5a5;
 }
 
 .member-filter-buttons {

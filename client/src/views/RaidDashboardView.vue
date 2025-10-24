@@ -4,7 +4,11 @@
       <div>
         <h1>Raid Planner</h1>
       </div>
-      <button class="btn" :disabled="!selectedGuildId || !canCreateRaid" @click="openRaidModal">
+      <button
+        v-if="canCreateRaid && selectedGuildId"
+        class="btn"
+        @click="openRaidModal"
+      >
         New Raid
       </button>
     </header>
@@ -46,7 +50,7 @@
             <div class="raid-info">
               <strong>{{ raid.name }}</strong>
               <span class="muted">
-                ({{ formatDate(raid.startTime) }}) • {{ raid.targetZones.join(', ') }}
+                ({{ formatDate(raid.startTime) }}) • {{ formatTargetZones(raid.targetZones) }}
               </span>
             </div>
             <div class="raid-meta">
@@ -197,10 +201,27 @@ function openRaid(raidId: string) {
 }
 
 function formatDate(date: string) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Unknown start';
+  }
+
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short'
-  }).format(new Date(date));
+  }).format(parsed);
+}
+
+function formatTargetZones(zones: unknown): string {
+  if (!Array.isArray(zones)) {
+    return 'Unknown Target';
+  }
+
+  const labels = zones
+    .map((zone) => (typeof zone === 'string' ? zone.trim() : zone))
+    .filter((zone): zone is string => typeof zone === 'string' && zone.length > 0);
+
+  return labels.length > 0 ? labels.join(', ') : 'Unknown Target';
 }
 
 function isHistoryRaid(raid: RaidEventSummary) {

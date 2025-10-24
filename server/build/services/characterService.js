@@ -1,4 +1,10 @@
 import { prisma } from '../utils/prisma.js';
+export class MainCharacterLimitError extends Error {
+    constructor() {
+        super('You can only designate up to two main characters.');
+        this.name = 'MainCharacterLimitError';
+    }
+}
 export async function listCharactersForUser(userId) {
     return prisma.character.findMany({
         where: { userId },
@@ -14,6 +20,10 @@ export async function listCharactersForUser(userId) {
     });
 }
 export async function createCharacter(input) {
+    const desiredIsMain = input.isMain === undefined ? false : input.isMain;
+    if (desiredIsMain) {
+        await assertMainCapacity(input.userId);
+    }
     return prisma.character.create({
         data: {
             name: input.name,
@@ -22,7 +32,7 @@ export async function createCharacter(input) {
             archetype: input.archetype,
             guildId: input.guildId ?? undefined,
             userId: input.userId,
-            isMain: input.isMain ?? true
+            isMain: desiredIsMain
         },
         include: {
             guild: {
@@ -40,6 +50,9 @@ export async function updateCharacter(characterId, userId, data) {
     });
     if (!character) {
         throw new Error('Character not found.');
+    }
+    if (data.isMain === true && character.isMain === false) {
+        await assertMainCapacity(userId, characterId);
     }
     return prisma.character.update({
         where: { id: characterId },
@@ -60,4 +73,22 @@ export async function updateCharacter(characterId, userId, data) {
             }
         }
     });
+}
+async function assertMainCapacity(userId, excludeCharacterId) {
+    const count = await prisma.character.count({
+        where: {
+            userId,
+            isMain: true,
+            ...(excludeCharacterId
+                ? {
+                    id: {
+                        not: excludeCharacterId
+                    }
+                }
+                : {})
+        }
+    });
+    if (count >= 2) {
+        throw new MainCharacterLimitError();
+    }
 }

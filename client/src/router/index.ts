@@ -50,6 +50,12 @@ const router = createRouter({
       name: 'AccountSettings',
       component: () => import('../views/AccountSettingsView.vue'),
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/admin',
+      name: 'Admin',
+      component: () => import('../views/AdminView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });
@@ -62,6 +68,10 @@ router.beforeEach(async (to) => {
 
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return { path: '/auth/callback', query: { redirect: to.fullPath } };
+  }
+
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return { path: '/dashboard' };
   }
 
   return true;

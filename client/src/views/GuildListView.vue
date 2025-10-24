@@ -5,7 +5,7 @@
         <h1>Guilds</h1>
         <p>Browse guilds you belong to or create a new one for your team.</p>
       </div>
-      <button class="btn" @click="showCreateModal = true">Create Guild</button>
+      <button class="btn btn--create" @click="showCreateModal = true">Create Guild</button>
     </header>
 
     <p v-if="loading" class="muted">Loading guilds…</p>
@@ -43,8 +43,34 @@
             <span class="guild-card__stat-value">{{ countOfficers(guild) }}</span>
           </span>
         </footer>
+        <div class="guild-card__actions">
+          <span v-if="isMemberOfGuild(guild.id)" class="tag tag--accent">Your Guild</span>
+          <template v-else>
+            <button
+              v-if="isPendingForGuild(guild.id)"
+              class="btn btn--outline btn--small guild-card__button guild-card__button--withdraw"
+              :disabled="withdrawingGuildId === guild.id"
+              @click.stop="withdrawApplication(guild.id)"
+            >
+              {{ withdrawingGuildId === guild.id ? 'Withdrawing…' : 'Withdraw Application' }}
+            </button>
+            <p v-else-if="isPendingElsewhere(guild.id)" class="muted small">
+              Pending application elsewhere
+            </p>
+            <button
+              v-else
+              class="btn btn--accent btn--small guild-card__button guild-card__button--apply"
+              :disabled="!!primaryGuild || applyingGuildId === guild.id"
+              @click.stop="applyToGuild(guild.id)"
+            >
+              {{ applyingGuildId === guild.id ? 'Applying…' : 'Apply to Join' }}
+            </button>
+          </template>
+        </div>
       </RouterLink>
     </div>
+
+    <p v-if="applicationError" class="error">{{ applicationError }}</p>
 
     <div v-if="showCreateModal" class="modal-backdrop" @click.self="closeModal">
       <div class="modal">
@@ -74,15 +100,24 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import { api, type GuildSummary } from '../services/api';
+import { useAuthStore } from '../stores/auth';
 
 const guilds = ref<GuildSummary[]>([]);
 const loading = ref(false);
 const showCreateModal = ref(false);
 const submitting = ref(false);
+const applyingGuildId = ref<string | null>(null);
+const withdrawingGuildId = ref<string | null>(null);
+const applicationError = ref<string | null>(null);
+
+const authStore = useAuthStore();
+
+const primaryGuild = computed(() => authStore.primaryGuild);
+const pendingApplication = computed(() => authStore.pendingApplication);
 
 const form = reactive({
   name: '',
@@ -136,6 +171,75 @@ function formatGuildLeader(guild: GuildSummary) {
   const leader = resolveGuildLeader(guild);
   return leader ? `Led by ${leader}` : 'Leader pending';
 }
+
+function isMemberOfGuild(guildId: string) {
+  return primaryGuild.value?.id === guildId;
+}
+
+function isPendingForGuild(guildId: string) {
+  return pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING';
+}
+
+function isPendingElsewhere(guildId: string) {
+  return (
+    pendingApplication.value &&
+    pendingApplication.value.guildId !== guildId &&
+    pendingApplication.value.status === 'PENDING'
+  );
+}
+
+async function applyToGuild(guildId: string) {
+  if (applyingGuildId.value || withdrawingGuildId.value) {
+    return;
+  }
+  applicationError.value = null;
+  applyingGuildId.value = guildId;
+  try {
+    await api.applyToGuild(guildId);
+    await authStore.fetchCurrentUser();
+  } catch (error) {
+    applicationError.value = extractErrorMessage(error, 'Unable to submit application.');
+  } finally {
+    applyingGuildId.value = null;
+  }
+}
+
+async function withdrawApplication(guildId: string) {
+  if (withdrawingGuildId.value) {
+    return;
+  }
+  applicationError.value = null;
+  withdrawingGuildId.value = guildId;
+  try {
+    await api.withdrawGuildApplication(guildId);
+    await authStore.fetchCurrentUser();
+  } catch (error) {
+    applicationError.value = extractErrorMessage(error, 'Unable to withdraw application.');
+  } finally {
+    withdrawingGuildId.value = null;
+  }
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error !== null) {
+    if ('response' in error && typeof (error as any).response === 'object') {
+      const response = (error as { response?: { data?: unknown } }).response;
+      const data = response?.data;
+      if (typeof data === 'object' && data !== null) {
+        if ('message' in data && typeof (data as { message?: unknown }).message === 'string') {
+          return (data as { message: string }).message;
+        }
+        if ('error' in data && typeof (data as { error?: unknown }).error === 'string') {
+          return (data as { error: string }).error;
+        }
+      }
+    }
+    if (error instanceof Error) {
+      return error.message;
+    }
+  }
+  return fallback;
+}
 </script>
 
 <style scoped>
@@ -149,6 +253,28 @@ function formatGuildLeader(guild: GuildSummary) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.btn--create {
+  padding: 0.6rem 1.4rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(190, 242, 100, 0.45);
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.85), rgba(190, 242, 100, 0.65));
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.12s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+
+.btn--create:hover {
+  transform: translateY(-2px);
+  border-color: rgba(254, 240, 138, 0.8);
+  box-shadow: 0 16px 30px rgba(74, 222, 128, 0.25);
+}
+
+.btn--create:active {
+  transform: translateY(0);
 }
 
 .grid {
@@ -244,6 +370,15 @@ function formatGuildLeader(guild: GuildSummary) {
   margin-top: auto;
 }
 
+.guild-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
 .guild-card__stat {
   display: flex;
   flex-direction: column;
@@ -260,6 +395,51 @@ function formatGuildLeader(guild: GuildSummary) {
   font-size: 1.05rem;
   font-weight: 700;
   color: #f8fafc;
+}
+
+.guild-card__button {
+  min-width: 160px;
+  padding: 0.55rem 1.2rem;
+  border-radius: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.15s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.guild-card__button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 28px rgba(56, 189, 248, 0.25);
+}
+
+.guild-card__button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.guild-card__button--apply {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.95), rgba(99, 102, 241, 0.85));
+  border: 1px solid rgba(56, 189, 248, 0.6);
+  color: #0b1120;
+}
+
+.guild-card__button--apply:hover:not(:disabled) {
+  border-color: rgba(191, 219, 254, 0.9);
+  box-shadow: 0 16px 32px rgba(56, 189, 248, 0.28);
+}
+
+.guild-card__button--withdraw {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.1), rgba(71, 85, 105, 0.15));
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #d1d9e5;
+}
+
+.guild-card__button--withdraw:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fee2e2;
+  box-shadow: 0 12px 26px rgba(248, 113, 113, 0.18);
 }
 
 .muted {

@@ -1,7 +1,7 @@
 import { CharacterArchetype, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createCharacter, listCharactersForUser, updateCharacter } from '../services/characterService.js';
+import { createCharacter, listCharactersForUser, updateCharacter, MainCharacterLimitError } from '../services/characterService.js';
 import { prisma } from '../utils/prisma.js';
 export async function charactersRoutes(server) {
     server.get('/', { preHandler: [authenticate] }, async (request) => {
@@ -29,11 +29,20 @@ export async function charactersRoutes(server) {
                 return reply.badRequest('Provided guild does not exist.');
             }
         }
-        const character = await createCharacter({
-            ...parsed.data,
-            userId: request.user.userId
-        });
-        return reply.code(201).send({ character });
+        try {
+            const character = await createCharacter({
+                ...parsed.data,
+                userId: request.user.userId
+            });
+            return reply.code(201).send({ character });
+        }
+        catch (error) {
+            if (error instanceof MainCharacterLimitError) {
+                return reply.badRequest(error.message);
+            }
+            request.log.error({ error }, 'Failed to create character.');
+            return reply.internalServerError('Unable to create character.');
+        }
     });
     server.patch('/:characterId', { preHandler: [authenticate] }, async (request, reply) => {
         const paramsSchema = z.object({
@@ -69,8 +78,14 @@ export async function charactersRoutes(server) {
             return { character };
         }
         catch (error) {
+            if (error instanceof MainCharacterLimitError) {
+                return reply.badRequest(error.message);
+            }
+            if (error instanceof Error && error.message === 'Character not found.') {
+                return reply.notFound('Character not found.');
+            }
             request.log.warn({ error }, 'Failed to update character.');
-            return reply.notFound('Character not found.');
+            return reply.internalServerError('Unable to update character.');
         }
     });
 }

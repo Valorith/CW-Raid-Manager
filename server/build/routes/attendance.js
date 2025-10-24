@@ -1,10 +1,22 @@
 import { AttendanceEventType, AttendanceStatus, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createAttendanceEvent, deleteAttendanceEvent, getAttendanceEvent, listAttendanceEvents } from '../services/attendanceService.js';
+import { createAttendanceEvent, deleteAttendanceEvent, getAttendanceEvent, listAttendanceEvents, listRecentAttendanceForUser } from '../services/attendanceService.js';
 import { ensureUserCanEditRaid, ensureUserCanViewGuild, getRaidEventById } from '../services/raidService.js';
 import { parseRaidRoster } from '../utils/raidRosterParser.js';
 export async function attendanceRoutes(server) {
+    server.get('/user/recent', { preHandler: [authenticate] }, async (request, reply) => {
+        const querySchema = z.object({
+            limit: z.coerce.number().int().min(1).max(50).optional()
+        });
+        const parsedQuery = querySchema.safeParse(request.query ?? {});
+        if (!parsedQuery.success) {
+            return reply.badRequest('Invalid query parameters.');
+        }
+        const limit = parsedQuery.data.limit ?? 10;
+        const attendance = await listRecentAttendanceForUser(request.user.userId, limit);
+        return { attendance };
+    });
     server.get('/raid/:raidEventId', { preHandler: [authenticate] }, async (request, reply) => {
         const paramsSchema = z.object({
             raidEventId: z.string()

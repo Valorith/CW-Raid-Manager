@@ -12,8 +12,10 @@ model User {
   email              String             @unique
   displayName        String
   nickname           String?
+  admin              Boolean            @default(false)
   googleId           String?            @unique
   guildMemberships   GuildMembership[]
+  guildApplications  GuildApplication[]
   characters         Character[]
   createdGuilds      Guild[]            @relation("GuildCreator")
   createdRaids       RaidEvent[]        @relation("RaidCreator")
@@ -32,6 +34,7 @@ model Guild {
   members      GuildMembership[]
   characters   Character[]
   raids        RaidEvent[]
+  applications GuildApplication[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -47,6 +50,26 @@ model GuildMembership {
   updatedAt DateTime  @updatedAt
 
   @@unique([guildId, userId])
+}
+
+model GuildApplication {
+  id        String                   @id @default(cuid())
+  guildId   String
+  userId    String
+  status    GuildApplicationStatus   @default(PENDING)
+  guild     Guild                    @relation(fields: [guildId], references: [id])
+  user      User                     @relation(fields: [userId], references: [id])
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@unique([guildId, userId])
+}
+
+enum GuildApplicationStatus {
+  PENDING
+  APPROVED
+  DENIED
+  WITHDRAWN
 }
 
 enum GuildRole {

@@ -1,17 +1,30 @@
 import { GuildRole } from '@prisma/client';
-import { updateGuildMemberRole } from '../services/guildService.js';
+import { updateGuildMemberRole, getGuildById, listGuilds } from '../services/guildService.js';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { canManageGuild, createGuild, getGuildById, getUserGuildRole, listGuilds } from '../services/guildService.js';
+import { canManageGuild, createGuild, getUserGuildRole } from '../services/guildService.js';
 import { prisma } from '../utils/prisma.js';
+import { applyToGuild, withdrawApplication, listPendingApplicationsForGuild, approveApplication, denyApplication, getPendingApplicationForUser } from '../services/guildApplicationService.js';
 export async function guildRoutes(server) {
     server.get('/', async () => {
         const guilds = await listGuilds();
         return { guilds };
     });
+    server.get('/applications/me', { preHandler: [authenticate] }, async (request) => {
+        const application = await getPendingApplicationForUser(request.user.userId);
+        return { application };
+    });
     server.get('/:guildId', async (request, reply) => {
         const { guildId } = request.params;
-        const guild = await getGuildById(guildId);
+        let viewerUserId = null;
+        try {
+            await request.jwtVerify();
+            viewerUserId = request.user.userId;
+        }
+        catch (error) {
+            // optional auth
+        }
+        const guild = await getGuildById(guildId, { viewerUserId });
         if (!guild) {
             return reply.notFound('Guild not found.');
         }
@@ -131,5 +144,126 @@ export async function guildRoutes(server) {
             }
         });
         return reply.code(201).send({ membership });
+    });
+    server.delete('/:guildId/members/:memberId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            memberId: z.string()
+        });
+        const { guildId, memberId } = paramsSchema.parse(request.params);
+        const actorMembership = await getUserGuildRole(request.user.userId, guildId);
+        if (!actorMembership || (actorMembership.role !== GuildRole.LEADER && actorMembership.role !== GuildRole.OFFICER)) {
+            return reply.forbidden('Only guild leaders or officers can remove members.');
+        }
+        const targetMembership = await prisma.guildMembership.findUnique({
+            where: {
+                guildId_userId: {
+                    guildId,
+                    userId: memberId
+                }
+            }
+        });
+        if (!targetMembership) {
+            return reply.notFound('Membership not found.');
+        }
+        if (targetMembership.role === GuildRole.LEADER && actorMembership.role !== GuildRole.LEADER) {
+            return reply.forbidden('Only the guild leader can remove another leader.');
+        }
+        if (targetMembership.role === GuildRole.OFFICER && actorMembership.role !== GuildRole.LEADER) {
+            return reply.forbidden('Only the guild leader can remove officers.');
+        }
+        await prisma.guildMembership.delete({
+            where: {
+                guildId_userId: {
+                    guildId,
+                    userId: memberId
+                }
+            }
+        });
+        return reply.code(204).send();
+    });
+    server.post('/:guildId/applications', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string()
+        });
+        const { guildId } = paramsSchema.parse(request.params);
+        try {
+            const application = await applyToGuild(guildId, request.user.userId);
+            return reply.code(201).send({ application });
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to apply to guild.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to submit application.');
+        }
+    });
+    server.delete('/:guildId/applications', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        try {
+            await withdrawApplication(guildId, request.user.userId);
+            return reply.code(204).send();
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to withdraw guild application.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to withdraw application.');
+        }
+    });
+    server.get('/:guildId/applications', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership || !canManageGuild(membership.role)) {
+            return reply.forbidden('Insufficient permissions to view applications.');
+        }
+        const applications = await listPendingApplicationsForGuild(guildId);
+        return { applications };
+    });
+    server.post('/:guildId/applications/:applicationId/approve', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            applicationId: z.string()
+        });
+        const { applicationId } = paramsSchema.parse(request.params);
+        try {
+            await approveApplication(applicationId, request.user.userId);
+            return reply.code(204).send();
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to approve guild application.');
+            if (error instanceof Error) {
+                if (error.message === 'Application not found.') {
+                    return reply.notFound(error.message);
+                }
+                return reply.forbidden(error.message);
+            }
+            return reply.badRequest('Unable to approve application.');
+        }
+    });
+    server.post('/:guildId/applications/:applicationId/deny', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            applicationId: z.string()
+        });
+        const { applicationId } = paramsSchema.parse(request.params);
+        try {
+            await denyApplication(applicationId, request.user.userId);
+            return reply.code(204).send();
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to deny guild application.');
+            if (error instanceof Error) {
+                if (error.message === 'Application not found.') {
+                    return reply.notFound(error.message);
+                }
+                return reply.forbidden(error.message);
+            }
+            return reply.badRequest('Unable to deny application.');
+        }
     });
 }

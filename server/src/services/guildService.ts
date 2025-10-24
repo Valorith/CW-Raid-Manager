@@ -46,7 +46,7 @@ export async function listGuilds() {
   }));
 }
 
-export async function getGuildById(id: string) {
+export async function getGuildById(id: string, options?: { viewerUserId?: string | null }) {
   const guild = await prisma.guild.findUnique({
     where: { id },
     include: {
@@ -84,16 +84,98 @@ export async function getGuildById(id: string) {
     return null;
   }
 
+  const viewerUserId = options?.viewerUserId ?? null;
+
+  let viewerMembership: { role: GuildRole } | null = null;
+  if (viewerUserId) {
+    viewerMembership = await prisma.guildMembership.findUnique({
+      where: {
+        guildId_userId: {
+          guildId: id,
+          userId: viewerUserId
+        }
+      }
+    });
+  }
+
+  const canViewDetails = Boolean(viewerMembership);
+  const canManageMembers = viewerMembership ? canManageGuild(viewerMembership.role) : false;
+
+  const members = canViewDetails
+    ? guild.members.map((member) => ({
+        ...member,
+        user: withPreferredDisplayName(member.user)
+      }))
+    : [];
+
+  const characters = canViewDetails
+    ? guild.characters.map((character) => ({
+        ...character,
+        user: withPreferredDisplayName(character.user)
+      }))
+    : [];
+
+  const applicants = canManageMembers
+    ? await prisma.guildApplication.findMany({
+        where: {
+          guildId: id,
+          status: 'PENDING'
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              nickname: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'asc'
+        }
+      })
+    : [];
+
+  let viewerApplication = null;
+  if (viewerUserId) {
+    const application = await prisma.guildApplication.findUnique({
+      where: {
+        guildId_userId: {
+          guildId: id,
+          userId: viewerUserId
+        }
+      }
+    });
+    if (application && application.status === 'PENDING') {
+      viewerApplication = {
+        id: application.id,
+        status: application.status,
+        guildId: application.guildId
+      };
+    }
+  }
+
   return {
-    ...guild,
-    members: guild.members.map((member) => ({
-      ...member,
-      user: withPreferredDisplayName(member.user)
+    id: guild.id,
+    name: guild.name,
+    slug: guild.slug,
+    description: guild.description,
+    createdAt: guild.createdAt,
+    updatedAt: guild.updatedAt,
+    members,
+    characters,
+    applicants: applicants.map((application) => ({
+      id: application.id,
+      createdAt: application.createdAt,
+      user: withPreferredDisplayName(application.user)
     })),
-    characters: guild.characters.map((character) => ({
-      ...character,
-      user: withPreferredDisplayName(character.user)
-    }))
+    permissions: {
+      canViewDetails,
+      canManageMembers,
+      canViewApplicants: canManageMembers,
+      userRole: viewerMembership?.role ?? null
+    },
+    viewerApplication
   };
 }
 

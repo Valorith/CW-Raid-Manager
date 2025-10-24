@@ -78,6 +78,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         email: true,
         displayName: true,
         nickname: true,
+        admin: true,
         guildMemberships: {
           select: {
             role: true,
@@ -91,6 +92,25 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           orderBy: {
             createdAt: 'asc'
           }
+        },
+        guildApplications: {
+          select: {
+            id: true,
+            guildId: true,
+            status: true,
+            guild: {
+              select: {
+                id: true,
+                name: true,
+                description: true
+              }
+            },
+            createdAt: true,
+            updatedAt: true
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
         }
       }
     });
@@ -99,17 +119,28 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       return { user: null };
     }
 
+    const pendingApplication = user.guildApplications.find((application) => application.status === 'PENDING');
+
     return {
       user: {
         userId: user.id,
         email: user.email,
         displayName: user.nickname ?? user.displayName,
         nickname: user.nickname ?? null,
+        isAdmin: user.admin,
         guilds: user.guildMemberships.map((membership) => ({
           id: membership.guild.id,
           name: membership.guild.name,
           role: membership.role
-        }))
+        })),
+        pendingApplication: pendingApplication
+          ? {
+              id: pendingApplication.id,
+              guildId: pendingApplication.guildId,
+              status: pendingApplication.status,
+              guild: pendingApplication.guild
+            }
+          : null
       }
     };
   });

@@ -1,8 +1,9 @@
 import { GuildRole } from '@prisma/client';
+import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { slugify } from '../utils/slugify.js';
 export async function listGuilds() {
-    return prisma.guild.findMany({
+    const guilds = await prisma.guild.findMany({
         orderBy: {
             name: 'asc'
         },
@@ -19,16 +20,24 @@ export async function listGuilds() {
                     user: {
                         select: {
                             id: true,
-                            displayName: true
+                            displayName: true,
+                            nickname: true
                         }
                     }
                 }
             }
         }
     });
+    return guilds.map((guild) => ({
+        ...guild,
+        members: guild.members.map((member) => ({
+            ...member,
+            user: withPreferredDisplayName(member.user)
+        }))
+    }));
 }
-export async function getGuildById(id) {
-    return prisma.guild.findUnique({
+export async function getGuildById(id, options) {
+    const guild = await prisma.guild.findUnique({
         where: { id },
         include: {
             members: {
@@ -36,7 +45,8 @@ export async function getGuildById(id) {
                     user: {
                         select: {
                             id: true,
-                            displayName: true
+                            displayName: true,
+                            nickname: true
                         }
                     }
                 }
@@ -47,33 +57,123 @@ export async function getGuildById(id) {
                     name: true,
                     class: true,
                     level: true,
+                    isMain: true,
                     user: {
                         select: {
                             id: true,
-                            displayName: true
+                            displayName: true,
+                            nickname: true
                         }
                     }
                 }
             }
         }
     });
+    if (!guild) {
+        return null;
+    }
+    const viewerUserId = options?.viewerUserId ?? null;
+    let viewerMembership = null;
+    if (viewerUserId) {
+        viewerMembership = await prisma.guildMembership.findUnique({
+            where: {
+                guildId_userId: {
+                    guildId: id,
+                    userId: viewerUserId
+                }
+            }
+        });
+    }
+    const canViewDetails = Boolean(viewerMembership);
+    const canManageMembers = viewerMembership ? canManageGuild(viewerMembership.role) : false;
+    const members = canViewDetails
+        ? guild.members.map((member) => ({
+            ...member,
+            user: withPreferredDisplayName(member.user)
+        }))
+        : [];
+    const characters = canViewDetails
+        ? guild.characters.map((character) => ({
+            ...character,
+            user: withPreferredDisplayName(character.user)
+        }))
+        : [];
+    const applicants = canManageMembers
+        ? await prisma.guildApplication.findMany({
+            where: {
+                guildId: id,
+                status: 'PENDING'
+            },
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        displayName: true,
+                        nickname: true
+                    }
+                }
+            },
+            orderBy: {
+                createdAt: 'asc'
+            }
+        })
+        : [];
+    let viewerApplication = null;
+    if (viewerUserId) {
+        const application = await prisma.guildApplication.findUnique({
+            where: {
+                guildId_userId: {
+                    guildId: id,
+                    userId: viewerUserId
+                }
+            }
+        });
+        if (application && application.status === 'PENDING') {
+            viewerApplication = {
+                id: application.id,
+                status: application.status,
+                guildId: application.guildId
+            };
+        }
+    }
+    return {
+        id: guild.id,
+        name: guild.name,
+        slug: guild.slug,
+        description: guild.description,
+        createdAt: guild.createdAt,
+        updatedAt: guild.updatedAt,
+        members,
+        characters,
+        applicants: applicants.map((application) => ({
+            id: application.id,
+            createdAt: application.createdAt,
+            user: withPreferredDisplayName(application.user)
+        })),
+        permissions: {
+            canViewDetails,
+            canManageMembers,
+            canViewApplicants: canManageMembers,
+            userRole: viewerMembership?.role ?? null
+        },
+        viewerApplication
+    };
 }
 async function ensureUniqueSlug(name) {
     const baseSlug = slugify(name);
     let slug = baseSlug;
     let counter = 1;
-    while (true) {
-        const existing = await prisma.guild.findUnique({ where: { slug } });
-        if (!existing) {
-            return slug;
-        }
+    let existing = await prisma.guild.findUnique({ where: { slug } });
+    while (existing) {
         counter += 1;
         slug = `${baseSlug}-${counter}`;
+        existing = await prisma.guild.findUnique({ where: { slug } });
     }
+    return slug;
 }
 export async function createGuild({ name, description, creatorUserId }) {
     const slug = await ensureUniqueSlug(name);
-    return prisma.guild.create({
+    const guild = await prisma.guild.create({
         data: {
             name,
             slug,
@@ -94,6 +194,13 @@ export async function createGuild({ name, description, creatorUserId }) {
             }
         }
     });
+    return {
+        ...guild,
+        members: guild.members.map((member) => ({
+            ...member,
+            user: withPreferredDisplayName(member.user)
+        }))
+    };
 }
 export async function getUserGuildRole(userId, guildId) {
     return prisma.guildMembership.findUnique({
