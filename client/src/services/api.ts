@@ -228,8 +228,46 @@ export interface AdminGuildMemberSummary {
   joinedAt: string;
 }
 
+export interface AdminGuildCharacterSummary {
+  id: string;
+  name: string;
+  level: number;
+  class?: CharacterClass | null;
+  ownerId: string;
+  ownerName: string;
+}
+
 export interface AdminGuildDetail extends AdminGuildSummary {
   members: AdminGuildMemberSummary[];
+  characters: AdminGuildCharacterSummary[];
+}
+
+export interface AdminRaidSummary {
+  id: string;
+  name: string;
+  guild: {
+    id: string;
+    name: string;
+  } | null;
+  startTime: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  isActive: boolean;
+  attendanceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminRaidDetail extends AdminRaidSummary {
+  targetZones: string[];
+  targetBosses: string[];
+  notes?: string | null;
+  attendance: Array<{
+    id: string;
+    createdAt: string;
+    eventType?: 'LOG' | 'START' | 'END' | 'RESTART';
+    note?: string | null;
+  }>;
 }
 
 function normalizeAttendanceRecord(record: any): AttendanceRecordSummary {
@@ -587,6 +625,10 @@ export const api = {
     await axios.delete(`/api/admin/guilds/${guildId}`);
   },
 
+  async adminDetachCharacter(guildId: string, characterId: string) {
+    await axios.delete(`/api/admin/guilds/${guildId}/characters/${characterId}`);
+  },
+
   async addAdminGuildMember(
     guildId: string,
     payload: { userId: string; role: GuildRole }
@@ -605,6 +647,37 @@ export const api = {
       payload
     );
     return response.data.membership;
+  },
+
+  async fetchAdminRaids(): Promise<AdminRaidSummary[]> {
+    const response = await axios.get('/api/admin/raids');
+    return Array.isArray(response.data.raids) ? response.data.raids : [];
+  },
+
+  async fetchAdminRaid(raidId: string): Promise<AdminRaidDetail> {
+    const response = await axios.get(`/api/admin/raids/${raidId}`);
+    return response.data.raid;
+  },
+
+  async updateAdminRaid(
+    raidId: string,
+    payload: {
+      name?: string;
+      startTime?: string;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      targetZones?: string[];
+      targetBosses?: string[];
+      notes?: string | null;
+      isActive?: boolean;
+    }
+  ): Promise<AdminRaidDetail> {
+    const response = await axios.patch(`/api/admin/raids/${raidId}`, payload);
+    return response.data.raid;
+  },
+
+  async deleteAdminRaid(raidId: string) {
+    await axios.delete(`/api/admin/raids/${raidId}`);
   },
 
   async removeAdminGuildMember(guildId: string, userId: string) {

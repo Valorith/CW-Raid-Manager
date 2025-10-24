@@ -9,9 +9,6 @@
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
       <div class="header-actions">
-        <button class="btn" :disabled="!canManageRaid" @click="fileInput?.click()">
-          Upload Attendance
-        </button>
         <button
           class="btn btn--danger"
           :disabled="!canManageRaid"
@@ -106,7 +103,17 @@
     </section>
 
     <section class="card">
-      <h2>Attendance Events</h2>
+      <header class="card__header card__header--attendance">
+        <h2>Attendance Events</h2>
+        <button
+          class="btn upload-btn"
+          :disabled="!canManageRaid"
+          @click="fileInput?.click()"
+        >
+          <span class="upload-btn__icon" aria-hidden="true">⇪</span>
+          Upload Attendance
+        </button>
+      </header>
       <p v-if="attendanceLoading" class="muted">Loading attendance…</p>
       <p v-else-if="attendanceEvents.length === 0" class="muted">
         No attendance events have been recorded for this raid yet.
@@ -667,12 +674,54 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-.header-actions {
+.card__header--attendance {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.upload-btn {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(99, 102, 241, 0.88));
+  border: 1px solid rgba(14, 165, 233, 0.45);
+  color: #0b1120;
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.22);
+  transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+}
+
+.upload-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgba(191, 219, 254, 0.6);
+  box-shadow: 0 16px 28px rgba(59, 130, 246, 0.28);
+}
+
+.upload-btn:disabled {
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
+
+.upload-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  color: #0b1120;
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .badge {

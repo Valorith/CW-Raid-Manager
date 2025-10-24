@@ -23,6 +23,12 @@
       <div class="stat-card">
         <span class="stat-card__label">Members Across Guilds</span>
         <strong class="stat-card__value">{{ adminSummary.totalGuildMembers }}</strong>
+        <span class="stat-card__meta">Across {{ adminSummary.totalGuilds }} guilds</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card__label">Raid Events</span>
+        <strong class="stat-card__value">{{ adminSummary.totalRaids }}</strong>
+        <span class="stat-card__meta">{{ adminSummary.activeRaids }} active right now</span>
       </div>
     </div>
 
@@ -138,6 +144,39 @@
               </p>
             </div>
             <span class="muted">Manage</span>
+          </li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <header class="card__header">
+          <h2>Raid Events</h2>
+          <span class="muted small">{{ raids.length }} raids</span>
+        </header>
+        <p v-if="loadingRaids" class="muted">Loading raids…</p>
+        <p v-else-if="raids.length === 0" class="muted">No raid events recorded yet.</p>
+        <ul v-else class="raid-admin-list">
+          <li
+            v-for="raid in raids"
+            :key="raid.id"
+            :class="['raid-admin-list__item', { 'raid-admin-list__item--active': raid.id === selectedRaidId }]"
+          >
+            <div class="raid-admin-list__info">
+              <strong>{{ raid.name }}</strong>
+              <span class="muted small">
+                {{ formatRaidDate(raid.startTime) }}
+                <template v-if="raid.guild"> • {{ raid.guild.name }}</template>
+              </span>
+              <span class="muted tiny">{{ raid.attendanceCount }} attendance events</span>
+            </div>
+            <div class="raid-admin-list__actions">
+              <span class="badge" :class="raidStatusBadge(raid).variant">
+                {{ raidStatusBadge(raid).label }}
+              </span>
+              <button class="btn btn--outline btn--small" @click="openRaidDetail(raid.id)">
+                Manage
+              </button>
+            </div>
           </li>
         </ul>
       </article>
@@ -260,6 +299,39 @@
             </p>
           </section>
         </section>
+
+        <section class="guild-characters">
+          <header class="guild-members__header">
+            <h3>Characters</h3>
+            <span class="muted small">{{ selectedGuild.characters.length }} linked</span>
+          </header>
+          <p v-if="loadingGuildDetail" class="muted">Loading characters…</p>
+          <p v-else-if="selectedGuild.characters.length === 0" class="muted">
+            No characters are associated with this guild yet.
+          </p>
+          <ul v-else class="list member-list">
+            <li
+              v-for="character in selectedGuild.characters"
+              :key="character.id"
+              class="member-list__item"
+            >
+              <div class="member-list__user">
+                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <span class="muted small">{{ formatCharacterClass(character.class) }}</span>
+                <span class="muted tiny">Owner: {{ character.ownerName }}</span>
+              </div>
+              <div class="member-list__actions">
+                <button
+                  class="btn btn--danger btn--small"
+                  :disabled="detachingCharacterId === character.id"
+                  @click="detachCharacter(character)"
+                >
+                  {{ detachingCharacterId === character.id ? 'Detaching…' : 'Remove' }}
+                </button>
+              </div>
+            </li>
+          </ul>
+        </section>
         </template>
         <template v-else>
           <div class="modal__loading">
@@ -310,6 +382,92 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showRaidDetailModal" class="modal-backdrop" @click.self="closeRaidModal">
+      <div class="modal" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <div class="modal__titles">
+            <h2>{{ selectedRaid?.name ?? 'Raid Event' }}</h2>
+            <p class="muted small">
+              {{ selectedRaid?.guild?.name ?? 'No Guild' }} •
+              {{ selectedRaid ? formatRaidDate(selectedRaid.startTime) : '' }}
+            </p>
+          </div>
+          <button class="icon-button" @click="closeRaidModal" aria-label="Close raid editor">
+            ✕
+          </button>
+        </header>
+
+        <form class="form raid-form" @submit.prevent="saveRaidDetails">
+          <label class="form__field">
+            <span>Raid Name</span>
+            <input v-model="raidForm.name" required maxlength="120" class="input" />
+          </label>
+          <label class="form__field">
+            <span>Scheduled Start</span>
+            <input v-model="raidForm.startTime" type="datetime-local" class="input" />
+          </label>
+          <label class="form__field">
+            <span>Actual Start</span>
+            <input v-model="raidForm.startedAt" type="datetime-local" class="input" />
+          </label>
+          <label class="form__field">
+            <span>Actual End</span>
+            <input v-model="raidForm.endedAt" type="datetime-local" class="input" />
+          </label>
+          <label class="form__field">
+            <span>Target Zones</span>
+            <textarea v-model="raidForm.targetZones" rows="3" class="textarea"></textarea>
+          </label>
+          <label class="form__field">
+            <span>Target Bosses</span>
+            <textarea v-model="raidForm.targetBosses" rows="3" class="textarea"></textarea>
+          </label>
+          <label class="form__field">
+            <span>Notes</span>
+            <textarea v-model="raidForm.notes" rows="3" class="textarea"></textarea>
+          </label>
+          <label class="form__field form__field--inline">
+            <span>Active Event</span>
+            <input v-model="raidForm.isActive" type="checkbox" />
+          </label>
+        </form>
+
+        <section v-if="selectedRaid?.attendance?.length" class="raid-attendance-overview">
+          <h3>Attendance Snapshot</h3>
+          <ul class="raid-attendance-overview__list">
+            <li v-for="event in selectedRaid.attendance" :key="event.id">
+              <span>{{ formatRaidDate(event.createdAt) }}</span>
+              <span class="badge" :class="eventBadgeVariant(event.eventType)">
+                {{ formatEventType(event.eventType) }}
+              </span>
+            </li>
+          </ul>
+        </section>
+
+        <div class="modal__actions">
+          <button class="btn btn--outline btn--small" type="button" @click="closeRaidModal">
+            Close
+          </button>
+          <button
+            class="btn btn--danger btn--small"
+            type="button"
+            :disabled="!selectedRaidId.value || deletingRaidId === selectedRaidId.value"
+            @click="deleteRaid"
+          >
+            {{ deletingRaidId === selectedRaidId.value ? 'Deleting…' : 'Delete Raid' }}
+          </button>
+          <button
+            class="btn btn--accent btn--small"
+            :disabled="savingRaid"
+            @click="saveRaidDetails"
+          >
+            {{ savingRaid ? 'Saving…' : 'Save Changes' }}
+          </button>
+        </div>
+        <p v-if="raidError" class="error">{{ raidError }}</p>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -320,21 +478,29 @@ import {
   api,
   type AdminGuildDetail,
   type AdminGuildSummary,
+  type AdminRaidDetail,
+  type AdminRaidSummary,
   type AdminUserSummary
 } from '../services/api';
 import type { GuildRole } from '../services/types';
-import { guildRoleOrder } from '../services/types';
+import { characterClassLabels, guildRoleOrder } from '../services/types';
 
 const loadingUsers = ref(false);
 const loadingGuilds = ref(false);
 const loadingGuildDetail = ref(false);
+const loadingRaids = ref(false);
 
 const users = ref<AdminUserSummary[]>([]);
 const guilds = ref<AdminGuildSummary[]>([]);
+const raids = ref<AdminRaidSummary[]>([]);
 const selectedGuildId = ref<string | null>(null);
 const selectedGuild = ref<AdminGuildDetail | null>(null);
+const detachingCharacterId = ref<string | null>(null);
 const showGuildModal = ref(false);
 const showUserModal = ref(false);
+const selectedRaidId = ref<string | null>(null);
+const selectedRaid = ref<AdminRaidDetail | null>(null);
+const showRaidDetailModal = ref(false);
 
 const userSearch = ref('');
 const userPage = ref(1);
@@ -360,6 +526,17 @@ const membershipForm = reactive<{
   role: 'MEMBER'
 });
 
+const raidForm = reactive({
+  name: '',
+  startTime: '',
+  startedAt: '',
+  endedAt: '',
+  targetZones: '',
+  targetBosses: '',
+  notes: '',
+  isActive: false
+});
+
 const editingUser = ref<AdminUserSummary | null>(null);
 const savingUser = ref(false);
 const userForm = reactive({
@@ -367,6 +544,10 @@ const userForm = reactive({
   nickname: '',
   email: ''
 });
+
+const savingRaid = ref(false);
+const deletingRaidId = ref<string | null>(null);
+const raidError = ref<string | null>(null);
 
 const roleLabels: Record<GuildRole, string> = {
   LEADER: 'Guild Leader',
@@ -411,17 +592,131 @@ const adminSummary = computed(() => {
   const totalAdmins = users.value.filter((user) => user.isAdmin).length;
   const totalGuilds = guilds.value.length;
   const totalGuildMembers = guilds.value.reduce((sum, guild) => sum + guild.memberCount, 0);
+  const totalRaids = raids.value.length;
+  const activeRaids = raids.value.filter((raid) => raid.isActive && !raid.endedAt).length;
 
   return {
     totalUsers,
     totalAdmins,
     totalGuilds,
-    totalGuildMembers
+    totalGuildMembers,
+    totalRaids,
+    activeRaids
   };
 });
 
 function formatRole(role: GuildRole) {
   return roleLabels[role] ?? role;
+}
+
+function formatCharacterClass(className?: string | null) {
+  if (!className) {
+    return 'Unknown Class';
+  }
+  return characterClassLabels[className as keyof typeof characterClassLabels] ?? className;
+}
+
+function formatRaidDate(value?: string | null) {
+  if (!value) {
+    return 'Date pending';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Date pending';
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(parsed);
+}
+
+function raidStatusBadge(raid: { startedAt?: string | null; endedAt?: string | null; isActive: boolean }) {
+  if (raid.endedAt) {
+    return { label: 'Ended', variant: 'badge--negative' } as const;
+  }
+
+  if (raid.startedAt || raid.isActive) {
+    return { label: 'In Progress', variant: 'badge--positive' } as const;
+  }
+
+  return { label: 'Scheduled', variant: 'badge--neutral' } as const;
+}
+
+function toLocalInput(value?: string | null) {
+  if (!value) {
+    return '';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  const offset = parsed.getTimezoneOffset();
+  const local = new Date(parsed.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromLocalInput(value?: string | null): string | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+function parseMultiValueInput(value: string) {
+  return value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function resetRaidForm() {
+  raidForm.name = '';
+  raidForm.startTime = '';
+  raidForm.startedAt = '';
+  raidForm.endedAt = '';
+  raidForm.targetZones = '';
+  raidForm.targetBosses = '';
+  raidForm.notes = '';
+  raidForm.isActive = false;
+}
+
+function formatEventType(eventType?: string | null) {
+  switch (eventType) {
+    case 'START':
+      return 'Raid Started';
+    case 'END':
+      return 'Raid Ended';
+    case 'RESTART':
+      return 'Raid Restarted';
+    default:
+      return 'Attendance Log';
+  }
+}
+
+function eventBadgeVariant(eventType?: string | null) {
+  switch (eventType) {
+    case 'START':
+    case 'RESTART':
+      return 'badge--positive';
+    case 'END':
+      return 'badge--negative';
+    default:
+      return 'badge--neutral';
+  }
 }
 
 async function loadUsers() {
@@ -448,6 +743,21 @@ async function loadGuilds() {
     window.alert('Unable to load guilds. Please try again.');
   } finally {
     loadingGuilds.value = false;
+  }
+}
+
+async function loadAdminRaids() {
+  loadingRaids.value = true;
+  try {
+    raids.value = await api.fetchAdminRaids();
+    if (showRaidDetailModal.value && selectedRaidId.value) {
+      await loadRaidDetail(selectedRaidId.value);
+    }
+  } catch (error) {
+    console.error('Failed to load raid events for admin console.', error);
+    window.alert('Unable to load raid events. Please try again.');
+  } finally {
+    loadingRaids.value = false;
   }
 }
 
@@ -561,9 +871,112 @@ async function deleteGuild() {
       showGuildModal.value = false;
     }
     await loadUsers();
+    await loadAdminRaids();
   } catch (error) {
     console.error('Failed to delete guild.', error);
     window.alert('Unable to delete guild. Please try again.');
+  }
+}
+
+function openRaidDetail(raidId: string) {
+  selectedRaidId.value = raidId;
+  showRaidDetailModal.value = true;
+  raidError.value = null;
+  resetRaidForm();
+  selectedRaid.value = null;
+  loadRaidDetail(raidId);
+}
+
+function closeRaidModal() {
+  showRaidDetailModal.value = false;
+  selectedRaidId.value = null;
+  selectedRaid.value = null;
+  raidError.value = null;
+  savingRaid.value = false;
+  deletingRaidId.value = null;
+  resetRaidForm();
+}
+
+function applyRaidDetailToForm(detail: AdminRaidDetail) {
+  raidForm.name = detail.name;
+  raidForm.startTime = toLocalInput(detail.startTime);
+  raidForm.startedAt = toLocalInput(detail.startedAt ?? null);
+  raidForm.endedAt = toLocalInput(detail.endedAt ?? null);
+  raidForm.targetZones = (detail.targetZones ?? []).join('\n');
+  raidForm.targetBosses = (detail.targetBosses ?? []).join('\n');
+  raidForm.notes = detail.notes ?? '';
+  raidForm.isActive = detail.isActive;
+}
+
+async function loadRaidDetail(raidId: string) {
+  raidError.value = null;
+  resetRaidForm();
+  try {
+    const detail = await api.fetchAdminRaid(raidId);
+    if (detail) {
+      selectedRaid.value = detail;
+      applyRaidDetailToForm(detail);
+    }
+  } catch (error) {
+    console.error('Failed to load raid event.', error);
+    raidError.value = 'Unable to load raid event. Please try again.';
+    selectedRaid.value = null;
+  }
+}
+
+async function saveRaidDetails() {
+  if (!selectedRaidId.value || !selectedRaid.value || savingRaid.value) {
+    return;
+  }
+
+  const payload = {
+    name: raidForm.name.trim() || undefined,
+    startTime: raidForm.startTime ? new Date(raidForm.startTime).toISOString() : undefined,
+    startedAt: fromLocalInput(raidForm.startedAt),
+    endedAt: fromLocalInput(raidForm.endedAt),
+    targetZones: parseMultiValueInput(raidForm.targetZones),
+    targetBosses: parseMultiValueInput(raidForm.targetBosses),
+    notes: raidForm.notes.trim() === '' ? null : raidForm.notes.trim(),
+    isActive: raidForm.isActive
+  };
+
+  savingRaid.value = true;
+  try {
+    const updated = await api.updateAdminRaid(selectedRaidId.value, payload);
+    if (updated) {
+      selectedRaid.value = updated;
+      applyRaidDetailToForm(updated);
+      await loadAdminRaids();
+    }
+  } catch (error) {
+    console.error('Failed to update raid event.', error);
+    window.alert('Unable to update raid event. Please try again.');
+  } finally {
+    savingRaid.value = false;
+  }
+}
+
+async function deleteRaid() {
+  if (!selectedRaidId.value || deletingRaidId.value) {
+    return;
+  }
+
+  const confirmed = window.confirm('Delete this raid event? This action cannot be undone.');
+  if (!confirmed) {
+    return;
+  }
+
+  deletingRaidId.value = selectedRaidId.value;
+  try {
+    await api.deleteAdminRaid(selectedRaidId.value);
+    raids.value = raids.value.filter((raid) => raid.id !== selectedRaidId.value);
+    closeRaidModal();
+    await loadAdminRaids();
+  } catch (error) {
+    console.error('Failed to delete raid event.', error);
+    window.alert('Unable to delete raid event. Please try again.');
+  } finally {
+    deletingRaidId.value = null;
   }
 }
 
@@ -586,6 +999,29 @@ async function addMember() {
     window.alert('Unable to add guild member. Please try again.');
   } finally {
     addingMember.value = false;
+  }
+}
+
+async function detachCharacter(character: { id: string; ownerName: string }) {
+  if (!selectedGuildId.value || detachingCharacterId.value) {
+    return;
+  }
+
+  const confirmed = window.confirm(`Remove ${character.ownerName}'s character from this guild?`);
+  if (!confirmed) {
+    return;
+  }
+
+  detachingCharacterId.value = character.id;
+  try {
+    await api.adminDetachCharacter(selectedGuildId.value, character.id);
+    const updated = await api.fetchAdminGuildDetail(selectedGuildId.value);
+    selectedGuild.value = updated;
+  } catch (error) {
+    console.error('Failed to detach guild character.', error);
+    window.alert('Unable to remove character from the guild. Please try again.');
+  } finally {
+    detachingCharacterId.value = null;
   }
 }
 
@@ -764,8 +1200,14 @@ watch(selectedGuild, (guild) => {
   membershipForm.role = 'MEMBER';
 });
 
+watch(raids, (list) => {
+  if (selectedRaidId.value && !list.some((raid) => raid.id === selectedRaidId.value)) {
+    closeRaidModal();
+  }
+});
+
 onMounted(async () => {
-  await Promise.all([loadUsers(), loadGuilds()]);
+  await Promise.all([loadUsers(), loadGuilds(), loadAdminRaids()]);
   if (selectedGuildId.value) {
     await loadGuildDetail(selectedGuildId.value);
   }
@@ -835,6 +1277,11 @@ onMounted(async () => {
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #f8fafc;
+}
+
+.stat-card__meta {
+  font-size: 0.8rem;
+  color: rgba(209, 213, 219, 0.75);
 }
 
 .admin-grid {
@@ -1135,6 +1582,122 @@ onMounted(async () => {
   font-size: 0.75rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.badge--positive {
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+}
+
+.badge--negative {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+.badge--neutral {
+  background: rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+}
+
+.raid-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.raid-admin-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.85rem;
+  padding: 0.85rem 1rem;
+}
+
+.raid-admin-list__item--active {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.raid-admin-list__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.raid-admin-list__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.raid-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.form__field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form__field--inline span {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.form__field--inline input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.raid-attendance-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.raid-attendance-overview__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.raid-attendance-overview__list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+  padding: 0.6rem 0.85rem;
 }
 
 .pagination {

@@ -6,25 +6,33 @@ export class MainCharacterLimitError extends Error {
     }
 }
 export async function listCharactersForUser(userId) {
-    return prisma.character.findMany({
-        where: { userId },
-        orderBy: { name: 'asc' },
-        include: {
-            guild: {
-                select: {
-                    id: true,
-                    name: true
+    const [characters, memberships] = await Promise.all([
+        prisma.character.findMany({
+            where: { userId },
+            orderBy: { name: 'asc' },
+            include: {
+                guild: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
                 }
             }
-        }
-    });
+        }),
+        prisma.guildMembership.findMany({
+            where: { userId },
+            select: { guildId: true }
+        })
+    ]);
+    const allowedGuildIds = new Set(memberships.map((membership) => membership.guildId));
+    return characters.map((character) => sanitizeCharacterGuild(character, allowedGuildIds));
 }
 export async function createCharacter(input) {
     const desiredIsMain = input.isMain === undefined ? false : input.isMain;
     if (desiredIsMain) {
         await assertMainCapacity(input.userId);
     }
-    return prisma.character.create({
+    const character = await prisma.character.create({
         data: {
             name: input.name,
             level: input.level,
@@ -43,6 +51,7 @@ export async function createCharacter(input) {
             }
         }
     });
+    return ensureCharacterGuildForUser(character);
 }
 export async function updateCharacter(characterId, userId, data) {
     const character = await prisma.character.findFirst({
@@ -54,7 +63,7 @@ export async function updateCharacter(characterId, userId, data) {
     if (data.isMain === true && character.isMain === false) {
         await assertMainCapacity(userId, characterId);
     }
-    return prisma.character.update({
+    const updated = await prisma.character.update({
         where: { id: characterId },
         data: {
             name: data.name ?? character.name,
@@ -73,6 +82,7 @@ export async function updateCharacter(characterId, userId, data) {
             }
         }
     });
+    return ensureCharacterGuildForUser(updated);
 }
 async function assertMainCapacity(userId, excludeCharacterId) {
     const count = await prisma.character.count({
@@ -91,4 +101,48 @@ async function assertMainCapacity(userId, excludeCharacterId) {
     if (count >= 2) {
         throw new MainCharacterLimitError();
     }
+}
+export async function detachUserCharactersFromGuild(guildId, userId) {
+    await prisma.character.updateMany({
+        where: {
+            guildId,
+            userId
+        },
+        data: {
+            guildId: null
+        }
+    });
+}
+function sanitizeCharacterGuild(character, allowedGuildIds) {
+    if (!character.guildId || allowedGuildIds.has(character.guildId)) {
+        return character;
+    }
+    return {
+        ...character,
+        guild: null
+    };
+}
+async function ensureCharacterGuildForUser(character) {
+    if (!character.guildId) {
+        return {
+            ...character,
+            guild: null
+        };
+    }
+    const membership = await prisma.guildMembership.findUnique({
+        where: {
+            guildId_userId: {
+                guildId: character.guildId,
+                userId: character.userId
+            }
+        },
+        select: { guildId: true }
+    });
+    if (!membership) {
+        return {
+            ...character,
+            guild: null
+        };
+    }
+    return character;
 }

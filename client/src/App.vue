@@ -5,9 +5,27 @@
         <RouterLink to="/dashboard" class="brand__title">CW Raid Manager</RouterLink>
       </div>
       <nav class="nav">
-        <RouterLink to="/dashboard" class="nav__link">Dashboard</RouterLink>
-        <RouterLink :to="guildNavTo" class="nav__link">{{ guildNavLabel }}</RouterLink>
-        <RouterLink to="/raids" class="nav__link">Raids</RouterLink>
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/dashboard"
+          class="nav__link"
+        >
+          Dashboard
+        </RouterLink>
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          :to="guildNavTo"
+          class="nav__link"
+        >
+          {{ guildNavLabel }}
+        </RouterLink>
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          to="/raids"
+          class="nav__link"
+        >
+          Raids
+        </RouterLink>
         <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
       </nav>
       <div class="auth">
@@ -78,11 +96,15 @@ const primaryGuild = computed(() => authStore.primaryGuild);
 
 const guildNavLabel = computed(() => primaryGuild.value?.name ?? 'Guilds');
 
-const guildNavTo = computed(() =>
-  primaryGuild.value
+const guildNavTo = computed(() => {
+  if (!authStore.isAuthenticated) {
+    return { path: '/guilds' };
+  }
+
+  return primaryGuild.value
     ? { name: 'GuildDetail', params: { guildId: primaryGuild.value.id } }
-    : { path: '/guilds' }
-);
+    : { path: '/guilds' };
+});
 
 function loginWithGoogle() {
   window.location.href = '/api/auth/google';

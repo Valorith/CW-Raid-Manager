@@ -65,6 +65,9 @@
         </ul>
       </div>
     </div>
+    <div v-else-if="hasGuildMembership" class="empty-state empty-state--member">
+      You do not currently have access to any guild raids.
+    </div>
     <div v-else class="empty-state">Join a guild to plan and review raids.</div>
     <RaidModal
       v-if="showRaidModal"
@@ -159,7 +162,8 @@ async function loadRaids() {
   }
 }
 
-const canCreateRaid = computed(() => selectedGuildPermissions.value?.canManage ?? false);
+const canCreateRaid = computed(() => Boolean(selectedGuildPermissions.value?.canManage));
+const hasGuildMembership = computed(() => (authStore.user?.guilds?.length ?? 0) > 0);
 
 const activeRaids = computed(() => raids.value.filter((raid) => !isHistoryRaid(raid)));
 const historyRaids = computed(() => raids.value.filter((raid) => isHistoryRaid(raid)));
@@ -248,6 +252,8 @@ watch(
         raids.value = [];
         selectedGuildPermissions.value = null;
       }
+    } else if (newId) {
+      loadRaids();
     }
   },
   { immediate: true }

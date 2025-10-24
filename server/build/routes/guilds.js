@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { canManageGuild, createGuild, getUserGuildRole } from '../services/guildService.js';
 import { prisma } from '../utils/prisma.js';
 import { applyToGuild, withdrawApplication, listPendingApplicationsForGuild, approveApplication, denyApplication, getPendingApplicationForUser } from '../services/guildApplicationService.js';
+import { detachUserCharactersFromGuild } from '../services/characterService.js';
 export async function guildRoutes(server) {
     server.get('/', async () => {
         const guilds = await listGuilds();
@@ -180,6 +181,7 @@ export async function guildRoutes(server) {
                 }
             }
         });
+        await detachUserCharactersFromGuild(guildId, memberId);
         return reply.code(204).send();
     });
     server.post('/:guildId/applications', { preHandler: [authenticate] }, async (request, reply) => {

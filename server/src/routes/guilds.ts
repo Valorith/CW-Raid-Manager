@@ -19,6 +19,7 @@ import {
   denyApplication,
   getPendingApplicationForUser
 } from '../services/guildApplicationService.js';
+import { detachUserCharactersFromGuild } from '../services/characterService.js';
 
 export async function guildRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', async () => {
@@ -238,6 +239,8 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
           }
         }
       });
+
+      await detachUserCharactersFromGuild(guildId, memberId);
 
       return reply.code(204).send();
     }

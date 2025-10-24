@@ -46,8 +46,13 @@ export const useAuthStore = defineStore('auth', {
     async fetchCurrentUser() {
       this.loading = true;
       try {
-        const response = await axios.get('/api/auth/me');
-        if (response.data?.user) {
+        const response = await axios.get('/api/auth/me', {
+          validateStatus: (status) => status === 200 || status === 401
+        });
+
+        if (response.status === 401 || !response.data?.user) {
+          this.user = null;
+        } else {
           this.user = {
             userId: response.data.user.userId,
             email: response.data.user.email,
@@ -57,14 +62,10 @@ export const useAuthStore = defineStore('auth', {
             guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
             pendingApplication: response.data.user.pendingApplication ?? null
           };
-        } else {
-          this.user = null;
         }
       } catch (error) {
         this.user = null;
-        if (axios.isAxiosError(error) && error.response?.status !== 401) {
-          console.error('Failed to fetch current user', error);
-        }
+        console.error('Failed to fetch current user', error);
       } finally {
         this.loading = false;
       }

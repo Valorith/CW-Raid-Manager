@@ -33,11 +33,17 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
     }
 
     if (parsed.data.guildId) {
-      const guildExists = await prisma.guild.findUnique({
-        where: { id: parsed.data.guildId }
+      const membership = await prisma.guildMembership.findUnique({
+        where: {
+          guildId_userId: {
+            guildId: parsed.data.guildId,
+            userId: request.user.userId
+          }
+        }
       });
-      if (!guildExists) {
-        return reply.badRequest('Provided guild does not exist.');
+
+      if (!membership) {
+        return reply.forbidden('You must be a member of this guild to assign a character to it.');
       }
     }
 
@@ -83,11 +89,17 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
     }
 
     if (parsed.data.guildId) {
-      const guildExists = await prisma.guild.findUnique({
-        where: { id: parsed.data.guildId }
+      const membership = await prisma.guildMembership.findUnique({
+        where: {
+          guildId_userId: {
+            guildId: parsed.data.guildId,
+            userId: request.user.userId
+          }
+        }
       });
-      if (!guildExists) {
-        return reply.badRequest('Provided guild does not exist.');
+
+      if (!membership) {
+        return reply.forbidden('You must be a member of this guild to assign a character to it.');
       }
     }
 

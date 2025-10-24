@@ -1,4 +1,4 @@
-import { CharacterClass, Prisma } from '@prisma/client';
+import { Character, CharacterClass, Prisma } from '@prisma/client';
 
 import { prisma } from '../utils/prisma.js';
 
@@ -20,18 +20,28 @@ export class MainCharacterLimitError extends Error {
 }
 
 export async function listCharactersForUser(userId: string) {
-  return prisma.character.findMany({
-    where: { userId },
-    orderBy: { name: 'asc' },
-    include: {
-      guild: {
-        select: {
-          id: true,
-          name: true
+  const [characters, memberships] = await Promise.all([
+    prisma.character.findMany({
+      where: { userId },
+      orderBy: { name: 'asc' },
+      include: {
+        guild: {
+          select: {
+            id: true,
+            name: true
+          }
         }
       }
-    }
-  });
+    }),
+    prisma.guildMembership.findMany({
+      where: { userId },
+      select: { guildId: true }
+    })
+  ]);
+
+  const allowedGuildIds = new Set(memberships.map((membership) => membership.guildId));
+
+  return characters.map((character) => sanitizeCharacterGuild(character, allowedGuildIds));
 }
 
 export async function createCharacter(input: CreateCharacterInput) {
@@ -41,7 +51,7 @@ export async function createCharacter(input: CreateCharacterInput) {
     await assertMainCapacity(input.userId);
   }
 
-  return prisma.character.create({
+  const character = await prisma.character.create({
     data: {
       name: input.name,
       level: input.level,
@@ -60,6 +70,8 @@ export async function createCharacter(input: CreateCharacterInput) {
       }
     }
   });
+
+  return ensureCharacterGuildForUser(character);
 }
 
 export async function updateCharacter(
@@ -79,7 +91,7 @@ export async function updateCharacter(
     await assertMainCapacity(userId, characterId);
   }
 
-  return prisma.character.update({
+  const updated = await prisma.character.update({
     where: { id: characterId },
     data: {
       name: data.name ?? character.name,
@@ -98,6 +110,8 @@ export async function updateCharacter(
       }
     }
   });
+
+  return ensureCharacterGuildForUser(updated);
 }
 
 async function assertMainCapacity(userId: string, excludeCharacterId?: string) {
@@ -118,4 +132,60 @@ async function assertMainCapacity(userId: string, excludeCharacterId?: string) {
   if (count >= 2) {
     throw new MainCharacterLimitError();
   }
+}
+
+export async function detachUserCharactersFromGuild(guildId: string, userId: string) {
+  await prisma.character.updateMany({
+    where: {
+      guildId,
+      userId
+    },
+    data: {
+      guildId: null
+    }
+  });
+}
+
+function sanitizeCharacterGuild<T extends Character & { guild: { id: string; name: string } | null }>(
+  character: T,
+  allowedGuildIds: Set<string>
+): T {
+  if (!character.guildId || allowedGuildIds.has(character.guildId)) {
+    return character;
+  }
+
+  return {
+    ...character,
+    guild: null
+  } as T;
+}
+
+async function ensureCharacterGuildForUser<T extends Character & { guild: { id: string; name: string } | null }>(
+  character: T
+): Promise<T> {
+  if (!character.guildId) {
+    return {
+      ...character,
+      guild: null
+    } as T;
+  }
+
+  const membership = await prisma.guildMembership.findUnique({
+    where: {
+      guildId_userId: {
+        guildId: character.guildId,
+        userId: character.userId
+      }
+    },
+    select: { guildId: true }
+  });
+
+  if (!membership) {
+    return {
+      ...character,
+      guild: null
+    } as T;
+  }
+
+  return character;
 }

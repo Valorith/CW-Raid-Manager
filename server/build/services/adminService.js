@@ -1,6 +1,7 @@
 import { GuildApplicationStatus } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
+import { detachUserCharactersFromGuild } from './characterService.js';
 export async function ensureAdmin(userId) {
     const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -191,6 +192,20 @@ export async function getGuildDetailForAdmin(guildId) {
                     characters: true,
                     raids: true
                 }
+            },
+            characters: {
+                orderBy: {
+                    name: 'asc'
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            displayName: true,
+                            nickname: true
+                        }
+                    }
+                }
             }
         }
     });
@@ -211,6 +226,14 @@ export async function getGuildDetailForAdmin(guildId) {
             user: withPreferredDisplayName(membership.user),
             role: membership.role,
             joinedAt: membership.createdAt
+        })),
+        characters: guild.characters.map((character) => ({
+            id: character.id,
+            name: character.name,
+            level: character.level,
+            class: character.class,
+            ownerId: character.userId,
+            ownerName: withPreferredDisplayName(character.user).displayName
         }))
     };
 }
@@ -331,12 +354,146 @@ export async function updateGuildMemberRoleAsAdmin(guildId, userId, role) {
     };
 }
 export async function removeGuildMemberAsAdmin(guildId, userId) {
-    await prisma.guildMembership.delete({
+    const membership = await prisma.guildMembership.delete({
         where: {
             guildId_userId: {
                 guildId,
                 userId
             }
         }
+    });
+    await detachUserCharactersFromGuild(guildId, membership.userId);
+}
+export async function detachGuildCharacterByAdmin(guildId, characterId) {
+    const character = await prisma.character.findUnique({
+        where: { id: characterId }
+    });
+    if (!character || character.guildId !== guildId) {
+        throw new Error('Character not associated with this guild.');
+    }
+    const updated = await prisma.character.update({
+        where: { id: characterId },
+        data: {
+            guildId: null
+        }
+    });
+    return updated;
+}
+export async function listRaidEventsForAdmin() {
+    const raids = await prisma.raidEvent.findMany({
+        orderBy: {
+            startTime: 'desc'
+        },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            },
+            createdBy: {
+                select: {
+                    id: true,
+                    displayName: true,
+                    nickname: true
+                }
+            },
+            _count: {
+                select: {
+                    attendance: true
+                }
+            }
+        }
+    });
+    return raids.map((raid) => ({
+        id: raid.id,
+        name: raid.name,
+        guild: raid.guild ? { id: raid.guild.id, name: raid.guild.name } : null,
+        startTime: raid.startTime,
+        startedAt: raid.startedAt,
+        endedAt: raid.endedAt,
+        isActive: raid.isActive,
+        attendanceCount: raid._count.attendance,
+        createdAt: raid.createdAt,
+        updatedAt: raid.updatedAt
+    }));
+}
+export async function getRaidEventForAdmin(raidId) {
+    const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            },
+            createdBy: {
+                select: {
+                    id: true,
+                    displayName: true,
+                    nickname: true
+                }
+            },
+            attendance: {
+                select: {
+                    id: true,
+                    createdAt: true,
+                    eventType: true,
+                    note: true
+                },
+                orderBy: {
+                    createdAt: 'desc'
+                }
+            }
+        }
+    });
+    if (!raid) {
+        return null;
+    }
+    return {
+        id: raid.id,
+        name: raid.name,
+        guild: raid.guild ? { id: raid.guild.id, name: raid.guild.name } : null,
+        startTime: raid.startTime,
+        startedAt: raid.startedAt,
+        endedAt: raid.endedAt,
+        targetZones: Array.isArray(raid.targetZones) ? raid.targetZones : [],
+        targetBosses: Array.isArray(raid.targetBosses) ? raid.targetBosses : [],
+        notes: raid.notes,
+        isActive: raid.isActive,
+        createdAt: raid.createdAt,
+        updatedAt: raid.updatedAt,
+        attendanceCount: raid.attendance.length,
+        attendance: raid.attendance
+    };
+}
+export async function updateRaidEventByAdmin(raidId, data) {
+    const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId }
+    });
+    if (!raid) {
+        throw new Error('Raid event not found.');
+    }
+    const targetZonesUpdate = data.targetZones === undefined ? undefined : data.targetZones;
+    const targetBossesUpdate = data.targetBosses === undefined ? undefined : data.targetBosses;
+    await prisma.raidEvent.update({
+        where: { id: raidId },
+        data: {
+            name: data.name ?? raid.name,
+            startTime: data.startTime ?? raid.startTime,
+            startedAt: data.startedAt === undefined ? raid.startedAt : data.startedAt,
+            endedAt: data.endedAt === undefined ? raid.endedAt : data.endedAt,
+            targetZones: targetZonesUpdate ?? raid.targetZones,
+            targetBosses: targetBossesUpdate ?? raid.targetBosses,
+            notes: data.notes ?? raid.notes,
+            isActive: data.isActive ?? raid.isActive
+        }
+    });
+    return getRaidEventForAdmin(raidId);
+}
+export async function deleteRaidEventByAdmin(raidId) {
+    await prisma.raidEvent.delete({
+        where: { id: raidId }
     });
 }
