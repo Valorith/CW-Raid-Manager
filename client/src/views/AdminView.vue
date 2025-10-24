@@ -35,8 +35,19 @@
     <div class="admin-grid">
       <article class="card">
         <header class="card__header">
-          <h2>Users</h2>
-          <span class="muted small">{{ filteredUsers.length }} users</span>
+          <div>
+            <h2>Users</h2>
+            <span class="muted small">{{ filteredUsers.length }} users</span>
+          </div>
+          <button
+            type="button"
+            class="icon-button icon-button--refresh"
+            :disabled="loadingUsers"
+            aria-label="Refresh users"
+            @click.prevent="refreshUsers"
+          >
+            ↻
+          </button>
         </header>
         <input
           v-model="userSearch"
@@ -117,8 +128,19 @@
 
       <article class="card">
         <header class="card__header">
-          <h2>Guilds</h2>
-          <span class="muted small">{{ guilds.length }} guilds</span>
+          <div>
+            <h2>Guilds</h2>
+            <span class="muted small">{{ guilds.length }} guilds</span>
+          </div>
+          <button
+            type="button"
+            class="icon-button icon-button--refresh"
+            :disabled="loadingGuilds"
+            aria-label="Refresh guilds"
+            @click.prevent="refreshGuilds"
+          >
+            ↻
+          </button>
         </header>
         <p v-if="loadingGuilds" class="muted">Loading guilds…</p>
         <p v-else-if="guilds.length === 0" class="muted">No guilds registered yet.</p>
@@ -150,14 +172,43 @@
 
       <article class="card">
         <header class="card__header">
-          <h2>Raid Events</h2>
-          <span class="muted small">{{ raids.length }} raids</span>
+          <div>
+            <h2>Raid Events</h2>
+            <span class="muted small">{{ raids.length }} raids</span>
+          </div>
+          <div class="card__header-actions">
+            <button
+              type="button"
+              class="icon-button icon-button--refresh"
+              :disabled="loadingRaids"
+              aria-label="Refresh raid events"
+              @click.prevent="refreshRaids"
+            >
+              ↻
+            </button>
+          </div>
         </header>
+        <div class="raid-filters">
+          <button
+            type="button"
+            :class="['raid-filter', { 'raid-filter--active': raidFilter === 'ACTIVE' }]"
+            @click="raidFilter = 'ACTIVE'"
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            :class="['raid-filter', { 'raid-filter--active': raidFilter === 'ENDED' }]"
+            @click="raidFilter = 'ENDED'"
+          >
+            Ended
+          </button>
+        </div>
         <p v-if="loadingRaids" class="muted">Loading raids…</p>
-        <p v-else-if="raids.length === 0" class="muted">No raid events recorded yet.</p>
+        <p v-else-if="filteredRaids.length === 0" class="muted">No raid events found.</p>
         <ul v-else class="raid-admin-list">
           <li
-            v-for="raid in raids"
+            v-for="raid in filteredRaids"
             :key="raid.id"
             :class="['raid-admin-list__item', { 'raid-admin-list__item--active': raid.id === selectedRaidId }]"
           >
@@ -548,6 +599,7 @@ const userForm = reactive({
 const savingRaid = ref(false);
 const deletingRaidId = ref<string | null>(null);
 const raidError = ref<string | null>(null);
+const raidFilter = ref<'ACTIVE' | 'ENDED'>('ACTIVE');
 
 const roleLabels: Record<GuildRole, string> = {
   LEADER: 'Guild Leader',
@@ -615,6 +667,15 @@ function formatCharacterClass(className?: string | null) {
   }
   return characterClassLabels[className as keyof typeof characterClassLabels] ?? className;
 }
+
+const filteredRaids = computed(() => {
+  return raids.value.filter((raid) => {
+    if (raidFilter.value === 'ACTIVE') {
+      return !raid.endedAt;
+    }
+    return Boolean(raid.endedAt);
+  });
+});
 
 function formatRaidDate(value?: string | null) {
   if (!value) {
@@ -731,6 +792,10 @@ async function loadUsers() {
   }
 }
 
+async function refreshUsers() {
+  await loadUsers();
+}
+
 async function loadGuilds() {
   loadingGuilds.value = true;
   try {
@@ -746,19 +811,27 @@ async function loadGuilds() {
   }
 }
 
+async function refreshGuilds() {
+  await loadGuilds();
+  if (selectedGuildId.value) {
+    await loadGuildDetail(selectedGuildId.value);
+  }
+}
+
 async function loadAdminRaids() {
   loadingRaids.value = true;
   try {
     raids.value = await api.fetchAdminRaids();
-    if (showRaidDetailModal.value && selectedRaidId.value) {
-      await loadRaidDetail(selectedRaidId.value);
-    }
   } catch (error) {
     console.error('Failed to load raid events for admin console.', error);
     window.alert('Unable to load raid events. Please try again.');
   } finally {
     loadingRaids.value = false;
   }
+}
+
+async function refreshRaids() {
+  await loadAdminRaids();
 }
 
 async function loadGuildDetail(guildId: string) {
@@ -1204,6 +1277,9 @@ watch(raids, (list) => {
   if (selectedRaidId.value && !list.some((raid) => raid.id === selectedRaidId.value)) {
     closeRaidModal();
   }
+  if (showRaidDetailModal.value && selectedRaidId.value) {
+    loadRaidDetail(selectedRaidId.value);
+  }
 });
 
 onMounted(async () => {
@@ -1308,6 +1384,12 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.card__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .card__header--stack {
@@ -1511,6 +1593,26 @@ onMounted(async () => {
   transform: translateY(-1px);
 }
 
+.icon-button--refresh {
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.icon-button--refresh:hover:not(:disabled) {
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #bae6fd;
+  transform: translateY(-1px) rotate(-12deg);
+}
+
+.icon-button--refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .modal__loading {
   display: flex;
   flex-direction: column;
@@ -1671,6 +1773,31 @@ onMounted(async () => {
 .form__field--inline input[type='checkbox'] {
   width: 1.1rem;
   height: 1.1rem;
+}
+
+.raid-filters {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.raid-filter {
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.raid-filter--active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
 }
 
 .raid-attendance-overview {
