@@ -46,6 +46,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/raids/:raidId/loot',
+      name: 'RaidLoot',
+      component: () => import('../views/LootTrackerView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/settings/account',
       name: 'AccountSettings',
       component: () => import('../views/AccountSettingsView.vue'),

@@ -12,6 +12,10 @@
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
       <div class="header-actions">
+        <RouterLink class="btn btn--outline btn--loot" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
+          <span class="btn__icon">💎</span>
+          Loot
+        </RouterLink>
         <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
           <span aria-hidden="true">🔗</span>
           Share
@@ -166,6 +170,29 @@
       </ul>
     </section>
 
+    <section class="card">
+      <header class="card__header">
+        <h2>Recorded Loot</h2>
+        <RouterLink class="btn btn--outline btn--small" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
+          Manage Loot
+        </RouterLink>
+      </header>
+      <p v-if="lootEvents.length === 0" class="muted">No loot recorded yet.</p>
+      <div v-else class="raid-loot-grid">
+        <article v-for="entry in groupedLoot" :key="entry.id" class="raid-loot-card">
+          <div class="raid-loot-card__count">{{ entry.count }}×</div>
+          <header class="raid-loot-card__header">
+            <span class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
+            <div>
+              <p class="raid-loot-card__item">{{ entry.itemName }}</p>
+              <p class="raid-loot-card__looter">{{ entry.looterName }} <span v-if="entry.looterClass">({{ entry.looterClass }})</span></p>
+            </div>
+          </header>
+          <p v-if="entry.note" class="raid-loot-card__note">{{ entry.note }}</p>
+        </article>
+      </div>
+    </section>
+
       </section>
   <p v-else class="muted">Loading raid…</p>
 
@@ -198,7 +225,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
@@ -207,7 +234,8 @@ import { api } from '../services/api';
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
-  RaidDetail
+  RaidDetail,
+  RaidLootEvent
 } from '../services/api';
 
 const route = useRoute();
@@ -225,12 +253,40 @@ const submittingAttendance = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedAttendanceEvent = ref<AttendanceEventSummary | null>(null);
 const rosterEditingEventId = ref<string | null>(null);
+const lootEvents = ref<RaidLootEvent[]>([]);
 const pendingAttendanceEventId = ref<string | null>(
   typeof route.query.attendanceEventId === 'string'
     ? (route.query.attendanceEventId as string)
     : null
 );
 const lastAutoOpenedAttendanceId = ref<string | null>(null);
+const groupedLoot = computed(() => {
+  const grouped = new Map<string, {
+    id: string;
+    itemName: string;
+    looterName: string;
+    looterClass?: string | null;
+    emoji?: string | null;
+    note?: string | null;
+    count: number;
+  }>();
+  for (const event of lootEvents.value) {
+    const key = `${event.looterName}::${event.itemName}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        id: event.id,
+        itemName: event.itemName,
+        looterName: event.looterName,
+        looterClass: event.looterClass,
+        emoji: event.emoji,
+        note: event.note,
+        count: 0
+      });
+    }
+    grouped.get(key)!.count += 1;
+  }
+  return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
+});
 const startedAtInput = ref('');
 const endedAtInput = ref('');
 const initialStartedAt = ref('');
@@ -299,6 +355,14 @@ async function loadRaid() {
   raid.value = data;
   setTimingInputs(data);
   actionError.value = null;
+}
+
+async function loadLoot() {
+  try {
+    lootEvents.value = await api.fetchRaidLoot(raidId);
+  } catch (error) {
+    console.warn('Failed to load loot events', error);
+  }
 }
 
 async function loadAttendance() {
@@ -760,6 +824,7 @@ async function createPlaceholderAttendanceEvent(eventType: 'START' | 'END' | 'RE
 onMounted(() => {
   loadRaid();
   loadAttendance();
+  loadLoot();
 });
 
 onUnmounted(() => {
@@ -856,6 +921,22 @@ async function copyRaidLink() {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.btn--loot {
+  border-color: rgba(34, 197, 94, 0.6);
+  color: #bbf7d0;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(13, 148, 136, 0.2));
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  box-shadow: 0 10px 30px rgba(13, 148, 136, 0.35);
+}
+
+.btn--loot:hover {
+  border-color: rgba(34, 197, 94, 0.85);
+  color: #ecfccb;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(13, 148, 136, 0.35));
 }
 
 .share-btn {
@@ -1180,6 +1261,75 @@ th {
 .icon-button--outline:hover {
   background: rgba(148, 163, 184, 0.1);
   color: #e2e8f0;
+}
+
+.loot-summary {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+
+.raid-loot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.85rem;
+}
+
+.raid-loot-card {
+  position: relative;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  background: rgba(15, 23, 42, 0.75);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.raid-loot-card__count {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  color: #bbf7d0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.65rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.raid-loot-card__header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding-right: 3rem;
+}
+
+.raid-loot-card__emoji {
+  font-size: 1.4rem;
+}
+
+.raid-loot-card__item {
+  margin: 0;
+  font-weight: 700;
+}
+
+.raid-loot-card__looter {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.raid-loot-card__note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #cbd5f5;
 }
 
 </style>

@@ -10,3 +10,4 @@ yarn.lock
 package-lock.json
 *.sqlite
 !.env.example
+eqlog_Valgor_CWR.txt

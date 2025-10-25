@@ -28,7 +28,7 @@ interface UpdateRaidInput {
   isActive?: boolean;
 }
 
-async function ensureCanManageRaid(userId: string, guildId: string) {
+export async function ensureCanManageRaid(userId: string, guildId: string) {
   const membership = await getUserGuildRole(userId, guildId);
   if (!membership || !canManageGuild(membership.role)) {
     throw new Error('Insufficient permissions to manage raid events for this guild.');

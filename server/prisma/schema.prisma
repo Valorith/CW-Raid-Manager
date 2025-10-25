@@ -20,6 +20,7 @@ model User {
   createdGuilds      Guild[]            @relation("GuildCreator")
   createdRaids       RaidEvent[]        @relation("RaidCreator")
   createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
+  createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 }
@@ -36,6 +37,8 @@ model Guild {
   raids        RaidEvent[]
   applications GuildApplication[]
   discordWebhooks GuildDiscordWebhook[]
+  lootParserSettings GuildLootParserSettings?
+  lootEvents   RaidLootEvent[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -165,8 +168,37 @@ model RaidEvent {
   guild          Guild             @relation(fields: [guildId], references: [id])
   createdBy      User              @relation("RaidCreator", fields: [createdById], references: [id])
   attendance     AttendanceEvent[]
+  loot           RaidLootEvent[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+}
+
+model GuildLootParserSettings {
+  id        String   @id @default(cuid())
+  guildId   String   @unique
+  guild     Guild    @relation(fields: [guildId], references: [id])
+  patterns  Json     @default("[]")
+  emoji     String?  @db.VarChar(16)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RaidLootEvent {
+  id          String   @id @default(cuid())
+  raidId      String
+  guildId     String
+  raid        RaidEvent @relation(fields: [raidId], references: [id])
+  guild       Guild     @relation(fields: [guildId], references: [id])
+  itemName    String
+  looterName  String
+  looterClass String?
+  eventTime   DateTime?
+  emoji       String?  @db.VarChar(16)
+  note        String?
+  createdById String?
+  createdBy   User?    @relation("LootCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model AttendanceEvent {

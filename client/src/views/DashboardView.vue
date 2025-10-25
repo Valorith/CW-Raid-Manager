@@ -154,6 +154,43 @@
           </button>
         </div>
       </article>
+      <article class="card">
+        <header class="card__header">
+          <div>
+            <h2>Recent Loot</h2>
+            <p class="muted">Latest drops earned by your registered characters.</p>
+          </div>
+        </header>
+        <p v-if="loadingLoot" class="muted">Loading loot…</p>
+        <p v-else-if="lootError" class="error">{{ lootError }}</p>
+        <p v-else-if="characters.length === 0" class="muted">Add a character to start tracking loot history.</p>
+        <p v-else-if="recentLoot.length === 0" class="muted">Loot earned by your characters will show up here.</p>
+        <ul v-else class="recent-loot">
+          <li v-for="entry in recentLoot" :key="entry.id" class="recent-loot__item">
+            <div class="recent-loot__emoji">{{ entry.emoji ?? '💎' }}</div>
+            <div class="recent-loot__details">
+              <p class="recent-loot__item-name">{{ entry.itemName }}</p>
+              <p class="recent-loot__meta">
+                {{ entry.looterName }} • {{ entry.raid.guild.name }} •
+                {{ formatDate(entry.eventTime ?? entry.raid.startTime) }}
+              </p>
+            </div>
+          </li>
+        </ul>
+        <div v-if="lootTotalPages > 1" class="pagination">
+          <button class="pagination__button" :disabled="lootPage === 1" @click="setLootPage(lootPage - 1)">
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ lootPage }} of {{ lootTotalPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="lootPage === lootTotalPages"
+            @click="setLootPage(lootPage + 1)"
+          >
+            Next
+          </button>
+        </div>
+      </article>
     </div>
 
     <CharacterModal
@@ -171,7 +208,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import CharacterModal from '../components/CharacterModal.vue';
-import { api, type GuildSummary, type RecentAttendanceEntry, type UserCharacter } from '../services/api';
+import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
 
@@ -187,6 +224,12 @@ const attendancePerPage = 5;
 const expandedAttendanceIds = ref<string[]>([]);
 const updatingCharacterId = ref<string | null>(null);
 const characterError = ref<string | null>(null);
+const recentLoot = ref<RecentLootEntry[]>([]);
+const loadingLoot = ref(false);
+const lootError = ref<string | null>(null);
+const lootPage = ref(1);
+const lootTotalPages = ref(1);
+const lootPageSize = 6;
 
 const attendanceTotalPages = computed(() => {
   if (recentAttendance.value.length === 0) {
@@ -240,10 +283,26 @@ async function loadRecentAttendance() {
   }
 }
 
+async function loadRecentLoot(page = lootPage.value) {
+  loadingLoot.value = true;
+  lootError.value = null;
+  try {
+    const response = await api.fetchRecentLoot(page, lootPageSize);
+    recentLoot.value = response.loot;
+    lootPage.value = response.page ?? page;
+    lootTotalPages.value = response.totalPages ?? 1;
+  } catch (error) {
+    lootError.value = extractErrorMessage(error, 'Unable to load recent loot.');
+  } finally {
+    loadingLoot.value = false;
+  }
+}
+
 function handleCharacterCreated() {
   showCharacterForm.value = false;
   loadCharacters();
   loadRecentAttendance();
+  loadRecentLoot();
   characterError.value = null;
 }
 
@@ -323,6 +382,16 @@ function setAttendancePage(page: number) {
   expandedAttendanceIds.value = [];
 }
 
+function setLootPage(page: number) {
+  const normalized = Math.max(1, Math.min(page, lootTotalPages.value));
+  if (normalized === lootPage.value || loadingLoot.value) {
+    lootPage.value = normalized;
+    return;
+  }
+  lootPage.value = normalized;
+  loadRecentLoot(normalized);
+}
+
 function extractErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null) {
     if ('response' in error && typeof (error as any).response === 'object') {
@@ -381,10 +450,20 @@ watch(
   }
 );
 
+watch(
+  () => recentLoot.value.length,
+  () => {
+    if (lootPage.value > lootTotalPages.value) {
+      lootPage.value = lootTotalPages.value;
+    }
+  }
+);
+
 onMounted(() => {
   loadCharacters();
   loadGuilds();
   loadRecentAttendance();
+  loadRecentLoot();
 });
 </script>
 
@@ -638,6 +717,46 @@ onMounted(() => {
 .attendance-toggle-icon--expanded {
   transform: rotate(-90deg);
   background: rgba(96, 165, 250, 0.25);
+}
+
+.recent-loot {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.recent-loot__item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.85rem;
+  padding: 0.75rem 1rem;
+}
+
+.recent-loot__emoji {
+  font-size: 1.5rem;
+}
+
+.recent-loot__details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.recent-loot__item-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.recent-loot__meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
 }
 
 .attendance-badge {

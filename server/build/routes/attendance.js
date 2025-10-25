@@ -1,9 +1,19 @@
 import { AttendanceEventType, AttendanceStatus, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createAttendanceEvent, deleteAttendanceEvent, getAttendanceEvent, listAttendanceEvents, listRecentAttendanceForUser } from '../services/attendanceService.js';
+import { createAttendanceEvent, deleteAttendanceEvent, getAttendanceEvent, listAttendanceEvents, listRecentAttendanceForUser, overwriteAttendanceEventRecords } from '../services/attendanceService.js';
 import { ensureUserCanEditRaid, ensureUserCanViewGuild, getRaidEventById } from '../services/raidService.js';
 import { parseRaidRoster } from '../utils/raidRosterParser.js';
+const attendanceRecordSchema = z.object({
+    characterId: z.string().optional(),
+    characterName: z.string().min(2),
+    level: z.number().int().min(1).max(125).nullable().optional(),
+    class: z.nativeEnum(CharacterClass).nullable().optional(),
+    groupNumber: z.number().int().min(1).max(12).nullable().optional(),
+    status: z.nativeEnum(AttendanceStatus).optional(),
+    flags: z.string().nullable().optional()
+});
+const attendanceRecordArraySchema = z.array(attendanceRecordSchema);
 export async function attendanceRoutes(server) {
     server.get('/user/recent', { preHandler: [authenticate] }, async (request, reply) => {
         const querySchema = z.object({
@@ -88,20 +98,11 @@ export async function attendanceRoutes(server) {
             raidEventId: z.string()
         });
         const { raidEventId } = paramsSchema.parse(request.params);
-        const recordSchema = z.object({
-            characterId: z.string().optional(),
-            characterName: z.string().min(2),
-            level: z.number().int().min(1).max(125).nullable().optional(),
-            class: z.nativeEnum(CharacterClass).nullable().optional(),
-            groupNumber: z.number().int().min(1).max(12).nullable().optional(),
-            status: z.nativeEnum(AttendanceStatus).optional(),
-            flags: z.string().nullable().optional()
-        });
         const bodySchema = z.object({
             note: z.string().max(2000).optional(),
             snapshot: z.any().optional(),
             eventType: z.nativeEnum(AttendanceEventType).optional(),
-            records: z.array(recordSchema).min(1)
+            records: attendanceRecordArraySchema.optional().default([])
         });
         const parsed = bodySchema.safeParse(request.body);
         if (!parsed.success) {
@@ -144,5 +145,35 @@ export async function attendanceRoutes(server) {
         }
         await deleteAttendanceEvent(attendanceEventId);
         return reply.code(204).send();
+    });
+    server.patch('/event/:attendanceEventId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ attendanceEventId: z.string() });
+        const { attendanceEventId } = paramsSchema.parse(request.params);
+        const bodySchema = z.object({
+            note: z.string().max(2000).optional(),
+            snapshot: z.any().optional(),
+            records: attendanceRecordArraySchema
+        });
+        const parsed = bodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid attendance payload.');
+        }
+        try {
+            const attendanceEvent = await overwriteAttendanceEventRecords({
+                attendanceEventId,
+                actorUserId: request.user.userId,
+                records: parsed.data.records,
+                note: parsed.data.note,
+                snapshot: parsed.data.snapshot
+            });
+            return { attendanceEvent };
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to overwrite attendance event.');
+            if (error instanceof Error && error.message === 'Attendance event not found.') {
+                return reply.notFound(error.message);
+            }
+            return reply.forbidden('You do not have permission to update this attendance event.');
+        }
     });
 }

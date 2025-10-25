@@ -222,6 +222,42 @@ export interface RecentAttendanceEntry {
   characters: RecentAttendanceRecord[];
 }
 
+export interface GuildLootParserSettings {
+  patterns: Array<{ id: string; label: string; pattern: string }>;
+  emoji: string;
+}
+
+export interface RaidLootEvent {
+  id: string;
+  raidId: string;
+  guildId: string;
+  itemName: string;
+  looterName: string;
+  looterClass?: string | null;
+  eventTime?: string | null;
+  emoji?: string | null;
+  note?: string | null;
+  createdById?: string | null;
+}
+
+export interface RecentLootEntry {
+  id: string;
+  itemName: string;
+  looterName: string;
+  looterClass?: string | null;
+  eventTime?: string | null;
+  emoji?: string | null;
+  raid: {
+    id: string;
+    name: string;
+    startTime: string;
+    guild: {
+      id: string;
+      name: string;
+    };
+  };
+}
+
 export interface AccountProfile {
   userId: string;
   email: string;
@@ -503,6 +539,66 @@ export const api = {
         ? raid.attendance.map(normalizeAttendanceEvent)
         : []
     };
+  },
+
+  async fetchRaidLoot(raidId: string): Promise<RaidLootEvent[]> {
+    const response = await axios.get(`/api/raids/${raidId}/loot`);
+    return Array.isArray(response.data.loot) ? response.data.loot : [];
+  },
+
+  async createRaidLoot(
+    raidId: string,
+    events: Array<{
+      itemName: string;
+      looterName: string;
+      looterClass?: string | null;
+      emoji?: string | null;
+      note?: string | null;
+      eventTime?: string | null;
+    }>
+  ): Promise<RaidLootEvent[]> {
+    const response = await axios.post(`/api/raids/${raidId}/loot`, { events });
+    return Array.isArray(response.data.loot) ? response.data.loot : [];
+  },
+
+  async updateRaidLoot(
+    raidId: string,
+    lootId: string,
+    payload: Partial<Omit<RaidLootEvent, 'id' | 'raidId' | 'guildId'>>
+  ): Promise<RaidLootEvent> {
+    const response = await axios.patch(`/api/raids/${raidId}/loot/${lootId}`, payload);
+    return response.data.loot;
+  },
+
+  async deleteRaidLoot(raidId: string, lootId: string) {
+    await axios.delete(`/api/raids/${raidId}/loot/${lootId}`);
+  },
+
+  async fetchRecentLoot(page = 1, limit = 6): Promise<{
+    loot: RecentLootEntry[];
+    page: number;
+    totalPages: number;
+    total: number;
+  }> {
+    const response = await axios.get('/api/user/recent-loot', {
+      params: { page, limit }
+    });
+    return {
+      loot: Array.isArray(response.data.loot) ? response.data.loot : [],
+      page: response.data.page ?? page,
+      totalPages: response.data.totalPages ?? 1,
+      total: response.data.total ?? 0
+    };
+  },
+
+  async fetchGuildLootSettings(guildId: string): Promise<GuildLootParserSettings> {
+    const response = await axios.get(`/api/guilds/${guildId}/loot-settings`);
+    return response.data.settings ?? { patterns: [], emoji: '💎' };
+  },
+
+  async updateGuildLootSettings(guildId: string, payload: GuildLootParserSettings) {
+    const response = await axios.put(`/api/guilds/${guildId}/loot-settings`, payload);
+    return response.data.settings;
   },
 
   async updateRaid(
