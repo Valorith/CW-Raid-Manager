@@ -384,27 +384,28 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
   const nowIso = new Date().toISOString();
   switch (event) {
     case 'raid.created':
-      const raidCreatedUrl = buildRaidUrl(payload.raidId);
+      const raidCreatedPayload = payload as DiscordWebhookPayloadMap['raid.created'];
+      const raidCreatedUrl = buildRaidUrl(raidCreatedPayload.raidId);
       return {
         embeds: [
           {
-            title: `⚔️ Raid Scheduled: ${payload.raidName}`,
-            description: `A new raid has been scheduled for **${payload.guildName}**.`,
+            title: `⚔️ Raid Scheduled: ${raidCreatedPayload.raidName}`,
+            description: `A new raid has been scheduled for **${raidCreatedPayload.guildName}**.`,
             color: DISCORD_COLORS.primary,
             fields: [
               {
                 name: 'Start Time',
-                value: formatDiscordTimestamp(payload.startTime),
+                value: formatDiscordTimestamp(raidCreatedPayload.startTime),
                 inline: true
               },
               {
                 name: 'Target Zones',
-                value: formatList(payload.targetZones),
+                value: formatList(raidCreatedPayload.targetZones),
                 inline: true
               },
               {
                 name: 'Target Bosses',
-                value: formatList(payload.targetBosses),
+                value: formatList(raidCreatedPayload.targetBosses),
                 inline: true
               },
               ...(raidCreatedUrl
@@ -417,25 +418,26 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                   ]
                 : [])
             ],
-            footer: payload.createdByName
-              ? { text: `Planned by ${payload.createdByName}` }
+            footer: raidCreatedPayload.createdByName
+              ? { text: `Planned by ${raidCreatedPayload.createdByName}` }
               : undefined,
             timestamp: nowIso
           }
         ]
       };
     case 'raid.started':
-      const raidStartedUrl = buildRaidUrl(payload.raidId);
+      const raidStartedPayload = payload as DiscordWebhookPayloadMap['raid.started'];
+      const raidStartedUrl = buildRaidUrl(raidStartedPayload.raidId);
       return {
         embeds: [
           {
-            title: `🟢 Raid Started: ${payload.raidName}`,
+            title: `🟢 Raid Started: ${raidStartedPayload.raidName}`,
             description: 'Raid has been marked as in-progress.',
             color: DISCORD_COLORS.success,
             fields: [
               {
                 name: 'Start Time',
-                value: formatDiscordTimestamp(payload.startedAt),
+                value: formatDiscordTimestamp(raidStartedPayload.startedAt),
                 inline: true
               },
               ...(raidStartedUrl
@@ -453,17 +455,18 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'raid.ended':
-      const raidEndedUrl = buildRaidUrl(payload.raidId);
+      const raidEndedPayload = payload as DiscordWebhookPayloadMap['raid.ended'];
+      const raidEndedUrl = buildRaidUrl(raidEndedPayload.raidId);
       return {
         embeds: [
           {
-            title: `🔴 Raid Completed: ${payload.raidName}`,
+            title: `🔴 Raid Completed: ${raidEndedPayload.raidName}`,
             description: 'Raid was marked as complete.',
             color: DISCORD_COLORS.info,
             fields: [
               {
                 name: 'Completed',
-                value: formatDiscordTimestamp(payload.endedAt),
+                value: formatDiscordTimestamp(raidEndedPayload.endedAt),
                 inline: true
               },
               ...(raidEndedUrl
@@ -481,10 +484,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'raid.deleted':
+      const raidDeletedPayload = payload as DiscordWebhookPayloadMap['raid.deleted'];
       return {
         embeds: [
           {
-            title: `⚠️ Raid Removed: ${payload.raidName}`,
+            title: `⚠️ Raid Removed: ${raidDeletedPayload.raidName}`,
             description: 'A scheduled raid was deleted by guild leadership.',
             color: DISCORD_COLORS.warning,
             timestamp: nowIso
@@ -492,10 +496,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'attendance.logged':
-      const attendanceRaidUrl = buildRaidUrl(payload.raidId);
+      const attendanceLoggedPayload = payload as DiscordWebhookPayloadMap['attendance.logged'];
+      const attendanceRaidUrl = buildRaidUrl(attendanceLoggedPayload.raidId);
       const attendanceEventUrl = buildAttendanceEventUrl(
-        payload.raidId,
-        payload.attendanceEventId
+        attendanceLoggedPayload.raidId,
+        attendanceLoggedPayload.attendanceEventId
       );
       const attendanceLinks = [
         attendanceRaidUrl ? `[View Raid](${attendanceRaidUrl})` : null,
@@ -506,23 +511,23 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       return {
         embeds: [
           {
-            title: `🧾 Attendance Logged: ${payload.raidName}`,
-            description: payload.note
-              ? payload.note
+            title: `🧾 Attendance Logged: ${attendanceLoggedPayload.raidName}`,
+            description: attendanceLoggedPayload.note
+              ? attendanceLoggedPayload.note
               : 'A new attendance snapshot has been captured.',
             color: DISCORD_COLORS.primary,
             fields: [
               {
                 name: 'Event Type',
-                value: payload.eventType ? payload.eventType : 'LOG',
+                value: attendanceLoggedPayload.eventType ? attendanceLoggedPayload.eventType : 'LOG',
                 inline: true
               },
               {
                 name: 'Recorded At',
-                value: formatDiscordTimestamp(payload.createdAt),
+                value: formatDiscordTimestamp(attendanceLoggedPayload.createdAt),
                 inline: true
               },
-              ...buildAttendanceCharacterFields(payload.characters),
+              ...buildAttendanceCharacterFields(attendanceLoggedPayload.characters),
               ...(attendanceLinks
                 ? [
                     {
@@ -538,8 +543,12 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'attendance.updated':
-      const updatedRaidUrl = buildRaidUrl(payload.raidId);
-      const updatedEventUrl = buildAttendanceEventUrl(payload.raidId, payload.attendanceEventId);
+      const attendanceUpdatedPayload = payload as DiscordWebhookPayloadMap['attendance.updated'];
+      const updatedRaidUrl = buildRaidUrl(attendanceUpdatedPayload.raidId);
+      const updatedEventUrl = buildAttendanceEventUrl(
+        attendanceUpdatedPayload.raidId,
+        attendanceUpdatedPayload.attendanceEventId
+      );
       const updatedLinks = [
         updatedRaidUrl ? `[View Raid](${updatedRaidUrl})` : null,
         updatedEventUrl ? `[View Attendance](${updatedEventUrl})` : null
@@ -549,16 +558,16 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       return {
         embeds: [
           {
-            title: `♻️ Attendance Updated: ${payload.raidName}`,
+            title: `♻️ Attendance Updated: ${attendanceUpdatedPayload.raidName}`,
             description: 'An attendance snapshot has been overwritten with new data.',
             color: DISCORD_COLORS.info,
             fields: [
               {
                 name: 'Updated At',
-                value: formatDiscordTimestamp(payload.updatedAt),
+                value: formatDiscordTimestamp(attendanceUpdatedPayload.updatedAt),
                 inline: true
               },
-              ...buildAttendanceCharacterFields(payload.characters),
+              ...buildAttendanceCharacterFields(attendanceUpdatedPayload.characters),
               ...(updatedLinks
                 ? [
                     {
@@ -574,8 +583,9 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'application.submitted':
+      const submittedPayload = payload as DiscordWebhookPayloadMap['application.submitted'];
       return {
-        content: `📨 New guild application received from **${payload.applicantName}**.`,
+        content: `📨 New guild application received from **${submittedPayload.applicantName}**.`,
         embeds: [
           {
             description: `Review the application in the Raid Manager to respond.`,
@@ -583,7 +593,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
             fields: [
               {
                 name: 'Submitted',
-                value: formatDiscordTimestamp(payload.submittedAt),
+                value: formatDiscordTimestamp(submittedPayload.submittedAt),
                 inline: true
               }
             ],
@@ -592,15 +602,16 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'application.approved':
+      const approvedPayload = payload as DiscordWebhookPayloadMap['application.approved'];
       return {
-        content: `✅ **${payload.applicantName}** has been approved by ${payload.actorName}.`,
+        content: `✅ **${approvedPayload.applicantName}** has been approved by ${approvedPayload.actorName}.`,
         embeds: [
           {
             color: DISCORD_COLORS.success,
             fields: [
               {
                 name: 'Approved',
-                value: formatDiscordTimestamp(payload.resolvedAt),
+                value: formatDiscordTimestamp(approvedPayload.resolvedAt),
                 inline: true
               }
             ],
@@ -609,15 +620,16 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         ]
       };
     case 'application.denied':
+      const deniedPayload = payload as DiscordWebhookPayloadMap['application.denied'];
       return {
-        content: `❌ Application for **${payload.applicantName}** was denied by ${payload.actorName}.`,
+        content: `❌ Application for **${deniedPayload.applicantName}** was denied by ${deniedPayload.actorName}.`,
         embeds: [
           {
             color: DISCORD_COLORS.warning,
             fields: [
               {
                 name: 'Updated',
-                value: formatDiscordTimestamp(payload.resolvedAt),
+                value: formatDiscordTimestamp(deniedPayload.resolvedAt),
                 inline: true
               }
             ],
