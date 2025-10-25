@@ -1,0 +1,11 @@
+1	Kleric	60	Cleric	Raid Leader	
+1	Zurkon	60	Magician		
+1	Valgor	60	Warrior		
+1	Ozan	60	Bard		
+1	Sojourner	60	Shaman		
+1	Dagara	60	Shadow Knight		
+2	Loladin	60	Paladin	Group Leader	
+2	Podo	60	Cleric		
+2	Darude	60	Bard		
+2	Watchout	60	Warrior		
+2	Plagued	60	Rogue		

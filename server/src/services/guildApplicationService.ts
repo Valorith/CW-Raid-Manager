@@ -2,9 +2,17 @@ import { GuildApplicationStatus, GuildRole } from '@prisma/client';
 
 import { prisma } from '../utils/prisma.js';
 import { getUserGuildRole, canManageGuild } from './guildService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 
 export async function applyToGuild(guildId: string, userId: string) {
-  const guild = await prisma.guild.findUnique({ where: { id: guildId } });
+  const guild = await prisma.guild.findUnique({
+    where: { id: guildId },
+    select: {
+      id: true,
+      name: true
+    }
+  });
   if (!guild) {
     throw new Error('Guild not found.');
   }
@@ -57,12 +65,32 @@ export async function applyToGuild(guildId: string, userId: string) {
     });
   }
 
-  return prisma.guildApplication.create({
+  const application = await prisma.guildApplication.create({
     data: {
       guildId,
       userId
     }
   });
+
+  const applicant = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      displayName: true,
+      nickname: true
+    }
+  });
+
+  if (applicant) {
+    const applicantName = withPreferredDisplayName(applicant).displayName;
+    emitDiscordWebhookEvent(guild.id, 'application.submitted', {
+      guildName: guild.name,
+      applicantName,
+      submittedAt: application.createdAt
+    });
+  }
+
+  return application;
 }
 
 export async function withdrawApplication(guildId: string, userId: string) {
@@ -106,9 +134,33 @@ export async function listPendingApplicationsForGuild(guildId: string) {
 }
 
 export async function approveApplication(applicationId: string, actorUserId: string) {
-  return prisma.$transaction(async (tx) => {
+  const actorProfilePromise = prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: {
+      id: true,
+      displayName: true,
+      nickname: true
+    }
+  });
+
+  const approvalContext = await prisma.$transaction(async (tx) => {
     const application = await tx.guildApplication.findUnique({
-      where: { id: applicationId }
+      where: { id: applicationId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            nickname: true
+          }
+        },
+        guild: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
     });
 
     if (!application || application.status !== GuildApplicationStatus.PENDING) {
@@ -148,13 +200,46 @@ export async function approveApplication(applicationId: string, actorUserId: str
       }
     });
 
-    return true;
+    return {
+      guildId: application.guildId,
+      guildName: application.guild.name,
+      applicantName: withPreferredDisplayName(application.user).displayName
+    };
   });
+
+  const actorProfile = await actorProfilePromise;
+  const actorName = actorProfile
+    ? withPreferredDisplayName(actorProfile).displayName
+    : 'Guild Staff';
+
+  emitDiscordWebhookEvent(approvalContext.guildId, 'application.approved', {
+    guildName: approvalContext.guildName,
+    applicantName: approvalContext.applicantName,
+    actorName,
+    resolvedAt: new Date()
+  });
+
+  return true;
 }
 
 export async function denyApplication(applicationId: string, actorUserId: string) {
   const application = await prisma.guildApplication.findUnique({
-    where: { id: applicationId }
+    where: { id: applicationId },
+    include: {
+      user: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true
+        }
+      },
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
   });
 
   if (!application || application.status !== GuildApplicationStatus.PENDING) {
@@ -168,6 +253,26 @@ export async function denyApplication(applicationId: string, actorUserId: string
 
   await prisma.guildApplication.delete({
     where: { id: application.id }
+  });
+
+  const actorProfile = await prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: {
+      id: true,
+      displayName: true,
+      nickname: true
+    }
+  });
+
+  const actorName = actorProfile
+    ? withPreferredDisplayName(actorProfile).displayName
+    : 'Guild Staff';
+
+  emitDiscordWebhookEvent(application.guildId, 'application.denied', {
+    guildName: application.guild.name,
+    applicantName: withPreferredDisplayName(application.user).displayName,
+    actorName,
+    resolvedAt: new Date()
   });
 }
 

@@ -6,11 +6,21 @@
           <h2>Attendance Snapshot</h2>
           <p class="muted">{{ formattedDate }}</p>
         </div>
-        <button class="icon-button" @click="close">✕</button>
+        <button class="icon-button" type="button" @click="close">✕</button>
       </header>
 
       <section class="summary">
-        <p v-if="event.note" class="muted note">“{{ event.note }}”</p>
+        <div class="summary__header">
+          <p v-if="event.note" class="muted note">“{{ event.note }}”</p>
+          <button
+            v-if="canEdit"
+            class="btn btn--primary"
+            type="button"
+            @click="upload"
+          >
+            Upload Snapshot
+          </button>
+        </div>
         <div class="summary__stats">
           <div
             v-for="status in visibleStatuses"
@@ -67,6 +77,7 @@
           </tbody>
         </table>
       </div>
+
     </div>
   </div>
 </template>
@@ -87,10 +98,12 @@ interface AttendanceEvent {
 
 const props = defineProps<{
   event: AttendanceEvent;
+  canEdit?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'upload', attendanceEventId: string): void;
 }>();
 
 const formattedDate = computed(() =>
@@ -122,6 +135,10 @@ const visibleStatuses = computed(() =>
 
 function close() {
   emit('close');
+}
+
+function upload() {
+  emit('upload', props.event.id);
 }
 
 function formatClass(characterClass?: CharacterClass | null) {
@@ -186,14 +203,41 @@ function formatStatus(status?: AttendanceStatus | null) {
   cursor: pointer;
 }
 
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 1.1rem;
+  border-radius: 0.65rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.92), rgba(14, 165, 233, 0.85));
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.25);
+}
+
 .summary {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
+.summary__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .note {
   font-style: italic;
+  margin: 0;
 }
 
 .summary__stats {

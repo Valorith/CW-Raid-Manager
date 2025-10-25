@@ -35,8 +35,27 @@ model Guild {
   characters   Character[]
   raids        RaidEvent[]
   applications GuildApplication[]
+  discordWebhooks GuildDiscordWebhook[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+}
+
+model GuildDiscordWebhook {
+  id                 String   @id @default(cuid())
+  guildId            String
+  guild              Guild    @relation(fields: [guildId], references: [id])
+  label              String   @db.VarChar(120) @default("Primary Webhook")
+  webhookUrl         String?  @db.VarChar(512)
+  isEnabled          Boolean  @default(false)
+  usernameOverride   String?  @db.VarChar(120)
+  avatarUrl          String?  @db.VarChar(512)
+  mentionRoleId      String?  @db.VarChar(120)
+  eventSubscriptions Json     @default("{}")
+  mentionSubscriptions Json   @default("{}")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([guildId])
 }
 
 model GuildMembership {

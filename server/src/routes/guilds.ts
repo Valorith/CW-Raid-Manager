@@ -20,6 +20,16 @@ import {
   getPendingApplicationForUser
 } from '../services/guildApplicationService.js';
 import { detachUserCharactersFromGuild } from '../services/characterService.js';
+import {
+  DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS,
+  DEFAULT_MENTION_SUBSCRIPTIONS,
+  DISCORD_WEBHOOK_EVENT_DEFINITIONS,
+  DISCORD_WEBHOOK_EVENT_KEYS,
+  listGuildDiscordWebhooks,
+  createGuildDiscordWebhook,
+  updateGuildDiscordWebhook,
+  deleteGuildDiscordWebhook
+} from '../services/discordWebhookService.js';
 
 export async function guildRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', async () => {
@@ -103,6 +113,164 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
     });
 
     return { guild };
+  });
+
+  server.get('/:guildId/webhooks', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
+      return reply.forbidden('Only guild leaders or officers can view webhook settings.');
+    }
+
+    const webhooks = await listGuildDiscordWebhooks(guildId);
+
+    return {
+      webhooks,
+      eventDefinitions: DISCORD_WEBHOOK_EVENT_DEFINITIONS,
+      defaultEventSubscriptions: DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS,
+      defaultMentionSubscriptions: DEFAULT_MENTION_SUBSCRIPTIONS
+    };
+  });
+
+  server.post('/:guildId/webhooks', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    const bodySchema = z.object({
+      label: z.string().min(2).max(120),
+      webhookUrl: z.union([z.string().url().max(512), z.literal('')]).optional().nullable(),
+      isEnabled: z.boolean().optional(),
+      usernameOverride: z.union([z.string().max(120), z.literal('')]).optional().nullable(),
+      avatarUrl: z.union([z.string().url().max(512), z.literal('')]).optional().nullable(),
+      mentionRoleId: z.union([z.string().max(120), z.literal('')]).optional().nullable(),
+      eventSubscriptions: z.record(z.enum(DISCORD_WEBHOOK_EVENT_KEYS), z.boolean()).optional(),
+      mentionSubscriptions: z.record(z.enum(DISCORD_WEBHOOK_EVENT_KEYS), z.boolean()).optional()
+    });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid webhook payload.');
+    }
+
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
+      return reply.forbidden('Only guild leaders or officers can manage webhooks.');
+    }
+
+    const sanitizedWebhookUrl = (parsed.data.webhookUrl ?? '').trim();
+    if ((parsed.data.isEnabled ?? false) && sanitizedWebhookUrl.length === 0) {
+      return reply.badRequest('Webhook URL is required when enabling Discord notifications.');
+    }
+
+    try {
+      const webhook = await createGuildDiscordWebhook(guildId, {
+        ...parsed.data,
+        webhookUrl: sanitizedWebhookUrl.length > 0 ? sanitizedWebhookUrl : null,
+        usernameOverride: (parsed.data.usernameOverride ?? '').trim() || null,
+        avatarUrl: (parsed.data.avatarUrl ?? '').trim() || null,
+        mentionRoleId: (parsed.data.mentionRoleId ?? '').trim() || null
+      });
+
+      return reply.code(201).send({ webhook });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === 'Webhook URL is required when enabling Discord notifications.'
+      ) {
+        return reply.badRequest(error.message);
+      }
+      throw error;
+    }
+  });
+
+  server.put('/:guildId/webhooks/:webhookId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string(), webhookId: z.string() });
+    const { guildId, webhookId } = paramsSchema.parse(request.params);
+
+    const bodySchema = z.object({
+      label: z.string().min(2).max(120).optional(),
+      webhookUrl: z.union([z.string().url().max(512), z.literal('')]).optional().nullable(),
+      isEnabled: z.boolean().optional(),
+      usernameOverride: z.union([z.string().max(120), z.literal('')]).optional().nullable(),
+      avatarUrl: z.union([z.string().url().max(512), z.literal('')]).optional().nullable(),
+      mentionRoleId: z.union([z.string().max(120), z.literal('')]).optional().nullable(),
+      eventSubscriptions: z.record(z.enum(DISCORD_WEBHOOK_EVENT_KEYS), z.boolean()).optional(),
+      mentionSubscriptions: z.record(z.enum(DISCORD_WEBHOOK_EVENT_KEYS), z.boolean()).optional()
+    });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid webhook payload.');
+    }
+
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
+      return reply.forbidden('Only guild leaders or officers can manage webhooks.');
+    }
+
+    const sanitizedWebhookUrl =
+      parsed.data.webhookUrl === undefined ? undefined : parsed.data.webhookUrl?.trim() ?? '';
+    if (parsed.data.isEnabled === true && sanitizedWebhookUrl !== undefined && sanitizedWebhookUrl.length === 0) {
+      return reply.badRequest('Webhook URL is required when enabling Discord notifications.');
+    }
+
+    try {
+      const webhook = await updateGuildDiscordWebhook(webhookId, guildId, {
+        ...parsed.data,
+        webhookUrl:
+          sanitizedWebhookUrl === undefined
+            ? undefined
+            : sanitizedWebhookUrl.length > 0
+              ? sanitizedWebhookUrl
+              : null,
+        usernameOverride:
+          parsed.data.usernameOverride === undefined
+            ? undefined
+            : (parsed.data.usernameOverride ?? '').trim() || null,
+        avatarUrl:
+          parsed.data.avatarUrl === undefined
+            ? undefined
+            : (parsed.data.avatarUrl ?? '').trim() || null,
+        mentionRoleId:
+          parsed.data.mentionRoleId === undefined
+            ? undefined
+            : (parsed.data.mentionRoleId ?? '').trim() || null
+      });
+
+      return { webhook };
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message === 'Webhook not found.') {
+          return reply.notFound(error.message);
+        }
+        if (error.message === 'Webhook URL is required when enabling Discord notifications.') {
+          return reply.badRequest(error.message);
+        }
+      }
+      throw error;
+    }
+  });
+
+  server.delete('/:guildId/webhooks/:webhookId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string(), webhookId: z.string() });
+    const { guildId, webhookId } = paramsSchema.parse(request.params);
+
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
+      return reply.forbidden('Only guild leaders or officers can manage webhooks.');
+    }
+
+    try {
+      await deleteGuildDiscordWebhook(webhookId, guildId);
+      return reply.code(204).send();
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Webhook not found.') {
+        return reply.notFound(error.message);
+      }
+      throw error;
+    }
   });
 
 

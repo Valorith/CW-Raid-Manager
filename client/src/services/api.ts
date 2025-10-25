@@ -85,6 +85,50 @@ export interface GuildPermissions {
   userRole?: GuildRole | null;
 }
 
+export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION';
+
+export interface DiscordWebhookEventDefinition {
+  key: string;
+  label: string;
+  description: string;
+  category: DiscordWebhookEventCategory;
+}
+
+export interface GuildDiscordWebhookSettings {
+  id: string;
+  guildId: string;
+  label: string;
+  webhookUrl: string | null;
+  isEnabled: boolean;
+  usernameOverride: string | null;
+  avatarUrl: string | null;
+  mentionRoleId: string | null;
+  eventSubscriptions: Record<string, boolean>;
+  mentionSubscriptions: Record<string, boolean>;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface GuildDiscordWebhookListResponse {
+  webhooks: GuildDiscordWebhookSettings[];
+  eventDefinitions: DiscordWebhookEventDefinition[];
+  defaultEventSubscriptions: Record<string, boolean>;
+  defaultMentionSubscriptions: Record<string, boolean>;
+}
+
+export interface GuildDiscordWebhookInput {
+  label: string;
+  webhookUrl?: string | null;
+  isEnabled?: boolean;
+  usernameOverride?: string | null;
+  avatarUrl?: string | null;
+  mentionRoleId?: string | null;
+  eventSubscriptions?: Record<string, boolean>;
+  mentionSubscriptions?: Record<string, boolean>;
+}
+
+export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> {}
+
 export interface RaidEventSummary {
   id: string;
   guildId: string;
@@ -338,6 +382,33 @@ function normalizeDateString(value: unknown): string {
   return normalized ?? '';
 }
 
+function normalizeGuildWebhookSettings(raw: any): GuildDiscordWebhookSettings {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    guildId: typeof raw?.guildId === 'string' ? raw.guildId : '',
+    label: typeof raw?.label === 'string' ? raw.label : 'Discord Webhook',
+    webhookUrl: typeof raw?.webhookUrl === 'string' ? raw.webhookUrl : null,
+    isEnabled: Boolean(raw?.isEnabled),
+    usernameOverride: typeof raw?.usernameOverride === 'string' ? raw.usernameOverride : null,
+    avatarUrl: typeof raw?.avatarUrl === 'string' ? raw.avatarUrl : null,
+    mentionRoleId: typeof raw?.mentionRoleId === 'string' ? raw.mentionRoleId : null,
+    eventSubscriptions: normalizeBooleanRecord(raw?.eventSubscriptions),
+    mentionSubscriptions: normalizeBooleanRecord(raw?.mentionSubscriptions),
+    createdAt: normalizeNullableDate(raw?.createdAt),
+    updatedAt: normalizeNullableDate(raw?.updatedAt)
+  };
+}
+
+function normalizeBooleanRecord(raw: any) {
+  if (!raw || typeof raw !== 'object') {
+    return {} as Record<string, boolean>;
+  }
+  return Object.entries(raw).reduce<Record<string, boolean>>((acc, [key, val]) => {
+    acc[key] = Boolean(val);
+    return acc;
+  }, {});
+}
+
 function normalizeRaidSummary(
   raid: any,
   options?: { includeAttendance?: boolean }
@@ -491,6 +562,18 @@ export const api = {
     return normalizeAttendanceEvent(response.data.attendanceEvent);
   },
 
+  async updateAttendanceEvent(
+    attendanceEventId: string,
+    payload: {
+      records: AttendanceRecordInput[];
+      note?: string;
+      snapshot?: unknown;
+    }
+  ): Promise<AttendanceEventSummary> {
+    const response = await axios.patch(`/api/attendance/event/${attendanceEventId}`, payload);
+    return normalizeAttendanceEvent(response.data.attendanceEvent);
+  },
+
   async fetchAttendance(raidEventId: string): Promise<AttendanceEventSummary[]> {
     const response = await axios.get(`/api/attendance/raid/${raidEventId}`);
     const events = response.data.attendanceEvents ?? [];
@@ -571,6 +654,43 @@ export const api = {
 
   async withdrawGuildApplication(guildId: string) {
     await axios.delete(`/api/guilds/${guildId}/applications`);
+  },
+
+  async fetchGuildWebhooks(guildId: string): Promise<GuildDiscordWebhookListResponse> {
+    const response = await axios.get(`/api/guilds/${guildId}/webhooks`);
+    const payload = response.data ?? {};
+    return {
+      webhooks: Array.isArray(payload.webhooks)
+        ? payload.webhooks.map(normalizeGuildWebhookSettings)
+        : [],
+      eventDefinitions: Array.isArray(payload.eventDefinitions) ? payload.eventDefinitions : [],
+      defaultEventSubscriptions:
+        payload.defaultEventSubscriptions && typeof payload.defaultEventSubscriptions === 'object'
+          ? payload.defaultEventSubscriptions
+          : {},
+      defaultMentionSubscriptions:
+        payload.defaultMentionSubscriptions && typeof payload.defaultMentionSubscriptions === 'object'
+          ? payload.defaultMentionSubscriptions
+          : {}
+    };
+  },
+
+  async createGuildWebhook(guildId: string, payload: GuildDiscordWebhookInput) {
+    const response = await axios.post(`/api/guilds/${guildId}/webhooks`, payload);
+    return normalizeGuildWebhookSettings(response.data.webhook);
+  },
+
+  async updateGuildWebhook(
+    guildId: string,
+    webhookId: string,
+    payload: GuildDiscordWebhookUpdateInput
+  ) {
+    const response = await axios.put(`/api/guilds/${guildId}/webhooks/${webhookId}`, payload);
+    return normalizeGuildWebhookSettings(response.data.webhook);
+  },
+
+  async deleteGuildWebhook(guildId: string, webhookId: string) {
+    await axios.delete(`/api/guilds/${guildId}/webhooks/${webhookId}`);
   },
 
   async fetchMyGuildApplication(): Promise<GuildApplicationSummary | null> {

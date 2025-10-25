@@ -3,6 +3,7 @@ import { GuildRole, Prisma } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 
 interface CreateRaidInput {
   guildId: string;
@@ -67,7 +68,7 @@ export async function listRaidEventsForGuild(guildId: string) {
 export async function createRaidEvent(input: CreateRaidInput) {
   await ensureCanManageRaid(input.createdById, input.guildId);
 
-  return prisma.raidEvent.create({
+  const raid = await prisma.raidEvent.create({
     data: {
       guildId: input.guildId,
       createdById: input.createdById,
@@ -78,8 +79,38 @@ export async function createRaidEvent(input: CreateRaidInput) {
       targetZones: input.targetZones,
       targetBosses: input.targetBosses,
       notes: input.notes
+    },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      createdBy: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true
+        }
+      }
     }
   });
+
+  emitDiscordWebhookEvent(input.guildId, 'raid.created', {
+    guildName: raid.guild.name,
+    raidId: raid.id,
+    raidName: raid.name,
+    startTime: raid.startTime,
+    targetZones: normalizeStringArray(raid.targetZones),
+    targetBosses: normalizeStringArray(raid.targetBosses),
+    createdByName: withPreferredDisplayName(raid.createdBy).displayName
+  });
+
+  return {
+    ...raid,
+    createdBy: withPreferredDisplayName(raid.createdBy)
+  };
 }
 
 export async function updateRaidEvent(
@@ -156,7 +187,15 @@ export async function getRaidEventById(raidId: string) {
 
 export async function startRaidEvent(raidId: string, userId: string) {
   const existing = await prisma.raidEvent.findUnique({
-    where: { id: raidId }
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
   });
 
   if (!existing) {
@@ -165,7 +204,7 @@ export async function startRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  return prisma.raidEvent.update({
+  const updated = await prisma.raidEvent.update({
     where: { id: raidId },
     data: {
       startedAt: new Date(),
@@ -173,11 +212,28 @@ export async function startRaidEvent(raidId: string, userId: string) {
       isActive: true
     }
   });
+
+  emitDiscordWebhookEvent(existing.guildId, 'raid.started', {
+    guildName: existing.guild.name,
+    raidId,
+    raidName: existing.name,
+    startedAt: updated.startedAt ?? new Date()
+  });
+
+  return updated;
 }
 
 export async function endRaidEvent(raidId: string, userId: string) {
   const existing = await prisma.raidEvent.findUnique({
-    where: { id: raidId }
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
   });
 
   if (!existing) {
@@ -186,18 +242,35 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  return prisma.raidEvent.update({
+  const updated = await prisma.raidEvent.update({
     where: { id: raidId },
     data: {
       endedAt: new Date(),
       isActive: false
     }
   });
+
+  emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
+    guildName: existing.guild.name,
+    raidId,
+    raidName: existing.name,
+    endedAt: updated.endedAt ?? new Date()
+  });
+
+  return updated;
 }
 
 export async function restartRaidEvent(raidId: string, userId: string) {
   const existing = await prisma.raidEvent.findUnique({
-    where: { id: raidId }
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
   });
 
   if (!existing) {
@@ -219,6 +292,13 @@ export async function restartRaidEvent(raidId: string, userId: string) {
     }
   });
 
+  emitDiscordWebhookEvent(existing.guildId, 'raid.started', {
+    guildName: existing.guild.name,
+    raidId,
+    raidName: existing.name,
+    startedAt: updated.startedAt ?? new Date()
+  });
+
   return updated;
 }
 
@@ -226,7 +306,13 @@ export async function deleteRaidEvent(raidId: string, userId: string) {
   const existing = await prisma.raidEvent.findUnique({
     where: { id: raidId },
     select: {
-      guildId: true
+      guildId: true,
+      name: true,
+      guild: {
+        select: {
+          name: true
+        }
+      }
     }
   });
 
@@ -250,6 +336,12 @@ export async function deleteRaidEvent(raidId: string, userId: string) {
 
   await prisma.raidEvent.delete({
     where: { id: raidId }
+  });
+
+  emitDiscordWebhookEvent(existing.guildId, 'raid.deleted', {
+    guildName: existing.guild?.name ?? 'Guild',
+    raidId,
+    raidName: existing.name ?? 'Unnamed Raid'
   });
 }
 
@@ -283,4 +375,21 @@ export async function ensureUserCanEditRaid(raidId: string, userId: string) {
   }
 
   return { guildId: raid.guildId, membershipRole: membership.role };
+}
+
+function normalizeStringArray(value: Prisma.JsonValue | null | undefined) {
+  if (!value || !Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry.trim();
+      }
+      if (entry === null || entry === undefined) {
+        return '';
+      }
+      return String(entry).trim();
+    })
+    .filter((entry) => entry.length > 0);
 }

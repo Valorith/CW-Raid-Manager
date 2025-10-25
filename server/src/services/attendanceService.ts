@@ -3,6 +3,7 @@ import { AttendanceEventType, AttendanceStatus, CharacterClass, Prisma } from '@
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { ensureUserCanEditRaid } from './raidService.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 
 export interface AttendanceRecordInput {
   characterId?: string | null;
@@ -141,7 +142,25 @@ export async function deleteAttendanceEvent(attendanceEventId: string) {
 }
 
 export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
-  await ensureUserCanEditRaid(input.raidEventId, input.createdById);
+  const { guildId } = await ensureUserCanEditRaid(input.raidEventId, input.createdById);
+
+  const raid = await prisma.raidEvent.findUnique({
+    where: { id: input.raidEventId },
+    select: {
+      id: true,
+      name: true,
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!raid) {
+    throw new Error('Raid event not found.');
+  }
 
   const event = await prisma.attendanceEvent.create({
     data: {
@@ -186,6 +205,22 @@ export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
       .map((record) => record.characterName)
   );
 
+  emitDiscordWebhookEvent(guildId, 'attendance.logged', {
+    guildName: raid.guild.name,
+    raidId: raid.id,
+    raidName: raid.name,
+    attendanceEventId: event.id,
+    eventType: event.eventType,
+    note: event.note ?? null,
+    createdAt: event.createdAt,
+    characters: formatAttendanceCharacters(
+      event.records.map((record) => ({
+        characterName: record.characterName,
+        class: record.class ?? null
+      }))
+    )
+  });
+
   return {
     ...event,
     records: event.records.map(({ character, ...rest }) => ({
@@ -193,6 +228,92 @@ export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
       isMain: resolveRecordIsMain(rest, character, fallbackMainByName)
     }))
   };
+}
+
+export async function overwriteAttendanceEventRecords(input: {
+  attendanceEventId: string;
+  actorUserId: string;
+  records: AttendanceRecordInput[];
+  snapshot?: unknown;
+  note?: string | null;
+}) {
+  const existing = await prisma.attendanceEvent.findUnique({
+    where: { id: input.attendanceEventId },
+    select: {
+      id: true,
+      raidEventId: true
+    }
+  });
+
+  if (!existing) {
+    throw new Error('Attendance event not found.');
+  }
+
+  await ensureUserCanEditRaid(existing.raidEventId, input.actorUserId);
+
+  await prisma.attendanceRecord.deleteMany({
+    where: { attendanceEventId: input.attendanceEventId }
+  });
+
+  if (input.records.length > 0) {
+    await prisma.attendanceRecord.createMany({
+      data: input.records.map((record) => ({
+        attendanceEventId: input.attendanceEventId,
+        characterId: record.characterId ?? undefined,
+        characterName: record.characterName,
+        level: record.level ?? undefined,
+        class: record.class ?? undefined,
+        groupNumber: record.groupNumber ?? undefined,
+        status: record.status ?? AttendanceStatus.PRESENT,
+        flags: record.flags ?? undefined
+      }))
+    });
+  }
+
+  await prisma.attendanceEvent.update({
+    where: { id: input.attendanceEventId },
+    data: {
+      snapshot: normalizeNullableJsonInput(input.snapshot),
+      note: input.note ?? undefined
+    }
+  });
+
+  const updated = await getAttendanceEvent(input.attendanceEventId);
+  if (!updated) {
+    throw new Error('Attendance event not found.');
+  }
+
+  const raid = await prisma.raidEvent.findUnique({
+    where: { id: existing.raidEventId },
+    select: {
+      id: true,
+      name: true,
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (raid) {
+    emitDiscordWebhookEvent(raid.guild.id, 'attendance.updated', {
+      guildName: raid.guild.name,
+      raidId: raid.id,
+      raidName: raid.name,
+      attendanceEventId: input.attendanceEventId,
+      updatedAt: new Date(),
+      characters: formatAttendanceCharacters(
+        input.records.map((record) => ({
+          characterName: record.characterName,
+          class: record.class ?? null
+        }))
+      )
+    });
+  }
+
+  return updated;
 }
 
 export async function listRecentAttendanceForUser(userId: string, limit = 10) {
@@ -403,4 +524,44 @@ export function resolveClassFromString(className?: string | null): CharacterClas
   };
 
   return mapping[normalized] ?? CharacterClass.UNKNOWN;
+}
+
+const CLASS_ABBREVIATIONS: Record<CharacterClass, string> = {
+  [CharacterClass.BARD]: 'BRD',
+  [CharacterClass.BEASTLORD]: 'BST',
+  [CharacterClass.BERSERKER]: 'BER',
+  [CharacterClass.CLERIC]: 'CLR',
+  [CharacterClass.DRUID]: 'DRU',
+  [CharacterClass.ENCHANTER]: 'ENC',
+  [CharacterClass.MAGICIAN]: 'MAG',
+  [CharacterClass.MONK]: 'MNK',
+  [CharacterClass.NECROMANCER]: 'NEC',
+  [CharacterClass.PALADIN]: 'PAL',
+  [CharacterClass.RANGER]: 'RNG',
+  [CharacterClass.ROGUE]: 'ROG',
+  [CharacterClass.SHADOWKNIGHT]: 'SHD',
+  [CharacterClass.SHAMAN]: 'SHM',
+  [CharacterClass.WARRIOR]: 'WAR',
+  [CharacterClass.WIZARD]: 'WIZ',
+  [CharacterClass.UNKNOWN]: 'UNK'
+};
+
+type AttendanceCharacterRecord = {
+  characterName?: string | null;
+  class?: CharacterClass | null;
+};
+
+function formatAttendanceCharacters(records: AttendanceCharacterRecord[]) {
+  return records.map((record) => {
+    const name = record.characterName?.trim() || 'Unknown';
+    const abbreviation = getClassAbbreviation(record.class);
+    return `${name} (${abbreviation})`;
+  });
+}
+
+function getClassAbbreviation(characterClass?: CharacterClass | null) {
+  if (!characterClass) {
+    return CLASS_ABBREVIATIONS[CharacterClass.UNKNOWN];
+  }
+  return CLASS_ABBREVIATIONS[characterClass] ?? CLASS_ABBREVIATIONS[CharacterClass.UNKNOWN];
 }

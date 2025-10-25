@@ -2,13 +2,20 @@
   <section v-if="raid" class="raid-detail">
     <header class="section-header">
       <div>
-        <h1>{{ raid.name }}</h1>
+        <div class="raid-title-row">
+          <h1>{{ raid.name }}</h1>
+          <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
+        </div>
         <p class="muted">
           {{ formatDate(raid.startTime) }} • Targets: {{ raid.targetZones.join(', ') }}
         </p>
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
       <div class="header-actions">
+        <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
+          <span aria-hidden="true">🔗</span>
+          Share
+        </button>
         <button
           class="btn btn--danger"
           :disabled="!canManageRaid"
@@ -17,6 +24,7 @@
           Delete Raid
         </button>
       </div>
+      <div v-if="shareStatus" class="share-toast">{{ shareStatus }}</div>
       <input
         ref="fileInput"
         type="file"
@@ -108,7 +116,7 @@
         <button
           class="btn upload-btn"
           :disabled="!canManageRaid"
-          @click="fileInput?.click()"
+          @click="triggerAttendanceUpload()"
         >
           <span class="upload-btn__icon" aria-hidden="true">⇪</span>
           Upload Attendance
@@ -137,14 +145,23 @@
             </div>
             <span class="muted attendees">{{ resolveEventSubtitle(event) }}</span>
           </div>
-          <button
-            v-if="canManageRaid"
-            class="icon-button icon-button--danger"
-            :disabled="deletingAttendanceId === event.id"
-            @click.stop="confirmDeleteAttendance(event)"
-          >
-            {{ deletingAttendanceId === event.id ? 'Deleting…' : 'Delete' }}
-          </button>
+          <div v-if="canManageRaid" class="attendance-actions">
+            <button
+              class="icon-button icon-button--outline"
+              type="button"
+              @click.stop="triggerAttendanceUpload({ attendanceEventId: event.id })"
+            >
+              Upload
+            </button>
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              :disabled="deletingAttendanceId === event.id"
+              @click.stop="confirmDeleteAttendance(event)"
+            >
+              {{ deletingAttendanceId === event.id ? 'Deleting…' : 'Delete' }}
+            </button>
+          </div>
         </li>
       </ul>
     </section>
@@ -164,7 +181,9 @@
   <AttendanceEventModal
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
+    :can-edit="canManageRaid"
     @close="closeAttendanceEvent"
+    @upload="handleAttendanceUploadFromModal"
   />
   <ConfirmationModal
     v-if="confirmModal.visible"
@@ -178,7 +197,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
@@ -205,6 +224,13 @@ const rosterMeta = ref<{ filename: string; uploadedAt: string } | null>(null);
 const submittingAttendance = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedAttendanceEvent = ref<AttendanceEventSummary | null>(null);
+const rosterEditingEventId = ref<string | null>(null);
+const pendingAttendanceEventId = ref<string | null>(
+  typeof route.query.attendanceEventId === 'string'
+    ? (route.query.attendanceEventId as string)
+    : null
+);
+const lastAutoOpenedAttendanceId = ref<string | null>(null);
 const startedAtInput = ref('');
 const endedAtInput = ref('');
 const initialStartedAt = ref('');
@@ -220,6 +246,8 @@ const confirmModal = reactive({
   confirmLabel: 'Confirm',
   cancelLabel: 'Cancel'
 });
+const shareStatus = ref<string | null>(null);
+let shareStatusTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let confirmResolver: ((value: boolean) => void) | null = null;
 const actionError = ref<string | null>(null);
@@ -256,6 +284,16 @@ const userGuildRoleLabel = computed(() => {
     .join(' ');
 });
 
+const raidStatusBadge = computed(() => {
+  if (raid.value?.endedAt) {
+    return { label: 'Ended', variant: 'raid-status-badge--ended' };
+  }
+  if (raid.value?.startedAt) {
+    return { label: 'Active', variant: 'raid-status-badge--active' };
+  }
+  return { label: 'Planned', variant: 'raid-status-badge--planned' };
+});
+
 async function loadRaid() {
   const data = await api.fetchRaid(raidId);
   raid.value = data;
@@ -270,11 +308,13 @@ async function loadAttendance() {
   } finally {
     attendanceLoading.value = false;
   }
+  maybeOpenAttendanceFromQuery();
 }
 
 async function handleFileUpload(event: Event) {
   const target = event.target as HTMLInputElement;
   if (!target.files || target.files.length === 0) {
+    rosterEditingEventId.value = null;
     return;
   }
 
@@ -295,9 +335,10 @@ function discardPreview(removePending = true) {
   rosterPreview.value = null;
   rosterMeta.value = null;
   showRosterModal.value = false;
-  if (removePending && pendingEventTypes.value.length > 0) {
+  if (removePending && !rosterEditingEventId.value && pendingEventTypes.value.length > 0) {
     pendingEventTypes.value.pop();
   }
+  rosterEditingEventId.value = null;
 }
 
 async function saveAttendance(entries?: AttendanceRecordInput[]) {
@@ -311,19 +352,30 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
 
   submittingAttendance.value = true;
   try {
-    const eventType = pendingEventTypes.value.shift();
-    await api.createAttendanceEvent(raidId, {
-      note: `Imported from ${rosterMeta.value?.filename ?? 'roster file'}`,
-      snapshot: {
-        filename: rosterMeta.value?.filename,
-        uploadedAt: rosterMeta.value?.uploadedAt
-      },
-      records: rosterPreview.value,
-      eventType
-    });
+    if (rosterEditingEventId.value) {
+      await api.updateAttendanceEvent(rosterEditingEventId.value, {
+        note: `Updated from ${rosterMeta.value?.filename ?? 'roster file'}`,
+        snapshot: {
+          filename: rosterMeta.value?.filename,
+          uploadedAt: rosterMeta.value?.uploadedAt
+        },
+        records: rosterPreview.value
+      });
+    } else {
+      const eventType = pendingEventTypes.value.shift();
+      await api.createAttendanceEvent(raidId, {
+        note: `Imported from ${rosterMeta.value?.filename ?? 'roster file'}`,
+        snapshot: {
+          filename: rosterMeta.value?.filename,
+          uploadedAt: rosterMeta.value?.uploadedAt
+        },
+        records: rosterPreview.value,
+        ...(eventType ? { eventType } : {})
+      });
+    }
     discardPreview(false);
     showRosterModal.value = false;
-    loadAttendance();
+    await loadAttendance();
   } finally {
     submittingAttendance.value = false;
   }
@@ -455,18 +507,19 @@ function confirmDeleteAttendance(event: any) {
 
 
 function handleRosterModalClose() {
-  discardPreview();
+  discardPreview(!rosterEditingEventId.value);
 }
 
 function handleRosterModalDiscard() {
-  discardPreview();
+  discardPreview(!rosterEditingEventId.value);
 }
 
 async function handleRosterModalSave(entries: AttendanceRecordInput[]) {
   await saveAttendance(entries);
 }
 
-function triggerAttendanceUpload() {
+function triggerAttendanceUpload(options?: { attendanceEventId?: string }) {
+  rosterEditingEventId.value = options?.attendanceEventId ?? null;
   requestAnimationFrame(() => {
     fileInput.value?.click();
   });
@@ -506,7 +559,6 @@ async function handleStartRaid() {
   actionError.value = null;
   try {
     await api.startRaid(raidId);
-    pendingEventTypes.value.push('START');
     const shouldUpload = await showConfirmation({
       title: 'Raid Started',
       message: 'Raid start time recorded. Upload an attendance log now?',
@@ -514,16 +566,16 @@ async function handleStartRaid() {
       cancelLabel: 'Later'
     });
     if (shouldUpload) {
+      pendingEventTypes.value.push('START');
       triggerAttendanceUpload();
+    } else {
+      await createPlaceholderAttendanceEvent('START');
     }
     await loadRaid();
     await loadAttendance();
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to start raid. Please try again.');
-    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'START') {
-      pendingEventTypes.value.pop();
-    }
   } finally {
     startingRaid.value = false;
   }
@@ -538,7 +590,6 @@ async function handleEndRaid() {
   actionError.value = null;
   try {
     await api.endRaid(raidId);
-    pendingEventTypes.value.push('END');
     const shouldUpload = await showConfirmation({
       title: 'Raid Ended',
       message: 'Raid end time recorded. Upload the final attendance log?',
@@ -546,16 +597,16 @@ async function handleEndRaid() {
       cancelLabel: 'Later'
     });
     if (shouldUpload) {
+      pendingEventTypes.value.push('END');
       triggerAttendanceUpload();
+    } else {
+      await createPlaceholderAttendanceEvent('END');
     }
     await loadRaid();
     await loadAttendance();
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to end raid. Please try again.');
-    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'END') {
-      pendingEventTypes.value.pop();
-    }
   } finally {
     endingRaid.value = false;
   }
@@ -570,7 +621,6 @@ async function handleRestartRaid() {
   actionError.value = null;
   try {
     await api.restartRaid(raidId);
-    pendingEventTypes.value.push('RESTART');
     const shouldUpload = await showConfirmation({
       title: 'Raid Restarted',
       message: 'Raid restart recorded. Upload a fresh attendance log now?',
@@ -578,16 +628,16 @@ async function handleRestartRaid() {
       cancelLabel: 'Later'
     });
     if (shouldUpload) {
+      pendingEventTypes.value.push('RESTART');
       triggerAttendanceUpload();
+    } else {
+      await createPlaceholderAttendanceEvent('RESTART');
     }
     await loadRaid();
     await loadAttendance();
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to restart raid. Please try again.');
-    if (pendingEventTypes.value.length > 0 && pendingEventTypes.value[pendingEventTypes.value.length - 1] === 'RESTART') {
-      pendingEventTypes.value.pop();
-    }
   } finally {
     restartingRaid.value = false;
   }
@@ -651,10 +701,107 @@ function closeAttendanceEvent() {
   selectedAttendanceEvent.value = null;
 }
 
+function maybeOpenAttendanceFromQuery() {
+  const targetId = pendingAttendanceEventId.value;
+  if (!targetId || lastAutoOpenedAttendanceId.value === targetId) {
+    return;
+  }
+
+  const targetEvent = attendanceEvents.value.find((event) => event.id === targetId);
+  if (!targetEvent) {
+    return;
+  }
+
+  openAttendanceEvent(targetEvent);
+  lastAutoOpenedAttendanceId.value = targetId;
+  pendingAttendanceEventId.value = null;
+}
+
+watch(
+  () => route.query.attendanceEventId,
+  (value) => {
+    pendingAttendanceEventId.value = typeof value === 'string' ? (value as string) : null;
+    maybeOpenAttendanceFromQuery();
+  }
+);
+
+watch(
+  () => attendanceEvents.value,
+  () => {
+    maybeOpenAttendanceFromQuery();
+  }
+);
+
+function handleAttendanceUploadFromModal(attendanceEventId: string) {
+  selectedAttendanceEvent.value = null;
+  triggerAttendanceUpload({ attendanceEventId });
+}
+
+async function createPlaceholderAttendanceEvent(eventType: 'START' | 'END' | 'RESTART') {
+  try {
+    await api.createAttendanceEvent(raidId, {
+      note:
+        eventType === 'START'
+          ? 'Raid started – attendance log pending upload.'
+          : eventType === 'END'
+            ? 'Raid ended – attendance log pending upload.'
+            : 'Raid restarted – attendance log pending upload.',
+      records: [],
+      eventType
+    });
+  } catch (error) {
+    actionError.value = extractErrorMessage(
+      error,
+      'Unable to create placeholder attendance event.'
+    );
+  }
+}
+
 onMounted(() => {
   loadRaid();
   loadAttendance();
 });
+
+onUnmounted(() => {
+  if (shareStatusTimeout) {
+    clearTimeout(shareStatusTimeout);
+    shareStatusTimeout = null;
+  }
+});
+
+async function copyRaidLink() {
+  const resolved = router.resolve({ name: 'RaidDetail', params: { raidId } }).href;
+  const absoluteUrl = typeof window !== 'undefined'
+    ? new URL(resolved, window.location.origin).toString()
+    : resolved;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(absoluteUrl);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = absoluteUrl;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    shareStatus.value = 'Raid link copied to clipboard';
+  } catch (error) {
+    console.warn('Failed to copy raid link', error);
+    shareStatus.value = 'Unable to copy link';
+  }
+
+  if (shareStatusTimeout) {
+    clearTimeout(shareStatusTimeout);
+  }
+  shareStatusTimeout = setTimeout(() => {
+    shareStatus.value = null;
+    shareStatusTimeout = null;
+  }, 3000);
+}
 </script>
 
 <style scoped>
@@ -670,11 +817,64 @@ onMounted(() => {
   justify-content: space-between;
 }
 
+.raid-title-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.raid-status-badge {
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.raid-status-badge--active {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.15);
+  color: #bbf7d0;
+}
+
+.raid-status-badge--ended {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fecaca;
+}
+
+.raid-status-badge--planned {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5f5;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.share-btn {
+  min-width: 120px;
+}
+
+.share-toast {
+  position: fixed;
+  top: 5.5rem;
+  right: 1rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.6);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1.1rem;
+  color: #bbf7d0;
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.45);
+  z-index: 200;
+  font-size: 0.9rem;
+  backdrop-filter: blur(8px);
 }
 
 .card__header--attendance {
@@ -940,6 +1140,12 @@ th {
   gap: 0.5rem;
 }
 
+.attendance-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .icon-button {
   background: transparent;
   border: none;
@@ -963,6 +1169,17 @@ th {
 .icon-button--danger:hover {
   background: rgba(248, 113, 113, 0.15);
   color: #fee2e2;
+}
+
+.icon-button--outline {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.5rem;
+}
+
+.icon-button--outline:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
 }
 
 </style>
