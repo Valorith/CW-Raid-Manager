@@ -27,6 +27,8 @@ export interface GuildDetail extends GuildSummary {
     name: string;
     class: CharacterClass;
     level: number;
+    guildId?: string | null;
+    isMain: boolean;
     user: {
       id: string;
       displayName: string;
@@ -46,6 +48,12 @@ export interface CharacterPayload {
   archetype?: string | null;
   isMain?: boolean;
 }
+
+export type CharacterUpdatePayload = Partial<
+  Pick<CharacterPayload, 'name' | 'level' | 'class' | 'archetype' | 'guildId' | 'isMain'>
+> & {
+  contextGuildId?: string;
+};
 
 export interface UserCharacter {
   id: string;
@@ -538,10 +546,7 @@ export const api = {
     return response.data.character;
   },
 
-  async updateCharacter(
-    characterId: string,
-    payload: Partial<Pick<CharacterPayload, 'name' | 'level' | 'class' | 'archetype' | 'guildId' | 'isMain'>>
-  ) {
+  async updateCharacter(characterId: string, payload: CharacterUpdatePayload) {
     const response = await axios.patch(`/api/characters/${characterId}`, payload);
     return response.data.character;
   },

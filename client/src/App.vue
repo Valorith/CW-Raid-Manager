@@ -321,6 +321,28 @@ function hasRaidStarted(raid: RaidEventSummary) {
   box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
 }
 
+.btn.character-edit-button {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  color: #e0f2fe;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.55), inset 0 0 12px rgba(14, 165, 233, 0.2);
+  backdrop-filter: blur(6px);
+}
+
+.btn.character-edit-button:hover {
+  border-color: rgba(14, 165, 233, 0.8);
+  color: #f8fafc;
+  background: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 14px 26px rgba(59, 130, 246, 0.25), inset 0 0 18px rgba(14, 165, 233, 0.35);
+}
+
+.btn.character-edit-button:focus-visible {
+  outline: 2px solid rgba(14, 165, 233, 0.7);
+  outline-offset: 2px;
+}
+
 .btn--outline {
   background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.5);

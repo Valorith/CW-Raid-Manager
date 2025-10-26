@@ -166,7 +166,11 @@
         </div>
         <p v-if="filteredCharacters.length === 0" class="muted">No characters match your search.</p>
         <ul v-else class="list">
-          <li v-for="character in paginatedCharacters" :key="character.id" class="list__item">
+          <li
+            v-for="character in paginatedCharacters"
+            :key="character.id"
+            class="list__item character-roster-entry"
+          >
             <div class="character-info">
               <div class="character-primary">
                 <strong>{{ character.name }} ({{ character.level }})</strong>
@@ -181,8 +185,16 @@
                 />
                 <span>{{ formatCharacterClass(character.class) }}</span>
               </span>
+              <span class="muted small character-owner">{{ preferredUserName(character.user) }}</span>
             </div>
-            <span class="muted small">{{ preferredUserName(character.user) }}</span>
+            <button
+              v-if="canManageMembers"
+              class="btn btn--small character-edit-button character-edit-button--standalone"
+              type="button"
+              @click="openCharacterModal(character)"
+            >
+              Edit
+            </button>
           </li>
         </ul>
         <div v-if="characterTotalPages > 1" class="pagination">
@@ -234,20 +246,30 @@
       </ul>
     </section>
 
-      <RaidModal
-        v-if="showRaidModal"
-        :guild-id="guild.id"
-        :default-start-time="guild.defaultRaidStartTime ?? null"
-        :default-end-time="guild.defaultRaidEndTime ?? null"
-        @close="showRaidModal = false"
-        @created="handleRaidCreated"
-      />
-      <DiscordWebhookModal
-        v-if="showDiscordModal"
-        :guild-id="guild.id"
-        @close="showDiscordModal = false"
-      />
-    </div>
+    <RaidModal
+      v-if="showRaidModal && guild"
+      :guild-id="guild.id"
+      :default-start-time="guild.defaultRaidStartTime ?? null"
+      :default-end-time="guild.defaultRaidEndTime ?? null"
+      @close="showRaidModal = false"
+      @created="handleRaidCreated"
+    />
+    <DiscordWebhookModal
+      v-if="showDiscordModal && guild"
+      :guild-id="guild.id"
+      @close="showDiscordModal = false"
+    />
+    <CharacterModal
+      v-if="showCharacterForm && guild"
+      :guilds="modalGuildOptions"
+      :can-set-main="true"
+      :editing="Boolean(editingCharacter)"
+      :character="editingCharacter || undefined"
+      :context-guild-id="modalContextGuildId"
+      @close="closeCharacterModal"
+      @updated="handleGuildCharacterUpdated"
+    />
+  </div>
     <div v-else class="guild-summary">
       <div class="guild-summary__body">
         <h1>{{ guild.name }}</h1>
@@ -290,6 +312,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 import DiscordWebhookModal from '../components/DiscordWebhookModal.vue';
+import CharacterModal from '../components/CharacterModal.vue';
 import {
   api,
   type GuildDetail,
@@ -314,8 +337,23 @@ interface ApplicantMember {
   isApplicant: true;
 }
 type GuildMemberEntry = GuildMember | ApplicantMember;
+type EditableCharacter = {
+  id: string;
+  name: string;
+  level: number;
+  class: CharacterClass;
+  guildId?: string | null;
+  isMain: boolean;
+};
 
 const guild = ref<GuildDetail | null>(null);
+const showCharacterForm = ref(false);
+const editingCharacter = ref<EditableCharacter | null>(null);
+const modalContextGuildId = ref<string | null>(null);
+const modalGuildOptions = computed(() =>
+  guild.value ? [{ id: guild.value.id, name: guild.value.name }] : []
+);
+
 const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
@@ -533,6 +571,30 @@ function setMemberPage(page: number) {
 
 function setCharacterPage(page: number) {
   characterPage.value = Math.min(Math.max(1, page), characterTotalPages.value);
+}
+
+function openCharacterModal(character: GuildDetail['characters'][number]) {
+  editingCharacter.value = {
+    id: character.id,
+    name: character.name,
+    level: character.level,
+    class: character.class,
+    guildId: character.guildId ?? null,
+    isMain: character.isMain
+  };
+  modalContextGuildId.value = guild.value?.id ?? null;
+  showCharacterForm.value = true;
+}
+
+function closeCharacterModal() {
+  showCharacterForm.value = false;
+  editingCharacter.value = null;
+  modalContextGuildId.value = null;
+}
+
+async function handleGuildCharacterUpdated() {
+  closeCharacterModal();
+  await loadGuild();
 }
 
 const roleLabels: Record<string, string> = {
@@ -1038,6 +1100,22 @@ onUnmounted(() => {
   border-radius: 0.75rem;
 }
 
+.character-roster-entry {
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.character-roster-entry .character-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.character-owner {
+  display: block;
+}
+
 .member-actions {
   display: flex;
   align-items: center;
@@ -1313,6 +1391,33 @@ onUnmounted(() => {
   gap: 0.35rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+}
+
+.character-edit-button {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  color: #dbeafe;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 0 8px rgba(14, 165, 233, 0.15);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.character-edit-button:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(14, 165, 233, 0.65);
+  color: #f8fafc;
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.2), inset 0 0 12px rgba(14, 165, 233, 0.3);
+}
+
+.character-edit-button:focus-visible {
+  outline: 2px solid rgba(14, 165, 233, 0.55);
+  outline-offset: 2px;
+}
+
+.character-edit-button--standalone {
+  align-self: center;
+  min-width: 92px;
 }
 
 .class-icon {

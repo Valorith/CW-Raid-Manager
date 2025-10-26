@@ -69,6 +69,7 @@ export async function getGuildById(id: string, options?: { viewerUserId?: string
           name: true,
           class: true,
           level: true,
+          guildId: true,
           isMain: true,
           user: {
             select: {

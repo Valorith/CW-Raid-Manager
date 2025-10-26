@@ -11,9 +11,9 @@
       <article class="card">
         <header class="card__header">
           <h2>Your Characters</h2>
-          <button class="btn btn--secondary" @click="showCharacterForm = true">
-            Add Character
-          </button>
+      <button class="btn btn--secondary" type="button" @click="openCharacterModal()">
+        Add Character
+      </button>
         </header>
 
         <p v-if="characterError" class="character-error">{{ characterError }}</p>
@@ -41,21 +41,26 @@
             </div>
             <div class="character-actions">
               <span v-if="character.guild" class="tag">{{ character.guild.name }}</span>
-              <button
-                class="btn btn--small btn--toggle-main"
-                :class="{
-                  'btn--toggle-main--active': character.isMain,
-                  'btn--toggle-main--inactive': !character.isMain
-                }"
-                :disabled="
-                  updatingCharacterId === character.id || (mainCount >= 2 && !character.isMain)
-                "
-                @click="toggleCharacterMain(character)"
-              >
-                <span v-if="updatingCharacterId === character.id">Updating…</span>
-                <span v-else-if="character.isMain">Unset Main</span>
-                <span v-else>Set as Main</span>
-              </button>
+              <div class="character-action-row">
+                <button
+                  class="btn btn--small btn--toggle-main"
+                  :class="{
+                    'btn--toggle-main--active': character.isMain,
+                    'btn--toggle-main--inactive': !character.isMain
+                  }"
+                  :disabled="
+                    updatingCharacterId === character.id || (mainCount >= 2 && !character.isMain)
+                  "
+                  @click="toggleCharacterMain(character)"
+                >
+                  <span v-if="updatingCharacterId === character.id">Updating…</span>
+                  <span v-else-if="character.isMain">Unset Main</span>
+                  <span v-else>Set as Main</span>
+                </button>
+                <button class="btn btn--small character-edit-button" type="button" @click="openCharacterModal(character)">
+                  Edit
+                </button>
+              </div>
             </div>
           </li>
         </ul>
@@ -205,8 +210,11 @@
       v-if="showCharacterForm"
       :guilds="guilds"
       :can-set-main="mainCount < 2"
-      @close="showCharacterForm = false"
+      :editing="Boolean(editingCharacter)"
+      :character="editingCharacter || undefined"
+      @close="closeCharacterModal"
       @created="handleCharacterCreated"
+      @updated="handleCharacterUpdated"
     />
   </section>
 </template>
@@ -220,10 +228,20 @@ import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntr
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
 
+type EditableCharacter = {
+  id: string;
+  name: string;
+  level: number;
+  class: CharacterClass;
+  guildId?: string | null;
+  isMain: boolean;
+};
+
 const characters = ref<UserCharacter[]>([]);
 const guilds = ref<GuildSummary[]>([]);
 const loadingCharacters = ref(false);
 const showCharacterForm = ref(false);
+const editingCharacter = ref<EditableCharacter | null>(null);
 const recentAttendance = ref<RecentAttendanceEntry[]>([]);
 const loadingAttendance = ref(false);
 const attendanceError = ref<string | null>(null);
@@ -306,12 +324,38 @@ async function loadRecentLoot(page = lootPage.value) {
   }
 }
 
-function handleCharacterCreated() {
+function openCharacterModal(character?: UserCharacter) {
+  if (character) {
+    editingCharacter.value = {
+      id: character.id,
+      name: character.name,
+      level: character.level,
+      class: character.class,
+      guildId: character.guild?.id ?? null,
+      isMain: character.isMain
+    };
+  } else {
+    editingCharacter.value = null;
+  }
+  showCharacterForm.value = true;
+}
+
+function closeCharacterModal() {
+  editingCharacter.value = null;
   showCharacterForm.value = false;
+}
+
+function handleCharacterCreated() {
+  closeCharacterModal();
   loadCharacters();
   loadRecentAttendance();
   loadRecentLoot();
   characterError.value = null;
+}
+
+function handleCharacterUpdated() {
+  closeCharacterModal();
+  loadCharacters();
 }
 
 function formatDate(value: string) {
@@ -577,6 +621,33 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.character-action-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.character-edit-button {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  color: #cfe3ff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 0 8px rgba(14, 165, 233, 0.18);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.character-edit-button:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(14, 165, 233, 0.65);
+  color: #f0f9ff;
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.2), inset 0 0 12px rgba(14, 165, 233, 0.25);
+}
+
+.character-edit-button:focus-visible {
+  outline: 2px solid rgba(14, 165, 233, 0.55);
+  outline-offset: 2px;
 }
 
 .btn--small {

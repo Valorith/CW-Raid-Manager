@@ -9,6 +9,7 @@ import {
   updateCharacter,
   MainCharacterLimitError
 } from '../services/characterService.js';
+import { getUserGuildRole, canManageGuild } from '../services/guildService.js';
 import { prisma } from '../utils/prisma.js';
 
 export async function charactersRoutes(server: FastifyInstance): Promise<void> {
@@ -77,7 +78,8 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
         class: z.nativeEnum(CharacterClass).optional(),
         archetype: z.nativeEnum(CharacterArchetype).nullable().optional(),
         guildId: z.string().nullable().optional(),
-        isMain: z.boolean().optional()
+        isMain: z.boolean().optional(),
+        contextGuildId: z.string().optional()
       })
       .refine((data) => Object.keys(data).length > 0, {
         message: 'At least one field must be provided for update.'
@@ -88,7 +90,19 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
       return reply.badRequest(parsed.error.message);
     }
 
-    if (parsed.data.guildId) {
+    const characterRecord = await prisma.character.findUnique({
+      where: { id: characterId },
+      select: { userId: true, guildId: true }
+    });
+
+    if (!characterRecord) {
+      return reply.notFound('Character not found.');
+    }
+
+    let actingUserOwnerId = characterRecord.userId;
+    const isOwner = characterRecord.userId === request.user.userId;
+
+    if (parsed.data.guildId && isOwner) {
       const membership = await prisma.guildMembership.findUnique({
         where: {
           guildId_userId: {
@@ -103,8 +117,21 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
       }
     }
 
+    if (!isOwner) {
+      const guildId =
+        characterRecord.guildId ?? parsed.data.contextGuildId ?? parsed.data.guildId ?? undefined;
+      if (!guildId) {
+        return reply.forbidden('Only the character owner can edit this record.');
+      }
+      const membership = await getUserGuildRole(request.user.userId, guildId);
+      const role = membership?.role ?? null;
+      if (!role || !canManageGuild(role)) {
+        return reply.forbidden('Only guild leadership can edit member characters.');
+      }
+    }
+
     try {
-      const character = await updateCharacter(characterId, request.user.userId, parsed.data);
+      const character = await updateCharacter(characterId, actingUserOwnerId, parsed.data);
       return { character };
     } catch (error) {
       if (error instanceof MainCharacterLimitError) {
