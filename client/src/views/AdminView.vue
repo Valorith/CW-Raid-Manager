@@ -697,7 +697,7 @@ function raidStatusBadge(raid: { startedAt?: string | null; endedAt?: string | n
     return { label: 'Ended', variant: 'badge--negative' } as const;
   }
 
-  if (raidHasStarted(raid) || raid.isActive) {
+  if (raidHasStarted(raid)) {
     return { label: 'In Progress', variant: 'badge--positive' } as const;
   }
 

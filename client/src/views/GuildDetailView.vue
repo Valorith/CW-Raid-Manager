@@ -323,7 +323,11 @@ const showDiscordModal = ref(false);
 const router = useRouter();
 const updatingMemberId = ref<string | null>(null);
 const removingMemberId = ref<string | null>(null);
-const renderableRaids = computed(() => raids.value.filter(isRaidRenderable));
+const renderableRaids = computed(() =>
+  raids.value
+    .filter(isRaidRenderable)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+);
 
 const authStore = useAuthStore();
 const currentUserId = computed(() => authStore.user?.userId ?? null);
