@@ -146,7 +146,7 @@
           />
           <div class="roster-filter-buttons">
             <button
-              v-for="option in characterClassOptions"
+              v-for="option in characterClassOptionsWithCounts"
               :key="option.value"
               :style="{ background: option.gradient, borderColor: option.border }"
               :class="['roster-filter-button', { 'roster-filter-button--active': characterClassFilter === option.value }]"
@@ -161,6 +161,7 @@
                 </template>
               </span>
               <span v-if="option.icon" class="roster-filter-label">{{ option.label }}</span>
+              <span class="roster-filter-count">{{ option.count }}</span>
             </button>
           </div>
         </div>
@@ -371,6 +372,32 @@ const authStore = useAuthStore();
 const currentUserId = computed(() => authStore.user?.userId ?? null);
 
 const characterClassOptions = computed(() => buildCharacterFilterOptions(characterClassLabels));
+const characterClassOptionsWithCounts = computed(() => {
+  const roster = guild.value?.characters ?? [];
+  const counts = roster.reduce<Record<string, number>>((acc, character) => {
+    const key = character.class ?? 'UNKNOWN';
+    acc[key] = (acc[key] ?? 0) + 1;
+    acc.ALL = (acc.ALL ?? 0) + 1;
+    if (character.isMain) {
+      acc.MAIN = (acc.MAIN ?? 0) + 1;
+    }
+    return acc;
+  }, { ALL: 0, MAIN: 0 });
+
+  return characterClassOptions.value.map((option) => {
+    const count =
+      option.value === 'MAIN'
+        ? counts.MAIN ?? 0
+        : option.value === 'ALL'
+          ? counts.ALL ?? roster.length
+          : counts[option.value] ?? 0;
+
+    return {
+      ...option,
+      count
+    };
+  });
+});
 
 const canPlanRaid = computed(() => {
   const role = actorRole.value;
@@ -1593,7 +1620,7 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.35);
   box-shadow: 0 12px 22px rgba(15, 23, 42, 0.45);
   transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .roster-filter-button::before {
@@ -1620,6 +1647,26 @@ onUnmounted(() => {
   transform: translateY(-2px);
   box-shadow: 0 22px 32px rgba(255, 255, 255, 0.28);
   border-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.roster-filter-count {
+  position: absolute;
+  bottom: -0.25rem;
+  right: -0.2rem;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.6);
 }
 
 .roster-filter-icon {
