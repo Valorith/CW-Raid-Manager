@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/guilds/:guildId/settings',
+      name: 'GuildSettings',
+      component: () => import('../views/GuildSettingsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/raids',
       name: 'Raids',
       component: () => import('../views/RaidDashboardView.vue'),

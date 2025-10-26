@@ -12,6 +12,8 @@ export async function listGuilds() {
             name: true,
             slug: true,
             description: true,
+            defaultRaidStartTime: true,
+            defaultRaidEndTime: true,
             createdAt: true,
             members: {
                 select: {
@@ -141,6 +143,8 @@ export async function getGuildById(id, options) {
         name: guild.name,
         slug: guild.slug,
         description: guild.description,
+        defaultRaidStartTime: guild.defaultRaidStartTime,
+        defaultRaidEndTime: guild.defaultRaidEndTime,
         createdAt: guild.createdAt,
         updatedAt: guild.updatedAt,
         members,

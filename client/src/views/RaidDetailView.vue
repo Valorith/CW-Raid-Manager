@@ -3,7 +3,19 @@
     <header class="section-header">
       <div>
         <div class="raid-title-row">
-          <h1>{{ raid.name }}</h1>
+          <div class="raid-title-main">
+            <h1>{{ raid.name }}</h1>
+            <button
+              v-if="canManageRaid"
+              class="icon-button icon-button--edit"
+              type="button"
+              :disabled="renamingRaid"
+              @click="promptRenameRaid"
+            >
+              <span class="sr-only">Edit raid name</span>
+              ✎
+            </button>
+          </div>
           <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
         </div>
         <p class="muted">
@@ -12,10 +24,6 @@
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
       <div class="header-actions">
-        <RouterLink class="btn btn--outline btn--loot" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
-          <span class="btn__icon">💎</span>
-          Loot
-        </RouterLink>
         <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
           <span aria-hidden="true">🔗</span>
           Share
@@ -47,17 +55,17 @@
         <div class="actions timing-actions">
           <button
             class="btn"
-            :disabled="startingRaid || !!raid?.startedAt || !canManageRaid"
+            :disabled="startingRaid || hasEffectiveStarted || !canManageRaid"
             @click="handleStartRaid"
           >
-            {{ startingRaid ? 'Starting…' : raid?.startedAt ? 'Started' : 'Start Raid' }}
+            {{ startingRaid ? 'Starting…' : hasEffectiveStarted ? 'Started' : 'Start Raid' }}
           </button>
           <button
             class="btn btn--outline"
-            :disabled="endingRaid || !raid?.startedAt || !!raid?.endedAt || !canManageRaid"
+            :disabled="endingRaid || !hasEffectiveStarted || hasEffectiveEnded || !canManageRaid"
             @click="handleEndRaid"
           >
-            {{ endingRaid ? 'Ending…' : raid?.endedAt ? 'Ended' : 'End Raid' }}
+            {{ endingRaid ? 'Ending…' : hasEffectiveEnded ? 'Ended' : 'End Raid' }}
           </button>
           <button
             class="btn btn--outline"
@@ -172,14 +180,26 @@
 
     <section class="card">
       <header class="card__header">
-        <h2>Recorded Loot</h2>
-        <RouterLink class="btn btn--outline btn--small" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
+        <div>
+          <h2>Recorded Loot</h2>
+          <p class="muted">All drops captured for this raid.</p>
+        </div>
+        <RouterLink class="btn btn--manage-loot" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
+          <span aria-hidden="true">🧺</span>
           Manage Loot
         </RouterLink>
       </header>
       <p v-if="lootEvents.length === 0" class="muted">No loot recorded yet.</p>
       <div v-else class="raid-loot-grid">
-        <article v-for="entry in groupedLoot" :key="entry.id" class="raid-loot-card">
+        <article
+          v-for="entry in groupedLoot"
+          :key="entry.id"
+          class="raid-loot-card"
+          role="button"
+          tabindex="0"
+          @click="openAllaSearch(entry.itemName)"
+          @keyup.enter="openAllaSearch(entry.itemName)"
+        >
           <div class="raid-loot-card__count">{{ entry.count }}×</div>
           <header class="raid-loot-card__header">
             <span class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
@@ -287,6 +307,13 @@ const groupedLoot = computed(() => {
   }
   return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
 });
+
+function openAllaSearch(itemName: string) {
+  const base =
+    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  window.open(url, '_blank');
+}
 const startedAtInput = ref('');
 const endedAtInput = ref('');
 const initialStartedAt = ref('');
@@ -295,6 +322,7 @@ const savingTimes = ref(false);
 const startingRaid = ref(false);
 const endingRaid = ref(false);
 const restartingRaid = ref(false);
+const renamingRaid = ref(false);
 const confirmModal = reactive({
   visible: false,
   title: '',
@@ -308,6 +336,13 @@ let shareStatusTimeout: ReturnType<typeof setTimeout> | null = null;
 let confirmResolver: ((value: boolean) => void) | null = null;
 const actionError = ref<string | null>(null);
 const pendingEventTypes = ref<Array<'START' | 'END' | 'RESTART'>>([]);
+const hasEffectiveStarted = computed(() => {
+  const startedAt = raid.value?.startedAt;
+  if (!startedAt) {
+    return false;
+  }
+  return new Date(startedAt).getTime() <= Date.now();
+});
 const canManageRaid = computed(() => {
   const permissions = raid.value?.permissions;
   if (!permissions) {
@@ -321,7 +356,15 @@ const canManageRaid = computed(() => {
   const role = permissions.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
-const canRestartRaid = computed(() => canManageRaid.value && Boolean(raid.value?.endedAt));
+const hasEffectiveEnded = computed(() => {
+  const endedAt = raid.value?.endedAt;
+  if (!endedAt) {
+    return false;
+  }
+  return new Date(endedAt).getTime() <= Date.now();
+});
+
+const canRestartRaid = computed(() => canManageRaid.value && hasEffectiveEnded.value);
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
   OFFICER: 'Officer',
@@ -341,10 +384,10 @@ const userGuildRoleLabel = computed(() => {
 });
 
 const raidStatusBadge = computed(() => {
-  if (raid.value?.endedAt) {
+  if (hasEffectiveEnded.value) {
     return { label: 'Ended', variant: 'raid-status-badge--ended' };
   }
-  if (raid.value?.startedAt) {
+  if (hasEffectiveStarted.value) {
     return { label: 'Active', variant: 'raid-status-badge--active' };
   }
   return { label: 'Planned', variant: 'raid-status-badge--planned' };
@@ -473,9 +516,27 @@ function fromInputValue(value: string) {
   return date.toISOString();
 }
 
+function composeInputFromDefault(baseIso: string | null | undefined, defaultTime?: string | null) {
+  if (!defaultTime || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultTime)) {
+    return '';
+  }
+  const base = baseIso ? new Date(baseIso) : new Date();
+  const [hours, minutes] = defaultTime.split(':').map(Number);
+  base.setHours(hours, minutes, 0, 0);
+  const offset = base.getTimezoneOffset();
+  const local = new Date(base.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 function setTimingInputs(current: RaidDetail) {
-  const startValue = toInputValue(current.startedAt);
-  const endValue = toInputValue(current.endedAt);
+  let startValue = toInputValue(current.startedAt);
+  if (!startValue && current.guild?.defaultRaidStartTime) {
+    startValue = composeInputFromDefault(current.startTime, current.guild.defaultRaidStartTime);
+  }
+  let endValue = toInputValue(current.endedAt);
+  if (!endValue && current.guild?.defaultRaidEndTime) {
+    endValue = composeInputFromDefault(current.startTime, current.guild.defaultRaidEndTime);
+  }
   startedAtInput.value = startValue;
   endedAtInput.value = endValue;
   initialStartedAt.value = startValue;
@@ -499,9 +560,13 @@ async function saveTiming() {
 
   savingTimes.value = true;
   try {
+    const startedAtValue = startedAtInput.value ? fromInputValue(startedAtInput.value) : null;
+    const endedAtValue = endedAtInput.value ? fromInputValue(endedAtInput.value) : null;
+
     await api.updateRaid(raidId, {
-      startedAt: startedAtInput.value ? fromInputValue(startedAtInput.value) : null,
-      endedAt: endedAtInput.value ? fromInputValue(endedAtInput.value) : null
+      startedAt: startedAtValue,
+      endedAt: endedAtValue,
+      startTime: startedAtValue ?? undefined
     });
     await loadRaid();
   } finally {
@@ -615,7 +680,7 @@ function confirmDeleteRaid() {
 }
 
 async function handleStartRaid() {
-  if (startingRaid.value || raid.value?.startedAt) {
+  if (startingRaid.value || hasEffectiveStarted.value) {
     return;
   }
 
@@ -646,7 +711,7 @@ async function handleStartRaid() {
 }
 
 async function handleEndRaid() {
-  if (endingRaid.value || !raid.value?.startedAt || raid.value?.endedAt) {
+  if (endingRaid.value || !hasEffectiveStarted.value || hasEffectiveEnded.value) {
     return;
   }
 
@@ -704,6 +769,33 @@ async function handleRestartRaid() {
     actionError.value = extractErrorMessage(error, 'Unable to restart raid. Please try again.');
   } finally {
     restartingRaid.value = false;
+  }
+}
+
+async function promptRenameRaid() {
+  if (!canManageRaid.value || !raid.value || renamingRaid.value) {
+    return;
+  }
+
+  const currentName = raid.value.name ?? '';
+  const nextName = window.prompt('Rename raid', currentName);
+  if (nextName === null) {
+    return;
+  }
+  const trimmed = nextName.trim();
+  if (!trimmed || trimmed === currentName) {
+    return;
+  }
+
+  renamingRaid.value = true;
+  actionError.value = null;
+  try {
+    await api.updateRaid(raidId, { name: trimmed });
+    await loadRaid();
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to rename raid. Please try again.');
+  } finally {
+    renamingRaid.value = false;
   }
 }
 
@@ -889,6 +981,12 @@ async function copyRaidLink() {
   flex-wrap: wrap;
 }
 
+.raid-title-main {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .raid-status-badge {
   padding: 0.35rem 0.75rem;
   border-radius: 999px;
@@ -921,22 +1019,6 @@ async function copyRaidLink() {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
-}
-
-.btn--loot {
-  border-color: rgba(34, 197, 94, 0.6);
-  color: #bbf7d0;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(13, 148, 136, 0.2));
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  box-shadow: 0 10px 30px rgba(13, 148, 136, 0.35);
-}
-
-.btn--loot:hover {
-  border-color: rgba(34, 197, 94, 0.85);
-  color: #ecfccb;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(13, 148, 136, 0.35));
 }
 
 .share-btn {
@@ -1263,6 +1345,33 @@ th {
   color: #e2e8f0;
 }
 
+.icon-button--edit {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  padding: 0.2rem 0.35rem;
+}
+
+.icon-button--edit:hover:not(:disabled) {
+  color: #e2e8f0;
+  background: rgba(148, 163, 184, 0.1);
+}
+
+.icon-button--edit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 .loot-summary {
   list-style: none;
   margin: 0;
@@ -1289,6 +1398,15 @@ th {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.raid-loot-card:hover,
+.raid-loot-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.5);
 }
 
 .raid-loot-card__count {
@@ -1330,6 +1448,27 @@ th {
   margin: 0;
   font-size: 0.85rem;
   color: #cbd5f5;
+}
+
+.btn--manage-loot {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: none;
+  color: #0f172a;
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.95));
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  box-shadow: 0 10px 25px rgba(148, 163, 184, 0.35);
+  text-decoration: none;
+  transition: color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn--manage-loot:hover,
+.btn--manage-loot:focus-visible {
+  box-shadow: 0 14px 30px rgba(148, 163, 184, 0.5);
+  color: #020617;
+  transform: translateY(-1px);
 }
 
 </style>

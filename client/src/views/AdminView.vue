@@ -645,7 +645,7 @@ const adminSummary = computed(() => {
   const totalGuilds = guilds.value.length;
   const totalGuildMembers = guilds.value.reduce((sum, guild) => sum + guild.memberCount, 0);
   const totalRaids = raids.value.length;
-  const activeRaids = raids.value.filter((raid) => raid.isActive && !raid.endedAt).length;
+  const activeRaids = raids.value.filter((raid) => raid.isActive && !raidHasEnded(raid)).length;
 
   return {
     totalUsers,
@@ -671,9 +671,9 @@ function formatCharacterClass(className?: string | null) {
 const filteredRaids = computed(() => {
   return raids.value.filter((raid) => {
     if (raidFilter.value === 'ACTIVE') {
-      return !raid.endedAt;
+      return !raidHasEnded(raid);
     }
-    return Boolean(raid.endedAt);
+    return raidHasEnded(raid);
   });
 });
 
@@ -693,11 +693,11 @@ function formatRaidDate(value?: string | null) {
 }
 
 function raidStatusBadge(raid: { startedAt?: string | null; endedAt?: string | null; isActive: boolean }) {
-  if (raid.endedAt) {
+  if (raidHasEnded(raid)) {
     return { label: 'Ended', variant: 'badge--negative' } as const;
   }
 
-  if (raid.startedAt || raid.isActive) {
+  if (raidHasStarted(raid) || raid.isActive) {
     return { label: 'In Progress', variant: 'badge--positive' } as const;
   }
 
@@ -717,6 +717,20 @@ function toLocalInput(value?: string | null) {
   const offset = parsed.getTimezoneOffset();
   const local = new Date(parsed.getTime() - offset * 60000);
   return local.toISOString().slice(0, 16);
+}
+
+function raidHasEnded(raid: { endedAt?: string | null }) {
+  if (!raid.endedAt) {
+    return false;
+  }
+  return new Date(raid.endedAt).getTime() <= Date.now();
+}
+
+function raidHasStarted(raid: { startedAt?: string | null }) {
+  if (!raid.startedAt) {
+    return false;
+  }
+  return new Date(raid.startedAt).getTime() <= Date.now();
 }
 
 function fromLocalInput(value?: string | null): string | null | undefined {

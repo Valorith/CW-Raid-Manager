@@ -34,11 +34,14 @@
       </button>
       <button
         v-if="canManageLoot"
-        class="btn btn--outline btn--small btn--modal-outline parsing-window__button"
+        class="btn btn--outline btn--small btn--modal-outline parsing-window__button parsing-window__button--debug"
         type="button"
         @click="showDebugConsole = !showDebugConsole"
+        :aria-pressed="showDebugConsole"
       >
-        {{ showDebugConsole ? 'Hide Debug Console' : 'Show Debug Console' }}
+        <span aria-hidden="true">🔧</span>
+        <span class="sr-only">Toggle Debug Console</span>
+        <span class="parsing-window__button-text">Debug</span>
       </button>
     </div>
 
@@ -111,7 +114,15 @@
       </header>
       <p v-if="lootEvents.length === 0" class="muted">No loot recorded yet.</p>
       <div v-else class="loot-grid">
-        <article v-for="entry in groupedExistingLoot" :key="entry.id" class="loot-card">
+        <article
+          v-for="entry in groupedExistingLoot"
+          :key="entry.id"
+          class="loot-card"
+          role="button"
+          tabindex="0"
+          @click="openAllaSearch(entry.itemName)"
+          @keyup.enter="openAllaSearch(entry.itemName)"
+        >
           <div class="loot-card__count">{{ entry.count }}×</div>
           <header class="loot-card__header">
             <span class="loot-card__emoji">{{ entry.emoji }}</span>
@@ -121,6 +132,16 @@
             </div>
           </header>
           <p v-if="entry.note" class="loot-card__note">{{ entry.note }}</p>
+          <footer v-if="canDeleteExistingLoot" class="loot-card__actions">
+            <button
+              class="icon-button icon-button--delete"
+              type="button"
+              @click.stop="deleteLootGroup(entry)"
+              :aria-label="`Delete ${entry.itemName} for ${entry.looterName}`"
+            >
+              🗑️
+            </button>
+          </footer>
         </article>
       </div>
     </section>
@@ -485,6 +506,17 @@ interface DebugLogEntry {
   context?: Record<string, unknown>;
 }
 
+interface GroupedLootEntry {
+  id: string;
+  itemName: string;
+  looterName: string;
+  looterClass?: string | null;
+  emoji: string;
+  note?: string | null;
+  count: number;
+  eventIds: string[];
+}
+
 const route = useRoute();
 const raidId = route.params.raidId as string;
 
@@ -581,16 +613,12 @@ const fileInput = ref<HTMLInputElement | null>(null);
 
 const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
 const keptLoot = computed(() => parsedLoot.value.filter((row) => row.keep && row.itemName && row.looterName));
-const groupedExistingLoot = computed(() => {
-  const grouped = new Map<string, {
-    id: string;
-    itemName: string;
-    looterName: string;
-    looterClass?: string | null;
-    emoji: string;
-    note?: string | null;
-    count: number;
-  }>();
+const canDeleteExistingLoot = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
+const groupedExistingLoot = computed<GroupedLootEntry[]>(() => {
+  const grouped = new Map<string, GroupedLootEntry>();
   for (const event of lootEvents.value) {
     const key = `${event.looterName}::${event.itemName}`;
     if (!grouped.has(key)) {
@@ -601,10 +629,13 @@ const groupedExistingLoot = computed(() => {
         looterClass: event.looterClass,
         emoji: event.emoji ?? parserSettings.value?.emoji ?? '💎',
         note: event.note,
-        count: 0
+        count: 0,
+        eventIds: []
       });
     }
-    grouped.get(key)!.count += 1;
+    const entry = grouped.get(key)!;
+    entry.count += 1;
+    entry.eventIds.push(event.id);
   }
   return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
 });
@@ -1184,6 +1215,36 @@ function resetDetectedLoot() {
   appendDebugLog('Detected loot reset');
 }
 
+async function deleteLootGroup(entry: GroupedLootEntry) {
+  if (!canDeleteExistingLoot.value) {
+    return;
+  }
+  const confirmed = confirm(
+    `Remove ${entry.count} entr${entry.count === 1 ? 'y' : 'ies'} of ${entry.itemName} looted by ${entry.looterName}?`
+  );
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await Promise.all(entry.eventIds.map((lootId) => api.deleteRaidLoot(raidId, lootId)));
+    lootEvents.value = lootEvents.value.filter((event) => !entry.eventIds.includes(event.id));
+    appendDebugLog('Deleted loot entries', {
+      itemName: entry.itemName,
+      looterName: entry.looterName,
+      count: entry.count
+    });
+  } catch (error) {
+    appendDebugLog('Failed to delete loot entries', { error: String(error) });
+  }
+}
+
+function openAllaSearch(itemName: string) {
+  const base =
+    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  window.open(url, '_blank');
+}
+
 onMounted(loadData);
 </script>
 
@@ -1253,6 +1314,18 @@ onMounted(loadData);
 
 .parsing-window__button {
   margin-left: auto;
+}
+
+.parsing-window__button--debug {
+  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: auto;
+}
+
+.parsing-window__button-text {
+  font-size: 0.85rem;
 }
 
 .btn--settings {
@@ -1366,6 +1439,7 @@ onMounted(loadData);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1rem;
+  margin-top: 1rem;
 }
 
 .loot-card {
@@ -1378,6 +1452,15 @@ onMounted(loadData);
   gap: 0.5rem;
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.35);
   position: relative;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.loot-card:hover,
+.loot-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow: 0 14px 26px rgba(15, 23, 42, 0.45);
 }
 
 .loot-card__count {
@@ -2007,6 +2090,19 @@ onMounted(loadData);
   border: none;
   color: #94a3b8;
   cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 0.4rem;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.icon-button--delete {
+  color: rgba(248, 113, 113, 0.8);
+}
+
+.icon-button--delete:hover,
+.icon-button--delete:focus-visible {
+  color: rgba(248, 113, 113, 1);
+  background: rgba(248, 113, 113, 0.15);
 }
 
 .sr-only {

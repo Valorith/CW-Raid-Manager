@@ -143,9 +143,11 @@ async function loadActiveRaid(guildId: string) {
   try {
     const response = await api.fetchRaidsForGuild(guildId);
     const active = response.raids
-      .filter((raid) => (raid.startedAt || raid.isActive) && !raid.endedAt)
-      .sort((a, b) =>
-        new Date(b.startedAt ?? b.startTime).getTime() - new Date(a.startedAt ?? a.startTime).getTime()
+      .filter((raid) => hasRaidStarted(raid) && !hasRaidEnded(raid))
+      .sort(
+        (a, b) =>
+          new Date(b.startedAt ?? b.startTime).getTime() -
+          new Date(a.startedAt ?? a.startTime).getTime()
       )[0];
 
     activeRaid.value = active ?? null;
@@ -166,6 +168,20 @@ function formatDate(value: string | null | undefined) {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(value));
+}
+
+function hasRaidEnded(raid: RaidEventSummary) {
+  if (!raid.endedAt) {
+    return false;
+  }
+  return new Date(raid.endedAt).getTime() <= Date.now();
+}
+
+function hasRaidStarted(raid: RaidEventSummary) {
+  if (!raid.startedAt) {
+    return false;
+  }
+  return new Date(raid.startedAt).getTime() <= Date.now();
 }
 </script>
 

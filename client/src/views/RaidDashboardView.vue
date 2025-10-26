@@ -57,6 +57,17 @@
               <span :class="['badge', getRaidStatus(raid.id).variant]">
                 {{ getRaidStatus(raid.id).label }}
               </span>
+              <button
+                v-if="canCopyRaid(raid)"
+                class="copy-button"
+                type="button"
+                :disabled="copyingRaidId === raid.id"
+                @click.stop="copyRaid(raid)"
+                title="Copy raid"
+              >
+                <span aria-hidden="true">📄</span>
+                <span class="sr-only">Copy raid</span>
+              </button>
               <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
                 Open
               </button>
@@ -72,6 +83,8 @@
     <RaidModal
       v-if="showRaidModal"
       :guild-id="selectedGuildId"
+      :default-start-time="selectedGuildDefaults?.start ?? null"
+      :default-end-time="selectedGuildDefaults?.end ?? null"
       @close="handleRaidClose"
       @created="handleRaidCreated"
     />
@@ -109,21 +122,21 @@ const raidStatus = computed(() => {
     let label: string;
     let variant: RaidStatusVariant;
 
+    const ended = raidHasEnded(raid);
+    const started = raidHasStarted(raid);
+
     if (latest?.eventType === 'RESTART') {
       label = 'Restarted';
       variant = 'badge--positive';
-    } else if (latest?.eventType === 'START') {
+    } else if (latest?.eventType === 'START' && started) {
       label = 'Started';
       variant = 'badge--positive';
-    } else if (latest?.eventType === 'END') {
+    } else if (latest?.eventType === 'END' || ended) {
       label = 'Ended';
       variant = 'badge--negative';
-    } else if (raid.startedAt && !raid.endedAt) {
+    } else if (started) {
       label = 'Started';
       variant = 'badge--positive';
-    } else if (raid.startedAt && raid.endedAt) {
-      label = 'Ended';
-      variant = 'badge--negative';
     } else {
       label = 'Planned';
       variant = 'badge--neutral';
@@ -141,6 +154,17 @@ const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const router = useRouter();
 const activeTab = ref<'active' | 'history'>('active');
+const copyingRaidId = ref<string | null>(null);
+const guildTimingDefaults = ref<Record<
+  string,
+  { start: string | null; end: string | null }
+>>({});
+const selectedGuildDefaults = computed(() => {
+  if (!selectedGuildId.value) {
+    return null;
+  }
+  return guildTimingDefaults.value[selectedGuildId.value] ?? null;
+});
 
 async function loadRaids() {
   if (!selectedGuildId.value) {
@@ -156,6 +180,7 @@ async function loadRaids() {
     const response = await api.fetchRaidsForGuild(selectedGuildId.value);
     raids.value = response.raids;
     selectedGuildPermissions.value = response.permissions ?? null;
+    await ensureGuildDefaults(selectedGuildId.value);
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } finally {
     loadingRaids.value = false;
@@ -165,8 +190,20 @@ async function loadRaids() {
 const canCreateRaid = computed(() => Boolean(selectedGuildPermissions.value?.canManage));
 const hasGuildMembership = computed(() => (authStore.user?.guilds?.length ?? 0) > 0);
 
-const activeRaids = computed(() => raids.value.filter((raid) => !isHistoryRaid(raid)));
-const historyRaids = computed(() => raids.value.filter((raid) => isHistoryRaid(raid)));
+const activeRaids = computed(() =>
+  raids.value
+    .filter((raid) => !isHistoryRaid(raid))
+    .sort((a, b) =>
+      new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    )
+);
+const historyRaids = computed(() =>
+  raids.value
+    .filter((raid) => isHistoryRaid(raid))
+    .sort((a, b) =>
+      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+    )
+);
 
 const displayedRaids = computed(() =>
   activeTab.value === 'active' ? activeRaids.value : historyRaids.value
@@ -228,8 +265,75 @@ function formatTargetZones(zones: unknown): string {
   return labels.length > 0 ? labels.join(', ') : 'Unknown Target';
 }
 
+async function ensureGuildDefaults(guildId: string) {
+  if (!guildId || guildTimingDefaults.value[guildId]) {
+    return;
+  }
+  try {
+    const detail = await api.fetchGuildDetail(guildId);
+    guildTimingDefaults.value[guildId] = {
+      start: detail.defaultRaidStartTime ?? null,
+      end: detail.defaultRaidEndTime ?? null
+    };
+  } catch (error) {
+    console.warn('Failed to load guild defaults for raid planning', error);
+  }
+}
+
+function canCopyRaid(raid: RaidEventSummary) {
+  if (typeof raid.permissions?.canManage === 'boolean') {
+    return raid.permissions.canManage;
+  }
+  return Boolean(selectedGuildPermissions.value?.canManage);
+}
+
+async function copyRaid(raid: RaidEventSummary) {
+  if (!canCopyRaid(raid) || copyingRaidId.value || !selectedGuildId.value) {
+    return;
+  }
+  copyingRaidId.value = raid.id;
+  try {
+    await api.createRaidEvent({
+      guildId: selectedGuildId.value,
+      name: raid.name,
+      startTime: raid.startTime,
+      targetZones: ensureTargets(raid.targetZones),
+      targetBosses: ensureTargets(raid.targetBosses),
+      notes: raid.notes ?? undefined
+    });
+    await loadRaids();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
+  } catch (error) {
+    window.alert('Unable to copy raid. Please try again.');
+    console.warn('Failed to copy raid', error);
+  } finally {
+    copyingRaidId.value = null;
+  }
+}
+
+function ensureTargets(targets: RaidEventSummary['targetZones']) {
+  if (Array.isArray(targets) && targets.length > 0) {
+    return targets;
+  }
+  return ['Unspecified Target'];
+}
+
+function raidHasEnded(raid: RaidEventSummary) {
+  if (!raid.endedAt) {
+    return false;
+  }
+  return new Date(raid.endedAt).getTime() <= Date.now();
+}
+
+function raidHasStarted(raid: RaidEventSummary) {
+  if (!raid.startedAt) {
+    return false;
+  }
+  return new Date(raid.startedAt).getTime() <= Date.now();
+}
+
 function isHistoryRaid(raid: RaidEventSummary) {
-  if (raid.endedAt) {
+  if (raidHasEnded(raid)) {
     return true;
   }
 
@@ -259,8 +363,11 @@ watch(
   { immediate: true }
 );
 
-watch(selectedGuildId, () => {
+watch(selectedGuildId, (guildId) => {
   activeTab.value = 'active';
+  if (guildId) {
+    ensureGuildDefaults(guildId);
+  }
 });
 </script>
 
@@ -425,6 +532,39 @@ watch(selectedGuildId, () => {
 .badge--negative {
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
+}
+
+.copy-button {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: #cbd5f5;
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.copy-button:hover:not(:disabled),
+.copy-button:focus-visible {
+  color: #e0f2fe;
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.copy-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 }
 
 .muted {

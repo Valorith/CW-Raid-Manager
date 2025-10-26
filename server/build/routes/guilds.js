@@ -54,9 +54,18 @@ export async function guildRoutes(server) {
             guildId: z.string()
         });
         const params = paramsSchema.parse(request.params);
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
         const bodySchema = z.object({
             name: z.string().min(3).max(100).optional(),
-            description: z.string().max(500).optional()
+            description: z.string().max(500).optional(),
+            defaultRaidStartTime: z
+                .union([z.string().regex(timeRegex), z.literal('')])
+                .optional()
+                .nullable(),
+            defaultRaidEndTime: z
+                .union([z.string().regex(timeRegex), z.literal('')])
+                .optional()
+                .nullable()
         });
         const body = bodySchema.safeParse(request.body);
         if (!body.success) {
@@ -66,12 +75,24 @@ export async function guildRoutes(server) {
         if (!membership || !canManageGuild(membership.role)) {
             return reply.forbidden('Insufficient permissions to update this guild.');
         }
+        const data = {};
+        if (body.data.name !== undefined) {
+            data.name = body.data.name;
+        }
+        if (body.data.description !== undefined) {
+            data.description = body.data.description ?? null;
+        }
+        const normalizedStart = normalizeTimeInput(body.data.defaultRaidStartTime);
+        if (normalizedStart !== undefined) {
+            data.defaultRaidStartTime = normalizedStart;
+        }
+        const normalizedEnd = normalizeTimeInput(body.data.defaultRaidEndTime);
+        if (normalizedEnd !== undefined) {
+            data.defaultRaidEndTime = normalizedEnd;
+        }
         const guild = await prisma.guild.update({
             where: { id: params.guildId },
-            data: {
-                name: body.data.name,
-                description: body.data.description
-            }
+            data
         });
         return { guild };
     });
@@ -402,4 +423,14 @@ export async function guildRoutes(server) {
             return reply.badRequest('Unable to deny application.');
         }
     });
+}
+function normalizeTimeInput(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null) {
+        return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
 }

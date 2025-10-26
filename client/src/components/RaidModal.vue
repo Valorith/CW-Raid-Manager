@@ -15,6 +15,7 @@
         <label class="form__field">
           <span>Start Time</span>
           <input v-model="form.startTime" type="datetime-local" required />
+          <small v-if="defaultWindowLabel" class="form__hint">{{ defaultWindowLabel }}</small>
         </label>
 
         <label class="form__field">
@@ -44,12 +45,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 
 import { api } from '../services/api';
 
 const props = defineProps<{
   guildId: string;
+  defaultStartTime?: string | null;
+  defaultEndTime?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -59,13 +62,27 @@ const emit = defineEmits<{
 
 const form = reactive({
   name: '',
-  startTime: new Date().toISOString().slice(0, 16),
+  startTime: buildDateInput(props.defaultStartTime),
   targetZones: '',
   targetBosses: '',
   notes: ''
 });
 
 const submitting = ref(false);
+const defaultWindowLabel = computed(() => {
+  const start = formatDefaultClock(props.defaultStartTime);
+  const end = formatDefaultClock(props.defaultEndTime);
+  if (start && end) {
+    return `Guild default window: ${start} → ${end}`;
+  }
+  if (start) {
+    return `Guild default start: ${start}`;
+  }
+  if (end) {
+    return `Guild default end: ${end}`;
+  }
+  return null;
+});
 
 function close() {
   emit('close');
@@ -93,6 +110,30 @@ function splitAndFilter(value: string) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function buildDateInput(defaultTime?: string | null) {
+  const date = new Date();
+  if (defaultTime && /^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultTime)) {
+    const [hours, minutes] = defaultTime.split(':').map(Number);
+    date.setHours(hours, minutes, 0, 0);
+  }
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function formatDefaultClock(value?: string | null) {
+  if (!value || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(value)) {
+    return null;
+  }
+  const [hours, minutes] = value.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
 }
 </script>
 
@@ -151,6 +192,11 @@ function splitAndFilter(value: string) {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.form__hint {
+  font-size: 0.8rem;
+  color: #94a3b8;
 }
 
 .icon-button {

@@ -117,7 +117,9 @@ export async function getRaidEventById(raidId) {
             guild: {
                 select: {
                     id: true,
-                    name: true
+                    name: true,
+                    defaultRaidStartTime: true,
+                    defaultRaidEndTime: true
                 }
             },
             createdBy: {

@@ -7,6 +7,8 @@ export interface GuildSummary {
   name: string;
   slug: string;
   description?: string | null;
+  defaultRaidStartTime?: string | null;
+  defaultRaidEndTime?: string | null;
   createdAt: string;
   members: Array<{
     id: string;
@@ -164,6 +166,8 @@ export interface RaidDetail extends RaidEventSummary {
   guild: {
     id: string;
     name: string;
+    defaultRaidStartTime?: string | null;
+    defaultRaidEndTime?: string | null;
   };
   createdBy: {
     id: string;
@@ -492,6 +496,15 @@ export const api = {
 
   async fetchGuildDetail(guildId: string): Promise<GuildDetail> {
     const response = await axios.get(`/api/guilds/${guildId}`);
+    return response.data.guild;
+  },
+
+  async updateGuildSettings(guildId: string, payload: {
+    description?: string | null;
+    defaultRaidStartTime?: string | null;
+    defaultRaidEndTime?: string | null;
+  }): Promise<GuildDetail> {
+    const response = await axios.patch(`/api/guilds/${guildId}`, payload);
     return response.data.guild;
   },
 

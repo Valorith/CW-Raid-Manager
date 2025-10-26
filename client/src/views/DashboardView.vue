@@ -166,7 +166,15 @@
         <p v-else-if="characters.length === 0" class="muted">Add a character to start tracking loot history.</p>
         <p v-else-if="recentLoot.length === 0" class="muted">Loot earned by your characters will show up here.</p>
         <ul v-else class="recent-loot">
-          <li v-for="entry in recentLoot" :key="entry.id" class="recent-loot__item">
+          <li
+            v-for="entry in recentLoot"
+            :key="entry.id"
+            class="recent-loot__item"
+            role="button"
+            tabindex="0"
+            @click="openAllaSearch(entry.itemName)"
+            @keyup.enter="openAllaSearch(entry.itemName)"
+          >
             <div class="recent-loot__emoji">{{ entry.emoji ?? '💎' }}</div>
             <div class="recent-loot__details">
               <p class="recent-loot__item-name">{{ entry.itemName }}</p>
@@ -390,6 +398,13 @@ function setLootPage(page: number) {
   }
   lootPage.value = normalized;
   loadRecentLoot(normalized);
+}
+
+function openAllaSearch(itemName: string) {
+  const base =
+    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  window.open(url, '_blank');
 }
 
 function extractErrorMessage(error: unknown, fallback: string) {
@@ -736,6 +751,15 @@ onMounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.85rem;
   padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.recent-loot__item:hover,
+.recent-loot__item:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.4);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
 }
 
 .recent-loot__emoji {

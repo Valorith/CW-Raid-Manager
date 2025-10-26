@@ -7,6 +7,14 @@
         <p v-if="guild.description" class="guild-subtitle muted">{{ guild.description }}</p>
       </div>
       <div class="guild-actions">
+        <RouterLink
+          v-if="canManageGuildSettings"
+          class="guild-settings-button"
+          :to="{ name: 'GuildSettings', params: { guildId } }"
+        >
+          <span aria-hidden="true">⚙️</span>
+          <span>Settings</span>
+        </RouterLink>
         <button
           v-if="canManageDiscordWebhook"
           class="discord-button"
@@ -229,6 +237,8 @@
       <RaidModal
         v-if="showRaidModal"
         :guild-id="guild.id"
+        :default-start-time="guild.defaultRaidStartTime ?? null"
+        :default-end-time="guild.defaultRaidEndTime ?? null"
         @close="showRaidModal = false"
         @created="handleRaidCreated"
       />
@@ -334,6 +344,11 @@ const canManageDiscordWebhook = computed(() => {
   if (!role) {
     return false;
   }
+  return role === 'LEADER' || role === 'OFFICER';
+});
+
+const canManageGuildSettings = computed(() => {
+  const role = actorRole.value;
   return role === 'LEADER' || role === 'OFFICER';
 });
 
@@ -816,11 +831,14 @@ function isRaidRenderable(raid: RaidEventSummary) {
     return false;
   }
 
-  if (raid.startedAt && !raid.endedAt) {
+  const ended = raidHasEnded(raid);
+  const started = raidHasStarted(raid);
+
+  if (started && !ended) {
     return true;
   }
 
-  if (raid.endedAt) {
+  if (ended) {
     return false;
   }
 
@@ -832,6 +850,20 @@ function isRaidRenderable(raid: RaidEventSummary) {
   }
 
   return false;
+}
+
+function raidHasEnded(raid: RaidEventSummary) {
+  if (!raid.endedAt) {
+    return false;
+  }
+  return new Date(raid.endedAt).getTime() <= Date.now();
+}
+
+function raidHasStarted(raid: RaidEventSummary) {
+  if (!raid.startedAt) {
+    return false;
+  }
+  return new Date(raid.startedAt).getTime() <= Date.now();
 }
 
 function isApplicantEntry(member: GuildMemberEntry): member is ApplicantMember {
@@ -906,6 +938,26 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 0.75rem;
   align-items: center;
+}
+
+.guild-settings-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  color: #e2e8f0;
+  text-decoration: none;
+  background: rgba(15, 23, 42, 0.6);
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.guild-settings-button:hover,
+.guild-settings-button:focus-visible {
+  border-color: rgba(99, 102, 241, 0.8);
+  color: #c7d2fe;
+  transform: translateY(-1px);
 }
 
 @media (min-width: 640px) {

@@ -39,6 +39,8 @@ model Guild {
   discordWebhooks GuildDiscordWebhook[]
   lootParserSettings GuildLootParserSettings?
   lootEvents   RaidLootEvent[]
+  defaultRaidStartTime String?   @db.VarChar(5)
+  defaultRaidEndTime   String?   @db.VarChar(5)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
