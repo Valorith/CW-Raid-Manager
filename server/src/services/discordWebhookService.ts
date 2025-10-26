@@ -10,6 +10,7 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'raid.started',
   'raid.ended',
   'raid.deleted',
+  'loot.assigned',
   'attendance.logged',
   'attendance.updated',
   'application.submitted',
@@ -54,6 +55,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     category: 'RAID'
   },
   {
+    key: 'loot.assigned',
+    label: 'Loot Assigned',
+    description: 'Triggered whenever loot items are recorded for a raid.',
+    category: 'RAID'
+  },
+  {
     key: 'attendance.logged',
     label: 'Attendance Event Logged',
     description: 'Captured whenever a new attendance snapshot or note is recorded.',
@@ -90,6 +97,7 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'raid.started': true,
   'raid.ended': true,
   'raid.deleted': false,
+  'loot.assigned': true,
   'attendance.logged': true,
   'attendance.updated': true,
   'application.submitted': false,
@@ -102,6 +110,7 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'raid.started': true,
   'raid.ended': true,
   'raid.deleted': false,
+  'loot.assigned': false,
   'attendance.logged': false,
   'attendance.updated': false,
   'application.submitted': false,
@@ -272,6 +281,19 @@ type DiscordWebhookPayloadMap = {
     guildName: string;
     raidId: string;
     raidName: string;
+  };
+  'loot.assigned': {
+    guildName: string;
+    raidId: string;
+    raidName: string;
+    assignments: Array<{
+      itemName: string;
+      looterName: string;
+      emoji?: string | null;
+      count: number;
+    }>;
+    recordedAt: Date | string;
+    recordedByName?: string | null;
   };
   'attendance.logged': {
     guildName: string;
@@ -495,6 +517,69 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
+    case 'loot.assigned':
+      const lootAssignedPayload = payload as DiscordWebhookPayloadMap['loot.assigned'];
+      if (!lootAssignedPayload.assignments || lootAssignedPayload.assignments.length === 0) {
+        return null;
+      }
+      const lootAssignments = lootAssignedPayload.assignments.slice(0, 15);
+      const lootDescription = lootAssignments
+        .map((assignment) => {
+          const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
+          const emoji = assignment.emoji ?? '🎁';
+          const itemUrl = buildAllaItemUrl(assignment.itemName);
+          const itemLabel = itemUrl
+            ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
+            : `**${assignment.itemName}**${countLabel}`;
+          return `${emoji} ${itemLabel}\n↳ ${assignment.looterName}`;
+        })
+        .join('\n');
+      const lootOverflow = Math.max(
+        lootAssignedPayload.assignments.length - lootAssignments.length,
+        0
+      );
+      const lootRaidUrl = buildRaidUrl(lootAssignedPayload.raidId);
+      return {
+        embeds: [
+          {
+            title: `📦 Loot Assigned: ${lootAssignedPayload.raidName}`,
+            description: lootDescription,
+            color: DISCORD_COLORS.success,
+            fields: [
+              ...(lootAssignedPayload.recordedByName
+                ? [
+                    {
+                      name: 'Recorded By',
+                      value: lootAssignedPayload.recordedByName,
+                      inline: true
+                    }
+                  ]
+                : []),
+              {
+                name: 'Recorded At',
+                value: formatDiscordTimestamp(lootAssignedPayload.recordedAt),
+                inline: true
+              },
+              ...(lootRaidUrl
+                ? [
+                    {
+                      name: 'Links',
+                      value: `[View Raid](${lootRaidUrl})`,
+                      inline: false
+                    }
+                  ]
+                : [])
+            ],
+            footer:
+              lootOverflow > 0
+                ? {
+                    text: `${lootOverflow} additional assignment${lootOverflow === 1 ? '' : 's'} not shown`
+                  }
+                : undefined,
+            timestamp: nowIso
+          }
+        ]
+      };
     case 'attendance.logged':
       const attendanceLoggedPayload = payload as DiscordWebhookPayloadMap['attendance.logged'];
       const attendanceRaidUrl = buildRaidUrl(attendanceLoggedPayload.raidId);
@@ -648,6 +733,20 @@ const DISCORD_COLORS = {
   warning: 0xed4245,
   info: 0x00b0f4
 };
+
+const ALLA_ITEM_SEARCH_BASE =
+  'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+
+function buildAllaItemUrl(itemName: string | null | undefined) {
+  if (!itemName) {
+    return null;
+  }
+  const trimmed = itemName.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return `${ALLA_ITEM_SEARCH_BASE}&iname=${encodeURIComponent(trimmed)}`;
+}
 
 function buildMentionPayload(settings: GuildDiscordWebhookSettings, event: DiscordWebhookEvent) {
   if (!settings.mentionRoleId || !shouldMentionRole(event) || !shouldMentionForEvent(settings, event)) {

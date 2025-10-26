@@ -69,6 +69,15 @@
         </RouterLink>
       </div>
     </div>
+
+    <div class="toast-container" aria-live="polite" aria-atomic="true">
+      <TransitionGroup name="toast" tag="div">
+        <div v-for="toast in toasts" :key="toast.id" class="toast">
+          <strong>{{ toast.title }}</strong>
+          <p>{{ toast.message }}</p>
+        </div>
+      </TransitionGroup>
+    </div>
     <main class="app-content">
       <RouterView />
     </main>
@@ -84,6 +93,18 @@ import { api, type RaidEventSummary } from './services/api';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
+
+const toasts = ref<{ id: number; title: string; message: string }[]>([]);
+let toastId = 0;
+
+function addToast(payload: { title: string; message: string }) {
+  const id = ++toastId;
+  toasts.value.push({ id, ...payload });
+  window.setTimeout(() => {
+    toasts.value = toasts.value.filter((toast) => toast.id !== id);
+  }, 5000);
+}
+
 const loadingActiveRaid = ref(false);
 
 function handleActiveRaidEvent() {
@@ -110,6 +131,19 @@ function loginWithGoogle() {
   window.location.href = '/api/auth/google';
 }
 
+function handleLootAssigned(event: CustomEvent<{ raidId: string; itemName?: string; looterName?: string }>) {
+  const detail = event.detail;
+  if (!detail) {
+    return;
+  }
+  const itemName = detail.itemName ?? 'Unknown Item';
+  const looterName = detail.looterName ?? 'Unknown Raider';
+  addToast({
+    title: 'Loot Assigned',
+    message: `${itemName} assigned to ${looterName}`
+  });
+}
+
 async function logout() {
   await authStore.logout();
 }
@@ -121,10 +155,12 @@ onMounted(async () => {
   }
 
   window.addEventListener('active-raid-updated', handleActiveRaidEvent);
+  window.addEventListener('loot-assigned', handleLootAssigned as EventListener);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
+  window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
 });
 
 watch(
@@ -385,4 +421,48 @@ function hasRaidStarted(raid: RaidEventSummary) {
     box-shadow: 0 0 0 0 rgba(74, 222, 128, 0);
   }
 }
+
+
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  z-index: 9999;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.toast {
+  background: rgba(15, 23, 42, 0.95);
+  border-left: 4px solid #38bdf8;
+  padding: 0.85rem 1.1rem;
+  min-width: 240px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.45);
+  border-radius: 0.7rem;
+}
+
+.toast strong {
+  display: block;
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+
+.toast p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+}
+
 </style>

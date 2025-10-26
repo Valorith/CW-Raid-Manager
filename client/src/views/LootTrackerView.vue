@@ -30,7 +30,7 @@
         type="button"
         @click="openWindowModal"
       >
-        Adjust Window
+        Adjust Time Window
       </button>
       <button
         v-if="canManageLoot"
@@ -45,54 +45,163 @@
       </button>
     </div>
 
-    <section v-if="canManageLoot && parsedLoot.length === 0" class="card">
+    <div v-if="showUploadModeModal && pendingUploadFile" class="modal-backdrop" @click.self="closeUploadModeModal">
+      <div class="modal modal--wide upload-mode-modal">
+        <header class="modal__header">
+          <div>
+            <h3>Select Upload Mode</h3>
+            <p class="muted small">
+              {{ pendingUploadFile.name }} • {{ formatFileSize(pendingUploadFile.size) }}
+            </p>
+          </div>
+          <button class="icon-button" type="button" @click="closeUploadModeModal">✕</button>
+        </header>
+        <p class="upload-mode-warning">
+          ⚠️ Selecting either option immediately clears all existing loot entries for this raid. This cannot be undone.
+        </p>
+        <div class="upload-mode-options">
+          <article class="upload-mode-card">
+            <h4>Upload Once</h4>
+            <p class="muted small">Parse the selected file a single time. Ideal for historical logs.</p>
+            <button
+              class="upload-mode-button upload-mode-button--primary"
+              type="button"
+              :disabled="clearingLoot"
+              @click="confirmUploadMode('single')"
+            >
+              <span class="upload-mode-button__icon" aria-hidden="true">📤</span>
+              <span class="upload-mode-button__text">
+                <strong>{{ clearingLoot ? 'Clearing…' : 'Upload Log Now' }}</strong>
+                <small>One-time upload • Manual reviews only</small>
+              </span>
+            </button>
+          </article>
+          <article class="upload-mode-card" :class="{ 'upload-mode-card--disabled': !supportsContinuousMonitoring }">
+            <h4>Continuous Monitor</h4>
+            <p class="muted small">
+              Watch this file for new loot lines and stream them into the review queue in real time.
+            </p>
+            <p class="muted x-small">
+              {{ canStartContinuousMonitor ? 'This locks uploads for everyone until you stop monitoring.' : 'Select a file via the button above to enable monitoring.' }}
+            </p>
+            <button
+              class="upload-mode-button upload-mode-button--outline"
+              type="button"
+              :disabled="!canStartContinuousMonitor || monitorStarting || clearingLoot"
+              @click="confirmUploadMode('monitor')"
+            >
+              <span class="upload-mode-button__icon" aria-hidden="true">⏱️</span>
+              <span class="upload-mode-button__text">
+                <strong>
+                  {{
+                    canStartContinuousMonitor
+                      ? clearingLoot
+                        ? 'Clearing…'
+                        : monitorStarting
+                        ? 'Starting…'
+                        : 'Start Monitoring'
+                      : 'Not Supported'
+                  }}
+                </strong>
+                <small>Streams new loot live • Locks other uploads</small>
+              </span>
+            </button>
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <section v-if="canManageLoot && monitorSession" class="card monitor-card" role="status" aria-live="polite">
+      <div class="monitor-card__status">
+        <div class="monitor-card__pulse" aria-hidden="true"></div>
+        <div>
+          <h2>Live Log Monitoring</h2>
+          <p class="monitor-card__user">
+            {{ monitorSession.isOwner ? 'You are monitoring this raid log.' : `${monitorSession.user.displayName} is monitoring this raid.` }}
+          </p>
+          <p class="monitor-card__file">{{ monitorSession.fileName }}</p>
+          <p class="muted x-small">Started {{ formatDate(monitorSession.startedAt) }}</p>
+        </div>
+      </div>
+      <div class="monitor-card__actions">
+        <p class="muted small">Last update {{ formatRelativeTime(monitorSession.lastHeartbeatAt) }}</p>
+        <p class="muted small">Log uploads are locked until monitoring stops.</p>
+        <button
+          v-if="monitorSession.isOwner"
+          class="btn btn--danger btn--small"
+          type="button"
+          :disabled="monitorStopping"
+          @click="stopActiveMonitor()"
+        >
+          {{ monitorStopping ? 'Stopping…' : 'Stop Monitoring' }}
+        </button>
+        <button
+          v-else-if="canForceStopMonitor"
+          class="btn btn--danger btn--small"
+          type="button"
+          :disabled="monitorStopping"
+          @click="stopActiveMonitor({ force: true })"
+        >
+          {{ monitorStopping ? 'Stopping…' : 'Force Stop' }}
+        </button>
+        <p v-else class="muted x-small">Only raid leaders or officers can stop an active monitor.</p>
+      </div>
+    </section>
+
+    <section v-if="canManageLoot && !monitorSession && parsedLoot.length === 0" class="card">
       <header class="card__header">
         <div>
           <h2>Upload Log</h2>
           <p class="muted">Upload an EverQuest log to detect loot drops during this raid.</p>
+          <p class="muted x-small">After selecting a file you can upload once or start continuous monitoring.</p>
         </div>
       </header>
       <div
         class="upload-drop"
-        :class="{ 'upload-drop--active': dragActive }"
+        :class="{ 'upload-drop--active': dragActive, 'upload-drop--disabled': monitorStarting || clearingLoot }"
         @dragenter.prevent="dragActive = true"
         @dragover.prevent="dragActive = true"
         @dragleave.prevent="dragActive = false"
         @drop.prevent="handleDrop"
       >
+        <p v-if="continuousMonitorError" class="error-text">{{ continuousMonitorError }}</p>
         <div v-if="!parsing" class="upload-drop__prompt">
-          <p>Drag a log file here or</p>
-          <label class="btn btn--outline btn--small upload-drop__button">
+          <p v-if="supportsContinuousMonitoring">Select a log to upload or monitor.</p>
+          <p v-else>Drag a log file here or</p>
+          <button
+            v-if="supportsContinuousMonitoring"
+            class="btn btn--outline btn--small upload-drop__button"
+            type="button"
+            :disabled="monitorStarting || clearingLoot"
+            @click="promptFileSelection"
+          >
+            <span class="btn__icon">📁</span>
+            {{ monitorStarting ? 'Preparing…' : 'Select Log File' }}
+          </button>
+          <label v-else class="btn btn--outline btn--small upload-drop__button">
             <span class="btn__icon">📁</span>
             Select Log File
-            <input ref="fileInput" class="sr-only" type="file" accept=".txt,.log" @change="handleFileSelect" />
+            <input
+              ref="fileInput"
+              class="sr-only"
+              type="file"
+              accept=".txt,.log"
+              :disabled="monitorStarting || clearingLoot"
+              @change="handleLegacyFileSelect"
+            />
           </label>
+          <input
+            v-if="supportsContinuousMonitoring"
+            ref="fileInput"
+            class="sr-only"
+            type="file"
+            accept=".txt,.log"
+            :disabled="monitorStarting || clearingLoot"
+            @change="handleLegacyFileSelect"
+          />
         </div>
         <p v-else>Parsing log… {{ parseProgress }}%</p>
         <div v-if="parsing" class="progress"><div class="progress__bar" :style="{ width: `${parseProgress}%` }"></div></div>
-      </div>
-    </section>
-
-    <section v-else-if="canManageLoot && parsedLoot.length > 0" class="card detected-card">
-      <header class="card__header">
-        <div>
-          <h2>Detected Loot</h2>
-          <p class="muted">We found {{ parsedLoot.length }} entries inside this parsing window.</p>
-        </div>
-      </header>
-      <div class="detected-card__body">
-        <p class="muted small">Use the controls below to review, save, or reset.</p>
-        <div class="detected-card__buttons">
-          <button class="btn btn--primary btn--detected" type="button" @click="showDetectedModal = true">
-            Review Detected Loot
-          </button>
-          <button class="btn btn--modal-primary" type="button" :disabled="savingLoot || keptLoot.length === 0" @click="saveParsedLoot">
-            {{ savingLoot ? 'Saving…' : 'Add Kept Loot' }}
-          </button>
-          <button class="btn btn--outline btn--small btn--modal-danger" type="button" @click="resetDetectedLoot">
-            Reset
-          </button>
-        </div>
       </div>
     </section>
 
@@ -147,7 +256,7 @@
     </section>
 
     <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
-      <div class="modal modal--wide">
+      <div class="modal modal--wide detected-modal">
         <header class="modal__header">
           <div>
             <h3>Parser Settings</h3>
@@ -342,6 +451,34 @@
       </div>
     </div>
 
+    <div v-if="showLeaveMonitorModal" class="modal-backdrop" @click.self="dismissLeaveMonitorModal(false)">
+      <div class="modal">
+        <header class="modal__header">
+          <div>
+            <h3>Stop Monitoring?</h3>
+            <p class="muted small">Navigating away will stop live log monitoring for this raid.</p>
+          </div>
+          <button class="icon-button" type="button" @click="dismissLeaveMonitorModal(false)">✕</button>
+        </header>
+        <p class="muted">
+          If you leave this page, live loot parsing will stop and other officers will be able to take over monitoring. Are you sure you want to continue?
+        </p>
+        <footer class="leave-monitor-actions">
+          <button class="btn leave-monitor-button leave-monitor-button--stay" type="button" @click="dismissLeaveMonitorModal(false)">
+            Stay Here
+          </button>
+          <button
+            class="btn leave-monitor-button leave-monitor-button--leave"
+            type="button"
+            :disabled="monitorStopping"
+            @click="dismissLeaveMonitorModal(true)"
+          >
+            {{ monitorStopping ? 'Stopping…' : 'Leave Page' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
       <div class="modal">
         <header class="modal__header">
@@ -427,7 +564,7 @@
       </div>
     </section>
 
-    <div v-if="showDetectedModal" class="modal-backdrop" @click.self="showDetectedModal = false">
+    <div v-if="detectedLootModalOpen" class="modal-backdrop">
       <div class="modal modal--wide">
         <header class="modal__header">
           <div>
@@ -437,8 +574,12 @@
           <button class="icon-button" type="button" @click="showDetectedModal = false">✕</button>
         </header>
         <div class="detected-controls">
-          <button class="btn btn--outline btn--small" type="button" @click="setAllKept(true)">Keep All</button>
-          <button class="btn btn--outline btn--small" type="button" @click="setAllKept(false)">Discard All</button>
+          <button class="btn detected-control detected-control--keep" type="button" @click="setAllKept(true)">
+            🟢 Keep All
+          </button>
+          <button class="btn detected-control detected-control--discard" type="button" @click="setAllKept(false)">
+            🔴 Discard All
+          </button>
         </div>
         <div class="detected-table-wrapper">
           <table class="loot-table">
@@ -451,7 +592,7 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in parsedLoot" :key="row.id" :class="{ 'loot-table__row--discarded': !row.keep }">
+              <tr v-for="row in paginatedParsedLoot" :key="row.id" :class="{ 'loot-table__row--discarded': !row.keep }">
                 <td>
                   <label class="toggle-keep">
                     <input type="checkbox" v-model="row.keep" />
@@ -468,11 +609,29 @@
               </tr>
             </tbody>
           </table>
+          <div v-if="parsedLootTotalPages > 1" class="pagination pagination--detected">
+            <button
+              class="pagination__button"
+              type="button"
+              :disabled="parsedLootPage === 1"
+              @click="parsedLootPage -= 1"
+            >
+              Previous
+            </button>
+            <span class="pagination__label">Page {{ parsedLootPage }} of {{ parsedLootTotalPages }}</span>
+            <button
+              class="pagination__button"
+              type="button"
+              :disabled="parsedLootPage === parsedLootTotalPages"
+              @click="parsedLootPage += 1"
+            >
+              Next
+            </button>
+          </div>
         </div>
-        <footer class="form__actions">
-          <button class="btn btn--outline btn--modal-outline" type="button" @click="showDetectedModal = false">Close</button>
-          <button class="btn btn--modal-primary" type="button" :disabled="savingLoot || keptLoot.length === 0" @click="saveParsedLoot">
-            {{ savingLoot ? 'Saving…' : 'Add Kept Loot' }}
+        <footer class="form__actions form__actions--single">
+          <button class="btn detected-save-button" type="button" :disabled="savingLoot" @click="saveParsedLoot">
+            {{ savingLoot ? 'Saving…' : 'Save' }}
           </button>
         </footer>
       </div>
@@ -482,11 +641,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 
-import { api, type GuildLootParserSettings, type RaidDetail, type RaidLootEvent } from '../services/api';
-import { parseLootLog, type GuildLootParserPattern } from '../services/lootParser';
+import {
+  api,
+  type GuildLootParserSettings,
+  type RaidDetail,
+  type RaidLootEvent,
+  type RaidLogMonitorSession
+} from '../services/api';
+import { parseLootLog, type GuildLootParserPattern, type ParsedLootEvent } from '../services/lootParser';
+import { useAuthStore } from '../stores/auth';
 import { convertPlaceholdersToRegex, convertRegexToPlaceholders } from '../utils/patternPlaceholders';
 
 interface ParsedRow {
@@ -517,7 +683,20 @@ interface GroupedLootEntry {
   eventIds: string[];
 }
 
+type HandlePermissionDescriptor = {
+  mode?: 'read' | 'readwrite';
+};
+
+type LocalFileHandle = {
+  kind: 'file';
+  name: string;
+  getFile: () => Promise<File>;
+  requestPermission?: (descriptor?: HandlePermissionDescriptor) => Promise<PermissionState>;
+  queryPermission?: (descriptor?: HandlePermissionDescriptor) => Promise<PermissionState>;
+};
+
 const route = useRoute();
+const router = useRouter();
 const raidId = route.params.raidId as string;
 
 const raid = ref<RaidDetail | null>(null);
@@ -534,6 +713,24 @@ const showManualModal = ref(false);
 const showWindowModal = ref(false);
 const showDebugConsole = ref(false);
 const showDetectedModal = ref(false);
+const parsedLootPage = ref(1);
+const detectedLootModalOpen = computed(() => showDetectedModal.value && parsedLoot.value.length > 0);
+const PAGE_SIZE = 10;
+const parsedLootTotalPages = computed(() => Math.max(1, Math.ceil(parsedLoot.value.length / PAGE_SIZE)));
+const paginatedParsedLoot = computed(() => {
+  const total = parsedLootTotalPages.value;
+  const currentPage = Math.min(parsedLootPage.value, total);
+  const start = (currentPage - 1) * PAGE_SIZE;
+  return parsedLoot.value.slice(start, start + PAGE_SIZE);
+});
+
+const showLeaveMonitorModal = ref(false);
+type PendingNavigation =
+  | { type: 'route'; to: any }
+  | { type: 'refresh' };
+
+const pendingNavigation = ref<PendingNavigation | null>(null);
+const allowImmediateUnload = ref(false);
 const updatingSettings = ref(false);
 const editableSettings = reactive<GuildLootParserSettings>({ patterns: [], emoji: '💎' });
 const activePatternIndex = ref<number | null>(null);
@@ -557,6 +754,34 @@ const parsingWindowForm = reactive({
   end: ''
 });
 const debugLogs = ref<DebugLogEntry[]>([]);
+const authStore = useAuthStore();
+let lootAudioContext: AudioContext | null = null;
+const showUploadModeModal = ref(false);
+const pendingUploadFile = ref<File | null>(null);
+const monitorSession = ref<RaidLogMonitorSession | null>(null);
+const monitorHeartbeatInterval = ref(10_000);
+const monitorTimeoutMs = ref(30_000);
+const monitorStarting = ref(false);
+const monitorStopping = ref(false);
+const monitorStatusPollId = ref<number | null>(null);
+const continuousMonitorError = ref<string | null>(null);
+const monitorController = reactive({
+  fileHandle: null as LocalFileHandle | null,
+  lastSize: 0,
+  pendingFragment: '',
+  pollTimerId: null as number | null,
+  heartbeatTimerId: null as number | null
+});
+const processedLogKeys = new Set<string>();
+let liveChunkInFlight = false;
+const supportsContinuousMonitoring = computed(
+  () => typeof window !== 'undefined' && typeof (window as any).showOpenFilePicker === 'function'
+);
+const pendingFileHandle = ref<LocalFileHandle | null>(null);
+const canStartContinuousMonitor = computed(
+  () => supportsContinuousMonitoring.value && pendingFileHandle.value !== null
+);
+const clearingLoot = ref(false);
 watch(
   () => [raid.value?.startTime, raid.value?.endedAt],
   ([start, end]) => {
@@ -565,6 +790,14 @@ watch(
     }
     if (end && !parsingWindow.end) {
       parsingWindow.end = end;
+    }
+  }
+);
+watch(
+  () => monitorSession.value?.isOwner ?? false,
+  (isOwner, wasOwner) => {
+    if (!isOwner && wasOwner) {
+      cleanupMonitorController();
     }
   }
 );
@@ -617,6 +850,7 @@ const canDeleteExistingLoot = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
+const canForceStopMonitor = computed(() => canDeleteExistingLoot.value);
 const groupedExistingLoot = computed<GroupedLootEntry[]>(() => {
   const grouped = new Map<string, GroupedLootEntry>();
   for (const event of lootEvents.value) {
@@ -650,6 +884,7 @@ const parsingWindowEnd = computed(() => {
   }
   return formatDate(later);
 });
+const monitorLockActive = computed(() => Boolean(monitorSession.value));
 
 async function loadData() {
   raid.value = await api.fetchRaid(raidId);
@@ -658,104 +893,594 @@ async function loadData() {
   syncEditableParserSettings(guildSettings);
   resetManualForm();
   initializeParsingWindow();
+  await fetchMonitorStatus();
+  startMonitorStatusPolling();
 }
 
-function handleFileSelect(event: Event) {
+async function fetchMonitorStatus() {
+  try {
+    const status = await api.fetchRaidLogMonitorStatus(raidId);
+    monitorHeartbeatInterval.value = status.heartbeatIntervalMs ?? monitorHeartbeatInterval.value;
+    monitorTimeoutMs.value = status.timeoutMs ?? monitorTimeoutMs.value;
+    monitorSession.value = status.session ?? null;
+    if (!status.session) {
+      cleanupMonitorController();
+    }
+  } catch (error) {
+    appendDebugLog('Failed to load log monitor status', { error: String(error) });
+  }
+}
+
+function startMonitorStatusPolling() {
+  stopMonitorStatusPolling();
+  monitorStatusPollId.value = window.setInterval(() => {
+    if (monitorSession.value?.isOwner) {
+      return;
+    }
+    fetchMonitorStatus();
+  }, 8000);
+}
+
+function stopMonitorStatusPolling() {
+  if (monitorStatusPollId.value) {
+    window.clearInterval(monitorStatusPollId.value);
+    monitorStatusPollId.value = null;
+  }
+}
+
+async function promptFileSelection() {
+  if (monitorLockActive.value || clearingLoot.value) {
+    return;
+  }
+
+  if (!supportsContinuousMonitoring.value) {
+    fileInput.value?.click();
+    return;
+  }
+
+  try {
+    const handle = await requestPersistentFileHandle();
+    if (!handle) {
+      return;
+    }
+    await ensureHandlePermission(handle);
+    const file = await handle.getFile();
+    setPendingUploadSelection(file, { handle, reason: 'picker' });
+  } catch (error) {
+    appendDebugLog('File picker cancelled or failed', { error: String(error) });
+  }
+}
+
+function handleLegacyFileSelect(event: Event) {
   const target = event.target as HTMLInputElement;
-  if (!target.files || target.files.length === 0) {
+  const file = target.files?.[0] ?? null;
+  target.value = '';
+  if (!file) {
     appendDebugLog('File selection cleared or empty');
     return;
   }
-  appendDebugLog('File selected', { name: target.files[0].name, size: target.files[0].size });
-  readLogFile(target.files[0]);
-  target.value = '';
+
+  if (monitorLockActive.value) {
+    appendDebugLog('File selection ignored because monitoring is active');
+    return;
+  }
+
+  if (clearingLoot.value) {
+    appendDebugLog('File selection ignored while raid loot is clearing');
+    return;
+  }
+
+  setPendingUploadSelection(file, { handle: null, reason: 'legacy-input' });
 }
 
 function handleDrop(event: DragEvent) {
   const file = event.dataTransfer?.files?.[0];
   dragActive.value = false;
-  if (file) {
-    readLogFile(file);
+  if (!file) {
+    return;
+  }
+  if (monitorLockActive.value) {
+    appendDebugLog('File drop ignored because monitoring is active');
+    return;
+  }
+  if (clearingLoot.value) {
+    appendDebugLog('File drop ignored while raid loot is clearing');
+    return;
+  }
+  if (supportsContinuousMonitoring.value) {
+    appendDebugLog('Drag-and-drop disabled when continuous monitoring is available. Use Select Log File instead.');
+    window.alert('Please use Select Log File to enable continuous monitoring.');
+    return;
+  }
+  setPendingUploadSelection(file, { handle: null, reason: 'drag-drop' });
+}
+
+function setPendingUploadSelection(file: File, options: { handle: LocalFileHandle | null; reason: string }) {
+  pendingUploadFile.value = file;
+  pendingFileHandle.value = options.handle;
+  showUploadModeModal.value = true;
+  appendDebugLog('File selected', {
+    name: file.name,
+    size: file.size,
+    source: options.reason,
+    hasHandle: Boolean(options.handle)
+  });
+}
+
+async function clearExistingLootBeforeUpload() {
+  if (!raid.value) {
+    return;
+  }
+  try {
+    await api.clearRaidLoot(raidId);
+    lootEvents.value = [];
+    parsedLoot.value = [];
+    showDetectedModal.value = false;
+    processedLogKeys.clear();
+    appendDebugLog('Existing loot cleared prior to new upload');
+  } catch (error) {
+    appendDebugLog('Failed to clear existing loot before upload', { error: String(error) });
+    throw error;
   }
 }
 
-function readLogFile(file: File) {
-  if (!raid.value) {
-    appendDebugLog('Cannot parse log before raid data loads', { file: file.name });
+function closeUploadModeModal() {
+  showUploadModeModal.value = false;
+  pendingUploadFile.value = null;
+  pendingFileHandle.value = null;
+}
+
+async function confirmUploadMode(mode: 'single' | 'monitor') {
+  const file = pendingUploadFile.value;
+  if (!file) {
+    showUploadModeModal.value = false;
     return;
   }
 
-  parsing.value = true;
-  parseProgress.value = 0;
-  appendDebugLog('Parsing started', {
-    file: file.name,
-    windowStart: parsingWindowStart.value,
-    windowEnd: parsingWindowEnd.value
-  });
-  const reader = new FileReader();
+  try {
+    clearingLoot.value = true;
+    await clearExistingLootBeforeUpload();
+  } catch (error) {
+    appendDebugLog('Unable to clear existing loot before upload', { error: String(error) });
+    window.alert('Unable to clear existing loot for this raid. Please try again.');
+    return;
+  } finally {
+    clearingLoot.value = false;
+  }
 
-  reader.onprogress = (progressEvent) => {
-    if (progressEvent.lengthComputable) {
-      parseProgress.value = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+  showUploadModeModal.value = false;
+
+  if (mode === 'single') {
+    continuousMonitorError.value = null;
+    await readLogFile(file, { append: false });
+    pendingUploadFile.value = null;
+    pendingFileHandle.value = null;
+    return;
+  }
+
+  if (!pendingFileHandle.value) {
+    window.alert('Continuous monitoring requires selecting the file via the Select Log File button.');
+    return;
+  }
+
+  await startContinuousMonitor(file, pendingFileHandle.value);
+  pendingUploadFile.value = null;
+  pendingFileHandle.value = null;
+}
+
+async function startContinuousMonitor(initialFile: File, providedHandle?: LocalFileHandle | null) {
+  if (monitorSession.value) {
+    appendDebugLog('Continuous monitoring skipped: session already active');
+    return;
+  }
+  if (!supportsContinuousMonitoring.value) {
+    continuousMonitorError.value = 'This browser does not support continuous monitoring.';
+    appendDebugLog('Continuous monitoring blocked: unsupported browser');
+    return;
+  }
+
+  monitorStarting.value = true;
+  continuousMonitorError.value = null;
+  let sessionStarted = false;
+
+  try {
+    const handle = providedHandle ?? (await requestPersistentFileHandle());
+    if (!handle) {
+      appendDebugLog('Continuous monitoring cancelled before selecting a file');
+      return;
     }
-  };
 
-  reader.onload = () => {
-    parseProgress.value = 100;
-    const content = reader.result as string;
-    const patterns = getPatternsForParsing();
-    const emoji = parserSettings.value?.emoji ?? '💎';
+    await ensureHandlePermission(handle);
+
+    const status = await api.startRaidLogMonitor(raidId, { fileName: handle.name ?? initialFile.name });
+    monitorHeartbeatInterval.value = status.heartbeatIntervalMs ?? monitorHeartbeatInterval.value;
+    monitorTimeoutMs.value = status.timeoutMs ?? monitorTimeoutMs.value;
+    monitorSession.value = status.session ?? null;
+    sessionStarted = Boolean(status.session);
+
+    if (!monitorSession.value) {
+      throw new Error('Unable to start monitoring session.');
+    }
+
+    monitorController.fileHandle = handle;
+    monitorController.lastSize = initialFile.size;
+    monitorController.pendingFragment = '';
+
+    await readLogFile(initialFile, { append: false });
+    startMonitorHeartbeat();
+    startLiveLogPolling();
+    appendDebugLog('Continuous monitoring enabled', {
+      file: handle.name,
+      sessionId: monitorSession.value.sessionId
+    });
+  } catch (error) {
+    continuousMonitorError.value = error instanceof Error ? error.message : 'Unable to enable continuous monitoring.';
+    appendDebugLog('Continuous monitoring failed', { error: String(error) });
+    if (sessionStarted && monitorSession.value?.sessionId) {
+      await api.stopRaidLogMonitor(raidId, { sessionId: monitorSession.value.sessionId });
+    }
+    monitorSession.value = null;
+    cleanupMonitorController();
+  } finally {
+    monitorStarting.value = false;
+  }
+}
+
+async function requestPersistentFileHandle() {
+  const picker = typeof window !== 'undefined' ? (window as any).showOpenFilePicker : null;
+  if (typeof picker !== 'function') {
+    throw new Error('Continuous monitoring requires a Chromium-based browser.');
+  }
+
+  try {
+    const handles = await picker({
+      multiple: false,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'EverQuest Logs',
+          accept: {
+            'text/plain': ['.txt', '.log']
+          }
+        }
+      ]
+    });
+    return Array.isArray(handles) && handles.length > 0 ? (handles[0] as LocalFileHandle) : null;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function ensureHandlePermission(handle: LocalFileHandle) {
+  if (typeof handle.queryPermission === 'function') {
+    const current = await handle.queryPermission({ mode: 'read' });
+    if (current === 'granted') {
+      return;
+    }
+    if (current === 'denied') {
+      throw new Error('Read permission denied for the selected log file.');
+    }
+  }
+  if (typeof handle.requestPermission === 'function') {
+    const result = await handle.requestPermission({ mode: 'read' });
+    if (result !== 'granted') {
+      throw new Error('Continuous monitoring requires read access to the log file.');
+    }
+  }
+}
+
+function startLiveLogPolling() {
+  stopLiveLogPolling();
+  if (!monitorSession.value?.isOwner || !monitorController.fileHandle) {
+    return;
+  }
+  monitorController.pollTimerId = window.setInterval(() => {
+    void readLiveLogChunk();
+  }, 2000);
+}
+
+function stopLiveLogPolling() {
+  if (monitorController.pollTimerId) {
+    window.clearInterval(monitorController.pollTimerId);
+    monitorController.pollTimerId = null;
+  }
+}
+
+async function readLiveLogChunk() {
+  if (!monitorController.fileHandle || !monitorSession.value?.isOwner || liveChunkInFlight) {
+    return;
+  }
+  liveChunkInFlight = true;
+  try {
+    const file = await monitorController.fileHandle.getFile();
+    if (file.size < monitorController.lastSize) {
+      monitorController.lastSize = 0;
+      monitorController.pendingFragment = '';
+    }
+    if (file.size === monitorController.lastSize) {
+      return;
+    }
+    const blob = file.slice(monitorController.lastSize);
+    const text = await blob.text();
+    monitorController.lastSize = file.size;
+    const chunk = drainMonitorChunk(text);
+    if (!chunk.trim()) {
+      return;
+    }
     const startIso = parsingWindow.start ?? raid.value?.startTime ?? new Date().toISOString();
     const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
     const start = new Date(startIso);
     const end = endIso ? new Date(endIso) : undefined;
-    const windowStats = computeLogWindowStats(content, start, end);
-    appendDebugLog('Log window stats', windowStats);
-    const parsed = parseLootLog(content, start, end, patterns);
-    parsedLoot.value = parsed.map((entry, index) => ({
-      id: `parsed-${index}`,
-      timestamp: entry.timestamp,
-      rawLine: entry.rawLine,
-      itemName: entry.itemName ?? entry.looter ?? 'Unknown Item',
-      looterName: entry.looter ?? entry.itemName ?? 'Unknown',
-      emoji,
-      keep: true
-    }));
-    appendDebugLog('Parsing completed', {
-      parsedCount: parsed.length,
-      patternsUsed: patterns.length
+    processLogContent(chunk, { append: true, start, end });
+  } catch (error) {
+    appendDebugLog('Failed to read live log chunk', { error: String(error) });
+  } finally {
+    liveChunkInFlight = false;
+  }
+}
+
+function drainMonitorChunk(raw: string) {
+  const combined = `${monitorController.pendingFragment}${raw}`;
+  const parts = combined.split(/\r?\n/);
+  if (!combined.endsWith('\n')) {
+    monitorController.pendingFragment = parts.pop() ?? '';
+  } else {
+    monitorController.pendingFragment = '';
+  }
+  return parts.join('\n');
+}
+
+function startMonitorHeartbeat() {
+  stopMonitorHeartbeat();
+  if (!monitorSession.value?.sessionId) {
+    return;
+  }
+  void sendMonitorHeartbeat();
+  const interval = Math.max(5000, monitorHeartbeatInterval.value);
+  monitorController.heartbeatTimerId = window.setInterval(() => {
+    void sendMonitorHeartbeat();
+  }, interval);
+}
+
+function stopMonitorHeartbeat() {
+  if (monitorController.heartbeatTimerId) {
+    window.clearInterval(monitorController.heartbeatTimerId);
+    monitorController.heartbeatTimerId = null;
+  }
+}
+
+async function sendMonitorHeartbeat() {
+  if (!monitorSession.value?.sessionId) {
+    return;
+  }
+  try {
+    const session = await api.heartbeatRaidLogMonitor(raidId, monitorSession.value.sessionId);
+    if (session) {
+      monitorSession.value = session;
+    }
+  } catch (error) {
+    appendDebugLog('Log monitor heartbeat failed', { error: String(error) });
+  }
+}
+
+function cleanupMonitorController() {
+  stopLiveLogPolling();
+  stopMonitorHeartbeat();
+  monitorController.fileHandle = null;
+  monitorController.lastSize = 0;
+  monitorController.pendingFragment = '';
+}
+
+async function stopActiveMonitor(options?: { force?: boolean }) {
+  if (!monitorSession.value) {
+    return;
+  }
+  monitorStopping.value = true;
+  try {
+    await api.stopRaidLogMonitor(raidId, {
+      sessionId: options?.force ? undefined : monitorSession.value.sessionId,
+      force: options?.force
     });
-    parsing.value = false;
-  };
+  } catch (error) {
+    appendDebugLog('Failed to stop log monitor', { error: String(error) });
+  } finally {
+    monitorStopping.value = false;
+    monitorSession.value = null;
+    clearingLoot.value = false;
+    pendingFileHandle.value = null;
+    pendingUploadFile.value = null;
+    cleanupMonitorController();
+    await fetchMonitorStatus();
+  }
+}
 
-  reader.onerror = () => {
-    parsing.value = false;
-    appendDebugLog('Failed to read log file', { error: reader.error?.message });
-  };
+function sendMonitorStopBeacon(sessionId: string) {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.sendBeacon) {
+      return;
+    }
+    const payload = new Blob([JSON.stringify({ sessionId })], { type: 'application/json' });
+    navigator.sendBeacon(`/api/raids/${raidId}/log-monitor/stop`, payload);
+  } catch (error) {
+    appendDebugLog('Failed to send monitor stop beacon', { error: String(error) });
+  }
+}
 
-  reader.readAsText(file);
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!monitorSession.value?.isOwner) {
+    return;
+  }
+
+  if (allowImmediateUnload.value) {
+    if (monitorSession.value.sessionId) {
+      sendMonitorStopBeacon(monitorSession.value.sessionId);
+    }
+    return;
+  }
+
+  if (!pendingNavigation.value) {
+    pendingNavigation.value = { type: 'refresh' };
+    showLeaveMonitorModal.value = true;
+  }
+
+  event.preventDefault();
+}
+
+function handleRefreshShortcut(event: KeyboardEvent) {
+  if (!monitorSession.value?.isOwner) {
+    return;
+  }
+  const isRefreshKey =
+    event.key === 'F5' ||
+    ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r');
+  if (!isRefreshKey) {
+    return;
+  }
+  event.preventDefault();
+  if (pendingNavigation.value) {
+    return;
+  }
+  pendingNavigation.value = { type: 'refresh' };
+  showLeaveMonitorModal.value = true;
+}
+
+function handleBeforeRouteLeave(to: any, from: any, next: (value?: boolean | string) => void) {
+  if (!monitorSession.value?.isOwner) {
+    next();
+    return;
+  }
+
+  if (pendingNavigation.value) {
+    next(false);
+    return;
+  }
+
+  pendingNavigation.value = { type: 'route', to };
+  showLeaveMonitorModal.value = true;
+  next(false);
+}
+
+function dismissLeaveMonitorModal(shouldNavigate: boolean) {
+  showLeaveMonitorModal.value = false;
+  const pending = pendingNavigation.value;
+  pendingNavigation.value = null;
+  if (shouldNavigate) {
+    void stopActiveMonitor().finally(() => {
+      if (!pending) {
+        return;
+      }
+      if (pending.type === 'route' && pending.to) {
+        router.push(pending.to);
+      } else if (pending.type === 'refresh') {
+        allowImmediateUnload.value = true;
+        window.location.reload();
+      }
+    });
+  } else {
+    allowImmediateUnload.value = false;
+  }
+}
+
+function readLogFile(file: File, options?: { append?: boolean }) {
+  if (!raid.value) {
+    appendDebugLog('Cannot parse log before raid data loads', { file: file.name });
+    return Promise.resolve();
+  }
+
+  parsing.value = true;
+  parseProgress.value = 0;
+  const mode = options?.append ? 'append' : 'replace';
+  appendDebugLog('Parsing started', {
+    file: file.name,
+    mode,
+    windowStart: parsingWindowStart.value,
+    windowEnd: parsingWindowEnd.value
+  });
+
+  return new Promise<void>((resolve) => {
+    const reader = new FileReader();
+
+    reader.onprogress = (progressEvent) => {
+      if (progressEvent.lengthComputable) {
+        parseProgress.value = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+      }
+    };
+
+    reader.onload = () => {
+      parseProgress.value = 100;
+      const content = reader.result as string;
+      const startIso = parsingWindow.start ?? raid.value?.startTime ?? new Date().toISOString();
+      const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
+      const start = new Date(startIso);
+      const end = endIso ? new Date(endIso) : undefined;
+
+      if (!options?.append) {
+        const windowStats = computeLogWindowStats(content, start, end);
+        appendDebugLog('Log window stats', windowStats);
+      }
+
+      processLogContent(content, {
+        append: options?.append ?? false,
+        resetKeys: !options?.append,
+        start,
+        end
+      });
+      parsing.value = false;
+      resolve();
+    };
+
+    reader.onerror = () => {
+      parsing.value = false;
+      appendDebugLog('Failed to read log file', { error: reader.error?.message });
+      resolve();
+    };
+
+    reader.readAsText(file);
+  });
 }
 
 function setAllKept(value: boolean) {
   parsedLoot.value = parsedLoot.value.map((row) => ({ ...row, keep: value }));
+  parsedLootPage.value = 1;
 }
 
 async function saveParsedLoot() {
-  if (!raid.value || keptLoot.value.length === 0) {
-    appendDebugLog('Save skipped: no kept loot to persist');
+  if (!raid.value || parsedLoot.value.length === 0) {
+    appendDebugLog('Save skipped: no detected loot present');
     return;
   }
   savingLoot.value = true;
+  const kept = keptLoot.value;
   try {
-    await api.createRaidLoot(raidId, keptLoot.value.map((row) => ({
-      itemName: row.itemName,
-      looterName: row.looterName,
-      eventTime: row.timestamp ? row.timestamp.toISOString() : undefined,
-      emoji: row.emoji
-    })));
+    if (kept.length > 0) {
+      await api.createRaidLoot(raidId, kept.map((row) => ({
+        itemName: row.itemName,
+        looterName: row.looterName,
+        eventTime: row.timestamp ? row.timestamp.toISOString() : undefined,
+        emoji: row.emoji
+      })));
+      lootEvents.value = await api.fetchRaidLoot(raidId);
+      appendDebugLog('Kept loot saved', { count: kept.length });
+    } else {
+      appendDebugLog('All detected loot discarded for this batch');
+    }
     parsedLoot.value = [];
-    lootEvents.value = await api.fetchRaidLoot(raidId);
-    appendDebugLog('Kept loot saved', { count: keptLoot.value.length });
+    parsedLootPage.value = 1;
+    showDetectedModal.value = false;
+    for (const row of kept) {
+      window.dispatchEvent(
+        new CustomEvent('loot-assigned', {
+          detail: {
+            raidId,
+            itemName: row.itemName,
+            looterName: row.looterName
+          }
+        })
+      );
+    }
   } finally {
     savingLoot.value = false;
   }
@@ -773,6 +1498,15 @@ async function createManualEntry() {
     resetManualForm();
     showManualModal.value = false;
     appendDebugLog('Manual loot entry created');
+    window.dispatchEvent(
+      new CustomEvent('loot-assigned', {
+        detail: {
+          raidId,
+          itemName: manualForm.itemName,
+          looterName: manualForm.looterName
+        }
+      })
+    );
   } finally {
     manualSaving.value = false;
   }
@@ -1081,6 +1815,85 @@ function fromInputValue(value: string) {
   return parsed.toISOString();
 }
 
+function processLogContent(
+  content: string,
+  options: { append: boolean; resetKeys?: boolean; start: Date; end?: Date }
+) {
+  if (!raid.value) {
+    return;
+  }
+
+  if (options.resetKeys) {
+    processedLogKeys.clear();
+    parsedLootPage.value = 1;
+  }
+
+  const patterns = getPatternsForParsing();
+  const emoji = parserSettings.value?.emoji ?? '💎';
+  const parsed = parseLootLog(content, options.start, options.end, patterns);
+
+  if (parsed.length === 0) {
+    if (!options.append) {
+      parsedLoot.value = [];
+      parsedLootPage.value = 1;
+    }
+    appendDebugLog('Parsing completed', {
+      parsedCount: 0,
+      appended: options.append
+    });
+    return;
+  }
+
+  const newRows = transformParsedEvents(parsed, emoji);
+  if (newRows.length === 0) {
+    appendDebugLog('Parsing completed with no new loot rows', {
+      parsedCount: parsed.length,
+      appended: options.append
+    });
+    return;
+  }
+
+  parsedLoot.value = options.append ? [...parsedLoot.value, ...newRows] : newRows;
+  if (parsedLoot.value.length > 0) {
+    showDetectedModal.value = true;
+    parsedLootPage.value = 1;
+    if (monitorSession.value?.isOwner) {
+      void playDetectedChime();
+    }
+  }
+  appendDebugLog('Parsing completed', {
+    parsedCount: parsed.length,
+    appended: options.append,
+    addedRows: newRows.length
+  });
+}
+
+function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): ParsedRow[] {
+  const rows: ParsedRow[] = [];
+  for (const entry of parsed) {
+    const key = buildParsedEventKey(entry);
+    if (processedLogKeys.has(key)) {
+      continue;
+    }
+    processedLogKeys.add(key);
+    rows.push({
+      id: `parsed-${processedLogKeys.size}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: entry.timestamp,
+      rawLine: entry.rawLine,
+      itemName: entry.itemName ?? entry.looter ?? 'Unknown Item',
+      looterName: entry.looter ?? entry.itemName ?? 'Unknown',
+      emoji,
+      keep: true
+    });
+  }
+  return rows;
+}
+
+function buildParsedEventKey(entry: ParsedLootEvent) {
+  const timestamp = entry.timestamp ? entry.timestamp.toISOString() : 'unknown';
+  return `${timestamp}::${entry.rawLine}`;
+}
+
 function computeLogWindowStats(content: string, start: Date, end?: Date) {
   const lines = content.split(/\r?\n/);
   let timestampedLines = 0;
@@ -1136,6 +1949,38 @@ function formatDate(date: string) {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(date));
+}
+
+function formatRelativeTime(value: string) {
+  try {
+    const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    const delta = new Date(value).getTime() - Date.now();
+    const minutes = Math.round(delta / 60000);
+    if (Math.abs(minutes) < 1) {
+      return 'just now';
+    }
+    if (Math.abs(minutes) < 60) {
+      return formatter.format(minutes, 'minute');
+    }
+    const hours = Math.round(minutes / 60);
+    return formatter.format(hours, 'hour');
+  } catch {
+    return formatDate(value);
+  }
+}
+
+function formatFileSize(bytes: number) {
+  if (!Number.isFinite(bytes)) {
+    return '0 B';
+  }
+  const thresholds = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < thresholds.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value < 10 && unitIndex > 0 ? 1 : 0)} ${thresholds[unitIndex]}`;
 }
 
 function ensureAwardingPatterns(patterns: GuildLootParserPattern[]) {
@@ -1211,8 +2056,41 @@ async function copyDebugLogs() {
 
 function resetDetectedLoot() {
   parsedLoot.value = [];
+  processedLogKeys.clear();
   showDetectedModal.value = false;
   appendDebugLog('Detected loot reset');
+}
+
+function closeDetectedLootModal() {
+  showDetectedModal.value = false;
+  parsedLootPage.value = 1;
+}
+
+function playDetectedChime() {
+  if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
+    return;
+  }
+  try {
+    lootAudioContext = lootAudioContext ?? new window.AudioContext();
+    const ctx = lootAudioContext;
+    if (ctx.state === 'suspended') {
+      void ctx.resume();
+    }
+    const oscillator = ctx.createOscillator();
+    oscillator.type = 'triangle';
+    oscillator.frequency.value = 880;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.12;
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+    oscillator.start(now);
+    oscillator.stop(now + 0.3);
+  } catch (error) {
+    appendDebugLog('Unable to play detected loot chime', { error: String(error) });
+  }
 }
 
 async function deleteLootGroup(entry: GroupedLootEntry) {
@@ -1245,7 +2123,24 @@ function openAllaSearch(itemName: string) {
   window.open(url, '_blank');
 }
 
-onMounted(loadData);
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload);
+  window.addEventListener('keydown', handleRefreshShortcut);
+  loadData();
+});
+
+onBeforeRouteLeave(handleBeforeRouteLeave);
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  window.removeEventListener('keydown', handleRefreshShortcut);
+  stopMonitorStatusPolling();
+  if (monitorSession.value?.isOwner) {
+    void stopActiveMonitor();
+  } else {
+    cleanupMonitorController();
+  }
+});
 </script>
 
 <style scoped>
@@ -1253,6 +2148,70 @@ onMounted(loadData);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.monitor-card {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5rem;
+  border-left: 4px solid #38bdf8;
+}
+
+.monitor-card__status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.monitor-card__pulse {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.15);
+  position: relative;
+}
+
+.monitor-card__pulse::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: #38bdf8;
+  animation: monitorPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes monitorPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.1);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+}
+
+.monitor-card__user {
+  margin: 0;
+  font-weight: 600;
+}
+
+.monitor-card__file {
+  margin: 0.2rem 0;
+  font-family: 'IBM Plex Mono', Consolas, monospace;
+  font-size: 0.9rem;
+  color: #bae6fd;
+}
+
+.monitor-card__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
 
 .header-actions {
@@ -1353,6 +2312,17 @@ onMounted(loadData);
   border-color: rgba(59, 130, 246, 0.65);
   background: rgba(59, 130, 246, 0.08);
   color: #bae6fd;
+}
+
+.upload-drop--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.error-text {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
 }
 
 .upload-drop__prompt {
@@ -1622,6 +2592,20 @@ onMounted(loadData);
   gap: 0.75rem;
 }
 
+.form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.form__actions--single {
+  justify-content: center;
+}
+
+.btn--detected-save {
+  min-width: 220px;
+}
+
 .detected-card {
   text-align: center;
 }
@@ -1642,6 +2626,140 @@ onMounted(loadData);
   gap: 0.75rem;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+.upload-mode-modal .modal__header h3 {
+  margin-bottom: 0.25rem;
+}
+
+.upload-mode-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.upload-mode-card {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: rgba(15, 23, 42, 0.65);
+  min-height: 100%;
+}
+
+.upload-mode-card--disabled {
+  opacity: 0.5;
+}
+
+.upload-mode-warning {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  border-radius: 0.75rem;
+  background: rgba(127, 29, 29, 0.35);
+  color: #fecaca;
+  font-size: 0.85rem;
+}
+
+.upload-mode-button {
+  width: 100%;
+  border: none;
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  text-align: left;
+  color: inherit;
+}
+
+.upload-mode-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+.upload-mode-button:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 25px rgba(15, 23, 42, 0.45);
+}
+
+.upload-mode-button--primary,
+.upload-mode-button--outline {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.7), rgba(14, 165, 233, 0.8));
+  color: #f8fafc;
+  box-shadow: 0 12px 30px rgba(14, 165, 233, 0.4);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  margin-top: auto;
+}
+
+.upload-mode-card--disabled .upload-mode-button--outline {
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px dashed rgba(148, 163, 184, 0.5);
+  color: #e2e8f0;
+  box-shadow: none;
+}
+
+.upload-mode-button__icon {
+  font-size: 1.5rem;
+}
+
+.upload-mode-button__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.upload-mode-button__text strong {
+  font-size: 1rem;
+}
+
+.upload-mode-button__text small {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.8);
+}
+
+.leave-monitor-actions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.leave-monitor-button {
+  min-width: 150px;
+  padding: 0.85rem 1.75rem;
+  font-size: 1rem;
+}
+
+.leave-monitor-button--stay {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.75), rgba(16, 185, 129, 0.85));
+  border: none;
+  color: #f0fdf4;
+  box-shadow: 0 12px 25px rgba(16, 185, 129, 0.35);
+}
+
+.leave-monitor-button--stay:hover {
+  filter: brightness(1.05);
+}
+
+.leave-monitor-button--leave {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.8), rgba(239, 68, 68, 0.9));
+  border: none;
+  color: #fff1f2;
+  box-shadow: 0 12px 25px rgba(248, 113, 113, 0.35);
+}
+
+.leave-monitor-button--leave:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .detected-controls {
@@ -2110,3 +3228,52 @@ onMounted(loadData);
   left: -9999px;
 }
 </style>
+.detected-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.detected-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.detected-control--keep {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(16, 185, 129, 0.9));
+  border: none;
+  color: #f0fdf4;
+  box-shadow: 0 10px 18px rgba(16, 185, 129, 0.35);
+}
+
+.detected-control--discard {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(239, 68, 68, 0.9));
+  border: none;
+  color: #fff1f2;
+  box-shadow: 0 10px 18px rgba(248, 113, 113, 0.35);
+}
+
+.detected-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.detected-save-button {
+  min-width: 240px;
+  font-size: 1rem;
+  padding: 0.85rem 1.75rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.95));
+  border: none;
+  color: #eff6ff;
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.35);
+}
+
+.detected-save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}

@@ -2,6 +2,8 @@ import { GuildLootParserSettings, Prisma } from '@prisma/client';
 
 import { prisma } from '../utils/prisma.js';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
 
 export interface LootEventInput {
   itemName: string;
@@ -83,6 +85,7 @@ export async function createRaidLootEvents(options: {
   guildId: string;
   createdById: string;
   events: LootEventInput[];
+  notifyDiscord?: boolean;
 }) {
   if (!options.events || options.events.length === 0) {
     return [];
@@ -109,6 +112,15 @@ export async function createRaidLootEvents(options: {
     return results;
   });
 
+  if (created.length > 0 && options.notifyDiscord) {
+    void emitLootAssignedWebhook({
+      guildId: options.guildId,
+      raidId: options.raidId,
+      createdById: options.createdById,
+      events: created
+    });
+  }
+
   return created;
 }
 
@@ -133,6 +145,15 @@ export async function deleteRaidLootEvent(lootId: string, guildId: string) {
   await prisma.raidLootEvent.delete({
     where: {
       id: lootId,
+      guildId
+    }
+  });
+}
+
+export async function deleteAllRaidLootEvents(raidId: string, guildId: string) {
+  await prisma.raidLootEvent.deleteMany({
+    where: {
+      raidId,
       guildId
     }
   });
@@ -217,4 +238,92 @@ function mergeWithAwardingDefaults(patterns: Array<{ id: string; label: string; 
     !patterns.some((pattern) => pattern.pattern === defaultPattern.pattern)
   );
   return [...missingDefaults, ...patterns];
+}
+
+interface LootAssignmentSummary {
+  itemName: string;
+  looterName: string;
+  emoji?: string | null;
+  count: number;
+}
+
+async function emitLootAssignedWebhook(options: {
+  guildId: string;
+  raidId: string;
+  createdById: string;
+  events: Array<{
+    itemName: string;
+    looterName: string;
+    emoji: string | null;
+    createdAt: Date;
+  }>;
+}) {
+  try {
+    const [raid, creator] = await Promise.all([
+      prisma.raidEvent.findUnique({
+        where: { id: options.raidId },
+        select: {
+          name: true,
+          guild: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }),
+      prisma.user.findUnique({
+        where: { id: options.createdById },
+        select: {
+          displayName: true,
+          nickname: true
+        }
+      })
+    ]);
+
+    if (!raid?.guild) {
+      return;
+    }
+
+    const assignments = summarizeLootAssignments(options.events);
+    if (assignments.length === 0) {
+      return;
+    }
+
+    const recordedAt = options.events[options.events.length - 1]?.createdAt ?? new Date();
+    const recordedByName = creator ? withPreferredDisplayName(creator).displayName : null;
+
+    await emitDiscordWebhookEvent(options.guildId, 'loot.assigned', {
+      guildName: raid.guild.name,
+      raidId: options.raidId,
+      raidName: raid.name ?? 'Raid',
+      assignments,
+      recordedAt,
+      recordedByName
+    });
+  } catch (error) {
+    console.warn('Failed to emit loot assignment webhook.', {
+      error,
+      raidId: options.raidId,
+      guildId: options.guildId
+    });
+  }
+}
+
+function summarizeLootAssignments(events: Array<{ itemName: string; looterName: string; emoji: string | null }>) {
+  const map = new Map<string, LootAssignmentSummary>();
+  for (const event of events) {
+    const key = `${event.itemName.toLowerCase()}::${event.looterName.toLowerCase()}::${event.emoji ?? ''}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      map.set(key, {
+        itemName: event.itemName,
+        looterName: event.looterName,
+        emoji: event.emoji ?? null,
+        count: 1
+      });
+    }
+  }
+  return Array.from(map.values());
 }

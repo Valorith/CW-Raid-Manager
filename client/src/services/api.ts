@@ -244,6 +244,26 @@ export interface RaidLootEvent {
   createdById?: string | null;
 }
 
+export interface RaidLogMonitorSession {
+  sessionId?: string;
+  raidId: string;
+  guildId: string;
+  fileName: string;
+  startedAt: string;
+  lastHeartbeatAt: string;
+  isOwner: boolean;
+  user: {
+    id: string;
+    displayName: string;
+  };
+}
+
+export interface RaidLogMonitorStatus {
+  session: RaidLogMonitorSession | null;
+  heartbeatIntervalMs: number;
+  timeoutMs: number;
+}
+
 export interface RecentLootEntry {
   id: string;
   itemName: string;
@@ -554,6 +574,33 @@ export const api = {
     };
   },
 
+  async fetchRaidLogMonitorStatus(raidId: string): Promise<RaidLogMonitorStatus> {
+    const response = await axios.get(`/api/raids/${raidId}/log-monitor`);
+    return {
+      session: response.data.session ?? null,
+      heartbeatIntervalMs: response.data.heartbeatIntervalMs ?? 10_000,
+      timeoutMs: response.data.timeoutMs ?? 30_000
+    };
+  },
+
+  async startRaidLogMonitor(raidId: string, payload: { fileName: string }): Promise<RaidLogMonitorStatus> {
+    const response = await axios.post(`/api/raids/${raidId}/log-monitor/start`, payload);
+    return {
+      session: response.data.session ?? null,
+      heartbeatIntervalMs: response.data.heartbeatIntervalMs ?? 10_000,
+      timeoutMs: response.data.timeoutMs ?? 30_000
+    };
+  },
+
+  async heartbeatRaidLogMonitor(raidId: string, sessionId: string): Promise<RaidLogMonitorSession | null> {
+    const response = await axios.post(`/api/raids/${raidId}/log-monitor/heartbeat`, { sessionId });
+    return response.data.session ?? null;
+  },
+
+  async stopRaidLogMonitor(raidId: string, payload: { sessionId?: string; force?: boolean }) {
+    await axios.post(`/api/raids/${raidId}/log-monitor/stop`, payload);
+  },
+
   async fetchRaidLoot(raidId: string): Promise<RaidLootEvent[]> {
     const response = await axios.get(`/api/raids/${raidId}/loot`);
     return Array.isArray(response.data.loot) ? response.data.loot : [];
@@ -585,6 +632,10 @@ export const api = {
 
   async deleteRaidLoot(raidId: string, lootId: string) {
     await axios.delete(`/api/raids/${raidId}/loot/${lootId}`);
+  },
+
+  async clearRaidLoot(raidId: string) {
+    await axios.delete(`/api/raids/${raidId}/loot`);
   },
 
   async fetchRecentLoot(page = 1, limit = 6): Promise<{
