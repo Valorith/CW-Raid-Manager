@@ -314,17 +314,20 @@ type DiscordWebhookPayloadMap = {
     characters: string[];
   };
   'application.submitted': {
+    guildId: string;
     guildName: string;
     applicantName: string;
     submittedAt: Date | string;
   };
   'application.approved': {
+    guildId: string;
     guildName: string;
     applicantName: string;
     actorName: string;
     resolvedAt: Date | string;
   };
   'application.denied': {
+    guildId: string;
     guildName: string;
     applicantName: string;
     actorName: string;
@@ -669,16 +672,23 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       };
     case 'application.submitted':
       const submittedPayload = payload as DiscordWebhookPayloadMap['application.submitted'];
+      const applicantsUrl = buildGuildApplicantsUrl(submittedPayload.guildId);
       return {
-        content: `📨 New guild application received from **${submittedPayload.applicantName}**.`,
+        content: `📨 **${submittedPayload.applicantName}** applied to **${submittedPayload.guildName}**.`,
         embeds: [
           {
-            description: `Review the application in the Raid Manager to respond.`,
             color: DISCORD_COLORS.primary,
             fields: [
               {
                 name: 'Submitted',
                 value: formatDiscordTimestamp(submittedPayload.submittedAt),
+                inline: true
+              },
+              {
+                name: 'Next Step',
+                value: applicantsUrl
+                  ? `[Review applicants](${applicantsUrl})`
+                  : 'Open the guild page to review pending applicants.',
                 inline: true
               }
             ],
@@ -689,7 +699,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'application.approved':
       const approvedPayload = payload as DiscordWebhookPayloadMap['application.approved'];
       return {
-        content: `✅ **${approvedPayload.applicantName}** has been approved by ${approvedPayload.actorName}.`,
+        content: `✅ **${approvedPayload.applicantName}** was approved for **${approvedPayload.guildName}** by ${approvedPayload.actorName}.`,
         embeds: [
           {
             color: DISCORD_COLORS.success,
@@ -707,7 +717,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'application.denied':
       const deniedPayload = payload as DiscordWebhookPayloadMap['application.denied'];
       return {
-        content: `❌ Application for **${deniedPayload.applicantName}** was denied by ${deniedPayload.actorName}.`,
+        content: `⚠️ **${deniedPayload.applicantName}** was denied for **${deniedPayload.guildName}** by ${deniedPayload.actorName}.`,
         embeds: [
           {
             color: DISCORD_COLORS.warning,
@@ -880,6 +890,13 @@ function buildRaidUrl(raidId: string) {
     return null;
   }
   return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}`;
+}
+
+function buildGuildApplicantsUrl(guildId: string) {
+  if (!clientBaseUrl) {
+    return null;
+  }
+  return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}?members=APPLICANT`;
 }
 
 function buildAttendanceEventUrl(raidId: string, attendanceEventId: string) {

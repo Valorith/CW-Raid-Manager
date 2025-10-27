@@ -236,13 +236,32 @@
           @keydown.enter.prevent="openRaid(raidItem.id)"
           @keydown.space.prevent="openRaid(raidItem.id)"
         >
-          <div>
+          <div class="raid-list__content">
             <strong>{{ raidItem.name }}</strong>
             <span class="muted raid-meta">
               {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
             </span>
           </div>
-          <span class="muted arrow">Open</span>
+          <div class="raid-list__status">
+            <span
+              v-if="raidItem.logMonitor?.isActive"
+              class="raid-monitor-indicator"
+              role="img"
+              :aria-label="`Continuous monitoring active${raidItem.logMonitor?.userDisplayName ? ' by ' + raidItem.logMonitor.userDisplayName : ''}`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+            <span class="muted arrow">Open</span>
+          </div>
         </li>
       </ul>
     </section>
@@ -459,6 +478,41 @@ const guildPermissions = computed(() => guild.value?.permissions ?? null);
 const canViewDetails = computed(() => guildPermissions.value?.canViewDetails ?? false);
 const canManageMembers = computed(() => guildPermissions.value?.canManageMembers ?? false);
 const canViewApplicants = computed(() => guildPermissions.value?.canViewApplicants ?? false);
+
+watch(
+  () => route.query.members,
+  (value) => {
+    const normalized = normalizeMemberFilterQuery(value);
+    if (normalized && memberRoleFilter.value !== normalized) {
+      memberRoleFilter.value = normalized;
+    }
+  },
+  { immediate: true }
+);
+
+watch(memberRoleFilter, (value) => {
+  const normalized = value === 'APPLICANT' ? 'APPLICANT' : value;
+  const currentQueryValue = normalizeMemberFilterQuery(route.query.members);
+  if (value === 'ALL' && (!currentQueryValue || currentQueryValue === 'ALL')) {
+    return;
+  }
+
+  const nextQuery = { ...route.query } as Record<string, unknown>;
+  if (value === 'ALL') {
+    if (nextQuery.members) {
+      delete nextQuery.members;
+      router.replace({ query: nextQuery });
+    }
+    return;
+  }
+
+  if (currentQueryValue === normalized) {
+    return;
+  }
+
+  nextQuery.members = normalized;
+  router.replace({ query: nextQuery });
+});
 
 const applicantEntries = computed<ApplicantMember[]>(() => {
   if (!canViewApplicants.value || !guild.value?.applicants) {
@@ -983,6 +1037,24 @@ function formatMemberRole(member: GuildMemberEntry) {
   return roleLabels[member.role] ?? member.role;
 }
 
+function normalizeMemberFilterQuery(value: unknown): 'ALL' | GuildRole | 'APPLICANT' | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const upper = raw.toUpperCase();
+  if (upper === 'APPLICANT' || upper === 'APPLICANTS') {
+    return 'APPLICANT';
+  }
+  if (upper === 'ALL') {
+    return 'ALL';
+  }
+  if ((guildRoleOrder as readonly string[]).includes(upper)) {
+    return upper as GuildRole;
+  }
+  return null;
+}
+
 onMounted(async () => {
   if (!authStore.user) {
     try {
@@ -1389,11 +1461,67 @@ onUnmounted(() => {
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
+.raid-list__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.raid-list__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .raid-list__item:hover,
 .raid-list__item:focus {
   background: rgba(59, 130, 246, 0.15);
   transform: translateY(-1px);
   outline: none;
+}
+
+.raid-monitor-indicator {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.2), rgba(14, 165, 233, 0.05));
+  border: 1px solid rgba(14, 165, 233, 0.6);
+  color: #bae6fd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.35);
+}
+
+.raid-monitor-indicator::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2px solid rgba(14, 165, 233, 0.35);
+  animation: raid-monitor-pulse 2s infinite;
+  pointer-events: none;
+}
+
+.raid-monitor-indicator svg {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes raid-monitor-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.9);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
 }
 
 .muted {

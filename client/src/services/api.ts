@@ -150,6 +150,12 @@ export interface RaidEventSummary {
   targetBosses: string[];
   notes?: string | null;
   isActive: boolean;
+  logMonitor?: {
+    isActive: boolean;
+    userId?: string | null;
+    userDisplayName?: string | null;
+    startedAt?: string | null;
+  } | null;
   permissions?: {
     canManage: boolean;
     role: GuildRole;
@@ -491,6 +497,22 @@ function normalizeRaidSummary(
       }))
     : [];
 
+  const rawMonitor = raid?.logMonitor;
+  const logMonitor = rawMonitor
+    ? {
+        isActive:
+          typeof rawMonitor.isActive === 'boolean'
+            ? rawMonitor.isActive
+            : true,
+        userId: typeof rawMonitor.userId === 'string' ? rawMonitor.userId : null,
+        userDisplayName:
+          typeof rawMonitor.userDisplayName === 'string'
+            ? rawMonitor.userDisplayName
+            : null,
+        startedAt: normalizeNullableDate(rawMonitor.startedAt)
+      }
+    : null;
+
   return {
     id: raid?.id ?? '',
     guildId: raid?.guildId ?? '',
@@ -502,6 +524,7 @@ function normalizeRaidSummary(
     targetBosses: normalizeStringArray(raid?.targetBosses),
     notes: typeof raid?.notes === 'string' ? raid.notes : raid?.notes ?? null,
     isActive: Boolean(raid?.isActive),
+    logMonitor,
     permissions: raid?.permissions ?? undefined,
     attendance
   };

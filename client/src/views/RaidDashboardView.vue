@@ -54,6 +54,23 @@
               </span>
             </div>
             <div class="raid-meta">
+              <span
+                v-if="raid.logMonitor?.isActive"
+                class="raid-monitor-indicator"
+                role="img"
+                :aria-label="`Continuous monitoring active${raid.logMonitor?.userDisplayName ? ' by ' + raid.logMonitor.userDisplayName : ''}`"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
               <span :class="['badge', getRaidStatus(raid.id).variant]">
                 {{ getRaidStatus(raid.id).label }}
               </span>
@@ -504,6 +521,50 @@ watch(selectedGuildId, (guildId) => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.raid-monitor-indicator {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.22), rgba(14, 165, 233, 0.05));
+  border: 1px solid rgba(14, 165, 233, 0.6);
+  color: #bae6fd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(14, 165, 233, 0.35);
+}
+
+.raid-monitor-indicator::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 999px;
+  border: 2px solid rgba(14, 165, 233, 0.35);
+  animation: raid-monitor-pulse 2s infinite;
+  pointer-events: none;
+}
+
+.raid-monitor-indicator svg {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes raid-monitor-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.9);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
+  }
 }
 
 .badge {

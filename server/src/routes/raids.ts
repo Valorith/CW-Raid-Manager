@@ -14,6 +14,7 @@ import {
   deleteRaidEvent
 } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
+import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
   server.get(
@@ -38,13 +39,24 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       const raids = await listRaidEventsForGuild(guildId);
       const canManage = canManageGuild(membershipRole);
 
-      const enrichedRaids = raids.map((raid) => ({
-        ...raid,
-        permissions: {
-          canManage,
-          role: membershipRole
-        }
-      }));
+      const enrichedRaids = raids.map((raid) => {
+        const session = getActiveLootMonitorSession(raid.id);
+        return {
+          ...raid,
+          logMonitor: session
+            ? {
+                isActive: true,
+                userId: session.userId,
+                userDisplayName: session.userDisplayName,
+                startedAt: session.startedAt.toISOString()
+              }
+            : null,
+          permissions: {
+            canManage,
+            role: membershipRole
+          }
+        };
+      });
 
       return {
         raids: enrichedRaids,
@@ -82,9 +94,19 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
 
       const canManage = canManageGuild(membershipRole);
 
+      const session = getActiveLootMonitorSession(raid.id);
+
       return {
         raid: {
           ...raid,
+          logMonitor: session
+            ? {
+                isActive: true,
+                userId: session.userId,
+                userDisplayName: session.userDisplayName,
+                startedAt: session.startedAt.toISOString()
+              }
+            : null,
           permissions: {
             canManage,
             role: membershipRole

@@ -20,6 +20,24 @@
                   Add Webhook
                 </button>
               </div>
+              <div class="webhook-bulk-actions">
+                <button
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  :disabled="bulkUpdating"
+                  @click="bulkSetWebhooksEnabled(true)"
+                >
+                  Enable All
+                </button>
+                <button
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  :disabled="bulkUpdating"
+                  @click="bulkSetWebhooksEnabled(false)"
+                >
+                  Disable All
+                </button>
+              </div>
               <p v-if="webhooks.length === 0" class="muted small">No webhooks yet.</p>
               <ul class="webhook-sidebar__list">
                 <li v-for="webhook in webhooks" :key="webhook.id">
@@ -206,6 +224,7 @@ interface EditableWebhook extends GuildDiscordWebhookSettings {
 const loading = ref(true);
 const submitting = ref(false);
 const deleting = ref(false);
+const bulkUpdating = ref(false);
 const error = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const eventDefinitions = ref<DiscordWebhookEventDefinition[]>([]);
@@ -513,6 +532,60 @@ function removeLocalWebhook(id: string) {
   }
   webhooks.value = remaining;
   selectedWebhookId.value = remaining[0].id;
+}
+
+async function bulkSetWebhooksEnabled(enabled: boolean) {
+  if (bulkUpdating.value) {
+    return;
+  }
+
+  bulkUpdating.value = true;
+  error.value = null;
+  successMessage.value = null;
+
+  const webhookList = [...webhooks.value];
+  const failures: string[] = [];
+
+  await Promise.all(
+    webhookList.map(async (webhook) => {
+      if (webhook.isNew) {
+        webhook.isEnabled = enabled;
+        if (activeWebhook.value?.id === webhook.id) {
+          form.isEnabled = enabled;
+        }
+        return;
+      }
+
+      if (Boolean(webhook.isEnabled) === enabled) {
+        return;
+      }
+
+      try {
+        await api.updateGuildWebhook(props.guildId, webhook.id, {
+          label: webhook.label ?? 'Webhook',
+          isEnabled: enabled,
+          webhookUrl: webhook.webhookUrl ?? null,
+          usernameOverride: webhook.usernameOverride ?? null,
+          avatarUrl: webhook.avatarUrl ?? null,
+          mentionRoleId: webhook.mentionRoleId ?? null,
+          eventSubscriptions: webhook.eventSubscriptions ?? buildEventSubscriptionsMap(),
+          mentionSubscriptions: webhook.mentionSubscriptions ?? buildMentionSubscriptionsMap()
+        });
+      } catch (err) {
+        failures.push(webhook.label ?? webhook.id);
+      }
+    })
+  );
+
+  await loadWebhooks(activeWebhook.value?.id);
+
+  if (failures.length > 0) {
+    error.value = `Unable to update ${failures.length} webhook${failures.length === 1 ? '' : 's'}.`;
+  } else {
+    successMessage.value = enabled ? 'All webhooks enabled.' : 'All webhooks disabled.';
+  }
+
+  bulkUpdating.value = false;
 }
 
 function close() {
