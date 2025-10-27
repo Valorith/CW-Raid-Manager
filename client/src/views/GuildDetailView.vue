@@ -378,6 +378,7 @@ const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const showDiscordModal = ref(false);
+let raidRefreshTimer: number | null = null;
 const router = useRouter();
 const updatingMemberId = ref<string | null>(null);
 const removingMemberId = ref<string | null>(null);
@@ -641,7 +642,9 @@ watch(characterTotalPages, (total) => {
 watch(canViewDetails, (value) => {
   if (value) {
     loadRaids();
+    startRaidRefreshPolling();
   } else {
+    stopRaidRefreshPolling();
     raids.value = [];
   }
 });
@@ -697,6 +700,20 @@ async function loadRaids() {
     raids.value = response.raids ?? [];
   } finally {
     loadingRaids.value = false;
+  }
+}
+
+function startRaidRefreshPolling() {
+  stopRaidRefreshPolling();
+  raidRefreshTimer = window.setInterval(() => {
+    loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+  }, 30_000);
+}
+
+function stopRaidRefreshPolling() {
+  if (raidRefreshTimer) {
+    clearInterval(raidRefreshTimer);
+    raidRefreshTimer = null;
   }
 }
 
@@ -1076,6 +1093,7 @@ watch(showDiscordModal, (isOpen) => {
 
 onUnmounted(() => {
   document.body.classList.remove('modal-open');
+  stopRaidRefreshPolling();
 });
 </script>
 

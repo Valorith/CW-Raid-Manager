@@ -109,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
@@ -123,6 +123,7 @@ type RaidStatusBadge = { label: string; variant: RaidStatusVariant };
 
 const raids = ref<RaidEventSummary[]>([]);
 const selectedGuildPermissions = ref<{ canManage: boolean; role: GuildRole } | null>(null);
+let raidsRefreshTimer: number | null = null;
 const raidStatus = computed(() => {
   const map = new Map<string, RaidStatusBadge>();
 
@@ -188,6 +189,7 @@ async function loadRaids() {
     raids.value = [];
     selectedGuildPermissions.value = null;
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
+    stopRaidsRefreshPolling();
     return;
   }
 
@@ -201,6 +203,24 @@ async function loadRaids() {
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } finally {
     loadingRaids.value = false;
+  }
+}
+
+function startRaidsRefreshPolling() {
+  if (raidsRefreshTimer || !selectedGuildId.value) {
+    return;
+  }
+  raidsRefreshTimer = window.setInterval(() => {
+    if (selectedGuildId.value) {
+      loadRaids();
+    }
+  }, 30_000);
+}
+
+function stopRaidsRefreshPolling() {
+  if (raidsRefreshTimer) {
+    clearInterval(raidsRefreshTimer);
+    raidsRefreshTimer = null;
   }
 }
 
@@ -369,12 +389,15 @@ watch(
       selectedGuildId.value = newId;
       if (selectedGuildId.value) {
         loadRaids();
+        startRaidsRefreshPolling();
       } else {
+        stopRaidsRefreshPolling();
         raids.value = [];
         selectedGuildPermissions.value = null;
       }
     } else if (newId) {
       loadRaids();
+      startRaidsRefreshPolling();
     }
   },
   { immediate: true }
@@ -384,7 +407,14 @@ watch(selectedGuildId, (guildId) => {
   activeTab.value = 'active';
   if (guildId) {
     ensureGuildDefaults(guildId);
+    startRaidsRefreshPolling();
+  } else {
+    stopRaidsRefreshPolling();
   }
+});
+
+onUnmounted(() => {
+  stopRaidsRefreshPolling();
 });
 </script>
 

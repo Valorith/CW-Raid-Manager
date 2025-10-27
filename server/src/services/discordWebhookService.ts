@@ -276,6 +276,9 @@ type DiscordWebhookPayloadMap = {
     raidId: string;
     raidName: string;
     endedAt: Date | string;
+    startedAt?: Date | string | null;
+    attendeeCount?: number | null;
+    lootCount?: number | null;
   };
   'raid.deleted': {
     guildName: string;
@@ -482,11 +485,24 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'raid.ended':
       const raidEndedPayload = payload as DiscordWebhookPayloadMap['raid.ended'];
       const raidEndedUrl = buildRaidUrl(raidEndedPayload.raidId);
+      const raidDuration = raidEndedPayload.startedAt
+        ? formatDuration(raidEndedPayload.startedAt, raidEndedPayload.endedAt)
+        : null;
+      const summaryParts = [
+        raidDuration ? `Duration: ${raidDuration}` : null,
+        typeof raidEndedPayload.attendeeCount === 'number'
+          ? `Attendees: ${raidEndedPayload.attendeeCount}`
+          : null,
+        typeof raidEndedPayload.lootCount === 'number'
+          ? `Loot Items: ${raidEndedPayload.lootCount}`
+          : null
+      ].filter(Boolean);
+      const raidSummary = summaryParts.length ? summaryParts.join(' • ') : 'Raid was marked as complete.';
       return {
         embeds: [
           {
             title: `🔴 Raid Completed: ${raidEndedPayload.raidName}`,
-            description: 'Raid was marked as complete.',
+            description: raidSummary,
             color: DISCORD_COLORS.info,
             fields: [
               {
@@ -534,7 +550,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           const itemLabel = itemUrl
             ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
             : `**${assignment.itemName}**${countLabel}`;
-          return `${emoji} ${itemLabel}\n↳ ${assignment.looterName}`;
+          return `${emoji} ${itemLabel} → ${assignment.looterName}`;
         })
         .join('\n');
       const lootOverflow = Math.max(
@@ -542,43 +558,18 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         0
       );
       const lootRaidUrl = buildRaidUrl(lootAssignedPayload.raidId);
+      const metaLine = '';
+      const linkLine = lootRaidUrl ? `\n[View Raid](${lootRaidUrl})` : '';
+      const overflowLine =
+        lootOverflow > 0
+          ? `\n_${lootOverflow} additional assignment${lootOverflow === 1 ? '' : 's'} not shown_`
+          : '';
       return {
         embeds: [
           {
-            title: `📦 Loot Assigned: ${lootAssignedPayload.raidName}`,
-            description: lootDescription,
+            title: `📦 Loot Assigned — ${lootAssignedPayload.raidName}`,
+            description: `${lootDescription}${metaLine}${linkLine}${overflowLine}`,
             color: DISCORD_COLORS.success,
-            fields: [
-              ...(lootAssignedPayload.recordedByName
-                ? [
-                    {
-                      name: 'Recorded By',
-                      value: lootAssignedPayload.recordedByName,
-                      inline: true
-                    }
-                  ]
-                : []),
-              {
-                name: 'Recorded At',
-                value: formatDiscordTimestamp(lootAssignedPayload.recordedAt),
-                inline: true
-              },
-              ...(lootRaidUrl
-                ? [
-                    {
-                      name: 'Links',
-                      value: `[View Raid](${lootRaidUrl})`,
-                      inline: false
-                    }
-                  ]
-                : [])
-            ],
-            footer:
-              lootOverflow > 0
-                ? {
-                    text: `${lootOverflow} additional assignment${lootOverflow === 1 ? '' : 's'} not shown`
-                  }
-                : undefined,
             timestamp: nowIso
           }
         ]
@@ -674,9 +665,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       const submittedPayload = payload as DiscordWebhookPayloadMap['application.submitted'];
       const applicantsUrl = buildGuildApplicantsUrl(submittedPayload.guildId);
       return {
-        content: `📨 **${submittedPayload.applicantName}** applied to **${submittedPayload.guildName}**.`,
+        content: `📨 **${submittedPayload.applicantName}** has applied for membership to **${submittedPayload.guildName}**.`,
         embeds: [
           {
+            title: 'Guild Application Submitted',
+            description: `A new applicant is waiting for review.`,
             color: DISCORD_COLORS.primary,
             fields: [
               {
@@ -699,9 +692,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'application.approved':
       const approvedPayload = payload as DiscordWebhookPayloadMap['application.approved'];
       return {
-        content: `✅ **${approvedPayload.applicantName}** was approved for **${approvedPayload.guildName}** by ${approvedPayload.actorName}.`,
+        content: `✅ **${approvedPayload.applicantName}** has been approved for membership to **${approvedPayload.guildName}** by ${approvedPayload.actorName}.`,
         embeds: [
           {
+            title: 'Application Approved',
+            description: `${approvedPayload.applicantName} is now a member of ${approvedPayload.guildName}.`,
             color: DISCORD_COLORS.success,
             fields: [
               {
@@ -717,9 +712,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'application.denied':
       const deniedPayload = payload as DiscordWebhookPayloadMap['application.denied'];
       return {
-        content: `⚠️ **${deniedPayload.applicantName}** was denied for **${deniedPayload.guildName}** by ${deniedPayload.actorName}.`,
+        content: `⚠️ **${deniedPayload.applicantName}** was denied membership to **${deniedPayload.guildName}** by ${deniedPayload.actorName}.`,
         embeds: [
           {
+            title: 'Application Denied',
+            description: `${deniedPayload.applicantName}'s application to ${deniedPayload.guildName} was declined.`,
             color: DISCORD_COLORS.warning,
             fields: [
               {
@@ -905,6 +902,25 @@ function buildAttendanceEventUrl(raidId: string, attendanceEventId: string) {
     return null;
   }
   return `${raidUrl}?attendanceEventId=${encodeURIComponent(attendanceEventId)}`;
+}
+
+function formatDuration(start?: Date | string | null, end?: Date | string | null) {
+  if (!start || !end) {
+    return null;
+  }
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    return null;
+  }
+  const diffMs = Math.max(endDate.getTime() - startDate.getTime(), 0);
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMinutes / 60);
+  const minutes = diffMinutes % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
 }
 
 async function sendDiscordWebhook(url: string, payload: DiscordWebhookBody) {

@@ -845,7 +845,9 @@ const defaultRegexPatterns: GuildLootParserPattern[] = [
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
-const keptLoot = computed(() => parsedLoot.value.filter((row) => row.keep && row.itemName && row.looterName));
+function getKeptLoot() {
+  return parsedLoot.value.filter((row) => row.keep && row.itemName && row.looterName);
+}
 const canDeleteExistingLoot = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
@@ -1453,7 +1455,7 @@ async function saveParsedLoot() {
     return;
   }
   savingLoot.value = true;
-  const kept = keptLoot.value;
+  const kept = getKeptLoot();
   try {
     if (kept.length > 0) {
       await api.createRaidLoot(raidId, kept.map((row) => ({

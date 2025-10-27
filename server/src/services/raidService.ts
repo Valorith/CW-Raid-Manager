@@ -244,22 +244,37 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  const updated = await prisma.raidEvent.update({
-    where: { id: raidId },
-    data: {
-      endedAt: new Date(),
-      isActive: false
-    }
-  });
+  const [updatedRaid, attendeeCount, lootCount] = await prisma.$transaction([
+    prisma.raidEvent.update({
+      where: { id: raidId },
+      data: {
+        endedAt: new Date(),
+        isActive: false
+      }
+    }),
+    prisma.attendanceRecord.count({
+      where: {
+        attendanceEvent: {
+          raidId
+        }
+      }
+    }),
+    prisma.raidLootEvent.count({
+      where: { raidId }
+    })
+  ]);
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
     guildName: existing.guild.name,
     raidId,
     raidName: existing.name,
-    endedAt: updated.endedAt ?? new Date()
+    startedAt: updatedRaid.startedAt,
+    endedAt: updatedRaid.endedAt ?? new Date(),
+    attendeeCount,
+    lootCount
   });
 
-  return updated;
+  return updatedRaid;
 }
 
 export async function restartRaidEvent(raidId: string, userId: string) {
