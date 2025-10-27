@@ -255,7 +255,7 @@ export async function endRaidEvent(raidId: string, userId: string) {
     prisma.attendanceRecord.count({
       where: {
         attendanceEvent: {
-          raidId
+          raidEventId: raidId
         }
       }
     }),
