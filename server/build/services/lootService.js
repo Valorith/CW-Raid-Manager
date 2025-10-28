@@ -1,5 +1,7 @@
 import { prisma } from '../utils/prisma.js';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
 const DEFAULT_PATTERN_PHRASES = [
     '{timestamp} {item} has been awarded to {looter} by the {method}.',
     '{timestamp} {item} has been awarded to {looter} by {method}.',
@@ -14,12 +16,36 @@ const DEFAULT_LOOT_PATTERNS = DEFAULT_PATTERN_PHRASES.map((phrase, index) => {
     return {
         id: mapping?.id ?? `default-${index}`,
         label: mapping?.label ?? `Pattern ${index + 1}`,
-        pattern: convertPlaceholdersToRegex(phrase)
+        pattern: convertPlaceholdersToRegex(phrase),
+        ignoredMethods: []
     };
 });
 const DEFAULT_LOOT_EMOJI = '💎';
 const LEGACY_LOOT_PATTERN_FRAGMENT = '(?:loots|obtains|picks up)';
 const AWARDING_PATTERN_FRAGMENT = 'has\\s+been\\s+awarded';
+function sanitizeIgnoredMethods(methods) {
+    if (!Array.isArray(methods)) {
+        return [];
+    }
+    const seen = new Set();
+    const sanitized = [];
+    for (const method of methods) {
+        if (typeof method !== 'string') {
+            continue;
+        }
+        const trimmed = method.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const normalized = trimmed.toLowerCase();
+        if (seen.has(normalized)) {
+            continue;
+        }
+        seen.add(normalized);
+        sanitized.push(trimmed);
+    }
+    return sanitized;
+}
 export async function getGuildLootParserSettings(guildId) {
     const settings = await prisma.guildLootParserSettings.findUnique({ where: { guildId } });
     return normalizeParserSettings(settings);
@@ -31,7 +57,8 @@ export async function updateGuildLootParserSettings(guildId, input) {
             return {
                 id: pattern.id || `pattern-${index}`,
                 label: pattern.label || `Pattern ${index + 1}`,
-                pattern: compiledPattern || DEFAULT_LOOT_PATTERNS[0].pattern
+                pattern: compiledPattern || DEFAULT_LOOT_PATTERNS[0].pattern,
+                ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods)
             };
         })
         : DEFAULT_LOOT_PATTERNS;
@@ -79,6 +106,14 @@ export async function createRaidLootEvents(options) {
         }
         return results;
     });
+    if (created.length > 0 && options.notifyDiscord) {
+        void emitLootAssignedWebhook({
+            guildId: options.guildId,
+            raidId: options.raidId,
+            createdById: options.createdById,
+            events: created
+        });
+    }
     return created;
 }
 export async function updateRaidLootEvent(lootId, guildId, data) {
@@ -101,6 +136,14 @@ export async function deleteRaidLootEvent(lootId, guildId) {
     await prisma.raidLootEvent.delete({
         where: {
             id: lootId,
+            guildId
+        }
+    });
+}
+export async function deleteAllRaidLootEvents(raidId, guildId) {
+    await prisma.raidLootEvent.deleteMany({
+        where: {
+            raidId,
             guildId
         }
     });
@@ -154,9 +197,16 @@ function normalizeParserSettings(record) {
             emoji: DEFAULT_LOOT_EMOJI
         };
     }
-    const patterns = Array.isArray(record.patterns) && record.patterns.length > 0 ? record.patterns : DEFAULT_LOOT_PATTERNS;
+    const rawPatterns = Array.isArray(record.patterns) && record.patterns.length > 0
+        ? record.patterns
+        : DEFAULT_LOOT_PATTERNS;
+    const sanitizedPatterns = rawPatterns.map((pattern) => ({
+        ...pattern,
+        pattern: typeof pattern.pattern === 'string' ? pattern.pattern : DEFAULT_LOOT_PATTERNS[0].pattern,
+        ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods)
+    }));
     return {
-        patterns: mergeWithAwardingDefaults(patterns),
+        patterns: mergeWithAwardingDefaults(sanitizedPatterns),
         emoji: record.emoji ?? DEFAULT_LOOT_EMOJI
     };
 }
@@ -173,4 +223,71 @@ function mergeWithAwardingDefaults(patterns) {
     }
     const missingDefaults = DEFAULT_LOOT_PATTERNS.filter((defaultPattern) => !patterns.some((pattern) => pattern.pattern === defaultPattern.pattern));
     return [...missingDefaults, ...patterns];
+}
+async function emitLootAssignedWebhook(options) {
+    try {
+        const [raid, creator] = await Promise.all([
+            prisma.raidEvent.findUnique({
+                where: { id: options.raidId },
+                select: {
+                    name: true,
+                    guild: {
+                        select: {
+                            name: true
+                        }
+                    }
+                }
+            }),
+            prisma.user.findUnique({
+                where: { id: options.createdById },
+                select: {
+                    displayName: true,
+                    nickname: true
+                }
+            })
+        ]);
+        if (!raid?.guild) {
+            return;
+        }
+        const assignments = summarizeLootAssignments(options.events);
+        if (assignments.length === 0) {
+            return;
+        }
+        const recordedAt = options.events[options.events.length - 1]?.createdAt ?? new Date();
+        const recordedByName = creator ? withPreferredDisplayName(creator).displayName : null;
+        await emitDiscordWebhookEvent(options.guildId, 'loot.assigned', {
+            guildName: raid.guild.name,
+            raidId: options.raidId,
+            raidName: raid.name ?? 'Raid',
+            assignments,
+            recordedAt,
+            recordedByName
+        });
+    }
+    catch (error) {
+        console.warn('Failed to emit loot assignment webhook.', {
+            error,
+            raidId: options.raidId,
+            guildId: options.guildId
+        });
+    }
+}
+function summarizeLootAssignments(events) {
+    const map = new Map();
+    for (const event of events) {
+        const key = `${event.itemName.toLowerCase()}::${event.looterName.toLowerCase()}::${event.emoji ?? ''}`;
+        const existing = map.get(key);
+        if (existing) {
+            existing.count += 1;
+        }
+        else {
+            map.set(key, {
+                itemName: event.itemName,
+                looterName: event.looterName,
+                emoji: event.emoji ?? null,
+                count: 1
+            });
+        }
+    }
+    return Array.from(map.values());
 }

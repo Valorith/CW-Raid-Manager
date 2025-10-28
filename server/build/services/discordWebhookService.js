@@ -6,6 +6,7 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
     'raid.started',
     'raid.ended',
     'raid.deleted',
+    'loot.assigned',
     'attendance.logged',
     'attendance.updated',
     'application.submitted',
@@ -35,6 +36,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         key: 'raid.deleted',
         label: 'Raid Deleted',
         description: 'Broadcast when a scheduled raid is removed.',
+        category: 'RAID'
+    },
+    {
+        key: 'loot.assigned',
+        label: 'Loot Assigned',
+        description: 'Triggered whenever loot items are recorded for a raid.',
         category: 'RAID'
     },
     {
@@ -73,6 +80,7 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS = Object.freeze({
     'raid.started': true,
     'raid.ended': true,
     'raid.deleted': false,
+    'loot.assigned': true,
     'attendance.logged': true,
     'attendance.updated': true,
     'application.submitted': false,
@@ -84,6 +92,7 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS = Object.freeze({
     'raid.started': true,
     'raid.ended': true,
     'raid.deleted': false,
+    'loot.assigned': false,
     'attendance.logged': false,
     'attendance.updated': false,
     'application.submitted': false,
@@ -283,11 +292,24 @@ function buildWebhookMessage(event, payload) {
         case 'raid.ended':
             const raidEndedPayload = payload;
             const raidEndedUrl = buildRaidUrl(raidEndedPayload.raidId);
+            const raidDuration = raidEndedPayload.startedAt
+                ? formatDuration(raidEndedPayload.startedAt, raidEndedPayload.endedAt)
+                : null;
+            const summaryParts = [
+                raidDuration ? `Duration: ${raidDuration}` : null,
+                typeof raidEndedPayload.attendeeCount === 'number'
+                    ? `Attendees: ${raidEndedPayload.attendeeCount}`
+                    : null,
+                typeof raidEndedPayload.lootCount === 'number'
+                    ? `Loot Items: ${raidEndedPayload.lootCount}`
+                    : null
+            ].filter(Boolean);
+            const raidSummary = summaryParts.length ? summaryParts.join(' • ') : 'Raid was marked as complete.';
             return {
                 embeds: [
                     {
                         title: `🔴 Raid Completed: ${raidEndedPayload.raidName}`,
-                        description: 'Raid was marked as complete.',
+                        description: raidSummary,
                         color: DISCORD_COLORS.info,
                         fields: [
                             {
@@ -317,6 +339,40 @@ function buildWebhookMessage(event, payload) {
                         title: `⚠️ Raid Removed: ${raidDeletedPayload.raidName}`,
                         description: 'A scheduled raid was deleted by guild leadership.',
                         color: DISCORD_COLORS.warning,
+                        timestamp: nowIso
+                    }
+                ]
+            };
+        case 'loot.assigned':
+            const lootAssignedPayload = payload;
+            if (!lootAssignedPayload.assignments || lootAssignedPayload.assignments.length === 0) {
+                return null;
+            }
+            const lootAssignments = lootAssignedPayload.assignments.slice(0, 15);
+            const lootDescription = lootAssignments
+                .map((assignment) => {
+                const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
+                const emoji = assignment.emoji ?? '🎁';
+                const itemUrl = buildAllaItemUrl(assignment.itemName);
+                const itemLabel = itemUrl
+                    ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
+                    : `**${assignment.itemName}**${countLabel}`;
+                return `${emoji} ${itemLabel} → ${assignment.looterName}`;
+            })
+                .join('\n');
+            const lootOverflow = Math.max(lootAssignedPayload.assignments.length - lootAssignments.length, 0);
+            const lootRaidUrl = buildRaidUrl(lootAssignedPayload.raidId);
+            const metaLine = '';
+            const linkLine = lootRaidUrl ? `\n[View Raid](${lootRaidUrl})` : '';
+            const overflowLine = lootOverflow > 0
+                ? `\n_${lootOverflow} additional assignment${lootOverflow === 1 ? '' : 's'} not shown_`
+                : '';
+            return {
+                embeds: [
+                    {
+                        title: `📦 Loot Assigned — ${lootAssignedPayload.raidName}`,
+                        description: `${lootDescription}${metaLine}${linkLine}${overflowLine}`,
+                        color: DISCORD_COLORS.success,
                         timestamp: nowIso
                     }
                 ]
@@ -404,16 +460,25 @@ function buildWebhookMessage(event, payload) {
             };
         case 'application.submitted':
             const submittedPayload = payload;
+            const applicantsUrl = buildGuildApplicantsUrl(submittedPayload.guildId);
             return {
-                content: `📨 New guild application received from **${submittedPayload.applicantName}**.`,
+                content: `📨 **${submittedPayload.applicantName}** has applied for membership to **${submittedPayload.guildName}**.`,
                 embeds: [
                     {
-                        description: `Review the application in the Raid Manager to respond.`,
+                        title: 'Guild Application Submitted',
+                        description: `A new applicant is waiting for review.`,
                         color: DISCORD_COLORS.primary,
                         fields: [
                             {
                                 name: 'Submitted',
                                 value: formatDiscordTimestamp(submittedPayload.submittedAt),
+                                inline: true
+                            },
+                            {
+                                name: 'Next Step',
+                                value: applicantsUrl
+                                    ? `[Review applicants](${applicantsUrl})`
+                                    : 'Open the guild page to review pending applicants.',
                                 inline: true
                             }
                         ],
@@ -424,9 +489,11 @@ function buildWebhookMessage(event, payload) {
         case 'application.approved':
             const approvedPayload = payload;
             return {
-                content: `✅ **${approvedPayload.applicantName}** has been approved by ${approvedPayload.actorName}.`,
+                content: `✅ **${approvedPayload.applicantName}** has been approved for membership to **${approvedPayload.guildName}** by ${approvedPayload.actorName}.`,
                 embeds: [
                     {
+                        title: 'Application Approved',
+                        description: `${approvedPayload.applicantName} is now a member of ${approvedPayload.guildName}.`,
                         color: DISCORD_COLORS.success,
                         fields: [
                             {
@@ -442,9 +509,11 @@ function buildWebhookMessage(event, payload) {
         case 'application.denied':
             const deniedPayload = payload;
             return {
-                content: `❌ Application for **${deniedPayload.applicantName}** was denied by ${deniedPayload.actorName}.`,
+                content: `⚠️ **${deniedPayload.applicantName}** was denied membership to **${deniedPayload.guildName}** by ${deniedPayload.actorName}.`,
                 embeds: [
                     {
+                        title: 'Application Denied',
+                        description: `${deniedPayload.applicantName}'s application to ${deniedPayload.guildName} was declined.`,
                         color: DISCORD_COLORS.warning,
                         fields: [
                             {
@@ -467,6 +536,17 @@ const DISCORD_COLORS = {
     warning: 0xed4245,
     info: 0x00b0f4
 };
+const ALLA_ITEM_SEARCH_BASE = 'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+function buildAllaItemUrl(itemName) {
+    if (!itemName) {
+        return null;
+    }
+    const trimmed = itemName.trim();
+    if (!trimmed) {
+        return null;
+    }
+    return `${ALLA_ITEM_SEARCH_BASE}&iname=${encodeURIComponent(trimmed)}`;
+}
 function buildMentionPayload(settings, event) {
     if (!settings.mentionRoleId || !shouldMentionRole(event) || !shouldMentionForEvent(settings, event)) {
         return undefined;
@@ -575,12 +655,36 @@ function buildRaidUrl(raidId) {
     }
     return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}`;
 }
+function buildGuildApplicantsUrl(guildId) {
+    if (!clientBaseUrl) {
+        return null;
+    }
+    return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}?members=APPLICANT`;
+}
 function buildAttendanceEventUrl(raidId, attendanceEventId) {
     const raidUrl = buildRaidUrl(raidId);
     if (!raidUrl) {
         return null;
     }
     return `${raidUrl}?attendanceEventId=${encodeURIComponent(attendanceEventId)}`;
+}
+function formatDuration(start, end) {
+    if (!start || !end) {
+        return null;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        return null;
+    }
+    const diffMs = Math.max(endDate.getTime() - startDate.getTime(), 0);
+    const diffMinutes = Math.floor(diffMs / 60000);
+    const hours = Math.floor(diffMinutes / 60);
+    const minutes = diffMinutes % 60;
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
 }
 async function sendDiscordWebhook(url, payload) {
     const response = await fetch(url, {

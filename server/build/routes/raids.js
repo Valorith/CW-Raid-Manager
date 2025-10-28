@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEventsForGuild, updateRaidEvent, startRaidEvent, endRaidEvent, restartRaidEvent, deleteRaidEvent } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
+import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
 export async function raidsRoutes(server) {
     server.get('/guild/:guildId', {
         preHandler: [authenticate]
@@ -20,13 +21,24 @@ export async function raidsRoutes(server) {
         }
         const raids = await listRaidEventsForGuild(guildId);
         const canManage = canManageGuild(membershipRole);
-        const enrichedRaids = raids.map((raid) => ({
-            ...raid,
-            permissions: {
-                canManage,
-                role: membershipRole
-            }
-        }));
+        const enrichedRaids = raids.map((raid) => {
+            const session = getActiveLootMonitorSession(raid.id);
+            return {
+                ...raid,
+                logMonitor: session
+                    ? {
+                        isActive: true,
+                        userId: session.userId,
+                        userDisplayName: session.userDisplayName,
+                        startedAt: session.startedAt.toISOString()
+                    }
+                    : null,
+                permissions: {
+                    canManage,
+                    role: membershipRole
+                }
+            };
+        });
         return {
             raids: enrichedRaids,
             permissions: {
@@ -55,9 +67,18 @@ export async function raidsRoutes(server) {
             return reply.forbidden('You are not a member of this guild.');
         }
         const canManage = canManageGuild(membershipRole);
+        const session = getActiveLootMonitorSession(raid.id);
         return {
             raid: {
                 ...raid,
+                logMonitor: session
+                    ? {
+                        isActive: true,
+                        userId: session.userId,
+                        userDisplayName: session.userDisplayName,
+                        startedAt: session.startedAt.toISOString()
+                    }
+                    : null,
                 permissions: {
                     canManage,
                     role: membershipRole

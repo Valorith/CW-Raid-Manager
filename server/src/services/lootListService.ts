@@ -77,7 +77,7 @@ export async function listGuildLootListEntries(options: {
     ];
   }
 
-  const orderBy: Prisma.GuildLootListEntryOrderByWithRelationInput = (() => {
+  const orderBy: Prisma.GuildLootListEntryOrderByWithRelationInput[] = (() => {
     switch (sortBy) {
       case 'itemId':
         return [

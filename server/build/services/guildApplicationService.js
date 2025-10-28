@@ -72,6 +72,7 @@ export async function applyToGuild(guildId, userId) {
     if (applicant) {
         const applicantName = withPreferredDisplayName(applicant).displayName;
         emitDiscordWebhookEvent(guild.id, 'application.submitted', {
+            guildId: guild.id,
             guildName: guild.name,
             applicantName,
             submittedAt: application.createdAt
@@ -186,6 +187,7 @@ export async function approveApplication(applicationId, actorUserId) {
         ? withPreferredDisplayName(actorProfile).displayName
         : 'Guild Staff';
     emitDiscordWebhookEvent(approvalContext.guildId, 'application.approved', {
+        guildId: approvalContext.guildId,
         guildName: approvalContext.guildName,
         applicantName: approvalContext.applicantName,
         actorName,
@@ -234,6 +236,7 @@ export async function denyApplication(applicationId, actorUserId) {
         ? withPreferredDisplayName(actorProfile).displayName
         : 'Guild Staff';
     emitDiscordWebhookEvent(application.guildId, 'application.denied', {
+        guildId: application.guildId,
         guildName: application.guild.name,
         applicantName: withPreferredDisplayName(application.user).displayName,
         actorName,

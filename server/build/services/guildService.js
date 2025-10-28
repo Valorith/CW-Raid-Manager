@@ -59,6 +59,7 @@ export async function getGuildById(id, options) {
                     name: true,
                     class: true,
                     level: true,
+                    guildId: true,
                     isMain: true,
                     user: {
                         select: {
@@ -88,6 +89,7 @@ export async function getGuildById(id, options) {
     }
     const canViewDetails = Boolean(viewerMembership);
     const canManageMembers = viewerMembership ? canManageGuild(viewerMembership.role) : false;
+    const canManageLootLists = canManageMembers;
     const members = canViewDetails
         ? guild.members.map((member) => ({
             ...member,
@@ -158,6 +160,7 @@ export async function getGuildById(id, options) {
             canViewDetails,
             canManageMembers,
             canViewApplicants: canManageMembers,
+            canManageLootLists,
             userRole: viewerMembership?.role ?? null
         },
         viewerApplication
