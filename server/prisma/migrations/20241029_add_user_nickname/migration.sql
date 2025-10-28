@@ -1,3 +1,2 @@
--- AlterTable
-ALTER TABLE `User`
-ADD COLUMN `nickname` VARCHAR(191) NULL;
+-- Legacy migration replaced by baseline (000000000000_initial).
+-- No schema changes required.

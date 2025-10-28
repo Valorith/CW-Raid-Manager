@@ -39,7 +39,17 @@ const lootEventSchema = z.object({
 const parserPatternSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
-  pattern: z.string().min(1)
+  pattern: z.string().min(1),
+  ignoredMethods: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+    )
+    .max(25)
+    .optional()
 });
 
 function serializeMonitorSession(viewerId: string, session: ReturnType<typeof getActiveLootMonitorSession>) {

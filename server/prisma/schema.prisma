@@ -11,54 +11,58 @@ model User {
   id                 String             @id @default(cuid())
   email              String             @unique
   displayName        String
-  nickname           String?
-  admin              Boolean            @default(false)
   googleId           String?            @unique
-  guildMemberships   GuildMembership[]
-  guildApplications  GuildApplication[]
-  characters         Character[]
-  createdGuilds      Guild[]            @relation("GuildCreator")
-  createdRaids       RaidEvent[]        @relation("RaidCreator")
-  createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
-  createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+  nickname           String?
+  admin              Boolean?           @default(false)
+  createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
+  createdLootListEntries GuildLootListEntry[] @relation("LootListCreator")
+  characters         Character[]
+  createdGuilds      Guild[]            @relation("GuildCreator")
+  guildApplications  GuildApplication[]
+  guildMemberships   GuildMembership[]
+  createdRaids       RaidEvent[]        @relation("RaidCreator")
+  createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
 }
 
 model Guild {
-  id           String            @id @default(cuid())
-  name         String            @unique
-  slug         String            @unique
-  description  String?
-  createdById  String
-  createdBy    User              @relation("GuildCreator", fields: [createdById], references: [id])
-  members      GuildMembership[]
-  characters   Character[]
-  raids        RaidEvent[]
-  applications GuildApplication[]
-  discordWebhooks GuildDiscordWebhook[]
-  lootParserSettings GuildLootParserSettings?
-  lootEvents   RaidLootEvent[]
-  defaultRaidStartTime String?   @db.VarChar(5)
-  defaultRaidEndTime   String?   @db.VarChar(5)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id                   String                   @id @default(cuid())
+  name                 String                   @unique
+  slug                 String                   @unique
+  description          String?
+  createdById          String
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  defaultRaidStartTime String?                  @db.VarChar(5)
+  defaultRaidEndTime   String?                  @db.VarChar(5)
+  characters           Character[]
+  createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
+  applications         GuildApplication[]
+  discordWebhooks      GuildDiscordWebhook[]
+  lootParserSettings   GuildLootParserSettings?
+  lootLists            GuildLootListEntry[]
+  members              GuildMembership[]
+  raids                RaidEvent[]
+  lootEvents           RaidLootEvent[]
+
+  @@index([createdById], map: "Guild_createdById_fkey")
 }
 
 model GuildDiscordWebhook {
-  id                 String   @id @default(cuid())
-  guildId            String
-  guild              Guild    @relation(fields: [guildId], references: [id])
-  label              String   @db.VarChar(120) @default("Primary Webhook")
-  webhookUrl         String?  @db.VarChar(512)
-  isEnabled          Boolean  @default(false)
-  usernameOverride   String?  @db.VarChar(120)
-  avatarUrl          String?  @db.VarChar(512)
-  mentionRoleId      String?  @db.VarChar(120)
-  eventSubscriptions Json     @default("{}")
-  mentionSubscriptions Json   @default("{}")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  guildId              String
+  webhookUrl           String?  @db.VarChar(512)
+  isEnabled            Boolean  @default(false)
+  usernameOverride     String?  @db.VarChar(120)
+  avatarUrl            String?  @db.VarChar(512)
+  mentionRoleId        String?  @db.VarChar(120)
+  eventSubscriptions   Json     @default(dbgenerated("(json_object())"))
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now()) @updatedAt
+  label                String   @default("Primary Webhook") @db.VarChar(120)
+  mentionSubscriptions Json     @default(dbgenerated("(json_object())"))
+  guild                Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
   @@index([guildId])
 }
@@ -68,25 +72,158 @@ model GuildMembership {
   guildId   String
   userId    String
   role      GuildRole
-  guild     Guild     @relation(fields: [guildId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  guild     Guild     @relation(fields: [guildId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
 
   @@unique([guildId, userId])
+  @@index([userId], map: "GuildMembership_userId_fkey")
 }
 
 model GuildApplication {
-  id        String                   @id @default(cuid())
+  id        String                 @id @default(cuid())
   guildId   String
   userId    String
-  status    GuildApplicationStatus   @default(PENDING)
-  guild     Guild                    @relation(fields: [guildId], references: [id])
-  user      User                     @relation(fields: [userId], references: [id])
-  createdAt DateTime                 @default(now())
-  updatedAt DateTime                 @updatedAt
+  status    GuildApplicationStatus @default(PENDING)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  guild     Guild                  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([guildId, userId])
+  @@index([userId], map: "GuildApplication_userId_fkey")
+}
+
+model Character {
+  id                String              @id @default(cuid())
+  name              String              @unique
+  level             Int
+  class             CharacterClass
+  archetype         CharacterArchetype?
+  userId            String
+  guildId           String?
+  isMain            Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  attendanceRecords AttendanceRecord[]
+  guild             Guild?              @relation(fields: [guildId], references: [id])
+  user              User                @relation(fields: [userId], references: [id])
+
+  @@index([guildId], map: "Characters_guildId_fkey")
+  @@index([userId], map: "Characters_userId_fkey")
+  @@map("Characters")
+}
+
+model RaidEvent {
+  id           String            @id @default(cuid())
+  guildId      String
+  createdById  String
+  name         String
+  startTime    DateTime
+  targetZones  Json
+  targetBosses Json
+  notes        String?
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  endedAt      DateTime?
+  startedAt    DateTime?
+  attendance   AttendanceEvent[]
+  createdBy    User              @relation("RaidCreator", fields: [createdById], references: [id])
+  guild        Guild             @relation(fields: [guildId], references: [id])
+  loot         RaidLootEvent[]
+
+  @@index([createdById], map: "RaidEvent_createdById_fkey")
+  @@index([guildId], map: "RaidEvent_guildId_fkey")
+}
+
+model GuildLootParserSettings {
+  id        String   @id @default(cuid())
+  guildId   String   @unique
+  patterns  Json     @default(dbgenerated("(json_array())"))
+  emoji     String?  @db.VarChar(16)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  guild     Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+}
+
+model RaidLootEvent {
+  id          String    @id @default(cuid())
+  raidId      String
+  guildId     String
+  itemName    String
+  looterName  String
+  looterClass String?   @db.VarChar(50)
+  eventTime   DateTime?
+  emoji       String?   @db.VarChar(16)
+  note        String?   @db.VarChar(500)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  createdBy   User?     @relation("LootCreator", fields: [createdById], references: [id])
+  guild       Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  raid        RaidEvent @relation(fields: [raidId], references: [id], onDelete: Cascade)
+
+  @@index([createdById], map: "RaidLootEvent_createdById_fkey")
+  @@index([guildId])
+  @@index([raidId])
+}
+
+model GuildLootListEntry {
+  id                 String             @id @default(cuid())
+  guildId            String
+  type               LootListType
+  matchType          LootListMatchType
+  itemId             Int?
+  itemName           String             @db.VarChar(191)
+  itemNameNormalized String             @db.VarChar(191)
+  createdById        String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @default(now()) @updatedAt
+  guild              Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  createdBy          User?             @relation("LootListCreator", fields: [createdById], references: [id])
+
+  @@index([guildId, type], map: "GuildLootListEntry_guild_type_idx")
+  @@index([guildId, itemNameNormalized], map: "GuildLootListEntry_name_idx")
+  @@unique([guildId, type, itemId], map: "GuildLootListEntry_item_id_unique")
+  @@unique([guildId, type, matchType, itemNameNormalized], map: "GuildLootListEntry_name_unique")
+}
+
+model AttendanceEvent {
+  id          String              @id @default(cuid())
+  raidEventId String
+  createdById String
+  note        String?
+  snapshot    Json?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  eventType   AttendanceEventType @default(LOG)
+  createdBy   User                @relation("AttendanceCreator", fields: [createdById], references: [id])
+  raid        RaidEvent           @relation(fields: [raidEventId], references: [id])
+  records     AttendanceRecord[]
+
+  @@index([createdById], map: "AttendanceEvent_createdById_fkey")
+  @@index([raidEventId], map: "AttendanceEvent_raidEventId_fkey")
+}
+
+model AttendanceRecord {
+  id                String           @id @default(cuid())
+  attendanceEventId String
+  characterId       String?
+  characterName     String
+  level             Int?
+  class             CharacterClass?
+  groupNumber       Int?
+  status            AttendanceStatus @default(PRESENT)
+  flags             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  attendanceEvent   AttendanceEvent  @relation(fields: [attendanceEventId], references: [id])
+  character         Character?       @relation(fields: [characterId], references: [id])
+
+  @@index([attendanceEventId], map: "AttendanceRecord_attendanceEventId_fkey")
+  @@index([characterId], map: "AttendanceRecord_characterId_fkey")
 }
 
 enum GuildApplicationStatus {
@@ -101,24 +238,6 @@ enum GuildRole {
   OFFICER
   RAID_LEADER
   MEMBER
-}
-
-model Character {
-  id                String             @id @default(cuid())
-  name              String             @unique
-  level             Int
-  class             CharacterClass
-  archetype         CharacterArchetype?
-  userId            String
-  guildId           String?
-  isMain            Boolean            @default(true)
-  user              User               @relation(fields: [userId], references: [id])
-  guild             Guild?             @relation(fields: [guildId], references: [id])
-  attendanceRecords AttendanceRecord[]
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  @@map("Characters")
 }
 
 enum CharacterClass {
@@ -155,87 +274,19 @@ enum AttendanceEventType {
   RESTART
 }
 
-model RaidEvent {
-  id             String            @id @default(cuid())
-  guildId        String
-  createdById    String
-  name           String
-  startTime      DateTime
-  startedAt      DateTime?
-  endedAt        DateTime?
-  targetZones    Json
-  targetBosses   Json
-  notes          String?
-  isActive       Boolean           @default(true)
-  guild          Guild             @relation(fields: [guildId], references: [id])
-  createdBy      User              @relation("RaidCreator", fields: [createdById], references: [id])
-  attendance     AttendanceEvent[]
-  loot           RaidLootEvent[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-}
-
-model GuildLootParserSettings {
-  id        String   @id @default(cuid())
-  guildId   String   @unique
-  guild     Guild    @relation(fields: [guildId], references: [id])
-  patterns  Json     @default("[]")
-  emoji     String?  @db.VarChar(16)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model RaidLootEvent {
-  id          String   @id @default(cuid())
-  raidId      String
-  guildId     String
-  raid        RaidEvent @relation(fields: [raidId], references: [id])
-  guild       Guild     @relation(fields: [guildId], references: [id])
-  itemName    String
-  looterName  String
-  looterClass String?
-  eventTime   DateTime?
-  emoji       String?  @db.VarChar(16)
-  note        String?
-  createdById String?
-  createdBy   User?    @relation("LootCreator", fields: [createdById], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model AttendanceEvent {
-  id              String             @id @default(cuid())
-  raidEventId     String
-  createdById     String
-  eventType       AttendanceEventType @default(LOG)
-  note            String?
-  snapshot        Json?
-  raid            RaidEvent          @relation(fields: [raidEventId], references: [id])
-  createdBy       User               @relation("AttendanceCreator", fields: [createdById], references: [id])
-  records         AttendanceRecord[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-}
-
-model AttendanceRecord {
-  id                String            @id @default(cuid())
-  attendanceEventId String
-  characterId       String?
-  characterName     String
-  level             Int?
-  class             CharacterClass?
-  groupNumber       Int?
-  status            AttendanceStatus  @default(PRESENT)
-  flags             String?
-  attendanceEvent   AttendanceEvent   @relation(fields: [attendanceEventId], references: [id])
-  character         Character?        @relation(fields: [characterId], references: [id])
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-}
-
 enum AttendanceStatus {
   PRESENT
   ABSENT
   LATE
   BENCHED
+}
+
+enum LootListType {
+  WHITELIST
+  BLACKLIST
+}
+
+enum LootListMatchType {
+  ITEM_ID
+  ITEM_NAME
 }

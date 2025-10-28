@@ -1,4 +1,5 @@
 export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER';
+export type LootListType = 'WHITELIST' | 'BLACKLIST';
 
 export type CharacterClass =
   | 'BARD'
@@ -22,6 +23,11 @@ export type CharacterClass =
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'BENCHED';
 
 export const guildRoleOrder: GuildRole[] = ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER'];
+export const lootListTypeOrder: LootListType[] = ['WHITELIST', 'BLACKLIST'];
+export const lootListTypeLabels: Record<LootListType, string> = {
+  WHITELIST: 'Whitelist',
+  BLACKLIST: 'Blacklist'
+};
 
 export const characterClassLabels: Record<CharacterClass, string> = {
   BARD: 'BRD',

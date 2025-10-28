@@ -6,10 +6,18 @@
         <p class="muted">{{ raid.name }} • {{ formatDate(raid.startTime) }}</p>
       </div>
       <div class="header-actions">
-        <RouterLink class="btn btn--outline" :to="{ name: 'RaidDetail', params: { raidId: raid.id } }">
+        <RouterLink
+          class="btn btn--outline"
+          :to="{ name: 'RaidDetail', params: { raidId: raid.id } }"
+        >
           Back to Raid
         </RouterLink>
-        <button v-if="canManageLoot" class="btn btn--outline btn--settings" type="button" @click="showSettings = true">
+        <button
+          v-if="canManageLoot"
+          class="btn btn--outline btn--settings"
+          type="button"
+          @click="showSettings = true"
+        >
           Parser Settings
         </button>
       </div>
@@ -19,10 +27,10 @@
       <div class="parsing-window__icon">⏱</div>
       <div class="parsing-window__details">
         <p class="parsing-window__label">Parsing Window</p>
-        <p class="parsing-window__range">
-          {{ parsingWindowStart }} → {{ parsingWindowEnd }}
+        <p class="parsing-window__range">{{ parsingWindowStart }} → {{ parsingWindowEnd }}</p>
+        <p class="parsing-window__hint">
+          Only log lines inside this window are analyzed when you upload a log.
         </p>
-        <p class="parsing-window__hint">Only log lines inside this window are analyzed when you upload a log.</p>
       </div>
       <button
         v-if="canManageLoot"
@@ -45,7 +53,54 @@
       </button>
     </div>
 
-    <div v-if="showUploadModeModal && pendingUploadFile" class="modal-backdrop" @click.self="closeUploadModeModal">
+    <div v-if="clearLootPrompt.visible" class="modal-backdrop">
+      <div class="modal">
+        <header class="modal__header">
+          <div>
+            <h3>Clear Existing Loot?</h3>
+          </div>
+          <button class="icon-button" type="button" @click="handleClearLootPromptClose">✕</button>
+        </header>
+        <div class="modal__body">
+          <p class="muted small">
+            {{
+              clearLootPrompt.mode === 'monitor'
+                ? 'Live monitoring will continue from the current loot list. Decide whether to reset it before streaming new loot.'
+                : 'This upload can replace existing loot entries. Decide whether to clear the current list before parsing.'
+            }}
+          </p>
+          <p class="muted x-small">
+            {{ lootEvents.length }}
+            existing loot {{ lootEvents.length === 1 ? 'entry' : 'entries' }} will remain if you keep them.
+          </p>
+        </div>
+        <footer class="clear-loot-actions">
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            @click="handleClearLootPromptClose"
+          >
+            Go Back
+          </button>
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            @click="handleClearLootPromptDecision(false)"
+          >
+            Keep Existing Loot
+          </button>
+          <button
+            class="btn btn--modal-primary"
+            type="button"
+            @click="handleClearLootPromptDecision(true)"
+          >
+            Clear Loot &amp; Continue
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <div v-if="showUploadModeModal && pendingUploadFile" class="modal-backdrop">
       <div class="modal modal--wide upload-mode-modal">
         <header class="modal__header">
           <div>
@@ -57,12 +112,20 @@
           <button class="icon-button" type="button" @click="closeUploadModeModal">✕</button>
         </header>
         <p class="upload-mode-warning">
-          ⚠️ Selecting either option immediately clears all existing loot entries for this raid. This cannot be undone.
+          <span v-if="lootEvents.length === 0">
+            ⚠️ Uploading a log clears existing loot entries for a clean review.
+          </span>
+          <span v-else>
+            ⚠️ Uploading or monitoring a log can clear existing loot. You’ll be asked whether to
+            reset the current loot before continuing.
+          </span>
         </p>
         <div class="upload-mode-options">
           <article class="upload-mode-card">
             <h4>Upload Once</h4>
-            <p class="muted small">Parse the selected file a single time. Ideal for historical logs.</p>
+            <p class="muted small">
+              Parse the selected file a single time. Ideal for historical logs.
+            </p>
             <button
               class="upload-mode-button upload-mode-button--primary"
               type="button"
@@ -76,13 +139,20 @@
               </span>
             </button>
           </article>
-          <article class="upload-mode-card" :class="{ 'upload-mode-card--disabled': !supportsContinuousMonitoring }">
+          <article
+            class="upload-mode-card"
+            :class="{ 'upload-mode-card--disabled': !supportsContinuousMonitoring }"
+          >
             <h4>Continuous Monitor</h4>
             <p class="muted small">
               Watch this file for new loot lines and stream them into the review queue in real time.
             </p>
             <p class="muted x-small">
-              {{ canStartContinuousMonitor ? 'This locks uploads for everyone until you stop monitoring.' : 'Select a file via the button above to enable monitoring.' }}
+              {{
+                canStartContinuousMonitor
+                  ? 'This locks uploads for everyone until you stop monitoring.'
+                  : 'Select a file via the button above to enable monitoring.'
+              }}
             </p>
             <button
               class="upload-mode-button upload-mode-button--outline"
@@ -98,8 +168,8 @@
                       ? clearingLoot
                         ? 'Clearing…'
                         : monitorStarting
-                        ? 'Starting…'
-                        : 'Start Monitoring'
+                          ? 'Starting…'
+                          : 'Start Monitoring'
                       : 'Not Supported'
                   }}
                 </strong>
@@ -111,20 +181,31 @@
       </div>
     </div>
 
-    <section v-if="canManageLoot && monitorSession" class="card monitor-card" role="status" aria-live="polite">
+    <section
+      v-if="canManageLoot && monitorSession"
+      class="card monitor-card"
+      role="status"
+      aria-live="polite"
+    >
       <div class="monitor-card__status">
         <div class="monitor-card__pulse" aria-hidden="true"></div>
         <div>
           <h2>Live Log Monitoring</h2>
           <p class="monitor-card__user">
-            {{ monitorSession.isOwner ? 'You are monitoring this raid log.' : `${monitorSession.user.displayName} is monitoring this raid.` }}
+            {{
+              monitorSession.isOwner
+                ? 'You are monitoring this raid log.'
+                : `${monitorSession.user.displayName} is monitoring this raid.`
+            }}
           </p>
           <p class="monitor-card__file">{{ monitorSession.fileName }}</p>
           <p class="muted x-small">Started {{ formatDate(monitorSession.startedAt) }}</p>
         </div>
       </div>
       <div class="monitor-card__actions">
-        <p class="muted small">Last update {{ formatRelativeTime(monitorSession.lastHeartbeatAt) }}</p>
+        <p class="muted small">
+          Last update {{ formatRelativeTime(monitorSession.lastHeartbeatAt) }}
+        </p>
         <p class="muted small">Log uploads are locked until monitoring stops.</p>
         <button
           v-if="monitorSession.isOwner"
@@ -144,7 +225,9 @@
         >
           {{ monitorStopping ? 'Stopping…' : 'Force Stop' }}
         </button>
-        <p v-else class="muted x-small">Only raid leaders or officers can stop an active monitor.</p>
+        <p v-else class="muted x-small">
+          Only raid leaders or officers can stop an active monitor.
+        </p>
       </div>
     </section>
 
@@ -153,12 +236,17 @@
         <div>
           <h2>Upload Log</h2>
           <p class="muted">Upload an EverQuest log to detect loot drops during this raid.</p>
-          <p class="muted x-small">After selecting a file you can upload once or start continuous monitoring.</p>
+          <p class="muted x-small">
+            After selecting a file you can upload once or start continuous monitoring.
+          </p>
         </div>
       </header>
       <div
         class="upload-drop"
-        :class="{ 'upload-drop--active': dragActive, 'upload-drop--disabled': monitorStarting || clearingLoot }"
+        :class="{
+          'upload-drop--active': dragActive,
+          'upload-drop--disabled': monitorStarting || clearingLoot
+        }"
         @dragenter.prevent="dragActive = true"
         @dragover.prevent="dragActive = true"
         @dragleave.prevent="dragActive = false"
@@ -201,7 +289,9 @@
           />
         </div>
         <p v-else>Parsing log… {{ parseProgress }}%</p>
-        <div v-if="parsing" class="progress"><div class="progress__bar" :style="{ width: `${parseProgress}%` }"></div></div>
+        <div v-if="parsing" class="progress">
+          <div class="progress__bar" :style="{ width: `${parseProgress}%` }"></div>
+        </div>
       </div>
     </section>
 
@@ -230,6 +320,7 @@
           role="button"
           tabindex="0"
           @click="openAllaSearch(entry.itemName)"
+          @contextmenu.prevent="openLootContextMenu($event, entry)"
           @keyup.enter="openAllaSearch(entry.itemName)"
         >
           <div class="loot-card__count">{{ entry.count }}×</div>
@@ -237,9 +328,19 @@
             <span class="loot-card__emoji">{{ entry.emoji }}</span>
             <div>
               <p class="loot-card__item">{{ entry.itemName }}</p>
-              <p class="loot-card__looter">{{ entry.looterName }} <span v-if="entry.looterClass">({{ entry.looterClass }})</span></p>
+              <p class="loot-card__looter">
+                {{ formatLooterLabel(entry.looterName, entry.looterClass) }}
+              </p>
             </div>
           </header>
+          <span
+            v-if="entry.isWhitelisted"
+            class="loot-card__badge loot-card__badge--whitelist"
+            title="Whitelisted"
+            aria-label="Whitelisted item"
+          >
+            ⭐
+          </span>
           <p v-if="entry.note" class="loot-card__note">{{ entry.note }}</p>
           <footer v-if="canDeleteExistingLoot" class="loot-card__actions">
             <button
@@ -260,7 +361,10 @@
         <header class="modal__header">
           <div>
             <h3>Parser Settings</h3>
-            <p class="muted small">Describe loot phrases using plain language. We convert them to precise patterns automatically.</p>
+            <p class="muted small">
+              Describe loot phrases using plain language. We convert them to precise patterns
+              automatically.
+            </p>
           </div>
           <button class="icon-button" type="button" @click="showSettings = false">✕</button>
         </header>
@@ -273,14 +377,18 @@
                   <label class="form__field">
                     <span>Default Loot Emoji</span>
                     <input v-model="editableSettings.emoji" type="text" maxlength="4" />
-                    <small class="muted">Used when the parser can’t find a specific emoji for an item.</small>
+                    <small class="muted"
+                      >Used when the parser can’t find a specific emoji for an item.</small
+                    >
                   </label>
                 </section>
 
                 <section class="settings-section sample-tester">
                   <div>
                     <h4>Try a Log Line</h4>
-                    <p class="muted small">Paste a log entry to see how each phrase would parse it.</p>
+                    <p class="muted small">
+                      Paste a log entry to see how each phrase would parse it.
+                    </p>
                   </div>
                   <textarea
                     v-model="sampleLogLine"
@@ -295,7 +403,9 @@
                       <h4>Placeholders</h4>
                       <p class="muted small">Click to insert into the phrase you’re editing.</p>
                     </div>
-                    <p class="muted x-small">Example: “{timestamp} {item} has been awarded to {looter} by the {method}.”</p>
+                    <p class="muted x-small">
+                      Example: “{timestamp} {item} has been awarded to {looter} by the {method}.”
+                    </p>
                   </div>
                   <div class="placeholder-toolbar">
                     <div class="placeholder-toolbar__chips">
@@ -319,17 +429,28 @@
                   <div class="section-heading section-heading--stacked">
                     <div>
                       <h4>Loot Phrase Builder</h4>
-                      <p class="muted small">Describe the exact log line and we’ll handle the complex regex for you.</p>
+                      <p class="muted small">
+                        Describe the exact log line and we’ll handle the complex regex for you.
+                      </p>
                     </div>
-                    <button class="btn btn--outline btn--small btn--modal-outline" type="button" @click="addPattern()">
+                    <button
+                      class="btn btn--outline btn--small btn--modal-outline"
+                      type="button"
+                      @click="addPattern()"
+                    >
                       <span class="btn__icon">+</span>
                       Add Phrase
                     </button>
                   </div>
 
-                  <div v-if="editableSettings.patterns.length === 0" class="pattern-card pattern-card--empty">
+                  <div
+                    v-if="editableSettings.patterns.length === 0"
+                    class="pattern-card pattern-card--empty"
+                  >
                     <p>No phrases yet. Start by describing how loot lines look in your logs.</p>
-                    <button class="btn btn--small" type="button" @click="addPattern()">Create First Phrase</button>
+                    <button class="btn btn--small" type="button" @click="addPattern()">
+                      Create First Phrase
+                    </button>
                   </div>
 
                   <div v-else class="pattern-list">
@@ -351,7 +472,13 @@
                             :aria-expanded="!collapsedPatternIds[pattern.id]"
                             :aria-controls="`pattern-body-${pattern.id}`"
                           >
-                            <span class="pattern-card__chevron" :class="{ 'pattern-card__chevron--rotated': !collapsedPatternIds[pattern.id] }">⌄</span>
+                            <span
+                              class="pattern-card__chevron"
+                              :class="{
+                                'pattern-card__chevron--rotated': !collapsedPatternIds[pattern.id]
+                              }"
+                              >⌄</span
+                            >
                           </button>
                           <input
                             v-model="pattern.label"
@@ -360,12 +487,20 @@
                             @focus="setActivePattern(index)"
                           />
                         </div>
-                        <button class="btn btn--danger btn--small btn--modal-danger" type="button" @click.stop="removePattern(index)">
+                        <button
+                          class="btn btn--danger btn--small btn--modal-danger"
+                          type="button"
+                          @click.stop="removePattern(index)"
+                        >
                           <span class="btn__icon">×</span>
                           Remove
                         </button>
                       </div>
-                      <div class="pattern-card__body" :id="`pattern-body-${pattern.id}`" v-show="!collapsedPatternIds[pattern.id]">
+                      <div
+                        class="pattern-card__body"
+                        :id="`pattern-body-${pattern.id}`"
+                        v-show="!collapsedPatternIds[pattern.id]"
+                      >
                         <label class="form__field">
                           <span>Plain-language phrase</span>
                           <textarea
@@ -392,44 +527,114 @@
                                 {{ placeholder.label }}
                               </span>
                             </template>
-                            <span v-else class="muted x-small">Add placeholders like {timestamp}, {item}, {looter}, {method} so we know what to capture.</span>
+                            <span v-else class="muted x-small"
+                              >Add placeholders like {timestamp}, {item}, {looter}, {method} so we
+                              know what to capture.</span
+                            >
                           </div>
                         </div>
                         <div class="pattern-preview">
                           <div>
                             <p class="pattern-preview__label">Regex preview</p>
-                            <code class="pattern-preview__code">{{ patternPreview(pattern.pattern) }}</code>
+                            <code class="pattern-preview__code">{{
+                              patternPreview(pattern.pattern)
+                            }}</code>
                           </div>
-                          <p class="muted x-small">Sent to the parser automatically—no regex knowledge required.</p>
+                          <p class="muted x-small">
+                            Sent to the parser automatically—no regex knowledge required.
+                          </p>
+                        </div>
+                        <div
+                          v-if="patternIncludesMethod(pattern.pattern)"
+                          class="pattern-method-ignore"
+                        >
+                          <label class="form__field">
+                            <span>Ignore loot methods</span>
+                            <div class="method-input">
+                              <input
+                                v-model="pattern.methodInput"
+                                type="text"
+                                class="method-input__field"
+                                placeholder="Type a method (e.g. Master Looter)"
+                                @keyup.enter.prevent="addIgnoredMethod(index)"
+                              />
+                              <button
+                                class="btn btn--outline btn--small"
+                                type="button"
+                                @click="addIgnoredMethod(index)"
+                              >
+                                Add
+                              </button>
+                            </div>
+                            <p class="muted x-small">
+                              Case-insensitive. Any detected loot using these methods will be
+                              discarded automatically.
+                            </p>
+                          </label>
+                          <div v-if="pattern.ignoredMethods.length" class="method-pill-container">
+                            <span
+                              v-for="method in pattern.ignoredMethods"
+                              :key="method"
+                              class="method-pill"
+                            >
+                              <span class="method-pill__label">{{ method }}</span>
+                              <button
+                                type="button"
+                                class="method-pill__remove"
+                                @click="removeIgnoredMethod(index, method)"
+                                aria-label="Remove ignored method"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          </div>
                         </div>
                         <div
                           v-if="sampleLogLine"
                           class="pattern-test"
-                          :class="patternSampleResult(pattern.pattern).matches ? 'pattern-test--match' : 'pattern-test--miss'"
+                          :class="
+                            patternSampleResult(pattern).matches
+                              ? 'pattern-test--match'
+                              : 'pattern-test--miss'
+                          "
                         >
-                          <template v-if="patternSampleResult(pattern.pattern).matches">
+                          <template v-if="patternSampleResult(pattern).matches">
                             <p class="pattern-test__header">
                               <span class="pattern-test__status">Matches sample line</span>
                             </p>
-                        <ul class="pattern-test__list">
-                          <li>
-                            <strong>Looter:</strong>
-                            <span>{{ patternSampleResult(pattern.pattern).looter ?? 'Not captured' }}</span>
-                          </li>
-                          <li>
-                            <strong>Item:</strong>
-                            <span>{{ patternSampleResult(pattern.pattern).item ?? 'Not captured' }}</span>
-                          </li>
-                          <li>
-                            <strong>Method:</strong>
-                            <span>{{ patternSampleResult(pattern.pattern).method ?? 'Not captured' }}</span>
-                          </li>
-                        </ul>
+                            <ul class="pattern-test__list">
+                              <li>
+                                <strong>Looter:</strong>
+                                <span>{{
+                                  patternSampleResult(pattern).looter ?? 'Not captured'
+                                }}</span>
+                              </li>
+                              <li>
+                                <strong>Item:</strong>
+                                <span>{{
+                                  patternSampleResult(pattern).item ?? 'Not captured'
+                                }}</span>
+                              </li>
+                              <li>
+                                <strong>Method:</strong>
+                                <span>{{
+                                  patternSampleResult(pattern).method ?? 'Not captured'
+                                }}</span>
+                              </li>
+                            </ul>
                           </template>
                           <template v-else>
                             <p class="pattern-test__header">
-                              <span class="pattern-test__status">No match for sample</span>
-                              <span class="muted x-small">Try aligning this phrase with the wording of your log.</span>
+                              <span class="pattern-test__status">
+                                {{ patternSampleResult(pattern).reason ?? 'No match for sample' }}
+                              </span>
+                            </p>
+                            <p class="muted x-small" v-if="patternSampleResult(pattern).ignored">
+                              Remove this method from the ignored list if you want the parser to
+                              capture lines like this.
+                            </p>
+                            <p class="muted x-small" v-else>
+                              Try aligning this phrase with the wording of your log.
                             </p>
                           </template>
                         </div>
@@ -442,7 +647,13 @@
           </div>
 
           <footer class="form__actions">
-            <button class="btn btn--outline btn--modal-outline" type="button" @click="showSettings = false">Cancel</button>
+            <button
+              class="btn btn--outline btn--modal-outline"
+              type="button"
+              @click="showSettings = false"
+            >
+              Cancel
+            </button>
             <button class="btn btn--modal-primary" type="submit" :disabled="updatingSettings">
               {{ updatingSettings ? 'Saving…' : 'Save Settings' }}
             </button>
@@ -451,20 +662,31 @@
       </div>
     </div>
 
-    <div v-if="showLeaveMonitorModal" class="modal-backdrop" @click.self="dismissLeaveMonitorModal(false)">
+    <div
+      v-if="showLeaveMonitorModal"
+      class="modal-backdrop"
+      @click.self="dismissLeaveMonitorModal(false)"
+    >
       <div class="modal">
         <header class="modal__header">
           <div>
             <h3>Stop Monitoring?</h3>
             <p class="muted small">Navigating away will stop live log monitoring for this raid.</p>
           </div>
-          <button class="icon-button" type="button" @click="dismissLeaveMonitorModal(false)">✕</button>
+          <button class="icon-button" type="button" @click="dismissLeaveMonitorModal(false)">
+            ✕
+          </button>
         </header>
         <p class="muted">
-          If you leave this page, live loot parsing will stop and other officers will be able to take over monitoring. Are you sure you want to continue?
+          If you leave this page, live loot parsing will stop and other officers will be able to
+          take over monitoring. Are you sure you want to continue?
         </p>
         <footer class="leave-monitor-actions">
-          <button class="btn leave-monitor-button leave-monitor-button--stay" type="button" @click="dismissLeaveMonitorModal(false)">
+          <button
+            class="btn leave-monitor-button leave-monitor-button--stay"
+            type="button"
+            @click="dismissLeaveMonitorModal(false)"
+          >
             Stay Here
           </button>
           <button
@@ -484,7 +706,9 @@
         <header class="modal__header">
           <div>
             <h3>Manual Loot Entry</h3>
-            <p class="muted small">Use this when you want to record a drop without importing a log line.</p>
+            <p class="muted small">
+              Use this when you want to record a drop without importing a log line.
+            </p>
           </div>
           <button class="icon-button" type="button" @click="closeManualModal">✕</button>
         </header>
@@ -506,12 +730,70 @@
       </div>
     </div>
 
+    <div v-if="editLootModal.visible" class="modal-backdrop">
+      <div class="modal">
+        <header class="modal__header">
+          <div>
+            <h3>Edit Loot Entry</h3>
+            <p class="muted small">Update the assignee or quantity for this loot drop.</p>
+          </div>
+          <button class="icon-button" type="button" :disabled="editLootModal.saving" @click="closeEditLootModal">
+            ✕
+          </button>
+        </header>
+        <form class="edit-loot-form" @submit.prevent="saveEditedLoot">
+          <label class="form__field">
+            <span>Item</span>
+            <input
+              type="text"
+              :value="editLootModal.entry?.itemName ?? ''"
+              disabled
+            />
+          </label>
+          <label class="form__field">
+            <span>Assigned To</span>
+            <input
+              v-model="editLootModal.form.looterName"
+              type="text"
+              required
+              :disabled="editLootModal.saving"
+            />
+          </label>
+          <label class="form__field">
+            <span>Quantity</span>
+            <input
+              v-model.number="editLootModal.form.count"
+              type="number"
+              min="1"
+              required
+              :disabled="editLootModal.saving"
+            />
+          </label>
+          <footer class="form__actions">
+            <button
+              class="btn btn--outline btn--modal-outline"
+              type="button"
+              :disabled="editLootModal.saving"
+              @click="closeEditLootModal"
+            >
+              Cancel
+            </button>
+            <button class="btn btn--modal-primary" type="submit" :disabled="editLootModal.saving">
+              {{ editLootModal.saving ? 'Saving…' : 'Save Changes' }}
+            </button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
     <div v-if="showWindowModal" class="modal-backdrop" @click.self="closeWindowModal">
       <div class="modal">
         <header class="modal__header">
           <div>
             <h3>Adjust Parsing Window</h3>
-            <p class="muted small">This only affects log parsing and will not change the raid’s actual schedule.</p>
+            <p class="muted small">
+              This only affects log parsing and will not change the raid’s actual schedule.
+            </p>
           </div>
           <button class="icon-button" type="button" @click="closeWindowModal">✕</button>
         </header>
@@ -523,14 +805,26 @@
           <label class="form__field">
             <span>End Date &amp; Time</span>
             <input v-model="parsingWindowForm.end" type="datetime-local" />
-            <small class="muted">Leave blank to parse until the end of the uploaded log file.</small>
+            <small class="muted"
+              >Leave blank to parse until the end of the uploaded log file.</small
+            >
           </label>
           <div class="window-form__controls">
-            <button class="btn btn--outline btn--small btn--modal-outline" type="button" @click="resetWindowToRaidTimes">
+            <button
+              class="btn btn--outline btn--small btn--modal-outline"
+              type="button"
+              @click="resetWindowToRaidTimes"
+            >
               Reset to Raid Times
             </button>
             <div class="window-form__actions">
-              <button class="btn btn--outline btn--modal-outline" type="button" @click="closeWindowModal">Cancel</button>
+              <button
+                class="btn btn--outline btn--modal-outline"
+                type="button"
+                @click="closeWindowModal"
+              >
+                Cancel
+              </button>
               <button class="btn btn--modal-primary" type="submit">Save Window</button>
             </div>
           </div>
@@ -542,10 +836,20 @@
       <header class="card__header">
         <h2>Debug Console</h2>
         <div class="debug-console__actions">
-          <button class="btn btn--outline btn--small" type="button" :disabled="debugLogs.length === 0" @click="copyDebugLogs">
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            :disabled="debugLogs.length === 0"
+            @click="copyDebugLogs"
+          >
             Copy Logs
           </button>
-          <button class="btn btn--outline btn--small" type="button" :disabled="debugLogs.length === 0" @click="debugLogs = []">
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            :disabled="debugLogs.length === 0"
+            @click="debugLogs = []"
+          >
             Clear
           </button>
         </div>
@@ -555,10 +859,14 @@
         <ul v-else class="debug-console__list">
           <li v-for="entry in debugLogs" :key="entry.id" class="debug-console__entry">
             <div>
-              <p class="debug-console__timestamp">{{ formatDate(entry.timestamp.toISOString()) }}</p>
+              <p class="debug-console__timestamp">
+                {{ formatDate(entry.timestamp.toISOString()) }}
+              </p>
               <p class="debug-console__message">{{ entry.message }}</p>
             </div>
-            <pre v-if="entry.context" class="debug-console__context">{{ formatContext(entry.context) }}</pre>
+            <pre v-if="entry.context" class="debug-console__context">{{
+              formatContext(entry.context)
+            }}</pre>
           </li>
         </ul>
       </div>
@@ -574,10 +882,18 @@
           <button class="icon-button" type="button" @click="showDetectedModal = false">✕</button>
         </header>
         <div class="detected-controls">
-          <button class="btn detected-control detected-control--keep" type="button" @click="setAllKept(true)">
+          <button
+            class="btn detected-control detected-control--keep"
+            type="button"
+            @click="setAllKept(true)"
+          >
             🟢 Keep All
           </button>
-          <button class="btn detected-control detected-control--discard" type="button" @click="setAllKept(false)">
+          <button
+            class="btn detected-control detected-control--discard"
+            type="button"
+            @click="setAllKept(false)"
+          >
             🔴 Discard All
           </button>
         </div>
@@ -585,19 +901,42 @@
           <table class="loot-table">
             <thead>
               <tr>
-                <th>Keep</th>
+                <th>Disposition</th>
                 <th>Time</th>
                 <th>Looter</th>
                 <th>Item</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="row in paginatedParsedLoot" :key="row.id" :class="{ 'loot-table__row--discarded': !row.keep }">
+              <tr
+                v-for="row in paginatedParsedLoot"
+                :key="row.id"
+                :class="{
+                  'loot-table__row--discarded':
+                    row.disposition === 'DISCARD' || row.disposition === 'BLACKLIST'
+                }"
+              >
                 <td>
-                  <label class="toggle-keep">
-                    <input type="checkbox" v-model="row.keep" />
-                    <span>{{ row.keep ? 'Keep' : 'Discard' }}</span>
-                  </label>
+                  <div class="disposition-buttons">
+                    <button
+                      v-for="option in dispositionOptions"
+                      :key="option.value"
+                      type="button"
+                      class="disposition-button"
+                      :class="{
+                        'disposition-button--selected': row.disposition === option.value,
+                        'disposition-button--keep': option.value === 'KEEP',
+                        'disposition-button--discard': option.value === 'DISCARD',
+                        'disposition-button--whitelist': option.value === 'WHITELIST',
+                        'disposition-button--blacklist': option.value === 'BLACKLIST'
+                      }"
+                      :disabled="option.requiresManage && !canManageLootLists"
+                      @click="handleDispositionChange(row, option.value)"
+                    >
+                      <span class="disposition-button__icon">{{ option.icon }}</span>
+                      <span class="disposition-button__label">{{ option.label }}</span>
+                    </button>
+                  </div>
                 </td>
                 <td>{{ row.timestamp ? formatDate(row.timestamp.toISOString()) : '—' }}</td>
                 <td>
@@ -618,7 +957,9 @@
             >
               Previous
             </button>
-            <span class="pagination__label">Page {{ parsedLootPage }} of {{ parsedLootTotalPages }}</span>
+            <span class="pagination__label"
+              >Page {{ parsedLootPage }} of {{ parsedLootTotalPages }}</span
+            >
             <button
               class="pagination__button"
               type="button"
@@ -630,11 +971,65 @@
           </div>
         </div>
         <footer class="form__actions form__actions--single">
-          <button class="btn detected-save-button" type="button" :disabled="savingLoot" @click="saveParsedLoot">
+          <button
+            class="btn detected-save-button"
+            type="button"
+            :disabled="savingLoot"
+            @click="saveParsedLoot"
+          >
             {{ savingLoot ? 'Saving…' : 'Save' }}
           </button>
         </footer>
       </div>
+    </div>
+    <div
+      v-if="lootContextMenu.visible"
+      class="loot-context-menu"
+      :style="{ top: `${lootContextMenu.y}px`, left: `${lootContextMenu.x}px` }"
+      @contextmenu.prevent
+      @click.stop
+    >
+      <header class="loot-context-menu__header">{{ lootContextMenu.itemName }}</header>
+      <button
+        v-if="canDeleteExistingLoot"
+        class="loot-context-menu__action"
+        type="button"
+        @click="handleEditLootClick"
+      >
+        Edit Loot…
+      </button>
+      <button
+        v-if="!lootContextMenu.whitelistEntry"
+        class="loot-context-menu__action"
+        type="button"
+        @click="addItemToLootList('WHITELIST')"
+      >
+        Add to Whitelist
+      </button>
+      <button
+        v-else
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="removeItemFromLootList('WHITELIST')"
+      >
+        Remove from Whitelist
+      </button>
+      <button
+        v-if="!lootContextMenu.blacklistEntry"
+        class="loot-context-menu__action"
+        type="button"
+        @click="addItemToLootList('BLACKLIST')"
+      >
+        Add to Blacklist
+      </button>
+      <button
+        v-else
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="removeItemFromLootList('BLACKLIST')"
+      >
+        Remove from Blacklist
+      </button>
     </div>
   </section>
   <p v-else class="muted">Loading raid…</p>
@@ -647,22 +1042,40 @@ import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import {
   api,
   type GuildLootParserSettings,
+  type GuildLootListEntry,
+  type GuildLootListSummary,
   type RaidDetail,
   type RaidLootEvent,
   type RaidLogMonitorSession
 } from '../services/api';
-import { parseLootLog, type GuildLootParserPattern, type ParsedLootEvent } from '../services/lootParser';
+import { characterClassLabels, type CharacterClass } from '../services/types';
+import {
+  parseLootLog,
+  type GuildLootParserPattern,
+  type ParsedLootEvent
+} from '../services/lootParser';
 import { useAuthStore } from '../stores/auth';
-import { convertPlaceholdersToRegex, convertRegexToPlaceholders } from '../utils/patternPlaceholders';
+import {
+  convertPlaceholdersToRegex,
+  convertRegexToPlaceholders
+} from '../utils/patternPlaceholders';
+import {
+  buildLootListLookup,
+  matchesLootListEntry,
+  normalizeLootItemName
+} from '../utils/lootLists';
+
+type DetectedLootDisposition = 'KEEP' | 'DISCARD' | 'WHITELIST' | 'BLACKLIST';
 
 interface ParsedRow {
   id: string;
   timestamp: Date | null;
   rawLine: string;
   itemName: string;
+  itemId: number | null;
   looterName: string;
   emoji: string;
-  keep: boolean;
+  disposition: DetectedLootDisposition;
 }
 
 interface DebugLogEntry {
@@ -681,6 +1094,7 @@ interface GroupedLootEntry {
   note?: string | null;
   count: number;
   eventIds: string[];
+  isWhitelisted: boolean;
 }
 
 type HandlePermissionDescriptor = {
@@ -714,9 +1128,13 @@ const showWindowModal = ref(false);
 const showDebugConsole = ref(false);
 const showDetectedModal = ref(false);
 const parsedLootPage = ref(1);
-const detectedLootModalOpen = computed(() => showDetectedModal.value && parsedLoot.value.length > 0);
+const detectedLootModalOpen = computed(
+  () => showDetectedModal.value && parsedLoot.value.length > 0
+);
 const PAGE_SIZE = 10;
-const parsedLootTotalPages = computed(() => Math.max(1, Math.ceil(parsedLoot.value.length / PAGE_SIZE)));
+const parsedLootTotalPages = computed(() =>
+  Math.max(1, Math.ceil(parsedLoot.value.length / PAGE_SIZE))
+);
 const paginatedParsedLoot = computed(() => {
   const total = parsedLootTotalPages.value;
   const currentPage = Math.min(parsedLootPage.value, total);
@@ -725,14 +1143,27 @@ const paginatedParsedLoot = computed(() => {
 });
 
 const showLeaveMonitorModal = ref(false);
-type PendingNavigation =
-  | { type: 'route'; to: any }
-  | { type: 'refresh' };
+type PendingNavigation = { type: 'route'; to: any } | { type: 'refresh' };
 
 const pendingNavigation = ref<PendingNavigation | null>(null);
 const allowImmediateUnload = ref(false);
 const updatingSettings = ref(false);
-const editableSettings = reactive<GuildLootParserSettings>({ patterns: [], emoji: '💎' });
+type EditablePattern = GuildLootParserPattern & { ignoredMethods: string[]; methodInput: string };
+
+interface PatternSampleResult {
+  matches: boolean;
+  looter?: string;
+  item?: string;
+  method?: string;
+  ignored?: boolean;
+  reason?: string;
+  error?: string;
+}
+
+const editableSettings = reactive<{
+  patterns: EditablePattern[];
+  emoji: string;
+}>({ patterns: [], emoji: '💎' });
 const activePatternIndex = ref<number | null>(null);
 const collapsedPatternIds = ref<Record<string, boolean>>({});
 const patternTextareas = ref<Record<string, HTMLTextAreaElement | null>>({});
@@ -782,6 +1213,34 @@ const canStartContinuousMonitor = computed(
   () => supportsContinuousMonitoring.value && pendingFileHandle.value !== null
 );
 const clearingLoot = ref(false);
+const clearLootPrompt = reactive<{
+  visible: boolean;
+  mode: 'single' | 'monitor';
+  resolve: ((result: boolean | null) => void) | null;
+}>({
+  visible: false,
+  mode: 'single',
+  resolve: null
+});
+const editLootModal = reactive<{
+  visible: boolean;
+  entry: GroupedLootEntry | null;
+  form: {
+    looterName: string;
+    itemName: string;
+    count: number;
+  };
+  saving: boolean;
+}>({
+  visible: false,
+  entry: null,
+  form: {
+    looterName: '',
+    itemName: '',
+    count: 1
+  },
+  saving: false
+});
 watch(
   () => [raid.value?.startTime, raid.value?.endedAt],
   ([start, end]) => {
@@ -801,6 +1260,13 @@ watch(
     }
   }
 );
+watch(detectedLootModalOpen, (open) => {
+  if (open) {
+    window.addEventListener('keydown', handleDetectedModalKeydown);
+  } else {
+    window.removeEventListener('keydown', handleDetectedModalKeydown);
+  }
+});
 const placeholderOptions = [
   {
     token: '{timestamp}',
@@ -824,36 +1290,73 @@ const placeholderOptions = [
   }
 ];
 
+const dispositionOptions: Array<{
+  value: DetectedLootDisposition;
+  label: string;
+  icon: string;
+  requiresManage?: boolean;
+}> = [
+  { value: 'KEEP', label: 'Keep', icon: '🟢' },
+  { value: 'DISCARD', label: 'Discard', icon: '🔴' },
+  { value: 'WHITELIST', label: 'Whitelist', icon: '⭐', requiresManage: true },
+  { value: 'BLACKLIST', label: 'Blacklist', icon: '⛔', requiresManage: true }
+];
+
 const defaultRegexPatterns: GuildLootParserPattern[] = [
   {
     id: 'default-master-method',
     label: 'Awarded by Master Looter / Loot Council',
-    pattern: convertPlaceholdersToRegex('{timestamp} {item} has been awarded to {looter} by the {method}.')
+    pattern: convertPlaceholdersToRegex(
+      '{timestamp} {item} has been awarded to {looter} by the {method}.'
+    ),
+    ignoredMethods: []
   },
   {
     id: 'default-random-roll',
     label: 'Awarded by random roll',
-    pattern: convertPlaceholdersToRegex('{timestamp} {item} has been awarded to {looter} by {method}.')
+    pattern: convertPlaceholdersToRegex(
+      '{timestamp} {item} has been awarded to {looter} by {method}.'
+    ),
+    ignoredMethods: []
   },
   {
     id: 'default-donation',
     label: 'Donations to guild',
-    pattern: convertPlaceholdersToRegex('{timestamp} {item} has been donated to the Master Looter\'s guild.')
+    pattern: convertPlaceholdersToRegex(
+      "{timestamp} {item} has been donated to the Master Looter's guild."
+    ),
+    ignoredMethods: []
   }
 ];
 
 const fileInput = ref<HTMLInputElement | null>(null);
 
+const lootListSummary = ref<GuildLootListSummary | null>(null);
+const whitelistLookup = computed(() => buildLootListLookup(lootListSummary.value?.whitelist ?? []));
+const blacklistLookup = computed(() => buildLootListLookup(lootListSummary.value?.blacklist ?? []));
+const canManageLootLists = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
 const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
-function getKeptLoot() {
-  return parsedLoot.value.filter((row) => row.keep && row.itemName && row.looterName);
-}
+const lootContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  itemName: '',
+  itemId: null as number | null,
+  normalizedName: '',
+  whitelistEntry: null as GuildLootListEntry | null,
+  blacklistEntry: null as GuildLootListEntry | null,
+  entry: null as GroupedLootEntry | null
+});
 const canDeleteExistingLoot = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
 const canForceStopMonitor = computed(() => canDeleteExistingLoot.value);
 const groupedExistingLoot = computed<GroupedLootEntry[]>(() => {
+  const whitelistLookupValue = whitelistLookup.value;
   const grouped = new Map<string, GroupedLootEntry>();
   for (const event of lootEvents.value) {
     const key = `${event.looterName}::${event.itemName}`;
@@ -866,14 +1369,23 @@ const groupedExistingLoot = computed<GroupedLootEntry[]>(() => {
         emoji: event.emoji ?? parserSettings.value?.emoji ?? '💎',
         note: event.note,
         count: 0,
-        eventIds: []
+        eventIds: [],
+        isWhitelisted: false
       });
     }
     const entry = grouped.get(key)!;
     entry.count += 1;
     entry.eventIds.push(event.id);
   }
-  return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
+  return Array.from(grouped.values())
+    .map((entry) => {
+      const normalized = normalizeLootItemName(entry.itemName);
+      return {
+        ...entry,
+        isWhitelisted: Boolean(matchesLootListEntry(whitelistLookupValue, null, normalized))
+      };
+    })
+    .sort((a, b) => b.count - a.count);
 });
 const parsingWindowStart = computed(() => {
   const { earlier } = resolveWindowBounds();
@@ -891,12 +1403,107 @@ const monitorLockActive = computed(() => Boolean(monitorSession.value));
 async function loadData() {
   raid.value = await api.fetchRaid(raidId);
   lootEvents.value = await api.fetchRaidLoot(raidId);
+  await refreshLootListSummary();
   const guildSettings = await api.fetchGuildLootSettings(raid.value.guild.id);
   syncEditableParserSettings(guildSettings);
   resetManualForm();
   initializeParsingWindow();
   await fetchMonitorStatus();
   startMonitorStatusPolling();
+}
+
+async function refreshLootListSummary() {
+  if (!raid.value) {
+    return;
+  }
+
+  if (!canManageLootLists.value) {
+    lootListSummary.value = null;
+    return;
+  }
+
+  try {
+    lootListSummary.value = await api.fetchGuildLootListSummary(raid.value.guild.id);
+  } catch (error) {
+    lootListSummary.value = null;
+    appendDebugLog('Failed to load loot list summary', { error: String(error) });
+  }
+}
+
+function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
+  if (!canManageLootLists.value) {
+    return;
+  }
+  event.preventDefault();
+  const normalizedName = normalizeLootItemName(entry.itemName);
+  const whitelistEntry = matchesLootListEntry(whitelistLookup.value, null, normalizedName);
+  const blacklistEntry = matchesLootListEntry(blacklistLookup.value, null, normalizedName);
+  const menuWidth = 220;
+  const menuHeight = 160;
+  const x = Math.min(event.clientX, window.innerWidth - menuWidth);
+  const y = Math.min(event.clientY, window.innerHeight - menuHeight);
+ Object.assign(lootContextMenu, {
+    visible: true,
+    x,
+    y,
+    itemName: entry.itemName,
+    itemId: null,
+    normalizedName,
+    whitelistEntry,
+    blacklistEntry,
+    entry
+  });
+}
+
+function closeLootContextMenu() {
+  lootContextMenu.visible = false;
+}
+
+function handleEditLootClick() {
+  if (!lootContextMenu.entry) {
+    return;
+  }
+  openEditLootModal(lootContextMenu.entry);
+  closeLootContextMenu();
+}
+
+function handleGlobalPointerDown(event: MouseEvent) {
+  if (!lootContextMenu.visible) {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target && target.closest('.loot-context-menu')) {
+    return;
+  }
+  if (event.type === 'contextmenu' && target && target.closest('.loot-card')) {
+    return;
+  }
+  closeLootContextMenu();
+}
+
+function handleLootContextMenuKey(event: KeyboardEvent) {
+  if (event.key === 'Escape' && lootContextMenu.visible) {
+    closeLootContextMenu();
+  }
+}
+
+function openEditLootModal(entry: GroupedLootEntry) {
+  editLootModal.entry = entry;
+  editLootModal.form.looterName = entry.looterName;
+  editLootModal.form.count = entry.count;
+  editLootModal.visible = true;
+  editLootModal.saving = false;
+}
+
+function closeEditLootModal(force = false) {
+  if (!force && editLootModal.saving) {
+    return;
+  }
+  editLootModal.visible = false;
+  editLootModal.entry = null;
+  editLootModal.form.looterName = '';
+  editLootModal.form.count = 1;
+  editLootModal.saving = false;
 }
 
 async function fetchMonitorStatus() {
@@ -907,6 +1514,8 @@ async function fetchMonitorStatus() {
     monitorSession.value = status.session ?? null;
     if (!status.session) {
       cleanupMonitorController();
+    } else if (status.session.isOwner && status.session.sessionId) {
+      startMonitorHeartbeat();
     }
   } catch (error) {
     appendDebugLog('Failed to load log monitor status', { error: String(error) });
@@ -990,14 +1599,19 @@ function handleDrop(event: DragEvent) {
     return;
   }
   if (supportsContinuousMonitoring.value) {
-    appendDebugLog('Drag-and-drop disabled when continuous monitoring is available. Use Select Log File instead.');
+    appendDebugLog(
+      'Drag-and-drop disabled when continuous monitoring is available. Use Select Log File instead.'
+    );
     window.alert('Please use Select Log File to enable continuous monitoring.');
     return;
   }
   setPendingUploadSelection(file, { handle: null, reason: 'drag-drop' });
 }
 
-function setPendingUploadSelection(file: File, options: { handle: LocalFileHandle | null; reason: string }) {
+function setPendingUploadSelection(
+  file: File,
+  options: { handle: LocalFileHandle | null; reason: string }
+) {
   pendingUploadFile.value = file;
   pendingFileHandle.value = options.handle;
   showUploadModeModal.value = true;
@@ -1039,18 +1653,71 @@ async function confirmUploadMode(mode: 'single' | 'monitor') {
     return;
   }
 
-  try {
-    clearingLoot.value = true;
-    await clearExistingLootBeforeUpload();
-  } catch (error) {
-    appendDebugLog('Unable to clear existing loot before upload', { error: String(error) });
-    window.alert('Unable to clear existing loot for this raid. Please try again.');
-    return;
-  } finally {
-    clearingLoot.value = false;
+  showUploadModeModal.value = false;
+
+  let shouldClear = true;
+  if (lootEvents.value.length > 0) {
+    const decision = await promptClearExistingLoot(mode);
+    if (decision === null) {
+      showUploadModeModal.value = true;
+      return;
+    }
+    shouldClear = decision;
+    appendDebugLog('Existing loot prompt answered', {
+      mode,
+      chosenAction: shouldClear ? 'clear-loot' : 'keep-loot',
+      existingLootCount: lootEvents.value.length
+    });
   }
 
-  showUploadModeModal.value = false;
+  await proceedUploadMode(mode, { file, shouldClear });
+}
+
+function promptClearExistingLoot(mode: 'single' | 'monitor') {
+  return new Promise<boolean | null>((resolve) => {
+    clearLootPrompt.visible = true;
+    clearLootPrompt.mode = mode;
+    clearLootPrompt.resolve = resolve;
+  });
+}
+
+function handleClearLootPromptDecision(shouldClear: boolean) {
+  resolveClearLootPrompt(shouldClear);
+}
+
+function handleClearLootPromptClose() {
+  resolveClearLootPrompt(null);
+  showUploadModeModal.value = true;
+}
+
+function resolveClearLootPrompt(result: boolean | null) {
+  const resolver = clearLootPrompt.resolve;
+  clearLootPrompt.visible = false;
+  clearLootPrompt.resolve = null;
+  if (resolver) {
+    resolver(result);
+  }
+}
+
+async function proceedUploadMode(
+  mode: 'single' | 'monitor',
+  options: { file: File; shouldClear: boolean }
+) {
+  const { file, shouldClear } = options;
+
+  if (shouldClear) {
+    try {
+      clearingLoot.value = true;
+      await clearExistingLootBeforeUpload();
+    } catch (error) {
+      appendDebugLog('Unable to clear existing loot before upload', { error: String(error) });
+      window.alert('Unable to clear existing loot for this raid. Please try again.');
+      showUploadModeModal.value = true;
+      return;
+    } finally {
+      clearingLoot.value = false;
+    }
+  }
 
   if (mode === 'single') {
     continuousMonitorError.value = null;
@@ -1061,13 +1728,86 @@ async function confirmUploadMode(mode: 'single' | 'monitor') {
   }
 
   if (!pendingFileHandle.value) {
-    window.alert('Continuous monitoring requires selecting the file via the Select Log File button.');
+    window.alert(
+      'Continuous monitoring requires selecting the file via the Select Log File button.'
+    );
+    showUploadModeModal.value = true;
+    pendingUploadFile.value = file;
     return;
   }
 
   await startContinuousMonitor(file, pendingFileHandle.value);
   pendingUploadFile.value = null;
   pendingFileHandle.value = null;
+}
+
+async function saveEditedLoot() {
+  if (!raid.value || !editLootModal.entry) {
+    return;
+  }
+  const newLooter = editLootModal.form.looterName.trim();
+  const newCount = Number(editLootModal.form.count);
+  if (!newLooter) {
+    window.alert('Looter name is required.');
+    return;
+  }
+  if (!Number.isFinite(newCount) || newCount < 1) {
+    window.alert('Quantity must be at least 1.');
+    return;
+  }
+
+  const entry = editLootModal.entry;
+  const currentCount = entry.count;
+  const countDiff = newCount - currentCount;
+  const emoji = entry.emoji ?? parserSettings.value?.emoji ?? '💎';
+
+  editLootModal.saving = true;
+  try {
+    if (newLooter !== entry.looterName) {
+      await Promise.all(
+        entry.eventIds.map((lootId) =>
+          api.updateRaidLoot(raidId, lootId, { looterName: newLooter })
+        )
+      );
+    }
+
+    if (countDiff > 0) {
+      const payload = Array.from({ length: countDiff }, () => ({
+        itemName: entry.itemName,
+        looterName: newLooter,
+        emoji,
+        note: entry.note ?? undefined
+      }));
+      await api.createRaidLoot(raidId, payload);
+    } else if (countDiff < 0) {
+      const removeIds = entry.eventIds.slice(entry.eventIds.length + countDiff);
+      await Promise.all(removeIds.map((lootId) => api.deleteRaidLoot(raidId, lootId)));
+    }
+
+    lootEvents.value = await api.fetchRaidLoot(raidId);
+    await refreshLootListSummary();
+    appendDebugLog('Loot entry edited', {
+      itemName: entry.itemName,
+      previousCount: currentCount,
+      newCount,
+      previousLooter: entry.looterName,
+      newLooter
+    });
+    window.dispatchEvent(
+      new CustomEvent('loot-updated', {
+        detail: {
+          title: 'Loot Updated',
+          message: `${entry.itemName} now assigned to ${newLooter} (${newCount}×)`
+        }
+      })
+    );
+    closeEditLootModal(true);
+  } catch (error) {
+    appendDebugLog('Failed to edit loot entry', { error: String(error) });
+    window.alert('Unable to update loot entry. Please try again.');
+  } finally {
+    editLootModal.saving = false;
+  }
 }
 
 async function startContinuousMonitor(initialFile: File, providedHandle?: LocalFileHandle | null) {
@@ -1094,7 +1834,9 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
 
     await ensureHandlePermission(handle);
 
-    const status = await api.startRaidLogMonitor(raidId, { fileName: handle.name ?? initialFile.name });
+    const status = await api.startRaidLogMonitor(raidId, {
+      fileName: handle.name ?? initialFile.name
+    });
     monitorHeartbeatInterval.value = status.heartbeatIntervalMs ?? monitorHeartbeatInterval.value;
     monitorTimeoutMs.value = status.timeoutMs ?? monitorTimeoutMs.value;
     monitorSession.value = status.session ?? null;
@@ -1108,15 +1850,16 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
     monitorController.lastSize = initialFile.size;
     monitorController.pendingFragment = '';
 
-    await readLogFile(initialFile, { append: false });
     startMonitorHeartbeat();
+    await readLogFile(initialFile, { append: false });
     startLiveLogPolling();
     appendDebugLog('Continuous monitoring enabled', {
       file: handle.name,
       sessionId: monitorSession.value.sessionId
     });
   } catch (error) {
-    continuousMonitorError.value = error instanceof Error ? error.message : 'Unable to enable continuous monitoring.';
+    continuousMonitorError.value =
+      error instanceof Error ? error.message : 'Unable to enable continuous monitoring.';
     appendDebugLog('Continuous monitoring failed', { error: String(error) });
     if (sessionStarted && monitorSession.value?.sessionId) {
       await api.stopRaidLogMonitor(raidId, { sessionId: monitorSession.value.sessionId });
@@ -1264,7 +2007,19 @@ async function sendMonitorHeartbeat() {
       monitorSession.value = session;
     }
   } catch (error) {
-    appendDebugLog('Log monitor heartbeat failed', { error: String(error) });
+    const status =
+      typeof error === 'object' && error && 'response' in error
+        ? (error as { response?: { status?: number } }).response?.status
+        : undefined;
+    appendDebugLog('Log monitor heartbeat failed', {
+      error: String(error),
+      status
+    });
+    if (status === 404) {
+      cleanupMonitorController();
+      monitorSession.value = null;
+      await fetchMonitorStatus();
+    }
   }
 }
 
@@ -1336,8 +2091,7 @@ function handleRefreshShortcut(event: KeyboardEvent) {
     return;
   }
   const isRefreshKey =
-    event.key === 'F5' ||
-    ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r');
+    event.key === 'F5' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r');
   if (!isRefreshKey) {
     return;
   }
@@ -1445,8 +2199,55 @@ function readLogFile(file: File, options?: { append?: boolean }) {
 }
 
 function setAllKept(value: boolean) {
-  parsedLoot.value = parsedLoot.value.map((row) => ({ ...row, keep: value }));
+  parsedLoot.value = parsedLoot.value.map((row) => ({
+    ...row,
+    disposition: value ? 'KEEP' : 'DISCARD'
+  }));
   parsedLootPage.value = 1;
+}
+
+function getRowsByDisposition(dispositions: DetectedLootDisposition[]) {
+  const allowed = new Set(dispositions);
+  return parsedLoot.value.filter(
+    (row) => allowed.has(row.disposition) && row.itemName && row.looterName
+  );
+}
+
+function handleDispositionChange(targetRow: ParsedRow, disposition: DetectedLootDisposition) {
+  if ((disposition === 'WHITELIST' || disposition === 'BLACKLIST') && !canManageLootLists.value) {
+    return;
+  }
+
+  if (targetRow.disposition === disposition) {
+    return;
+  }
+
+  const targetNormalized = normalizeLootItemName(targetRow.itemName);
+  const targetItemId = targetRow.itemId ?? null;
+
+  for (const row of parsedLoot.value) {
+    if (rowsReferToSameItem(targetItemId, targetNormalized, row)) {
+      row.disposition = disposition;
+    }
+  }
+}
+
+function handleDetectedModalKeydown(event: KeyboardEvent) {
+  if (!detectedLootModalOpen.value || parsedLootTotalPages.value <= 1) {
+    return;
+  }
+
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    if (parsedLootPage.value < parsedLootTotalPages.value) {
+      parsedLootPage.value += 1;
+    }
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    if (parsedLootPage.value > 1) {
+      parsedLootPage.value -= 1;
+    }
+  }
 }
 
 async function saveParsedLoot() {
@@ -1455,24 +2256,55 @@ async function saveParsedLoot() {
     return;
   }
   savingLoot.value = true;
-  const kept = getKeptLoot();
+  const rowsToKeep = getRowsByDisposition(['KEEP', 'WHITELIST']);
+  const rowsToWhitelist = getRowsByDisposition(['WHITELIST']);
+  const rowsToBlacklist = getRowsByDisposition(['BLACKLIST']);
   try {
-    if (kept.length > 0) {
-      await api.createRaidLoot(raidId, kept.map((row) => ({
-        itemName: row.itemName,
-        looterName: row.looterName,
-        eventTime: row.timestamp ? row.timestamp.toISOString() : undefined,
-        emoji: row.emoji
-      })));
+    if (rowsToKeep.length > 0) {
+      await api.createRaidLoot(
+        raidId,
+        rowsToKeep.map((row) => ({
+          itemName: row.itemName,
+          looterName: row.looterName,
+          eventTime: row.timestamp ? row.timestamp.toISOString() : undefined,
+          emoji: row.emoji
+        }))
+      );
       lootEvents.value = await api.fetchRaidLoot(raidId);
-      appendDebugLog('Kept loot saved', { count: kept.length });
+      appendDebugLog('Kept loot saved', { count: rowsToKeep.length });
     } else {
       appendDebugLog('All detected loot discarded for this batch');
     }
+
+    let listsUpdated = false;
+    if (rowsToWhitelist.length > 0 && canManageLootLists.value) {
+      const created = await persistLootListEntries('WHITELIST', rowsToWhitelist);
+      if (created > 0) {
+        listsUpdated = true;
+        appendDebugLog('Items added to whitelist', { count: created });
+      }
+    } else if (rowsToWhitelist.length > 0 && !canManageLootLists.value) {
+      appendDebugLog('Whitelist updates skipped: insufficient permissions');
+    }
+    if (rowsToBlacklist.length > 0 && canManageLootLists.value) {
+      const created = await persistLootListEntries('BLACKLIST', rowsToBlacklist);
+      if (created > 0) {
+        listsUpdated = true;
+        appendDebugLog('Items added to blacklist', { count: created });
+      }
+    } else if (rowsToBlacklist.length > 0 && !canManageLootLists.value) {
+      appendDebugLog('Blacklist updates skipped: insufficient permissions');
+    }
+
     parsedLoot.value = [];
     parsedLootPage.value = 1;
     showDetectedModal.value = false;
-    for (const row of kept) {
+
+    if (listsUpdated) {
+      await refreshLootListSummary();
+    }
+
+    for (const row of rowsToKeep) {
       window.dispatchEvent(
         new CustomEvent('loot-assigned', {
           detail: {
@@ -1483,8 +2315,253 @@ async function saveParsedLoot() {
         })
       );
     }
+  } catch (error) {
+    appendDebugLog('Failed to process detected loot', { error: String(error) });
+    window.alert('Unable to save detected loot. Please try again.');
   } finally {
     savingLoot.value = false;
+  }
+}
+
+async function persistLootListEntries(
+  type: 'WHITELIST' | 'BLACKLIST',
+  rows: ParsedRow[]
+): Promise<number> {
+  if (!raid.value || rows.length === 0) {
+    return 0;
+  }
+
+  if (!canManageLootLists.value) {
+    return 0;
+  }
+
+  const guildId = raid.value.guild.id;
+  const seen = new Set<string>();
+  let created = 0;
+
+  for (const row of rows) {
+    const normalizedName = normalizeLootItemName(row.itemName);
+    const key = row.itemId != null ? `id:${row.itemId}` : `name:${normalizedName}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    if (hasExistingLootListEntry(type, row.itemId, normalizedName)) {
+      continue;
+    }
+
+    try {
+      await api.createGuildLootListEntry(guildId, {
+        type,
+        itemName: row.itemName,
+        itemId: row.itemId ?? null
+      });
+      created += 1;
+    } catch (error) {
+      appendDebugLog('Failed to persist loot list entry', {
+        type,
+        item: row.itemName,
+        error: String(error)
+      });
+    }
+  }
+
+  return created;
+}
+
+function hasExistingLootListEntry(
+  type: 'WHITELIST' | 'BLACKLIST',
+  itemId: number | null,
+  normalizedName: string
+) {
+  const lookup = type === 'WHITELIST' ? whitelistLookup.value : blacklistLookup.value;
+  return Boolean(matchesLootListEntry(lookup, itemId, normalizedName));
+}
+
+function rowsReferToSameItem(
+  targetItemId: number | null,
+  targetNormalizedName: string,
+  row: ParsedRow
+) {
+  if (targetItemId != null && row.itemId != null) {
+    return row.itemId === targetItemId;
+  }
+  return normalizeLootItemName(row.itemName) === targetNormalizedName;
+}
+
+function normalizeMethodName(value?: string | null) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function sanitizeIgnoredMethods(methods: string[]) {
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+  for (const method of methods) {
+    const trimmed = method?.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const normalized = normalizeMethodName(trimmed);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    sanitized.push(trimmed);
+  }
+  return sanitized;
+}
+
+async function addItemToLootList(type: 'WHITELIST' | 'BLACKLIST') {
+  if (!raid.value || !canManageLootLists.value) {
+    closeLootContextMenu();
+    return;
+  }
+
+  try {
+    const entry = await api.createGuildLootListEntry(raid.value.guild.id, {
+      type,
+      itemName: lootContextMenu.itemName,
+      itemId: lootContextMenu.itemId
+    });
+    appendDebugLog(`Item added to ${type.toLowerCase()}`, { itemName: lootContextMenu.itemName });
+    applyLootListEntryUpsert(type, entry);
+    if (type === 'WHITELIST') {
+      lootContextMenu.whitelistEntry = entry;
+    } else {
+      lootContextMenu.blacklistEntry = entry;
+    }
+    await refreshLootListSummary();
+  } catch (error) {
+    appendDebugLog(`Failed to add item to ${type.toLowerCase()}`, {
+      itemName: lootContextMenu.itemName,
+      error: String(error)
+    });
+    window.alert('Unable to update loot list.');
+  } finally {
+    closeLootContextMenu();
+  }
+}
+
+async function removeItemFromLootList(type: 'WHITELIST' | 'BLACKLIST') {
+  if (!raid.value || !canManageLootLists.value) {
+    closeLootContextMenu();
+    return;
+  }
+
+  const entry =
+    type === 'WHITELIST' ? lootContextMenu.whitelistEntry : lootContextMenu.blacklistEntry;
+
+  if (!entry) {
+    closeLootContextMenu();
+    return;
+  }
+
+  try {
+    await api.deleteGuildLootListEntry(raid.value.guild.id, entry.id);
+    appendDebugLog(`Item removed from ${type.toLowerCase()}`, {
+      itemName: lootContextMenu.itemName
+    });
+    applyLootListEntryRemoval(type, entry.id);
+    await refreshLootListSummary();
+  } catch (error) {
+    appendDebugLog(`Failed to remove item from ${type.toLowerCase()}`, {
+      itemName: lootContextMenu.itemName,
+      error: String(error)
+    });
+    window.alert('Unable to update loot list.');
+  } finally {
+    closeLootContextMenu();
+  }
+}
+
+function ensureLootListSummary() {
+  if (!lootListSummary.value) {
+    lootListSummary.value = { whitelist: [], blacklist: [] };
+  }
+}
+
+function applyLootListEntryUpsert(type: 'WHITELIST' | 'BLACKLIST', entry: GuildLootListEntry) {
+  ensureLootListSummary();
+  const target =
+    type === 'WHITELIST' ? lootListSummary.value!.whitelist : lootListSummary.value!.blacklist;
+  const normalized = normalizeLootItemName(entry.itemName);
+  const existingIndex = target.findIndex((item) => {
+    if (item.id === entry.id) {
+      return true;
+    }
+    if (entry.itemId != null && item.itemId != null) {
+      return item.itemId === entry.itemId;
+    }
+    return item.itemNameNormalized === normalized;
+  });
+  const prepared: GuildLootListEntry = {
+    ...entry,
+    itemNameNormalized: entry.itemNameNormalized?.length ? entry.itemNameNormalized : normalized
+  };
+  if (existingIndex >= 0) {
+    target.splice(existingIndex, 1, prepared);
+  } else {
+    target.push(prepared);
+  }
+}
+
+function applyLootListEntryRemoval(type: 'WHITELIST' | 'BLACKLIST', entryId: string) {
+  ensureLootListSummary();
+  const target =
+    type === 'WHITELIST' ? lootListSummary.value!.whitelist : lootListSummary.value!.blacklist;
+  const index = target.findIndex((item) => item.id === entryId);
+  if (index >= 0) {
+    target.splice(index, 1);
+  }
+  if (type === 'WHITELIST') {
+    lootContextMenu.whitelistEntry = null;
+  } else {
+    lootContextMenu.blacklistEntry = null;
+  }
+}
+
+async function persistAutoKeptLoot(entries: ParsedLootEvent[], emoji: string) {
+  if (!raid.value || entries.length === 0 || !canManageLoot.value) {
+    return;
+  }
+
+  const payload = entries
+    .map((entry) => {
+      const itemName = entry.itemName ?? entry.looter ?? 'Unknown Item';
+      const looterName = entry.looter ?? entry.itemName ?? 'Unknown';
+      if (!itemName || !looterName) {
+        return null;
+      }
+      return {
+        itemName,
+        looterName,
+        eventTime: entry.timestamp ? entry.timestamp.toISOString() : undefined,
+        emoji
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (payload.length === 0) {
+    return;
+  }
+
+  try {
+    await api.createRaidLoot(raidId, payload);
+    lootEvents.value = await api.fetchRaidLoot(raidId);
+    for (const entry of payload) {
+      window.dispatchEvent(
+        new CustomEvent('loot-assigned', {
+          detail: {
+            raidId,
+            itemName: entry.itemName,
+            looterName: entry.looterName
+          }
+        })
+      );
+    }
+  } catch (error) {
+    appendDebugLog('Failed to auto-add whitelisted loot', { error: String(error) });
   }
 }
 
@@ -1528,7 +2605,8 @@ function openEdit(event: RaidLootEvent) {
     return;
   }
   const looterName = prompt('Looter', event.looterName) ?? event.looterName;
-  const emoji = prompt('Emoji', event.emoji ?? parserSettings.value?.emoji ?? '💎') ?? event.emoji ?? undefined;
+  const emoji =
+    prompt('Emoji', event.emoji ?? parserSettings.value?.emoji ?? '💎') ?? event.emoji ?? undefined;
   api
     .updateRaidLoot(raidId, event.id, {
       itemName,
@@ -1548,7 +2626,8 @@ async function saveParserSettings() {
       patterns: editableSettings.patterns.map((pattern, index) => ({
         id: pattern.id || `pattern-${index}`,
         label: pattern.label || `Pattern ${index + 1}`,
-        pattern: convertPlaceholdersToRegex(pattern.pattern)
+        pattern: convertPlaceholdersToRegex(pattern.pattern),
+        ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods ?? [])
       }))
     };
     const settings = await api.updateGuildLootSettings(raid.value!.guild.id, payload);
@@ -1563,7 +2642,9 @@ function addPattern(initialPattern?: string) {
   editableSettings.patterns.push({
     id: `pattern-${Date.now()}`,
     label: 'New Pattern',
-    pattern: typeof initialPattern === 'string' ? initialPattern : defaultPattern()
+    pattern: typeof initialPattern === 'string' ? initialPattern : defaultPattern(),
+    ignoredMethods: [],
+    methodInput: ''
   });
   activePatternIndex.value = editableSettings.patterns.length - 1;
   const newId = editableSettings.patterns[activePatternIndex.value].id;
@@ -1592,12 +2673,20 @@ function removePattern(index: number) {
 
 function syncEditableParserSettings(settings: GuildLootParserSettings) {
   const preparedPatterns = preparePatternsForParsing(settings.patterns);
-  parserSettings.value = { ...settings, patterns: preparedPatterns };
-  const editablePatterns = preparedPatterns.map((pattern) => {
+  parserSettings.value = {
+    ...settings,
+    patterns: preparedPatterns
+  };
+  const editablePatterns: EditablePattern[] = preparedPatterns.map((pattern) => {
     const friendlyPattern = convertRegexToPlaceholders(pattern.pattern);
+    const rawIgnored = Array.isArray(pattern.ignoredMethods)
+      ? pattern.ignoredMethods.map((method) => method.toString())
+      : [];
     return {
       ...pattern,
-      pattern: friendlyPattern || pattern.pattern
+      pattern: friendlyPattern || pattern.pattern,
+      ignoredMethods: sanitizeIgnoredMethods(rawIgnored),
+      methodInput: ''
     };
   });
   editableSettings.patterns = editablePatterns;
@@ -1608,7 +2697,9 @@ function syncEditableParserSettings(settings: GuildLootParserSettings) {
     acc[pattern.id] = false;
     return acc;
   }, {});
-  patternCaretPositions.value = editablePatterns.reduce<Record<string, { start: number; end: number }>>((acc, pattern) => {
+  patternCaretPositions.value = editablePatterns.reduce<
+    Record<string, { start: number; end: number }>
+  >((acc, pattern) => {
     const length = pattern.pattern?.length ?? 0;
     acc[pattern.id] = { start: length, end: length };
     return acc;
@@ -1654,41 +2745,96 @@ function placeholderUsage(pattern: string) {
   return placeholderOptions.filter((option) => lower.includes(option.token.toLowerCase()));
 }
 
+function patternIncludesMethod(pattern: string) {
+  return placeholderUsage(pattern).some((option) => option.token === '{method}');
+}
+
+function addIgnoredMethod(patternIndex: number) {
+  const pattern = editableSettings.patterns[patternIndex];
+  if (!pattern) {
+    return;
+  }
+  const rawValue = pattern.methodInput?.trim();
+  if (!rawValue) {
+    return;
+  }
+  const normalized = normalizeMethodName(rawValue);
+  if (!normalized) {
+    pattern.methodInput = '';
+    return;
+  }
+  const duplicate = pattern.ignoredMethods.some(
+    (method) => normalizeMethodName(method) === normalized
+  );
+  if (!duplicate) {
+    pattern.ignoredMethods = [...pattern.ignoredMethods, rawValue];
+  }
+  pattern.methodInput = '';
+}
+
+function removeIgnoredMethod(patternIndex: number, method: string) {
+  const pattern = editableSettings.patterns[patternIndex];
+  if (!pattern) {
+    return;
+  }
+  pattern.ignoredMethods = pattern.ignoredMethods.filter((value) => value !== method);
+}
+
 function patternPreview(phrase: string) {
   const preview = convertPlaceholdersToRegex(phrase);
   return preview || 'Waiting for placeholders…';
 }
 
-function patternSampleResult(phrase: string) {
-  if (!sampleLogLine.value.trim()) {
-    return { matches: false };
+function patternSampleResult(pattern: EditablePattern): PatternSampleResult {
+  const sample = sampleLogLine.value.trim();
+  if (!sample) {
+    return { matches: false, reason: 'Enter a sample log line above.' };
   }
-  const compiled = convertPlaceholdersToRegex(phrase);
+
+  const compiled = convertPlaceholdersToRegex(pattern.pattern);
   if (!compiled.trim()) {
-    return { matches: false };
+    return { matches: false, reason: 'Add placeholders to build a valid phrase.' };
   }
+
   try {
     const regex = new RegExp(compiled, 'i');
-    const match = sampleLogLine.value.match(regex);
+    const match = sample.match(regex);
     if (!match) {
-      return { matches: false };
+      return { matches: false, reason: 'No match for sample.' };
     }
+
     const looter = match.groups?.looter ?? match[1];
     const item = match.groups?.item ?? match[2];
-    const method = match.groups?.method ?? match[3];
-    const normalizedMethod = method
-      ? method
-          .trim()
-          .replace(/^./, (char) => char.toUpperCase())
+    const methodRaw = match.groups?.method ?? match[3];
+    const displayMethod = methodRaw
+      ? methodRaw.trim().replace(/^./, (char) => char.toUpperCase())
       : undefined;
+    const normalizedMethod = normalizeMethodName(methodRaw);
+
+    if (
+      normalizedMethod &&
+      Array.isArray(pattern.ignoredMethods) &&
+      pattern.ignoredMethods.some((ignored) => normalizeMethodName(ignored) === normalizedMethod)
+    ) {
+      return {
+        matches: false,
+        ignored: true,
+        reason: 'Matches sample line, but the loot method is currently ignored.'
+      };
+    }
+
     return {
       matches: true,
       looter: looter?.trim(),
       item: item?.trim(),
-      method: normalizedMethod
+      method: displayMethod
     };
   } catch (err) {
-    return { matches: false, error: String(err) };
+    return {
+      matches: false,
+      reason: 'Invalid pattern. Check your placeholders.',
+      error: err instanceof Error ? err.message : String(err)
+    };
   }
 }
 
@@ -1846,11 +2992,71 @@ function processLogContent(
     return;
   }
 
-  const newRows = transformParsedEvents(parsed, emoji);
+  const manualEntries: ParsedLootEvent[] = [];
+  const autoKept: ParsedLootEvent[] = [];
+  const autoDiscarded: ParsedLootEvent[] = [];
+  const patternLookup = new Map<string, GuildLootParserPattern>();
+  for (const pattern of patterns) {
+    patternLookup.set(pattern.id, pattern);
+  }
+
+  for (const entry of parsed) {
+    const key = buildParsedEventKey(entry);
+    if (processedLogKeys.has(key)) {
+      continue;
+    }
+
+    const matchedPattern = entry.patternId ? patternLookup.get(entry.patternId) : undefined;
+    if (shouldIgnoreByMethod(matchedPattern, entry.method)) {
+      processedLogKeys.add(key);
+      appendDebugLog('Ignored loot due to method filter', {
+        method: entry.method ?? null,
+        patternId: entry.patternId
+      });
+      continue;
+    }
+
+    const candidateName = entry.itemName ?? entry.looter ?? null;
+    const normalizedName = candidateName ? normalizeLootItemName(candidateName) : null;
+    const itemId = entry.itemId ?? null;
+
+    const whitelistMatch = matchesLootListEntry(whitelistLookup.value, itemId, normalizedName);
+    if (whitelistMatch) {
+      processedLogKeys.add(key);
+      autoKept.push({
+        ...entry,
+        itemName: candidateName ?? 'Unknown Item',
+        looter: entry.looter ?? entry.itemName ?? 'Unknown'
+      });
+      continue;
+    }
+
+    const blacklistMatch = matchesLootListEntry(blacklistLookup.value, itemId, normalizedName);
+    if (blacklistMatch) {
+      processedLogKeys.add(key);
+      autoDiscarded.push(entry);
+      continue;
+    }
+
+    manualEntries.push(entry);
+  }
+
+  if (autoKept.length > 0) {
+    void persistAutoKeptLoot(autoKept, emoji);
+    appendDebugLog('Automatically kept whitelisted loot', { count: autoKept.length });
+  }
+
+  if (autoDiscarded.length > 0) {
+    appendDebugLog('Automatically discarded blacklisted loot', { count: autoDiscarded.length });
+  }
+
+  const newRows = transformParsedEvents(manualEntries, emoji);
   if (newRows.length === 0) {
     appendDebugLog('Parsing completed with no new loot rows', {
       parsedCount: parsed.length,
-      appended: options.append
+      appended: options.append,
+      autoKept: autoKept.length,
+      autoDiscarded: autoDiscarded.length
     });
     return;
   }
@@ -1866,35 +3072,88 @@ function processLogContent(
   appendDebugLog('Parsing completed', {
     parsedCount: parsed.length,
     appended: options.append,
-    addedRows: newRows.length
+    addedRows: newRows.length,
+    autoKept: autoKept.length,
+    autoDiscarded: autoDiscarded.length
   });
 }
 
 function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): ParsedRow[] {
+  const patternLookup = new Map<string, GuildLootParserPattern>();
+  for (const pattern of getPatternsForParsing()) {
+    patternLookup.set(pattern.id, pattern);
+  }
   const rows: ParsedRow[] = [];
   for (const entry of parsed) {
     const key = buildParsedEventKey(entry);
     if (processedLogKeys.has(key)) {
       continue;
     }
+    const matchedPattern = entry.patternId ? patternLookup.get(entry.patternId) : undefined;
+    if (shouldIgnoreByMethod(matchedPattern, entry.method)) {
+      appendDebugLog('Ignored detected loot row due to method filter', {
+        method: entry.method ?? null,
+        patternId: entry.patternId
+      });
+      continue;
+    }
     processedLogKeys.add(key);
+    const itemName = entry.itemName ?? entry.looter ?? 'Unknown Item';
+    const looterName = entry.looter ?? entry.itemName ?? 'Unknown';
     rows.push({
       id: `parsed-${processedLogKeys.size}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: entry.timestamp,
       rawLine: entry.rawLine,
-      itemName: entry.itemName ?? entry.looter ?? 'Unknown Item',
-      looterName: entry.looter ?? entry.itemName ?? 'Unknown',
+      itemName,
+      itemId: entry.itemId ?? null,
+      looterName,
       emoji,
-      keep: true
+      disposition: 'KEEP'
     });
   }
   return rows;
+}
+
+function shouldIgnoreByMethod(
+  pattern: GuildLootParserPattern | undefined,
+  method: string | null | undefined
+) {
+  if (!pattern?.ignoredMethods || pattern.ignoredMethods.length === 0) {
+    return false;
+  }
+  const methodNormalized = normalizeMethodName(method);
+  if (!methodNormalized) {
+    return false;
+  }
+  return pattern.ignoredMethods.some(
+    (ignored) => normalizeMethodName(ignored) === methodNormalized
+  );
 }
 
 function buildParsedEventKey(entry: ParsedLootEvent) {
   const timestamp = entry.timestamp ? entry.timestamp.toISOString() : 'unknown';
   return `${timestamp}::${entry.rawLine}`;
 }
+
+const formatLooterLabel = (name: string, looterClass?: string | null) => {
+  const classLabel = formatCharacterClassLabel(looterClass);
+  return classLabel ? `${name} (${classLabel})` : name;
+};
+
+const formatCharacterClassLabel = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const upper = normalized.toUpperCase() as CharacterClass;
+  if (upper in characterClassLabels) {
+    return characterClassLabels[upper];
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+};
 
 function computeLogWindowStats(content: string, start: Date, end?: Date) {
   const lines = content.split(/\r?\n/);
@@ -1989,7 +3248,9 @@ function ensureAwardingPatterns(patterns: GuildLootParserPattern[]) {
   if (!Array.isArray(patterns) || patterns.length === 0) {
     return defaultRegexPatterns;
   }
-  const hasAwarding = patterns.some((pattern) => pattern.pattern?.includes('has\\s+been\\s+awarded'));
+  const hasAwarding = patterns.some((pattern) =>
+    pattern.pattern?.includes('has\\s+been\\s+awarded')
+  );
   if (hasAwarding) {
     return patterns;
   }
@@ -2003,11 +3264,15 @@ function preparePatternsForParsing(patterns: GuildLootParserPattern[]) {
   const merged = ensureAwardingPatterns(patterns);
   return merged.map((pattern) => ({
     ...pattern,
-    pattern: pattern.pattern.includes('{') ? convertPlaceholdersToRegex(pattern.pattern) : pattern.pattern
+    ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods ?? []),
+    pattern: pattern.pattern.includes('{')
+      ? convertPlaceholdersToRegex(pattern.pattern)
+      : pattern.pattern
   }));
 }
 
-const consoleTimestampRegex = /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
+const consoleTimestampRegex =
+  /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
 
 function appendDebugLog(message: string, context?: Record<string, unknown>) {
   const entry: DebugLogEntry = {
@@ -2128,6 +3393,9 @@ function openAllaSearch(itemName: string) {
 onMounted(() => {
   window.addEventListener('beforeunload', handleBeforeUnload);
   window.addEventListener('keydown', handleRefreshShortcut);
+  window.addEventListener('click', handleGlobalPointerDown);
+  window.addEventListener('contextmenu', handleGlobalPointerDown);
+  window.addEventListener('keydown', handleLootContextMenuKey);
   loadData();
 });
 
@@ -2136,6 +3404,10 @@ onBeforeRouteLeave(handleBeforeRouteLeave);
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload);
   window.removeEventListener('keydown', handleRefreshShortcut);
+  window.removeEventListener('click', handleGlobalPointerDown);
+  window.removeEventListener('contextmenu', handleGlobalPointerDown);
+  window.removeEventListener('keydown', handleLootContextMenuKey);
+  window.removeEventListener('keydown', handleDetectedModalKeydown);
   stopMonitorStatusPolling();
   if (monitorSession.value?.isOwner) {
     void stopActiveMonitor();
@@ -2307,7 +3579,10 @@ onBeforeUnmount(() => {
   padding: 2rem;
   text-align: center;
   color: #94a3b8;
-  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .upload-drop--active {
@@ -2393,18 +3668,118 @@ onBeforeUnmount(() => {
   padding: 0.4rem;
 }
 
-.toggle-keep {
+.disposition-buttons {
+  display: inline-flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.disposition-button {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.65);
+  border-radius: 0.6rem;
+  padding: 0.3rem 0.55rem;
+  color: #e2e8f0;
   font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  transition:
+    transform 0.12s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.toggle-keep input {
-  width: 18px;
-  height: 18px;
+.disposition-button:hover:not(:disabled),
+.disposition-button:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(96, 165, 250, 0.4);
+  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.3);
+}
+
+.disposition-button--selected {
+  border-color: rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.15);
+  box-shadow: 0 10px 20px rgba(56, 189, 248, 0.25);
+}
+
+.disposition-button--keep.disposition-button--selected {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.disposition-button--discard.disposition-button--selected {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.disposition-button--whitelist.disposition-button--selected {
+  border-color: rgba(250, 204, 21, 0.6);
+  background: rgba(250, 204, 21, 0.22);
+}
+
+.disposition-button--blacklist.disposition-button--selected {
+  border-color: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.disposition-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.disposition-button__icon {
+  font-size: 0.95rem;
+}
+
+.loot-context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.8rem;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.loot-context-menu__header {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #f8fafc;
+  margin-bottom: 0.25rem;
+}
+
+.loot-context-menu__action {
+  background: transparent;
+  border: none;
+  color: #cbd5f5;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  border-radius: 0.5rem;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.loot-context-menu__action:hover,
+.loot-context-menu__action:focus-visible {
+  background: rgba(59, 130, 246, 0.2);
+  color: #f8fafc;
+}
+
+.loot-context-menu__action--remove {
+  color: #fca5a5;
+}
+
+.loot-context-menu__action--remove:hover,
+.loot-context-menu__action--remove:focus-visible {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fee2e2;
 }
 
 .loot-grid {
@@ -2424,7 +3799,10 @@ onBeforeUnmount(() => {
   gap: 0.5rem;
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.35);
   position: relative;
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   cursor: pointer;
 }
 
@@ -2446,6 +3824,20 @@ onBeforeUnmount(() => {
   border-radius: 0.65rem;
   font-weight: 700;
   font-size: 0.85rem;
+}
+
+.loot-card__badge {
+  position: absolute;
+  bottom: 0.55rem;
+  right: 0.75rem;
+  font-size: 0.95rem;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.5));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.loot-card__badge--whitelist {
+  color: #facc15;
 }
 
 .loot-card__header {
@@ -2675,7 +4067,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.85rem;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
   text-align: left;
   color: inherit;
 }
@@ -2725,6 +4120,24 @@ onBeforeUnmount(() => {
 .upload-mode-button__text small {
   font-size: 0.8rem;
   color: rgba(226, 232, 240, 0.8);
+}
+
+.clear-loot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.edit-loot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.edit-loot-form .form__field span {
+  font-weight: 600;
 }
 
 .leave-monitor-actions {
@@ -2845,7 +4258,6 @@ onBeforeUnmount(() => {
   padding: 0.5rem;
   color: #e2e8f0;
 }
-
 
 .manual-form {
   display: flex;
@@ -3076,6 +4488,55 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
 }
 
+.pattern-method-ignore {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.method-input {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.method-input__field {
+  flex: 1;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  color: #e2e8f0;
+}
+
+.method-pill-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.method-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  color: #dbeafe;
+  font-size: 0.75rem;
+}
+
+.method-pill__remove {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
 .pattern-card__header {
   display: flex;
   gap: 0.5rem;
@@ -3212,7 +4673,9 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 0.2rem;
   border-radius: 0.4rem;
-  transition: color 0.2s ease, background 0.2s ease;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
 }
 
 .icon-button--delete {
@@ -3230,52 +4693,14 @@ onBeforeUnmount(() => {
   left: -9999px;
 }
 </style>
-.detected-controls {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.detected-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 600;
-}
-
-.detected-control--keep {
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(16, 185, 129, 0.9));
-  border: none;
-  color: #f0fdf4;
-  box-shadow: 0 10px 18px rgba(16, 185, 129, 0.35);
-}
-
-.detected-control--discard {
-  background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(239, 68, 68, 0.9));
-  border: none;
-  color: #fff1f2;
-  box-shadow: 0 10px 18px rgba(248, 113, 113, 0.35);
-}
-
-.detected-control:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.detected-save-button {
-  min-width: 240px;
-  font-size: 1rem;
-  padding: 0.85rem 1.75rem;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.95));
-  border: none;
-  color: #eff6ff;
-  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.35);
-}
-
-.detected-save-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  box-shadow: none;
-}
+.detected-controls { display: flex; justify-content: flex-end; gap: 0.75rem; margin-bottom: 0.75rem;
+} .detected-control { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; }
+.detected-control--keep { background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(16, 185,
+129, 0.9)); border: none; color: #f0fdf4; box-shadow: 0 10px 18px rgba(16, 185, 129, 0.35); }
+.detected-control--discard { background: linear-gradient(135deg, rgba(248, 113, 113, 0.85),
+rgba(239, 68, 68, 0.9)); border: none; color: #fff1f2; box-shadow: 0 10px 18px rgba(248, 113, 113,
+0.35); } .detected-control:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+.detected-save-button { min-width: 240px; font-size: 1rem; padding: 0.85rem 1.75rem; background:
+linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.95)); border: none; color:
+#eff6ff; box-shadow: 0 12px 28px rgba(14, 165, 233, 0.35); } .detected-save-button:disabled {
+opacity: 0.6; cursor: not-allowed; box-shadow: none; }

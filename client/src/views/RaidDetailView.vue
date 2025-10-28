@@ -198,20 +198,79 @@
           role="button"
           tabindex="0"
           @click="openAllaSearch(entry.itemName)"
+          @contextmenu.prevent="openLootContextMenu($event, entry)"
           @keyup.enter="openAllaSearch(entry.itemName)"
         >
+          <span
+            v-if="entry.isWhitelisted"
+            class="raid-loot-card__badge raid-loot-card__badge--whitelist"
+            title="Whitelisted"
+            aria-label="Whitelisted item"
+          >
+            ⭐
+          </span>
           <div class="raid-loot-card__count">{{ entry.count }}×</div>
           <header class="raid-loot-card__header">
             <span class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
             <div>
               <p class="raid-loot-card__item">{{ entry.itemName }}</p>
-              <p class="raid-loot-card__looter">{{ entry.looterName }} <span v-if="entry.looterClass">({{ entry.looterClass }})</span></p>
+              <p class="raid-loot-card__looter">{{ formatLooterLabel(entry.looterName, entry.looterClass) }}</p>
             </div>
           </header>
           <p v-if="entry.note" class="raid-loot-card__note">{{ entry.note }}</p>
         </article>
       </div>
     </section>
+
+    <div
+      v-if="lootContextMenu.visible"
+    class="loot-context-menu"
+    :style="{ top: `${lootContextMenu.y}px`, left: `${lootContextMenu.x}px` }"
+    @contextmenu.prevent
+    @click.stop
+  >
+    <header class="loot-context-menu__header">{{ lootContextMenu.itemName }}</header>
+    <button
+      v-if="canManageLootLists"
+      class="loot-context-menu__action"
+      type="button"
+      @click="handleEditLootClick"
+    >
+      Edit Loot…
+    </button>
+    <button
+      v-if="!lootContextMenu.whitelistEntry"
+      class="loot-context-menu__action"
+      type="button"
+      @click="addItemToLootList('WHITELIST')"
+      >
+        Add to Whitelist
+      </button>
+      <button
+        v-else
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="removeItemFromLootList('WHITELIST')"
+      >
+        Remove from Whitelist
+      </button>
+      <button
+        v-if="!lootContextMenu.blacklistEntry"
+        class="loot-context-menu__action"
+        type="button"
+        @click="addItemToLootList('BLACKLIST')"
+      >
+        Add to Blacklist
+      </button>
+      <button
+        v-else
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="removeItemFromLootList('BLACKLIST')"
+      >
+        Remove from Blacklist
+      </button>
+    </div>
 
       </section>
   <p v-else class="muted">Loading raid…</p>
@@ -225,6 +284,57 @@
     @discard="handleRosterModalDiscard"
     @save="handleRosterModalSave"
   />
+  <div v-if="editLootModal.visible" class="modal-backdrop">
+    <div class="modal">
+      <header class="modal__header">
+        <div>
+          <h3>Edit Loot Entry</h3>
+          <p class="muted small">Adjust the assignee or quantity for this loot record.</p>
+        </div>
+        <button class="icon-button" type="button" :disabled="editLootModal.saving" @click="closeEditLootModal">
+          ✕
+        </button>
+      </header>
+      <form class="edit-loot-form" @submit.prevent="saveEditedLoot">
+        <label class="form__field">
+          <span>Item</span>
+          <input type="text" :value="editLootModal.entry?.itemName ?? ''" disabled />
+        </label>
+        <label class="form__field">
+          <span>Assigned To</span>
+          <input
+            v-model="editLootModal.form.looterName"
+            type="text"
+            required
+            :disabled="editLootModal.saving"
+          />
+        </label>
+        <label class="form__field">
+          <span>Quantity</span>
+          <input
+            v-model.number="editLootModal.form.count"
+            type="number"
+            min="1"
+            required
+            :disabled="editLootModal.saving"
+          />
+        </label>
+        <footer class="form__actions">
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            :disabled="editLootModal.saving"
+            @click="closeEditLootModal"
+          >
+            Cancel
+          </button>
+          <button class="btn btn--modal-primary" type="submit" :disabled="editLootModal.saving">
+            {{ editLootModal.saving ? 'Saving…' : 'Save Changes' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
   <AttendanceEventModal
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
@@ -251,12 +361,20 @@ import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import { api } from '../services/api';
+import { characterClassLabels, type CharacterClass } from '../services/types';
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
+  GuildLootListEntry,
+  GuildLootListSummary,
   RaidDetail,
   RaidLootEvent
 } from '../services/api';
+import {
+  buildLootListLookup,
+  matchesLootListEntry,
+  normalizeLootItemName
+} from '../utils/lootLists';
 
 const route = useRoute();
 const router = useRouter();
@@ -280,16 +398,37 @@ const pendingAttendanceEventId = ref<string | null>(
     : null
 );
 const lastAutoOpenedAttendanceId = ref<string | null>(null);
-const groupedLoot = computed(() => {
-  const grouped = new Map<string, {
-    id: string;
-    itemName: string;
-    looterName: string;
-    looterClass?: string | null;
-    emoji?: string | null;
-    note?: string | null;
-    count: number;
-  }>();
+const lootListSummary = ref<GuildLootListSummary | null>(null);
+const whitelistLookup = computed(() =>
+  buildLootListLookup(lootListSummary.value?.whitelist ?? [])
+);
+const blacklistLookup = computed(() =>
+  buildLootListLookup(lootListSummary.value?.blacklist ?? [])
+);
+interface GroupedLootEntry {
+  id: string;
+  itemName: string;
+  looterName: string;
+  looterClass?: string | null;
+  emoji?: string | null;
+  note?: string | null;
+  count: number;
+  eventIds: string[];
+  isWhitelisted: boolean;
+}
+const lootContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  itemName: '',
+  itemId: null as number | null,
+  normalizedName: '',
+  whitelistEntry: null as GuildLootListEntry | null,
+  blacklistEntry: null as GuildLootListEntry | null,
+  entry: null as GroupedLootEntry | null
+});
+const groupedLoot = computed<GroupedLootEntry[]>(() => {
+  const grouped = new Map<string, GroupedLootEntry>();
   for (const event of lootEvents.value) {
     const key = `${event.looterName}::${event.itemName}`;
     if (!grouped.has(key)) {
@@ -300,12 +439,27 @@ const groupedLoot = computed(() => {
         looterClass: event.looterClass,
         emoji: event.emoji,
         note: event.note,
-        count: 0
+        count: 0,
+        eventIds: [],
+        isWhitelisted: false
       });
     }
-    grouped.get(key)!.count += 1;
+    const entry = grouped.get(key)!;
+    entry.count += 1;
+    entry.eventIds.push(event.id);
   }
-  return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
+  const whitelistLookupValue = whitelistLookup.value;
+  return Array.from(grouped.values())
+    .map((entry) => {
+      const normalized = normalizeLootItemName(entry.itemName);
+      return {
+        ...entry,
+        isWhitelisted: Boolean(
+          matchesLootListEntry(whitelistLookupValue, null, normalized)
+        )
+      };
+    })
+    .sort((a, b) => b.count - a.count);
 });
 
 function openAllaSearch(itemName: string) {
@@ -314,6 +468,27 @@ function openAllaSearch(itemName: string) {
   const url = `${base}&iname=${encodeURIComponent(itemName)}`;
   window.open(url, '_blank');
 }
+
+const formatLooterLabel = (name: string, looterClass?: string | null) => {
+  const classLabel = formatCharacterClassLabel(looterClass);
+  return classLabel ? `${name} (${classLabel})` : name;
+};
+
+const formatCharacterClassLabel = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    return null;
+  }
+  const upper = normalized.toUpperCase() as CharacterClass;
+  if (upper in characterClassLabels) {
+    return characterClassLabels[upper];
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+};
+
 const startedAtInput = ref('');
 const endedAtInput = ref('');
 const initialStartedAt = ref('');
@@ -336,6 +511,22 @@ let shareStatusTimeout: ReturnType<typeof setTimeout> | null = null;
 let confirmResolver: ((value: boolean) => void) | null = null;
 const actionError = ref<string | null>(null);
 const pendingEventTypes = ref<Array<'START' | 'END' | 'RESTART'>>([]);
+const editLootModal = reactive<{
+  visible: boolean;
+  entry: GroupedLootEntry | null;
+  form: { looterName: string; count: number };
+  saving: boolean;
+}>(
+  {
+    visible: false,
+    entry: null,
+    form: {
+      looterName: '',
+      count: 1
+    },
+    saving: false
+  }
+);
 const hasEffectiveStarted = computed(() => {
   const startedAt = raid.value?.startedAt;
   if (!startedAt) {
@@ -354,6 +545,10 @@ const canManageRaid = computed(() => {
   }
 
   const role = permissions.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
+const canManageLootLists = computed(() => {
+  const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
 const hasEffectiveEnded = computed(() => {
@@ -398,6 +593,7 @@ async function loadRaid() {
   raid.value = data;
   setTimingInputs(data);
   actionError.value = null;
+  await refreshLootListSummary();
 }
 
 async function loadLoot() {
@@ -405,6 +601,239 @@ async function loadLoot() {
     lootEvents.value = await api.fetchRaidLoot(raidId);
   } catch (error) {
     console.warn('Failed to load loot events', error);
+  }
+}
+
+async function refreshLootListSummary() {
+  if (!raid.value || !canManageLootLists.value) {
+    lootListSummary.value = null;
+    return;
+  }
+
+  try {
+    lootListSummary.value = await api.fetchGuildLootListSummary(raid.value.guild.id);
+  } catch (error) {
+    console.warn('Failed to load loot list summary', error);
+  }
+}
+
+function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
+  if (!canManageLootLists.value) {
+    return;
+  }
+  event.preventDefault();
+  const normalizedName = normalizeLootItemName(entry.itemName);
+  const whitelistEntry = matchesLootListEntry(whitelistLookup.value, null, normalizedName);
+  const blacklistEntry = matchesLootListEntry(blacklistLookup.value, null, normalizedName);
+  const menuWidth = 220;
+  const menuHeight = 160;
+  const x = Math.min(event.clientX, window.innerWidth - menuWidth);
+  const y = Math.min(event.clientY, window.innerHeight - menuHeight);
+  Object.assign(lootContextMenu, {
+    visible: true,
+    x,
+    y,
+    itemName: entry.itemName,
+    itemId: whitelistEntry?.itemId ?? blacklistEntry?.itemId ?? null,
+    normalizedName,
+    whitelistEntry,
+    blacklistEntry,
+    entry
+  });
+}
+
+function closeLootContextMenu() {
+  lootContextMenu.visible = false;
+  lootContextMenu.entry = null;
+  lootContextMenu.whitelistEntry = null;
+  lootContextMenu.blacklistEntry = null;
+  lootContextMenu.itemId = null;
+}
+
+function handleEditLootClick() {
+  if (!lootContextMenu.entry) {
+    return;
+  }
+  openEditLootModal(lootContextMenu.entry);
+  closeLootContextMenu();
+}
+
+function handleGlobalPointerDown(event: MouseEvent) {
+  if (!lootContextMenu.visible) {
+    return;
+  }
+  const target = event.target as HTMLElement | null;
+  if (target && target.closest('.loot-context-menu')) {
+    return;
+  }
+  if (event.type === 'contextmenu' && target && target.closest('.raid-loot-card')) {
+    return;
+  }
+  closeLootContextMenu();
+}
+
+function handleLootContextMenuKey(event: KeyboardEvent) {
+  if (event.key === 'Escape' && lootContextMenu.visible) {
+    closeLootContextMenu();
+  }
+}
+
+function openEditLootModal(entry: GroupedLootEntry) {
+  editLootModal.entry = entry;
+  editLootModal.form.looterName = entry.looterName;
+  editLootModal.form.count = entry.count;
+  editLootModal.visible = true;
+  editLootModal.saving = false;
+}
+
+function closeEditLootModal(force = false) {
+  if (!force && editLootModal.saving) {
+    return;
+  }
+  editLootModal.visible = false;
+  editLootModal.entry = null;
+  editLootModal.form.looterName = '';
+  editLootModal.form.count = 1;
+  editLootModal.saving = false;
+}
+
+async function addItemToLootList(type: 'WHITELIST' | 'BLACKLIST') {
+  if (!raid.value || !canManageLootLists.value) {
+    closeLootContextMenu();
+    return;
+  }
+
+  try {
+    await api.createGuildLootListEntry(raid.value.guild.id, {
+      type,
+      itemName: lootContextMenu.itemName,
+      itemId: lootContextMenu.itemId
+    });
+    if (type === 'BLACKLIST' && lootContextMenu.entry) {
+      await removeLootGroupEvents(lootContextMenu.entry);
+    }
+    await refreshLootListSummary();
+  } catch (error) {
+    window.alert('Unable to update loot list.');
+    console.error(error);
+  } finally {
+    closeLootContextMenu();
+  }
+}
+
+async function removeLootGroupEvents(entry: GroupedLootEntry) {
+  if (!raid.value) {
+    return;
+  }
+
+  try {
+    await Promise.all(
+      entry.eventIds.map((lootId) =>
+        api.deleteRaidLoot(raidId, lootId).catch((error) => {
+          console.warn('Failed to delete loot entry', lootId, error);
+        })
+      )
+    );
+  } finally {
+    const eventIdSet = new Set(entry.eventIds);
+    lootEvents.value = lootEvents.value.filter((event) => !eventIdSet.has(event.id));
+  }
+}
+
+async function removeItemFromLootList(type: 'WHITELIST' | 'BLACKLIST') {
+  if (!raid.value || !canManageLootLists.value) {
+    closeLootContextMenu();
+    return;
+  }
+
+  const entry =
+    type === 'WHITELIST' ? lootContextMenu.whitelistEntry : lootContextMenu.blacklistEntry;
+
+  if (!entry) {
+    closeLootContextMenu();
+    return;
+  }
+
+  try {
+    await api.deleteGuildLootListEntry(raid.value.guild.id, entry.id);
+    await refreshLootListSummary();
+  } catch (error) {
+    window.alert('Unable to update loot list.');
+    console.error(error);
+  } finally {
+    closeLootContextMenu();
+  }
+}
+
+async function saveEditedLoot() {
+  if (!raid.value || !editLootModal.entry) {
+    return;
+  }
+  const newLooter = editLootModal.form.looterName.trim();
+  const newCount = Number(editLootModal.form.count);
+  if (!newLooter) {
+    window.alert('Looter name is required.');
+    return;
+  }
+  if (!Number.isFinite(newCount) || newCount < 1) {
+    window.alert('Quantity must be at least 1.');
+    return;
+  }
+
+  const entry = editLootModal.entry;
+  const currentCount = entry.count;
+  const countDiff = newCount - currentCount;
+  const emoji = entry.emoji ?? '💎';
+
+  editLootModal.saving = true;
+  try {
+    if (newLooter !== entry.looterName) {
+      await Promise.all(
+        entry.eventIds.map((lootId) =>
+          api.updateRaidLoot(raidId, lootId, { looterName: newLooter }).catch((error) => {
+            console.warn('Failed to update loot assignment', lootId, error);
+            throw error;
+          })
+        )
+      );
+    }
+
+    if (countDiff > 0) {
+      const payload = Array.from({ length: countDiff }, () => ({
+        itemName: entry.itemName,
+        looterName: newLooter,
+        emoji,
+        note: entry.note ?? undefined
+      }));
+      await api.createRaidLoot(raidId, payload);
+    } else if (countDiff < 0) {
+      const removeIds = entry.eventIds.slice(entry.eventIds.length + countDiff);
+      await Promise.all(
+        removeIds.map((lootId) =>
+          api.deleteRaidLoot(raidId, lootId).catch((error) => {
+            console.warn('Failed to delete loot entry', lootId, error);
+            throw error;
+          })
+        )
+      );
+    }
+
+    lootEvents.value = await api.fetchRaidLoot(raidId);
+    await refreshLootListSummary();
+    window.dispatchEvent(
+      new CustomEvent('loot-updated', {
+        detail: {
+          title: 'Loot Updated',
+          message: `${entry.itemName} now assigned to ${newLooter} (${newCount}×)`
+        }
+      })
+    );
+    closeEditLootModal(true);
+  } catch (error) {
+    console.error('Failed to edit loot entry', error);
+    window.alert('Unable to update loot entry. Please try again.');
+  } finally {
+    editLootModal.saving = false;
   }
 }
 
@@ -917,6 +1346,9 @@ onMounted(() => {
   loadRaid();
   loadAttendance();
   loadLoot();
+  window.addEventListener('click', handleGlobalPointerDown);
+  window.addEventListener('contextmenu', handleGlobalPointerDown);
+  window.addEventListener('keydown', handleLootContextMenuKey);
 });
 
 onUnmounted(() => {
@@ -924,6 +1356,9 @@ onUnmounted(() => {
     clearTimeout(shareStatusTimeout);
     shareStatusTimeout = null;
   }
+  window.removeEventListener('click', handleGlobalPointerDown);
+  window.removeEventListener('contextmenu', handleGlobalPointerDown);
+  window.removeEventListener('keydown', handleLootContextMenuKey);
 });
 
 async function copyRaidLink() {
@@ -1402,6 +1837,21 @@ th {
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+
+.raid-loot-card__badge {
+  position: absolute;
+  bottom: 0.55rem;
+  right: 0.75rem;
+  font-size: 0.95rem;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.5));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.raid-loot-card__badge--whitelist {
+  color: #facc15;
+}
+
 .raid-loot-card:hover,
 .raid-loot-card:focus-visible {
   transform: translateY(-2px);
@@ -1469,6 +1919,108 @@ th {
   box-shadow: 0 14px 30px rgba(148, 163, 184, 0.5);
   color: #020617;
   transform: translateY(-1px);
+}
+
+.loot-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 220px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.8rem;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.loot-context-menu__header {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #f8fafc;
+  margin-bottom: 0.25rem;
+}
+
+.loot-context-menu__action {
+  background: transparent;
+  border: none;
+  color: #cbd5f5;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  border-radius: 0.5rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.loot-context-menu__action:hover,
+.loot-context-menu__action:focus-visible {
+  background: rgba(59, 130, 246, 0.2);
+  color: #f8fafc;
+}
+
+.loot-context-menu__action--remove {
+  color: #fca5a5;
+}
+
+.loot-context-menu__action--remove:hover,
+.loot-context-menu__action--remove:focus-visible {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fee2e2;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 1.5rem;
+}
+
+.modal {
+  width: min(520px, 100%);
+  background: rgba(15, 23, 42, 0.95);
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 24px 50px rgba(15, 23, 42, 0.55);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal__header h3 {
+  margin: 0;
+}
+
+.modal__header p {
+  margin: 0.35rem 0 0;
+}
+
+.form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.edit-loot-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.edit-loot-form .form__field span {
+  font-weight: 600;
 }
 
 </style>

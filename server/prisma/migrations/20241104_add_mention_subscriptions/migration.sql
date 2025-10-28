@@ -1,2 +1,2 @@
-ALTER TABLE `GuildDiscordWebhook`
-  ADD COLUMN `mentionSubscriptions` JSON NOT NULL DEFAULT (JSON_OBJECT());
+-- Legacy migration replaced by baseline (000000000000_initial).
+-- No schema changes required.

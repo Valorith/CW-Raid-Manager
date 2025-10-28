@@ -546,11 +546,15 @@ const memberRoleFilterOptions = computed(() => {
   return base;
 });
 
+const memberRolePriority = new Map<GuildRole, number>(
+  guildRoleOrder.map((role, index) => [role, index] as [GuildRole, number])
+);
+
 const filteredMembers = computed(() => {
   const query = memberSearch.value.trim().toLowerCase();
   const roleFilter = memberRoleFilter.value;
 
-  return combinedMembers.value.filter((member) => {
+  const matches = combinedMembers.value.filter((member) => {
     const name = preferredUserName(member.user)?.toLowerCase() ?? '';
     const roleLabel = 'role' in member ? roleLabels[(member as GuildMember).role]?.toLowerCase() ?? (member as GuildMember).role.toLowerCase() : 'applicant';
     const matchesQuery = !query || name.includes(query) || roleLabel.includes(query);
@@ -568,6 +572,29 @@ const filteredMembers = computed(() => {
     }
 
     return matchesQuery && member.role === roleFilter;
+  });
+
+  if (roleFilter !== 'ALL') {
+    return matches;
+  }
+
+  const getPriority = (member: GuildMemberEntry) => {
+    if (isApplicantEntry(member)) {
+      return guildRoleOrder.length;
+    }
+
+    return memberRolePriority.get(member.role) ?? guildRoleOrder.length;
+  };
+
+  return matches.sort((a, b) => {
+    const priorityDelta = getPriority(a) - getPriority(b);
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+
+    const nameA = preferredUserName(a.user)?.toLowerCase() ?? '';
+    const nameB = preferredUserName(b.user)?.toLowerCase() ?? '';
+    return nameA.localeCompare(nameB);
   });
 });
 

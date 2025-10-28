@@ -1,3 +1,2 @@
--- AlterTable
-ALTER TABLE `RaidEvent` ADD COLUMN `endedAt` DATETIME(3) NULL,
-    ADD COLUMN `startedAt` DATETIME(3) NULL;
+-- Legacy migration replaced by baseline (000000000000_initial).
+-- No schema changes required.

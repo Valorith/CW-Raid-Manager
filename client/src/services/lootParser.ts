@@ -6,13 +6,17 @@ export interface GuildLootParserPattern {
   id: string;
   label: string;
   pattern: string;
+  ignoredMethods?: string[];
 }
 
 export interface ParsedLootEvent {
   timestamp: Date | null;
   rawLine: string;
+  itemId?: number | null;
   itemName?: string;
   looter?: string;
+  method?: string | null;
+  patternId?: string;
   context?: string;
 }
 
@@ -40,6 +44,8 @@ export function parseLootLog(
           rawLine: line,
           itemName: match.groups?.item ?? match[1],
           looter: match.groups?.looter ?? match[2],
+          method: match.groups?.method ?? match[3] ?? null,
+          patternId: pattern.id,
           context: pattern.label
         });
         break;

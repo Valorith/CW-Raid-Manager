@@ -1,6 +1,6 @@
 import axios, { AxiosResponse } from 'axios';
 
-import type { AttendanceStatus, CharacterClass, GuildRole } from './types';
+import type { AttendanceStatus, CharacterClass, GuildRole, LootListType } from './types';
 
 export interface GuildSummary {
   id: string;
@@ -92,6 +92,7 @@ export interface GuildPermissions {
   canViewDetails: boolean;
   canManageMembers: boolean;
   canViewApplicants: boolean;
+  canManageLootLists: boolean;
   userRole?: GuildRole | null;
 }
 
@@ -190,6 +191,47 @@ export interface RaidDetail extends RaidEventSummary {
   };
   attendance: AttendanceEventSummary[];
 }
+
+export type LootListMatchType = 'ITEM_ID' | 'ITEM_NAME';
+
+export interface GuildLootListEntry {
+  id: string;
+  guildId: string;
+  type: LootListType;
+  matchType: LootListMatchType;
+  itemId?: number | null;
+  itemName: string;
+  itemNameNormalized: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: {
+    id: string;
+    displayName: string;
+    nickname?: string | null;
+  } | null;
+}
+
+export interface GuildLootListSummary {
+  whitelist: GuildLootListEntry[];
+  blacklist: GuildLootListEntry[];
+}
+
+export interface GuildLootListQueryOptions {
+  type: LootListType;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: 'itemName' | 'itemId' | 'createdAt';
+  sortDirection?: 'asc' | 'desc';
+}
+
+export interface GuildLootListPage {
+  entries: GuildLootListEntry[];
+  total: number;
+  page: number;
+  totalPages: number;
+  pageSize: number;
+}
 export interface AttendanceRecordInput {
   characterId?: string;
   characterName: string;
@@ -240,9 +282,72 @@ export interface RecentAttendanceEntry {
   characters: RecentAttendanceRecord[];
 }
 
+export interface GuildLootParserPatternSettings {
+  id: string;
+  label: string;
+  pattern: string;
+  ignoredMethods: string[];
+}
+
 export interface GuildLootParserSettings {
-  patterns: Array<{ id: string; label: string; pattern: string }>;
+  patterns: GuildLootParserPatternSettings[];
   emoji: string;
+}
+
+function sanitizeMethodList(methods: unknown): string[] {
+  if (!Array.isArray(methods)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+  for (const value of methods) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const normalized = trimmed.toLowerCase();
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    sanitized.push(trimmed);
+  }
+  return sanitized;
+}
+
+function normalizeLootPattern(pattern: unknown, index: number): GuildLootParserPatternSettings {
+  const fallbackId = `pattern-${index}`;
+  const fallbackLabel = `Pattern ${index + 1}`;
+  const raw = (pattern ?? {}) as {
+    id?: unknown;
+    label?: unknown;
+    pattern?: unknown;
+    ignoredMethods?: unknown;
+  };
+  const idValue = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const labelValue = typeof raw.label === 'string' ? raw.label.trim() : '';
+  const patternValue = typeof raw.pattern === 'string' ? raw.pattern : '';
+
+  return {
+    id: idValue || fallbackId,
+    label: labelValue || fallbackLabel,
+    pattern: patternValue,
+    ignoredMethods: sanitizeMethodList(raw.ignoredMethods)
+  };
+}
+
+function normalizeLootParserSettings(raw: unknown): GuildLootParserSettings {
+  const settings = (raw ?? {}) as { patterns?: unknown; emoji?: unknown };
+  const patterns = Array.isArray(settings.patterns)
+    ? settings.patterns.map((pattern, index) => normalizeLootPattern(pattern, index))
+    : [];
+  const emoji =
+    typeof settings.emoji === 'string' && settings.emoji.trim() ? settings.emoji : '💎';
+
+  return { patterns, emoji };
 }
 
 export interface RaidLootEvent {
@@ -666,6 +771,65 @@ export const api = {
     await axios.delete(`/api/raids/${raidId}/loot`);
   },
 
+  async fetchGuildLootListSummary(guildId: string): Promise<GuildLootListSummary> {
+    const response = await axios.get(`/api/guilds/${guildId}/loot-lists/summary`);
+    return {
+      whitelist: Array.isArray(response.data.whitelist) ? response.data.whitelist : [],
+      blacklist: Array.isArray(response.data.blacklist) ? response.data.blacklist : []
+    };
+  },
+
+  async fetchGuildLootListPage(
+    guildId: string,
+    options: GuildLootListQueryOptions
+  ): Promise<GuildLootListPage> {
+    const response = await axios.get(`/api/guilds/${guildId}/loot-lists`, {
+      params: {
+        type: options.type,
+        search: options.search || undefined,
+        page: options.page ?? 1,
+        pageSize: options.pageSize ?? 25,
+        sortBy: options.sortBy ?? 'itemName',
+        sortDirection: options.sortDirection ?? 'asc'
+      }
+    });
+    return {
+      entries: Array.isArray(response.data.entries) ? response.data.entries : [],
+      total: response.data.total ?? 0,
+      page: response.data.page ?? 1,
+      totalPages: response.data.totalPages ?? 1,
+      pageSize: response.data.pageSize ?? (options.pageSize ?? 25)
+    };
+  },
+
+  async createGuildLootListEntry(
+    guildId: string,
+    payload: { type: LootListType; itemName: string; itemId?: number | null }
+  ): Promise<GuildLootListEntry> {
+    const response = await axios.post(`/api/guilds/${guildId}/loot-lists`, {
+      type: payload.type,
+      itemName: payload.itemName,
+      itemId: payload.itemId ?? null
+    });
+    return response.data.entry;
+  },
+
+  async updateGuildLootListEntry(
+    guildId: string,
+    entryId: string,
+    payload: { type?: LootListType; itemName?: string; itemId?: number | null }
+  ): Promise<GuildLootListEntry> {
+    const response = await axios.patch(`/api/guilds/${guildId}/loot-lists/${entryId}`, {
+      ...payload,
+      itemId: payload.itemId ?? (payload.itemId === null ? null : undefined)
+    });
+    return response.data.entry;
+  },
+
+  async deleteGuildLootListEntry(guildId: string, entryId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/loot-lists/${entryId}`);
+  },
+
   async fetchRecentLoot(page = 1, limit = 6): Promise<{
     loot: RecentLootEntry[];
     page: number;
@@ -685,12 +849,22 @@ export const api = {
 
   async fetchGuildLootSettings(guildId: string): Promise<GuildLootParserSettings> {
     const response = await axios.get(`/api/guilds/${guildId}/loot-settings`);
-    return response.data.settings ?? { patterns: [], emoji: '💎' };
+    return normalizeLootParserSettings(response.data.settings);
   },
 
   async updateGuildLootSettings(guildId: string, payload: GuildLootParserSettings) {
-    const response = await axios.put(`/api/guilds/${guildId}/loot-settings`, payload);
-    return response.data.settings;
+    const requestPayload: GuildLootParserSettings = {
+      emoji: payload.emoji,
+      patterns: payload.patterns.map((pattern, index) => ({
+        id: pattern.id || `pattern-${index}`,
+        label: pattern.label || `Pattern ${index + 1}`,
+        pattern: pattern.pattern,
+        ignoredMethods: sanitizeMethodList(pattern.ignoredMethods)
+      }))
+    };
+
+    const response = await axios.put(`/api/guilds/${guildId}/loot-settings`, requestPayload);
+    return normalizeLootParserSettings(response.data.settings);
   },
 
   async updateRaid(

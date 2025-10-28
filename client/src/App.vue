@@ -144,6 +144,14 @@ function handleLootAssigned(event: CustomEvent<{ raidId: string; itemName?: stri
   });
 }
 
+function handleLootUpdated(event: CustomEvent<{ title?: string; message?: string }>) {
+  const detail = event.detail ?? {};
+  addToast({
+    title: detail.title ?? 'Loot Updated',
+    message: detail.message ?? 'Loot entry updated successfully.'
+  });
+}
+
 async function logout() {
   await authStore.logout();
 }
@@ -154,13 +162,15 @@ onMounted(async () => {
     await loadActiveRaid(primaryGuild.value.id);
   }
 
-  window.addEventListener('active-raid-updated', handleActiveRaidEvent);
-  window.addEventListener('loot-assigned', handleLootAssigned as EventListener);
+window.addEventListener('active-raid-updated', handleActiveRaidEvent);
+window.addEventListener('loot-assigned', handleLootAssigned as EventListener);
+window.addEventListener('loot-updated', handleLootUpdated as EventListener);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
-  window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
+window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
+window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
+window.removeEventListener('loot-updated', handleLootUpdated as EventListener);
 });
 
 watch(

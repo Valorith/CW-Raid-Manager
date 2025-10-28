@@ -14,13 +14,20 @@ export interface LootEventInput {
   note?: string | null;
 }
 
+type ParserPattern = {
+  id: string;
+  label: string;
+  pattern: string;
+  ignoredMethods?: string[];
+};
+
 const DEFAULT_PATTERN_PHRASES = [
   '{timestamp} {item} has been awarded to {looter} by the {method}.',
   '{timestamp} {item} has been awarded to {looter} by {method}.',
   '{timestamp} {item} has been donated to the Master Looter\'s guild.'
 ];
 
-const DEFAULT_LOOT_PATTERNS = DEFAULT_PATTERN_PHRASES.map((phrase, index) => {
+const DEFAULT_LOOT_PATTERNS: ParserPattern[] = DEFAULT_PATTERN_PHRASES.map((phrase, index) => {
   const mapping = [
     { id: 'standard-master-looter', label: 'Awarded by Master Looter / Loot Council' },
     { id: 'standard-random-roll', label: 'Awarded by random roll' },
@@ -29,7 +36,8 @@ const DEFAULT_LOOT_PATTERNS = DEFAULT_PATTERN_PHRASES.map((phrase, index) => {
   return {
     id: mapping?.id ?? `default-${index}`,
     label: mapping?.label ?? `Pattern ${index + 1}`,
-    pattern: convertPlaceholdersToRegex(phrase)
+    pattern: convertPlaceholdersToRegex(phrase),
+    ignoredMethods: []
   };
 });
 
@@ -37,13 +45,37 @@ const DEFAULT_LOOT_EMOJI = '💎';
 const LEGACY_LOOT_PATTERN_FRAGMENT = '(?:loots|obtains|picks up)';
 const AWARDING_PATTERN_FRAGMENT = 'has\\s+been\\s+awarded';
 
+function sanitizeIgnoredMethods(methods: unknown): string[] {
+  if (!Array.isArray(methods)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+  for (const method of methods) {
+    if (typeof method !== 'string') {
+      continue;
+    }
+    const trimmed = method.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const normalized = trimmed.toLowerCase();
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    sanitized.push(trimmed);
+  }
+  return sanitized;
+}
+
 export async function getGuildLootParserSettings(guildId: string) {
   const settings = await prisma.guildLootParserSettings.findUnique({ where: { guildId } });
   return normalizeParserSettings(settings);
 }
 
 export async function updateGuildLootParserSettings(guildId: string, input: {
-  patterns: Array<{ id: string; label: string; pattern: string }>;
+  patterns: Array<{ id: string; label: string; pattern: string; ignoredMethods?: string[] }>;
   emoji?: string | null;
 }) {
   const cleanedPatterns = Array.isArray(input.patterns)
@@ -52,7 +84,8 @@ export async function updateGuildLootParserSettings(guildId: string, input: {
         return {
           id: pattern.id || `pattern-${index}`,
           label: pattern.label || `Pattern ${index + 1}`,
-          pattern: compiledPattern || DEFAULT_LOOT_PATTERNS[0].pattern
+          pattern: compiledPattern || DEFAULT_LOOT_PATTERNS[0].pattern,
+          ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods)
         };
       })
     : DEFAULT_LOOT_PATTERNS;
@@ -214,10 +247,19 @@ function normalizeParserSettings(record: GuildLootParserSettings | null) {
     };
   }
 
-  const patterns = Array.isArray(record.patterns) && record.patterns.length > 0 ? (record.patterns as Array<{ id: string; label: string; pattern: string }>) : DEFAULT_LOOT_PATTERNS;
+  const rawPatterns =
+    Array.isArray(record.patterns) && record.patterns.length > 0
+      ? (record.patterns as ParserPattern[])
+      : DEFAULT_LOOT_PATTERNS;
+
+  const sanitizedPatterns = rawPatterns.map((pattern) => ({
+    ...pattern,
+    pattern: typeof pattern.pattern === 'string' ? pattern.pattern : DEFAULT_LOOT_PATTERNS[0].pattern,
+    ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods)
+  }));
 
   return {
-    patterns: mergeWithAwardingDefaults(patterns),
+    patterns: mergeWithAwardingDefaults(sanitizedPatterns),
     emoji: record.emoji ?? DEFAULT_LOOT_EMOJI
   };
 }
@@ -225,7 +267,7 @@ function normalizeParserSettings(record: GuildLootParserSettings | null) {
 export const defaultLootPatterns = DEFAULT_LOOT_PATTERNS;
 export const defaultLootEmoji = DEFAULT_LOOT_EMOJI;
 
-function mergeWithAwardingDefaults(patterns: Array<{ id: string; label: string; pattern: string }>) {
+function mergeWithAwardingDefaults(patterns: ParserPattern[]) {
   const hasAwardingPattern = patterns.some((pattern) => pattern.pattern?.includes(AWARDING_PATTERN_FRAGMENT));
   if (hasAwardingPattern) {
     return patterns;
