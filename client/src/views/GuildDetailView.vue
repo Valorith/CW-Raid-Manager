@@ -51,10 +51,19 @@
             <button
               v-for="role in memberRoleFilterOptions"
               :key="role"
-              :class="['member-filter-button', { 'member-filter-button--active': memberRoleFilter === role }]"
+              :class="[
+                'member-filter-button',
+                {
+                  'member-filter-button--active': memberRoleFilter === role,
+                  'member-filter-button--applicants': role === 'APPLICANT' && hasPendingApplicants
+                }
+              ]"
               @click="memberRoleFilter = role"
             >
               {{ formatMemberFilterLabel(role) }}
+              <span v-if="role === 'APPLICANT' && hasPendingApplicants" class="sr-only">
+                Pending guild applications awaiting approval
+              </span>
             </button>
           </div>
         </div>
@@ -527,6 +536,13 @@ const applicantEntries = computed<ApplicantMember[]>(() => {
     user: application.user,
     isApplicant: true
   }));
+});
+
+const hasPendingApplicants = computed(() => {
+  if (!canViewApplicants.value) {
+    return false;
+  }
+  return (guild.value?.applicants?.length ?? 0) > 0;
 });
 
 const combinedMembers = computed<GuildMemberEntry[]>(() => {
@@ -1748,6 +1764,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
+  position: relative;
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
@@ -1765,6 +1782,46 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.25);
   border-color: rgba(59, 130, 246, 0.55);
   color: #f8fafc;
+}
+
+.member-filter-button--applicants {
+  padding-right: 1.75rem;
+}
+
+.member-filter-button--applicants::after {
+  content: '!';
+  position: absolute;
+  top: 50%;
+  right: 0.2rem;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  color: #facc15;
+  font-size: 1.45rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: 0 0 8px rgba(250, 204, 21, 0.9), 0 0 18px rgba(250, 204, 21, 0.65);
+  pointer-events: none;
+}
+
+.member-filter-button--active.member-filter-button--applicants::after {
+  text-shadow: 0 0 12px rgba(250, 204, 21, 0.95), 0 0 24px rgba(250, 204, 21, 0.7);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .roster-filter-buttons {

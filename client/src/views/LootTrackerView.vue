@@ -13,7 +13,7 @@
           Back to Raid
         </RouterLink>
         <button
-          v-if="canManageLoot"
+          v-if="canViewParserSettings"
           class="btn btn--outline btn--settings"
           type="button"
           @click="showSettings = true"
@@ -53,6 +53,31 @@
       </button>
     </div>
 
+    <div class="parsing-window-spacer" aria-hidden="true"></div>
+
+    <div v-if="monitorSession && lootConsoleVisible" class="loot-console-container">
+      <button class="loot-console__suppress" type="button" @click="handleLootConsoleSuppress">
+        Suppress
+      </button>
+      <div class="loot-console-stage">
+        <div class="loot-console-background" aria-hidden="true"></div>
+        <Transition name="loot-console-transition">
+          <div
+            v-if="lootConsoleCurrent"
+            class="loot-console"
+            :class="{
+              'loot-console--accepted': lootConsoleCurrent.status === 'ACCEPTED',
+              'loot-console--rejected': lootConsoleCurrent.status === 'REJECTED'
+            }"
+            role="status"
+            aria-live="assertive"
+          >
+            <span class="loot-console__line">{{ lootConsoleCurrent.line }}</span>
+          </div>
+        </Transition>
+      </div>
+    </div>
+
     <div v-if="clearLootPrompt.visible" class="modal-backdrop">
       <div class="modal">
         <header class="modal__header">
@@ -83,18 +108,18 @@
             Go Back
           </button>
           <button
-            class="btn btn--outline btn--modal-outline"
-            type="button"
-            @click="handleClearLootPromptDecision(false)"
-          >
-            Keep Existing Loot
-          </button>
-          <button
-            class="btn btn--modal-primary"
+            class="btn btn--outline btn--modal-outline clear-loot-actions__button--danger"
             type="button"
             @click="handleClearLootPromptDecision(true)"
           >
             Clear Loot &amp; Continue
+          </button>
+          <button
+            class="btn btn--modal-primary clear-loot-actions__button--success"
+            type="button"
+            @click="handleClearLootPromptDecision(false)"
+          >
+            Keep Loot &amp; Continue
           </button>
         </footer>
       </div>
@@ -999,6 +1024,14 @@
         Edit Loot…
       </button>
       <button
+        v-if="canDeleteExistingLoot"
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="handleRemoveLootClick"
+      >
+        Remove
+      </button>
+      <button
         v-if="!lootContextMenu.whitelistEntry"
         class="loot-context-menu__action"
         type="button"
@@ -1109,6 +1142,19 @@ type LocalFileHandle = {
   queryPermission?: (descriptor?: HandlePermissionDescriptor) => Promise<PermissionState>;
 };
 
+type LootConsoleStatus = 'ACCEPTED' | 'REJECTED';
+
+interface LootConsoleItem {
+  id: string;
+  line: string;
+  status: LootConsoleStatus;
+}
+
+interface LootConsolePayload {
+  line: string;
+  status: LootConsoleStatus;
+}
+
 const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
@@ -1201,10 +1247,20 @@ const monitorController = reactive({
   lastSize: 0,
   pendingFragment: '',
   pollTimerId: null as number | null,
-  heartbeatTimerId: null as number | null
+  heartbeatTimerId: null as number | null,
+  fileSignature: null as string | null
 });
 const processedLogKeys = new Set<string>();
+const activeLogSignature = ref<string | null>(null);
+const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
 let liveChunkInFlight = false;
+const lootConsoleQueue = ref<LootConsoleItem[]>([]);
+const lootConsoleCurrent = ref<LootConsoleItem | null>(null);
+const lootConsoleTimerId = ref<number | null>(null);
+const lootConsoleCooldownId = ref<number | null>(null);
+const lootConsoleVisible = computed(
+  () => lootConsoleCurrent.value !== null || lootConsoleQueue.value.length > 0
+);
 const supportsContinuousMonitoring = computed(
   () => typeof window !== 'undefined' && typeof (window as any).showOpenFilePicker === 'function'
 );
@@ -1241,6 +1297,127 @@ const editLootModal = reactive<{
   },
   saving: false
 });
+
+function normalizeLogFileName(value?: string | null) {
+  if (!value) {
+    return 'unknown-log';
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized || 'unknown-log';
+}
+
+function buildLogSignature(fileName?: string | null) {
+  return `${raidId}::${normalizeLogFileName(fileName)}`;
+}
+
+function storageKeyForSignature(signature: string) {
+  return `${PROCESSED_LOG_STORAGE_PREFIX}:${signature}`;
+}
+
+function loadStoredProcessedKeys(signature: string) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return [] as string[];
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKeyForSignature(signature));
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.entries)
+        ? parsed.entries
+        : [];
+    return entries.filter(
+      (entry: unknown): entry is string => typeof entry === 'string' && entry.length > 0
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistStoredProcessedKeys(signature: string) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    const entries = Array.from(processedLogKeys);
+    window.localStorage.setItem(storageKeyForSignature(signature), JSON.stringify(entries));
+  } catch {
+    // Ignore persistence issues (e.g., storage quota exceeded)
+  }
+}
+
+function clearStoredProcessedKeys(signature: string) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(storageKeyForSignature(signature));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function clearStoredProcessedLogsForRaid() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  const prefix = `${PROCESSED_LOG_STORAGE_PREFIX}:${raidId}::`;
+  const toRemove: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (key && key.startsWith(prefix)) {
+      toRemove.push(key);
+    }
+  }
+  for (const key of toRemove) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+function activateProcessedLogSignature(signature: string | null, reset: boolean) {
+  if (!signature) {
+    return;
+  }
+  const shouldReload = reset || activeLogSignature.value !== signature;
+  if (shouldReload) {
+    processedLogKeys.clear();
+    const stored = loadStoredProcessedKeys(signature);
+    for (const key of stored) {
+      processedLogKeys.add(key);
+    }
+  }
+  activeLogSignature.value = signature;
+}
+
+function persistActiveProcessedLogState() {
+  if (!activeLogSignature.value) {
+    return;
+  }
+  persistStoredProcessedKeys(activeLogSignature.value);
+}
+
+function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: string | null }) {
+  if (options?.clearStorage) {
+    if (options.signature) {
+      clearStoredProcessedKeys(options.signature);
+    } else {
+      clearStoredProcessedLogsForRaid();
+    }
+  }
+  processedLogKeys.clear();
+  if (options?.signature !== undefined) {
+    activeLogSignature.value = options.signature;
+  } else {
+    activeLogSignature.value = null;
+  }
+}
 watch(
   () => [raid.value?.startTime, raid.value?.endedAt],
   ([start, end]) => {
@@ -1249,6 +1426,15 @@ watch(
     }
     if (end && !parsingWindow.end) {
       parsingWindow.end = end;
+    }
+  }
+);
+
+watch(
+  () => monitorSession.value,
+  (session) => {
+    if (!session) {
+      clearLootConsole();
     }
   }
 );
@@ -1339,6 +1525,10 @@ const canManageLootLists = computed(() => {
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
 const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
+const canViewParserSettings = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER';
+});
 const lootContextMenu = reactive({
   visible: false,
   x: 0,
@@ -1465,6 +1655,15 @@ function handleEditLootClick() {
   }
   openEditLootModal(lootContextMenu.entry);
   closeLootContextMenu();
+}
+
+function handleRemoveLootClick() {
+  if (!lootContextMenu.entry) {
+    return;
+  }
+  const entry = lootContextMenu.entry;
+  closeLootContextMenu();
+  void deleteLootGroup(entry, { skipConfirm: true });
 }
 
 function handleGlobalPointerDown(event: MouseEvent) {
@@ -1632,7 +1831,7 @@ async function clearExistingLootBeforeUpload() {
     lootEvents.value = [];
     parsedLoot.value = [];
     showDetectedModal.value = false;
-    processedLogKeys.clear();
+    resetProcessedLogState({ clearStorage: true });
     appendDebugLog('Existing loot cleared prior to new upload');
   } catch (error) {
     appendDebugLog('Failed to clear existing loot before upload', { error: String(error) });
@@ -1704,6 +1903,7 @@ async function proceedUploadMode(
   options: { file: File; shouldClear: boolean }
 ) {
   const { file, shouldClear } = options;
+  const signature = buildLogSignature(file.name);
 
   if (shouldClear) {
     try {
@@ -1721,7 +1921,11 @@ async function proceedUploadMode(
 
   if (mode === 'single') {
     continuousMonitorError.value = null;
-    await readLogFile(file, { append: false });
+    await readLogFile(file, {
+      append: !shouldClear,
+      resetKeys: shouldClear,
+      signature
+    });
     pendingUploadFile.value = null;
     pendingFileHandle.value = null;
     return;
@@ -1849,9 +2053,14 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
     monitorController.fileHandle = handle;
     monitorController.lastSize = initialFile.size;
     monitorController.pendingFragment = '';
+    monitorController.fileSignature = buildLogSignature(handle.name ?? initialFile.name);
 
     startMonitorHeartbeat();
-    await readLogFile(initialFile, { append: false });
+    await readLogFile(initialFile, {
+      append: false,
+      resetKeys: false,
+      signature: monitorController.fileSignature
+    });
     startLiveLogPolling();
     appendDebugLog('Continuous monitoring enabled', {
       file: handle.name,
@@ -1959,7 +2168,9 @@ async function readLiveLogChunk() {
     const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
     const start = new Date(startIso);
     const end = endIso ? new Date(endIso) : undefined;
-    processLogContent(chunk, { append: true, start, end });
+    activateProcessedLogSignature(monitorController.fileSignature, false);
+    processLogContent(chunk, { append: true, resetKeys: false, start, end });
+    persistActiveProcessedLogState();
   } catch (error) {
     appendDebugLog('Failed to read live log chunk', { error: String(error) });
   } finally {
@@ -2029,6 +2240,7 @@ function cleanupMonitorController() {
   monitorController.fileHandle = null;
   monitorController.lastSize = 0;
   monitorController.pendingFragment = '';
+  monitorController.fileSignature = null;
 }
 
 async function stopActiveMonitor(options?: { force?: boolean }) {
@@ -2140,7 +2352,10 @@ function dismissLeaveMonitorModal(shouldNavigate: boolean) {
   }
 }
 
-function readLogFile(file: File, options?: { append?: boolean }) {
+function readLogFile(
+  file: File,
+  options?: { append?: boolean; resetKeys?: boolean; signature?: string | null }
+) {
   if (!raid.value) {
     appendDebugLog('Cannot parse log before raid data loads', { file: file.name });
     return Promise.resolve();
@@ -2148,7 +2363,10 @@ function readLogFile(file: File, options?: { append?: boolean }) {
 
   parsing.value = true;
   parseProgress.value = 0;
-  const mode = options?.append ? 'append' : 'replace';
+  const appendMode = options?.append ?? false;
+  const resetKeys = options?.resetKeys ?? !appendMode;
+  const signature = options?.signature ?? buildLogSignature(file.name);
+  const mode = appendMode ? 'append' : 'replace';
   appendDebugLog('Parsing started', {
     file: file.name,
     mode,
@@ -2173,17 +2391,20 @@ function readLogFile(file: File, options?: { append?: boolean }) {
       const start = new Date(startIso);
       const end = endIso ? new Date(endIso) : undefined;
 
-      if (!options?.append) {
+      activateProcessedLogSignature(signature, resetKeys);
+
+      if (!appendMode) {
         const windowStats = computeLogWindowStats(content, start, end);
         appendDebugLog('Log window stats', windowStats);
       }
 
       processLogContent(content, {
-        append: options?.append ?? false,
-        resetKeys: !options?.append,
+        append: appendMode,
+        resetKeys,
         start,
         end
       });
+      persistActiveProcessedLogState();
       parsing.value = false;
       resolve();
     };
@@ -2963,6 +3184,86 @@ function fromInputValue(value: string) {
   return parsed.toISOString();
 }
 
+function enqueueLootConsoleEntries(entries: LootConsolePayload[]) {
+  if (!monitorSession.value || entries.length === 0) {
+    return;
+  }
+
+  const normalized = entries
+    .map((entry) => ({
+      line: entry.line?.trim() ?? '',
+      status: entry.status
+    }))
+    .filter((entry) => entry.line.length > 0);
+
+  if (normalized.length === 0) {
+    return;
+  }
+
+  const timestamp = Date.now();
+  for (const [index, entry] of normalized.entries()) {
+    lootConsoleQueue.value.push({
+      id: `console-${timestamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+      line: entry.line,
+      status: entry.status
+    });
+  }
+
+  if (!lootConsoleCurrent.value) {
+    showNextLootConsoleEntry();
+  }
+}
+
+function showNextLootConsoleEntry() {
+  if (lootConsoleCurrent.value || lootConsoleQueue.value.length === 0) {
+    return;
+  }
+
+  const next = lootConsoleQueue.value.shift() ?? null;
+  if (!next) {
+    return;
+  }
+
+  lootConsoleCurrent.value = next;
+
+  if (lootConsoleTimerId.value) {
+    window.clearTimeout(lootConsoleTimerId.value);
+    lootConsoleTimerId.value = null;
+  }
+
+  lootConsoleTimerId.value = window.setTimeout(() => {
+    lootConsoleTimerId.value = null;
+    lootConsoleCurrent.value = null;
+
+    if (lootConsoleCooldownId.value) {
+      window.clearTimeout(lootConsoleCooldownId.value);
+      lootConsoleCooldownId.value = null;
+    }
+
+    lootConsoleCooldownId.value = window.setTimeout(() => {
+      lootConsoleCooldownId.value = null;
+      showNextLootConsoleEntry();
+    }, 200);
+  }, 1500);
+}
+
+function clearLootConsole() {
+  lootConsoleQueue.value = [];
+  lootConsoleCurrent.value = null;
+  if (lootConsoleTimerId.value) {
+    window.clearTimeout(lootConsoleTimerId.value);
+    lootConsoleTimerId.value = null;
+  }
+  if (lootConsoleCooldownId.value) {
+    window.clearTimeout(lootConsoleCooldownId.value);
+    lootConsoleCooldownId.value = null;
+  }
+}
+
+function handleLootConsoleSuppress() {
+  clearLootConsole();
+}
+
 function processLogContent(
   content: string,
   options: { append: boolean; resetKeys?: boolean; start: Date; end?: Date }
@@ -2979,6 +3280,8 @@ function processLogContent(
   const patterns = getPatternsForParsing();
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, options.end, patterns);
+  const includeConsole = Boolean(monitorSession.value);
+  const consolePayloads: LootConsolePayload[] = [];
 
   if (parsed.length === 0) {
     if (!options.append) {
@@ -3003,6 +3306,12 @@ function processLogContent(
   for (const entry of parsed) {
     const key = buildParsedEventKey(entry);
     if (processedLogKeys.has(key)) {
+      if (includeConsole) {
+        consolePayloads.push({
+          line: formatConsoleLine(entry),
+          status: 'REJECTED'
+        });
+      }
       continue;
     }
 
@@ -3013,6 +3322,12 @@ function processLogContent(
         method: entry.method ?? null,
         patternId: entry.patternId
       });
+      if (includeConsole) {
+        consolePayloads.push({
+          line: formatConsoleLine(entry),
+          status: 'REJECTED'
+        });
+      }
       continue;
     }
 
@@ -3028,6 +3343,12 @@ function processLogContent(
         itemName: candidateName ?? 'Unknown Item',
         looter: entry.looter ?? entry.itemName ?? 'Unknown'
       });
+      if (includeConsole) {
+        consolePayloads.push({
+          line: formatConsoleLine(entry),
+          status: 'ACCEPTED'
+        });
+      }
       continue;
     }
 
@@ -3035,6 +3356,12 @@ function processLogContent(
     if (blacklistMatch) {
       processedLogKeys.add(key);
       autoDiscarded.push(entry);
+      if (includeConsole) {
+        consolePayloads.push({
+          line: formatConsoleLine(entry),
+          status: 'REJECTED'
+        });
+      }
       continue;
     }
 
@@ -3050,7 +3377,14 @@ function processLogContent(
     appendDebugLog('Automatically discarded blacklisted loot', { count: autoDiscarded.length });
   }
 
-  const newRows = transformParsedEvents(manualEntries, emoji);
+  const newRows = transformParsedEvents(manualEntries, emoji, (entry, result) => {
+    if (includeConsole) {
+      consolePayloads.push({
+        line: formatConsoleLine(entry),
+        status: result
+      });
+    }
+  });
   if (newRows.length === 0) {
     appendDebugLog('Parsing completed with no new loot rows', {
       parsedCount: parsed.length,
@@ -3058,6 +3392,9 @@ function processLogContent(
       autoKept: autoKept.length,
       autoDiscarded: autoDiscarded.length
     });
+    if (includeConsole) {
+      enqueueLootConsoleEntries(consolePayloads);
+    }
     return;
   }
 
@@ -3076,9 +3413,36 @@ function processLogContent(
     autoKept: autoKept.length,
     autoDiscarded: autoDiscarded.length
   });
+  if (includeConsole) {
+    enqueueLootConsoleEntries(consolePayloads);
+  }
 }
 
-function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): ParsedRow[] {
+function formatConsoleLine(entry: ParsedLootEvent) {
+  if (entry.rawLine && entry.rawLine.trim().length > 0) {
+    return entry.rawLine.trim();
+  }
+  const parts: string[] = [];
+  if (entry.timestamp) {
+    parts.push(entry.timestamp);
+  }
+  if (entry.looter) {
+    parts.push(entry.looter);
+  }
+  if (entry.itemName) {
+    parts.push(`→ ${entry.itemName}`);
+  }
+  if (parts.length === 0) {
+    return 'Loot event detected';
+  }
+  return parts.join(' ');
+}
+
+function transformParsedEvents(
+  parsed: ParsedLootEvent[],
+  emoji: string,
+  onProcessed?: (entry: ParsedLootEvent, result: LootConsoleStatus) => void
+): ParsedRow[] {
   const patternLookup = new Map<string, GuildLootParserPattern>();
   for (const pattern of getPatternsForParsing()) {
     patternLookup.set(pattern.id, pattern);
@@ -3087,6 +3451,7 @@ function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): Parsed
   for (const entry of parsed) {
     const key = buildParsedEventKey(entry);
     if (processedLogKeys.has(key)) {
+      onProcessed?.(entry, 'REJECTED');
       continue;
     }
     const matchedPattern = entry.patternId ? patternLookup.get(entry.patternId) : undefined;
@@ -3095,6 +3460,7 @@ function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): Parsed
         method: entry.method ?? null,
         patternId: entry.patternId
       });
+      onProcessed?.(entry, 'REJECTED');
       continue;
     }
     processedLogKeys.add(key);
@@ -3110,6 +3476,7 @@ function transformParsedEvents(parsed: ParsedLootEvent[], emoji: string): Parsed
       emoji,
       disposition: 'KEEP'
     });
+    onProcessed?.(entry, 'ACCEPTED');
   }
   return rows;
 }
@@ -3323,7 +3690,11 @@ async function copyDebugLogs() {
 
 function resetDetectedLoot() {
   parsedLoot.value = [];
+  if (activeLogSignature.value) {
+    clearStoredProcessedKeys(activeLogSignature.value);
+  }
   processedLogKeys.clear();
+  activeLogSignature.value = null;
   showDetectedModal.value = false;
   appendDebugLog('Detected loot reset');
 }
@@ -3360,15 +3731,17 @@ function playDetectedChime() {
   }
 }
 
-async function deleteLootGroup(entry: GroupedLootEntry) {
+async function deleteLootGroup(entry: GroupedLootEntry, options?: { skipConfirm?: boolean }) {
   if (!canDeleteExistingLoot.value) {
     return;
   }
-  const confirmed = confirm(
-    `Remove ${entry.count} entr${entry.count === 1 ? 'y' : 'ies'} of ${entry.itemName} looted by ${entry.looterName}?`
-  );
-  if (!confirmed) {
-    return;
+  if (!options?.skipConfirm) {
+    const confirmed = confirm(
+      `Remove ${entry.count} entr${entry.count === 1 ? 'y' : 'ies'} of ${entry.itemName} looted by ${entry.looterName}?`
+    );
+    if (!confirmed) {
+      return;
+    }
   }
   try {
     await Promise.all(entry.eventIds.map((lootId) => api.deleteRaidLoot(raidId, lootId)));
@@ -3414,6 +3787,7 @@ onBeforeUnmount(() => {
   } else {
     cleanupMonitorController();
   }
+  clearLootConsole();
 });
 </script>
 
@@ -3509,6 +3883,139 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 30px rgba(15, 118, 214, 0.15);
 }
 
+.loot-console-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+  max-width: 100%;
+  overflow: visible;
+  padding-right: 0.75rem;
+}
+
+.loot-console-stage {
+  position: relative;
+  min-height: 2.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  border-radius: 0.85rem;
+  isolation: isolate;
+  max-width: calc(100vw - 3rem);
+}
+
+.loot-console__suppress {
+  padding: 0.45rem 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.75);
+  color: #f8fafc;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.loot-console__suppress:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(59, 130, 246, 0.45);
+  transform: translateY(-1px);
+}
+
+.loot-console__suppress:active {
+  transform: translateY(0);
+}
+
+.loot-console {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+  transform: translateY(var(--loot-console-offset, 0));
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  max-width: min(calc(100vw - 3.5rem), 720px);
+  padding: 0.6rem 1rem;
+  border-radius: 0.85rem;
+  border: none;
+  background: rgba(15, 23, 42, 0.82);
+  box-shadow: none;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  position: relative;
+  overflow: hidden;
+}
+
+.loot-console::before,
+.loot-console::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 12px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(to bottom, rgba(15, 23, 42, 0.85), transparent);
+}
+
+.loot-console::after {
+  top: auto;
+  bottom: 0;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.85), transparent);
+}
+
+.loot-console--accepted {
+  border-color: rgba(74, 222, 128, 0.35);
+  color: #c4fce0;
+  box-shadow: 0 12px 26px rgba(34, 197, 94, 0.22);
+}
+
+.loot-console--rejected {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fed7d7;
+  box-shadow: 0 12px 26px rgba(248, 113, 113, 0.2);
+}
+
+.loot-console__line {
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(calc(100vw - 4.5rem), 680px);
+}
+
+.loot-console-transition-enter-active,
+.loot-console-transition-leave-active {
+  transition: transform 0.35s ease, opacity 0.35s ease;
+}
+
+.loot-console-transition-enter-from {
+  --loot-console-offset: 100%;
+  opacity: 0;
+}
+
+.loot-console-transition-enter-to {
+  --loot-console-offset: 0;
+  opacity: 1;
+}
+
+.loot-console-transition-leave-from {
+  --loot-console-offset: 0;
+  opacity: 1;
+}
+
+.loot-console-transition-leave-to {
+  --loot-console-offset: -110%;
+  opacity: 0;
+}
+
 .parsing-window__icon {
   width: 44px;
   height: 44px;
@@ -3559,6 +4066,10 @@ onBeforeUnmount(() => {
 
 .parsing-window__button-text {
   font-size: 0.85rem;
+}
+
+.parsing-window-spacer {
+  margin-top: 1.25rem;
 }
 
 .btn--settings {
@@ -4128,6 +4639,32 @@ onBeforeUnmount(() => {
   gap: 0.75rem;
   margin-top: 1.5rem;
   flex-wrap: wrap;
+}
+
+.clear-loot-actions__button--danger {
+  border-color: rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+}
+
+.clear-loot-actions__button--danger:hover,
+.clear-loot-actions__button--danger:focus-visible {
+  border-color: rgba(239, 68, 68, 0.75);
+  color: #fee2e2;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.clear-loot-actions__button--success {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(16, 185, 129, 0.4));
+  color: #f8fafc;
+  text-shadow: none;
+}
+
+.clear-loot-actions__button--success:hover,
+.clear-loot-actions__button--success:focus-visible {
+  border-color: rgba(22, 163, 74, 0.75);
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.65), rgba(34, 197, 94, 0.6));
+  color: #f8fafc;
 }
 
 .edit-loot-form {
