@@ -473,7 +473,11 @@
           <h2>Recorded Loot</h2>
           <p class="muted">All drops captured for this raid.</p>
         </div>
-        <RouterLink class="btn btn--manage-loot" :to="{ name: 'RaidLoot', params: { raidId: raid.id } }">
+        <RouterLink
+          v-if="canManageLootLists"
+          class="btn btn--manage-loot"
+          :to="{ name: 'RaidLoot', params: { raidId: raid.id } }"
+        >
           <span aria-hidden="true">🧺</span>
           Manage Loot
         </RouterLink>
