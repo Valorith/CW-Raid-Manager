@@ -20,7 +20,8 @@ import {
   replaceRaidSignupsForUser,
   RaidSignupLimitError,
   RaidSignupInvalidCharacterError,
-  RaidSignupPermissionError
+  RaidSignupPermissionError,
+  RaidSignupLockedError
 } from '../services/raidSignupService.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
@@ -161,6 +162,9 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         }
         if (error instanceof RaidSignupPermissionError) {
           return reply.forbidden(error.message);
+        }
+        if (error instanceof RaidSignupLockedError) {
+          return reply.badRequest(error.message);
         }
         if (error instanceof Error && error.message === 'Raid event not found.') {
           return reply.notFound(error.message);

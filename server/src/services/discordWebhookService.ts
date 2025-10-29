@@ -3,7 +3,7 @@ import type { CharacterClass, GuildDiscordWebhook, Prisma } from '@prisma/client
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
-const clientBaseUrl = (appConfig.clientUrl ?? 'http://localhost:5173').replace(/\/$/, '');
+const clientBaseUrl = resolveClientBaseUrl();
 
 export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'raid.created',
@@ -1213,4 +1213,74 @@ function cloneDefaultSubscriptions(): Record<DiscordWebhookEvent, boolean> {
 
 function cloneDefaultMentionSubscriptions(): Record<DiscordWebhookEvent, boolean> {
   return { ...DEFAULT_MENTION_SUBSCRIPTIONS };
+}
+
+function resolveClientBaseUrl(): string | null {
+  const candidates = [
+    appConfig.clientUrl,
+    process.env.CLIENT_URL,
+    process.env.PUBLIC_CLIENT_URL,
+    process.env.PUBLIC_URL,
+    process.env.WEB_URL,
+    process.env.APP_URL,
+    process.env.SITE_URL,
+    process.env.URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+    process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined,
+    process.env.RENDER_EXTERNAL_URL,
+    process.env.DEPLOYMENT_URL
+  ];
+
+  const normalizedCandidates = candidates
+    .map((value) => normalizeBaseUrl(value))
+    .filter((value): value is string => Boolean(value));
+
+  const nonLocal = normalizedCandidates.find((value) => !isLocalHost(value));
+  const resolved = (nonLocal ?? normalizedCandidates[0] ?? null);
+
+  if (!resolved) {
+    console.warn(
+      'CLIENT_URL (or equivalent) is not configured; Discord webhooks will omit direct links. Set CLIENT_URL or PUBLIC_CLIENT_URL to your production site.'
+    );
+    return null;
+  }
+
+  if (isLocalHost(resolved)) {
+    console.warn(
+      `Resolved client URL "${resolved}" appears to be a localhost address. Configure CLIENT_URL to ensure webhook links point to your production site.`
+    );
+  }
+
+  return resolved;
+}
+
+function normalizeBaseUrl(value?: string | null): string | null {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(withScheme);
+    return `${url.protocol}//${url.host}`.replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function isLocalHost(value: string): boolean {
+  try {
+    const { hostname } = new URL(value);
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.startsWith('127.') ||
+      hostname.endsWith('.local')
+    );
+  } catch {
+    return false;
+  }
 }

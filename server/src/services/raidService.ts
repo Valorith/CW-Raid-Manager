@@ -369,6 +369,10 @@ export async function deleteRaidEvent(raidId: string, userId: string) {
     where: { raidId }
   });
 
+  await prisma.raidSignup.deleteMany({
+    where: { raidId }
+  });
+
   await prisma.raidEvent.delete({
     where: { id: raidId }
   });

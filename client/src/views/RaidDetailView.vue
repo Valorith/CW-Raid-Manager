@@ -203,9 +203,9 @@
                 :class="{
                   'raid-signups__character--selected': selectedCharacterIds.has(character.id),
                   'raid-signups__character--locked':
-                    !selectedCharacterIds.has(character.id) && signupLimitReached
+                    (!selectedCharacterIds.has(character.id) && signupLimitReached) || signupsLocked
                 }"
-                :disabled="signupSaving"
+                :disabled="signupSaving || signupsLocked"
                 @click="handleSignupToggle(character.id)"
               >
                 <span class="raid-signups__avatar">
@@ -233,7 +233,13 @@
             </div>
             <div class="raid-signups__messages">
               <p
-                v-if="signupError"
+                v-if="signupsLocked"
+                class="raid-signups__feedback raid-signups__feedback--muted"
+              >
+                Raid has started. Signups are locked for this event.
+              </p>
+              <p
+                v-else-if="signupError"
                 class="raid-signups__feedback raid-signups__feedback--error"
               >
                 {{ signupError }}
@@ -252,7 +258,7 @@
               <button
                 class="btn btn--danger btn--outline"
                 type="button"
-                :disabled="signupSaving || (savedSignupIds.length === 0 && signupDraftCount === 0)"
+                :disabled="signupsLocked || signupSaving || (savedSignupIds.length === 0 && signupDraftCount === 0)"
                 @click="handleWithdrawAll"
               >
                 Withdraw All
@@ -260,7 +266,7 @@
               <button
                 class="btn btn--outline"
                 type="button"
-                :disabled="signupSaving || !signupDirty"
+                :disabled="signupsLocked || signupSaving || !signupDirty"
                 @click="resetSignupSelection"
               >
                 Reset
@@ -268,7 +274,7 @@
               <button
                 class="btn"
                 type="button"
-                :disabled="signupSaving || !signupDirty"
+                :disabled="signupsLocked || signupSaving || !signupDirty"
                 @click="saveSignups()"
               >
                 {{ signupSaving ? 'Saving…' : 'Save Signups' }}
@@ -854,6 +860,7 @@ const hasEffectiveStarted = computed(() => {
   }
   return new Date(startedAt).getTime() <= Date.now();
 });
+const signupsLocked = computed(() => hasEffectiveStarted.value);
 const canManageRaid = computed(() => {
   const permissions = raid.value?.permissions;
   if (!permissions) {
@@ -909,7 +916,11 @@ const signupLimitReached = computed(() => signupDraftCount.value >= maxSignupSlo
 const signupDirty = computed(() => !areIdListsEqual(signupDraft.value, savedSignupIds.value));
 const viewerMains = computed(() => sortedCharacters.value.filter((character) => character.isMain));
 const mainsButtonDisabled = computed(
-  () => signupSaving.value || viewerMains.value.length === 0 || sortedCharacters.value.length === 0
+  () =>
+    signupsLocked.value ||
+    signupSaving.value ||
+    viewerMains.value.length === 0 ||
+    sortedCharacters.value.length === 0
 );
 const groupedSignups = computed<Record<RaidRoleCategory, RaidSignup[]>>(() => {
   const groups: Record<RaidRoleCategory, RaidSignup[]> = {
@@ -1050,7 +1061,7 @@ function showSignupSuccess(message: string) {
 }
 
 function handleSignupToggle(characterId: string) {
-  if (signupSaving.value) {
+  if (signupsLocked.value || signupSaving.value) {
     return;
   }
   clearSignupFeedback();
@@ -1068,11 +1079,17 @@ function handleSignupToggle(characterId: string) {
 }
 
 function resetSignupSelection() {
+  if (signupsLocked.value) {
+    return;
+  }
   clearSignupFeedback();
   applySignupDraft(savedSignupIds.value);
 }
 
 async function saveSignups(options?: { characterIds?: string[]; successMessage?: string }) {
+  if (signupsLocked.value) {
+    return;
+  }
   if (!raid.value) {
     return;
   }
@@ -1114,7 +1131,7 @@ async function saveSignups(options?: { characterIds?: string[]; successMessage?:
 }
 
 async function handleSignupMains() {
-  if (signupSaving.value) {
+  if (signupsLocked.value || signupSaving.value) {
     return;
   }
   if (viewerMains.value.length === 0) {
@@ -1146,7 +1163,7 @@ async function handleSignupMains() {
 }
 
 async function handleWithdrawAll() {
-  if (signupSaving.value) {
+  if (signupsLocked.value || signupSaving.value) {
     return;
   }
   if (savedSignupIds.value.length === 0 && signupDraft.value.length === 0) {

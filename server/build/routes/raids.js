@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEventsForGuild, updateRaidEvent, startRaidEvent, endRaidEvent, restartRaidEvent, deleteRaidEvent } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
-import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError } from '../services/raidSignupService.js';
+import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError, RaidSignupLockedError } from '../services/raidSignupService.js';
 export async function raidsRoutes(server) {
     server.get('/guild/:guildId', {
         preHandler: [authenticate]
@@ -116,6 +116,9 @@ export async function raidsRoutes(server) {
             }
             if (error instanceof RaidSignupPermissionError) {
                 return reply.forbidden(error.message);
+            }
+            if (error instanceof RaidSignupLockedError) {
+                return reply.badRequest(error.message);
             }
             if (error instanceof Error && error.message === 'Raid event not found.') {
                 return reply.notFound(error.message);

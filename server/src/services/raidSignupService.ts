@@ -83,6 +83,13 @@ export class RaidSignupPermissionError extends Error {
   }
 }
 
+export class RaidSignupLockedError extends Error {
+  constructor() {
+    super('Raid signups are locked once the raid has started.');
+    this.name = 'RaidSignupLockedError';
+  }
+}
+
 export async function listRaidSignups(raidId: string): Promise<RaidSignupSummary[]> {
   const signups = await prisma.raidSignup.findMany({
     where: { raidId },
@@ -164,6 +171,7 @@ export async function replaceRaidSignupsForUser(
     select: {
       id: true,
       name: true,
+      startedAt: true,
       startTime: true,
       guildId: true,
       guild: {
@@ -183,6 +191,10 @@ export async function replaceRaidSignupsForUser(
     await ensureUserCanViewGuild(userId, raid.guildId);
   } catch (error) {
     throw new RaidSignupPermissionError();
+  }
+
+  if (raid.startedAt) {
+    throw new RaidSignupLockedError();
   }
   const [existingSignups, userRecord] = await Promise.all([
     prisma.raidSignup.findMany({
