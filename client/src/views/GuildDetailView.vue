@@ -225,6 +225,33 @@
           </button>
         </div>
       </article>
+
+      <aside v-if="discordWidgetSrc" class="card discord-widget-card">
+        <header class="discord-widget-card__header">
+          <span class="discord-widget-card__title">
+            <svg viewBox="0 0 245 240" aria-hidden="true">
+              <path
+                d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1"
+              />
+              <path
+                d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .3 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z"
+              />
+            </svg>
+            <span>Discord Widget</span>
+          </span>
+          <p class="muted small">Peek into the voice lobby.</p>
+        </header>
+        <iframe
+          class="discord-widget-card__iframe"
+          :src="discordWidgetSrc"
+          width="100%"
+          height="260"
+          allowtransparency="true"
+          frameborder="0"
+          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+          title="Discord Widget"
+        ></iframe>
+      </aside>
     </div>
 
     <section class="raids">
@@ -280,6 +307,7 @@
       :guild-id="guild.id"
       :default-start-time="guild.defaultRaidStartTime ?? null"
       :default-end-time="guild.defaultRaidEndTime ?? null"
+      :default-discord-voice-url="guild.defaultDiscordVoiceUrl ?? null"
       @close="showRaidModal = false"
       @created="handleRaidCreated"
     />
@@ -305,6 +333,17 @@
         <p v-if="guild.description" class="muted">
           {{ guild.description }}
         </p>
+        <div v-if="discordWidgetSrc" class="guild-summary__widget">
+          <iframe
+            :src="discordWidgetSrc"
+            width="100%"
+            height="280"
+            allowtransparency="true"
+            frameborder="0"
+            sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+            title="Discord Widget"
+          ></iframe>
+        </div>
         <div class="guild-summary__actions">
           <button
             v-if="canApplyToGuild"
@@ -376,6 +415,17 @@ type EditableCharacter = {
 };
 
 const guild = ref<GuildDetail | null>(null);
+const discordWidgetSrc = computed(() => {
+  if (!guild.value?.discordWidgetEnabled) {
+    return null;
+  }
+  const serverId = guild.value?.discordWidgetServerId?.trim();
+  if (!serverId) {
+    return null;
+  }
+  const theme = (guild.value?.discordWidgetTheme ?? 'DARK').toLowerCase() === 'light' ? 'light' : 'dark';
+  return `https://discord.com/widget?id=${encodeURIComponent(serverId)}&theme=${theme}`;
+});
 const showCharacterForm = ref(false);
 const editingCharacter = ref<EditableCharacter | null>(null);
 const modalContextGuildId = ref<string | null>(null);
@@ -482,7 +532,7 @@ const membersPerPage = 10;
 const characterSearch = ref('');
 const characterClassFilter = ref<'ALL' | 'MAIN' | CharacterClass>('ALL');
 const characterPage = ref(1);
-const charactersPerPage = 10;
+const charactersPerPage = 5;
 
 const guildPermissions = computed(() => guild.value?.permissions ?? null);
 const canViewDetails = computed(() => guildPermissions.value?.canViewDetails ?? false);
@@ -1236,6 +1286,39 @@ onUnmounted(() => {
   gap: 1rem;
 }
 
+.discord-widget-card {
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.discord-widget-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.discord-widget-card__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.discord-widget-card__title svg {
+  width: 20px;
+  height: 20px;
+  fill: rgba(148, 163, 184, 0.9);
+}
+
+.discord-widget-card__iframe {
+  border: none;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.85);
+}
+
 .card__header {
   display: flex;
   align-items: center;
@@ -1692,6 +1775,21 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.guild-summary__widget {
+  width: min(360px, 100%);
+  margin: 0 auto;
+  border-radius: 0.9rem;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.guild-summary__widget iframe {
+  display: block;
+  width: 100%;
+  border: none;
 }
 
 .guild-summary__actions {

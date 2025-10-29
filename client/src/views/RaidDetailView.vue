@@ -24,6 +24,41 @@
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
       <div class="header-actions">
+        <div v-if="raid.discordVoiceUrl || canManageRaidDiscordLink" class="raid-voice-actions">
+          <a
+            v-if="raid.discordVoiceUrl"
+            class="btn btn--discord-voice"
+            :href="raid.discordVoiceUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg
+              class="raid-voice-actions__icon"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M20.317 4.369a19.91 19.91 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.864-.608 1.249a18.27 18.27 0 0 0-5.487 0 13.4 13.4 0 0 0-.619-1.249.078.078 0 0 0-.079-.037 19.876 19.876 0 0 0-4.885 1.515.07.07 0 0 0-.032.027C1.675 9.093.934 13.577 1.276 18.011a.082.082 0 0 0 .031.057 19.967 19.967 0 0 0 5.993 3.035.082.082 0 0 0 .089-.027 14.046 14.046 0 0 0 1.238-1.999.078.078 0 0 0-.041-.105 13.186 13.186 0 0 1-1.872-.894.078.078 0 0 1-.008-.128c.125-.095.25-.195.37-.296a.074.074 0 0 1 .078-.009c3.928 1.799 8.18 1.799 12.062 0a.074.074 0 0 1 .079.009c.12.101.245.201.37.296a.078.078 0 0 1-.006.128c-.6.351-1.226.656-1.87.894a.078.078 0 0 0-.041.106c.36.689.78 1.379 1.236 1.998a.08.08 0 0 0 .089.028 19.911 19.911 0 0 0 6.004-3.036.08.08 0 0 0 .032-.056c.5-6.172-.839-10.62-3.548-13.615a.066.066 0 0 0-.031-.027ZM8.02 15.331c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.95 2.419-2.157 2.419Zm7.987 0c-1.18 0-2.157-1.085-2.157-2.419 0-1.333.95-2.419 2.157-2.419 1.222 0 2.184 1.103 2.157 2.419 0 1.334-.935 2.419-2.157 2.419Z"
+              />
+            </svg>
+            Chat on Discord
+          </a>
+          <button
+            v-if="canManageRaidDiscordLink"
+            class="btn btn--outline raid-voice-actions__manage"
+            type="button"
+            :disabled="updatingDiscordVoice"
+            @click="promptDiscordVoiceLink"
+          >
+            {{ updatingDiscordVoice
+              ? 'Saving…'
+              : raid.discordVoiceUrl
+                ? 'Edit Discord Link'
+                : 'Add Discord Link' }}
+          </button>
+        </div>
         <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
           <span aria-hidden="true">🔗</span>
           Share
@@ -45,6 +80,260 @@
         @change="handleFileUpload"
       />
     </header>
+
+    <section class="card raid-signups-card">
+      <header class="card__header raid-signups-card__header">
+        <div>
+          <h2>Raid Signups</h2>
+          <p class="muted">Reserve up to two characters for this raid.</p>
+        </div>
+        <div class="raid-signups-card__header-actions">
+          <button
+            class="raid-signups-card__toggle"
+            type="button"
+            :aria-expanded="!signupsCollapsed"
+            @click="toggleSignupsCollapsed"
+          >
+            <span
+              class="raid-signups-card__toggle-icon"
+              :class="{ 'raid-signups-card__toggle-icon--collapsed': signupsCollapsed }"
+              aria-hidden="true"
+            ></span>
+            <span class="raid-signups-card__toggle-label">{{ signupsToggleLabel }}</span>
+          </button>
+          <button
+            class="btn btn--outline raid-signups-card__mains"
+            type="button"
+            :disabled="mainsButtonDisabled"
+            @click="handleSignupMains"
+          >
+            Sign Up Mains
+          </button>
+        </div>
+      </header>
+
+      <div
+        v-if="signupsCollapsed"
+        class="raid-signups__collapsed-summary"
+        role="button"
+        tabindex="0"
+        aria-label="Expand raid signups"
+        @click="toggleSignupsCollapsed"
+        @keydown.space.prevent="toggleSignupsCollapsed"
+        @keydown.enter.prevent="toggleSignupsCollapsed"
+      >
+        <div v-if="collapsedSignupGroups.length > 0" class="raid-signups__collapsed-groups">
+          <div
+            v-for="group in collapsedSignupGroups"
+            :key="`collapsed-${group.category}`"
+            class="raid-signups__collapsed-group"
+          >
+            <header class="raid-signups__collapsed-group-header">
+              <span class="raid-signups__collapsed-group-indicator" :data-role="group.category" aria-hidden="true"></span>
+              <span class="raid-signups__collapsed-group-label">{{ group.label }}</span>
+              <span class="raid-signups__collapsed-group-count">{{ group.total }}</span>
+            </header>
+            <ul class="raid-signups__collapsed-items">
+              <li
+                v-for="entry in group.entries"
+                :key="entry.id"
+                :class="[
+                  'raid-signups__collapsed-item',
+                  { 'raid-signups__collapsed-item--self': isViewerSignup(entry) }
+                ]"
+              >
+                <div
+                  class="raid-signups__collapsed-avatar"
+                  :class="{ 'raid-signups__collapsed-avatar--self': isViewerSignup(entry) }"
+                >
+                  <img
+                    v-if="characterClassIcons[entry.characterClass]"
+                    :src="characterClassIcons[entry.characterClass] ?? undefined"
+                    :alt="characterClassLabels[entry.characterClass]"
+                  />
+                  <span v-else class="raid-signups__collapsed-fallback">
+                    {{ characterClassLabels[entry.characterClass] }}
+                  </span>
+                  <span
+                    v-if="isViewerSignup(entry)"
+                    class="raid-signups__collapsed-check"
+                    aria-hidden="true"
+                  >
+                    ✓
+                  </span>
+                </div>
+                <span class="raid-signups__collapsed-name">{{ entry.characterName }}</span>
+                <span class="raid-signups__collapsed-class muted small">
+                  {{ characterClassLabels[entry.characterClass] }}
+                </span>
+              </li>
+            </ul>
+            <footer v-if="group.total > collapsedGroupPreviewSize" class="raid-signups__collapsed-more muted small">
+              +{{ group.total - collapsedGroupPreviewSize }} more…
+            </footer>
+          </div>
+        </div>
+        <p v-else class="raid-signups__collapsed-empty muted small">
+          No characters have signed up yet.
+        </p>
+      </div>
+
+      <transition name="raid-signups-collapse">
+        <div v-show="!signupsCollapsed" class="raid-signups-card__content">
+          <div class="raid-signups__column raid-signups__column--your">
+            <div class="raid-signups__column-header">
+              <h3>Your Signup</h3>
+              <span class="raid-signups__slot-count">{{ signupDraftCount }} / {{ maxSignupSlots }} slots</span>
+            </div>
+            <div v-if="loadingUserCharacters" class="raid-signups__empty muted">
+              Loading your characters…
+            </div>
+            <div v-else-if="characterLoadError" class="raid-signups__empty raid-signups__feedback raid-signups__feedback--error">
+              {{ characterLoadError }}
+            </div>
+            <div v-else-if="sortedCharacters.length === 0" class="raid-signups__empty muted">
+              You have not registered any characters yet.
+            </div>
+            <div v-else class="raid-signups__characters">
+              <button
+                v-for="character in sortedCharacters"
+                :key="character.id"
+                type="button"
+                class="raid-signups__character"
+                :class="{
+                  'raid-signups__character--selected': selectedCharacterIds.has(character.id),
+                  'raid-signups__character--locked':
+                    !selectedCharacterIds.has(character.id) && signupLimitReached
+                }"
+                :disabled="signupSaving"
+                @click="handleSignupToggle(character.id)"
+              >
+                <span class="raid-signups__avatar">
+                  <img
+                    v-if="characterClassIcons[character.class]"
+                    :src="characterClassIcons[character.class] ?? undefined"
+                    :alt="characterClassLabels[character.class]"
+                    class="raid-signups__avatar-icon"
+                  />
+                  <span v-else class="raid-signups__avatar-fallback">
+                    {{ characterClassLabels[character.class] }}
+                  </span>
+                </span>
+                <div class="raid-signups__character-meta">
+                  <span class="raid-signups__character-name">
+                    {{ character.name }}
+                    <span v-if="character.isMain" class="raid-signups__tag">Main</span>
+                  </span>
+                  <span class="raid-signups__character-sub muted">
+                    Lv {{ character.level }} • {{ characterClassLabels[character.class] }}
+                  </span>
+                </div>
+                <span class="raid-signups__character-check" aria-hidden="true">✓</span>
+              </button>
+            </div>
+            <div class="raid-signups__messages">
+              <p
+                v-if="signupError"
+                class="raid-signups__feedback raid-signups__feedback--error"
+              >
+                {{ signupError }}
+              </p>
+              <p
+                v-else-if="signupSuccess"
+                class="raid-signups__feedback raid-signups__feedback--success"
+              >
+                {{ signupSuccess }}
+              </p>
+              <p v-else class="raid-signups__feedback raid-signups__feedback--muted">
+                Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots.
+              </p>
+            </div>
+            <div class="raid-signups__actions">
+              <button
+                class="btn btn--danger btn--outline"
+                type="button"
+                :disabled="signupSaving || (savedSignupIds.length === 0 && signupDraftCount === 0)"
+                @click="handleWithdrawAll"
+              >
+                Withdraw All
+              </button>
+              <button
+                class="btn btn--outline"
+                type="button"
+                :disabled="signupSaving || !signupDirty"
+                @click="resetSignupSelection"
+              >
+                Reset
+              </button>
+              <button
+                class="btn"
+                type="button"
+                :disabled="signupSaving || !signupDirty"
+                @click="saveSignups()"
+              >
+                {{ signupSaving ? 'Saving…' : 'Save Signups' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="raid-signups__column raid-signups__column--composition">
+            <div class="raid-signups__column-header">
+              <h3>Raid Composition</h3>
+              <span class="raid-signups__slot-count">{{ raidSignups.length }} signed up</span>
+            </div>
+            <div v-if="raidSignups.length === 0" class="raid-signups__empty muted">
+              No one has signed up yet. Be the first to reserve a spot!
+            </div>
+            <div v-else class="raid-signups__composition">
+              <div
+                v-for="category in roleCategories"
+                :key="category"
+                class="raid-signups__role-group"
+              >
+                <header class="raid-signups__role-header">
+                  <span class="raid-signups__role-label">{{ roleCategoryLabels[category] }}</span>
+                  <span class="raid-signups__role-count">{{ (groupedSignups[category] ?? []).length }}</span>
+                </header>
+                <p
+                  v-if="(groupedSignups[category] ?? []).length === 0"
+                  class="raid-signups__role-empty muted small"
+                >
+                  No {{ roleCategoryLabels[category].toLowerCase() }} signed up yet.
+                </p>
+                <ul v-else class="raid-signups__role-list">
+                  <li
+                    v-for="entry in groupedSignups[category] ?? []"
+                    :key="entry.id"
+                    :class="[
+                      'raid-signups__role-item',
+                      { 'raid-signups__role-item--self': viewerUserId && entry.userId === viewerUserId }
+                    ]"
+                  >
+                    <span class="raid-signups__role-icon">
+                      <img
+                        v-if="characterClassIcons[entry.characterClass]"
+                        :src="characterClassIcons[entry.characterClass] ?? undefined"
+                        :alt="characterClassLabels[entry.characterClass]"
+                      />
+                      <span v-else class="raid-signups__role-icon-fallback">
+                        {{ characterClassLabels[entry.characterClass] }}
+                      </span>
+                    </span>
+                    <div class="raid-signups__role-meta">
+                      <span class="raid-signups__role-name">{{ entry.characterName }}</span>
+                      <span class="raid-signups__role-sub muted small">
+                        <template v-if="entry.characterLevel">Lv {{ entry.characterLevel }} • </template>
+                        {{ characterClassLabels[entry.characterClass] }} · {{ entry.user.displayName }}
+                      </span>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </section>
 
     <section class="card raid-timing">
       <header class="card__header">
@@ -224,25 +513,25 @@
 
     <div
       v-if="lootContextMenu.visible"
-    class="loot-context-menu"
-    :style="{ top: `${lootContextMenu.y}px`, left: `${lootContextMenu.x}px` }"
-    @contextmenu.prevent
-    @click.stop
-  >
-    <header class="loot-context-menu__header">{{ lootContextMenu.itemName }}</header>
-    <button
-      v-if="canManageLootLists"
-      class="loot-context-menu__action"
-      type="button"
-      @click="handleEditLootClick"
+      class="loot-context-menu"
+      :style="{ top: `${lootContextMenu.y}px`, left: `${lootContextMenu.x}px` }"
+      @contextmenu.prevent
+      @click.stop
     >
-      Edit Loot…
-    </button>
-    <button
-      v-if="!lootContextMenu.whitelistEntry"
-      class="loot-context-menu__action"
-      type="button"
-      @click="addItemToLootList('WHITELIST')"
+      <header class="loot-context-menu__header">{{ lootContextMenu.itemName }}</header>
+      <button
+        v-if="canManageLootLists"
+        class="loot-context-menu__action"
+        type="button"
+        @click="handleEditLootClick"
+      >
+        Edit Loot…
+      </button>
+      <button
+        v-if="!lootContextMenu.whitelistEntry"
+        class="loot-context-menu__action"
+        type="button"
+        @click="addItemToLootList('WHITELIST')"
       >
         Add to Whitelist
       </button>
@@ -361,24 +650,37 @@ import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import { api } from '../services/api';
-import { characterClassLabels, type CharacterClass } from '../services/types';
+import {
+  characterClassLabels,
+  characterClassIcons,
+  getRoleCategoryForClass,
+  roleCategoryLabels,
+  roleCategoryOrder,
+  type CharacterClass,
+  type RaidRoleCategory
+} from '../services/types';
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
   GuildLootListEntry,
   GuildLootListSummary,
   RaidDetail,
-  RaidLootEvent
+  RaidLootEvent,
+  RaidSignup,
+  UserCharacter
 } from '../services/api';
+import { useAuthStore } from '../stores/auth';
 import {
   buildLootListLookup,
   matchesLootListEntry,
   normalizeLootItemName
 } from '../utils/lootLists';
+import { normalizeOptionalUrl } from '../utils/urls';
 
 const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
+const authStore = useAuthStore();
 
 const raid = ref<RaidDetail | null>(null);
 const attendanceEvents = ref<AttendanceEventSummary[]>([]);
@@ -399,6 +701,18 @@ const pendingAttendanceEventId = ref<string | null>(
 );
 const lastAutoOpenedAttendanceId = ref<string | null>(null);
 const lootListSummary = ref<GuildLootListSummary | null>(null);
+const userCharacters = ref<UserCharacter[]>([]);
+const loadingUserCharacters = ref(false);
+const characterLoadError = ref<string | null>(null);
+const signupDraft = ref<string[]>([]);
+const signupSaving = ref(false);
+const signupError = ref<string | null>(null);
+const signupSuccess = ref<string | null>(null);
+const maxSignupSlots = 2;
+const roleCategories = roleCategoryOrder;
+const signupsCollapsed = ref(true);
+const signupsToggleLabel = computed(() => (signupsCollapsed.value ? 'Expand Signups' : 'Collapse Signups'));
+const collapsedGroupPreviewSize = 6;
 const whitelistLookup = computed(() =>
   buildLootListLookup(lootListSummary.value?.whitelist ?? [])
 );
@@ -507,6 +821,8 @@ const confirmModal = reactive({
 });
 const shareStatus = ref<string | null>(null);
 let shareStatusTimeout: ReturnType<typeof setTimeout> | null = null;
+const updatingDiscordVoice = ref(false);
+let signupSuccessTimeout: ReturnType<typeof setTimeout> | null = null;
 
 let confirmResolver: ((value: boolean) => void) | null = null;
 const actionError = ref<string | null>(null);
@@ -547,6 +863,10 @@ const canManageRaid = computed(() => {
   const role = permissions.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
+const canManageRaidDiscordLink = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
 const canManageLootLists = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
@@ -558,6 +878,103 @@ const hasEffectiveEnded = computed(() => {
   }
   return new Date(endedAt).getTime() <= Date.now();
 });
+const viewerUserId = computed(() => authStore.user?.userId ?? null);
+const raidSignups = computed<RaidSignup[]>(() => raid.value?.signups ?? []);
+const viewerSignups = computed<RaidSignup[]>(() => {
+  const userId = viewerUserId.value;
+  if (!userId) {
+    return [];
+  }
+  return raidSignups.value.filter((entry) => entry.userId === userId);
+});
+const savedSignupIds = computed(() => viewerSignups.value.map((entry) => entry.characterId));
+const sortedCharacters = computed(() => {
+  return [...userCharacters.value].sort((a, b) => {
+    if (a.isMain !== b.isMain) {
+      return a.isMain ? -1 : 1;
+    }
+    if (b.level !== a.level) {
+      return b.level - a.level;
+    }
+    return a.name.localeCompare(b.name);
+  });
+});
+const selectedCharacterIds = computed(() => new Set(signupDraft.value));
+const signupDraftCount = computed(() => signupDraft.value.length);
+const signupLimitReached = computed(() => signupDraftCount.value >= maxSignupSlots);
+const signupDirty = computed(() => !areIdListsEqual(signupDraft.value, savedSignupIds.value));
+const viewerMains = computed(() => sortedCharacters.value.filter((character) => character.isMain));
+const mainsButtonDisabled = computed(
+  () => signupSaving.value || viewerMains.value.length === 0 || sortedCharacters.value.length === 0
+);
+const groupedSignups = computed<Record<RaidRoleCategory, RaidSignup[]>>(() => {
+  const groups: Record<RaidRoleCategory, RaidSignup[]> = {
+    TANK: [],
+    HEALER: [],
+    SUPPORT: [],
+    DPS: []
+  };
+  for (const signup of raidSignups.value) {
+    const category = getRoleCategoryForClass(signup.characterClass);
+    groups[category].push(signup);
+  }
+  for (const category of roleCategories) {
+    groups[category] = groups[category]
+      .slice()
+      .sort((a, b) => a.characterName.localeCompare(b.characterName));
+  }
+  return groups;
+});
+
+const collapsedSignupGroups = computed(() =>
+  roleCategories
+    .map((category) => ({
+      category,
+      label: roleCategoryLabels[category],
+      total: groupedSignups.value[category]?.length ?? 0,
+      entries: (() => {
+        const bucket = groupedSignups.value[category] ?? [];
+        const userId = viewerUserId.value;
+        const ordered = userId
+          ? bucket
+              .slice()
+              .sort((a, b) => {
+                const aSelf = a.userId === userId ? 1 : 0;
+                const bSelf = b.userId === userId ? 1 : 0;
+                if (aSelf !== bSelf) {
+                  return bSelf - aSelf;
+                }
+                return a.characterName.localeCompare(b.characterName);
+              })
+          : bucket;
+        return ordered.slice(0, collapsedGroupPreviewSize);
+      })()
+    }))
+    .filter((group) => group.total > 0)
+);
+
+function isViewerSignup(entry: RaidSignup) {
+  const userId = viewerUserId.value;
+  if (!userId) {
+    return false;
+  }
+  return entry.userId === userId;
+}
+
+watch(
+  () => savedSignupIds.value.slice().sort().join('|'),
+  () => {
+    applySignupDraft(savedSignupIds.value);
+  },
+  { immediate: true }
+);
+
+watch(
+  () => sortedCharacters.value.map((character) => character.id).join('|'),
+  () => {
+    applySignupDraft(signupDraft.value);
+  }
+);
 
 const canRestartRaid = computed(() => canManageRaid.value && hasEffectiveEnded.value);
 const roleLabels: Record<string, string> = {
@@ -587,6 +1004,157 @@ const raidStatusBadge = computed(() => {
   }
   return { label: 'Planned', variant: 'raid-status-badge--planned' };
 });
+
+async function loadUserCharacters() {
+  loadingUserCharacters.value = true;
+  characterLoadError.value = null;
+  try {
+    userCharacters.value = await api.fetchUserCharacters();
+  } catch (error) {
+    characterLoadError.value = extractErrorMessage(
+      error,
+      'Unable to load your characters. Please refresh.'
+    );
+  } finally {
+    loadingUserCharacters.value = false;
+  }
+}
+
+function clearSignupFeedback() {
+  signupError.value = null;
+  signupSuccess.value = null;
+  if (signupSuccessTimeout) {
+    clearTimeout(signupSuccessTimeout);
+    signupSuccessTimeout = null;
+  }
+}
+
+function toggleSignupsCollapsed() {
+  signupsCollapsed.value = !signupsCollapsed.value;
+}
+
+function showSignupSuccess(message: string) {
+  signupError.value = null;
+  signupSuccess.value = message;
+  if (signupSuccessTimeout) {
+    clearTimeout(signupSuccessTimeout);
+  }
+  signupSuccessTimeout = setTimeout(() => {
+    signupSuccess.value = null;
+    signupSuccessTimeout = null;
+  }, 4000);
+}
+
+function handleSignupToggle(characterId: string) {
+  if (signupSaving.value) {
+    return;
+  }
+  clearSignupFeedback();
+  const selection = new Set(signupDraft.value);
+  if (selection.has(characterId)) {
+    selection.delete(characterId);
+  } else {
+    if (selection.size >= maxSignupSlots) {
+      signupError.value = `You can sign up up to ${maxSignupSlots} characters for this raid.`;
+      return;
+    }
+    selection.add(characterId);
+  }
+  applySignupDraft(Array.from(selection));
+}
+
+function resetSignupSelection() {
+  clearSignupFeedback();
+  applySignupDraft(savedSignupIds.value);
+}
+
+async function saveSignups(options?: { characterIds?: string[]; successMessage?: string }) {
+  if (!raid.value) {
+    return;
+  }
+  const targetIds = orderCharacterIds(options?.characterIds ?? signupDraft.value);
+  if (areIdListsEqual(savedSignupIds.value, targetIds)) {
+    applySignupDraft(targetIds);
+    const message =
+      options?.successMessage ??
+      (targetIds.length > 0
+        ? 'Your signups are already up to date.'
+        : 'You are not currently signed up for this raid.');
+    showSignupSuccess(message);
+    return;
+  }
+  signupSaving.value = true;
+  signupError.value = null;
+  if (signupSuccessTimeout) {
+    clearTimeout(signupSuccessTimeout);
+    signupSuccessTimeout = null;
+  }
+  try {
+    const updated = await api.updateRaidSignups(raid.value.id, targetIds);
+    raid.value.signups = updated;
+    applySignupDraft(targetIds);
+    const message =
+      options?.successMessage ??
+      (targetIds.length > 0
+        ? 'Your characters are confirmed for this raid.'
+        : 'You have withdrawn from this raid.');
+    showSignupSuccess(message);
+  } catch (error) {
+    signupError.value = extractErrorMessage(
+      error,
+      'Unable to update raid signups. Please try again.'
+    );
+  } finally {
+    signupSaving.value = false;
+  }
+}
+
+async function handleSignupMains() {
+  if (signupSaving.value) {
+    return;
+  }
+  if (viewerMains.value.length === 0) {
+    signupError.value = 'Set a main character in your roster to use this shortcut.';
+    return;
+  }
+  const mainIds = viewerMains.value.slice(0, maxSignupSlots).map((character) => character.id);
+  clearSignupFeedback();
+  applySignupDraft(mainIds);
+  if (areIdListsEqual(savedSignupIds.value, mainIds)) {
+    showSignupSuccess(
+      mainIds.length === 0
+        ? 'You are not currently signed up for this raid.'
+        : mainIds.length === 1
+          ? 'Your main character is already signed up.'
+          : 'Your main characters are already signed up.'
+    );
+    return;
+  }
+  await saveSignups({
+    characterIds: mainIds,
+    successMessage:
+      mainIds.length > 0
+        ? mainIds.length === 1
+          ? 'Signed up your main character.'
+          : 'Signed up your main characters.'
+        : 'You have withdrawn from this raid.'
+  });
+}
+
+async function handleWithdrawAll() {
+  if (signupSaving.value) {
+    return;
+  }
+  if (savedSignupIds.value.length === 0 && signupDraft.value.length === 0) {
+    return;
+  }
+  clearSignupFeedback();
+  applySignupDraft([]);
+  await saveSignups({
+    characterIds: [],
+    successMessage: 'You have withdrawn all characters from this raid.'
+  });
+}
 
 async function loadRaid() {
   const data = await api.fetchRaid(raidId);
@@ -1228,6 +1796,33 @@ async function promptRenameRaid() {
   }
 }
 
+function orderCharacterIds(ids: string[]) {
+  const order = new Map(sortedCharacters.value.map((character, index) => [character.id, index]));
+  const uniqueIds = Array.from(new Set(ids));
+  return uniqueIds.sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
+}
+
+function applySignupDraft(ids: string[]) {
+  const ordered = orderCharacterIds(ids);
+  if (!areIdListsEqual(signupDraft.value, ordered)) {
+    signupDraft.value = ordered;
+  }
+}
+
+function areIdListsEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  for (let index = 0; index < sortedA.length; index += 1) {
+    if (sortedA[index] !== sortedB[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function extractErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error && 'response' in error) {
     const response = (error as { response?: { data?: unknown } }).response;
@@ -1346,6 +1941,7 @@ onMounted(() => {
   loadRaid();
   loadAttendance();
   loadLoot();
+  loadUserCharacters();
   window.addEventListener('click', handleGlobalPointerDown);
   window.addEventListener('contextmenu', handleGlobalPointerDown);
   window.addEventListener('keydown', handleLootContextMenuKey);
@@ -1356,10 +1952,49 @@ onUnmounted(() => {
     clearTimeout(shareStatusTimeout);
     shareStatusTimeout = null;
   }
+  if (signupSuccessTimeout) {
+    clearTimeout(signupSuccessTimeout);
+    signupSuccessTimeout = null;
+  }
   window.removeEventListener('click', handleGlobalPointerDown);
   window.removeEventListener('contextmenu', handleGlobalPointerDown);
   window.removeEventListener('keydown', handleLootContextMenuKey);
 });
+
+async function promptDiscordVoiceLink() {
+  if (!raid.value || !canManageRaidDiscordLink.value || updatingDiscordVoice.value) {
+    return;
+  }
+
+  const current = raid.value.discordVoiceUrl ?? '';
+  const result = window.prompt(
+    'Set the Discord voice channel URL for this raid. Leave blank to remove the link.',
+    current
+  );
+
+  if (result === null) {
+    return;
+  }
+
+  const trimmed = result.trim();
+  const { normalized, valid } = normalizeOptionalUrl(trimmed);
+  if (!valid) {
+    window.alert('Enter a valid Discord URL.');
+    return;
+  }
+  updatingDiscordVoice.value = true;
+  try {
+    await api.updateRaid(raid.value.id, {
+      discordVoiceUrl: normalized ?? null
+    });
+    await loadRaid();
+  } catch (error) {
+    window.alert('Unable to update the Discord voice link.');
+    console.error(error);
+  } finally {
+    updatingDiscordVoice.value = false;
+  }
+}
 
 async function copyRaidLink() {
   const resolved = router.resolve({ name: 'RaidDetail', params: { raidId } }).href;
@@ -1454,6 +2089,52 @@ async function copyRaidLink() {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.raid-voice-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.btn--discord-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #5865f2, #4752c4);
+  border: 1px solid rgba(71, 82, 196, 0.7);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
+  text-decoration: none;
+  box-shadow: 0 12px 26px rgba(88, 101, 242, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn--discord-voice:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(88, 101, 242, 0.45);
+}
+
+.btn--discord-voice:focus-visible {
+  outline: 2px solid rgba(148, 163, 184, 0.7);
+  outline-offset: 3px;
+}
+
+.raid-voice-actions__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: currentColor;
+}
+
+.raid-voice-actions__manage {
+  min-width: 150px;
 }
 
 .share-btn {
@@ -1554,6 +2235,590 @@ async function copyRaidLink() {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.raid-signups-card {
+  gap: 1.75rem;
+}
+
+.raid-signups-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.raid-signups-card__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.raid-signups-card__mains {
+  min-width: 180px;
+}
+
+.raid-signups-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: radial-gradient(circle at top, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.7));
+  color: #e2e8f0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease,
+    color 0.2s ease;
+}
+
+.raid-signups-card__toggle:hover {
+  border-color: rgba(248, 250, 252, 0.45);
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.2);
+  color: #f8fafc;
+}
+
+.raid-signups-card__toggle:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 3px;
+}
+
+.raid-signups-card__toggle-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-left: 0.18rem solid rgba(148, 163, 184, 0.85);
+  border-bottom: 0.18rem solid rgba(148, 163, 184, 0.85);
+  transform: rotate(-45deg);
+  transition: transform 0.25s ease, border-color 0.2s ease;
+}
+
+.raid-signups-card__toggle-icon--collapsed {
+  transform: rotate(135deg);
+  border-color: rgba(248, 250, 252, 0.9);
+}
+
+.raid-signups-card__toggle-label {
+  white-space: nowrap;
+}
+
+.raid-signups-card__content {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  overflow: hidden;
+}
+
+.raid-signups__column {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(30, 41, 59, 0.6));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 1rem;
+  padding: 1.25rem;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.32);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.raid-signups__column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.raid-signups__slot-count {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.raid-signups__empty {
+  padding: 1.25rem;
+  border: 1px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 0.9rem;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.raid-signups__characters {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.raid-signups__character {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.55);
+  color: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+  text-align: left;
+}
+
+.raid-signups__character:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22);
+}
+
+.raid-signups__character:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.raid-signups__character--selected {
+  border-color: rgba(59, 130, 246, 0.82);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(37, 99, 235, 0.28));
+  box-shadow: 0 14px 30px rgba(29, 78, 216, 0.28);
+}
+
+.raid-signups__character--locked:not(.raid-signups__character--selected) {
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+.raid-signups__avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.85rem;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(30, 41, 59, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.raid-signups__avatar-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.raid-signups__avatar-fallback {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+}
+
+.raid-signups__character-meta {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.raid-signups__character-name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.raid-signups__character-sub {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
+.raid-signups__tag {
+  margin-left: 0.5rem;
+  background: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.raid-signups__character-check {
+  margin-left: auto;
+  font-size: 1rem;
+  color: #bfdbfe;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.raid-signups__character--selected .raid-signups__character-check {
+  opacity: 1;
+}
+
+.raid-signups__messages {
+  min-height: 1.25rem;
+}
+
+.raid-signups__feedback {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.raid-signups__feedback--error {
+  color: #fca5a5;
+}
+
+.raid-signups__feedback--success {
+  color: #bbf7d0;
+}
+
+.raid-signups__feedback--muted {
+  color: #94a3b8;
+}
+
+.raid-signups__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.raid-signups__column--composition {
+  gap: 1.25rem;
+}
+
+.raid-signups__composition {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.raid-signups__role-group {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.raid-signups__role-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.raid-signups__role-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #e2e8f0;
+}
+
+.raid-signups__role-count {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+
+.raid-signups__role-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.raid-signups__role-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 0.8rem;
+  padding: 0.55rem 0.6rem;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  border: 1px solid transparent;
+}
+
+.raid-signups__role-item--self {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.16);
+}
+
+.raid-signups__role-icon {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 0.65rem;
+  background: rgba(30, 41, 59, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.raid-signups__role-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.raid-signups__role-icon-fallback {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #cbd5f5;
+}
+
+.raid-signups__role-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.raid-signups__role-name {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.raid-signups__role-sub {
+  display: block;
+  letter-spacing: 0.04em;
+}
+
+.raid-signups__role-empty {
+  margin: 0;
+}
+
+.raid-signups__collapsed-summary {
+  margin-top: 0.75rem;
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.6));
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.8), 0 16px 30px rgba(15, 23, 42, 0.4);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.18s ease;
+}
+
+.raid-signups__collapsed-summary:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.65);
+  outline-offset: 4px;
+}
+
+.raid-signups__collapsed-summary:hover {
+  border-color: rgba(148, 163, 184, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2), 0 20px 36px rgba(59, 130, 246, 0.25);
+  transform: translateY(-1px);
+}
+
+.raid-signups__collapsed-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  justify-content: center;
+}
+
+.raid-signups__collapsed-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
+  min-width: 12rem;
+  flex: 1 1 13rem;
+  max-width: 18rem;
+}
+
+.raid-signups__collapsed-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.raid-signups__collapsed-group-indicator {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 0 12px rgba(148, 163, 184, 0.4);
+}
+
+.raid-signups__collapsed-group-indicator[data-role='TANK'] {
+  background: rgba(96, 165, 250, 0.55);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.5);
+}
+
+.raid-signups__collapsed-group-indicator[data-role='HEALER'] {
+  background: rgba(52, 211, 153, 0.6);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.5);
+}
+
+.raid-signups__collapsed-group-indicator[data-role='SUPPORT'] {
+  background: rgba(251, 191, 36, 0.65);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.5);
+}
+
+.raid-signups__collapsed-group-indicator[data-role='DPS'] {
+  background: rgba(248, 113, 113, 0.6);
+  box-shadow: 0 0 12px rgba(248, 113, 113, 0.5);
+}
+
+.raid-signups__collapsed-group-label {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.raid-signups__collapsed-group-count {
+  margin-left: auto;
+  font-size: 0.6rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #94a3b8;
+}
+
+.raid-signups__collapsed-items {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.raid-signups__collapsed-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  text-align: center;
+  min-width: 4.6rem;
+}
+
+.raid-signups__collapsed-item--self {
+  filter: drop-shadow(0 10px 22px rgba(250, 204, 21, 0.32));
+}
+
+.raid-signups__collapsed-avatar {
+  position: relative;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.18);
+}
+
+.raid-signups__collapsed-avatar--self {
+  border-color: rgba(250, 204, 21, 0.55);
+  box-shadow:
+    0 0 0 2px rgba(250, 204, 21, 0.22),
+    0 16px 32px rgba(250, 204, 21, 0.3);
+  background: radial-gradient(circle at 30% 30%, rgba(253, 224, 71, 0.35), rgba(15, 23, 42, 0.85));
+}
+
+.raid-signups__collapsed-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.raid-signups__collapsed-fallback {
+  font-weight: 600;
+  color: #cbd5f5;
+  letter-spacing: 0.06em;
+}
+
+.raid-signups__collapsed-check {
+  position: absolute;
+  bottom: -0.3rem;
+  right: -0.25rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.95), rgba(22, 163, 74, 0.9));
+  border: 2px solid rgba(15, 23, 42, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0b1120;
+  font-size: 0.85rem;
+  font-weight: 700;
+  box-shadow: 0 6px 12px rgba(34, 197, 94, 0.35);
+  z-index: 2;
+}
+
+.raid-signups__collapsed-name {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-size: 0.78rem;
+  color: #e2e8f0;
+}
+
+.raid-signups__collapsed-class {
+  letter-spacing: 0.06em;
+  font-size: 0.65rem;
+}
+
+.raid-signups__collapsed-more {
+  text-align: center;
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.raid-signups__collapsed-empty {
+  margin: 0;
+}
+
+.raid-signups-collapse-enter-active,
+.raid-signups-collapse-leave-active {
+  transition:
+    max-height 0.28s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.raid-signups-collapse-enter-from,
+.raid-signups-collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.raid-signups-collapse-enter-to,
+.raid-signups-collapse-leave-from {
+  max-height: 2000px;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .raid-timing {

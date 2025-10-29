@@ -101,7 +101,14 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
       defaultRaidEndTime: z
         .union([z.string().regex(timeRegex), z.literal('')])
         .optional()
-        .nullable()
+        .nullable(),
+      defaultDiscordVoiceUrl: z
+        .union([z.string().url().max(512), z.literal('')])
+        .optional()
+        .nullable(),
+      discordWidgetServerId: z.union([z.string().max(64), z.literal('')]).optional().nullable(),
+      discordWidgetTheme: z.enum(['LIGHT', 'DARK']).optional().nullable(),
+      discordWidgetEnabled: z.boolean().optional()
     });
 
     const body = bodySchema.safeParse(request.body);
@@ -129,6 +136,28 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
     const normalizedEnd = normalizeTimeInput(body.data.defaultRaidEndTime);
     if (normalizedEnd !== undefined) {
       data.defaultRaidEndTime = normalizedEnd;
+    }
+
+    const normalizedVoiceUrl = sanitizeOptionalUrl(body.data.defaultDiscordVoiceUrl);
+    if (normalizedVoiceUrl !== undefined) {
+      data.defaultDiscordVoiceUrl = normalizedVoiceUrl;
+    }
+
+    if (body.data.discordWidgetServerId !== undefined) {
+      const trimmed = (body.data.discordWidgetServerId ?? '').trim();
+      data.discordWidgetServerId = trimmed.length > 0 ? trimmed : null;
+      if (!trimmed.length) {
+        data.discordWidgetTheme = null;
+        data.discordWidgetEnabled = false;
+      }
+    }
+
+    if (body.data.discordWidgetTheme !== undefined) {
+      data.discordWidgetTheme = body.data.discordWidgetTheme ?? null;
+    }
+
+    if (body.data.discordWidgetEnabled !== undefined) {
+      data.discordWidgetEnabled = body.data.discordWidgetEnabled;
     }
 
     const guild = await prisma.guild.update({
@@ -551,4 +580,28 @@ function normalizeTimeInput(value?: string | null) {
   }
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+function sanitizeOptionalUrl(value?: string | null) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const absolute = new URL(trimmed);
+    return absolute.toString();
+  } catch (error) {
+    try {
+      const withScheme = new URL(`https://${trimmed}`);
+      return withScheme.toString();
+    } catch (nestedError) {
+      return null;
+    }
+  }
 }

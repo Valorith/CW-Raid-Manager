@@ -24,6 +24,7 @@ model User {
   guildMemberships   GuildMembership[]
   createdRaids       RaidEvent[]        @relation("RaidCreator")
   createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
+  raidSignups        RaidSignup[]
 }
 
 model Guild {
@@ -36,6 +37,10 @@ model Guild {
   updatedAt            DateTime                 @updatedAt
   defaultRaidStartTime String?                  @db.VarChar(5)
   defaultRaidEndTime   String?                  @db.VarChar(5)
+  defaultDiscordVoiceUrl String?               @db.VarChar(512)
+  discordWidgetServerId String?                @db.VarChar(64)
+  discordWidgetTheme   DiscordWidgetTheme?     @default(DARK)
+  discordWidgetEnabled Boolean                 @default(false)
   characters           Character[]
   createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
   applications         GuildApplication[]
@@ -107,6 +112,7 @@ model Character {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   attendanceRecords AttendanceRecord[]
+  raidSignups       RaidSignup[]
   guild             Guild?              @relation(fields: [guildId], references: [id])
   user              User                @relation(fields: [userId], references: [id])
 
@@ -124,6 +130,7 @@ model RaidEvent {
   targetZones  Json
   targetBosses Json
   notes        String?
+  discordVoiceUrl String?        @db.VarChar(512)
   isActive     Boolean           @default(true)
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -132,6 +139,7 @@ model RaidEvent {
   attendance   AttendanceEvent[]
   createdBy    User              @relation("RaidCreator", fields: [createdById], references: [id])
   guild        Guild             @relation(fields: [guildId], references: [id])
+  signups      RaidSignup[]
   loot         RaidLootEvent[]
 
   @@index([createdById], map: "RaidEvent_createdById_fkey")
@@ -168,6 +176,26 @@ model RaidLootEvent {
   @@index([createdById], map: "RaidLootEvent_createdById_fkey")
   @@index([guildId])
   @@index([raidId])
+}
+
+model RaidSignup {
+  id             String         @id @default(cuid())
+  raidId         String
+  userId         String
+  characterId    String
+  characterName  String         @db.VarChar(64)
+  characterClass CharacterClass
+  characterLevel Int?
+  isMain         Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now()) @updatedAt
+  raid           RaidEvent      @relation(fields: [raidId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character      Character      @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([raidId, characterId])
+  @@index([raidId])
+  @@index([userId])
 }
 
 model GuildLootListEntry {
@@ -265,6 +293,11 @@ enum CharacterArchetype {
   MELEE
   CASTER
   HYBRID
+}
+
+enum DiscordWidgetTheme {
+  LIGHT
+  DARK
 }
 
 enum AttendanceEventType {

@@ -1,6 +1,12 @@
 import axios, { AxiosResponse } from 'axios';
 
-import type { AttendanceStatus, CharacterClass, GuildRole, LootListType } from './types';
+import type {
+  AttendanceStatus,
+  CharacterClass,
+  DiscordWidgetTheme,
+  GuildRole,
+  LootListType
+} from './types';
 
 export interface GuildSummary {
   id: string;
@@ -9,6 +15,10 @@ export interface GuildSummary {
   description?: string | null;
   defaultRaidStartTime?: string | null;
   defaultRaidEndTime?: string | null;
+  defaultDiscordVoiceUrl?: string | null;
+  discordWidgetServerId?: string | null;
+  discordWidgetTheme?: DiscordWidgetTheme | null;
+  discordWidgetEnabled?: boolean;
   createdAt: string;
   members: Array<{
     id: string;
@@ -150,6 +160,7 @@ export interface RaidEventSummary {
   targetZones: string[];
   targetBosses: string[];
   notes?: string | null;
+  discordVoiceUrl?: string | null;
   isActive: boolean;
   logMonitor?: {
     isActive: boolean;
@@ -168,6 +179,34 @@ export interface RaidEventSummary {
   }>;
 }
 
+export interface RaidSignupUser {
+  id: string;
+  displayName: string;
+  nickname?: string | null;
+}
+
+export interface RaidSignupCharacter {
+  id: string;
+  name: string;
+  class: CharacterClass;
+  level: number | null;
+  isMain: boolean;
+}
+
+export interface RaidSignup {
+  id: string;
+  raidId: string;
+  userId: string;
+  characterId: string;
+  characterName: string;
+  characterClass: CharacterClass;
+  characterLevel: number | null;
+  isMain: boolean;
+  createdAt: string;
+  updatedAt: string;
+  user: RaidSignupUser;
+  character: RaidSignupCharacter;
+}
 
 export interface AttendanceEventSummary {
   id: string;
@@ -190,6 +229,7 @@ export interface RaidDetail extends RaidEventSummary {
     nickname?: string | null;
   };
   attendance: AttendanceEventSummary[];
+  signups: RaidSignup[];
 }
 
 export type LootListMatchType = 'ITEM_ID' | 'ITEM_NAME';
@@ -588,6 +628,81 @@ function normalizeBooleanRecord(raw: any) {
   }, {});
 }
 
+function normalizeRaidSignup(raw: any): RaidSignup {
+  const fallbackCharacterName =
+    typeof raw?.character?.name === 'string'
+      ? raw.character.name
+      : typeof raw?.characterName === 'string'
+        ? raw.characterName
+        : '';
+
+  const characterClass =
+    typeof raw?.characterClass === 'string'
+      ? (raw.characterClass as CharacterClass)
+      : typeof raw?.character?.class === 'string'
+        ? (raw.character.class as CharacterClass)
+        : 'UNKNOWN';
+
+  const levelValue =
+    typeof raw?.characterLevel === 'number'
+      ? raw.characterLevel
+      : typeof raw?.character?.level === 'number'
+        ? raw.character.level
+        : null;
+
+  const isMainValue =
+    typeof raw?.isMain === 'boolean'
+      ? raw.isMain
+      : typeof raw?.character?.isMain === 'boolean'
+        ? raw.character.isMain
+        : false;
+
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    raidId: typeof raw?.raidId === 'string' ? raw.raidId : '',
+    userId:
+      typeof raw?.userId === 'string'
+        ? raw.userId
+        : typeof raw?.user?.id === 'string'
+          ? raw.user.id
+          : '',
+    characterId:
+      typeof raw?.characterId === 'string'
+        ? raw.characterId
+        : typeof raw?.character?.id === 'string'
+          ? raw.character.id
+          : '',
+    characterName: fallbackCharacterName,
+    characterClass,
+    characterLevel: levelValue,
+    isMain: isMainValue,
+    createdAt: normalizeDateString(raw?.createdAt),
+    updatedAt: normalizeDateString(raw?.updatedAt),
+    user: {
+      id:
+        typeof raw?.user?.id === 'string'
+          ? raw.user.id
+          : typeof raw?.userId === 'string'
+            ? raw.userId
+            : '',
+      displayName: typeof raw?.user?.displayName === 'string' ? raw.user.displayName : '',
+      nickname: typeof raw?.user?.nickname === 'string' ? raw.user.nickname : null
+    },
+    character: {
+      id:
+        typeof raw?.character?.id === 'string'
+          ? raw.character.id
+          : typeof raw?.characterId === 'string'
+            ? raw.characterId
+            : '',
+      name: fallbackCharacterName,
+      class: characterClass,
+      level: levelValue,
+      isMain: isMainValue
+    }
+  };
+}
+
 function normalizeRaidSummary(
   raid: any,
   options?: { includeAttendance?: boolean }
@@ -628,6 +743,10 @@ function normalizeRaidSummary(
     targetZones: normalizeStringArray(raid?.targetZones),
     targetBosses: normalizeStringArray(raid?.targetBosses),
     notes: typeof raid?.notes === 'string' ? raid.notes : raid?.notes ?? null,
+    discordVoiceUrl:
+      typeof raid?.discordVoiceUrl === 'string'
+        ? raid.discordVoiceUrl
+        : raid?.discordVoiceUrl ?? null,
     isActive: Boolean(raid?.isActive),
     logMonitor,
     permissions: raid?.permissions ?? undefined,
@@ -659,6 +778,10 @@ export const api = {
     description?: string | null;
     defaultRaidStartTime?: string | null;
     defaultRaidEndTime?: string | null;
+    defaultDiscordVoiceUrl?: string | null;
+    discordWidgetServerId?: string | null;
+    discordWidgetTheme?: DiscordWidgetTheme | null;
+    discordWidgetEnabled?: boolean;
   }): Promise<GuildDetail> {
     const response = await axios.patch(`/api/guilds/${guildId}`, payload);
     return response.data.guild;
@@ -698,13 +821,26 @@ export const api = {
     const response = await axios.get(`/api/raids/${raidId}`);
     const raid = response.data.raid;
     const normalizedSummary = normalizeRaidSummary(raid);
+    const normalizedSignups = Array.isArray(raid?.signups)
+      ? raid.signups.map((signup: any) => normalizeRaidSignup(signup))
+      : [];
     return {
       ...raid,
       ...normalizedSummary,
       attendance: Array.isArray(raid?.attendance)
         ? raid.attendance.map(normalizeAttendanceEvent)
-        : []
+        : [],
+      signups: normalizedSignups
     };
+  },
+
+  async updateRaidSignups(raidId: string, characterIds: string[]): Promise<RaidSignup[]> {
+    const response = await axios.put(`/api/raids/${raidId}/signups/me`, {
+      characterIds
+    });
+    return Array.isArray(response.data.signups)
+      ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))
+      : [];
   },
 
   async fetchRaidLogMonitorStatus(raidId: string): Promise<RaidLogMonitorStatus> {
@@ -878,6 +1014,7 @@ export const api = {
       targetBosses?: string[];
       notes?: string;
       isActive?: boolean;
+      discordVoiceUrl?: string | null;
     }
   ) {
     const response = await axios.patch(`/api/raids/${raidId}`, payload);
@@ -893,6 +1030,7 @@ export const api = {
     targetZones: string[];
     targetBosses: string[];
     notes?: string;
+    discordVoiceUrl?: string;
   }) {
     const response = await axios.post('/api/raids', payload);
     return response.data.raid;

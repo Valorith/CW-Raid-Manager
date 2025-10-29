@@ -29,6 +29,18 @@
         </label>
 
         <label class="form__field">
+          <span>Discord Voice Channel</span>
+          <input
+            v-model="form.discordVoiceUrl"
+            type="url"
+            placeholder="https://discord.gg/your-voice-channel"
+            @input="clearDiscordVoiceUrlError"
+          />
+          <small v-if="errors.discordVoiceUrl" class="form__error">{{ errors.discordVoiceUrl }}</small>
+          <small v-else class="form__hint">Shown as a "Chat on Discord" button on the raid page.</small>
+        </label>
+
+        <label class="form__field">
           <span>Notes</span>
           <textarea v-model="form.notes" rows="3"></textarea>
         </label>
@@ -48,11 +60,13 @@
 import { computed, reactive, ref } from 'vue';
 
 import { api } from '../services/api';
+import { normalizeOptionalUrl } from '../utils/urls';
 
 const props = defineProps<{
   guildId: string;
   defaultStartTime?: string | null;
   defaultEndTime?: string | null;
+  defaultDiscordVoiceUrl?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -65,10 +79,14 @@ const form = reactive({
   startTime: buildDateInput(props.defaultStartTime),
   targetZones: '',
   targetBosses: '',
-  notes: ''
+  notes: '',
+  discordVoiceUrl: props.defaultDiscordVoiceUrl ?? ''
 });
 
 const submitting = ref(false);
+const errors = reactive({
+  discordVoiceUrl: ''
+});
 const defaultWindowLabel = computed(() => {
   const start = formatDefaultClock(props.defaultStartTime);
   const end = formatDefaultClock(props.defaultEndTime);
@@ -90,18 +108,35 @@ function close() {
 
 async function submit() {
   submitting.value = true;
+  errors.discordVoiceUrl = '';
   try {
+    const { normalized, valid } = normalizeOptionalUrl(form.discordVoiceUrl);
+    if (!valid) {
+      errors.discordVoiceUrl = 'Enter a valid Discord URL.';
+      submitting.value = false;
+      return;
+    }
+
+    form.discordVoiceUrl = normalized ?? '';
+
     await api.createRaidEvent({
       guildId: props.guildId,
       name: form.name,
       startTime: new Date(form.startTime).toISOString(),
       targetZones: splitAndFilter(form.targetZones),
       targetBosses: splitAndFilter(form.targetBosses),
-      notes: form.notes || undefined
+      notes: form.notes || undefined,
+      discordVoiceUrl: normalized ?? undefined
     });
     emit('created');
   } finally {
     submitting.value = false;
+  }
+}
+
+function clearDiscordVoiceUrlError() {
+  if (errors.discordVoiceUrl) {
+    errors.discordVoiceUrl = '';
   }
 }
 
@@ -197,6 +232,11 @@ function formatDefaultClock(value?: string | null) {
 .form__hint {
   font-size: 0.8rem;
   color: #94a3b8;
+}
+
+.form__error {
+  font-size: 0.8rem;
+  color: #f87171;
 }
 
 .icon-button {

@@ -40,6 +40,7 @@ export async function listRaidEventsForGuild(guildId) {
 }
 export async function createRaidEvent(input) {
     await ensureCanManageRaid(input.createdById, input.guildId);
+    const discordVoiceUrl = sanitizeUrl(input.discordVoiceUrl);
     const raid = await prisma.raidEvent.create({
         data: {
             guildId: input.guildId,
@@ -50,7 +51,8 @@ export async function createRaidEvent(input) {
             endedAt: input.endedAt ?? null,
             targetZones: input.targetZones,
             targetBosses: input.targetBosses,
-            notes: input.notes
+            notes: input.notes,
+            discordVoiceUrl
         },
         include: {
             guild: {
@@ -96,18 +98,23 @@ export async function updateRaidEvent(raidId, userId, data) {
     const targetBossesUpdate = data.targetBosses === undefined
         ? undefined
         : data.targetBosses;
+    const discordVoiceUrlUpdate = data.discordVoiceUrl === undefined ? undefined : sanitizeUrl(data.discordVoiceUrl);
+    const updateData = {
+        name: data.name ?? existing.name,
+        startTime: data.startTime ?? existing.startTime,
+        startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
+        endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
+        targetZones: targetZonesUpdate ?? existing.targetZones,
+        targetBosses: targetBossesUpdate ?? existing.targetBosses,
+        notes: data.notes ?? existing.notes,
+        isActive: data.isActive ?? existing.isActive
+    };
+    if (discordVoiceUrlUpdate !== undefined) {
+        updateData.discordVoiceUrl = discordVoiceUrlUpdate;
+    }
     return prisma.raidEvent.update({
         where: { id: raidId },
-        data: {
-            name: data.name ?? existing.name,
-            startTime: data.startTime ?? existing.startTime,
-            startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
-            endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
-            targetZones: targetZonesUpdate ?? existing.targetZones,
-            targetBosses: targetBossesUpdate ?? existing.targetBosses,
-            notes: data.notes ?? existing.notes,
-            isActive: data.isActive ?? existing.isActive
-        }
+        data: updateData
     });
 }
 export async function getRaidEventById(raidId) {
@@ -337,4 +344,29 @@ function normalizeStringArray(value) {
         return String(entry).trim();
     })
         .filter((entry) => entry.length > 0);
+}
+function sanitizeUrl(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null) {
+        return null;
+    }
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    try {
+        const url = new URL(trimmed);
+        return url.toString();
+    }
+    catch (error) {
+        try {
+            const prefixed = new URL(`https://${trimmed}`);
+            return prefixed.toString();
+        }
+        catch (nestedError) {
+            return null;
+        }
+    }
 }

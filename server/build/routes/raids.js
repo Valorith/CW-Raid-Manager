@@ -3,6 +3,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEventsForGuild, updateRaidEvent, startRaidEvent, endRaidEvent, restartRaidEvent, deleteRaidEvent } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
+import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError } from '../services/raidSignupService.js';
 export async function raidsRoutes(server) {
     server.get('/guild/:guildId', {
         preHandler: [authenticate]
@@ -68,9 +69,11 @@ export async function raidsRoutes(server) {
         }
         const canManage = canManageGuild(membershipRole);
         const session = getActiveLootMonitorSession(raid.id);
+        const signups = await listRaidSignups(raid.id);
         return {
             raid: {
                 ...raid,
+                signups,
                 logMonitor: session
                     ? {
                         isActive: true,
@@ -86,6 +89,41 @@ export async function raidsRoutes(server) {
             }
         };
     });
+    server.put('/:raidId/signups/me', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        const bodySchema = z.object({
+            characterIds: z.array(z.string())
+        });
+        const parsed = bodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid signup payload.');
+        }
+        try {
+            const signups = await replaceRaidSignupsForUser(raidId, request.user.userId, parsed.data.characterIds);
+            return { signups };
+        }
+        catch (error) {
+            if (error instanceof RaidSignupLimitError) {
+                return reply.badRequest(error.message);
+            }
+            if (error instanceof RaidSignupInvalidCharacterError) {
+                return reply.badRequest(error.message);
+            }
+            if (error instanceof RaidSignupPermissionError) {
+                return reply.forbidden(error.message);
+            }
+            if (error instanceof Error && error.message === 'Raid event not found.') {
+                return reply.notFound(error.message);
+            }
+            request.log.warn({ error }, 'Failed to update raid signups.');
+            return reply.internalServerError('Unable to update raid signups.');
+        }
+    });
     server.post('/', { preHandler: [authenticate] }, async (request, reply) => {
         const bodySchema = z.object({
             guildId: z.string(),
@@ -95,7 +133,8 @@ export async function raidsRoutes(server) {
             endedAt: z.string().datetime({ offset: true }).optional(),
             targetZones: z.array(z.string().min(1)).min(1),
             targetBosses: z.array(z.string().min(1)).min(1),
-            notes: z.string().max(2000).optional()
+            notes: z.string().max(2000).optional(),
+            discordVoiceUrl: z.union([z.string().url().max(512), z.literal('')]).optional()
         });
         const parsed = bodySchema.safeParse(request.body);
         if (!parsed.success) {
@@ -111,6 +150,7 @@ export async function raidsRoutes(server) {
                 targetZones: parsed.data.targetZones,
                 targetBosses: parsed.data.targetBosses,
                 notes: parsed.data.notes,
+                discordVoiceUrl: parsed.data.discordVoiceUrl,
                 createdById: request.user.userId
             });
             return reply.code(201).send({ raid });
@@ -134,7 +174,8 @@ export async function raidsRoutes(server) {
             targetZones: z.array(z.string().min(1)).min(1).optional(),
             targetBosses: z.array(z.string().min(1)).min(1).optional(),
             notes: z.string().max(2000).optional(),
-            isActive: z.boolean().optional()
+            isActive: z.boolean().optional(),
+            discordVoiceUrl: z.union([z.string().url().max(512), z.literal(''), z.null()]).optional()
         })
             .refine((value) => Object.keys(value).length > 0, {
             message: 'At least one field must be updated.'
@@ -156,7 +197,8 @@ export async function raidsRoutes(server) {
                     ? parsed.data.endedAt
                         ? new Date(parsed.data.endedAt)
                         : null
-                    : undefined
+                    : undefined,
+                discordVoiceUrl: parsed.data.discordVoiceUrl
             });
             return { raid };
         }

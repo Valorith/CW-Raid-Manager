@@ -1,4 +1,4 @@
-import type { GuildDiscordWebhook, Prisma } from '@prisma/client';
+import type { CharacterClass, GuildDiscordWebhook, Prisma } from '@prisma/client';
 
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
@@ -10,6 +10,8 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'raid.started',
   'raid.ended',
   'raid.deleted',
+  'raid.signup',
+  'raid.withdraw',
   'loot.assigned',
   'attendance.logged',
   'attendance.updated',
@@ -55,6 +57,18 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     category: 'RAID'
   },
   {
+    key: 'raid.signup',
+    label: 'Raid Signup',
+    description: 'Announces when a character signs up for a raid.',
+    category: 'RAID'
+  },
+  {
+    key: 'raid.withdraw',
+    label: 'Raid Withdrawal',
+    description: 'Notifies the guild when a character withdraws from a raid signup.',
+    category: 'RAID'
+  },
+  {
     key: 'loot.assigned',
     label: 'Loot Assigned',
     description: 'Triggered whenever loot items are recorded for a raid.',
@@ -97,6 +111,8 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'raid.started': true,
   'raid.ended': true,
   'raid.deleted': false,
+  'raid.signup': true,
+  'raid.withdraw': true,
   'loot.assigned': true,
   'attendance.logged': true,
   'attendance.updated': true,
@@ -110,6 +126,8 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'raid.started': true,
   'raid.ended': true,
   'raid.deleted': false,
+  'raid.signup': false,
+  'raid.withdraw': false,
   'loot.assigned': false,
   'attendance.logged': false,
   'attendance.updated': false,
@@ -284,6 +302,31 @@ type DiscordWebhookPayloadMap = {
     guildName: string;
     raidId: string;
     raidName: string;
+  };
+  'raid.signup': {
+    guildId: string;
+    guildName: string;
+    raidId: string;
+    raidName: string;
+    entries: Array<{
+      characterName: string;
+      characterClass: CharacterClass;
+      characterClassLabel: string;
+    }>;
+    userDisplayName: string;
+    signedAt: Date | string;
+    raidStartTime: Date | string | null;
+  };
+  'raid.withdraw': {
+    guildId: string;
+    guildName: string;
+    raidId: string;
+    raidName: string;
+    characterName: string;
+    characterClass: CharacterClass;
+    characterClassLabel: string;
+    userDisplayName: string;
+    withdrawnAt: Date | string;
   };
   'loot.assigned': {
     guildName: string;
@@ -533,6 +576,75 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
             description: 'A scheduled raid was deleted by guild leadership.',
             color: DISCORD_COLORS.warning,
             timestamp: nowIso
+          }
+        ]
+      };
+    case 'raid.signup':
+      const raidSignupPayload = payload as DiscordWebhookPayloadMap['raid.signup'];
+      const raidSignupUrl = buildRaidUrl(raidSignupPayload.raidId);
+      const signupEntries = raidSignupPayload.entries ?? [];
+      if (signupEntries.length === 0) {
+        return null;
+      }
+      if (signupEntries.length === 1) {
+        const entry = signupEntries[0];
+        return {
+          embeds: [
+            {
+              title: `✅ ${entry.characterName} (${entry.characterClassLabel}) signed up`,
+              description: formatRaidSignupDescription(
+                raidSignupPayload.raidName,
+                raidSignupPayload.userDisplayName,
+                raidSignupUrl,
+                raidSignupPayload.raidStartTime
+              ),
+              color: DISCORD_COLORS.success,
+              footer: { text: raidSignupPayload.guildName },
+              timestamp: new Date(raidSignupPayload.signedAt).toISOString()
+            }
+          ]
+        };
+      }
+
+      return {
+        embeds: [
+          {
+            title: `✅ ${raidSignupPayload.userDisplayName} signed up ${signupEntries.length} characters`,
+            description: formatRaidSignupDescription(
+              raidSignupPayload.raidName,
+              raidSignupPayload.userDisplayName,
+              raidSignupUrl,
+              raidSignupPayload.raidStartTime
+            ),
+            color: DISCORD_COLORS.success,
+            fields: [
+              {
+                name: 'Characters',
+                value: signupEntries
+                  .map((entry) => `• **${entry.characterName}** (${entry.characterClassLabel})`)
+                  .join('\n')
+              }
+            ],
+            footer: { text: raidSignupPayload.guildName },
+            timestamp: new Date(raidSignupPayload.signedAt).toISOString()
+          }
+        ]
+      };
+    case 'raid.withdraw':
+      const raidWithdrawPayload = payload as DiscordWebhookPayloadMap['raid.withdraw'];
+      const raidWithdrawUrl = buildRaidUrl(raidWithdrawPayload.raidId);
+      return {
+        embeds: [
+          {
+            title: `⚠️ ${raidWithdrawPayload.characterName} (${raidWithdrawPayload.characterClassLabel}) withdrew`,
+            description: formatRaidSignupDescription(
+              raidWithdrawPayload.raidName,
+              raidWithdrawPayload.userDisplayName,
+              raidWithdrawUrl
+            ),
+            color: DISCORD_COLORS.warning,
+            footer: { text: raidWithdrawPayload.guildName },
+            timestamp: new Date(raidWithdrawPayload.withdrawnAt).toISOString()
           }
         ]
       };
@@ -902,6 +1014,20 @@ function buildAttendanceEventUrl(raidId: string, attendanceEventId: string) {
     return null;
   }
   return `${raidUrl}?attendanceEventId=${encodeURIComponent(attendanceEventId)}`;
+}
+
+function formatRaidSignupDescription(
+  raidName: string,
+  userDisplayName: string,
+  raidUrl: string | null,
+  raidStartTime?: Date | string | null
+) {
+  const raidLabel = raidUrl ? `[${raidName}](${raidUrl})` : raidName;
+  const lines = [`**Raid:** ${raidLabel}`, `**Player:** ${userDisplayName}`];
+  if (raidStartTime) {
+    lines.push(`**Start:** ${formatDiscordTimestamp(raidStartTime)}`);
+  }
+  return lines.join('\n');
 }
 
 function formatDuration(start?: Date | string | null, end?: Date | string | null) {

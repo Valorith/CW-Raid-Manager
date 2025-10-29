@@ -102,6 +102,7 @@
       :guild-id="selectedGuildId"
       :default-start-time="selectedGuildDefaults?.start ?? null"
       :default-end-time="selectedGuildDefaults?.end ?? null"
+      :default-discord-voice-url="selectedGuildDefaults?.voice ?? null"
       @close="handleRaidClose"
       @created="handleRaidCreated"
     />
@@ -175,7 +176,7 @@ const activeTab = ref<'active' | 'history'>('active');
 const copyingRaidId = ref<string | null>(null);
 const guildTimingDefaults = ref<Record<
   string,
-  { start: string | null; end: string | null }
+  { start: string | null; end: string | null; voice: string | null }
 >>({});
 const selectedGuildDefaults = computed(() => {
   if (!selectedGuildId.value) {
@@ -310,7 +311,8 @@ async function ensureGuildDefaults(guildId: string) {
     const detail = await api.fetchGuildDetail(guildId);
     guildTimingDefaults.value[guildId] = {
       start: detail.defaultRaidStartTime ?? null,
-      end: detail.defaultRaidEndTime ?? null
+      end: detail.defaultRaidEndTime ?? null,
+      voice: detail.defaultDiscordVoiceUrl ?? null
     };
   } catch (error) {
     console.warn('Failed to load guild defaults for raid planning', error);
@@ -336,7 +338,8 @@ async function copyRaid(raid: RaidEventSummary) {
       startTime: raid.startTime,
       targetZones: ensureTargets(raid.targetZones),
       targetBosses: ensureTargets(raid.targetBosses),
-      notes: raid.notes ?? undefined
+      notes: raid.notes ?? undefined,
+      discordVoiceUrl: raid.discordVoiceUrl ?? undefined
     });
     await loadRaids();
     window.dispatchEvent(new CustomEvent('active-raid-updated'));

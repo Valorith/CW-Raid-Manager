@@ -15,6 +15,7 @@ interface CreateRaidInput {
   targetZones: string[];
   targetBosses: string[];
   notes?: string | null;
+  discordVoiceUrl?: string | null;
 }
 
 interface UpdateRaidInput {
@@ -26,6 +27,7 @@ interface UpdateRaidInput {
   targetBosses?: string[];
   notes?: string | null;
   isActive?: boolean;
+  discordVoiceUrl?: string | null;
 }
 
 export async function ensureCanManageRaid(userId: string, guildId: string) {
@@ -68,6 +70,8 @@ export async function listRaidEventsForGuild(guildId: string) {
 export async function createRaidEvent(input: CreateRaidInput) {
   await ensureCanManageRaid(input.createdById, input.guildId);
 
+  const discordVoiceUrl = sanitizeUrl(input.discordVoiceUrl);
+
   const raid = await prisma.raidEvent.create({
     data: {
       guildId: input.guildId,
@@ -78,7 +82,8 @@ export async function createRaidEvent(input: CreateRaidInput) {
       endedAt: input.endedAt ?? null,
       targetZones: input.targetZones,
       targetBosses: input.targetBosses,
-      notes: input.notes
+      notes: input.notes,
+      discordVoiceUrl
     },
     include: {
       guild: {
@@ -137,18 +142,27 @@ export async function updateRaidEvent(
       ? undefined
       : (data.targetBosses as Prisma.InputJsonValue);
 
+  const discordVoiceUrlUpdate =
+    data.discordVoiceUrl === undefined ? undefined : sanitizeUrl(data.discordVoiceUrl);
+
+  const updateData: Prisma.RaidEventUpdateInput = {
+    name: data.name ?? existing.name,
+    startTime: (data.startTime as Date | undefined) ?? existing.startTime,
+    startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
+    endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
+    targetZones: targetZonesUpdate ?? (existing.targetZones as Prisma.InputJsonValue),
+    targetBosses: targetBossesUpdate ?? (existing.targetBosses as Prisma.InputJsonValue),
+    notes: data.notes ?? existing.notes,
+    isActive: data.isActive ?? existing.isActive
+  };
+
+  if (discordVoiceUrlUpdate !== undefined) {
+    updateData.discordVoiceUrl = discordVoiceUrlUpdate;
+  }
+
   return prisma.raidEvent.update({
     where: { id: raidId },
-    data: {
-      name: data.name ?? existing.name,
-      startTime: (data.startTime as Date | undefined) ?? existing.startTime,
-      startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
-      endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
-      targetZones: targetZonesUpdate ?? (existing.targetZones as Prisma.InputJsonValue),
-      targetBosses: targetBossesUpdate ?? (existing.targetBosses as Prisma.InputJsonValue),
-      notes: data.notes ?? existing.notes,
-      isActive: data.isActive ?? existing.isActive
-    }
+    data: updateData
   });
 }
 
@@ -413,4 +427,28 @@ function normalizeStringArray(value: Prisma.JsonValue | null | undefined) {
       return String(entry).trim();
     })
     .filter((entry) => entry.length > 0);
+}
+
+function sanitizeUrl(value?: string | null) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed);
+    return url.toString();
+  } catch (error) {
+    try {
+      const prefixed = new URL(`https://${trimmed}`);
+      return prefixed.toString();
+    } catch (nestedError) {
+      return null;
+    }
+  }
 }

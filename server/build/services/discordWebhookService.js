@@ -6,6 +6,8 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
     'raid.started',
     'raid.ended',
     'raid.deleted',
+    'raid.signup',
+    'raid.withdraw',
     'loot.assigned',
     'attendance.logged',
     'attendance.updated',
@@ -36,6 +38,18 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         key: 'raid.deleted',
         label: 'Raid Deleted',
         description: 'Broadcast when a scheduled raid is removed.',
+        category: 'RAID'
+    },
+    {
+        key: 'raid.signup',
+        label: 'Raid Signup',
+        description: 'Announces when a character signs up for a raid.',
+        category: 'RAID'
+    },
+    {
+        key: 'raid.withdraw',
+        label: 'Raid Withdrawal',
+        description: 'Notifies the guild when a character withdraws from a raid signup.',
         category: 'RAID'
     },
     {
@@ -80,6 +94,8 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS = Object.freeze({
     'raid.started': true,
     'raid.ended': true,
     'raid.deleted': false,
+    'raid.signup': true,
+    'raid.withdraw': true,
     'loot.assigned': true,
     'attendance.logged': true,
     'attendance.updated': true,
@@ -92,6 +108,8 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS = Object.freeze({
     'raid.started': true,
     'raid.ended': true,
     'raid.deleted': false,
+    'raid.signup': false,
+    'raid.withdraw': false,
     'loot.assigned': false,
     'attendance.logged': false,
     'attendance.updated': false,
@@ -340,6 +358,60 @@ function buildWebhookMessage(event, payload) {
                         description: 'A scheduled raid was deleted by guild leadership.',
                         color: DISCORD_COLORS.warning,
                         timestamp: nowIso
+                    }
+                ]
+            };
+        case 'raid.signup':
+            const raidSignupPayload = payload;
+            const raidSignupUrl = buildRaidUrl(raidSignupPayload.raidId);
+            const signupEntries = raidSignupPayload.entries ?? [];
+            if (signupEntries.length === 0) {
+                return null;
+            }
+            if (signupEntries.length === 1) {
+                const entry = signupEntries[0];
+                return {
+                    embeds: [
+                        {
+                            title: `✅ ${entry.characterName} (${entry.characterClassLabel}) signed up`,
+                            description: formatRaidSignupDescription(raidSignupPayload.raidName, raidSignupPayload.userDisplayName, raidSignupUrl, raidSignupPayload.raidStartTime),
+                            color: DISCORD_COLORS.success,
+                            footer: { text: raidSignupPayload.guildName },
+                            timestamp: new Date(raidSignupPayload.signedAt).toISOString()
+                        }
+                    ]
+                };
+            }
+            return {
+                embeds: [
+                    {
+                        title: `✅ ${raidSignupPayload.userDisplayName} signed up ${signupEntries.length} characters`,
+                        description: formatRaidSignupDescription(raidSignupPayload.raidName, raidSignupPayload.userDisplayName, raidSignupUrl, raidSignupPayload.raidStartTime),
+                        color: DISCORD_COLORS.success,
+                        fields: [
+                            {
+                                name: 'Characters',
+                                value: signupEntries
+                                    .map((entry) => `• **${entry.characterName}** (${entry.characterClassLabel})`)
+                                    .join('\n')
+                            }
+                        ],
+                        footer: { text: raidSignupPayload.guildName },
+                        timestamp: new Date(raidSignupPayload.signedAt).toISOString()
+                    }
+                ]
+            };
+        case 'raid.withdraw':
+            const raidWithdrawPayload = payload;
+            const raidWithdrawUrl = buildRaidUrl(raidWithdrawPayload.raidId);
+            return {
+                embeds: [
+                    {
+                        title: `⚠️ ${raidWithdrawPayload.characterName} (${raidWithdrawPayload.characterClassLabel}) withdrew`,
+                        description: formatRaidSignupDescription(raidWithdrawPayload.raidName, raidWithdrawPayload.userDisplayName, raidWithdrawUrl),
+                        color: DISCORD_COLORS.warning,
+                        footer: { text: raidWithdrawPayload.guildName },
+                        timestamp: new Date(raidWithdrawPayload.withdrawnAt).toISOString()
                     }
                 ]
             };
@@ -667,6 +739,14 @@ function buildAttendanceEventUrl(raidId, attendanceEventId) {
         return null;
     }
     return `${raidUrl}?attendanceEventId=${encodeURIComponent(attendanceEventId)}`;
+}
+function formatRaidSignupDescription(raidName, userDisplayName, raidUrl, raidStartTime) {
+    const raidLabel = raidUrl ? `[${raidName}](${raidUrl})` : raidName;
+    const lines = [`**Raid:** ${raidLabel}`, `**Player:** ${userDisplayName}`];
+    if (raidStartTime) {
+        lines.push(`**Start:** ${formatDiscordTimestamp(raidStartTime)}`);
+    }
+    return lines.join('\n');
 }
 function formatDuration(start, end) {
     if (!start || !end) {

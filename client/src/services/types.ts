@@ -22,6 +22,8 @@ export type CharacterClass =
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'BENCHED';
 
+export type DiscordWidgetTheme = 'LIGHT' | 'DARK';
+
 export const guildRoleOrder: GuildRole[] = ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER'];
 export const lootListTypeOrder: LootListType[] = ['WHITELIST', 'BLACKLIST'];
 export const lootListTypeLabels: Record<LootListType, string> = {
@@ -75,4 +77,39 @@ export function getCharacterClassIcon(characterClass?: CharacterClass | null): s
   }
 
   return characterClassIcons[characterClass] ?? null;
+}
+
+export type RaidRoleCategory = 'TANK' | 'HEALER' | 'SUPPORT' | 'DPS';
+
+export const roleCategoryOrder: RaidRoleCategory[] = ['TANK', 'HEALER', 'SUPPORT', 'DPS'];
+
+export const roleCategoryLabels: Record<RaidRoleCategory, string> = {
+  TANK: 'Tanks',
+  HEALER: 'Healers',
+  SUPPORT: 'Support',
+  DPS: 'Damage'
+};
+
+export const characterClassRoleCategory: Record<CharacterClass, RaidRoleCategory> = {
+  WARRIOR: 'TANK',
+  PALADIN: 'TANK',
+  SHADOWKNIGHT: 'TANK',
+  CLERIC: 'HEALER',
+  BARD: 'SUPPORT',
+  ENCHANTER: 'SUPPORT',
+  SHAMAN: 'SUPPORT',
+  DRUID: 'SUPPORT',
+  BEASTLORD: 'DPS',
+  BERSERKER: 'DPS',
+  MONK: 'DPS',
+  RANGER: 'DPS',
+  ROGUE: 'DPS',
+  MAGICIAN: 'DPS',
+  NECROMANCER: 'DPS',
+  WIZARD: 'DPS',
+  UNKNOWN: 'DPS'
+};
+
+export function getRoleCategoryForClass(characterClass: CharacterClass): RaidRoleCategory {
+  return characterClassRoleCategory[characterClass] ?? 'DPS';
 }

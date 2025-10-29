@@ -37,6 +37,63 @@
         </label>
       </div>
 
+      <label class="form__field">
+        <span>Default Discord Voice Channel</span>
+        <input
+          v-model="form.defaultDiscordVoiceUrl"
+          type="url"
+          placeholder="https://discord.gg/your-voice-channel"
+          :disabled="!canEditGeneralSettings"
+          @input="clearDefaultDiscordVoiceError"
+        />
+        <small v-if="fieldErrors.defaultDiscordVoiceUrl" class="form__error">
+          {{ fieldErrors.defaultDiscordVoiceUrl }}
+        </small>
+        <small v-else class="muted">Prefills the raid voice channel link when planning a new raid.</small>
+      </label>
+
+      <section class="discord-widget-settings">
+        <header class="discord-widget-settings__header">
+          <h3>Guild Discord Widget</h3>
+          <p class="muted small">Provide a Discord server ID to embed the live widget on your guild page.</p>
+        </header>
+        <div class="discord-widget-settings__toggle">
+          <label>
+            <input
+              v-model="form.discordWidgetEnabled"
+              type="checkbox"
+              :disabled="!canEditGeneralSettings || !form.discordWidgetServerId.trim()"
+            />
+            <span>Enable Discord Widget</span>
+          </label>
+          <p class="muted small">Keep your server ID saved and toggle the widget on or off at any time.</p>
+        </div>
+        <div class="discord-widget-settings__grid">
+          <label class="form__field">
+            <span>Discord Server ID</span>
+            <input
+              v-model="form.discordWidgetServerId"
+              type="text"
+              maxlength="64"
+              placeholder="Example: 123456789012345678"
+              :disabled="!canEditGeneralSettings"
+            />
+            <small class="muted">Enable the Discord widget in your server settings, then paste the server ID.</small>
+          </label>
+          <label class="form__field">
+            <span>Widget Theme</span>
+            <select
+              v-model="form.discordWidgetTheme"
+              :disabled="!canEditGeneralSettings || !form.discordWidgetEnabled"
+            >
+              <option value="DARK">Dark</option>
+              <option value="LIGHT">Light</option>
+            </select>
+            <small class="muted">Used when rendering the Discord widget on the guild page.</small>
+          </label>
+        </div>
+      </section>
+
       <footer class="form__actions">
         <button class="btn btn--outline" type="button" :disabled="saving || !canEditGeneralSettings" @click="resetForm">
           Reset
@@ -189,8 +246,9 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import type { GuildDetail, GuildLootListEntry } from '../services/api';
 import { api } from '../services/api';
 import { useAuthStore } from '../stores/auth';
-import type { LootListType } from '../services/types';
+import type { DiscordWidgetTheme, LootListType } from '../services/types';
 import { lootListTypeLabels, lootListTypeOrder } from '../services/types';
+import { normalizeOptionalUrl } from '../utils/urls';
 
 const route = useRoute();
 const router = useRouter();
@@ -201,7 +259,11 @@ const saving = ref(false);
 const form = reactive({
   description: '',
   defaultRaidStartTime: '',
-  defaultRaidEndTime: ''
+  defaultRaidEndTime: '',
+  defaultDiscordVoiceUrl: '',
+  discordWidgetServerId: '',
+  discordWidgetTheme: 'DARK' as DiscordWidgetTheme,
+  discordWidgetEnabled: false
 });
 
 const authStore = useAuthStore();
@@ -223,6 +285,9 @@ const editingEntryId = ref<string | null>(null);
 const editingForm = reactive({ itemName: '', itemId: '' });
 const editingSaving = ref(false);
 const deletingEntryId = ref<string | null>(null);
+const fieldErrors = reactive({
+  defaultDiscordVoiceUrl: ''
+});
 const canEditGeneralSettings = computed(() => {
   const role = guild.value?.permissions?.userRole;
   return role === 'LEADER' || role === 'OFFICER';
@@ -263,6 +328,11 @@ function initializeForm() {
   form.description = guild.value?.description ?? '';
   form.defaultRaidStartTime = guild.value?.defaultRaidStartTime ?? '';
   form.defaultRaidEndTime = guild.value?.defaultRaidEndTime ?? '';
+  form.defaultDiscordVoiceUrl = guild.value?.defaultDiscordVoiceUrl ?? '';
+  form.discordWidgetServerId = guild.value?.discordWidgetServerId ?? '';
+  form.discordWidgetTheme = (guild.value?.discordWidgetTheme ?? 'DARK') as DiscordWidgetTheme;
+  form.discordWidgetEnabled = guild.value?.discordWidgetEnabled ?? false;
+  fieldErrors.defaultDiscordVoiceUrl = '';
 }
 
 function resetForm() {
@@ -447,10 +517,26 @@ async function saveSettings() {
   }
   saving.value = true;
   try {
+    const { normalized, valid } = normalizeOptionalUrl(form.defaultDiscordVoiceUrl);
+    if (!valid) {
+      fieldErrors.defaultDiscordVoiceUrl = 'Enter a valid Discord URL.';
+      saving.value = false;
+      return;
+    }
+    form.defaultDiscordVoiceUrl = normalized ?? '';
+
+    const widgetServerId = form.discordWidgetServerId.trim();
+    form.discordWidgetServerId = widgetServerId;
+
     await api.updateGuildSettings(guildId, {
       description: form.description,
       defaultRaidStartTime: form.defaultRaidStartTime || null,
-      defaultRaidEndTime: form.defaultRaidEndTime || null
+      defaultRaidEndTime: form.defaultRaidEndTime || null,
+      defaultDiscordVoiceUrl: normalized ?? null,
+      discordWidgetServerId: widgetServerId ? widgetServerId : null,
+      discordWidgetTheme:
+        widgetServerId && form.discordWidgetTheme ? form.discordWidgetTheme : null,
+      discordWidgetEnabled: form.discordWidgetEnabled && Boolean(widgetServerId)
     });
     await loadGuild();
   } catch (error) {
@@ -460,6 +546,22 @@ async function saveSettings() {
     saving.value = false;
   }
 }
+
+function clearDefaultDiscordVoiceError() {
+  if (fieldErrors.defaultDiscordVoiceUrl) {
+    fieldErrors.defaultDiscordVoiceUrl = '';
+  }
+}
+
+watch(
+  () => form.discordWidgetServerId,
+  (value) => {
+    if (!value.trim()) {
+      form.discordWidgetTheme = 'DARK';
+      form.discordWidgetEnabled = false;
+    }
+  }
+);
 
 watch(lootListSortBy, () => {
   lootListPage.value = 1;
@@ -521,6 +623,55 @@ onBeforeUnmount(() => {
   gap: 1.25rem;
 }
 
+.discord-widget-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.discord-widget-settings__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.discord-widget-settings__toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.discord-widget-settings__toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.discord-widget-settings__toggle input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #5865f2;
+}
+
+.discord-widget-settings__grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 720px) {
+  .discord-widget-settings__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+}
+
 .form__field {
   display: flex;
   flex-direction: column;
@@ -546,6 +697,11 @@ input[type='time'] {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.form__error {
+  color: #f87171;
+  font-size: 0.8rem;
 }
 
 .card {

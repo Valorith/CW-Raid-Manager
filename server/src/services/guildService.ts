@@ -22,6 +22,10 @@ export async function listGuilds() {
       description: true,
       defaultRaidStartTime: true,
       defaultRaidEndTime: true,
+      defaultDiscordVoiceUrl: true,
+      discordWidgetServerId: true,
+      discordWidgetTheme: true,
+      discordWidgetEnabled: true,
       createdAt: true,
       members: {
         select: {
@@ -166,6 +170,10 @@ export async function getGuildById(id: string, options?: { viewerUserId?: string
     description: guild.description,
     defaultRaidStartTime: guild.defaultRaidStartTime,
     defaultRaidEndTime: guild.defaultRaidEndTime,
+    defaultDiscordVoiceUrl: guild.defaultDiscordVoiceUrl,
+    discordWidgetServerId: guild.discordWidgetServerId,
+    discordWidgetTheme: guild.discordWidgetTheme,
+    discordWidgetEnabled: guild.discordWidgetEnabled,
     createdAt: guild.createdAt,
     updatedAt: guild.updatedAt,
     members,
@@ -227,6 +235,7 @@ export async function createGuild({ name, description, creatorUserId }: CreateGu
   });
   return {
     ...guild,
+    discordWidgetEnabled: guild.discordWidgetEnabled,
     members: guild.members.map((member) => ({
       ...member,
       user: withPreferredDisplayName(member.user)
