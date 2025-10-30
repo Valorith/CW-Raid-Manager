@@ -21,6 +21,7 @@ export type CharacterClass =
   | 'UNKNOWN';
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'BENCHED';
+export type AttendanceEventType = 'LOG' | 'START' | 'END' | 'RESTART';
 
 export type DiscordWidgetTheme = 'LIGHT' | 'DARK';
 

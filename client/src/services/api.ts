@@ -1,6 +1,7 @@
 import axios, { AxiosResponse } from 'axios';
 
 import type {
+  AttendanceEventType,
   AttendanceStatus,
   CharacterClass,
   DiscordWidgetTheme,
@@ -104,6 +105,94 @@ export interface GuildPermissions {
   canViewApplicants: boolean;
   canManageLootLists: boolean;
   userRole?: GuildRole | null;
+}
+
+export interface MetricsDateRange {
+  start: string;
+  end: string;
+}
+
+export interface MetricsCharacterOption {
+  id: string | null;
+  name: string;
+  class: CharacterClass | null;
+  userId: string | null;
+  userDisplayName: string | null;
+  isMain: boolean;
+}
+
+export interface MetricsRaidOption {
+  id: string;
+  name: string;
+}
+
+export interface MetricsLootParticipantOption {
+  name: string;
+  looterClass: string | null;
+}
+
+export interface AttendanceMetricRecord {
+  id: string;
+  status: AttendanceStatus;
+  timestamp: string;
+  eventType: AttendanceEventType;
+  raid: {
+    id: string;
+    name: string;
+    startTime: string | null;
+  };
+  character: {
+    id: string | null;
+    name: string;
+    class: CharacterClass | null;
+    isMain: boolean | null;
+    userId: string | null;
+    userDisplayName: string | null;
+  };
+}
+
+export interface LootMetricEvent {
+  id: string;
+  timestamp: string;
+  createdAt: string;
+  itemName: string;
+  looterName: string;
+  looterClass: string | null;
+  emoji: string | null;
+  raid: {
+    id: string;
+    name: string;
+    startTime: string | null;
+  };
+}
+
+export interface GuildMetricsSummary {
+  attendanceRecords: number;
+  uniqueAttendanceCharacters: number;
+  lootEvents: number;
+  uniqueLooters: number;
+  raidsTracked: number;
+}
+
+export interface GuildMetricsFilterOptions {
+  classes: string[];
+  characters: MetricsCharacterOption[];
+  raids: MetricsRaidOption[];
+  lootParticipants: MetricsLootParticipantOption[];
+}
+
+export interface GuildMetrics {
+  range: MetricsDateRange;
+  attendanceRecords: AttendanceMetricRecord[];
+  lootEvents: LootMetricEvent[];
+  summary: GuildMetricsSummary;
+  filterOptions: GuildMetricsFilterOptions;
+  earliestRaidDate: string | null;
+}
+
+export interface GuildMetricsQuery {
+  startDate?: string;
+  endDate?: string;
 }
 
 export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION';
@@ -754,6 +843,164 @@ function normalizeRaidSummary(
   };
 }
 
+function normalizeAttendanceMetricRecord(raw: any): AttendanceMetricRecord {
+  const character = raw?.character ?? {};
+  const raid = raw?.raid ?? {};
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    status: (raw?.status as AttendanceStatus) ?? 'PRESENT',
+    timestamp: typeof raw?.timestamp === 'string' ? raw.timestamp : '',
+    eventType: (raw?.eventType as AttendanceEventType) ?? 'LOG',
+    raid: {
+      id: typeof raid?.id === 'string' ? raid.id : '',
+      name: typeof raid?.name === 'string' ? raid.name : 'Unknown Raid',
+      startTime: typeof raid?.startTime === 'string' ? raid.startTime : null
+    },
+    character: {
+      id: typeof character?.id === 'string' ? character.id : null,
+      name: typeof character?.name === 'string' ? character.name : 'Unknown',
+      class:
+        typeof character?.class === 'string'
+          ? (character.class as CharacterClass)
+          : null,
+      isMain:
+        typeof character?.isMain === 'boolean'
+          ? character.isMain
+          : null,
+      userId:
+        typeof character?.userId === 'string'
+          ? character.userId
+          : null,
+      userDisplayName:
+        typeof character?.userDisplayName === 'string'
+          ? character.userDisplayName
+          : null
+    }
+  };
+}
+
+function normalizeLootMetricEvent(raw: any): LootMetricEvent {
+  const raid = raw?.raid ?? {};
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    timestamp: typeof raw?.timestamp === 'string' ? raw.timestamp : '',
+    createdAt: typeof raw?.createdAt === 'string' ? raw.createdAt : '',
+    itemName: typeof raw?.itemName === 'string' ? raw.itemName : 'Unknown Item',
+    looterName: typeof raw?.looterName === 'string' ? raw.looterName : 'Unknown',
+    looterClass: typeof raw?.looterClass === 'string' ? raw.looterClass : null,
+    emoji: typeof raw?.emoji === 'string' ? raw.emoji : null,
+    raid: {
+      id: typeof raid?.id === 'string' ? raid.id : '',
+      name: typeof raid?.name === 'string' ? raid.name : 'Unknown Raid',
+      startTime: typeof raid?.startTime === 'string' ? raid.startTime : null
+    }
+  };
+}
+
+function normalizeGuildMetrics(raw: any): GuildMetrics {
+  const attendanceRecords = Array.isArray(raw?.attendanceRecords)
+    ? raw.attendanceRecords.map((record: any) => normalizeAttendanceMetricRecord(record))
+    : [];
+  const lootEvents = Array.isArray(raw?.lootEvents)
+    ? raw.lootEvents.map((event: any) => normalizeLootMetricEvent(event))
+    : [];
+
+  const filterOptionsRaw = raw?.filterOptions ?? {};
+
+  const filterOptions: GuildMetricsFilterOptions = {
+    classes: Array.isArray(filterOptionsRaw?.classes)
+      ? filterOptionsRaw.classes.filter((entry: any) => typeof entry === 'string')
+      : [],
+    characters: Array.isArray(filterOptionsRaw?.characters)
+      ? filterOptionsRaw.characters
+          .map((entry: any) => ({
+            id: typeof entry?.id === 'string' ? entry.id : null,
+            name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
+            class:
+              typeof entry?.class === 'string'
+                ? (entry.class as CharacterClass)
+                : null,
+            userId: typeof entry?.userId === 'string' ? entry.userId : null,
+            userDisplayName:
+              typeof entry?.userDisplayName === 'string'
+                ? entry.userDisplayName
+                : null,
+            isMain: Boolean(entry?.isMain)
+          }))
+      : [],
+    raids: Array.isArray(filterOptionsRaw?.raids)
+      ? filterOptionsRaw.raids
+          .map((entry: any) => ({
+            id: typeof entry?.id === 'string' ? entry.id : '',
+            name: typeof entry?.name === 'string' ? entry.name : 'Unknown Raid'
+          }))
+      : [],
+    lootParticipants: Array.isArray(filterOptionsRaw?.lootParticipants)
+      ? filterOptionsRaw.lootParticipants
+          .map((entry: any) => ({
+            name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
+            looterClass:
+              typeof entry?.looterClass === 'string'
+                ? entry.looterClass
+                : null
+          }))
+      : []
+  };
+
+  const summaryRaw = raw?.summary ?? {};
+  const summary: GuildMetricsSummary = {
+    attendanceRecords:
+      typeof summaryRaw?.attendanceRecords === 'number'
+        ? summaryRaw.attendanceRecords
+        : attendanceRecords.length,
+    uniqueAttendanceCharacters:
+      typeof summaryRaw?.uniqueAttendanceCharacters === 'number'
+        ? summaryRaw.uniqueAttendanceCharacters
+        : new Set(
+            attendanceRecords.map((record) =>
+              record.character.id ? `id:${record.character.id}` : `name:${record.character.name}`
+            )
+          ).size,
+    lootEvents:
+      typeof summaryRaw?.lootEvents === 'number'
+        ? summaryRaw.lootEvents
+        : lootEvents.length,
+    uniqueLooters:
+      typeof summaryRaw?.uniqueLooters === 'number'
+        ? summaryRaw.uniqueLooters
+        : new Set(lootEvents.map((event) => event.looterName.toLowerCase())).size,
+    raidsTracked:
+      typeof summaryRaw?.raidsTracked === 'number'
+        ? summaryRaw.raidsTracked
+        : new Set([
+            ...attendanceRecords.map((record) => record.raid.id),
+            ...lootEvents.map((event) => event.raid.id)
+          ]).size
+  };
+
+  const rangeRaw = raw?.range ?? {};
+  const start =
+    typeof rangeRaw?.start === 'string'
+      ? rangeRaw.start
+      : (attendanceRecords[0]?.timestamp ?? new Date(0).toISOString());
+  const end =
+    typeof rangeRaw?.end === 'string'
+      ? rangeRaw.end
+      : new Date().toISOString();
+
+  return {
+    range: {
+      start,
+      end
+    },
+    attendanceRecords,
+    lootEvents,
+    summary,
+    filterOptions,
+    earliestRaidDate: typeof raw?.earliestRaidDate === 'string' ? raw.earliestRaidDate : null
+  };
+}
+
 export const api = {
   async fetchCurrentUser() {
     const response = await axios.get('/api/auth/me');
@@ -772,6 +1019,16 @@ export const api = {
   async fetchGuildDetail(guildId: string): Promise<GuildDetail> {
     const response = await axios.get(`/api/guilds/${guildId}`);
     return response.data.guild;
+  },
+
+  async fetchGuildMetrics(guildId: string, params?: GuildMetricsQuery): Promise<GuildMetrics> {
+    const response = await axios.get(`/api/guilds/${guildId}/metrics`, {
+      params: {
+        startDate: params?.startDate,
+        endDate: params?.endDate
+      }
+    });
+    return normalizeGuildMetrics(response.data.metrics ?? {});
   },
 
   async updateGuildSettings(guildId: string, payload: {

@@ -29,6 +29,12 @@
           </svg>
           <span>Discord Webhook</span>
         </button>
+        <RouterLink
+          class="btn btn--outline metrics-button"
+          :to="{ name: 'GuildMetrics', params: { guildId } }"
+        >
+          Metrics
+        </RouterLink>
         <button v-if="canPlanRaid" class="plan-raid-button" @click="showRaidModal = true">
           Plan Raid
         </button>
@@ -1234,6 +1240,34 @@ onUnmounted(() => {
   border-color: rgba(99, 102, 241, 0.8);
   color: #c7d2fe;
   transform: translateY(-1px);
+}
+
+.metrics-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid rgba(14, 165, 233, 0.45);
+  padding: 0.55rem 1.1rem;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(59, 130, 246, 0.25));
+  color: #e2e8f0;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.metrics-button:hover,
+.metrics-button:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(14, 165, 233, 0.75);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(14, 165, 233, 0.3));
+  color: #f8fafc;
 }
 
 @media (min-width: 640px) {

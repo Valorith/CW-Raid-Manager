@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/guilds/:guildId/metrics',
+      name: 'GuildMetrics',
+      component: () => import('../views/GuildMetricsView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/guilds/:guildId/settings',
       name: 'GuildSettings',
       component: () => import('../views/GuildSettingsView.vue'),
