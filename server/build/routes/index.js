@@ -7,10 +7,12 @@ import { lootRoutes } from './loot.js';
 import { accountRoutes } from './account.js';
 import { adminRoutes } from './admin.js';
 import { lootListRoutes } from './lootLists.js';
+import { guildMetricsRoutes } from './metrics.js';
 export function registerRoutes(server) {
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(guildRoutes, { prefix: '/api/guilds' });
     server.register(lootListRoutes, { prefix: '/api/guilds' });
+    server.register(guildMetricsRoutes, { prefix: '/api/guilds' });
     server.register(charactersRoutes, { prefix: '/api/characters' });
     server.register(raidsRoutes, { prefix: '/api/raids' });
     server.register(lootRoutes, { prefix: '/api' });

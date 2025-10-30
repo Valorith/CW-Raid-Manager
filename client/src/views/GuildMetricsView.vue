@@ -446,18 +446,35 @@
 
         <div v-if="recentLootEvents.length > 0" class="metrics-recent">
           <h3>Recent Loot Events</h3>
-          <ul class="metrics-recent__list">
-            <li v-for="event in recentLootEvents" :key="event.id" class="metrics-recent__item">
-              <div>
-                <strong>{{ event.itemName }}</strong>
-                <span class="muted tiny">• {{ event.raid.name }}</span>
-              </div>
-              <div class="metrics-recent__meta">
-                <span>{{ event.looterName }}</span>
-                <span class="muted tiny">{{ formatDateLong(eventPrimaryTimestamp(event)) }}</span>
-              </div>
-            </li>
-          </ul>
+          <div class="metrics-recent__grid">
+            <article v-for="event in recentLootEvents" :key="event.id" class="metrics-recent__card">
+              <header class="metrics-recent__header">
+                <div class="metrics-recent__item-icon" aria-hidden="true">
+                  <span aria-hidden="true">🪙</span>
+                </div>
+                <div class="metrics-recent__item-title">
+                  <strong>{{ event.itemName }}</strong>
+                  <span class="metrics-recent__raid muted tiny">{{ event.raid.name }}</span>
+                </div>
+                <span class="metrics-recent__time muted tiny">
+                  {{ formatDateLong(eventPrimaryTimestamp(event)) }}
+                </span>
+              </header>
+              <section class="metrics-recent__body">
+                <div class="metrics-recent__looter">
+                  <span class="metrics-recent__looter-label">Awarded to</span>
+                  <span class="metrics-recent__looter-name">{{ event.looterName }}</span>
+                </div>
+                <span
+                  v-if="event.emoji"
+                  class="metrics-recent__emoji"
+                  :title="`Reaction: ${event.emoji}`"
+                >
+                  {{ event.emoji }}
+                </span>
+              </section>
+            </article>
+          </div>
         </div>
       </section>
     </div>
@@ -3254,31 +3271,99 @@ onMounted(() => {
   gap: 0.9rem;
 }
 
-.metrics-recent__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
+.metrics-recent__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.1rem;
 }
 
-.metrics-recent__item {
+.metrics-recent__card {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, rgba(13, 23, 42, 0.82), rgba(7, 89, 133, 0.45));
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 1.1rem;
+  padding: 1.15rem 1.3rem;
+  box-shadow: 0 18px 36px rgba(13, 23, 42, 0.38);
+  backdrop-filter: blur(14px);
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.metrics-recent__card:hover,
+.metrics-recent__card:focus-visible {
+  transform: translateY(-3px);
+  border-color: rgba(56, 189, 248, 0.45);
+  background: linear-gradient(135deg, rgba(7, 89, 133, 0.58), rgba(14, 165, 233, 0.4));
+}
+
+.metrics-recent__header {
+  display: flex;
   align-items: center;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  border-radius: 0.9rem;
-  padding: 0.85rem 1.1rem;
+  gap: 0.9rem;
 }
 
-.metrics-recent__meta {
+.metrics-recent__item-icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.85rem;
+  background: rgba(56, 189, 248, 0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+}
+
+.metrics-recent__item-title {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 0.2rem;
-  font-size: 0.9rem;
+}
+
+.metrics-recent__item-title strong {
+  font-size: 1.05rem;
+  color: #f8fafc;
+}
+
+.metrics-recent__raid {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.metrics-recent__time {
+  margin-left: auto;
+}
+
+.metrics-recent__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.metrics-recent__looter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.metrics-recent__looter-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.62rem;
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.metrics-recent__looter-name {
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.metrics-recent__emoji {
+  font-size: 1.35rem;
+  filter: drop-shadow(0 8px 14px rgba(14, 116, 144, 0.4));
 }
 
 .metrics-inline-error {

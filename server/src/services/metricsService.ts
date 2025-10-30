@@ -292,23 +292,23 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
   let earliestDate: IsoDateString | null = null;
 
   try {
-    const earliestRaid = await prisma.raid.findFirst({
+    const earliestRaid = await prisma.raidEvent.findFirst({
       where: {
         guildId,
-        startTime: {
+        endedAt: {
           not: null
         }
       },
       select: {
-        startTime: true
+        endedAt: true
       },
       orderBy: {
-        startTime: 'asc'
+        endedAt: 'asc'
       }
     });
 
-    if (earliestRaid?.startTime) {
-      earliestDate = earliestRaid.startTime.toISOString();
+    if (earliestRaid?.endedAt) {
+      earliestDate = earliestRaid.endedAt.toISOString();
     }
   } catch (error) {
     // ignore and fall back to attendance events
