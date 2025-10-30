@@ -251,7 +251,7 @@
                 {{ signupSuccess }}
               </p>
               <p v-else class="raid-signups__feedback raid-signups__feedback--muted">
-                Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots.
+                Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots. Press Confirm to submit.
               </p>
             </div>
             <div class="raid-signups__actions">
@@ -277,7 +277,7 @@
                 :disabled="signupsLocked || signupSaving || !signupDirty"
                 @click="saveSignups()"
               >
-                {{ signupSaving ? 'Saving…' : 'Save Signups' }}
+                {{ signupSaving ? 'Confirming…' : 'Confirm' }}
               </button>
             </div>
           </div>
@@ -1125,6 +1125,18 @@ async function saveSignups(options?: { characterIds?: string[]; successMessage?:
         : 'You are not currently signed up for this raid.');
     showSignupSuccess(message);
     return;
+  }
+  if (targetIds.length > 0) {
+    const confirmed = await showConfirmation({
+      title: 'Confirm Raid Signup',
+      message:
+        'Are you sure you want to confirm this raid signup? Depending on your guild\'s settings, a discord notification may be sent to notify others of your signup.',
+      confirmLabel: 'Confirm',
+      cancelLabel: 'Keep Editing'
+    });
+    if (!confirmed) {
+      return;
+    }
   }
   signupSaving.value = true;
   signupError.value = null;

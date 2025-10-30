@@ -251,6 +251,7 @@ export interface RaidEventSummary {
   notes?: string | null;
   discordVoiceUrl?: string | null;
   isActive: boolean;
+  raidSignupNotificationsEnabled?: boolean;
   logMonitor?: {
     isActive: boolean;
     userId?: string | null;
@@ -837,6 +838,10 @@ function normalizeRaidSummary(
         ? raid.discordVoiceUrl
         : raid?.discordVoiceUrl ?? null,
     isActive: Boolean(raid?.isActive),
+    raidSignupNotificationsEnabled:
+      typeof raid?.raidSignupNotificationsEnabled === 'boolean'
+        ? raid.raidSignupNotificationsEnabled
+        : undefined,
     logMonitor,
     permissions: raid?.permissions ?? undefined,
     attendance

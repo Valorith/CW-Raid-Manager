@@ -3,7 +3,7 @@ import { GuildRole, Prisma } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
-import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 
 interface CreateRaidInput {
   guildId: string;
@@ -195,8 +195,13 @@ export async function getRaidEventById(raidId: string) {
   if (!raid) {
     return null;
   }
+  const raidSignupNotificationsEnabled = await isDiscordWebhookEventEnabled(
+    raid.guildId,
+    'raid.signup'
+  );
   return {
     ...raid,
+    raidSignupNotificationsEnabled,
     createdBy: withPreferredDisplayName(raid.createdBy)
   };
 }
