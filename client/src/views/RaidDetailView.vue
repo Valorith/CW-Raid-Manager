@@ -162,7 +162,7 @@
                     ✓
                   </span>
                 </div>
-                <span class="raid-signups__collapsed-name">{{ entry.characterName }}</span>
+                <CharacterLink class="raid-signups__collapsed-name" :name="entry.characterName" />
                 <span class="raid-signups__collapsed-class muted small">
                   {{ characterClassLabels[entry.characterClass] }}
                 </span>
@@ -326,7 +326,7 @@
                       </span>
                     </span>
                     <div class="raid-signups__role-meta">
-                      <span class="raid-signups__role-name">{{ entry.characterName }}</span>
+                      <CharacterLink class="raid-signups__role-name" :name="entry.characterName" />
                       <span class="raid-signups__role-sub muted small">
                         <template v-if="entry.characterLevel">Lv {{ entry.characterLevel }} • </template>
                         {{ characterClassLabels[entry.characterClass] }} · {{ entry.user.displayName }}
@@ -496,9 +496,9 @@
           class="raid-loot-card"
           role="button"
           tabindex="0"
-          @click="openAllaSearch(entry.itemName)"
-          @contextmenu.prevent="openLootContextMenu($event, entry)"
-          @keyup.enter="openAllaSearch(entry.itemName)"
+        @click="handleLootCardClick($event, entry.itemName)"
+        @contextmenu.prevent="openLootContextMenu($event, entry)"
+        @keyup.enter="handleLootCardKeyEnter($event, entry.itemName)"
         >
           <span
             v-if="entry.isWhitelisted"
@@ -513,7 +513,12 @@
             <span class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
             <div>
               <p class="raid-loot-card__item">{{ entry.itemName }}</p>
-              <p class="raid-loot-card__looter">{{ formatLooterLabel(entry.looterName, entry.looterClass) }}</p>
+              <p class="raid-loot-card__looter">
+                <CharacterLink :name="entry.looterName" />
+                <span v-if="formatCharacterClassLabel(entry.looterClass)" class="raid-loot-card__looter-class">
+                  ({{ formatCharacterClassLabel(entry.looterClass) }})
+                </span>
+              </p>
             </div>
           </header>
           <p v-if="entry.note" class="raid-loot-card__note">{{ entry.note }}</p>
@@ -659,6 +664,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
+import CharacterLink from '../components/CharacterLink.vue';
 import { api } from '../services/api';
 import {
   characterClassLabels,
@@ -797,6 +803,22 @@ const formatLooterLabel = (name: string, looterClass?: string | null) => {
   const classLabel = formatCharacterClassLabel(looterClass);
   return classLabel ? `${name} (${classLabel})` : name;
 };
+
+function handleLootCardClick(event: MouseEvent, itemName: string) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('a')) {
+    return;
+  }
+  openAllaSearch(itemName);
+}
+
+function handleLootCardKeyEnter(event: KeyboardEvent, itemName: string) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('a')) {
+    return;
+  }
+  openAllaSearch(itemName);
+}
 
 const formatCharacterClassLabel = (value?: string | null) => {
   if (!value) {
@@ -3178,6 +3200,19 @@ th {
   margin: 0;
   font-size: 0.9rem;
   color: #94a3b8;
+}
+
+.raid-loot-card__looter .character-link {
+  color: #38bdf8;
+}
+
+.raid-loot-card__looter .character-link:hover,
+.raid-loot-card__looter .character-link:focus-visible {
+  color: #f8fafc;
+}
+
+.raid-loot-card__looter-class {
+  margin-left: 0.35rem;
 }
 
 .raid-loot-card__note {

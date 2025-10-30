@@ -344,9 +344,9 @@
           class="loot-card"
           role="button"
           tabindex="0"
-          @click="openAllaSearch(entry.itemName)"
+          @click="handleExistingLootCardClick($event, entry.itemName)"
           @contextmenu.prevent="openLootContextMenu($event, entry)"
-          @keyup.enter="openAllaSearch(entry.itemName)"
+          @keyup.enter="handleExistingLootCardKeyEnter($event, entry.itemName)"
         >
           <div class="loot-card__count">{{ entry.count }}×</div>
           <header class="loot-card__header">
@@ -354,7 +354,10 @@
             <div>
               <p class="loot-card__item">{{ entry.itemName }}</p>
               <p class="loot-card__looter">
-                {{ formatLooterLabel(entry.looterName, entry.looterClass) }}
+                <CharacterLink :name="entry.looterName" />
+                <span v-if="formatCharacterClassLabel(entry.looterClass)" class="loot-card__looter-class">
+                  ({{ formatCharacterClassLabel(entry.looterClass) }})
+                </span>
               </p>
             </div>
           </header>
@@ -1070,6 +1073,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import CharacterLink from '../components/CharacterLink.vue';
 import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 
 import {
@@ -3507,6 +3511,22 @@ const formatLooterLabel = (name: string, looterClass?: string | null) => {
   return classLabel ? `${name} (${classLabel})` : name;
 };
 
+function handleExistingLootCardClick(event: MouseEvent, itemName: string) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('a')) {
+    return;
+  }
+  openAllaSearch(itemName);
+}
+
+function handleExistingLootCardKeyEnter(event: KeyboardEvent, itemName: string) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('a')) {
+    return;
+  }
+  openAllaSearch(itemName);
+}
+
 const formatCharacterClassLabel = (value?: string | null) => {
   if (!value) {
     return null;
@@ -4370,6 +4390,19 @@ onBeforeUnmount(() => {
 .loot-card__looter {
   margin: 0;
   color: #94a3b8;
+}
+
+.loot-card__looter .character-link {
+  color: #38bdf8;
+}
+
+.loot-card__looter .character-link:hover,
+.loot-card__looter .character-link:focus-visible {
+  color: #f8fafc;
+}
+
+.loot-card__looter-class {
+  margin-left: 0.35rem;
 }
 
 .loot-card__note {

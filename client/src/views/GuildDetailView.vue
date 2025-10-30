@@ -189,7 +189,8 @@
           >
             <div class="character-info">
               <div class="character-primary">
-                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <CharacterLink class="character-name-link" :name="character.name" />
+                <span class="character-level">({{ character.level }})</span>
                 <span v-if="character.isMain" class="badge badge--main">Main</span>
               </div>
               <span class="roster-meta muted">
@@ -398,6 +399,7 @@ import type { GuildRole, CharacterClass } from '../services/types';
 import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
+import CharacterLink from '../components/CharacterLink.vue';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -1600,6 +1602,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.character-name-link {
+  font-size: 1rem;
+}
+
+.character-level {
+  color: rgba(148, 163, 184, 0.85);
+  font-weight: 500;
 }
 
 .badge--main {

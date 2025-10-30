@@ -26,7 +26,8 @@
           <li v-for="character in characters" :key="character.id" class="list__item">
             <div class="character-summary">
               <div class="character-heading">
-                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <CharacterLink class="character-name-link" :name="character.name" />
+                <span class="character-level">({{ character.level }})</span>
                 <span v-if="character.isMain" class="badge badge--main">Main</span>
               </div>
               <span class="character-meta muted">
@@ -120,7 +121,7 @@
                 >
                   <div class="attendance-records__main">
                     <div class="record-heading">
-                      <span class="record-name">{{ record.characterName }}</span>
+                      <CharacterLink class="record-name" :name="record.characterName" />
                       <span v-if="record.isMain" class="badge badge--main">Main</span>
                     </div>
                     <span v-if="record.class" class="record-class muted small">
@@ -184,7 +185,8 @@
             <div class="recent-loot__details">
               <p class="recent-loot__item-name">{{ entry.itemName }}</p>
               <p class="recent-loot__meta">
-                {{ entry.looterName }} • {{ entry.raid.guild.name }} •
+                <CharacterLink class="recent-loot__looter" :name="entry.looterName" /> •
+                {{ entry.raid.guild.name }} •
                 {{ formatDate(entry.eventTime ?? entry.raid.startTime) }}
               </p>
             </div>
@@ -224,6 +226,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 
 import CharacterModal from '../components/CharacterModal.vue';
+import CharacterLink from '../components/CharacterLink.vue';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
@@ -609,6 +612,15 @@ onMounted(() => {
   gap: 0.5rem;
 }
 
+.character-name-link {
+  font-size: 1rem;
+}
+
+.character-level {
+  color: rgba(148, 163, 184, 0.85);
+  font-weight: 500;
+}
+
 .character-meta {
   display: inline-flex;
   align-items: center;
@@ -852,6 +864,10 @@ onMounted(() => {
   margin: 0;
   font-size: 0.85rem;
   color: #94a3b8;
+}
+
+.recent-loot__looter {
+  font-weight: 600;
 }
 
 .attendance-badge {

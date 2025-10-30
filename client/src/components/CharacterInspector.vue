@@ -62,7 +62,7 @@
             <span v-if="entryIcon(entry)" class="inspector__name-icon">
               <img :src="entryIcon(entry)!" :alt="`${entry.label} class icon`" />
             </span>
-            <span class="inspector__name-label">{{ entry.label }}</span>
+            <CharacterLink class="inspector__name-link" :name="entry.label" />
             <span v-if="entry.isMain" class="inspector__badge">Main</span>
           </div>
         </div>
@@ -101,6 +101,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import CharacterLink from './CharacterLink.vue';
 import { type CharacterClass, getCharacterClassIcon } from '../services/types';
 
 interface InspectorEntry {
@@ -597,7 +598,7 @@ function diffClass(key: StatKey, entryKey: string) {
   object-fit: cover;
 }
 
-.inspector__name-label {
+.inspector__name-link {
   display: inline-block;
   text-align: center;
 }

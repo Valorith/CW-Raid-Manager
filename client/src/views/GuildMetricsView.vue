@@ -255,7 +255,7 @@
               class="metrics-spotlight__item"
             >
               <div>
-                <strong>{{ entry.name }}</strong>
+                <CharacterLink class="metrics-spotlight__name" :name="entry.name" />
                 <span v-if="entry.class" class="muted small">
                   • {{ resolveClassLabel(entry.class) }}
                 </span>
@@ -408,7 +408,7 @@
                 class="metrics-spotlight__item"
               >
                 <div>
-                  <strong>{{ entry.name }}</strong>
+                <CharacterLink class="metrics-spotlight__name" :name="entry.name" />
                   <span v-if="entry.class" class="muted small">
                     • {{ resolveGenericClassLabel(entry.class) }}
                   </span>
@@ -431,7 +431,7 @@
                 class="metrics-spotlight__item"
               >
                 <div>
-                  <strong>{{ entry.itemName }}</strong>
+                <strong>{{ entry.itemName }}</strong>
                 </div>
                 <div class="metrics-spotlight__stats">
                   <span>{{ formatNumber(entry.count) }} awards</span>
@@ -463,7 +463,7 @@
               <section class="metrics-recent__body">
                 <div class="metrics-recent__looter">
                   <span class="metrics-recent__looter-label">Awarded to</span>
-                  <span class="metrics-recent__looter-name">{{ event.looterName }}</span>
+                  <CharacterLink class="metrics-recent__looter-name" :name="event.looterName" />
                 </div>
                 <span
                   v-if="event.emoji"
@@ -501,6 +501,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import CharacterInspector from '../components/CharacterInspector.vue';
+import CharacterLink from '../components/CharacterLink.vue';
 import TimelineRangeSelector from '../components/TimelineRangeSelector.vue';
 import {
   api,
@@ -3263,6 +3264,11 @@ onMounted(() => {
   gap: 0.2rem;
   font-size: 0.9rem;
   color: #cbd5f5;
+}
+
+.metrics-spotlight__name {
+  font-weight: 600;
+  font-size: 1rem;
 }
 
 .metrics-recent {

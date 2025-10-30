@@ -367,7 +367,8 @@
               class="member-list__item"
             >
               <div class="member-list__user">
-                <strong>{{ character.name }} ({{ character.level }})</strong>
+                <CharacterLink class="member-character-name" :name="character.name" />
+                <span class="member-character-level">({{ character.level }})</span>
                 <span class="muted small">{{ formatCharacterClass(character.class) }}</span>
                 <span class="muted tiny">Owner: {{ character.ownerName }}</span>
               </div>
@@ -524,6 +525,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import CharacterLink from '../components/CharacterLink.vue';
 
 import {
   api,
@@ -1512,6 +1514,14 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+.member-character-name {
+  font-weight: 600;
+}
+
+.member-character-level {
+  color: rgba(148, 163, 184, 0.8);
 }
 
 .member-list__actions {

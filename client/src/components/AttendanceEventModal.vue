@@ -53,7 +53,7 @@
             <tr v-for="(record, index) in event.records" :key="index">
               <td class="name-cell">
                 <span class="name-wrapper">
-                  {{ record.characterName }}
+                  <CharacterLink class="name-link" :name="record.characterName" />
                   <span v-if="record.isMain" class="badge badge--main">Main</span>
                 </span>
               </td>
@@ -84,6 +84,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import CharacterLink from './CharacterLink.vue';
 
 import type { AttendanceRecordSummary } from '../services/api';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
@@ -294,6 +295,10 @@ td {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.name-link {
+  font-weight: 600;
 }
 
 .class-cell {
