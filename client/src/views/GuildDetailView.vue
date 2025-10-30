@@ -252,7 +252,6 @@
           class="discord-widget-card__iframe"
           :src="discordWidgetSrc"
           width="100%"
-          height="260"
           allowtransparency="true"
           frameborder="0"
           sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
@@ -1310,6 +1309,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1.5rem;
+  align-items: stretch;
 }
 
 .card {
@@ -1353,6 +1353,9 @@ onUnmounted(() => {
   border: none;
   border-radius: 0.75rem;
   background: rgba(15, 23, 42, 0.85);
+  flex: 1 1 auto;
+  min-height: 260px;
+  width: 100%;
 }
 
 .card__header {
