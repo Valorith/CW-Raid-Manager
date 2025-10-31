@@ -2157,36 +2157,48 @@ function aggregateCharacterAttendanceForIdentity(
   let leftEarlyRaids = 0;
   let absentRaids = 0;
 
-  for (const normalizedName of normalizedNames) {
-    const characterIdentity =
-      identity.mode === 'character' && identity.normalizedPrimaryName === normalizedName
-        ? identity
-        : resolveCharacterIdentityByNormalizedName(normalizedName);
-    if (!characterIdentity) {
-      continue;
-    }
+  for (const raidId of raidIds) {
+    const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+    let raidHasPresence = false;
+    let raidLate = false;
+    let raidLeftEarly = false;
 
-    for (const raidId of raidIds) {
-      const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
-      if (raidEventCount === 0) {
+    for (const normalizedName of normalizedNames) {
+      const characterIdentity =
+        identity.mode === 'character' && identity.normalizedPrimaryName?.toLowerCase() === normalizedName
+          ? identity
+          : resolveCharacterIdentityByNormalizedName(normalizedName);
+      if (!characterIdentity) {
         continue;
       }
       const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
       if (!snapshot || !snapshot.hasPresence) {
-        if (!skipAbsent) {
-          absentRaids += 1;
-          totalAttendanceEvents += raidEventCount;
-        }
         continue;
       }
+      raidHasPresence = true;
       presentEvents += snapshot.presentEventIndices.size;
       totalAttendanceEvents += snapshot.totalEvents;
       if (snapshot.wasLate) {
-        lateRaids += 1;
+        raidLate = true;
       }
       if (snapshot.leftEarly) {
-        leftEarlyRaids += 1;
+        raidLeftEarly = true;
       }
+    }
+
+    if (!raidHasPresence) {
+      if (!skipAbsent && raidEventCount > 0) {
+        absentRaids += 1;
+        totalAttendanceEvents += raidEventCount;
+      }
+      continue;
+    }
+
+    if (raidLate) {
+      lateRaids += 1;
+    }
+    if (raidLeftEarly) {
+      leftEarlyRaids += 1;
     }
   }
 
@@ -3119,6 +3131,10 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
     let mapKey = normalizedName;
     let associatedOption: MetricsEntityOption | undefined = memberKeyByCharacterName.value.get(normalizedName);
     let owner = resolveCharacterOwner(event.looterName, associatedOption?.userId, associatedOption?.userDisplayName);
+
+    if (mode === 'character' && associatedOption?.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+      associatedOption = undefined;
+    }
 
     if (mode === 'member') {
       let targetOption: MetricsEntityOption | undefined = associatedOption;
@@ -4160,14 +4176,20 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto 1.75rem;
+  text-align: center;
 }
 
 .metrics-mode__label {
+  display: block;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.9);
+  margin-bottom: 0.15rem;
 }
 
 .metrics-mode__controls {
