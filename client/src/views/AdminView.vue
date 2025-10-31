@@ -504,10 +504,10 @@
           <button
             class="btn btn--danger btn--small"
             type="button"
-            :disabled="!selectedRaidId.value || deletingRaidId === selectedRaidId.value"
+            :disabled="!selectedRaidId || deletingRaidId === selectedRaidId"
             @click="deleteRaid"
           >
-            {{ deletingRaidId === selectedRaidId.value ? 'Deleting…' : 'Delete Raid' }}
+            {{ deletingRaidId === selectedRaidId ? 'Deleting…' : 'Delete Raid' }}
           </button>
           <button
             class="btn btn--accent btn--small"

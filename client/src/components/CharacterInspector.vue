@@ -6,7 +6,7 @@
   >
     <header class="inspector__header">
       <div class="inspector__heading">
-        <h3>Character Inspector</h3>
+        <h3>{{ inspectorTitle }}</h3>
         <span class="inspector__meta muted tiny">{{ headerSubtitle }}</span>
       </div>
       <button
@@ -31,10 +31,7 @@
           d="M44.48 47.65c.69-.04 1.38-.06 2.07-.06h1.92c3.56 0 8.53.52 11.53 1.63V54H41.57C42.08 51.57 43.01 49.37 44.48 47.65ZM20 50h-8.51c1.01-4.01 6.75-7 14.51-7s13.5 2.99 14.51 7H20Zm31-22a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
         />
       </svg>
-      <p>
-        Select one or more characters using the search box to compare raid participation,
-        loot share, and attendance patterns.
-      </p>
+      <p>{{ inspectorPlaceholder }}</p>
     </div>
 
     <div v-else class="inspector__table" role="table" aria-label="Character comparison">
@@ -62,7 +59,14 @@
             <span v-if="entryIcon(entry)" class="inspector__name-icon">
               <img :src="entryIcon(entry)!" :alt="`${entry.label} class icon`" />
             </span>
-            <CharacterLink class="inspector__name-link" :name="entry.label" />
+            <CharacterLink
+              v-if="linkMode === 'character'"
+              class="inspector__name-link"
+              :name="entry.label"
+            />
+            <span v-else class="inspector__name-link inspector__name-link--plain">
+              {{ entry.label }}
+            </span>
             <span v-if="entry.isMain" class="inspector__badge">Main</span>
           </div>
         </div>
@@ -125,12 +129,24 @@ interface InspectorEntry {
 const props = defineProps<{
   entries: InspectorEntry[];
   totalRaids: number;
+  title?: string;
+  linkMode?: 'character' | 'plain';
 }>();
 
 const emit = defineEmits<{
   (e: 'reset'): void;
   (e: 'reorder', payload: string[]): void;
 }>();
+
+const linkMode = computed<'character' | 'plain'>(() => props.linkMode ?? 'character');
+const inspectorTitle = computed(() =>
+  props.title ?? (linkMode.value === 'character' ? 'Character Inspector' : 'Member Inspector')
+);
+const inspectorPlaceholder = computed(() =>
+  linkMode.value === 'character'
+    ? 'Select one or more characters using the search box to compare raid participation, loot share, and attendance patterns.'
+    : 'Select one or more members using the search box to compare member attendance, loot share, and participation.'
+);
 
 const hasMultipleEntries = computed(() => props.entries.length > 1);
 
@@ -328,7 +344,7 @@ const statRows = computed<StatRow[]>(() => [
     format: (entry: InspectorEntry) => formatPercent(entry.lootPercent),
     secondary: (entry: InspectorEntry) => `${formatNumber(entry.lootCount)} items`,
     diffType: 'percent',
-    direction: 'higher'
+    direction: 'lower'
   },
   {
     key: 'lastLootDate',
@@ -601,6 +617,12 @@ function diffClass(key: StatKey, entryKey: string) {
 .inspector__name-link {
   display: inline-block;
   text-align: center;
+}
+
+.inspector__name-link--plain {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
 }
 
 .inspector__badge {

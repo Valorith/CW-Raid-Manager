@@ -535,7 +535,7 @@
                             v-model="pattern.pattern"
                             rows="3"
                             placeholder="{timestamp} {item} has been awarded to {looter} by the {method}."
-                            :ref="(el) => setPatternTextareaRef(pattern.id, el)"
+                            :ref="(el) => setPatternTextareaRef(pattern.id, el as HTMLTextAreaElement | null)"
                             @focus="handleTextareaFocus(index, pattern.id)"
                             @keyup="updateCaretPosition(pattern.id)"
                             @mouseup="updateCaretPosition(pattern.id)"
@@ -1698,7 +1698,11 @@ function openEditLootModal(entry: GroupedLootEntry) {
   editLootModal.saving = false;
 }
 
-function closeEditLootModal(force = false) {
+function closeEditLootModal(forceOrEvent?: boolean | Event) {
+  const force = typeof forceOrEvent === 'boolean' ? forceOrEvent : false;
+  if (forceOrEvent instanceof Event) {
+    forceOrEvent.preventDefault();
+  }
   if (!force && editLootModal.saving) {
     return;
   }
@@ -3283,7 +3287,7 @@ function processLogContent(
 
   const patterns = getPatternsForParsing();
   const emoji = parserSettings.value?.emoji ?? '💎';
-  const parsed = parseLootLog(content, options.start, options.end, patterns);
+  const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
   const includeConsole = Boolean(monitorSession.value);
   const consolePayloads: LootConsolePayload[] = [];
 
@@ -3428,7 +3432,7 @@ function formatConsoleLine(entry: ParsedLootEvent) {
   }
   const parts: string[] = [];
   if (entry.timestamp) {
-    parts.push(entry.timestamp);
+    parts.push(entry.timestamp.toISOString());
   }
   if (entry.looter) {
     parts.push(entry.looter);
@@ -3689,8 +3693,7 @@ async function copyDebugLogs() {
     })
     .join('\n\n');
   try {
-    // @ts-expect-error: navigator may be undefined in SSR
-    if (navigator?.clipboard?.writeText) {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(serialized);
     } else {
       const textarea = document.createElement('textarea');

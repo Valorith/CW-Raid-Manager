@@ -1309,7 +1309,11 @@ function openEditLootModal(entry: GroupedLootEntry) {
   editLootModal.saving = false;
 }
 
-function closeEditLootModal(force = false) {
+function closeEditLootModal(forceOrEvent?: boolean | Event) {
+  const force = typeof forceOrEvent === 'boolean' ? forceOrEvent : false;
+  if (forceOrEvent instanceof Event) {
+    forceOrEvent.preventDefault();
+  }
   if (!force && editLootModal.saving) {
     return;
   }
@@ -1481,7 +1485,7 @@ async function handleFileUpload(event: Event) {
   try {
     const response = await api.uploadRoster(raidId, file);
     rosterPreview.value = response.data.preview as AttendanceRecordInput[];
-    rosterMeta.value = response.data.meta;
+    rosterMeta.value = response.data.meta ?? null;
     showRosterModal.value = true;
   } finally {
     if (fileInput.value) {

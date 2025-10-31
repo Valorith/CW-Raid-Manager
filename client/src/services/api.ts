@@ -903,10 +903,10 @@ function normalizeLootMetricEvent(raw: any): LootMetricEvent {
 }
 
 function normalizeGuildMetrics(raw: any): GuildMetrics {
-  const attendanceRecords = Array.isArray(raw?.attendanceRecords)
+  const attendanceRecords: AttendanceMetricRecord[] = Array.isArray(raw?.attendanceRecords)
     ? raw.attendanceRecords.map((record: any) => normalizeAttendanceMetricRecord(record))
     : [];
-  const lootEvents = Array.isArray(raw?.lootEvents)
+  const lootEvents: LootMetricEvent[] = Array.isArray(raw?.lootEvents)
     ? raw.lootEvents.map((event: any) => normalizeLootMetricEvent(event))
     : [];
 
@@ -1301,7 +1301,12 @@ export const api = {
   async uploadRoster(
     raidEventId: string,
     file: File
-  ): Promise<AxiosResponse<{ preview: unknown }>> {
+  ): Promise<
+    AxiosResponse<{
+      preview: AttendanceRecordInput[];
+      meta?: { filename: string; uploadedAt: string } | null;
+    }>
+  > {
     const formData = new FormData();
     formData.append('file', file);
     return axios.post(`/api/attendance/raid/${raidEventId}/upload`, formData, {

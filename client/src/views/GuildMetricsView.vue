@@ -21,6 +21,30 @@
         </RouterLink>
       </header>
 
+      <div class="metrics-mode">
+        <span class="metrics-mode__label">View Mode</span>
+        <div class="metrics-mode__controls" role="group" aria-label="Metrics view mode">
+          <button
+            type="button"
+            class="metrics-mode__button"
+            :class="{ 'metrics-mode__button--active': metricsMode === 'character' }"
+            :aria-pressed="metricsMode === 'character'"
+            @click="setMetricsMode('character')"
+          >
+            Characters
+          </button>
+          <button
+            type="button"
+            class="metrics-mode__button"
+            :class="{ 'metrics-mode__button--active': metricsMode === 'member' }"
+            :aria-pressed="metricsMode === 'member'"
+            @click="setMetricsMode('member')"
+          >
+            Members
+          </button>
+        </div>
+      </div>
+
       <TimelineRangeSelector
         v-if="timelineBounds"
         :min-date="timelineBounds.min"
@@ -55,7 +79,7 @@
                 v-model="searchQuery"
                 type="search"
                 class="metrics-search__input"
-                placeholder="Search characters or loot items"
+                :placeholder="searchPlaceholder"
               @focus="handleSearchFocus"
               @blur="handleSearchBlur"
               @keydown="handleSearchKeydown"
@@ -125,6 +149,8 @@
           <CharacterInspector
             :entries="characterInspectorEntries"
             :total-raids="allRaidIds.length"
+            :title="inspectorHeading"
+            :link-mode="inspectorLinkMode"
             @reset="handleInspectorReset"
             @reorder="handleInspectorReorder"
           />
@@ -135,7 +161,7 @@
         <header class="metrics-section__header">
           <div>
             <h2>Attendance Trends</h2>
-            <p class="muted small">Track how often characters show up and in what status.</p>
+            <p class="muted small">{{ attendanceSummaryText }}</p>
           </div>
         </header>
 
@@ -181,7 +207,7 @@
             :class="['metrics-card', { 'metrics-card--maximized': maximizedCard === 'attendanceByCharacter' }]"
           >
             <header class="metrics-card__header metrics-card__header--with-actions">
-              <h3>Attendance Rate by Character</h3>
+              <h3>{{ attendanceRateTitle }}</h3>
               <button
                 type="button"
                 class="metrics-card__action"
@@ -212,7 +238,7 @@
             </div>
           </article>
 
-          <article v-if="!maximizedCard" class="metrics-card metrics-class-card">
+          <article v-if="!maximizedCard && !isMemberMode" class="metrics-card metrics-class-card">
             <header class="metrics-card__header">
               <h3>Filter by Class</h3>
               <p class="metrics-card__hint muted tiny">
@@ -247,7 +273,7 @@
         </div>
 
         <div v-if="attendanceSpotlight.length > 0" class="metrics-spotlight">
-          <h3>Character Spotlight</h3>
+          <h3>{{ attendanceSpotlightTitle }}</h3>
           <ul class="metrics-spotlight__list">
             <li
               v-for="entry in attendanceSpotlight"
@@ -255,7 +281,14 @@
               class="metrics-spotlight__item"
             >
               <div>
-                <CharacterLink class="metrics-spotlight__name" :name="entry.name" />
+                <CharacterLink
+                  v-if="shouldLinkEntities"
+                  class="metrics-spotlight__name"
+                  :name="entry.name"
+                />
+                <span v-else class="metrics-spotlight__name metrics-spotlight__name--plain">
+                  {{ entry.name }}
+                </span>
                 <span v-if="entry.class" class="muted small">
                   • {{ resolveClassLabel(entry.class) }}
                 </span>
@@ -400,15 +433,22 @@
         >
           <h3>Loot Spotlight</h3>
           <template v-if="lootSpotlightCharacters.length > 0">
-            <h4 class="metrics-spotlight__subtitle">Selected Characters</h4>
+            <h4 class="metrics-spotlight__subtitle">{{ lootSpotlightSubtitle }}</h4>
             <ul class="metrics-spotlight__list">
               <li
                 v-for="entry in lootSpotlightCharacters"
-                :key="`character-${entry.name}`"
+                :key="`character-${entry.key}`"
                 class="metrics-spotlight__item"
               >
                 <div>
-                <CharacterLink class="metrics-spotlight__name" :name="entry.name" />
+                  <CharacterLink
+                    v-if="shouldLinkEntities"
+                    class="metrics-spotlight__name"
+                    :name="entry.name"
+                  />
+                  <span v-else class="metrics-spotlight__name metrics-spotlight__name--plain">
+                    {{ entry.name }}
+                  </span>
                   <span v-if="entry.class" class="muted small">
                     • {{ resolveGenericClassLabel(entry.class) }}
                   </span>
@@ -463,7 +503,17 @@
               <section class="metrics-recent__body">
                 <div class="metrics-recent__looter">
                   <span class="metrics-recent__looter-label">Awarded to</span>
-                  <CharacterLink class="metrics-recent__looter-name" :name="event.looterName" />
+                  <CharacterLink
+                    v-if="shouldLinkEntities"
+                    class="metrics-recent__looter-name"
+                    :name="event.looterName"
+                  />
+                  <span
+                    v-else
+                    class="metrics-recent__looter-name metrics-recent__looter-name--plain"
+                  >
+                    {{ displayLooterName(event) }}
+                  </span>
                 </div>
                 <span
                   v-if="event.emoji"
@@ -566,6 +616,9 @@ const guildId = computed(() => route.params.guildId as string);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const metrics = ref<GuildMetrics | null>(null);
+const memberDisplayMap = ref<Map<string, string>>(new Map());
+const memberDisplayNameLookup = ref<Map<string, string>>(new Map());
+const characterOwnerMap = ref<Map<string, { userId: string; displayName: string | null }>>(new Map());
 
 const rangeForm = reactive({
   start: '',
@@ -600,11 +653,130 @@ const MAXIMIZED_BAR_LIMIT = 30;
 const attendanceCards: MaximizableCard[] = ['attendanceTimeline', 'attendanceByCharacter'];
 const lootCards: MaximizableCard[] = ['lootTimeline', 'lootByParticipant', 'lootByItem'];
 
+type MetricsMode = 'character' | 'member';
+const metricsMode = ref<MetricsMode>('character');
+const isMemberMode = computed(() => metricsMode.value === 'member');
+
+function setMetricsMode(mode: MetricsMode) {
+  if (metricsMode.value === mode) {
+    return;
+  }
+  metricsMode.value = mode;
+  handleMetricsModeChange();
+}
+
+function handleMetricsModeChange() {
+  resetFilters();
+  searchDropdownSuppressed.value = false;
+  activeSearchIndex.value = -1;
+}
+
+async function loadMemberDirectory() {
+  const id = guildId.value;
+  if (!id) {
+    return;
+  }
+  try {
+    const detail = await api.fetchGuildDetail(id);
+    const map = new Map<string, string>();
+    const nameLookup = new Map<string, string>();
+    const ownerMap = new Map<string, { userId: string; displayName: string | null }>();
+    const recordPreferred = (user: { displayName?: string; nickname?: string | null }) =>
+      user.nickname?.trim() || user.displayName?.trim() || '';
+
+    for (const member of detail.members ?? []) {
+      const preferred = recordPreferred(member.user) || member.user.displayName || member.user.nickname || '';
+      const normalizedDisplay = normalizeNameKey(member.user.displayName);
+      const normalizedNickname = normalizeNameKey(member.user.nickname);
+      if (member.user.id) {
+        setMemberNameHint(member.user.id, preferred);
+        map.set(member.user.id, preferred);
+      }
+      if (normalizedDisplay) {
+        nameLookup.set(normalizedDisplay, preferred);
+      }
+      if (normalizedNickname) {
+        nameLookup.set(normalizedNickname, preferred);
+      }
+    }
+
+    for (const character of detail.characters ?? []) {
+      const preferred = recordPreferred(character.user) || character.user.displayName || character.user.nickname || '';
+      if (character.user?.id) {
+        setMemberNameHint(character.user.id, preferred);
+        if (!map.has(character.user.id)) {
+          map.set(character.user.id, preferred);
+        }
+      }
+      const normalizedCharName = normalizeNameKey(character.name);
+      if (normalizedCharName && character.user?.id) {
+        ownerMap.set(normalizedCharName, {
+          userId: character.user.id,
+          displayName: preferred || null
+        });
+        if (!nameLookup.has(normalizedCharName)) {
+          nameLookup.set(normalizedCharName, preferred);
+        }
+      }
+      const normalizedDisplay = normalizeNameKey(character.user?.displayName);
+      if (normalizedDisplay && !nameLookup.has(normalizedDisplay)) {
+        nameLookup.set(normalizedDisplay, preferred);
+      }
+      const normalizedNickname = normalizeNameKey(character.user?.nickname);
+      if (normalizedNickname && !nameLookup.has(normalizedNickname)) {
+        nameLookup.set(normalizedNickname, preferred);
+      }
+    }
+
+    memberDisplayMap.value = map;
+    memberDisplayNameLookup.value = nameLookup;
+    characterOwnerMap.value = ownerMap;
+  } catch (err) {
+    console.error('Unable to load member directory', err);
+  }
+}
+
+const searchPlaceholder = computed(() =>
+  isMemberMode.value ? 'Search members or loot items' : 'Search characters or loot items'
+);
+const inspectorHeading = computed(() =>
+  isMemberMode.value ? 'Member Inspector' : 'Character Inspector'
+);
+const inspectorLinkMode = computed<'character' | 'plain'>(() =>
+  isMemberMode.value ? 'plain' : 'character'
+);
+const attendanceSummaryText = computed(() =>
+  isMemberMode.value
+    ? 'Track how often members show up and in what status.'
+    : 'Track how often characters show up and in what status.'
+);
+const attendanceRateTitle = computed(() =>
+  isMemberMode.value ? 'Attendance Rate by Member' : 'Attendance Rate by Character'
+);
+const attendanceSpotlightTitle = computed(() =>
+  isMemberMode.value ? 'Member Spotlight' : 'Character Spotlight'
+);
+const lootSpotlightSubtitle = computed(() =>
+  isMemberMode.value ? 'Selected Members' : 'Selected Characters'
+);
+const shouldLinkEntities = computed(() => !isMemberMode.value);
+
 const isAttendanceSectionVisible = computed(
   () => !maximizedCard.value || attendanceCards.includes(maximizedCard.value)
 );
 const isLootSectionVisible = computed(
   () => !maximizedCard.value || lootCards.includes(maximizedCard.value)
+);
+
+watch(
+  () => guildId.value,
+  (next) => {
+    memberDisplayMap.value = new Map();
+    if (next) {
+      void loadMemberDirectory();
+    }
+  },
+  { immediate: true }
 );
 
 function toggleMaximizeCard(card: MaximizableCard) {
@@ -667,19 +839,27 @@ function startOfDayLocalMs(ms: number): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-const statusOrder: AttendanceStatus[] = ['PRESENT', 'LATE', 'ABSENT', 'BENCHED'];
-const statusLabels: Record<AttendanceStatus, string> = {
+const STATUS_ORDER = ['PRESENT', 'LATE', 'ABSENT', 'LEFT_EARLY'] as const;
+type DisplayAttendanceStatus = (typeof STATUS_ORDER)[number];
+
+const statusLabels: Record<DisplayAttendanceStatus, string> = {
   PRESENT: 'Present',
   LATE: 'Late',
   ABSENT: 'Absent',
-  BENCHED: 'Left Early'
+  LEFT_EARLY: 'Left Early'
 };
-const statusColors: Record<AttendanceStatus, { border: string; background: string }> = {
+const statusColors: Record<DisplayAttendanceStatus, { border: string; background: string }> = {
   PRESENT: { border: '#22c55e', background: 'rgba(34,197,94,0.25)' },
   LATE: { border: '#f97316', background: 'rgba(249,115,22,0.2)' },
   ABSENT: { border: '#ef4444', background: 'rgba(239,68,68,0.2)' },
-  BENCHED: { border: '#a855f7', background: 'rgba(168,85,247,0.2)' }
+  LEFT_EARLY: { border: '#a855f7', background: 'rgba(168,85,247,0.2)' }
 };
+
+const UNKNOWN_MEMBER_LABEL = 'Unknown';
+const UNKNOWN_MEMBER_AGGREGATE_KEY = 'unknown';
+const UNKNOWN_MEMBER_ENTITY_KEY = 'member:unknown';
+const UNKNOWN_MEMBER_BAR_COLOR = '#991b1b';
+const UNKNOWN_MEMBER_BAR_BORDER = '#7f1d1d';
 
 const lastSubmittedQuery = ref<GuildMetricsQuery | undefined>(undefined);
 
@@ -695,6 +875,612 @@ const metricsClassSet = computed(() => {
 });
 
 const characterOptions = computed(() => metrics.value?.filterOptions.characters ?? []);
+
+interface MetricsEntityOption {
+  key: string;
+  type: MetricsMode;
+  label: string;
+  class: CharacterClass | null;
+  classes: CharacterClass[];
+  isMain: boolean;
+  characterIds: string[];
+  characterNames: string[];
+  normalizedCharacterNames: string[];
+  userId: string | null;
+  userDisplayName: string | null;
+}
+
+function normalizeNameKey(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function setMemberNameHint(userId: string | null, name?: string | null) {
+  if (!name) {
+    return;
+  }
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  if (userId) {
+    const current = memberDisplayMap.value.get(userId);
+    if (current !== trimmed) {
+      const cloned = new Map(memberDisplayMap.value);
+      cloned.set(userId, trimmed);
+      memberDisplayMap.value = cloned;
+    }
+  }
+
+  const normalized = normalizeNameKey(trimmed);
+  if (normalized) {
+    const current = memberDisplayNameLookup.value.get(normalized);
+    if (current !== trimmed) {
+      const cloned = new Map(memberDisplayNameLookup.value);
+      cloned.set(normalized, trimmed);
+      memberDisplayNameLookup.value = cloned;
+    }
+  }
+}
+
+function resolveMemberPreferredName(
+  userId: string | null,
+  userDisplayName?: string | null,
+  fallbackName?: string | null
+): string | null {
+  if (userId) {
+    const mapped = memberDisplayMap.value.get(userId);
+    if (mapped && mapped.trim().length > 0) {
+      return mapped.trim();
+    }
+  }
+  const candidates = [userDisplayName, fallbackName];
+  for (const name of candidates) {
+    if (!name) {
+      continue;
+    }
+    const normalized = normalizeNameKey(name);
+    if (normalized) {
+      const mapped = memberDisplayNameLookup.value.get(normalized);
+      if (mapped && mapped.trim().length > 0) {
+        return mapped.trim();
+      }
+    }
+  }
+  return (userDisplayName ?? fallbackName)?.trim() || null;
+}
+
+function resolveCharacterOwner(
+  name: string,
+  userId?: string | null,
+  userDisplayName?: string | null
+): { userId: string | null; userDisplayName: string | null } {
+  let resolvedUserId = userId ?? null;
+  let resolvedDisplay = userDisplayName ?? null;
+  const normalizedName = normalizeNameKey(name);
+  if (!resolvedUserId && normalizedName && characterOwnerMap.value.has(normalizedName)) {
+    const entry = characterOwnerMap.value.get(normalizedName)!;
+    resolvedUserId = entry.userId;
+    resolvedDisplay = entry.displayName ?? resolvedDisplay ?? null;
+  }
+  if (resolvedUserId) {
+    setMemberNameHint(resolvedUserId, resolvedDisplay ?? name);
+    if (normalizedName) {
+      const existing = characterOwnerMap.value.get(normalizedName);
+      if (!existing || existing.userId !== resolvedUserId || existing.displayName !== resolvedDisplay) {
+        const cloned = new Map(characterOwnerMap.value);
+        cloned.set(normalizedName, {
+          userId: resolvedUserId,
+          displayName: resolvedDisplay ?? null
+        });
+        characterOwnerMap.value = cloned;
+      }
+    }
+  }
+  return {
+    userId: resolvedUserId,
+    userDisplayName: resolvedDisplay ?? null
+  };
+}
+
+function memberAggregateKeyFromParts(
+  userId: string | null | undefined,
+  userDisplayName: string | null | undefined,
+  fallbackName: string | null | undefined
+): string {
+  if (userId) {
+    return `user:${userId}`;
+  }
+  return UNKNOWN_MEMBER_AGGREGATE_KEY;
+}
+
+function memberAggregateKeyFromOption(option: MetricsCharacterOption): string {
+  return memberAggregateKeyFromParts(option.userId ?? null, option.userDisplayName ?? null, option.name);
+}
+
+const characterEntityOptions = computed<MetricsEntityOption[]>(() =>
+  characterOptions.value.map((option) => ({
+    key: characterOptionKey(option),
+    type: 'character' as const,
+    label: option.name,
+    class: option.class ?? null,
+    classes: option.class ? [option.class] : [],
+    isMain: Boolean(option.isMain),
+    characterIds: option.id ? [option.id] : [],
+    characterNames: [option.name],
+    normalizedCharacterNames: [option.name.toLowerCase()],
+    userId: option.userId ?? null,
+    userDisplayName: option.userDisplayName ?? null
+  }))
+);
+
+interface MemberAggregate {
+  key: string;
+  label: string;
+  userId: string | null;
+  userDisplayName: string | null;
+  characterIds: Set<string>;
+  characterNames: Set<string>;
+  classes: Set<CharacterClass>;
+  isMain: boolean;
+  normalizedCharacterNames: Set<string>;
+  preferredMemberName: string | null;
+}
+
+function addClassToAggregate(aggregate: MemberAggregate, classValue: CharacterClass | null) {
+  if (!classValue) {
+    return;
+  }
+  aggregate.classes.add(classValue);
+}
+
+function ensureMemberAggregate(
+  aggregates: Map<string, MemberAggregate>,
+  userId: string | null,
+  userDisplayName: string | null,
+  fallbackName: string
+) {
+  const aggregateKey = memberAggregateKeyFromParts(userId, userDisplayName, fallbackName);
+  let aggregate = aggregates.get(aggregateKey);
+  if (!aggregate) {
+    const preferred = resolveMemberPreferredName(userId, userDisplayName, fallbackName);
+    setMemberNameHint(userId, preferred ?? userDisplayName ?? fallbackName);
+    aggregate = {
+      key: aggregateKey,
+      label: preferred ?? userDisplayName ?? fallbackName,
+      userId: userId ?? null,
+      userDisplayName: preferred ?? userDisplayName ?? null,
+      characterIds: new Set<string>(),
+      characterNames: new Set<string>(),
+      normalizedCharacterNames: new Set<string>(),
+      classes: new Set<CharacterClass>(),
+      isMain: false,
+      preferredMemberName: preferred
+    };
+    aggregates.set(aggregateKey, aggregate);
+  } else {
+    if (userId && !aggregate.userId) {
+      aggregate.userId = userId;
+    }
+    if (userDisplayName && !aggregate.userDisplayName) {
+      aggregate.userDisplayName = userDisplayName;
+    }
+    if (userDisplayName) {
+      setMemberNameHint(aggregate.userId, userDisplayName);
+    }
+    const resolved = resolveMemberPreferredName(aggregate.userId, userDisplayName ?? aggregate.userDisplayName, fallbackName);
+    if (resolved) {
+      setMemberNameHint(aggregate.userId, resolved);
+      aggregate.preferredMemberName = resolved;
+      aggregate.label = resolved;
+      aggregate.userDisplayName = resolved;
+    }
+  }
+  return aggregate;
+}
+
+const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
+  const aggregates = new Map<string, MemberAggregate>();
+
+  for (const option of characterOptions.value) {
+    const owner = resolveCharacterOwner(option.name, option.userId, option.userDisplayName);
+    const fallbackLabel = owner.userId
+      ? owner.userDisplayName ?? option.userDisplayName ?? option.name
+      : UNKNOWN_MEMBER_LABEL;
+    const aggregate = ensureMemberAggregate(
+      aggregates,
+      owner.userId,
+      owner.userDisplayName,
+      fallbackLabel
+    );
+    if (option.isMain) {
+      aggregate.isMain = true;
+    }
+    if (option.id) {
+      aggregate.characterIds.add(option.id);
+    }
+    aggregate.characterNames.add(option.name);
+    aggregate.normalizedCharacterNames.add(option.name.toLowerCase());
+    if (option.class) {
+      aggregate.classes.add(option.class);
+    }
+  }
+
+  const metricsSnapshot = metrics.value;
+  if (metricsSnapshot) {
+    for (const record of metricsSnapshot.attendanceRecords) {
+      const fallbackName = record.character.userDisplayName ?? record.character.name;
+      const owner = resolveCharacterOwner(
+        record.character.name,
+        record.character.userId,
+        record.character.userDisplayName
+      );
+      const fallbackLabel = owner.userId ? owner.userDisplayName ?? fallbackName : UNKNOWN_MEMBER_LABEL;
+      const aggregate = ensureMemberAggregate(
+        aggregates,
+        owner.userId,
+        owner.userDisplayName,
+        fallbackLabel
+      );
+      if (record.character.id) {
+        aggregate.characterIds.add(record.character.id);
+      }
+      aggregate.characterNames.add(record.character.name);
+      aggregate.normalizedCharacterNames.add(record.character.name.toLowerCase());
+      addClassToAggregate(aggregate, normalizeCharacterClass(record.character.class));
+      if (record.character.isMain) {
+        aggregate.isMain = true;
+      }
+    }
+    for (const event of metricsSnapshot.lootEvents) {
+      const normalizedName = event.looterName?.trim();
+      if (!normalizedName) {
+        continue;
+      }
+      const normalizedLower = normalizedName.toLowerCase();
+      let aggregateMatch: MemberAggregate | undefined;
+      for (const aggregate of aggregates.values()) {
+        if (aggregate.normalizedCharacterNames.has(normalizedLower)) {
+          aggregateMatch = aggregate;
+          break;
+        }
+      }
+      if (!aggregateMatch) {
+        aggregateMatch = ensureMemberAggregate(aggregates, null, null, UNKNOWN_MEMBER_LABEL);
+      }
+      aggregateMatch.characterNames.add(normalizedName);
+      aggregateMatch.normalizedCharacterNames.add(normalizedLower);
+      addClassToAggregate(aggregateMatch, normalizeCharacterClass(event.looterClass));
+    }
+  }
+
+  for (const aggregate of aggregates.values()) {
+    const resolved = resolveMemberPreferredName(
+      aggregate.userId,
+      aggregate.userDisplayName,
+      aggregate.label
+    );
+    if (resolved) {
+      aggregate.preferredMemberName = resolved;
+    }
+  }
+
+  const merged = new Map<string, MemberAggregate>();
+  for (const aggregate of aggregates.values()) {
+    const resolved =
+      aggregate.preferredMemberName ??
+      resolveMemberPreferredName(aggregate.userId, aggregate.userDisplayName, aggregate.label) ??
+      aggregate.label;
+    const normalizedResolved = normalizeNameKey(resolved);
+    const mergeKey = aggregate.userId
+      ? `user:${aggregate.userId}`
+      : normalizedResolved
+        ? `display:${normalizedResolved}`
+        : `display:${resolved.toLowerCase()}`;
+    let existing = merged.get(mergeKey);
+    if (!existing) {
+      const newAggregate: MemberAggregate = {
+        ...aggregate,
+        label: resolved,
+        userDisplayName: resolved,
+        preferredMemberName: resolved,
+        characterIds: new Set(aggregate.characterIds),
+        characterNames: new Set(aggregate.characterNames),
+        normalizedCharacterNames: new Set(aggregate.normalizedCharacterNames),
+        classes: new Set(aggregate.classes)
+      };
+      merged.set(mergeKey, newAggregate);
+      existing = newAggregate;
+    } else {
+      const target = existing;
+      target.label = resolved;
+      target.userDisplayName = resolved;
+      target.preferredMemberName = resolved;
+      if (!target.userId && aggregate.userId) {
+        target.userId = aggregate.userId;
+      }
+      target.isMain = target.isMain || aggregate.isMain;
+      aggregate.characterIds.forEach((id) => target.characterIds.add(id));
+      aggregate.characterNames.forEach((name) => target.characterNames.add(name));
+      aggregate.normalizedCharacterNames.forEach((name) =>
+        target.normalizedCharacterNames.add(name)
+      );
+      aggregate.classes.forEach((cls) => target.classes.add(cls));
+      existing = target;
+    }
+  }
+
+  return Array.from(merged.values())
+    .filter((aggregate) => aggregate.userId || aggregate.key === UNKNOWN_MEMBER_AGGREGATE_KEY)
+    .map((aggregate) => {
+      const classes = Array.from(aggregate.classes);
+      const characterNames = Array.from(aggregate.characterNames);
+      const displayName =
+        aggregate.preferredMemberName ??
+        resolveMemberPreferredName(aggregate.userId, aggregate.userDisplayName, aggregate.label) ??
+        aggregate.label;
+      const normalizedDisplay = normalizeNameKey(displayName);
+      let outputKey: string;
+      if (aggregate.userId) {
+        outputKey = `member:user:${aggregate.userId}`;
+      } else if (aggregate.key === UNKNOWN_MEMBER_AGGREGATE_KEY) {
+        outputKey = UNKNOWN_MEMBER_ENTITY_KEY;
+      } else if (normalizedDisplay) {
+        outputKey = `member:display:${normalizedDisplay}`;
+      } else {
+        outputKey = `member:${aggregate.key}`;
+      }
+      return {
+        key: outputKey,
+        type: 'member' as const,
+        label: displayName,
+        class: classes.length === 1 ? classes[0] : null,
+        classes,
+        isMain: aggregate.isMain,
+        characterIds: Array.from(aggregate.characterIds),
+        characterNames,
+        normalizedCharacterNames: Array.from(aggregate.normalizedCharacterNames),
+        userId: aggregate.userId,
+        userDisplayName: displayName
+      };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+});
+
+const memberOptionByAggregateKey = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of memberEntityOptions.value) {
+    const normalized = option.key.startsWith('member:')
+      ? option.key.slice('member:'.length)
+      : option.key;
+    map.set(normalized, option);
+  }
+  return map;
+});
+
+const memberOptionByUserId = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of memberEntityOptions.value) {
+    if (option.userId) {
+      map.set(option.userId, option);
+    }
+  }
+  return map;
+});
+
+const memberKeyByCharacterId = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of memberEntityOptions.value) {
+    for (const id of option.characterIds) {
+      map.set(id, option);
+    }
+  }
+  return map;
+});
+
+const memberKeyByCharacterName = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of memberEntityOptions.value) {
+    for (const name of option.normalizedCharacterNames) {
+      map.set(name, option);
+    }
+  }
+  for (const [normalizedName, owner] of characterOwnerMap.value.entries()) {
+    if (!map.has(normalizedName) && owner.userId) {
+      const option = memberOptionByUserId.value.get(owner.userId);
+      if (option) {
+        map.set(normalizedName, option);
+      }
+    }
+  }
+  return map;
+});
+
+const entityOptions = computed(() =>
+  isMemberMode.value ? memberEntityOptions.value : characterEntityOptions.value
+);
+
+const entityOptionLookup = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of entityOptions.value) {
+    map.set(option.key, option);
+  }
+  return map;
+});
+
+const characterEntityOptionLookup = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of characterEntityOptions.value) {
+    map.set(option.key, option);
+  }
+  return map;
+});
+
+const memberEntityOptionLookup = computed(() => {
+  const map = new Map<string, MetricsEntityOption>();
+  for (const option of memberEntityOptions.value) {
+    map.set(option.key, option);
+  }
+  return map;
+});
+
+interface EntityIdentity {
+  mode: MetricsMode;
+  key: string;
+  primaryName: string;
+  normalizedPrimaryName: string;
+  userId: string | null;
+  userDisplayName: string | null;
+  normalizedUserDisplayName: string | null;
+  characterIds: string[];
+  characterNames: string[];
+  normalizedCharacterNames: string[];
+}
+
+function identityFromEntityOption(option: MetricsEntityOption): EntityIdentity {
+  const normalizedPrimary = normalizeNameKey(option.label) ?? option.normalizedCharacterNames[0] ?? option.key;
+  return {
+    mode: option.type,
+    key: option.key,
+    primaryName: option.label,
+    normalizedPrimaryName: normalizedPrimary ?? option.key.toLowerCase(),
+    userId: option.userId,
+    userDisplayName: option.userDisplayName,
+    normalizedUserDisplayName: normalizeNameKey(option.userDisplayName),
+    characterIds: [...option.characterIds],
+    characterNames: [...option.characterNames],
+    normalizedCharacterNames: [...option.normalizedCharacterNames]
+  };
+}
+
+function resolveCharacterIdentityByNormalizedName(normalizedName: string): EntityIdentity | null {
+  const option =
+    characterEntityOptionLookup.value.get(`name:${normalizedName}`) ??
+    characterEntityOptionLookup.value.get(`name:${normalizedName.toLowerCase()}`);
+  if (option) {
+    return identityFromEntityOption(option);
+  }
+  if (!metrics.value) {
+    return null;
+  }
+  const record = metrics.value.attendanceRecords.find(
+    (entry) => entry.character.name.toLowerCase() === normalizedName
+  );
+  if (record) {
+    return identityFromRecord(record, 'character');
+  }
+  return null;
+}
+
+function identityFromRecord(record: AttendanceMetricRecord, mode: MetricsMode): EntityIdentity {
+  const baseCharacterId = record.character.id ?? null;
+  const baseCharacterName = record.character.name;
+  const normalizedName = baseCharacterName.toLowerCase();
+  if (mode === 'member') {
+    const owner = resolveCharacterOwner(
+      record.character.name,
+      record.character.userId,
+      record.character.userDisplayName
+    );
+    const isUnknownMember = !owner.userId;
+    const aggregateKey = memberAggregateKeyFromParts(
+      owner.userId,
+      owner.userDisplayName,
+      owner.userDisplayName ?? record.character.name
+    );
+    const option = memberOptionByAggregateKey.value.get(aggregateKey);
+    if (option) {
+      return identityFromEntityOption(option);
+    }
+    const resolvedMemberName = isUnknownMember
+      ? UNKNOWN_MEMBER_LABEL
+      : resolveMemberPreferredName(
+          owner.userId,
+          owner.userDisplayName,
+          record.character.name
+        ) ?? owner.userDisplayName ?? record.character.userDisplayName ?? record.character.name;
+    const normalizedResolved = normalizeNameKey(resolvedMemberName);
+    const memberKey = owner.userId
+      ? `member:user:${owner.userId}`
+      : UNKNOWN_MEMBER_ENTITY_KEY;
+    return {
+      mode,
+      key: memberKey,
+      primaryName: resolvedMemberName,
+      normalizedPrimaryName: normalizeNameKey(resolvedMemberName) ?? normalizedName,
+      userId: owner.userId,
+      userDisplayName: isUnknownMember
+        ? UNKNOWN_MEMBER_LABEL
+        : owner.userDisplayName ?? record.character.userDisplayName ?? null,
+      normalizedUserDisplayName: isUnknownMember
+        ? normalizeNameKey(UNKNOWN_MEMBER_LABEL)
+        : normalizeNameKey(owner.userDisplayName ?? record.character.userDisplayName),
+      characterIds: baseCharacterId ? [baseCharacterId] : [],
+      characterNames: [baseCharacterName],
+      normalizedCharacterNames: [normalizedName]
+    };
+  }
+
+  return {
+    mode,
+    key: baseCharacterId ? `id:${baseCharacterId}` : `name:${normalizedName}`,
+    primaryName: baseCharacterName,
+    normalizedPrimaryName: normalizedName,
+    userId: record.character.userId ?? null,
+    userDisplayName: record.character.userDisplayName ?? null,
+    normalizedUserDisplayName: normalizeNameKey(record.character.userDisplayName),
+    characterIds: baseCharacterId ? [baseCharacterId] : [],
+    characterNames: [baseCharacterName],
+    normalizedCharacterNames: [normalizedName]
+  };
+}
+
+function formatEntityLabel(
+  option: MetricsEntityOption | undefined,
+  fallback: {
+    primaryName: string;
+    characterNames: string[];
+    userDisplayName?: string | null;
+    userId?: string | null;
+  },
+  includeMemberSuffix = false,
+  preferMemberName?: boolean
+): string {
+  const shouldPreferMemberName =
+    preferMemberName ?? (option?.type === 'member');
+  const memberUserId = option?.userId ?? fallback.userId ?? null;
+  let base: string | null = null;
+
+  if (shouldPreferMemberName) {
+    base =
+      resolveMemberPreferredName(
+        memberUserId,
+        option?.userDisplayName ?? fallback.userDisplayName ?? null,
+        option?.label ?? fallback.primaryName
+      ) ?? option?.label ?? fallback.primaryName ?? null;
+  } else {
+    base = option?.label ?? fallback.primaryName ?? null;
+  }
+
+  if (!base || base.trim().length === 0) {
+    base = fallback.primaryName;
+  }
+
+  if (includeMemberSuffix && (option?.type === 'member' || (shouldPreferMemberName && memberUserId))) {
+    const count = option?.characterNames?.length ?? 0;
+    const suffixParts = ['Member'];
+    if (count > 1) {
+      suffixParts.push(`${count} chars`);
+    }
+    return `${base} (${suffixParts.join(' · ')})`;
+  }
+
+  return includeMemberSuffix ? `${base}` : base;
+}
 
 function normalizeClassValue(value?: string | null): string | null {
   if (!value) {
@@ -778,16 +1564,38 @@ interface SearchOptionEntry {
 
 const searchOptions = computed<SearchOptionEntry[]>(() => {
   const options: SearchOptionEntry[] = [];
-  for (const option of characterOptions.value) {
-    const key = characterOptionKey(option);
-    const classLabel = resolveClassLabel(option.class);
+  for (const option of entityOptions.value) {
+    if (option.type === 'member' && option.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+      continue;
+    }
+    const classLabel =
+      option.classes.length === 1 ? resolveClassLabel(option.classes[0]) : null;
+    let description: string | null = null;
+    if (option.type === 'member') {
+      const characterCount = option.characterNames.length;
+      if (characterCount > 1) {
+        description = `${characterCount} characters`;
+      } else {
+        description = classLabel ?? 'Single character';
+      }
+    } else {
+      description = classLabel;
+    }
+    const searchBits = [
+      option.label,
+      option.userDisplayName,
+      ...option.characterNames,
+      ...option.classes.map((value) => resolveClassLabel(value) ?? value)
+    ]
+      .filter((entry): entry is string => Boolean(entry))
+      .map((entry) => entry.toLowerCase());
     options.push({
       type: 'character',
-      value: key,
-      label: option.name,
-      description: classLabel ?? undefined,
-      searchText: `${option.name} ${classLabel ?? ''}`.toLowerCase(),
-      normalizedValue: key,
+      value: option.key,
+      label: option.label,
+      description: description ?? undefined,
+      searchText: searchBits.join(' '),
+      normalizedValue: option.key.toLowerCase(),
       isMain: option.isMain
     });
   }
@@ -876,39 +1684,94 @@ function classSetHas(value: string): boolean {
   return selectedClassSet.value.has(normalized);
 }
 
-const characterKeyLookup = computed(() => {
-  const map = new Map<string, MetricsCharacterOption>();
-  for (const option of characterOptions.value) {
-    map.set(characterOptionKey(option), option);
+function identityKeys(identity: EntityIdentity): string[] {
+  const keys = new Set<string>();
+  keys.add(identity.key);
+  if (identity.mode === 'member') {
+    if (identity.userId) {
+      keys.add(`member:user:${identity.userId}`);
+    }
+    if (identity.normalizedUserDisplayName) {
+      keys.add(`member:display:${identity.normalizedUserDisplayName}`);
+    }
+    for (const id of identity.characterIds) {
+      keys.add(`member:charid:${id}`);
+    }
+    for (const name of identity.normalizedCharacterNames) {
+      keys.add(`member:char:${name}`);
+    }
+  } else {
+    for (const id of identity.characterIds) {
+      keys.add(`id:${id}`);
+    }
+    for (const name of identity.normalizedCharacterNames) {
+      keys.add(`name:${name}`);
+    }
   }
-  return map;
-});
-
-function getRecordCharacterKey(record: AttendanceMetricRecord): string {
-  return record.character.id
-    ? `id:${record.character.id}`
-    : `name:${record.character.name.toLowerCase()}`;
+  return Array.from(keys);
 }
 
-interface CharacterIdentity {
-  id: string | null;
-  name: string;
+function buildCompositeKeysForIdentity(raidId: string, identity: EntityIdentity): string[] {
+  return identityKeys(identity).map((key) => `${raidId}::${key}`);
 }
 
-function buildCompositeKeysForIdentity(raidId: string, identity: CharacterIdentity): string[] {
-  const keys: string[] = [];
-  if (identity.id) {
-    keys.push(`${raidId}::id:${identity.id}`);
+function resolveEntityIdentity(key: string): EntityIdentity | null {
+  const direct =
+    entityOptionLookup.value.get(key) ??
+    characterEntityOptionLookup.value.get(key) ??
+    memberEntityOptionLookup.value.get(key);
+  if (direct) {
+    return identityFromEntityOption(direct);
   }
-  keys.push(`${raidId}::name:${identity.name.toLowerCase()}`);
-  return keys;
-}
-
-function recordIdentity(record: AttendanceMetricRecord): CharacterIdentity {
-  return {
-    id: record.character.id ?? null,
-    name: record.character.name
-  };
+  if (!metrics.value) {
+    return null;
+  }
+  if (key.startsWith('member:')) {
+    const aggregateKey = key.slice('member:'.length);
+    const option = memberOptionByAggregateKey.value.get(aggregateKey);
+    if (option) {
+      return identityFromEntityOption(option);
+    }
+    const record = metrics.value.attendanceRecords.find((entry) => {
+      const candidate = memberAggregateKeyFromParts(
+        entry.character.userId,
+        entry.character.userDisplayName,
+        entry.character.name
+      );
+      return candidate === aggregateKey;
+    });
+    if (record) {
+      return identityFromRecord(record, 'member');
+    }
+    return null;
+  }
+  if (key.startsWith('id:')) {
+    const id = key.slice(3);
+    const option = characterEntityOptionLookup.value.get(`id:${id}`);
+    if (option) {
+      return identityFromEntityOption(option);
+    }
+    const record = metrics.value.attendanceRecords.find((entry) => entry.character.id === id);
+    if (record) {
+      return identityFromRecord(record, 'character');
+    }
+    return null;
+  }
+  if (key.startsWith('name:')) {
+    const name = key.slice(5);
+    const option = characterEntityOptionLookup.value.get(`name:${name.toLowerCase()}`);
+    if (option) {
+      return identityFromEntityOption(option);
+    }
+    const record = metrics.value.attendanceRecords.find(
+      (entry) => entry.character.name.toLowerCase() === name.toLowerCase()
+    );
+    if (record) {
+      return identityFromRecord(record, 'character');
+    }
+    return null;
+  }
+  return null;
 }
 
 const selectedClassSet = computed(() => {
@@ -938,11 +1801,13 @@ watch(selectedCharacters, () => {
 const selectedCharacterKeySet = computed(() => new Set(selectedCharacters.value));
 const selectedCharacterNameSet = computed(() => {
   const names = new Set<string>();
-  const lookup = characterKeyLookup.value;
+  const lookup = entityOptionLookup.value;
   for (const key of selectedCharacterKeySet.value) {
     const option = lookup.get(key);
     if (option) {
-      names.add(option.name.toLowerCase());
+      for (const name of option.normalizedCharacterNames) {
+        names.add(name);
+      }
     }
   }
   return names;
@@ -958,18 +1823,38 @@ const selectedLootItemsSet = computed(() => {
 const selectedCharacterChips = computed(() =>
   selectedCharacters.value
     .map((key) => {
-      const option = characterKeyLookup.value.get(key);
-      if (!option) {
+      const identity = resolveEntityIdentity(key);
+      if (!identity) {
         return null;
       }
-      const classLabel = resolveClassLabel(option.class);
-      const base = option.name;
+      const option =
+        entityOptionLookup.value.get(key) ??
+        (identity.mode === 'member'
+          ? memberEntityOptions.value.find((entry) => entry.key === key)
+          : characterEntityOptions.value.find((entry) => entry.key === key));
+      const label = formatEntityLabel(
+        option,
+        {
+          primaryName: identity.primaryName,
+          characterNames: identity.characterNames,
+          userDisplayName: identity.userDisplayName,
+          userId: identity.userId ?? null
+        },
+        false,
+        identity.mode === 'member'
+      );
       return {
         key,
-        label: classLabel ? `${base} (${classLabel})` : base
+        label
       };
     })
     .filter((entry): entry is { key: string; label: string } => entry !== null)
+);
+
+const selectedEntityIdentities = computed(() =>
+  selectedCharacters.value
+    .map((key) => resolveEntityIdentity(key))
+    .filter((identity): identity is EntityIdentity => identity !== null)
 );
 
 const selectedLootItemChips = computed(() =>
@@ -980,11 +1865,22 @@ const selectedLootItemChips = computed(() =>
 );
 
 function isPresentStatus(status: AttendanceStatus): boolean {
-  return status === 'PRESENT' || status === 'LATE' || status === 'BENCHED';
+  return status === 'PRESENT';
 }
 
-const derivedAttendanceStatuses = computed(() => {
-  const lookup = new Map<string, AttendanceStatus>();
+interface RaidIdentityAttendanceSnapshot {
+  raidId: string;
+  identity: EntityIdentity;
+  totalEvents: number;
+  presentEventKeys: Set<string>;
+  presentEventIndices: Set<number>;
+  hasPresence: boolean;
+  wasLate: boolean;
+  leftEarly: boolean;
+}
+
+function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityAttendanceSnapshot> {
+  const lookup = new Map<string, RaidIdentityAttendanceSnapshot>();
 
   if (!metrics.value) {
     return lookup;
@@ -1016,101 +1912,148 @@ const derivedAttendanceStatuses = computed(() => {
     });
     const lastEventIndex = eventTimes.length - 1;
 
-    const presenceByCharacter = new Map<string, Set<number>>();
-    const identityByCharacter = new Map<string, CharacterIdentity>();
+    const identityStates = new Map<
+      string,
+      {
+        identity: EntityIdentity;
+        presentEventIndices: Set<number>;
+        presentEventKeys: Set<string>;
+      }
+    >();
 
     for (const record of sorted) {
-      const baseKey = getRecordCharacterKey(record);
-      identityByCharacter.set(baseKey, recordIdentity(record));
+      const identity = identityFromRecord(record, mode);
+      const identityKey = identity.key;
+      if (mode === 'member' && !memberEntityOptionLookup.value.has(identityKey)) {
+        continue;
+      }
+      let state = identityStates.get(identityKey);
+      if (!state) {
+        state = {
+          identity,
+          presentEventIndices: new Set<number>(),
+          presentEventKeys: new Set<string>()
+        };
+        identityStates.set(identityKey, state);
+      } else {
+        // Merge additional character information when identities reuse the same key (e.g., Unknown).
+        identity.characterIds.forEach((id) => {
+          if (!state!.identity.characterIds.includes(id)) {
+            state!.identity.characterIds.push(id);
+          }
+        });
+        identity.characterNames.forEach((name) => {
+          if (!state!.identity.characterNames.includes(name)) {
+            state!.identity.characterNames.push(name);
+          }
+        });
+        identity.normalizedCharacterNames.forEach((name) => {
+          if (!state!.identity.normalizedCharacterNames.includes(name)) {
+            state!.identity.normalizedCharacterNames.push(name);
+          }
+        });
+      }
+      const entry = state!;
       if (!isPresentStatus(record.status)) {
         continue;
       }
       const eventIndex = eventIndexByTime.get(record.timestamp) ?? 0;
-      const set = presenceByCharacter.get(baseKey);
-      if (set) {
-        set.add(eventIndex);
-      } else {
-        presenceByCharacter.set(baseKey, new Set([eventIndex]));
-      }
+      entry.presentEventIndices.add(eventIndex);
+      entry.presentEventKeys.add(`${raidId}::${record.timestamp}`);
     }
 
-    const allCharacterKeys = new Set<string>(sorted.map((record) => getRecordCharacterKey(record)));
-
-    for (const baseKey of allCharacterKeys) {
-      const identity = identityByCharacter.get(baseKey) ?? {
-        id: null,
-        name: baseKey.startsWith('name:') ? baseKey.slice(5) : baseKey
+    for (const { identity, presentEventIndices, presentEventKeys } of identityStates.values()) {
+      const hasPresence = presentEventIndices.size > 0;
+      const presentAtFirst = hasPresence && presentEventIndices.has(0);
+      const presentAtLast = hasPresence && presentEventIndices.has(lastEventIndex);
+      const snapshot: RaidIdentityAttendanceSnapshot = {
+        raidId,
+        identity,
+        totalEvents: eventTimes.length,
+        presentEventKeys,
+        presentEventIndices,
+        hasPresence,
+        wasLate: hasPresence && !presentAtFirst,
+        leftEarly: hasPresence && !presentAtLast
       };
-      const presenceSet = presenceByCharacter.get(baseKey);
-      const hasPresence = Boolean(presenceSet && presenceSet.size > 0);
-
-      let derived: AttendanceStatus;
-      if (!hasPresence) {
-        derived = 'ABSENT';
-      } else {
-        const set = presenceSet!;
-        const presentAtFirst = set.has(0);
-        const presentAtLast = set.has(lastEventIndex);
-        if (!presentAtLast && set.size > 0) {
-          derived = 'BENCHED';
-        } else if (!presentAtFirst) {
-          derived = 'LATE';
-        } else {
-          derived = 'PRESENT';
-        }
-      }
-
       const compositeKeys = buildCompositeKeysForIdentity(raidId, identity);
       for (const key of compositeKeys) {
-        lookup.set(key, derived);
+        lookup.set(key, snapshot);
       }
     }
   }
 
   return lookup;
-});
+}
 
-function getDerivedStatusForRaid(raidId: string, identity: CharacterIdentity): AttendanceStatus {
+const derivedMemberAttendance = computed(() => buildDerivedAttendanceMap('member'));
+const derivedCharacterAttendance = computed(() => buildDerivedAttendanceMap('character'));
+
+function getRaidAttendanceSnapshot(
+  raidId: string,
+  identity: EntityIdentity
+): RaidIdentityAttendanceSnapshot | null {
   const compositeKeys = buildCompositeKeysForIdentity(raidId, identity);
   for (const key of compositeKeys) {
-    const status = derivedAttendanceStatuses.value.get(key);
-    if (status) {
-      return status;
+    const map =
+      identity.mode === 'member' ? derivedMemberAttendance.value : derivedCharacterAttendance.value;
+    const snapshot = map.get(key);
+    if (snapshot) {
+      return snapshot;
     }
   }
-  return 'ABSENT';
+  return null;
 }
 
-function resolveCharacterIdentity(key: string): CharacterIdentity | null {
-  const option = characterKeyLookup.value.get(key);
-  if (option) {
-    return {
-      id: option.id ?? null,
-      name: option.name
-    };
-  }
-  if (!metrics.value) {
-    return null;
-  }
-  if (key.startsWith('id:')) {
-    const id = key.slice(3);
-    const record = metrics.value.attendanceRecords.find((entry) => entry.character.id === id);
-    if (record) {
-      return { id, name: record.character.name };
+function recordMatchesIdentity(record: AttendanceMetricRecord, identity: EntityIdentity) {
+  if (identity.mode === 'member') {
+    if (identity.userId && record.character.userId === identity.userId) {
+      return true;
     }
-    return { id, name: id };
+    const recordDisplay = normalizeNameKey(record.character.userDisplayName);
+    if (identity.normalizedUserDisplayName && recordDisplay === identity.normalizedUserDisplayName) {
+      return true;
+    }
+    const normalizedName = record.character.name.toLowerCase();
+    return identity.normalizedCharacterNames.includes(normalizedName);
   }
-  if (key.startsWith('name:')) {
-    return { id: null, name: key.slice(5) };
-  }
-  return { id: null, name: key };
-}
-
-function recordMatchesIdentity(record: AttendanceMetricRecord, identity: CharacterIdentity) {
-  if (identity.id && record.character.id === identity.id) {
+  if (record.character.id && identity.characterIds.includes(record.character.id)) {
     return true;
   }
-  return record.character.name.toLowerCase() === identity.name.toLowerCase();
+  const normalizedName = record.character.name.toLowerCase();
+  return identity.normalizedCharacterNames.includes(normalizedName);
+}
+
+function lootEventMatchesIdentity(event: LootMetricEvent, identity: EntityIdentity): boolean {
+  const normalizedLooter = event.looterName.toLowerCase();
+  if (identity.normalizedCharacterNames.includes(normalizedLooter)) {
+    return true;
+  }
+  if (identity.mode === 'member') {
+    const option = memberKeyByCharacterName.value.get(normalizedLooter);
+    if (option && option.key === identity.key) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function displayLooterName(event: LootMetricEvent): string {
+  if (!isMemberMode.value) {
+    return event.looterName;
+  }
+  const option = memberKeyByCharacterName.value.get(event.looterName.toLowerCase());
+  return formatEntityLabel(
+    option,
+    {
+      primaryName: event.looterName,
+      characterNames: option?.characterNames ?? [event.looterName],
+      userDisplayName: option?.userDisplayName ?? null,
+      userId: option?.userId ?? null
+    },
+    false,
+    true
+  );
 }
 
 const allRaidIds = computed(() => {
@@ -1170,6 +2113,92 @@ const totalUniqueAttendanceEvents = computed(() => {
   return events.size;
 });
 
+const raidEventTotals = computed(() => {
+  const map = new Map<string, Set<string>>();
+  if (!metrics.value) {
+    return new Map<string, number>();
+  }
+  for (const record of metrics.value.attendanceRecords) {
+    const raidId = record.raid.id;
+    if (!raidId) {
+      continue;
+    }
+    let timestamps = map.get(raidId);
+    if (!timestamps) {
+      timestamps = new Set<string>();
+      map.set(raidId, timestamps);
+    }
+    if (record.timestamp) {
+      timestamps.add(record.timestamp);
+    }
+  }
+  const totals = new Map<string, number>();
+  for (const [raidId, timestamps] of map.entries()) {
+    totals.set(raidId, timestamps.size);
+  }
+  return totals;
+});
+
+function aggregateCharacterAttendanceForIdentity(
+  identity: EntityIdentity,
+  raidIds: string[],
+  skipAbsent = false
+) {
+  const normalizedNames = new Set<string>();
+  if (identity.normalizedCharacterNames.length > 0) {
+    identity.normalizedCharacterNames.forEach((name) => normalizedNames.add(name.toLowerCase()));
+  } else if (identity.normalizedPrimaryName) {
+    normalizedNames.add(identity.normalizedPrimaryName.toLowerCase());
+  }
+
+  let presentEvents = 0;
+  let totalAttendanceEvents = 0;
+  let lateRaids = 0;
+  let leftEarlyRaids = 0;
+  let absentRaids = 0;
+
+  for (const normalizedName of normalizedNames) {
+    const characterIdentity =
+      identity.mode === 'character' && identity.normalizedPrimaryName === normalizedName
+        ? identity
+        : resolveCharacterIdentityByNormalizedName(normalizedName);
+    if (!characterIdentity) {
+      continue;
+    }
+
+    for (const raidId of raidIds) {
+      const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+      if (raidEventCount === 0) {
+        continue;
+      }
+      const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
+      if (!snapshot || !snapshot.hasPresence) {
+        if (!skipAbsent) {
+          absentRaids += 1;
+          totalAttendanceEvents += raidEventCount;
+        }
+        continue;
+      }
+      presentEvents += snapshot.presentEventIndices.size;
+      totalAttendanceEvents += snapshot.totalEvents;
+      if (snapshot.wasLate) {
+        lateRaids += 1;
+      }
+      if (snapshot.leftEarly) {
+        leftEarlyRaids += 1;
+      }
+    }
+  }
+
+  return {
+    presentEvents,
+    totalAttendanceEvents,
+    lateRaids,
+    leftEarlyRaids,
+    absentRaids
+  };
+}
+
 const characterInspectorEntries = computed(() => {
   if (!metrics.value) {
     return [] as Array<{
@@ -1197,8 +2226,7 @@ const characterInspectorEntries = computed(() => {
   const raids = allRaidIds.value;
   const totalRaids = raids.length;
   const attendanceRecords = metrics.value.attendanceRecords;
-  const totalAttendanceEvents = totalUniqueAttendanceEvents.value;
-  const lootEvents = metrics.value.lootEvents;
+  const lootEvents = filteredLootEvents.value;
   const lootTotalsValue = lootTotals.value;
   const lootDenominator =
     lootTotalsValue.main > 0
@@ -1209,62 +2237,70 @@ const characterInspectorEntries = computed(() => {
 
   return selectedCharacters.value
     .map((key) => {
-      const identity = resolveCharacterIdentity(key);
+      const identity = resolveEntityIdentity(key);
       if (!identity) {
         return null;
       }
-      const option = characterKeyLookup.value.get(key);
-      const label = option?.name ?? identity.name;
+      if (identity.mode === 'member' && identity.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+        return null;
+      }
+      const option =
+        entityOptionLookup.value.get(key) ??
+        characterEntityOptionLookup.value.get(key) ??
+        memberEntityOptionLookup.value.get(key);
+      const label = option?.label ?? identity.primaryName;
       const optionIsMain = option?.isMain ?? false;
-      const normalizedIdentityName = identity.name.toLowerCase();
       let characterClass: CharacterClass | null = option?.class ?? null;
 
-      let lateRaids = 0;
-      let leftEarlyRaids = 0;
-      let absentRaids = 0;
+      const aggregatedStats = aggregateCharacterAttendanceForIdentity(
+        identity,
+        raids,
+        identity.mode === 'member' && identity.key === UNKNOWN_MEMBER_ENTITY_KEY
+      );
+      let lateRaids = aggregatedStats.lateRaids;
+      let leftEarlyRaids = aggregatedStats.leftEarlyRaids;
+      let absentRaids =
+        identity.mode === 'member' && identity.key === UNKNOWN_MEMBER_ENTITY_KEY
+          ? 0
+          : aggregatedStats.absentRaids;
+      const presentEvents = aggregatedStats.presentEvents;
+      const totalAttendanceEventsValue =
+        aggregatedStats.totalAttendanceEvents > 0
+          ? aggregatedStats.totalAttendanceEvents
+          : presentEvents;
+      const attendanceDenominator = totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : 1;
 
-      for (const raidId of raids) {
-        const status = getDerivedStatusForRaid(raidId, identity);
-        if (status === 'ABSENT') {
-          absentRaids += 1;
-          continue;
-        }
-        if (status === 'LATE') {
-          lateRaids += 1;
-        } else if (status === 'BENCHED') {
-          leftEarlyRaids += 1;
-        }
-      }
-
-      let presentEvents = 0;
-      for (const record of attendanceRecords) {
-        if (!recordMatchesIdentity(record, identity)) {
-          continue;
-        }
-        if (!characterClass && record.character.class) {
-          characterClass = record.character.class;
-        }
-        if (isPresentStatus(record.status)) {
-          presentEvents += 1;
+      if (!characterClass) {
+        for (const record of attendanceRecords) {
+          if (!recordMatchesIdentity(record, identity)) {
+            continue;
+          }
+          if (record.character.class) {
+            characterClass = record.character.class;
+            break;
+          }
         }
       }
 
       let lootCount = 0;
       let lastLootTimestamp: string | null = null;
       for (const event of lootEvents) {
-        if (event.looterName.toLowerCase() === normalizedIdentityName) {
-          if (!characterClass) {
-            characterClass = normalizeCharacterClass(event.looterClass);
-          }
-          lootCount += 1;
-          const timestamp = eventPrimaryTimestamp(event);
-          if (timestamp && (!lastLootTimestamp || timestamp > lastLootTimestamp)) {
-            lastLootTimestamp = timestamp;
-          }
+        if (!lootEventMatchesIdentity(event, identity)) {
+          continue;
+        }
+        if (!characterClass) {
+          characterClass = normalizeCharacterClass(event.looterClass);
+        }
+        lootCount += 1;
+        const timestamp = eventPrimaryTimestamp(event);
+        if (timestamp && (!lastLootTimestamp || timestamp > lastLootTimestamp)) {
+          lastLootTimestamp = timestamp;
         }
       }
 
-      const nameIsMain = mainCharacterNames.value.has(normalizedIdentityName);
+      const nameIsMain = identity.normalizedCharacterNames.some((name) =>
+        mainCharacterNames.value.has(name)
+      );
       const attendanceIsMain = attendanceRecords.some(
         (record) => record.character.isMain && recordMatchesIdentity(record, identity)
       );
@@ -1275,21 +2311,20 @@ const characterInspectorEntries = computed(() => {
         key,
         label,
         class: characterClass,
-        participationPercent:
-          totalAttendanceEvents > 0 ? (presentEvents / totalAttendanceEvents) * 100 : 0,
-      lootPercent: (lootShareCount / lootDenominator) * 100,
-      lootCount,
-      lastLootDate: lastLootTimestamp,
-      latePercent: totalRaids > 0 ? (lateRaids / totalRaids) * 100 : 0,
-      lateRaidCount: lateRaids,
-      leftEarlyPercent: totalRaids > 0 ? (leftEarlyRaids / totalRaids) * 100 : 0,
-      leftEarlyRaidCount: leftEarlyRaids,
-      absentPercent: totalRaids > 0 ? (absentRaids / totalRaids) * 100 : 0,
-      presentEvents,
-      totalAttendanceEvents,
-      isMain
-    };
-  })
+        participationPercent: (presentEvents / attendanceDenominator) * 100,
+        lootPercent: (lootShareCount / lootDenominator) * 100,
+        lootCount,
+        lastLootDate: lastLootTimestamp,
+        latePercent: totalRaids > 0 ? (lateRaids / totalRaids) * 100 : 0,
+        lateRaidCount: lateRaids,
+        leftEarlyPercent: totalRaids > 0 ? (leftEarlyRaids / totalRaids) * 100 : 0,
+        leftEarlyRaidCount: leftEarlyRaids,
+        absentPercent: totalRaids > 0 ? (absentRaids / totalRaids) * 100 : 0,
+        presentEvents,
+        totalAttendanceEvents: totalAttendanceEventsValue,
+        isMain
+      };
+    })
     .filter(
       (
         entry
@@ -1328,6 +2363,7 @@ interface AttendanceCharacterSummary {
 }
 
 interface LootParticipantSummary {
+  key: string;
   name: string;
   class: string | null;
   count: number;
@@ -1342,7 +2378,7 @@ interface LootItemSummary {
 
 interface AttendanceTimelineEntry {
   date: string;
-  counts: Record<AttendanceStatus, number>;
+  counts: Record<DisplayAttendanceStatus, number>;
 }
 
 interface LootTimelineEntry {
@@ -1354,19 +2390,32 @@ interface LootTimelineEntry {
 interface TimelineMarker {
   start: string;
   end: string;
-  label?: string;
+  label: string | undefined;
   startLabel: string;
   endLabel: string;
 }
 
+interface TimelineMarkerWithMs extends TimelineMarker {
+  startMs: number;
+  endMs: number;
+}
+
 const filteredAttendanceRecordsBase = computed<AttendanceMetricRecord[]>(() => {
-  if (!metrics.value) {
+  const currentMetrics = metrics.value;
+  if (!currentMetrics) {
     return [];
   }
   const classSet = selectedClassSet.value;
   const characterSet = selectedCharacterKeySet.value;
   const lootItemsSet = selectedLootItemsSet.value;
-  return metrics.value.attendanceRecords.filter((record) => {
+  return currentMetrics.attendanceRecords.filter((record) => {
+    let identity: EntityIdentity | null = null;
+    const ensureIdentity = () => {
+      if (!identity) {
+        identity = identityFromRecord(record, metricsMode.value);
+      }
+      return identity!;
+    };
     if (classSet.size > 0) {
       const recordClass = record.character.class ? record.character.class.toUpperCase() : null;
       if (!recordClass || !classSet.has(recordClass)) {
@@ -1374,13 +2423,17 @@ const filteredAttendanceRecordsBase = computed<AttendanceMetricRecord[]>(() => {
       }
     }
     if (characterSet.size > 0) {
-      const key = getRecordCharacterKey(record);
-      if (!characterSet.has(key)) {
+      const identityValue = ensureIdentity();
+      const keys = identityKeys(identityValue);
+      const matches = keys.some((key) => characterSet.has(key));
+      if (!matches) {
         return false;
       }
     }
     if (lootItemsSet.size > 0) {
-      const participatesInSelectedLoot = metrics.value.lootEvents.some((event) => {
+      const identityValue = ensureIdentity();
+      const identityNames = new Set(identityValue.normalizedCharacterNames);
+      const participatesInSelectedLoot = currentMetrics.lootEvents.some((event) => {
         if (!event.itemName) {
           return false;
         }
@@ -1388,9 +2441,10 @@ const filteredAttendanceRecordsBase = computed<AttendanceMetricRecord[]>(() => {
           return false;
         }
         const normalizedLooter = event.looterName.toLowerCase();
-        const recordName = record.character.name.toLowerCase();
         return (
-          normalizedLooter === recordName ||
+          identityNames.has(normalizedLooter) ||
+          (identityValue.mode === 'member' &&
+            memberKeyByCharacterName.value.get(normalizedLooter)?.key === identityValue.key) ||
           selectedCharacterNameSet.value.has(normalizedLooter) ||
           (record.character.id && selectedCharacterKeySet.value.has(`id:${record.character.id}`))
         );
@@ -1449,71 +2503,209 @@ const filteredLootEvents = computed<LootMetricEvent[]>(() => {
   });
 });
 
-const attendanceStatusTotals = computed<Record<AttendanceStatus, number>>(() => {
-  const totals: Record<AttendanceStatus, number> = {
+const attendanceStatusTotals = computed<Record<DisplayAttendanceStatus, number>>(() => {
+  const totals: Record<DisplayAttendanceStatus, number> = {
     PRESENT: 0,
     LATE: 0,
     ABSENT: 0,
-    BENCHED: 0
+    LEFT_EARLY: 0
   };
   for (const entry of attendanceTimelineEntries.value) {
     totals.PRESENT += entry.counts.PRESENT;
     totals.LATE += entry.counts.LATE;
     totals.ABSENT += entry.counts.ABSENT;
-    totals.BENCHED += entry.counts.BENCHED;
+    totals.LEFT_EARLY += entry.counts.LEFT_EARLY;
   }
   return totals;
 });
 
 const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
-  const map = new Map<string, AttendanceTimelineEntry>();
-  const lateTracker = new Set<string>();
-  const leftEarlyTracker = new Set<string>();
+  const mode = metricsMode.value;
+
+  if (!isMemberMode.value) {
+    const map = new Map<string, AttendanceTimelineEntry>();
+    const lateTracker = new Set<string>();
+    const leftEarlyTracker = new Set<string>();
+
+    for (const record of filteredAttendanceRecords.value) {
+      const baseTimestamp = record.timestamp || record.raid.startTime;
+      if (!baseTimestamp) {
+        continue;
+      }
+      const dayKey = baseTimestamp.slice(0, 10);
+      if (!map.has(dayKey)) {
+        map.set(dayKey, {
+          date: dayKey,
+          counts: {
+            PRESENT: 0,
+            LATE: 0,
+            ABSENT: 0,
+            LEFT_EARLY: 0
+          }
+        });
+      }
+      const entry = map.get(dayKey)!;
+      const identity = identityFromRecord(record, mode);
+      const status = record.status as AttendanceStatus;
+      const displayStatus: DisplayAttendanceStatus = status === 'BENCHED' ? 'LEFT_EARLY' : status;
+
+      entry.counts[displayStatus] += 1;
+
+      const snapshot = getRaidAttendanceSnapshot(record.raid.id, identity);
+      if (!snapshot) {
+        continue;
+      }
+      const trackerKey = `${dayKey}::${record.raid.id}::${identity.key}`;
+
+      if (snapshot.wasLate && !lateTracker.has(trackerKey)) {
+        lateTracker.add(trackerKey);
+        if (displayStatus !== 'LATE') {
+          entry.counts.LATE += 1;
+        }
+      }
+
+      if (snapshot.leftEarly && !leftEarlyTracker.has(trackerKey)) {
+        leftEarlyTracker.add(trackerKey);
+        if (displayStatus !== 'LEFT_EARLY') {
+          entry.counts.LEFT_EARLY += 1;
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  const memberLookup = memberEntityOptionLookup.value;
+  const raidIdentityMap = new Map<string, Map<string, EntityIdentity>>();
+  const raidDayMap = new Map<string, string>();
 
   for (const record of filteredAttendanceRecords.value) {
-    const baseTimestamp = record.timestamp || record.raid.startTime;
-    if (!baseTimestamp) {
+    const identity = identityFromRecord(record, mode);
+    if (!memberLookup.has(identity.key)) {
       continue;
     }
-    const dayKey = baseTimestamp.slice(0, 10);
-    if (!map.has(dayKey)) {
-      map.set(dayKey, {
-        date: dayKey,
-        counts: {
-          PRESENT: 0,
-          LATE: 0,
-          ABSENT: 0,
-          BENCHED: 0
-        }
-      });
+    const raidId = record.raid.id;
+    let identityMap = raidIdentityMap.get(raidId);
+    if (!identityMap) {
+      identityMap = new Map<string, EntityIdentity>();
+      raidIdentityMap.set(raidId, identityMap);
     }
-    const entry = map.get(dayKey)!;
-
-    const recordStatus = record.status as AttendanceStatus;
-    if (recordStatus in entry.counts) {
-      entry.counts[recordStatus] += 1;
+    if (!identityMap.has(identity.key)) {
+      identityMap.set(identity.key, identity);
     }
-
-    const identity = recordIdentity(record);
-    const derivedStatus = getDerivedStatusForRaid(record.raid.id, identity);
-    const trackerKey = `${dayKey}::${record.raid.id}::${identity.name.toLowerCase()}`;
-
-    if (derivedStatus === 'LATE' && !lateTracker.has(trackerKey)) {
-      lateTracker.add(trackerKey);
-      entry.counts.LATE += 1;
-    } else if (derivedStatus === 'BENCHED' && !leftEarlyTracker.has(trackerKey)) {
-      leftEarlyTracker.add(trackerKey);
-      entry.counts.BENCHED += 1;
+    if (!raidDayMap.has(raidId)) {
+      const candidate = record.raid.startTime ?? record.timestamp;
+      if (candidate) {
+        raidDayMap.set(raidId, candidate.slice(0, 10));
+      }
     }
   }
 
-  return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const dayTotals = new Map<
+    string,
+    {
+      present: number;
+      late: number;
+      leftEarly: number;
+      absent: number;
+    }
+  >();
+
+  for (const [raidId, identityMap] of raidIdentityMap.entries()) {
+    const dayKey = raidDayMap.get(raidId);
+    if (!dayKey) {
+      continue;
+    }
+    let buckets = dayTotals.get(dayKey);
+    if (!buckets) {
+      buckets = {
+        present: 0,
+        late: 0,
+        leftEarly: 0,
+        absent: 0
+      };
+      dayTotals.set(dayKey, buckets);
+    }
+
+    for (const identity of identityMap.values()) {
+      if (identity.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+        const processed = new Set<string>();
+        for (const normalizedName of identity.normalizedCharacterNames) {
+          const lower = normalizedName.toLowerCase();
+          if (processed.has(lower)) {
+            continue;
+          }
+          processed.add(lower);
+          const characterIdentity = resolveCharacterIdentityByNormalizedName(lower);
+          if (!characterIdentity) {
+            continue;
+          }
+          const characterSnapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
+          if (!characterSnapshot || !characterSnapshot.hasPresence) {
+            continue;
+          }
+          buckets.present += 1;
+          if (characterSnapshot.wasLate) {
+            buckets.late += 1;
+          }
+          if (characterSnapshot.leftEarly) {
+            buckets.leftEarly += 1;
+          }
+        }
+        continue;
+      }
+
+      const processedMemberChars = new Set<string>();
+      const targetNames = identity.normalizedCharacterNames.length
+        ? identity.normalizedCharacterNames
+        : [identity.normalizedPrimaryName];
+
+      for (const normalizedName of targetNames) {
+        const lower = normalizedName.toLowerCase();
+        if (processedMemberChars.has(lower)) {
+          continue;
+        }
+        processedMemberChars.add(lower);
+        const characterIdentity = resolveCharacterIdentityByNormalizedName(lower);
+        if (!characterIdentity) {
+          continue;
+        }
+        const characterSnapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
+        if (!characterSnapshot || !characterSnapshot.hasPresence) {
+          const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+          if (raidEventCount > 0) {
+            buckets.absent += 1;
+          }
+          continue;
+        }
+        buckets.present += 1;
+        if (characterSnapshot.wasLate) {
+          buckets.late += 1;
+        }
+        if (characterSnapshot.leftEarly) {
+          buckets.leftEarly += 1;
+        }
+      }
+    }
+  }
+
+  return Array.from(dayTotals.entries())
+    .map(([date, buckets]) => ({
+      date,
+      counts: {
+        PRESENT: buckets.present,
+        LATE: buckets.late,
+        ABSENT: buckets.absent,
+        LEFT_EARLY: buckets.leftEarly
+      }
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 });
 
 const attendanceTimelineChartData = computed(() => {
   const entries = attendanceTimelineEntries.value;
   const labels = entries.map((entry) => formatDateLabel(entry.date));
-  const datasets = statusOrder.map((status) => ({
+  const datasets = STATUS_ORDER.map((status) => ({
     label: statusLabels[status],
     data: entries.map((entry) => entry.counts[status]),
     borderColor: statusColors[status].border,
@@ -1526,7 +2718,7 @@ const attendanceTimelineChartData = computed(() => {
 
 const attendanceTimelineChartOptions = computed(() => ({
   maintainAspectRatio: false,
-  interaction: { mode: 'index', intersect: false },
+  interaction: { mode: 'index' as const, intersect: false },
   scales: {
     y: {
       beginAtZero: true,
@@ -1553,19 +2745,54 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     return [];
   }
 
-  const identityByKey = new Map<string, CharacterIdentity>();
-  const map = new Map<string, AttendanceCharacterSummary & { identity: CharacterIdentity }>();
+  const summaries = new Map<
+    string,
+    AttendanceCharacterSummary & { identity: EntityIdentity; presentEventSet: Set<string> }
+  >();
+  const mode = metricsMode.value;
+  const entityLookup = mode === 'member' ? memberEntityOptions.value : characterEntityOptions.value;
+  const entityMap = new Map<string, MetricsEntityOption>();
+  for (const option of entityLookup) {
+    entityMap.set(option.key, option);
+  }
 
   for (const record of records) {
-    const key = getRecordCharacterKey(record);
-    const identity = recordIdentity(record);
-    identityByKey.set(key, identity);
+    const identity = identityFromRecord(record, mode);
+    const key = identity.key;
+    const option = entityMap.get(key);
 
-    if (!map.has(key)) {
-      map.set(key, {
+    if (mode === 'member' && !option) {
+      continue;
+    }
+
+    let entry = summaries.get(key);
+    if (!entry) {
+      let initialClass: CharacterClass | null = null;
+      if (mode === 'member') {
+        if (option && option.classes.length === 1) {
+          initialClass = option.classes[0];
+        }
+      } else {
+        initialClass = option?.class ?? record.character.class ?? null;
+      }
+      if (!initialClass && record.character.class && mode !== 'member') {
+        initialClass = record.character.class;
+      }
+      const displayName = formatEntityLabel(
+        option,
+        {
+          primaryName: identity.primaryName,
+          characterNames: identity.characterNames,
+          userDisplayName: identity.userDisplayName,
+          userId: identity.userId ?? null
+        },
+        false,
+        mode === 'member'
+      );
+      entry = {
         key,
-        name: record.character.name,
-        class: record.character.class,
+        name: displayName,
+        class: initialClass,
         participationPercent: 0,
         presentEvents: 0,
         lateRaids: 0,
@@ -1573,58 +2800,99 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
         absentRaids: 0,
         totalAttendanceEvents: 0,
         totalRaids: 0,
-        userDisplayName: record.character.userDisplayName,
-        identity
-      });
+        userDisplayName: option?.userDisplayName ?? identity.userDisplayName,
+        identity,
+        presentEventSet: new Set<string>()
+      };
+      summaries.set(key, entry);
     }
 
-    const entry = map.get(key)!;
-    entry.totalAttendanceEvents += 1;
-    if (!entry.class && record.character.class) {
+    const optionForUpdate = entityMap.get(key);
+    if (optionForUpdate) {
+      entry.name = formatEntityLabel(
+        optionForUpdate,
+        {
+          primaryName: identity.primaryName,
+          characterNames: identity.characterNames,
+          userDisplayName: identity.userDisplayName,
+          userId: identity.userId ?? null
+        },
+        false,
+        mode === 'member'
+      );
+    }
+    if (mode === 'member' && optionForUpdate && optionForUpdate.classes.length === 1) {
+      entry.class = optionForUpdate.classes[0];
+    }
+    if (!entry.class && record.character.class && mode !== 'member') {
       entry.class = record.character.class;
     }
     if (!entry.userDisplayName && record.character.userDisplayName) {
       entry.userDisplayName = record.character.userDisplayName;
     }
-    if (isPresentStatus(record.status)) {
-      entry.presentEvents += 1;
+    if (record.status === 'PRESENT') {
+      const eventKey = `${record.raid.id}::${record.timestamp}`;
+      entry.presentEventSet.add(eventKey);
     }
   }
 
   const raidIds = Array.from(filteredRaidIds.value);
-  const denominator = filteredUniqueAttendanceEventsCount.value;
+  const totalAttendanceEvents = filteredUniqueAttendanceEventsCount.value;
+  for (const entry of summaries.values()) {
+    if (mode === 'member') {
+      const aggregated = aggregateCharacterAttendanceForIdentity(
+        entry.identity,
+        raidIds,
+        entry.key === UNKNOWN_MEMBER_ENTITY_KEY
+      );
+      entry.lateRaids = aggregated.lateRaids;
+      entry.leftEarlyRaids = aggregated.leftEarlyRaids;
+      entry.absentRaids = entry.key === UNKNOWN_MEMBER_ENTITY_KEY ? 0 : aggregated.absentRaids;
+      entry.totalRaids = raidIds.length;
+      entry.presentEvents = aggregated.presentEvents;
+      entry.totalAttendanceEvents =
+        aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
+      const denom = entry.totalAttendanceEvents > 0 ? entry.totalAttendanceEvents : entry.presentEvents;
+      entry.participationPercent = denom > 0 ? (entry.presentEvents / denom) * 100 : 0;
+      entry.presentEventSet = new Set<string>();
+      continue;
+    }
 
-  for (const entry of map.values()) {
     let late = 0;
     let leftEarly = 0;
     let absent = 0;
-    const identity = identityByKey.get(entry.key) ?? entry.identity;
     for (const raidId of raidIds) {
-      const status = getDerivedStatusForRaid(raidId, identity);
-      if (status === 'LATE') {
-        late += 1;
-      } else if (status === 'BENCHED') {
-        leftEarly += 1;
-      } else if (status === 'ABSENT') {
+      const snapshot = getRaidAttendanceSnapshot(raidId, entry.identity);
+      if (!snapshot || !snapshot.hasPresence) {
         absent += 1;
+        continue;
+      }
+      if (snapshot.wasLate) {
+        late += 1;
+      }
+      if (snapshot.leftEarly) {
+        leftEarly += 1;
       }
     }
     entry.lateRaids = late;
     entry.leftEarlyRaids = leftEarly;
     entry.absentRaids = absent;
     entry.totalRaids = raidIds.length;
-
-    const denom = denominator > 0 ? denominator : entry.totalAttendanceEvents;
-    entry.participationPercent = denom > 0 ? (entry.presentEvents / denom) * 100 : 0;
+    const presentEventCount = entry.presentEventSet ? entry.presentEventSet.size : 0;
+    entry.presentEvents = presentEventCount;
+    entry.totalAttendanceEvents = totalAttendanceEvents;
+    const denom = totalAttendanceEvents > 0 ? totalAttendanceEvents : presentEventCount;
+    entry.participationPercent = denom > 0 ? (presentEventCount / denom) * 100 : 0;
+    entry.presentEventSet = new Set<string>();
   }
 
-  const summaries: AttendanceCharacterSummary[] = [];
-  for (const entry of map.values()) {
-    const { identity: _ignored, ...rest } = entry;
-    summaries.push(rest);
+  const summariesList: AttendanceCharacterSummary[] = [];
+  for (const entry of summaries.values()) {
+    const { identity: _ignored, presentEventSet: _ignoredSet, ...rest } = entry;
+    summariesList.push(rest);
   }
 
-  return summaries.sort((a, b) => {
+  const sorted = summariesList.sort((a, b) => {
     const diff = attendanceRateValue(b) - attendanceRateValue(a);
     if (diff !== 0) {
       return diff;
@@ -1634,22 +2902,56 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     }
     return b.totalAttendanceEvents - a.totalAttendanceEvents;
   });
+
+  const unknownIndex = sorted.findIndex((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
+  if (unknownIndex > -1) {
+    const [unknownEntry] = sorted.splice(unknownIndex, 1);
+    sorted.push(unknownEntry);
+  }
+
+  return sorted;
 });
 
 const topAttendanceCharacters = computed(() => {
   const limit = maximizedCard.value === 'attendanceByCharacter' ? MAXIMIZED_BAR_LIMIT : DEFAULT_BAR_LIMIT;
-  return attendanceByCharacterSummaries.value.slice(0, limit);
+  const summaries = attendanceByCharacterSummaries.value;
+  if (summaries.length <= limit) {
+    return summaries;
+  }
+  const slice = summaries.slice(0, limit);
+  const hasUnknown = slice.some((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
+  if (hasUnknown) {
+    return slice;
+  }
+  const unknownEntry = summaries.find((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
+  if (!unknownEntry) {
+    return slice;
+  }
+  // Replace the last entry with Unknown to keep bar anchored at bottom.
+  const adjusted = slice.slice(0, limit - 1);
+  adjusted.push(unknownEntry);
+  return adjusted;
 });
 
 const attendanceByCharacterChartData = computed(() => {
   const entries = topAttendanceCharacters.value;
+  const backgroundColors = entries.map((entry) =>
+    entry.key === UNKNOWN_MEMBER_ENTITY_KEY ? UNKNOWN_MEMBER_BAR_COLOR : '#38bdf8'
+  );
+  const borderColors = entries.map((entry) =>
+    entry.key === UNKNOWN_MEMBER_ENTITY_KEY ? UNKNOWN_MEMBER_BAR_BORDER : '#0ea5e9'
+  );
+  const hoverBackgroundColors = entries.map((entry, index) => backgroundColors[index]);
   return {
     labels: entries.map((entry) => entry.name),
     datasets: [
       {
         label: 'Raid Participation (%)',
         data: entries.map((entry) => Number(attendanceRateValue(entry).toFixed(1))),
-        backgroundColor: entries.map(() => '#38bdf8'),
+        backgroundColor: backgroundColors,
+        hoverBackgroundColor: hoverBackgroundColors,
+        borderColor: borderColors,
+        borderWidth: 1.5,
         borderRadius: 6
       }
     ]
@@ -1779,7 +3081,7 @@ const lootTimelineChartData = computed(() => {
 
 const lootTimelineChartOptions = computed(() => ({
   maintainAspectRatio: false,
-  interaction: { mode: 'index', intersect: false },
+  interaction: { mode: 'index' as const, intersect: false },
   scales: {
     y: {
       beginAtZero: true,
@@ -1801,28 +3103,103 @@ const lootTimelineHasData = computed(() =>
 );
 
 const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
-  const map = new Map<string, LootParticipantSummary>();
+  const mode = metricsMode.value;
+  const map = new Map<
+    string,
+    {
+      summary: LootParticipantSummary;
+      classes: Set<string>;
+    }
+  >();
+
   for (const event of filteredLootEvents.value) {
-    const key = event.looterName.toLowerCase();
-    if (!map.has(key)) {
-      map.set(key, {
-        name: event.looterName,
-        class: event.looterClass ?? null,
-        count: 0,
-        lastAwarded: null
-      });
+    const normalizedName = event.looterName.toLowerCase();
+    const normalizedEventClass = normalizeCharacterClass(event.looterClass);
+
+    let mapKey = normalizedName;
+    let associatedOption: MetricsEntityOption | undefined = memberKeyByCharacterName.value.get(normalizedName);
+    let owner = resolveCharacterOwner(event.looterName, associatedOption?.userId, associatedOption?.userDisplayName);
+
+    if (mode === 'member') {
+      let targetOption: MetricsEntityOption | undefined = associatedOption;
+      if (owner.userId) {
+        const optionByUser = memberOptionByUserId.value.get(owner.userId);
+        if (optionByUser) {
+          targetOption = optionByUser;
+        }
+      }
+      if (!owner.userId && !targetOption) {
+        targetOption = memberEntityOptionLookup.value.get(UNKNOWN_MEMBER_ENTITY_KEY);
+      }
+      if (!targetOption) {
+        continue;
+      }
+      associatedOption = targetOption;
+      mapKey = targetOption.key;
+      owner = resolveCharacterOwner(
+        event.looterName,
+        targetOption.userId ?? owner.userId,
+        targetOption.userDisplayName ?? owner.userDisplayName
+      );
     }
-    const entry = map.get(key)!;
-    entry.count += 1;
+
+    const fallbackLabelInfo = {
+      primaryName: event.looterName,
+      characterNames: associatedOption?.characterNames ?? [event.looterName],
+      userDisplayName: owner.userDisplayName ?? associatedOption?.userDisplayName ?? null,
+      userId: owner.userId ?? associatedOption?.userId ?? null
+    };
+    const displayLabel = formatEntityLabel(associatedOption, fallbackLabelInfo, false, mode === 'member');
+    let initialClass: string | null = normalizedEventClass ?? null;
+    if (mode === 'member' && associatedOption && associatedOption.classes.length === 1) {
+      initialClass = associatedOption.classes[0];
+    }
+
+    let entry = map.get(mapKey);
+    if (!entry) {
+      entry = {
+        summary: {
+          key: mapKey,
+          name: displayLabel,
+          class: initialClass,
+          count: 0,
+          lastAwarded: null
+        },
+        classes: new Set<string>()
+      };
+      if (initialClass) {
+        entry.classes.add(initialClass);
+      }
+      map.set(mapKey, entry);
+    }
+
+    entry.summary.count += 1;
     const timestamp = eventPrimaryTimestamp(event);
-    if (timestamp && (!entry.lastAwarded || timestamp > entry.lastAwarded)) {
-      entry.lastAwarded = timestamp;
+    if (timestamp && (!entry.summary.lastAwarded || timestamp > entry.summary.lastAwarded)) {
+      entry.summary.lastAwarded = timestamp;
     }
-    if (!entry.class && event.looterClass) {
-      entry.class = event.looterClass;
+    if (normalizedEventClass) {
+      entry.classes.add(normalizedEventClass);
+    }
+    if (associatedOption) {
+      entry.summary.name = formatEntityLabel(associatedOption, fallbackLabelInfo, false, mode === 'member');
+      entry.summary.key = associatedOption.key;
+      for (const cls of associatedOption.classes) {
+        entry.classes.add(cls);
+      }
     }
   }
-  return Array.from(map.values()).sort((a, b) => b.count - a.count);
+
+  const summaries = Array.from(map.values()).map(({ summary, classes }) => {
+    if (classes.size === 1) {
+      summary.class = Array.from(classes)[0];
+    } else if (classes.size > 1) {
+      summary.class = null;
+    }
+    return summary;
+  });
+
+  return summaries.sort((a, b) => b.count - a.count);
 });
 
 const topLootParticipants = computed(() => {
@@ -1953,10 +3330,11 @@ const lootByItemHasData = computed(
 );
 
 const lootSpotlightCharacters = computed(() => {
-  if (selectedCharacterNameSet.value.size === 0) {
+  if (selectedCharacterNameSet.value.size === 0 && selectedCharacterKeySet.value.size === 0) {
     return [] as LootParticipantSummary[];
   }
   return lootByParticipantSummaries.value.filter((entry) =>
+    selectedCharacterKeySet.value.has(entry.key) ||
     selectedCharacterNameSet.value.has(entry.name.toLowerCase())
   );
 });
@@ -1980,14 +3358,49 @@ const recentLootEvents = computed(() => {
 });
 
 const summaryCards = computed(() => {
-  const summary = globalSummary.value ?? metrics.value?.summary;
-  if (!summary) {
+  const metricData = metrics.value;
+  const summary = globalSummary.value ?? metricData?.summary;
+  if (!summary || !metricData) {
     return [] as Array<{ label: string; value: number }>;
+  }
+
+  if (isMemberMode.value) {
+    const attendanceRecordKeys = new Set<string>();
+    const attendanceIdentitySet = new Set<string>();
+    const lootIdentitySet = new Set<string>();
+    const memberOptions = memberEntityOptions.value;
+
+    for (const record of metricData.attendanceRecords) {
+      const identity = identityFromRecord(record, 'member');
+      attendanceIdentitySet.add(identity.key);
+      const timestamp = record.timestamp ?? record.raid.startTime ?? record.id;
+      attendanceRecordKeys.add(`${record.raid.id}::${timestamp}::${identity.key}`);
+    }
+
+    for (const event of metricData.lootEvents) {
+      const normalized = event.looterName.toLowerCase();
+      const memberOption =
+        memberKeyByCharacterName.value.get(normalized) ??
+        memberOptions.find((option) => option.normalizedCharacterNames.includes(normalized));
+      if (memberOption) {
+        lootIdentitySet.add(memberOption.key);
+      } else {
+        lootIdentitySet.add(`character:${normalized}`);
+      }
+    }
+
+    return [
+      { label: 'Attendance Records', value: attendanceRecordKeys.size },
+      { label: 'Unique Members', value: memberOptions.length || attendanceIdentitySet.size },
+      { label: 'Loot Events', value: summary.lootEvents },
+      { label: 'Unique Loot Recipients', value: lootIdentitySet.size },
+      { label: 'Raids Covered', value: summary.raidsTracked }
+    ];
   }
 
   return [
     { label: 'Attendance Records', value: summary.attendanceRecords },
-    { label: 'Unique Attendees', value: summary.uniqueAttendanceCharacters },
+    { label: 'Unique Characters', value: summary.uniqueAttendanceCharacters },
     { label: 'Loot Events', value: summary.lootEvents },
     { label: 'Unique Looters', value: summary.uniqueLooters },
     { label: 'Raids Covered', value: summary.raidsTracked }
@@ -2132,37 +3545,24 @@ const timelineEventDates = computed<
   const markerMap = globalTimeline.value?.markers;
 
   if (markerMap && markerMap.size > 0) {
-    return Array.from(markerMap.values())
-      .map((marker) => {
-        const startMs = parseIsoToMs(marker.start);
-        const endMs = parseIsoToMs(marker.end);
-        if (startMs === null || endMs === null || endMs > nowMs || endMs <= startMs) {
-          return null;
-        }
-        return {
-          start: marker.start,
-          end: marker.end,
-          label: marker.label,
-          startLabel: marker.startLabel,
-          endLabel: marker.endLabel,
-          startMs,
-          endMs
-        };
-      })
-      .filter(
-        (
-          entry
-        ): entry is {
-          start: string;
-          end: string;
-          label?: string;
-          startLabel: string;
-          endLabel: string;
-          startMs: number;
-          endMs: number;
-        } =>
-          entry !== null
-      )
+    const markersWithMs: TimelineMarkerWithMs[] = [];
+    for (const marker of markerMap.values()) {
+      const startMs = parseIsoToMs(marker.start);
+      const endMs = parseIsoToMs(marker.end);
+      if (startMs === null || endMs === null || endMs > nowMs || endMs <= startMs) {
+        continue;
+      }
+      markersWithMs.push({
+        start: marker.start,
+        end: marker.end,
+        label: marker.label,
+        startLabel: marker.startLabel,
+        endLabel: marker.endLabel,
+        startMs,
+        endMs
+      });
+    }
+    return markersWithMs
       .sort((a, b) => a.startMs - b.startMs)
       .map(({ start, end, label, startLabel, endLabel }) => ({
         start,
@@ -2234,7 +3634,7 @@ function createTimelineMarker(startIso: string, endIso: string, label?: string):
   return {
     start: startIso,
     end: endIso,
-    label,
+    label: label ?? undefined,
     startLabel: formatDateLong(startIso),
     endLabel: formatDateLong(endIso)
   };
@@ -2254,8 +3654,8 @@ function syncFiltersWithOptions(): void {
     updateSelectedCharactersFromClasses(normalizedClassSet);
   }
 
-  const characterKeys = new Set(characterOptions.value.map((option) => characterOptionKey(option)));
-  selectedCharacters.value = selectedCharacters.value.filter((key) => characterKeys.has(key));
+  const entityKeys = new Set(entityOptions.value.map((option) => option.key));
+  selectedCharacters.value = selectedCharacters.value.filter((key) => entityKeys.has(key));
 
   const lootItemSet = new Set(lootItemOptions.value.map((option) => option.name));
   selectedLootItems.value = selectedLootItems.value.filter((name) => lootItemSet.has(name));
@@ -2327,19 +3727,30 @@ function updateSelectedCharactersFromClasses(classSet: Set<string>) {
     return;
   }
   const matchingKeys: string[] = [];
-  for (const option of characterOptions.value) {
-    const optionClass = option.class ? option.class.toUpperCase() : null;
-    if (optionClass && classSet.has(optionClass)) {
-      matchingKeys.push(characterOptionKey(option));
+  for (const option of entityOptions.value) {
+    if (option.classes.length === 0) {
+      continue;
+    }
+    const matches = option.classes.some((value) => {
+      const normalized = normalizeClassValue(value);
+      return normalized ? classSet.has(normalized) : false;
+    });
+    if (matches) {
+      matchingKeys.push(option.key);
     }
   }
   const retained = selectedCharacters.value.filter((key) => {
-    const option = characterKeyLookup.value.get(key);
+    const option = entityOptionLookup.value.get(key);
     if (!option) {
       return false;
     }
-    const optionClass = option.class ? option.class.toUpperCase() : null;
-    return optionClass !== null && classSet.has(optionClass);
+    if (option.classes.length === 0) {
+      return false;
+    }
+    return option.classes.some((value) => {
+      const normalized = normalizeClassValue(value);
+      return normalized ? classSet.has(normalized) : false;
+    });
   });
   const additions = matchingKeys.filter((key) => !retained.includes(key));
   const nextSelection = [...retained, ...additions];
@@ -2652,20 +4063,13 @@ function handleSearchSelect(option: SearchOptionEntry) {
 }
 
 function removeCharacterSelection(key: string) {
-  const target = key.toLowerCase();
-  selectedCharacters.value = selectedCharacters.value.filter((entry) => {
-    if (entry.toLowerCase() === target) {
-      return false;
-    }
-    const option = characterKeyLookup.value.get(entry);
-    if (option && option.name && option.name.toLowerCase() === target.replace(/^search:/, '')) {
-      return false;
-    }
-    return true;
-  });
+  selectedCharacters.value = selectedCharacters.value.filter((entry) => entry !== key);
 
-  const option = characterKeyLookup.value.get(key);
-  const optionClass = option?.class ? option.class.toUpperCase() : null;
+  const option = entityOptionLookup.value.get(key);
+  if (!option || option.type === 'member') {
+    return;
+  }
+  const optionClass = option.class ? option.class.toUpperCase() : null;
   if (optionClass && selectedClassSet.value.has(optionClass)) {
     selectedClasses.value = selectedClasses.value.filter((entry) => entry.toUpperCase() !== optionClass);
   }
@@ -2749,6 +4153,56 @@ onMounted(() => {
 .metrics-header h1 {
   margin: 0;
   font-size: 2rem;
+}
+
+.metrics-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.metrics-mode__label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.metrics-mode__controls {
+  display: inline-flex;
+  gap: 0.5rem;
+  background: rgba(15, 23, 42, 0.65);
+  padding: 0.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+}
+
+.metrics-mode__button {
+  border: none;
+  background: transparent;
+  color: #cbd5f5;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.95rem;
+  border-radius: 999px;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+  cursor: pointer;
+}
+
+.metrics-mode__button:hover {
+  background: rgba(59, 130, 246, 0.2);
+  color: #e2e8f0;
+}
+
+.metrics-mode__button--active {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.75), rgba(99, 102, 241, 0.75));
+  color: #f8fafc;
+  box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
+  transform: translateY(-1px);
 }
 
 .metrics-back {
@@ -3207,7 +4661,7 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.25);
 }
 
-.metrics-status-summary__item[data-status='BENCHED'] .metrics-status-summary__dot {
+.metrics-status-summary__item[data-status='LEFT_EARLY'] .metrics-status-summary__dot {
   background: rgba(168, 85, 247, 0.8);
   box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.25);
 }
@@ -3269,6 +4723,12 @@ onMounted(() => {
 .metrics-spotlight__name {
   font-weight: 600;
   font-size: 1rem;
+}
+
+.metrics-spotlight__name--plain {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
 }
 
 .metrics-recent {
@@ -3367,6 +4827,12 @@ onMounted(() => {
   font-size: 0.98rem;
 }
 
+.metrics-recent__looter-name--plain {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+
 .metrics-recent__emoji {
   font-size: 1.35rem;
   filter: drop-shadow(0 8px 14px rgba(14, 116, 144, 0.4));
@@ -3420,3 +4886,6 @@ onMounted(() => {
   }
 }
 </style>
+    if (mode === 'member' && associatedOption) {
+      entry.summary.name = associatedOption.label;
+    }

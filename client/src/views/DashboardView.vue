@@ -33,11 +33,11 @@
               <span class="character-meta muted">
                 <img
                   v-if="getCharacterClassIcon(character.class)"
-                  :src="getCharacterClassIcon(character.class)"
-                  :alt="formatClass(character.class as CharacterClass) || character.class"
+                  :src="getCharacterClassIcon(character.class) || undefined"
+                  :alt="formatClass(character.class as CharacterClass) || 'Unknown'"
                   class="class-icon"
                 />
-                <span>{{ formatClass(character.class as CharacterClass) || character.class }}</span>
+                <span>{{ formatClass(character.class as CharacterClass) || 'Unknown' }}</span>
               </span>
             </div>
             <div class="character-actions">
@@ -127,11 +127,11 @@
                     <span v-if="record.class" class="record-class muted small">
                       <img
                         v-if="getCharacterClassIcon(record.class)"
-                        :src="getCharacterClassIcon(record.class)"
-                        :alt="formatClass(record.class)"
+                        :src="getCharacterClassIcon(record.class) || undefined"
+                        :alt="formatClass(record.class) || 'Unknown'"
                         class="class-icon"
                       />
-                      <span>{{ formatClass(record.class) }}</span>
+                      <span>{{ formatClass(record.class) || 'Unknown' }}</span>
                     </span>
                   </div>
                   <span class="attendance-badge" :class="statusBadgeVariant(record.status)">
@@ -369,6 +369,9 @@ function formatDate(value: string) {
 }
 
 function formatStatus(status: AttendanceStatus) {
+  if (status === 'BENCHED') {
+    return 'Left Early';
+  }
   return status.charAt(0) + status.slice(1).toLowerCase();
 }
 

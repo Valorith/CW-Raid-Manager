@@ -196,7 +196,7 @@
               <span class="roster-meta muted">
                 <img
                   v-if="getCharacterClassIcon(character.class)"
-                  :src="getCharacterClassIcon(character.class)"
+                  :src="getCharacterClassIcon(character.class) || undefined"
                   :alt="formatCharacterClass(character.class)"
                   class="class-icon"
                 />
@@ -382,7 +382,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 import DiscordWebhookModal from '../components/DiscordWebhookModal.vue';
@@ -390,6 +390,7 @@ import CharacterModal from '../components/CharacterModal.vue';
 import {
   api,
   type GuildDetail,
+  type GuildSummary,
   type RaidEventSummary,
   type GuildApplicant,
   type GuildApplicationSummary
@@ -436,9 +437,7 @@ const discordWidgetSrc = computed(() => {
 const showCharacterForm = ref(false);
 const editingCharacter = ref<EditableCharacter | null>(null);
 const modalContextGuildId = ref<string | null>(null);
-const modalGuildOptions = computed(() =>
-  guild.value ? [{ id: guild.value.id, name: guild.value.name }] : []
-);
+const modalGuildOptions = computed<GuildSummary[]>(() => (guild.value ? [guild.value] : []));
 
 const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
@@ -564,7 +563,7 @@ watch(memberRoleFilter, (value) => {
     return;
   }
 
-  const nextQuery = { ...route.query } as Record<string, unknown>;
+  const nextQuery: LocationQueryRaw = { ...route.query };
   if (value === 'ALL') {
     if (nextQuery.members) {
       delete nextQuery.members;
@@ -611,12 +610,9 @@ const combinedMembers = computed<GuildMemberEntry[]>(() => {
   return [...baseMembers, ...applicantEntries.value];
 });
 
-const memberRoleFilterOptions = computed(() => {
+const memberRoleFilterOptions = computed<Array<'ALL' | GuildRole | 'APPLICANT'>>(() => {
   const base: Array<'ALL' | GuildRole | 'APPLICANT'> = ['ALL', ...guildRoleOrder];
-  if (canViewApplicants.value) {
-    return [...base, 'APPLICANT'];
-  }
-  return base;
+  return canViewApplicants.value ? [...base, 'APPLICANT'] : base;
 });
 
 const memberRolePriority = new Map<GuildRole, number>(
@@ -1082,11 +1078,6 @@ function formatTargetZones(zones: RaidEventSummary['targetZones']) {
   if (Array.isArray(zones) && zones.length > 0) {
     return zones.join(', ');
   }
-
-  if (typeof zones === 'string' && zones.trim().length > 0) {
-    return zones;
-  }
-
   return 'Unknown Target';
 }
 

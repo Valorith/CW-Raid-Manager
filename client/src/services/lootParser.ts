@@ -23,8 +23,8 @@ export interface ParsedLootEvent {
 export function parseLootLog(
   logContent: string,
   raidStart: Date,
-  raidEnd?: Date | null,
-  patterns: GuildLootParserPattern[]
+  patterns: GuildLootParserPattern[],
+  raidEnd?: Date | null
 ): ParsedLootEvent[] {
   const lines = logContent.split(/\r?\n/);
   const results: ParsedLootEvent[] = [];

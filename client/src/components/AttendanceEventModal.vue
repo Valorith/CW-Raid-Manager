@@ -62,7 +62,7 @@
                 <span v-if="record.class" class="class-wrapper">
                   <img
                     v-if="getCharacterClassIcon(record.class)"
-                    :src="getCharacterClassIcon(record.class)"
+                    :src="getCharacterClassIcon(record.class) || undefined"
                     :alt="formatClass(record.class)"
                     class="class-icon"
                   />
@@ -117,7 +117,7 @@ const formattedDate = computed(() =>
 const statusLabels: Record<string, string> = {
   PRESENT: 'Present',
   LATE: 'Late',
-  BENCHED: 'Benched',
+  BENCHED: 'Left Early',
   ABSENT: 'Absent'
 };
 

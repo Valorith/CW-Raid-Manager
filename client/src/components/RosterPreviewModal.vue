@@ -32,14 +32,14 @@
                   min="1"
                   max="12"
                   :value="entry.groupNumber ?? ''"
-                  @input="updateEntry(index, 'groupNumber', toOptionalNumber($event.target.value))"
+                  @input="updateEntry(index, 'groupNumber', toOptionalNumber(getEventValue($event)))"
                 />
               </td>
               <td>
                 <input
                   type="text"
                   :value="entry.characterName"
-                  @input="updateEntry(index, 'characterName', $event.target.value)"
+                  @input="updateEntry(index, 'characterName', getEventValue($event))"
                 />
               </td>
               <td>
@@ -48,13 +48,13 @@
                   min="1"
                   max="125"
                   :value="entry.level ?? ''"
-                  @input="updateEntry(index, 'level', toOptionalNumber($event.target.value))"
+                  @input="updateEntry(index, 'level', toOptionalNumber(getEventValue($event)))"
                 />
               </td>
               <td>
                 <select
                   :value="entry.class ?? ''"
-                  @change="updateEntry(index, 'class', $event.target.value || null)"
+                  @change="updateEntry(index, 'class', getSelectClassValue($event))"
                 >
                   <option value="">—</option>
                   <option
@@ -70,7 +70,7 @@
                 <input
                   type="text"
                   :value="entry.flags ?? ''"
-                  @input="updateEntry(index, 'flags', $event.target.value || null)"
+                  @input="updateEntry(index, 'flags', getEventValue($event) || null)"
                 />
               </td>
             </tr>
@@ -140,6 +140,16 @@ const classOptions = computed(() =>
 
 function cloneEntries(entries: AttendanceRecordInput[]) {
   return entries.map((entry) => ({ ...entry }));
+}
+
+function getEventValue(event: Event): string {
+  const target = event.target as HTMLInputElement | HTMLSelectElement | null;
+  return target?.value ?? '';
+}
+
+function getSelectClassValue(event: Event): CharacterClass | null {
+  const value = getEventValue(event);
+  return value ? (value as CharacterClass) : null;
 }
 
 function updateEntry<K extends keyof AttendanceRecordInput>(index: number, key: K, value: AttendanceRecordInput[K]) {
