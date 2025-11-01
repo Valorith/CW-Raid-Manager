@@ -337,6 +337,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
   text-decoration: none;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .nav {
   display: flex;
   gap: 1.25rem;
@@ -632,6 +638,110 @@ function hasRaidStarted(raid: RaidEventSummary) {
   transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(59, 130, 246, 0.35);
   border-color: rgba(59, 130, 246, 0.5);
+}
+
+@media (max-width: 1100px) {
+  .app-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .brand {
+    flex: 1 1 100%;
+  }
+
+  .nav {
+    order: 3;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .nav-monitor {
+    order: 4;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .nav-monitor__button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .auth {
+    order: 2;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    padding: 0.75rem 1.25rem;
+  }
+
+  .nav {
+    justify-content: flex-start;
+  }
+
+  .auth {
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .auth__user {
+    flex: 1 1 auto;
+    text-align: left;
+  }
+
+  .auth .btn {
+    flex: 1 1 auto;
+    min-width: 180px;
+  }
+
+  .app-content {
+    padding: 1.25rem;
+  }
+
+  .active-raid-banner {
+    padding: 0.75rem 1.25rem;
+  }
+
+  .active-raid-banner__content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav {
+    overflow-x: auto;
+    gap: 0.5rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .nav__link {
+    flex: 0 0 auto;
+  }
+
+  .auth {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .auth__user {
+    width: 100%;
+    text-align: center;
+  }
+
+  .auth .btn {
+    width: 100%;
+  }
 }
 
 @keyframes pulse {

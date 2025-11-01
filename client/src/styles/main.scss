@@ -36,3 +36,380 @@ textarea {
 a {
   color: inherit;
 }
+
+/* Responsive layout adjustments */
+@media (max-width: 960px) {
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .section-header > * {
+    width: 100%;
+  }
+
+  .header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: flex-start;
+  }
+
+  .header-actions > * {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .header-actions > * {
+    flex-basis: 100%;
+  }
+}
+
+/* Dashboard */
+@media (max-width: 1100px) {
+  .dashboard .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .dashboard .list__item,
+  .dashboard .attendance-list__item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+  }
+
+  .dashboard .character-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .dashboard .character-action-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .dashboard .character-action-row .btn {
+    flex: 1 1 45%;
+    min-width: 140px;
+  }
+
+  .dashboard .attendance-list__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6rem;
+  }
+
+  .dashboard .attendance-list__header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dashboard .recent-loot__item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 540px) {
+  .dashboard .character-action-row .btn {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+
+  .dashboard .attendance-list__header-right {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+}
+
+/* Guild list */
+@media (max-width: 1024px) {
+  .guilds .grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .guilds .btn--create {
+    width: 100%;
+  }
+
+  .guilds .guild-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .guilds .guild-card__footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .guilds .guild-card__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .guilds .guild-card__button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .guild-detail .member-actions {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .guild-detail .member-actions label {
+    flex-basis: 100%;
+  }
+
+  .guild-detail .member-actions select {
+    width: 100%;
+  }
+
+  .guild-detail .member-actions .btn {
+    width: 100%;
+  }
+}
+
+/* Raid planner */
+@media (max-width: 900px) {
+  .raids .tabs {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .raids .raid-list__item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .raids .raid-meta {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .raids .raid-meta {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .raids .raid-meta .btn,
+  .raids .raid-meta .copy-button {
+    width: 100%;
+  }
+}
+
+/* Raid detail */
+@media (max-width: 1024px) {
+  .raid-detail .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .raid-detail .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .raid-detail .header-actions .btn,
+  .raid-detail .header-actions .share-btn {
+    width: 100%;
+  }
+
+  .raid-detail .raid-voice-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .raid-detail .raid-signups-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .raid-detail .raid-signups-card__header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .raid-detail .raid-signups-card__header-actions .btn,
+  .raid-detail .raid-signups-card__header-actions .raid-signups-card__toggle {
+    width: 100%;
+  }
+
+  .raid-detail .raid-recurrence-card__actions {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .raid-detail .raid-recurrence-card__actions .recurrence-toggle {
+    flex: 1 1 100%;
+  }
+
+  .raid-detail .raid-recurrence-card__actions .recurrence-toggle {
+    align-items: flex-start;
+  }
+
+  .raid-detail .raid-recurrence-card__actions .btn,
+  .raid-detail .raid-recurrence-card__actions .btn--outline {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+    flex: 1 1 calc(50% - 0.35rem);
+    max-width: 180px;
+  }
+
+  .raid-detail .raid-recurrence-card__actions .btn--outline {
+    order: 2;
+  }
+
+  .raid-detail .raid-recurrence-card__actions .btn {
+    order: 3;
+  }
+}
+
+/* Loot tracker */
+@media (max-width: 760px) {
+  .loot-view .parsing-window {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .loot-view .parsing-window__details {
+    min-width: 0;
+  }
+
+  .loot-view .parsing-window__button {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .loot-view .loot-console-container {
+    flex-direction: column;
+    align-items: stretch;
+    padding-right: 0;
+  }
+}
+
+/* Guild settings */
+.loot-lists {
+  overflow-x: auto;
+}
+
+.loot-lists .loot-list-table {
+  min-width: 520px;
+}
+
+@media (max-width: 900px) {
+  .guild-settings .loot-list-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .guild-settings .loot-list-filters {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .guild-settings .loot-list-add {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .guild-settings .loot-list-add input,
+  .guild-settings .loot-list-add .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .guild-settings .form__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Metrics */
+@media (max-width: 900px) {
+  .metrics-view .metrics-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .metrics-view .metrics-back {
+    width: 100%;
+  }
+}
+
+/* Account settings */
+@media (max-width: 640px) {
+  .settings .card {
+    padding: 1.5rem;
+  }
+}
+
+/* Admin */
+@media (max-width: 900px) {
+  .admin .card__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .admin .card__header-actions,
+  .admin .card__actions {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .admin .card__actions .btn,
+  .admin .card__actions button {
+    flex: 1 1 auto;
+  }
+
+  .admin .user-list__item,
+  .admin .guild-list__item,
+  .admin .member-list__item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+}
+
+/* Table wrappers */
+.table-wrapper,
+.metrics-modal__table-wrapper,
+.detected-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}

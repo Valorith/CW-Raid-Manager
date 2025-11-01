@@ -2920,6 +2920,30 @@ async function copyRaidLink() {
   gap: 0.5rem;
 }
 
+@media (max-width: 640px) {
+  .raid-recurrence-card__actions {
+    flex-wrap: wrap;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+
+  .raid-recurrence-card__actions .recurrence-toggle {
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .raid-recurrence-card__actions .btn {
+    flex: 1 1 48%;
+    max-width: 48%;
+    min-width: 110px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+}
+
 .raid-recurrence-card__summary {
   display: flex;
   align-items: center;
