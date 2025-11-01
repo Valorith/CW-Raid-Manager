@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { GuildRole, Prisma } from '@prisma/client';
+import { CharacterClass, GuildRole, Prisma } from '@prisma/client';
 
 import { updateGuildMemberRole, getGuildById, listGuilds } from '../services/guildService.js';
 import { z } from 'zod';
@@ -19,7 +19,7 @@ import {
   denyApplication,
   getPendingApplicationForUser
 } from '../services/guildApplicationService.js';
-import { detachUserCharactersFromGuild } from '../services/characterService.js';
+import { createCharacter, detachUserCharactersFromGuild } from '../services/characterService.js';
 import {
   DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS,
   DEFAULT_MENTION_SUBSCRIPTIONS,
@@ -415,6 +415,69 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.code(201).send({ membership });
   });
+
+  server.post(
+    '/:guildId/members/:memberId/characters',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        guildId: z.string(),
+        memberId: z.string()
+      });
+      const { guildId, memberId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z.object({
+        name: z.string().min(2).max(64),
+        class: z.nativeEnum(CharacterClass),
+        level: z.number().int().min(1).max(125).optional()
+      });
+      const parsedBody = bodySchema.safeParse(request.body);
+
+      if (!parsedBody.success) {
+        return reply.badRequest('Invalid character assignment payload.');
+      }
+
+      const actorMembership = await getUserGuildRole(request.user.userId, guildId);
+      if (!actorMembership || !canManageGuild(actorMembership.role)) {
+        return reply.forbidden('Insufficient permissions to assign characters.');
+      }
+
+      const targetMembership = await prisma.guildMembership.findUnique({
+        where: {
+          guildId_userId: {
+            guildId,
+            userId: memberId
+          }
+        },
+        select: {
+          userId: true
+        }
+      });
+
+      if (!targetMembership) {
+        return reply.notFound('Member not found.');
+      }
+
+      try {
+        const character = await createCharacter({
+          name: parsedBody.data.name.trim(),
+          level: parsedBody.data.level ?? 60,
+          class: parsedBody.data.class,
+          guildId,
+          userId: targetMembership.userId,
+          isMain: false
+        });
+
+        return reply.code(201).send({ character });
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to assign guild member character.');
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          return reply.conflict('A character with this name already exists.');
+        }
+        return reply.internalServerError('Unable to assign character to member.');
+      }
+    }
+  );
 
   server.delete(
     '/:guildId/members/:memberId',

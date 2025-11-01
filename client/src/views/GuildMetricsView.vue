@@ -236,6 +236,13 @@
                 Not enough attendance activity for the selected filters.
               </p>
             </div>
+            <p
+              v-if="shouldShowUnknownMemberHint"
+              class="metrics-card__hint metrics-card__hint--interactive"
+            >
+              <span class="metrics-card__hint-dot" aria-hidden="true"></span>
+              Tip: Click the <strong>Unknown</strong> bar to view grouped characters.
+            </p>
           </article>
 
           <article v-if="!maximizedCard && !isMemberMode" class="metrics-card metrics-class-card">
@@ -388,6 +395,13 @@
                 Adjust filters to see loot distribution by character.
               </p>
             </div>
+            <p
+              v-if="lootByParticipantHasData"
+              class="metrics-card__hint metrics-card__hint--interactive"
+            >
+              <span class="metrics-card__hint-dot" aria-hidden="true"></span>
+              Tip: Click any bar to inspect detailed loot history.
+            </p>
           </article>
 
           <article
@@ -542,6 +556,237 @@
       <p>No metrics available yet.</p>
       <button class="btn btn--outline" type="button" @click="reloadMetrics">Refresh</button>
     </div>
+
+    <div v-if="showUnknownMemberModal" class="modal-backdrop">
+      <div class="modal metrics-modal">
+        <header class="modal__header">
+          <div>
+            <h2>Unknown Member Attendance</h2>
+            <p class="muted small">Characters without a linked member in this range.</p>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close unknown member attendance details"
+            @click="closeUnknownMemberModal"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <p v-if="unknownMemberCharacterDetails.length > 0" class="muted small">
+            Showing {{ unknownMemberCharacterDetails.length }} character<span
+              v-if="unknownMemberCharacterDetails.length !== 1"
+            >s</span>.
+          </p>
+          <div v-if="unknownMemberCharacterDetails.length > 0" class="metrics-modal__table-wrapper">
+            <table class="metrics-modal-table">
+              <thead>
+                <tr>
+                  <th scope="col">Character</th>
+                  <th scope="col">Class</th>
+                  <th scope="col">Participation %</th>
+                  <th scope="col">Present</th>
+                  <th scope="col">Late</th>
+                  <th scope="col">Left Early</th>
+                  <th scope="col">Absent</th>
+                  <th scope="col">Raids</th>
+                  <th
+                    v-if="canAssignUnknownCharacters"
+                    scope="col"
+                    class="metrics-modal-table__actions-header"
+                  >
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="entry in unknownMemberCharacterDetails" :key="entry.key">
+                  <td class="metrics-modal-table__character">
+                    <CharacterLink :name="entry.name">{{ entry.name }}</CharacterLink>
+                  </td>
+                  <td>{{ resolveClassLabel(entry.class) ?? 'Unknown' }}</td>
+                  <td>{{ entry.participationPercent.toFixed(1) }}%</td>
+                  <td>{{ formatNumber(entry.presentEvents) }}</td>
+                  <td>{{ formatNumber(entry.lateRaids) }}</td>
+                  <td>{{ formatNumber(entry.leftEarlyRaids) }}</td>
+                  <td>{{ formatNumber(entry.absentRaids) }}</td>
+                  <td>{{ formatNumber(entry.totalRaids) }}</td>
+                  <td v-if="canAssignUnknownCharacters" class="metrics-modal-table__actions">
+                    <div v-if="assigningUnknownCharacterKey === entry.key" class="unknown-assignment">
+                      <div class="unknown-assignment__controls">
+                        <select
+                          :id="`unknown-member-${entry.key}-member`"
+                          v-model="unknownAssignment.memberUserId"
+                          aria-label="Select member"
+                          :disabled="unknownAssignmentLoading"
+                        >
+                          <option value="" disabled>Select member…</option>
+                          <option
+                            v-for="member in assignableGuildMembers"
+                            :key="member.userId"
+                            :value="member.userId"
+                          >
+                            {{ member.displayName }}
+                          </option>
+                        </select>
+                        <button
+                          type="button"
+                          class="unknown-assignment__icon-button unknown-assignment__icon-button--confirm"
+                          :disabled="unknownAssignmentLoading || !entry.class"
+                          @click="assignUnknownCharacterToMember(entry)"
+                          aria-label="Confirm assignment"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          class="unknown-assignment__icon-button unknown-assignment__icon-button--cancel"
+                          :disabled="unknownAssignmentLoading"
+                          @click="cancelUnknownCharacterAssignment"
+                          aria-label="Cancel assignment"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p v-if="unknownAssignmentError" class="metrics-modal-table__error">
+                        {{ unknownAssignmentError }}
+                      </p>
+                    </div>
+                    <div v-else>
+                      <button
+                        type="button"
+                        class="btn btn--small unknown-assign-trigger"
+                        @click="beginUnknownCharacterAssignment(entry)"
+                      >
+                        Assign
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="muted small">
+            No attendance data for the Unknown group within the current filters.
+          </p>
+        </div>
+        <footer class="modal__footer">
+          <button type="button" class="btn btn--outline btn--small" @click="closeUnknownMemberModal">
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <div
+      v-if="showLootDetailModal"
+      class="modal-backdrop"
+      @click.self="closeLootDetailModal"
+    >
+      <div class="modal metrics-modal">
+        <header class="modal__header">
+          <div>
+            <h2>Loot History</h2>
+            <p class="muted small">
+              {{ lootDetailModalTitle }} —
+              {{ lootDetailModalCount }} loot event<span v-if="lootDetailModalCount !== 1">s</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close loot history"
+            @click="closeLootDetailModal"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <p v-if="lootDetailModalCount === 0" class="muted small">
+            No loot records found for this selection within the current filters.
+          </p>
+          <div v-else class="metrics-modal__table-wrapper">
+            <table class="metrics-modal-table">
+              <thead>
+                <tr>
+                  <th scope="col">Item</th>
+                  <th scope="col">Character</th>
+                  <th scope="col">Raid</th>
+                  <th scope="col">Awarded At</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in visibleLootDetailRows" :key="row.id">
+                  <td class="loot-detail__cell-item">
+                    <button
+                      type="button"
+                      class="loot-detail__item-link"
+                      @click="openAllaSearch(row.itemName)"
+                    >
+                      {{ row.itemName }}
+                    </button>
+                  </td>
+                  <td>
+                    <CharacterLink :name="row.looterName">{{ row.looterName }}</CharacterLink>
+                  </td>
+                  <td>
+                    <div class="loot-detail__raid">
+                      <RouterLink
+                        :to="{ name: 'RaidDetail', params: { raidId: row.raidId } }"
+                        class="loot-detail__raid-link"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {{ row.raidName }}
+                      </RouterLink>
+                      <span v-if="row.raidStart" class="loot-detail__raid-time muted tiny">
+                        {{ formatDateLong(row.raidStart) }}
+                      </span>
+                    </div>
+                  </td>
+                  <td>{{ row.awardedAt ? formatDateLong(row.awardedAt) : 'Unknown' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div
+            v-if="lootDetailModalCount > LOOT_DETAIL_PAGE_SIZE"
+            class="loot-detail__pagination"
+          >
+            <span class="muted tiny">
+              Showing {{ lootDetailStartIndex }}–{{ lootDetailEndIndex }} of {{ lootDetailModalCount }}
+            </span>
+            <div class="loot-detail__pagination-controls">
+              <button
+                type="button"
+                class="loot-detail__page-button"
+                :disabled="lootDetailPage === 0"
+                @click="goToPreviousLootDetailPage"
+              >
+                ← Prev
+              </button>
+              <span class="loot-detail__page-indicator muted tiny">
+                Page {{ lootDetailPage + 1 }} / {{ lootDetailPageCount }}
+              </span>
+              <button
+                type="button"
+                class="loot-detail__page-button"
+                :disabled="lootDetailPageCount === 0 || lootDetailPage >= lootDetailPageCount - 1"
+                @click="goToNextLootDetailPage"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        </div>
+        <footer class="modal__footer">
+          <button type="button" class="btn btn--outline btn--small" @click="closeLootDetailModal">
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -560,13 +805,15 @@ import {
   type GuildMetricsQuery,
   type GuildMetricsSummary,
   type LootMetricEvent,
-  type MetricsCharacterOption
+  type MetricsCharacterOption,
+  type GuildPermissions
 } from '../services/api';
 import {
   characterClassLabels,
   getCharacterClassIcon,
   type AttendanceStatus,
-  type CharacterClass
+  type CharacterClass,
+  type GuildRole
 } from '../services/types';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
 
@@ -619,6 +866,8 @@ const metrics = ref<GuildMetrics | null>(null);
 const memberDisplayMap = ref<Map<string, string>>(new Map());
 const memberDisplayNameLookup = ref<Map<string, string>>(new Map());
 const characterOwnerMap = ref<Map<string, { userId: string; displayName: string | null }>>(new Map());
+const guildPermissions = ref<GuildPermissions | null>(null);
+const guildMemberDirectory = ref<GuildMemberDirectoryEntry[]>([]);
 
 const rangeForm = reactive({
   start: '',
@@ -646,6 +895,17 @@ const ignoreNextSearchQueryReset = ref(false);
 const globalSummary = ref<GuildMetricsSummary | null>(null);
 const globalTimeline = ref<{ minMs: number; markers: Map<string, TimelineMarker> } | null>(null);
 const maximizedCard = ref<MaximizableCard | null>(null);
+const showUnknownMemberModal = ref(false);
+const assigningUnknownCharacterKey = ref<string | null>(null);
+const unknownAssignment = reactive<{ memberUserId: string }>({
+  memberUserId: ''
+});
+const unknownAssignmentLoading = ref(false);
+const unknownAssignmentError = ref<string | null>(null);
+const showLootDetailModal = ref(false);
+const lootDetailTarget = ref<{ entry: LootParticipantSummary; identity: EntityIdentity | null } | null>(null);
+const lootDetailPage = ref(0);
+const LOOT_DETAIL_PAGE_SIZE = 8;
 
 const DEFAULT_BAR_LIMIT = 12;
 const MAXIMIZED_BAR_LIMIT = 30;
@@ -678,9 +938,11 @@ async function loadMemberDirectory() {
   }
   try {
     const detail = await api.fetchGuildDetail(id);
+    guildPermissions.value = detail.permissions ?? null;
     const map = new Map<string, string>();
     const nameLookup = new Map<string, string>();
     const ownerMap = new Map<string, { userId: string; displayName: string | null }>();
+    const memberEntries: GuildMemberDirectoryEntry[] = [];
     const recordPreferred = (user: { displayName?: string; nickname?: string | null }) =>
       user.nickname?.trim() || user.displayName?.trim() || '';
 
@@ -691,6 +953,11 @@ async function loadMemberDirectory() {
       if (member.user.id) {
         setMemberNameHint(member.user.id, preferred);
         map.set(member.user.id, preferred);
+        memberEntries.push({
+          userId: member.user.id,
+          displayName: preferred || member.user.displayName || member.user.nickname || member.user.id,
+          role: member.role as GuildRole
+        });
       }
       if (normalizedDisplay) {
         nameLookup.set(normalizedDisplay, preferred);
@@ -731,6 +998,11 @@ async function loadMemberDirectory() {
     memberDisplayMap.value = map;
     memberDisplayNameLookup.value = nameLookup;
     characterOwnerMap.value = ownerMap;
+    guildMemberDirectory.value = memberEntries
+      .filter((entry, index, array) =>
+        array.findIndex((candidate) => candidate.userId === entry.userId) === index
+      )
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
   } catch (err) {
     console.error('Unable to load member directory', err);
   }
@@ -772,6 +1044,8 @@ watch(
   () => guildId.value,
   (next) => {
     memberDisplayMap.value = new Map();
+    guildMemberDirectory.value = [];
+    guildPermissions.value = null;
     if (next) {
       void loadMemberDirectory();
     }
@@ -888,6 +1162,12 @@ interface MetricsEntityOption {
   normalizedCharacterNames: string[];
   userId: string | null;
   userDisplayName: string | null;
+}
+
+interface GuildMemberDirectoryEntry {
+  userId: string;
+  displayName: string;
+  role: GuildRole;
 }
 
 function normalizeNameKey(value: string | null | undefined): string | null {
@@ -2499,7 +2779,7 @@ const filteredLootEvents = computed<LootMetricEvent[]>(() => {
   return metrics.value.lootEvents.filter((event) => {
     if (classSet.size > 0) {
       const eventClass = event.looterClass ? event.looterClass.toUpperCase() : null;
-      if (!eventClass || !classSet.has(eventClass)) {
+      if (eventClass && !classSet.has(eventClass)) {
         return false;
       }
     }
@@ -2917,11 +3197,114 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
 
   const unknownIndex = sorted.findIndex((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
   if (unknownIndex > -1) {
-    const [unknownEntry] = sorted.splice(unknownIndex, 1);
-    sorted.push(unknownEntry);
+  const [unknownEntry] = sorted.splice(unknownIndex, 1);
+  sorted.push(unknownEntry);
   }
 
   return sorted;
+});
+
+const unknownMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(() => {
+  if (!isMemberMode.value) {
+    return [];
+  }
+  const option = memberEntityOptionLookup.value.get(UNKNOWN_MEMBER_ENTITY_KEY);
+  if (!option) {
+    return [];
+  }
+
+  const identityMap = new Map<string, EntityIdentity>();
+
+  for (const characterId of option.characterIds) {
+    const identity = resolveEntityIdentity(`id:${characterId}`);
+    if (identity && identity.mode === 'character') {
+      identityMap.set(identity.key, identity);
+    }
+  }
+
+  for (const normalized of option.normalizedCharacterNames) {
+    if (!normalized) {
+      continue;
+    }
+    const identity = resolveCharacterIdentityByNormalizedName(normalized);
+    if (identity && identity.mode === 'character') {
+      identityMap.set(identity.key, identity);
+    }
+  }
+
+  for (const record of filteredAttendanceRecords.value) {
+    const memberIdentity = identityFromRecord(record, 'member');
+    if (memberIdentity.key !== UNKNOWN_MEMBER_ENTITY_KEY) {
+      continue;
+    }
+    const characterIdentity = identityFromRecord(record, 'character');
+    identityMap.set(characterIdentity.key, characterIdentity);
+  }
+
+  if (identityMap.size === 0) {
+    return [];
+  }
+
+  const raidIds = Array.from(filteredRaidIds.value);
+  const summaries: AttendanceCharacterSummary[] = [];
+
+  for (const identity of identityMap.values()) {
+    const aggregated = aggregateCharacterAttendanceForIdentity(identity, raidIds);
+    const totalAttendanceEventsValue =
+      aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
+    if (aggregated.presentEvents === 0 && totalAttendanceEventsValue === 0) {
+      continue;
+    }
+    const denominator = totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
+    const participationPercent = denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
+
+    const optionMatch =
+      characterEntityOptionLookup.value.get(identity.key) ??
+      (identity.normalizedPrimaryName
+        ? characterEntityOptionLookup.value.get(`name:${identity.normalizedPrimaryName}`)
+        : undefined);
+
+    let classValue = optionMatch?.class ?? null;
+    if (!classValue) {
+      const recordWithClass = filteredAttendanceRecords.value.find((entry) => {
+        if (!entry.character.class) {
+          return false;
+        }
+        const entryIdentity = identityFromRecord(entry, 'character');
+        return entryIdentity.key === identity.key;
+      });
+      if (recordWithClass?.character.class) {
+        classValue = normalizeCharacterClass(recordWithClass.character.class);
+      }
+    }
+
+    const nameLabel = optionMatch?.label ?? identity.primaryName;
+
+    summaries.push({
+      key: identity.key,
+      name: nameLabel,
+      class: classValue,
+      participationPercent,
+      presentEvents: aggregated.presentEvents,
+      lateRaids: aggregated.lateRaids,
+      leftEarlyRaids: aggregated.leftEarlyRaids,
+      absentRaids: aggregated.absentRaids,
+      totalAttendanceEvents: totalAttendanceEventsValue,
+      totalRaids: raidIds.length,
+      userDisplayName: identity.userDisplayName
+    });
+  }
+
+  return summaries.sort((a, b) => {
+    const diff = attendanceRateValue(b) - attendanceRateValue(a);
+    if (diff !== 0) {
+      return diff;
+    }
+    if (b.presentEvents !== a.presentEvents) {
+      return b.presentEvents - a.presentEvents;
+    }
+    return a.name.localeCompare(b.name);
+  });
 });
 
 const topAttendanceCharacters = computed(() => {
@@ -2997,6 +3380,26 @@ const attendanceByCharacterChartOptions = computed(() => {
         }
       }
     },
+    onClick(_event: unknown, elements: any[]) {
+      if (!isMemberMode.value) {
+        return;
+      }
+      if (!elements || elements.length === 0) {
+        return;
+      }
+      const element = elements[0];
+      if (typeof element?.index !== 'number') {
+        return;
+      }
+      const entry = topAttendanceCharacters.value[element.index];
+      if (!entry || entry.key !== UNKNOWN_MEMBER_ENTITY_KEY) {
+        return;
+      }
+      if (unknownMemberCharacterDetails.value.length === 0) {
+        return;
+      }
+      openUnknownMemberModal();
+    },
     plugins: {
       legend: { display: false },
       tooltip: {
@@ -3030,6 +3433,195 @@ const attendanceByCharacterHasData = computed(
     attendanceByCharacterChartData.value.datasets[0]?.data?.length &&
     attendanceByCharacterChartData.value.datasets[0].data.some((value) => Number(value) > 0)
 );
+
+const canAssignUnknownCharacters = computed(() => {
+  const role = guildPermissions.value?.userRole ?? null;
+  if (!role) {
+    return false;
+  }
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
+
+const assignableGuildMembers = computed(() => guildMemberDirectory.value);
+
+const shouldShowUnknownMemberHint = computed(() => {
+  if (!isMemberMode.value) {
+    return false;
+  }
+  if (unknownMemberCharacterDetails.value.length === 0) {
+    return false;
+  }
+  return topAttendanceCharacters.value.some((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
+});
+
+watch(isMemberMode, (value) => {
+  if (!value) {
+    showUnknownMemberModal.value = false;
+    resetUnknownAssignmentState();
+  }
+});
+
+watch(
+  () => unknownMemberCharacterDetails.value.length,
+  (length) => {
+    if (length === 0) {
+      showUnknownMemberModal.value = false;
+      resetUnknownAssignmentState();
+    }
+  }
+);
+
+watch(showUnknownMemberModal, (visible) => {
+  if (!visible) {
+    resetUnknownAssignmentState();
+  }
+});
+
+watch(metricsMode, () => {
+  showLootDetailModal.value = false;
+  lootDetailTarget.value = null;
+  lootDetailPage.value = 0;
+});
+
+watch(showLootDetailModal, (visible) => {
+  if (!visible) {
+    lootDetailTarget.value = null;
+    lootDetailPage.value = 0;
+  }
+});
+
+watch(lootDetailTarget, () => {
+  lootDetailPage.value = 0;
+});
+
+
+function openUnknownMemberModal() {
+  if (unknownMemberCharacterDetails.value.length === 0) {
+    return;
+  }
+  unknownAssignmentError.value = null;
+  showUnknownMemberModal.value = true;
+}
+
+function closeUnknownMemberModal() {
+  resetUnknownAssignmentState();
+  showUnknownMemberModal.value = false;
+}
+
+function resetUnknownAssignmentState() {
+  assigningUnknownCharacterKey.value = null;
+  unknownAssignment.memberUserId = '';
+  unknownAssignmentError.value = null;
+  unknownAssignmentLoading.value = false;
+}
+
+function beginUnknownCharacterAssignment(entry: AttendanceCharacterSummary) {
+  if (!canAssignUnknownCharacters.value) {
+    return;
+  }
+  assigningUnknownCharacterKey.value = entry.key;
+  unknownAssignment.memberUserId = '';
+  unknownAssignmentError.value = null;
+  unknownAssignmentLoading.value = false;
+}
+
+function cancelUnknownCharacterAssignment() {
+  assigningUnknownCharacterKey.value = null;
+  unknownAssignment.memberUserId = '';
+  unknownAssignmentError.value = null;
+  unknownAssignmentLoading.value = false;
+}
+
+async function assignUnknownCharacterToMember(entry: AttendanceCharacterSummary) {
+  if (!guildId.value) {
+    unknownAssignmentError.value = 'Missing guild context. Reload and try again.';
+    return;
+  }
+  if (!unknownAssignment.memberUserId) {
+    unknownAssignmentError.value = 'Select a member to assign this character to.';
+    return;
+  }
+  if (!entry.class) {
+    unknownAssignmentError.value = 'Character class is missing. Please update attendance data.';
+    return;
+  }
+
+  unknownAssignmentLoading.value = true;
+  unknownAssignmentError.value = null;
+  try {
+    await api.assignGuildMemberCharacter(guildId.value, unknownAssignment.memberUserId, {
+      name: entry.name.trim(),
+      class: entry.class,
+      level: 60
+    });
+    await loadMemberDirectory();
+    await loadMetrics(lastSubmittedQuery.value);
+    resetUnknownAssignmentState();
+  } catch (error) {
+    unknownAssignmentError.value = resolveApiErrorMessage(error, 'Unable to assign character.');
+  } finally {
+    unknownAssignmentLoading.value = false;
+  }
+}
+
+function resolveLootDetailIdentity(entry: LootParticipantSummary): EntityIdentity | null {
+  let identity = resolveEntityIdentity(entry.key);
+  if (identity) {
+    return identity;
+  }
+  const normalized = entry.name.toLowerCase();
+  identity = resolveEntityIdentity(`name:${normalized}`);
+  if (identity) {
+    return identity;
+  }
+  const memberOption = memberEntityOptionLookup.value.get(entry.key);
+  if (memberOption) {
+    return identityFromEntityOption(memberOption);
+  }
+  const characterOption = characterEntityOptionLookup.value.get(`name:${normalized}`);
+  if (characterOption) {
+    return identityFromEntityOption(characterOption);
+  }
+  return null;
+}
+
+function openLootDetailModal(entry: LootParticipantSummary) {
+  const identity = resolveLootDetailIdentity(entry);
+  lootDetailTarget.value = {
+    entry,
+    identity
+  };
+  lootDetailPage.value = 0;
+  showLootDetailModal.value = true;
+}
+
+function closeLootDetailModal() {
+  showLootDetailModal.value = false;
+  lootDetailTarget.value = null;
+  lootDetailPage.value = 0;
+}
+
+function openAllaSearch(itemName: string) {
+  const base =
+    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  window.open(url, '_blank');
+}
+
+function goToPreviousLootDetailPage() {
+  if (lootDetailPage.value > 0) {
+    lootDetailPage.value -= 1;
+  }
+}
+
+function goToNextLootDetailPage() {
+  if (lootDetailPageCount.value === 0) {
+    return;
+  }
+  if (lootDetailPage.value < lootDetailPageCount.value - 1) {
+    lootDetailPage.value += 1;
+  }
+}
 
 const attendanceSpotlight = computed(() => {
   if (selectedCharacterKeySet.value.size === 0) {
@@ -3132,8 +3724,23 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
     let associatedOption: MetricsEntityOption | undefined = memberKeyByCharacterName.value.get(normalizedName);
     let owner = resolveCharacterOwner(event.looterName, associatedOption?.userId, associatedOption?.userDisplayName);
 
-    if (mode === 'character' && associatedOption?.key === UNKNOWN_MEMBER_ENTITY_KEY) {
-      associatedOption = undefined;
+    let resolvedCharacterIdentity: EntityIdentity | null = null;
+    if (mode === 'character') {
+      if (associatedOption?.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+        associatedOption = undefined;
+      }
+      resolvedCharacterIdentity = resolveEntityIdentity(`name:${normalizedName}`);
+      if (!resolvedCharacterIdentity || resolvedCharacterIdentity.mode !== 'character') {
+        // Fall back to lookup by event character id if available
+        const option = characterEntityOptionLookup.value.get(`name:${normalizedName}`);
+        if (option) {
+          resolvedCharacterIdentity = identityFromEntityOption(option);
+        }
+      }
+      if (!resolvedCharacterIdentity || resolvedCharacterIdentity.mode !== 'character') {
+        continue;
+      }
+      mapKey = resolvedCharacterIdentity.key;
     }
 
     if (mode === 'member') {
@@ -3199,21 +3806,42 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
     }
     if (associatedOption) {
       entry.summary.name = formatEntityLabel(associatedOption, fallbackLabelInfo, false, mode === 'member');
-      entry.summary.key = associatedOption.key;
+      if (mode === 'member') {
+        entry.summary.key = associatedOption.key;
+      }
       for (const cls of associatedOption.classes) {
         entry.classes.add(cls);
       }
     }
+
+    if (mode === 'character' && resolvedCharacterIdentity) {
+      entry.summary.key = resolvedCharacterIdentity.key;
+      const optionForCharacter = characterEntityOptionLookup.value.get(resolvedCharacterIdentity.key);
+      if (optionForCharacter) {
+        entry.summary.name = optionForCharacter.label;
+        for (const cls of optionForCharacter.classes) {
+          entry.classes.add(cls);
+        }
+      }
+    }
   }
 
-  const summaries = Array.from(map.values()).map(({ summary, classes }) => {
-    if (classes.size === 1) {
-      summary.class = Array.from(classes)[0];
-    } else if (classes.size > 1) {
-      summary.class = null;
-    }
-    return summary;
-  });
+  const summaries = Array.from(map.values())
+    .filter(({ summary }) => {
+      if (mode === 'character') {
+        const identity = resolveEntityIdentity(summary.key);
+        return identity?.mode === 'character';
+      }
+      return true;
+    })
+    .map(({ summary, classes }) => {
+      if (classes.size === 1) {
+        summary.class = Array.from(classes)[0];
+      } else if (classes.size > 1) {
+        summary.class = null;
+      }
+      return summary;
+    });
 
   return summaries.sort((a, b) => b.count - a.count);
 });
@@ -3240,6 +3868,20 @@ const lootByParticipantChartData = computed(() => {
 
 const lootByParticipantChartOptions = computed(() => ({
   maintainAspectRatio: false,
+  onClick(_event: unknown, elements: any[]) {
+    if (!elements || elements.length === 0) {
+      return;
+    }
+    const element = elements[0];
+    if (typeof element?.index !== 'number') {
+      return;
+    }
+    const entry = topLootParticipants.value[element.index];
+    if (!entry) {
+      return;
+    }
+    openLootDetailModal(entry);
+  },
   scales: {
     y: {
       beginAtZero: true,
@@ -3256,6 +3898,80 @@ const lootByParticipantHasData = computed(
     lootByParticipantChartData.value.datasets[0]?.data?.length &&
     lootByParticipantChartData.value.datasets[0].data.some((value) => Number(value) > 0)
 );
+
+const lootDetailRows = computed(() => {
+  const target = lootDetailTarget.value;
+  if (!target) {
+    return [] as Array<{
+      id: string;
+      itemName: string;
+      looterName: string;
+      raidId: string;
+      raidName: string;
+      raidStart: string | null;
+      awardedAt: string | null;
+    }>;
+  }
+  const { identity, entry } = target;
+  const rows = filteredLootEvents.value
+    .filter((event) =>
+      identity
+        ? lootEventMatchesIdentity(event, identity)
+        : event.looterName.toLowerCase() === entry.name.toLowerCase()
+    )
+    .map((event) => ({
+      id: event.id,
+      itemName: event.itemName,
+      looterName: event.looterName,
+      raidId: event.raid.id,
+      raidName: event.raid.name,
+      raidStart: event.raid.startTime,
+      awardedAt: eventPrimaryTimestamp(event)
+    }))
+    .sort((a, b) => {
+      const aStamp = a.awardedAt ?? '';
+      const bStamp = b.awardedAt ?? '';
+      return bStamp.localeCompare(aStamp);
+    });
+  return rows;
+});
+
+const lootDetailModalTitle = computed(() => lootDetailTarget.value?.entry.name ?? '');
+const lootDetailModalCount = computed(() => lootDetailRows.value.length);
+const lootDetailPageCount = computed(() =>
+  lootDetailModalCount.value === 0
+    ? 0
+    : Math.ceil(lootDetailModalCount.value / LOOT_DETAIL_PAGE_SIZE)
+);
+
+const visibleLootDetailRows = computed(() => {
+  const start = lootDetailPage.value * LOOT_DETAIL_PAGE_SIZE;
+  return lootDetailRows.value.slice(start, start + LOOT_DETAIL_PAGE_SIZE);
+});
+
+const lootDetailStartIndex = computed(() => {
+  if (lootDetailModalCount.value === 0) {
+    return 0;
+  }
+  return lootDetailPage.value * LOOT_DETAIL_PAGE_SIZE + 1;
+});
+
+const lootDetailEndIndex = computed(() => {
+  if (lootDetailModalCount.value === 0) {
+    return 0;
+  }
+  return Math.min(
+    lootDetailStartIndex.value + LOOT_DETAIL_PAGE_SIZE - 1,
+    lootDetailModalCount.value
+  );
+});
+
+watch(lootDetailModalCount, (total) => {
+  const maxPage = total === 0 ? 0 : Math.max(0, Math.ceil(total / LOOT_DETAIL_PAGE_SIZE) - 1);
+  if (lootDetailPage.value > maxPage) {
+    lootDetailPage.value = maxPage;
+  }
+});
 
 const lootByItemSummaries = computed<LootItemSummary[]>(() => {
   const map = new Map<string, LootItemSummary>();
@@ -3349,10 +4065,18 @@ const lootSpotlightCharacters = computed(() => {
   if (selectedCharacterNameSet.value.size === 0 && selectedCharacterKeySet.value.size === 0) {
     return [] as LootParticipantSummary[];
   }
-  return lootByParticipantSummaries.value.filter((entry) =>
-    selectedCharacterKeySet.value.has(entry.key) ||
-    selectedCharacterNameSet.value.has(entry.name.toLowerCase())
-  );
+  return lootByParticipantSummaries.value.filter((entry) => {
+    if (metricsMode.value === 'character') {
+      const identity = resolveEntityIdentity(entry.key);
+      if (identity?.mode !== 'character') {
+        return false;
+      }
+    }
+    return (
+      selectedCharacterKeySet.value.has(entry.key) ||
+      selectedCharacterNameSet.value.has(entry.name.toLowerCase())
+    );
+  });
 });
 
 const lootSpotlightItems = computed(() => {
@@ -3428,6 +4152,28 @@ const activeRangeLabel = computed(() =>
     ? `${formatRangeDate(metrics.value.range.start)} – ${formatRangeDate(metrics.value.range.end)}`
     : 'selected period'
 );
+
+function resolveApiErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null) {
+    const maybeResponse = (error as { response?: { data?: unknown } }).response;
+    if (maybeResponse?.data && typeof maybeResponse.data === 'object') {
+      const payload = maybeResponse.data as { message?: unknown; error?: unknown };
+      if (typeof payload.message === 'string' && payload.message.trim().length > 0) {
+        return payload.message.trim();
+      }
+      if (typeof payload.error === 'string' && payload.error.trim().length > 0) {
+        return payload.error.trim();
+      }
+    }
+    if ('message' in error && typeof (error as { message?: unknown }).message === 'string') {
+      const extracted = ((error as { message: string }).message || '').trim();
+      if (extracted.length > 0) {
+        return extracted;
+      }
+    }
+  }
+  return fallback;
+}
 
 function formatNumber(value: number): string {
   return value.toLocaleString();
@@ -4569,6 +5315,23 @@ onMounted(() => {
   color: #94a3b8;
 }
 
+.metrics-card__hint--interactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  color: #facc15;
+}
+
+.metrics-card__hint-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.85), rgba(253, 224, 71, 0.6));
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.75);
+  flex-shrink: 0;
+}
+
 .metrics-card__action {
   display: inline-flex;
   align-items: center;
@@ -4894,6 +5657,315 @@ onMounted(() => {
   align-self: center;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 120;
+}
+
+.modal {
+  width: min(740px, 100%);
+  background: rgba(15, 23, 42, 0.97);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-height: min(85vh, 720px);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45);
+  overflow: hidden;
+}
+
+.metrics-modal {
+  width: min(840px, 100%);
+}
+
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.icon-button {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.25rem;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  color: #f8fafc;
+}
+
+.metrics-modal__table-wrapper {
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.metrics-modal-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.metrics-modal-table th,
+.metrics-modal-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  text-align: left;
+}
+
+.metrics-modal-table thead th {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.85);
+  font-weight: 600;
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.metrics-modal-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.metrics-modal-table__character {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.metrics-modal-table td:nth-child(3),
+.metrics-modal-table td:nth-child(4),
+.metrics-modal-table td:nth-child(5),
+.metrics-modal-table td:nth-child(6),
+.metrics-modal-table td:nth-child(7),
+.metrics-modal-table td:nth-child(8) {
+  text-align: right;
+}
+
+.metrics-modal-table th:nth-child(3),
+.metrics-modal-table th:nth-child(4),
+.metrics-modal-table th:nth-child(5),
+.metrics-modal-table th:nth-child(6),
+.metrics-modal-table th:nth-child(7),
+.metrics-modal-table th:nth-child(8) {
+  text-align: right;
+}
+
+.metrics-modal-table__actions-header {
+  text-align: center;
+}
+
+.metrics-modal-table__actions {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.unknown-assignment {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.unknown-assignment__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.unknown-assignment__controls select {
+  min-width: 10rem;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  color: inherit;
+  padding: 0.4rem 0.6rem;
+}
+
+.unknown-assignment__icon-button {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.65rem;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.unknown-assignment__icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+.unknown-assignment__icon-button--confirm {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(22, 163, 74, 0.75));
+  box-shadow: 0 8px 18px rgba(22, 163, 74, 0.35);
+}
+
+.unknown-assignment__icon-button--confirm:hover,
+.unknown-assignment__icon-button--confirm:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(22, 163, 74, 0.45);
+  filter: brightness(1.08);
+}
+
+.unknown-assignment__icon-button--cancel {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(220, 38, 38, 0.75));
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.35);
+  color: #f8fafc;
+}
+
+.unknown-assignment__icon-button--cancel:hover,
+.unknown-assignment__icon-button--cancel:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(220, 38, 38, 0.45);
+  filter: brightness(1.08);
+}
+
+.unknown-assign-trigger {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(96, 165, 250, 0.65));
+  border: 1px solid rgba(59, 130, 246, 0.55);
+  color: #f8fafc;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.unknown-assign-trigger:hover,
+.unknown-assign-trigger:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(37, 99, 235, 0.45);
+  filter: brightness(1.08);
+}
+
+.metrics-modal-table__error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #fca5a5;
+}
+
+.loot-detail__cell-item {
+  font-weight: 600;
+}
+
+.loot-detail__item-link {
+  background: none;
+  border: none;
+  color: #38bdf8;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: none;
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.loot-detail__item-link:hover,
+.loot-detail__item-link:focus-visible {
+  color: #f8fafc;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+}
+
+.loot-detail__raid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.loot-detail__raid-link {
+  color: #a5b4fc;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.loot-detail__raid-link:hover,
+.loot-detail__raid-link:focus-visible {
+  color: #fff7ed;
+  text-shadow: 0 0 8px rgba(129, 140, 248, 0.7);
+}
+
+.loot-detail__raid-time {
+  font-size: 0.7rem;
+}
+
+.loot-detail__pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.loot-detail__pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.loot-detail__page-button {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.loot-detail__page-button:hover,
+.loot-detail__page-button:focus-visible {
+  border-color: rgba(96, 165, 250, 0.8);
+  background: rgba(30, 64, 175, 0.55);
+  color: #f8fafc;
+}
+
+.loot-detail__page-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.loot-detail__page-indicator {
+  min-width: 6rem;
+  text-align: center;
+}
+
 @media (max-width: 640px) {
   .metrics-filter__select {
     min-height: 6rem;
@@ -4908,6 +5980,3 @@ onMounted(() => {
   }
 }
 </style>
-    if (mode === 'member' && associatedOption) {
-      entry.summary.name = associatedOption.label;
-    }

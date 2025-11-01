@@ -1456,6 +1456,19 @@ export const api = {
     return response.data.membership;
   },
 
+  async assignGuildMemberCharacter(
+    guildId: string,
+    memberId: string,
+    payload: { name: string; class: CharacterClass; level?: number }
+  ) {
+    const response = await axios.post(`/api/guilds/${guildId}/members/${memberId}/characters`, {
+      name: payload.name,
+      class: payload.class,
+      level: payload.level ?? 60
+    });
+    return response.data.character;
+  },
+
   async deleteGuildMember(guildId: string, memberId: string) {
     await axios.delete(`/api/guilds/${guildId}/members/${memberId}`);
   },

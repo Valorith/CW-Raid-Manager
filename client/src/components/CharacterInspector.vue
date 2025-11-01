@@ -87,11 +87,17 @@
           role="cell"
         >
           <div class="inspector__value">
-            <span>{{ row.format(entry) }}</span>
-            <span v-if="row.secondary" class="muted tiny">{{ row.secondary(entry) }}</span>
+            <span :class="valueClass(row.key, entry.key)">{{ row.format(entry) }}</span>
+            <span
+              v-if="row.secondary && row.secondary(entry)"
+              class="muted tiny"
+              :class="secondaryClass(row.key, entry.key)"
+            >
+              {{ row.secondary(entry) }}
+            </span>
           </div>
           <div
-            v-if="diffs.has(row.key) && diffs.get(row.key)?.has(entry.key)"
+            v-if="row.key !== 'lastLootDate' && diffs.has(row.key) && diffs.get(row.key)?.has(entry.key)"
             class="inspector__diff"
             :class="diffClass(row.key, entry.key)"
           >
@@ -197,6 +203,44 @@ function formatDateLong(isoDate: string): string {
   });
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function formatRelativeLootDate(isoDate: string): string {
+  const parsed = Date.parse(isoDate);
+  if (Number.isNaN(parsed)) {
+    return isoDate;
+  }
+  const now = Date.now();
+  const diffMs = now - parsed;
+  const diffDays = Math.max(0, Math.round(diffMs / MS_PER_DAY));
+  if (diffDays === 0) {
+    return 'Today';
+  }
+  if (diffDays === 1) {
+    return '1 day ago';
+  }
+  return `${diffDays} days ago`;
+}
+
+function computeLastLootAgeDays(value: string | null): number {
+  if (!value) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return 0;
+  }
+  const ageDays = (Date.now() - parsed) / MS_PER_DAY;
+  return ageDays >= 0 ? ageDays : 0;
+}
+
+function approximatelyEqual(a: number, b: number): boolean {
+  if (!Number.isFinite(a) && !Number.isFinite(b)) {
+    return true;
+  }
+  return Math.abs(a - b) < 0.01;
+}
+
 function entryIcon(entry: InspectorEntry): string | null {
   return getCharacterClassIcon(entry.class ?? null);
 }
@@ -294,7 +338,7 @@ interface StatRow {
   key: StatKey;
   label: string;
   format: (entry: InspectorEntry) => string;
-  secondary?: (entry: InspectorEntry) => string | undefined;
+  secondary?: (entry: InspectorEntry) => string | null | undefined;
   diffType: 'percent' | 'number' | 'none';
   direction: 'higher' | 'lower';
 }
@@ -351,8 +395,10 @@ const statRows = computed<StatRow[]>(() => [
     label: 'Date of Last Loot',
     format: (entry: InspectorEntry) =>
       entry.lastLootDate ? formatDateLong(entry.lastLootDate) : 'Never',
-    diffType: 'none',
-    direction: 'higher'
+    secondary: (entry: InspectorEntry) =>
+      entry.lastLootDate ? formatRelativeLootDate(entry.lastLootDate) : null,
+    diffType: 'number',
+    direction: 'lower'
   }
 ]);
 
@@ -399,6 +445,36 @@ const diffs = computed(() => {
           value = entry.lootCount;
           baseValue = base.lootCount;
           break;
+        case 'lastLootDate': {
+          const entryDate = entry.lastLootDate ? Date.parse(entry.lastLootDate) : null;
+          const baseDate = base.lastLootDate ? Date.parse(base.lastLootDate) : null;
+
+          if (entryDate === null && baseDate === null) {
+            diffMap.set(entry.key, 0);
+            continue;
+          }
+
+          if (entryDate === null && baseDate !== null && !Number.isNaN(baseDate)) {
+            const daysSinceBase = Math.round((Date.now() - baseDate) / MS_PER_DAY);
+            diffMap.set(entry.key, -daysSinceBase);
+            continue;
+          }
+
+          if (entryDate !== null && !Number.isNaN(entryDate) && baseDate === null) {
+            const daysSinceEntry = Math.round((Date.now() - entryDate) / MS_PER_DAY);
+            diffMap.set(entry.key, daysSinceEntry);
+            continue;
+          }
+
+          if (entryDate !== null && baseDate !== null && !Number.isNaN(entryDate) && !Number.isNaN(baseDate)) {
+            const diffDays = Math.round((entryDate - baseDate) / MS_PER_DAY);
+            diffMap.set(entry.key, diffDays);
+            continue;
+          }
+
+          diffMap.set(entry.key, 0);
+          continue;
+        }
       }
       diffMap.set(entry.key, value - baseValue);
     }
@@ -407,9 +483,39 @@ const diffs = computed(() => {
   return map;
 });
 
+const lastLootComparisonClasses = computed(() => {
+  const map = new Map<string, string>();
+  if (props.entries.length <= 1) {
+    return map;
+  }
+  const ages = props.entries.map((entry) => ({
+    key: entry.key,
+    age: computeLastLootAgeDays(entry.lastLootDate)
+  }));
+  const ageValues = ages.map(({ age }) => age);
+  const maxAge = Math.max(...ageValues);
+  const minAge = Math.min(...ageValues);
+  if (approximatelyEqual(maxAge, minAge)) {
+    return map;
+  }
+  for (const { key, age } of ages) {
+    if (approximatelyEqual(age, maxAge)) {
+      map.set(key, 'inspector__diff--positive');
+    } else if (approximatelyEqual(age, minAge)) {
+      map.set(key, 'inspector__diff--negative');
+    }
+  }
+  return map;
+});
+
+const allEntriesNever = computed(() => props.entries.every((entry) => !entry.lastLootDate));
+
 function formatDiff(key: StatKey, entryKey: string) {
   const diff = diffs.value.get(key)?.get(entryKey);
   if (diff === undefined) {
+    return '';
+  }
+  if (key === 'lastLootDate') {
     return '';
   }
   if (Math.abs(diff) < 0.05) {
@@ -439,6 +545,44 @@ function diffClass(key: StatKey, entryKey: string) {
     if (diff < 0) return 'inspector__diff--negative';
   }
   return 'inspector__diff--neutral';
+}
+
+function secondaryClass(key: StatKey, entryKey: string): string {
+  if (key !== 'lastLootDate') {
+    return '';
+  }
+  const entry = props.entries.find((item) => item.key === entryKey);
+  if (!entry) {
+    return '';
+  }
+  if (allEntriesNever.value) {
+    return '';
+  }
+  if (!entry.lastLootDate) {
+    return 'inspector__diff--positive';
+  }
+  const mapped = lastLootComparisonClasses.value.get(entryKey);
+  if (mapped) {
+    return mapped;
+  }
+  return '';
+}
+
+function valueClass(key: StatKey, entryKey: string): string {
+  if (key !== 'lastLootDate') {
+    return '';
+  }
+  const entry = props.entries.find((item) => item.key === entryKey);
+  if (!entry) {
+    return '';
+  }
+  if (allEntriesNever.value) {
+    return '';
+  }
+  if (!entry.lastLootDate) {
+    return 'inspector__diff--positive';
+  }
+  return '';
 }
 </script>
 
