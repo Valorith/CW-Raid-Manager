@@ -393,7 +393,7 @@
         </template>
       </div>
     </div>
-    <div v-if="showUserModal" class="modal-backdrop modal-backdrop--user" @click.self="closeUserModal">
+    <div v-if="showUserModal" class="modal-backdrop modal-backdrop--user">
       <div class="modal modal--narrow" role="dialog" aria-modal="true">
         <header class="modal__header">
           <div class="modal__titles">
