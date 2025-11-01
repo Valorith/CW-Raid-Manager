@@ -1479,7 +1479,7 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   }
 }
 watch(
-  () => [raid.value?.startTime, raid.value?.endedAt],
+  () => [raid.value?.startedAt ?? raid.value?.startTime, raid.value?.endedAt],
   ([start, end]) => {
     if (start && !parsingWindow.start) {
       parsingWindow.start = start;
@@ -2319,7 +2319,7 @@ async function readLiveLogChunk() {
     if (!chunk.trim()) {
       return;
     }
-    const startIso = parsingWindow.start ?? raid.value?.startTime ?? new Date().toISOString();
+    const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
     const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
     const start = new Date(startIso);
     const end = endIso ? new Date(endIso) : undefined;
@@ -2539,7 +2539,7 @@ function readLogFile(
     reader.onload = () => {
       parseProgress.value = 100;
       const content = reader.result as string;
-      const startIso = parsingWindow.start ?? raid.value?.startTime ?? new Date().toISOString();
+      const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
       const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
       const start = new Date(startIso);
       const end = endIso ? new Date(endIso) : undefined;
@@ -3262,12 +3262,13 @@ function resetManualForm() {
 }
 
 function initializeParsingWindow() {
-  parsingWindow.start = raid.value?.startTime ?? null;
+  const actualStart = raid.value?.startedAt ?? raid.value?.startTime ?? null;
+  parsingWindow.start = actualStart;
   parsingWindow.end = raid.value?.endedAt ?? null;
 }
 
 function openWindowModal() {
-  parsingWindowForm.start = toInputValue(parsingWindow.start ?? raid.value?.startTime ?? null);
+  parsingWindowForm.start = toInputValue(parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? null);
   parsingWindowForm.end = toInputValue(parsingWindow.end ?? raid.value?.endedAt ?? null);
   showWindowModal.value = true;
 }
@@ -3277,7 +3278,7 @@ function closeWindowModal() {
 }
 
 function saveParsingWindow() {
-  const startIso = fromInputValue(parsingWindowForm.start) ?? raid.value?.startTime ?? null;
+  const startIso = fromInputValue(parsingWindowForm.start) ?? raid.value?.startedAt ?? raid.value?.startTime ?? null;
   const endIso = fromInputValue(parsingWindowForm.end);
   parsingWindow.start = startIso;
   parsingWindow.end = endIso;
@@ -3303,7 +3304,7 @@ function resetWindowToRaidTimes() {
 }
 
 function resolveWindowBounds() {
-  const startIso = parsingWindow.start ?? raid.value?.startTime ?? null;
+  const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? null;
   const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
   if (startIso && endIso) {
     const startDate = new Date(startIso).getTime();

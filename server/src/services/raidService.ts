@@ -122,8 +122,9 @@ export async function createRaidEvent(input: CreateRaidInput) {
       startTime: input.startTime,
       startedAt: input.startedAt ?? null,
       endedAt: input.endedAt ?? null,
-      targetZones: input.targetZones,
-      targetBosses: input.targetBosses,
+  targetZones: sanitizeTargets(input.targetZones),
+  targetBosses: sanitizeTargets(input.targetBosses),
+
       notes: input.notes,
       discordVoiceUrl,
       recurrenceSeriesId
@@ -209,8 +210,14 @@ export async function updateRaidEvent(
     startTime: (data.startTime as Date | undefined) ?? existing.startTime,
     startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
     endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
-    targetZones: targetZonesUpdate ?? (existing.targetZones as Prisma.InputJsonValue),
-    targetBosses: targetBossesUpdate ?? (existing.targetBosses as Prisma.InputJsonValue),
+    targetZones:
+      targetZonesUpdate !== undefined
+        ? sanitizeTargets(targetZonesUpdate as string[])
+        : sanitizeTargets(existing.targetZones as string[]),
+    targetBosses:
+      targetBossesUpdate !== undefined
+        ? sanitizeTargets(targetBossesUpdate as string[])
+        : sanitizeTargets(existing.targetBosses as string[]),
     notes: data.notes ?? existing.notes,
     isActive: data.isActive ?? existing.isActive
   };
@@ -790,4 +797,14 @@ function sanitizeUrl(value?: string | null) {
       return null;
     }
   }
+}
+
+function sanitizeTargets(values: string[] | null | undefined) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const filtered = values
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter((value) => value.length > 0);
+  return filtered.length > 0 ? filtered : [];
 }
