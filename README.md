@@ -50,7 +50,7 @@ CW Raid Manager is a full-stack tool for coordinating EverQuest raids. It tracks
 
 ### Metrics & Analytics
 - Guild-level attendance and loot metrics
-- Interactive charts with Chart.js visualization
+- Interactive charts with chart.js visualization
 - Character-based and member-based metrics views
 - Customizable date range selection with timeline view
 - Attendance rate calculations and trends
@@ -62,7 +62,7 @@ CW Raid Manager is a full-stack tool for coordinating EverQuest raids. It tracks
 
 ## Tech Stack
 
-- **Frontend:** Vue 3 + Vite + Pinia + Vue Router + Chart.js
+- **Frontend:** Vue 3 + Vite + Pinia + Vue Router + chart.js
 - **Backend:** Fastify (TypeScript), Prisma ORM, Zod validation
 - **Database:** MySQL (5.7+/8.0)
 - **Authentication:** Google OAuth 2.0 with @fastify/oauth2
@@ -259,7 +259,7 @@ The application provides two methods for tracking loot distribution:
 - Batch import of loot events
 - Preview before committing to database
 
-**Loot log format examples** (see `Loot event Examples.txt`):
+**Loot log format examples** (see file `Loot event Examples.txt` in repository root):
 ```
 [Sun Sep 14 21:36:45 2025] Eye of Eashen has been awarded to Loladin by the Master Looter.
 [Sun Oct 05 22:33:19 2025] Cloak of the Falling Stars has been awarded to Watchout by random roll.
@@ -384,4 +384,4 @@ This is a private project, but suggestions and bug reports are welcome via GitHu
 
 ---
 
-Questions or feedback? Open an issue or continue iterating from here. Happy raiding! 🗡️
+Questions or feedback? Open an issue or continue iterating from here. Happy raiding!
