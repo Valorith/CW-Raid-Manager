@@ -1,7 +1,13 @@
 <template>
   <section v-if="raid" class="raid-detail">
-    <header class="section-header">
-      <div>
+    <header class="section-header raid-detail__header">
+      <div class="raid-detail__title-block">
+        <div class="raid-detail__title-top">
+          <button class="btn btn--outline btn--icon raid-detail__back" type="button" @click="goBackToRaids">
+            <span aria-hidden="true">←</span>
+            <span>Back</span>
+          </button>
+        </div>
         <div class="raid-title-row">
           <div class="raid-title-main">
             <h1>
@@ -27,8 +33,8 @@
               ✎
             </button>
           </div>
-          <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
         </div>
+        <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
         <p class="muted">
           {{ formatDate(raid.startTime) }} • Targets: {{ formattedTargetZonesHeader || 'Not specified' }}
         </p>
@@ -292,7 +298,6 @@
               </button>
             </div>
           </div>
-
           <div class="raid-signups__column raid-signups__column--composition">
             <div class="raid-signups__column-header">
               <h3>Raid Composition</h3>
@@ -1179,6 +1184,11 @@ const recurrenceDirty = computed(() =>
   recurrenceForm.interval !== initialRecurrence.interval ||
   recurrenceForm.endDate !== initialRecurrence.endDate
 );
+
+function goBackToRaids() {
+  router.push({ name: 'Raids' });
+}
+
 
 watch(
   () => recurrenceForm.interval,
@@ -2737,6 +2747,25 @@ async function copyRaidLink() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.raid-detail__title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.raid-detail__title-top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.raid-detail__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
 }
 
 .raid-title-row {

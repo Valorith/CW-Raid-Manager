@@ -28,6 +28,28 @@
         </RouterLink>
         <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
       </nav>
+      <div
+        v-if="monitorStore.indicatorVisible"
+        class="nav-monitor"
+        :class="{ 'nav-monitor--attention': monitorStore.hasPendingActions }"
+      >
+        <button
+          type="button"
+          class="nav-monitor__button"
+          @click="goToActiveMonitor"
+          :aria-label="monitorIndicatorLabel"
+        >
+          <span class="nav-monitor__pulse" aria-hidden="true"></span>
+          <span class="nav-monitor__content">
+            <span class="nav-monitor__label">
+              {{ monitorStore.hasPendingActions ? 'Loot Actions Pending' : 'Monitoring Live' }}
+            </span>
+            <span class="nav-monitor__file">
+              {{ monitorStore.activeSession?.raidName ?? 'Raid' }}
+            </span>
+          </span>
+        </button>
+      </div>
       <div class="auth">
         <RouterLink
           v-if="authStore.isAuthenticated"
@@ -79,20 +101,28 @@
       </TransitionGroup>
     </div>
     <main class="app-content">
-      <RouterView />
+      <RouterView v-slot="{ Component, route }">
+        <KeepAlive include="LootTrackerView">
+          <component v-if="Component" :is="Component" :key="resolveViewKey(route)" />
+        </KeepAlive>
+      </RouterView>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
-import { RouterLink, RouterView } from 'vue-router';
+import { RouterLink, RouterView, useRouter, type RouteLocationNormalized } from 'vue-router';
 
 import { useAuthStore } from './stores/auth';
 import { api, type RaidEventSummary } from './services/api';
+import { useMonitorStore } from './stores/monitor';
+import { playLootAlertChime } from './utils/audio';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
+const router = useRouter();
+const monitorStore = useMonitorStore();
 
 const toasts = ref<{ id: number; title: string; message: string }[]>([]);
 let toastId = 0;
@@ -152,8 +182,53 @@ function handleLootUpdated(event: CustomEvent<{ title?: string; message?: string
   });
 }
 
+function handleRaidShareCopied(event: CustomEvent<{ raidName?: string }>) {
+  const detail = event.detail ?? {};
+  const raidName = detail.raidName ?? 'Raid';
+  addToast({
+    title: 'Link Copied',
+    message: `${raidName} share link copied to clipboard.`
+  });
+}
+
 async function logout() {
   await authStore.logout();
+}
+
+const monitorIndicatorLabel = computed(() => {
+  if (!monitorStore.activeSession) {
+    return 'Continuous monitoring status';
+  }
+  const raidName =
+    monitorStore.activeSession.raidName && monitorStore.activeSession.raidName.length > 0
+      ? monitorStore.activeSession.raidName
+      : 'current raid';
+  if (monitorStore.hasPendingActions) {
+    return `Loot actions pending for ${raidName}. Click to return to the loot tracker.`;
+  }
+  return `Continuous monitoring active for ${raidName}. Click to return to the loot tracker.`;
+});
+
+function goToActiveMonitor() {
+  const session = monitorStore.activeSession;
+  if (!session) {
+    return;
+  }
+  router.push({ name: 'RaidLoot', params: { raidId: session.raidId } });
+}
+
+function resolveViewKey(route: RouteLocationNormalized) {
+  if (route.name === 'RaidLoot') {
+    const raidId = Array.isArray(route.params.raidId)
+      ? route.params.raidId[0]
+      : (route.params.raidId as string | undefined);
+    return `raid-loot-${raidId ?? 'unknown'}`;
+  }
+  return route.fullPath;
+}
+
+function handleLootActionsPending(_event: Event) {
+  playLootAlertChime();
 }
 
 onMounted(async () => {
@@ -162,15 +237,19 @@ onMounted(async () => {
     await loadActiveRaid(primaryGuild.value.id);
   }
 
-window.addEventListener('active-raid-updated', handleActiveRaidEvent);
-window.addEventListener('loot-assigned', handleLootAssigned as EventListener);
-window.addEventListener('loot-updated', handleLootUpdated as EventListener);
+  window.addEventListener('active-raid-updated', handleActiveRaidEvent);
+  window.addEventListener('loot-assigned', handleLootAssigned as EventListener);
+  window.addEventListener('loot-updated', handleLootUpdated as EventListener);
+  window.addEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
+  window.addEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
 });
 
 onBeforeUnmount(() => {
-window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
-window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
-window.removeEventListener('loot-updated', handleLootUpdated as EventListener);
+  window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
+  window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
+  window.removeEventListener('loot-updated', handleLootUpdated as EventListener);
+  window.removeEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
+  window.removeEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
 });
 
 watch(
@@ -271,6 +350,119 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .nav__link.router-link-active {
   color: #38bdf8;
+}
+
+.nav-monitor {
+  margin-left: 1.5rem;
+}
+
+.nav-monitor__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.18);
+  color: #e0f2fe;
+  padding: 0.35rem 0.95rem 0.35rem 0.5rem;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.nav-monitor__button:hover,
+.nav-monitor__button:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(94, 234, 212, 0.7);
+  background: rgba(56, 189, 248, 0.25);
+  color: #f8fafc;
+  outline: none;
+}
+
+.nav-monitor__pulse {
+  position: relative;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: #38bdf8;
+}
+
+.nav-monitor__pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55);
+  animation: navMonitorPulse 2.1s ease-out infinite;
+}
+
+.nav-monitor__content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.1;
+}
+
+.nav-monitor__label {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.nav-monitor__file {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.nav-monitor--attention .nav-monitor__button {
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.18);
+  color: #fee2e2;
+}
+
+.nav-monitor--attention .nav-monitor__button:hover,
+.nav-monitor--attention .nav-monitor__button:focus-visible {
+  border-color: rgba(248, 113, 113, 0.75);
+  background: rgba(248, 113, 113, 0.25);
+  color: #fff;
+}
+
+.nav-monitor--attention .nav-monitor__pulse {
+  background: #f87171;
+}
+
+.nav-monitor--attention .nav-monitor__pulse::after {
+  box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
+  animation-duration: 1.5s;
+}
+
+@keyframes navMonitorPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 0.55rem rgba(56, 189, 248, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+
+.nav-monitor--attention .nav-monitor__pulse::after {
+  animation-name: navMonitorPulseAlert;
+}
+
+@keyframes navMonitorPulseAlert {
+  0% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 0.6rem rgba(248, 113, 113, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
+  }
 }
 
 .auth {

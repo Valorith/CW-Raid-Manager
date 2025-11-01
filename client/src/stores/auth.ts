@@ -8,6 +8,7 @@ export interface AuthenticatedUser {
   email: string;
   displayName?: string;
   nickname?: string | null;
+  defaultLogFileName?: string | null;
   isAdmin: boolean;
   guilds: UserGuildSummary[];
   pendingApplication: PendingGuildApplication | null;
@@ -58,6 +59,7 @@ export const useAuthStore = defineStore('auth', {
             email: response.data.user.email,
             displayName: response.data.user.displayName,
             nickname: response.data.user.nickname ?? null,
+            defaultLogFileName: response.data.user.defaultLogFileName ?? null,
             isAdmin: Boolean(response.data.user.isAdmin),
             guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
             pendingApplication: response.data.user.pendingApplication ?? null

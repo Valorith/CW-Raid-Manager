@@ -59,6 +59,52 @@
           </button>
         </div>
       </form>
+
+      <section class="default-log">
+        <div class="default-log__header">
+          <h2>Default Log File</h2>
+          <p class="muted small">
+            When you select a log on the Loot page we can offer to reuse this file automatically.
+          </p>
+        </div>
+
+        <p v-if="defaultLogFileName" class="default-log__current">
+          Current default: <strong>{{ defaultLogFileName }}</strong>
+        </p>
+        <p v-else class="muted small">No default log file selected.</p>
+
+        <p v-if="!supportsDefaultLog" class="alert alert--notice">
+          Your browser doesn’t support storing a default log file. Use a Chromium-based browser to
+          enable this feature.
+        </p>
+        <p v-else-if="defaultLogNeedsPermission" class="alert alert--warning">
+          We need access to the saved file. Re-select it below to restore the permission.
+        </p>
+
+        <div class="default-log__actions">
+          <button
+            class="btn"
+            type="button"
+            :disabled="defaultLogSaving || !supportsDefaultLog"
+            @click="chooseDefaultLogFile"
+          >
+            {{ defaultLogSaving ? 'Saving…' : defaultLogFileName ? 'Replace Log File' : 'Select Log File' }}
+          </button>
+          <button
+            class="btn btn--outline"
+            type="button"
+            :disabled="defaultLogSaving || !defaultLogFileName"
+            @click="clearDefaultLogFile"
+          >
+            Clear
+          </button>
+        </div>
+
+        <p v-if="defaultLogMessage" class="muted small default-log__feedback">
+          {{ defaultLogMessage }}
+        </p>
+        <p v-if="defaultLogError" class="form__error">{{ defaultLogError }}</p>
+      </section>
     </div>
   </section>
 </template>
@@ -68,6 +114,11 @@ import { computed, onMounted, ref, watch } from 'vue';
 
 import { api, type AccountProfile } from '../services/api';
 import { useAuthStore } from '../stores/auth';
+import {
+  deleteDefaultLogHandle,
+  getDefaultLogHandle,
+  saveDefaultLogHandle
+} from '../utils/defaultLogHandle';
 
 const authStore = useAuthStore();
 
@@ -77,6 +128,10 @@ const profile = ref<AccountProfile | null>(null);
 const nickname = ref('');
 const errorMessage = ref('');
 const successMessage = ref('');
+const defaultLogSaving = ref(false);
+const defaultLogMessage = ref('');
+const defaultLogError = ref('');
+const defaultLogHandleAvailable = ref(false);
 
 const previewName = computed(() => {
   const trimmed = nickname.value.trim();
@@ -104,18 +159,62 @@ const isNicknameValid = computed(() => nicknameValidationMessage.value.length ==
 
 const isDirty = computed(() => nickname.value !== (profile.value?.nickname ?? ''));
 
+const supportsDefaultLog = computed(
+  () =>
+    typeof window !== 'undefined' &&
+    typeof (window as any).showOpenFilePicker === 'function' &&
+    typeof window.indexedDB !== 'undefined'
+);
+
+const defaultLogFileName = computed(() => profile.value?.defaultLogFileName ?? null);
+
+const defaultLogNeedsPermission = computed(
+  () =>
+    Boolean(defaultLogFileName.value) &&
+    !defaultLogHandleAvailable.value &&
+    supportsDefaultLog.value
+);
+
 async function loadProfile() {
   loading.value = true;
   errorMessage.value = '';
+  defaultLogMessage.value = '';
+  defaultLogError.value = '';
   try {
     const result = await api.fetchAccountProfile();
     profile.value = result;
     nickname.value = result?.nickname ?? '';
+    await refreshDefaultLogHandleState();
   } catch (error) {
     console.error('Failed to load account profile', error);
     errorMessage.value = 'Unable to load your account details. Please try again.';
   } finally {
     loading.value = false;
+  }
+}
+
+async function refreshDefaultLogHandleState() {
+  if (!authStore.user || !supportsDefaultLog.value) {
+    defaultLogHandleAvailable.value = false;
+    return;
+  }
+  try {
+    const handle = await getDefaultLogHandle(authStore.user.userId);
+    if (!handle) {
+      defaultLogHandleAvailable.value = false;
+      return;
+    }
+    if (typeof handle.queryPermission === 'function') {
+      const permission = await handle.queryPermission({ mode: 'read' });
+      if (permission === 'denied') {
+        defaultLogHandleAvailable.value = false;
+        return;
+      }
+    }
+    defaultLogHandleAvailable.value = true;
+  } catch (error) {
+    console.warn('Unable to inspect stored default log file handle.', error);
+    defaultLogHandleAvailable.value = false;
   }
 }
 
@@ -132,6 +231,7 @@ watch(nickname, () => {
   successMessage.value = '';
   errorMessage.value = '';
 });
+
 
 function extractErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null) {
@@ -152,6 +252,134 @@ function extractErrorMessage(error: unknown, fallback: string) {
     }
   }
   return fallback;
+}
+
+async function chooseDefaultLogFile() {
+  if (defaultLogSaving.value) {
+    return;
+  }
+  if (!authStore.user) {
+    defaultLogError.value = 'You must be signed in to configure a default log file.';
+    return;
+  }
+  if (!supportsDefaultLog.value) {
+    defaultLogError.value = 'Your browser does not support selecting a default log file.';
+    return;
+  }
+
+  defaultLogSaving.value = true;
+  defaultLogError.value = '';
+  defaultLogMessage.value = '';
+
+  try {
+    const picker = (window as any).showOpenFilePicker as
+      | ((options?: any) => Promise<FileSystemFileHandle[]>)
+      | undefined;
+    if (typeof picker !== 'function') {
+      throw new Error('Default log selection is unavailable in this browser.');
+    }
+
+    const handles = await picker({
+      multiple: false,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'EverQuest Logs',
+          accept: {
+            'text/plain': ['.txt', '.log']
+          }
+        }
+      ]
+    });
+
+    if (!Array.isArray(handles) || handles.length === 0) {
+      defaultLogMessage.value = 'Log file selection cancelled.';
+      return;
+    }
+
+    const handle = handles[0];
+    if (!handle) {
+      defaultLogMessage.value = 'Log file selection cancelled.';
+      return;
+    }
+
+    if (typeof handle.queryPermission === 'function') {
+      let permission = await handle.queryPermission({ mode: 'read' });
+      if (permission !== 'granted' && typeof handle.requestPermission === 'function') {
+        permission = await handle.requestPermission({ mode: 'read' });
+      }
+      if (permission !== 'granted') {
+        defaultLogError.value = 'Read access to the selected log file was not granted.';
+        return;
+      }
+    }
+
+    await saveDefaultLogHandle(authStore.user.userId, handle);
+    const updated = await api.updateAccountProfile({ defaultLogFileName: handle.name ?? null });
+    if (profile.value) {
+      profile.value = { ...profile.value, defaultLogFileName: updated.defaultLogFileName };
+    } else {
+      profile.value = updated;
+    }
+    defaultLogMessage.value = `Default log file set to ${handle.name}.`;
+    defaultLogHandleAvailable.value = true;
+    await refreshDefaultLogHandleState();
+    await authStore.fetchCurrentUser();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      defaultLogMessage.value = 'Log file selection cancelled.';
+      return;
+    }
+    console.error('Failed to save default log file', error);
+    defaultLogError.value = extractErrorMessage(
+      error,
+      'Unable to save your default log file. Please try again.'
+    );
+  } finally {
+    defaultLogSaving.value = false;
+  }
+}
+
+async function clearDefaultLogFile() {
+  if (defaultLogSaving.value) {
+    return;
+  }
+  if (!authStore.user) {
+    defaultLogError.value = 'You must be signed in to update your default log file.';
+    return;
+  }
+
+  defaultLogSaving.value = true;
+  defaultLogError.value = '';
+  defaultLogMessage.value = '';
+
+  try {
+    if (supportsDefaultLog.value) {
+      try {
+        await deleteDefaultLogHandle(authStore.user.userId);
+      } catch (handleError) {
+        console.warn('Failed to remove stored default log handle.', handleError);
+      }
+    }
+    const updated = await api.updateAccountProfile({ defaultLogFileName: null });
+    if (profile.value) {
+      profile.value = { ...profile.value, defaultLogFileName: updated.defaultLogFileName };
+    } else {
+      profile.value = updated;
+    }
+    defaultLogHandleAvailable.value = false;
+    defaultLogMessage.value = 'Default log file cleared.';
+    await refreshDefaultLogHandleState();
+    await authStore.fetchCurrentUser();
+  } catch (error) {
+    console.error('Failed to clear default log file', error);
+    defaultLogError.value = extractErrorMessage(
+      error,
+      'Unable to clear your default log file. Please try again.'
+    );
+  } finally {
+    defaultLogSaving.value = false;
+  }
 }
 
 async function saveNickname() {
@@ -291,6 +519,50 @@ onMounted(loadProfile);
   background: rgba(248, 113, 113, 0.15);
   border: 1px solid rgba(248, 113, 113, 0.35);
   color: #fecaca;
+}
+
+.alert--notice {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #bae6fd;
+}
+
+.alert--warning {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fef08a;
+}
+
+.default-log {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.default-log__header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.default-log__current {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #f8fafc;
+}
+
+.default-log__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.default-log__feedback {
+  color: #bbf7d0;
 }
 
 .alert--success {

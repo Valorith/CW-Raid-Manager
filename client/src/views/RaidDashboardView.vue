@@ -86,6 +86,16 @@
                 {{ getRaidStatus(raid.id).label }}
               </span>
               <button
+                class="copy-button"
+                type="button"
+                :disabled="sharingRaidId === raid.id"
+                @click.stop="shareRaid(raid)"
+                title="Copy share link"
+              >
+                <span aria-hidden="true">🔗</span>
+                <span class="sr-only">Copy share link</span>
+              </button>
+              <button
                 v-if="canCopyRaid(raid)"
                 class="copy-button"
                 type="button"
@@ -185,6 +195,7 @@ const showRaidModal = ref(false);
 const router = useRouter();
 const activeTab = ref<'active' | 'history'>('active');
 const copyingRaidId = ref<string | null>(null);
+const sharingRaidId = ref<string | null>(null);
 const guildTimingDefaults = ref<Record<
   string,
   { start: string | null; end: string | null; voice: string | null }
@@ -368,6 +379,46 @@ function canCopyRaid(raid: RaidEventSummary) {
     return raid.permissions.canManage;
   }
   return Boolean(selectedGuildPermissions.value?.canManage);
+}
+
+async function shareRaid(raid: RaidEventSummary) {
+  if (sharingRaidId.value === raid.id) {
+    return;
+  }
+  sharingRaidId.value = raid.id;
+  try {
+    const resolved = router.resolve({ name: 'RaidDetail', params: { raidId: raid.id } }).href;
+    const absoluteUrl = typeof window !== 'undefined'
+      ? new URL(resolved, window.location.origin).toString()
+      : resolved;
+
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(absoluteUrl);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = absoluteUrl;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('raid-share-copied', {
+        detail: {
+          raidId: raid.id,
+          raidName: raid.name
+        }
+      })
+    );
+  } catch (error) {
+    console.warn('Failed to copy raid share link', error);
+    window.alert('Unable to copy raid link. Please try again.');
+  } finally {
+    sharingRaidId.value = null;
+  }
 }
 
 async function copyRaid(raid: RaidEventSummary) {

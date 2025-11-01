@@ -12,6 +12,15 @@ const profileSchema = z.object({
     .refine((value) => value.length === 0 || value.length >= 2, {
       message: 'Nickname must be at least 2 characters.'
     })
+    .optional(),
+  defaultLogFileName: z
+    .union([
+      z
+        .string()
+        .trim()
+        .max(255, 'Default log file name cannot exceed 255 characters.'),
+      z.null()
+    ])
     .optional()
 });
 
@@ -23,7 +32,8 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
         id: true,
         email: true,
         displayName: true,
-        nickname: true
+        nickname: true,
+        defaultLogFileName: true
       }
     });
 
@@ -36,7 +46,8 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
         userId: user.id,
         email: user.email,
         displayName: user.displayName,
-        nickname: user.nickname ?? null
+        nickname: user.nickname ?? null,
+        defaultLogFileName: user.defaultLogFileName ?? null
       }
     };
   });
@@ -49,19 +60,35 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
       );
     }
 
-    const nickname =
-      parsed.data?.nickname === undefined ? null : parsed.data.nickname.trim() || null;
+    const updateData: Record<string, string | null> = {};
+
+    if (parsed.data.nickname !== undefined) {
+      const trimmed = parsed.data.nickname.trim();
+      updateData.nickname = trimmed.length > 0 ? trimmed : null;
+    }
+
+    if (parsed.data.defaultLogFileName !== undefined) {
+      if (typeof parsed.data.defaultLogFileName === 'string') {
+        const trimmed = parsed.data.defaultLogFileName.trim();
+        updateData.defaultLogFileName = trimmed.length > 0 ? trimmed : null;
+      } else {
+        updateData.defaultLogFileName = null;
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return reply.badRequest('No profile updates provided.');
+    }
 
     const user = await prisma.user.update({
       where: { id: request.user.userId },
-      data: {
-        nickname
-      },
+      data: updateData,
       select: {
         id: true,
         email: true,
         displayName: true,
-        nickname: true
+        nickname: true,
+        defaultLogFileName: true
       }
     });
 
@@ -70,7 +97,8 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
         userId: user.id,
         email: user.email,
         displayName: user.displayName,
-        nickname: user.nickname ?? null
+        nickname: user.nickname ?? null,
+        defaultLogFileName: user.defaultLogFileName ?? null
       }
     };
   });

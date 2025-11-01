@@ -729,6 +729,42 @@
       </div>
     </div>
 
+    <div
+      v-if="defaultLogPrompt.visible"
+      class="modal-backdrop"
+      @click.self="handleDefaultLogPromptAction('skip')"
+    >
+      <div class="modal default-log-modal">
+        <header class="modal__header">
+          <div>
+            <h3>Use Saved Log File?</h3>
+            <p class="muted small">
+              We found your default log file. Choose whether to use it for this session.
+            </p>
+          </div>
+          <button class="icon-button" type="button" @click="handleDefaultLogPromptAction('skip')">
+            ✕
+          </button>
+        </header>
+        <div class="default-log-modal__body">
+          <p class="default-log-modal__filename">{{ defaultLogPrompt.fileName }}</p>
+          <p class="muted small">{{ formatFileSize(defaultLogPrompt.fileSize) }}</p>
+        </div>
+        <footer class="default-log-modal__actions">
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            @click="handleDefaultLogPromptAction('skip')"
+          >
+            Choose a different file
+          </button>
+          <button class="btn btn--modal-primary" type="button" @click="handleDefaultLogPromptAction('use')">
+            Use saved log
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
       <div class="modal">
         <header class="modal__header">
@@ -1092,6 +1128,7 @@ import {
   type ParsedLootEvent
 } from '../services/lootParser';
 import { useAuthStore } from '../stores/auth';
+import { useMonitorStore } from '../stores/monitor';
 import {
   convertPlaceholdersToRegex,
   convertRegexToPlaceholders
@@ -1101,6 +1138,7 @@ import {
   matchesLootListEntry,
   normalizeLootItemName
 } from '../utils/lootLists';
+import { getDefaultLogHandle } from '../utils/defaultLogHandle';
 
 type DetectedLootDisposition = 'KEEP' | 'DISCARD' | 'WHITELIST' | 'BLACKLIST';
 
@@ -1159,9 +1197,12 @@ interface LootConsolePayload {
   status: LootConsoleStatus;
 }
 
+defineOptions({ name: 'LootTrackerView' });
+
 const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
+const monitorStore = useMonitorStore();
 
 const raid = ref<RaidDetail | null>(null);
 const lootEvents = ref<RaidLootEvent[]>([]);
@@ -1236,7 +1277,6 @@ const parsingWindowForm = reactive({
 });
 const debugLogs = ref<DebugLogEntry[]>([]);
 const authStore = useAuthStore();
-let lootAudioContext: AudioContext | null = null;
 const showUploadModeModal = ref(false);
 const pendingUploadFile = ref<File | null>(null);
 const monitorSession = ref<RaidLogMonitorSession | null>(null);
@@ -1300,6 +1340,22 @@ const editLootModal = reactive<{
     count: 1
   },
   saving: false
+});
+
+const defaultLogPrompt = reactive<{
+  visible: boolean;
+  fileName: string;
+  fileSize: number;
+  handle: LocalFileHandle | null;
+  file: File | null;
+  resolve: ((result: 'use' | 'skip') => void) | null;
+}>({
+  visible: false,
+  fileName: '',
+  fileSize: 0,
+  handle: null,
+  file: null,
+  resolve: null
 });
 
 function normalizeLogFileName(value?: string | null) {
@@ -1438,7 +1494,17 @@ watch(
   () => monitorSession.value,
   (session) => {
     if (!session) {
+      monitorStore.clearSession();
+      monitorStore.setPendingActions(false);
       clearLootConsole();
+      return;
+    }
+    if (session.isOwner) {
+      monitorStore.setSession(raidId, raid.value?.name ?? 'Active Raid', session);
+      monitorStore.setPendingActions(detectedLootModalOpen.value);
+    } else {
+      monitorStore.clearSession();
+      monitorStore.setPendingActions(false);
     }
   }
 );
@@ -1451,6 +1517,7 @@ watch(
   }
 );
 watch(detectedLootModalOpen, (open) => {
+  monitorStore.setPendingActions(Boolean(open && monitorSession.value?.isOwner));
   if (open) {
     window.addEventListener('keydown', handleDetectedModalKeydown);
   } else {
@@ -1751,6 +1818,11 @@ async function promptFileSelection() {
     return;
   }
 
+  const defaultOutcome = await attemptDefaultLogSelection();
+  if (defaultOutcome === 'used') {
+    return;
+  }
+
   if (!supportsContinuousMonitoring.value) {
     fileInput.value?.click();
     return;
@@ -1766,6 +1838,81 @@ async function promptFileSelection() {
     setPendingUploadSelection(file, { handle, reason: 'picker' });
   } catch (error) {
     appendDebugLog('File picker cancelled or failed', { error: String(error) });
+  }
+}
+
+async function attemptDefaultLogSelection(): Promise<'used' | 'skipped' | 'unavailable'> {
+  if (!authStore.user) {
+    return 'unavailable';
+  }
+  if (!supportsContinuousMonitoring.value) {
+    return 'unavailable';
+  }
+  try {
+    const handle = await getDefaultLogHandle(authStore.user.userId);
+    if (!handle) {
+      return 'unavailable';
+    }
+    if (typeof handle.queryPermission === 'function') {
+      let permission = await handle.queryPermission({ mode: 'read' });
+      if (permission !== 'granted' && typeof handle.requestPermission === 'function') {
+        permission = await handle.requestPermission({ mode: 'read' });
+      }
+      if (permission !== 'granted') {
+        return 'unavailable';
+      }
+    }
+
+    const file = await handle.getFile();
+    return await new Promise<'used' | 'skipped'>((resolve) => {
+      defaultLogPrompt.visible = true;
+      defaultLogPrompt.fileName = file.name;
+      defaultLogPrompt.fileSize = file.size;
+      defaultLogPrompt.handle = handle;
+      defaultLogPrompt.file = file;
+      defaultLogPrompt.resolve = (result) => {
+        cleanupDefaultLogPrompt();
+        resolve(result === 'use' ? 'used' : 'skipped');
+      };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendDebugLog('Default log file unavailable', { error: message });
+    if (!message.includes('IndexedDB')) {
+      window.alert('We could not access your default log file. Please re-select it in Account Settings.');
+    }
+    return 'unavailable';
+  }
+}
+
+function cleanupDefaultLogPrompt() {
+  defaultLogPrompt.visible = false;
+  defaultLogPrompt.fileName = '';
+  defaultLogPrompt.fileSize = 0;
+  defaultLogPrompt.handle = null;
+  defaultLogPrompt.file = null;
+  defaultLogPrompt.resolve = null;
+}
+
+function handleDefaultLogPromptAction(action: 'use' | 'skip') {
+  const resolver = defaultLogPrompt.resolve;
+  if (!resolver) {
+    cleanupDefaultLogPrompt();
+    return;
+  }
+
+  if (action === 'use' && defaultLogPrompt.file) {
+    const file = defaultLogPrompt.file;
+    const handle = defaultLogPrompt.handle;
+    setPendingUploadSelection(file, { handle, reason: 'default-log' });
+    appendDebugLog('Default log file selected automatically', {
+      fileName: file.name,
+      size: file.size
+    });
+    resolver('use');
+  } else {
+    appendDebugLog('Default log file selection dismissed');
+    resolver('skip');
   }
 }
 
@@ -2323,7 +2470,7 @@ function handleRefreshShortcut(event: KeyboardEvent) {
   showLeaveMonitorModal.value = true;
 }
 
-function handleBeforeRouteLeave(to: any, from: any, next: (value?: boolean | string) => void) {
+function handleBeforeRouteLeave(_to: any, _from: any, next: (value?: boolean | string) => void) {
   if (!monitorSession.value?.isOwner) {
     next();
     return;
@@ -2334,9 +2481,7 @@ function handleBeforeRouteLeave(to: any, from: any, next: (value?: boolean | str
     return;
   }
 
-  pendingNavigation.value = { type: 'route', to };
-  showLeaveMonitorModal.value = true;
-  next(false);
+  next();
 }
 
 function dismissLeaveMonitorModal(shouldNavigate: boolean) {
@@ -3411,7 +3556,15 @@ function processLogContent(
     showDetectedModal.value = true;
     parsedLootPage.value = 1;
     if (monitorSession.value?.isOwner) {
-      void playDetectedChime();
+      window.dispatchEvent(
+        new CustomEvent('loot-actions-pending', {
+          detail: {
+            raidId,
+            raidName: raid.value?.name ?? null,
+            lootCount: parsedLoot.value.length
+          }
+        })
+      );
     }
   }
   appendDebugLog('Parsing completed', {
@@ -3725,33 +3878,6 @@ function resetDetectedLoot() {
 function closeDetectedLootModal() {
   showDetectedModal.value = false;
   parsedLootPage.value = 1;
-}
-
-function playDetectedChime() {
-  if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
-    return;
-  }
-  try {
-    lootAudioContext = lootAudioContext ?? new window.AudioContext();
-    const ctx = lootAudioContext;
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
-    }
-    const oscillator = ctx.createOscillator();
-    oscillator.type = 'triangle';
-    oscillator.frequency.value = 880;
-    const gain = ctx.createGain();
-    gain.gain.value = 0.12;
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-    oscillator.start(now);
-    oscillator.stop(now + 0.3);
-  } catch (error) {
-    appendDebugLog('Unable to play detected loot chime', { error: String(error) });
-  }
 }
 
 async function deleteLootGroup(entry: GroupedLootEntry, options?: { skipConfirm?: boolean }) {
@@ -4703,6 +4829,33 @@ onBeforeUnmount(() => {
   color: #f8fafc;
 }
 
+.default-log-modal {
+  max-width: 420px;
+  width: 100%;
+}
+
+.default-log-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.75rem 0 1rem;
+}
+
+.default-log-modal__filename {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f8fafc;
+  word-break: break-word;
+}
+
+.default-log-modal__actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .edit-loot-form {
   display: flex;
   flex-direction: column;
@@ -5265,15 +5418,54 @@ onBeforeUnmount(() => {
   position: absolute;
   left: -9999px;
 }
+
+.detected-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.detected-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.detected-control--keep {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(16, 185, 129, 0.9));
+  border: none;
+  color: #f0fdf4;
+  box-shadow: 0 10px 18px rgba(16, 185, 129, 0.35);
+}
+
+.detected-control--discard {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.85), rgba(239, 68, 68, 0.9));
+  border: none;
+  color: #fff1f2;
+  box-shadow: 0 10px 18px rgba(248, 113, 113, 0.35);
+}
+
+.detected-control:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.detected-save-button {
+  min-width: 240px;
+  font-size: 1rem;
+  padding: 0.85rem 1.75rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.95));
+  border: none;
+  color: #eff6ff;
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.35);
+}
+
+.detected-save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
 </style>
-.detected-controls { display: flex; justify-content: flex-end; gap: 0.75rem; margin-bottom: 0.75rem;
-} .detected-control { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; }
-.detected-control--keep { background: linear-gradient(135deg, rgba(34, 197, 94, 0.85), rgba(16, 185,
-129, 0.9)); border: none; color: #f0fdf4; box-shadow: 0 10px 18px rgba(16, 185, 129, 0.35); }
-.detected-control--discard { background: linear-gradient(135deg, rgba(248, 113, 113, 0.85),
-rgba(239, 68, 68, 0.9)); border: none; color: #fff1f2; box-shadow: 0 10px 18px rgba(248, 113, 113,
-0.35); } .detected-control:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
-.detected-save-button { min-width: 240px; font-size: 1rem; padding: 0.85rem 1.75rem; background:
-linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(14, 165, 233, 0.95)); border: none; color:
-#eff6ff; box-shadow: 0 12px 28px rgba(14, 165, 233, 0.35); } .detected-save-button:disabled {
-opacity: 0.6; cursor: not-allowed; box-shadow: none; }

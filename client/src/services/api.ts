@@ -544,6 +544,7 @@ export interface AccountProfile {
   email: string;
   displayName: string;
   nickname: string | null;
+  defaultLogFileName: string | null;
 }
 
 export interface AdminUserGuildMembership {
@@ -1390,12 +1391,31 @@ export const api = {
 
   async fetchAccountProfile(): Promise<AccountProfile | null> {
     const response = await axios.get('/api/account/profile');
-    return response.data.profile ?? null;
+    if (!response.data?.profile) {
+      return null;
+    }
+    return {
+      userId: response.data.profile.userId,
+      email: response.data.profile.email,
+      displayName: response.data.profile.displayName,
+      nickname: response.data.profile.nickname ?? null,
+      defaultLogFileName: response.data.profile.defaultLogFileName ?? null
+    };
   },
 
-  async updateAccountProfile(payload: { nickname?: string | null }): Promise<AccountProfile> {
+  async updateAccountProfile(payload: {
+    nickname?: string | null;
+    defaultLogFileName?: string | null;
+  }): Promise<AccountProfile> {
     const response = await axios.patch('/api/account/profile', payload);
-    return response.data.profile;
+    const profile = response.data.profile;
+    return {
+      userId: profile.userId,
+      email: profile.email,
+      displayName: profile.displayName,
+      nickname: profile.nickname ?? null,
+      defaultLogFileName: profile.defaultLogFileName ?? null
+    };
   },
 
   async fetchRecentAttendance(limit?: number): Promise<RecentAttendanceEntry[]> {
