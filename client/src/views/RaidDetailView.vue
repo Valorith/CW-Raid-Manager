@@ -2753,6 +2753,7 @@ async function copyRaidLink() {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  align-items: flex-start;
 }
 
 .raid-detail__title-top {
