@@ -45,6 +45,39 @@
           <textarea v-model="form.notes" rows="3"></textarea>
         </label>
 
+        <div class="form__field form__field--checkbox">
+          <label class="checkbox">
+            <input v-model="form.recurrenceEnabled" type="checkbox" />
+            <span>Repeat this raid</span>
+          </label>
+        </div>
+
+        <div v-if="form.recurrenceEnabled" class="recurrence-fields">
+          <label class="form__field">
+            <span>Frequency</span>
+            <select v-model="form.recurrenceFrequency">
+              <option value="DAILY">Daily</option>
+              <option value="WEEKLY">Weekly</option>
+              <option value="MONTHLY">Monthly</option>
+            </select>
+          </label>
+          <label class="form__field form__field--inline">
+            <span>Repeat Every</span>
+            <input
+              v-model.number="form.recurrenceInterval"
+              type="number"
+              min="1"
+              class="recurrence-interval"
+            />
+            <span class="recurrence-interval__suffix">{{ intervalSuffix }}</span>
+          </label>
+          <label class="form__field">
+            <span>End Date (optional)</span>
+            <input v-model="form.recurrenceEndDate" type="date" />
+            <small class="form__hint">Leave empty to repeat until disabled.</small>
+          </label>
+        </div>
+
         <footer class="form__actions">
           <button class="btn btn--outline" type="button" @click="close">Cancel</button>
           <button class="btn" type="submit" :disabled="submitting">
@@ -57,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 import { api } from '../services/api';
 import { normalizeOptionalUrl } from '../utils/urls';
@@ -80,13 +113,39 @@ const form = reactive({
   targetZones: '',
   targetBosses: '',
   notes: '',
-  discordVoiceUrl: props.defaultDiscordVoiceUrl ?? ''
+  discordVoiceUrl: props.defaultDiscordVoiceUrl ?? '',
+  recurrenceEnabled: false,
+  recurrenceFrequency: 'WEEKLY' as 'DAILY' | 'WEEKLY' | 'MONTHLY',
+  recurrenceInterval: 1,
+  recurrenceEndDate: ''
 });
 
 const submitting = ref(false);
 const errors = reactive({
   discordVoiceUrl: ''
 });
+const intervalSuffix = computed(() => {
+  const interval = Number(form.recurrenceInterval) || 1;
+  switch (form.recurrenceFrequency) {
+    case 'DAILY':
+      return interval === 1 ? 'day' : 'days';
+    case 'MONTHLY':
+      return interval === 1 ? 'month' : 'months';
+    default:
+      return interval === 1 ? 'week' : 'weeks';
+  }
+});
+
+watch(
+  () => form.recurrenceInterval,
+  (value) => {
+    if (!Number.isFinite(value) || Number(value) < 1) {
+      form.recurrenceInterval = 1;
+    } else {
+      form.recurrenceInterval = Math.floor(Number(value));
+    }
+  }
+);
 const defaultWindowLabel = computed(() => {
   const start = formatDefaultClock(props.defaultStartTime);
   const end = formatDefaultClock(props.defaultEndTime);
@@ -119,6 +178,17 @@ async function submit() {
 
     form.discordVoiceUrl = normalized ?? '';
 
+    const recurrencePayload =
+      form.recurrenceEnabled
+        ? {
+            frequency: form.recurrenceFrequency,
+            interval: Math.max(1, form.recurrenceInterval),
+            endDate: form.recurrenceEndDate
+              ? new Date(`${form.recurrenceEndDate}T00:00:00`).toISOString()
+              : null
+          }
+        : null;
+
     await api.createRaidEvent({
       guildId: props.guildId,
       name: form.name,
@@ -126,7 +196,8 @@ async function submit() {
       targetZones: splitAndFilter(form.targetZones),
       targetBosses: splitAndFilter(form.targetBosses),
       notes: form.notes || undefined,
-      discordVoiceUrl: normalized ?? undefined
+      discordVoiceUrl: normalized ?? undefined,
+      recurrence: recurrencePayload
     });
     emit('created');
   } finally {
@@ -215,12 +286,49 @@ function formatDefaultClock(value?: string | null) {
 }
 
 .form__field input,
-.form__field textarea {
+.form__field textarea,
+.form__field select {
   background: rgba(30, 41, 59, 0.8);
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 0.5rem;
   padding: 0.65rem 0.75rem;
   color: #f8fafc;
+}
+
+.form__field--inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form__field--checkbox {
+  display: flex;
+  align-items: center;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.recurrence-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.recurrence-interval {
+  width: 5.5rem;
+}
+
+.recurrence-interval__suffix {
+  color: #cbd5f5;
 }
 
 .form__actions {

@@ -13,6 +13,13 @@
         <button class="btn btn--outline" @click="emitCancel">
           {{ cancelLabel }}
         </button>
+        <button
+          v-if="secondaryConfirmLabel"
+          class="btn btn--outline"
+          @click="emitSecondaryConfirm"
+        >
+          {{ secondaryConfirmLabel }}
+        </button>
         <button class="btn" @click="emitConfirm">
           {{ confirmLabel }}
         </button>
@@ -27,22 +34,29 @@ const props = withDefaults(
     title: string;
     description?: string;
     confirmLabel?: string;
+    secondaryConfirmLabel?: string;
     cancelLabel?: string;
   }>(),
   {
     confirmLabel: 'Confirm',
     cancelLabel: 'Cancel',
-    description: undefined
+    description: undefined,
+    secondaryConfirmLabel: undefined
   }
 );
 
 const emit = defineEmits<{
   (e: 'confirm'): void;
+  (e: 'secondary-confirm'): void;
   (e: 'cancel'): void;
 }>();
 
 function emitConfirm() {
   emit('confirm');
+}
+
+function emitSecondaryConfirm() {
+  emit('secondary-confirm');
 }
 
 function emitCancel() {

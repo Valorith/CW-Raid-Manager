@@ -48,7 +48,18 @@
             @keydown.space.prevent="openRaid(raid.id)"
           >
             <div class="raid-info">
-              <strong>{{ raid.name }}</strong>
+              <strong>
+                <span
+                  v-if="raid.isRecurring"
+                  class="raid-recurring-icon"
+                  role="img"
+                  :title="recurrenceTooltip(raid)"
+                  :aria-label="recurrenceTooltip(raid)"
+                >
+                  ♻️
+                </span>
+                {{ raid.name }}
+              </strong>
               <span class="muted">
                 ({{ formatDate(raid.startTime) }}) • {{ formatTargetZones(raid.targetZones) }}
               </span>
@@ -291,6 +302,16 @@ function formatDate(date: string) {
   }).format(parsed);
 }
 
+function formatDateOnly(date: string) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'unknown date';
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium'
+  }).format(parsed);
+}
+
 function formatTargetZones(zones: unknown): string {
   if (!Array.isArray(zones)) {
     return 'Unknown Target';
@@ -301,6 +322,29 @@ function formatTargetZones(zones: unknown): string {
     .filter((zone): zone is string => typeof zone === 'string' && zone.length > 0);
 
   return labels.length > 0 ? labels.join(', ') : 'Unknown Target';
+}
+
+function recurrenceTooltip(raid: RaidEventSummary) {
+  if (!raid.isRecurring || !raid.recurrence) {
+    return 'Recurring raid';
+  }
+
+  const unit = raid.recurrence.frequency === 'DAILY'
+    ? 'day'
+    : raid.recurrence.frequency === 'MONTHLY'
+      ? 'month'
+      : 'week';
+  const interval = Math.max(1, raid.recurrence.interval);
+  const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
+
+  let summary = `Repeats ${everyLabel}`;
+  if (raid.recurrence.endDate) {
+    summary += ` until ${formatDateOnly(raid.recurrence.endDate)}`;
+  }
+  if (raid.recurrence.isActive === false) {
+    summary += ' (paused)';
+  }
+  return summary;
 }
 
 async function ensureGuildDefaults(guildId: string) {
@@ -339,7 +383,15 @@ async function copyRaid(raid: RaidEventSummary) {
       targetZones: ensureTargets(raid.targetZones),
       targetBosses: ensureTargets(raid.targetBosses),
       notes: raid.notes ?? undefined,
-      discordVoiceUrl: raid.discordVoiceUrl ?? undefined
+      discordVoiceUrl: raid.discordVoiceUrl ?? undefined,
+      recurrence:
+        raid.isRecurring && raid.recurrence?.isActive !== false && raid.recurrence
+          ? {
+              frequency: raid.recurrence.frequency,
+              interval: raid.recurrence.interval,
+              endDate: raid.recurrence.endDate ?? null
+            }
+          : null
     });
     await loadRaids();
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
@@ -548,6 +600,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+.raid-info strong {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.raid-recurring-icon {
+  font-size: 1.05rem;
 }
 
 .raid-meta {

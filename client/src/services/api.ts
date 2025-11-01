@@ -251,6 +251,14 @@ export interface RaidEventSummary {
   notes?: string | null;
   discordVoiceUrl?: string | null;
   isActive: boolean;
+  isRecurring: boolean;
+  recurrence: {
+    id: string;
+    frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+    interval: number;
+    endDate?: string | null;
+    isActive: boolean;
+  } | null;
   raidSignupNotificationsEnabled?: boolean;
   logMonitor?: {
     isActive: boolean;
@@ -823,6 +831,24 @@ function normalizeRaidSummary(
       }
     : null;
 
+  const recurrence = raid?.recurrence
+    ? {
+        id: typeof raid.recurrence?.id === 'string' ? raid.recurrence.id : '',
+        frequency:
+          raid.recurrence?.frequency === 'DAILY' ||
+          raid.recurrence?.frequency === 'WEEKLY' ||
+          raid.recurrence?.frequency === 'MONTHLY'
+            ? raid.recurrence.frequency
+            : 'WEEKLY',
+        interval:
+          typeof raid.recurrence?.interval === 'number' && raid.recurrence.interval > 0
+            ? raid.recurrence.interval
+            : 1,
+        endDate: normalizeNullableDate(raid.recurrence?.endDate),
+        isActive: raid.recurrence?.isActive !== false
+      }
+    : null;
+
   return {
     id: raid?.id ?? '',
     guildId: raid?.guildId ?? '',
@@ -838,6 +864,8 @@ function normalizeRaidSummary(
         ? raid.discordVoiceUrl
         : raid?.discordVoiceUrl ?? null,
     isActive: Boolean(raid?.isActive),
+    isRecurring: Boolean(raid?.isRecurring || recurrence),
+    recurrence,
     raidSignupNotificationsEnabled:
       typeof raid?.raidSignupNotificationsEnabled === 'boolean'
         ? raid.raidSignupNotificationsEnabled
@@ -1277,6 +1305,14 @@ export const api = {
       notes?: string;
       isActive?: boolean;
       discordVoiceUrl?: string | null;
+      recurrence?:
+        | {
+            frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+            interval: number;
+            endDate?: string | null;
+            isActive?: boolean;
+          }
+        | null;
     }
   ) {
     const response = await axios.patch(`/api/raids/${raidId}`, payload);
@@ -1293,6 +1329,11 @@ export const api = {
     targetBosses: string[];
     notes?: string;
     discordVoiceUrl?: string;
+    recurrence?: {
+      frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+      interval: number;
+      endDate?: string | null;
+    } | null;
   }) {
     const response = await axios.post('/api/raids', payload);
     return response.data.raid;
@@ -1395,8 +1436,13 @@ export const api = {
     return response.data.raid;
   },
 
-  async deleteRaid(raidId: string) {
-    await axios.delete(`/api/raids/${raidId}`);
+  async deleteRaid(raidId: string, options?: { scope?: 'EVENT' | 'SERIES' }) {
+    const config = options?.scope
+      ? {
+          data: { scope: options.scope }
+        }
+      : undefined;
+    await axios.delete(`/api/raids/${raidId}`, config);
   },
 
   async deleteAttendanceEvent(attendanceEventId: string) {

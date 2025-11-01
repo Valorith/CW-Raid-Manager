@@ -24,6 +24,7 @@ model User {
   guildMemberships   GuildMembership[]
   createdRaids       RaidEvent[]        @relation("RaidCreator")
   createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
+  createdRaidSeries  RaidEventSeries[] @relation("RaidSeriesCreator")
   raidSignups        RaidSignup[]
 }
 
@@ -50,6 +51,7 @@ model Guild {
   members              GuildMembership[]
   raids                RaidEvent[]
   lootEvents           RaidLootEvent[]
+  raidSeries           RaidEventSeries[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -136,14 +138,35 @@ model RaidEvent {
   updatedAt    DateTime          @updatedAt
   endedAt      DateTime?
   startedAt    DateTime?
+  recurrenceSeriesId String?
   attendance   AttendanceEvent[]
   createdBy    User              @relation("RaidCreator", fields: [createdById], references: [id])
   guild        Guild             @relation(fields: [guildId], references: [id])
   signups      RaidSignup[]
   loot         RaidLootEvent[]
+  recurrenceSeries   RaidEventSeries? @relation(fields: [recurrenceSeriesId], references: [id], onDelete: SetNull)
 
   @@index([createdById], map: "RaidEvent_createdById_fkey")
   @@index([guildId], map: "RaidEvent_guildId_fkey")
+  @@index([recurrenceSeriesId])
+}
+
+model RaidEventSeries {
+  id        String                  @id @default(cuid())
+  guildId   String
+  createdById String
+  frequency RaidRecurrenceFrequency
+  interval  Int                     @default(1)
+  endDate   DateTime?
+  isActive  Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+  events    RaidEvent[]
+  guild     Guild                   @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  createdBy User                    @relation("RaidSeriesCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+  @@index([createdById])
 }
 
 model GuildLootParserSettings {
@@ -322,4 +345,10 @@ enum LootListType {
 enum LootListMatchType {
   ITEM_ID
   ITEM_NAME
+}
+
+enum RaidRecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
 }

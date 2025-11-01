@@ -4,7 +4,18 @@
       <div>
         <div class="raid-title-row">
           <div class="raid-title-main">
-            <h1>{{ raid.name }}</h1>
+            <h1>
+              <span
+                v-if="raid.isRecurring"
+                class="raid-recurring-icon"
+                role="img"
+                :title="raidRecurrenceSummary"
+                :aria-label="raidRecurrenceSummary"
+              >
+                ♻️
+              </span>
+              {{ raid.name }}
+            </h1>
             <button
               v-if="canManageRaid"
               class="icon-button icon-button--edit"
@@ -341,6 +352,113 @@
       </transition>
     </section>
 
+    <section
+      class="card raid-recurrence-card"
+      :class="{ 'raid-recurrence-card--collapsed': recurrenceCardCollapsed }"
+    >
+      <header class="card__header raid-recurrence-card__header">
+        <div class="raid-recurrence-card__title">
+          <span class="raid-recurrence-card__icon" aria-hidden="true">♻️</span>
+          <div>
+            <h2>Recurrence</h2>
+            <p v-if="showRecurrenceSummaryText" class="muted">{{ raidRecurrenceSummary }}</p>
+          </div>
+        </div>
+        <div class="raid-recurrence-card__actions">
+          <label
+            class="recurrence-toggle"
+            :class="{
+              'recurrence-toggle--active': recurrenceForm.enabled,
+              'recurrence-toggle--disabled': !canManageRaid || savingRecurrence
+            }"
+          >
+            <input
+              v-model="recurrenceForm.enabled"
+              type="checkbox"
+              :disabled="!canManageRaid || savingRecurrence"
+            />
+            <span class="recurrence-toggle__track" aria-hidden="true">
+              <span class="recurrence-toggle__thumb"></span>
+            </span>
+            <span class="recurrence-toggle__label">
+              {{ recurrenceForm.enabled ? 'Recurrence enabled' : 'Enable recurrence' }}
+            </span>
+          </label>
+          <template v-if="canManageRaid && recurrenceForm.enabled">
+            <button
+              class="btn btn--outline"
+              type="button"
+              :disabled="!recurrenceDirty || savingRecurrence"
+              @click="resetRecurrence"
+            >
+              Reset
+            </button>
+            <button
+              class="btn"
+              type="button"
+              :disabled="!recurrenceDirty || savingRecurrence"
+              @click="saveRecurrence"
+            >
+              {{ savingRecurrence ? 'Saving…' : 'Save Recurrence' }}
+            </button>
+          </template>
+        </div>
+      </header>
+      <transition name="recurrence-fade">
+        <div v-if="showRecurrenceSummary" class="raid-recurrence-card__summary">
+          <span
+            :class="[
+              'recurrence-chip',
+              raid.isRecurring ? 'recurrence-chip--active' : 'recurrence-chip--inactive'
+            ]"
+          >
+            {{ raid.isRecurring ? 'Recurring' : 'One-time raid' }}
+          </span>
+        </div>
+      </transition>
+
+      <div class="recurrence-form" :class="{ 'recurrence-form--collapsed': !recurrenceForm.enabled }">
+        <transition name="recurrence-collapse">
+          <div v-if="recurrenceForm.enabled" class="recurrence-fields">
+            <div class="recurrence-fields__grid">
+              <label class="form__field">
+                <span>Frequency</span>
+                <select v-model="recurrenceForm.frequency" :disabled="!canManageRaid">
+                  <option value="DAILY">Daily</option>
+                  <option value="WEEKLY">Weekly</option>
+                  <option value="MONTHLY">Monthly</option>
+                </select>
+              </label>
+              <label class="form__field form__field--inline">
+                <span>Repeat Every</span>
+                <input
+                  v-model.number="recurrenceForm.interval"
+                  type="number"
+                min="1"
+                class="recurrence-interval"
+                :disabled="!canManageRaid"
+              />
+              <span class="recurrence-interval__suffix">{{ recurrenceIntervalSuffix }}</span>
+            </label>
+            <label class="form__field">
+              <span>Series End (optional)</span>
+              <input v-model="recurrenceForm.endDate" type="date" :disabled="!canManageRaid" />
+              <small class="form__hint">Leave empty to repeat until disabled.</small>
+            </label>
+            </div>
+            <div v-if="recurrenceForm.endDate" class="recurrence-note">
+              <span class="recurrence-note__icon" aria-hidden="true">📅</span>
+              <span>Next events run until {{ formatDateOnly(recurrenceForm.endDate) }}.</span>
+            </div>
+          </div>
+        </transition>
+        <p v-if="recurrenceError" class="error">{{ recurrenceError }}</p>
+        <p v-else-if="!canManageRaid" class="muted small">
+          You do not have permission to change recurrence settings.
+        </p>
+      </div>
+    </section>
+
     <section class="card raid-timing">
       <header class="card__header">
         <div>
@@ -349,25 +467,28 @@
         </div>
         <div class="actions timing-actions">
           <button
-            class="btn"
+            class="raid-action-btn raid-action-btn--start"
             :disabled="startingRaid || hasEffectiveStarted || !canManageRaid"
             @click="handleStartRaid"
           >
-            {{ startingRaid ? 'Starting…' : hasEffectiveStarted ? 'Started' : 'Start Raid' }}
+            <span class="raid-action-btn__icon" aria-hidden="true">⚡</span>
+            <span>{{ startingRaid ? 'Starting…' : hasEffectiveStarted ? 'Started' : 'Start Raid' }}</span>
           </button>
           <button
-            class="btn btn--outline"
+            class="raid-action-btn raid-action-btn--end"
             :disabled="endingRaid || !hasEffectiveStarted || hasEffectiveEnded || !canManageRaid"
             @click="handleEndRaid"
           >
-            {{ endingRaid ? 'Ending…' : hasEffectiveEnded ? 'Ended' : 'End Raid' }}
+            <span class="raid-action-btn__icon" aria-hidden="true">🛑</span>
+            <span>{{ endingRaid ? 'Ending…' : hasEffectiveEnded ? 'Ended' : 'End Raid' }}</span>
           </button>
           <button
-            class="btn btn--outline"
+            class="raid-action-btn raid-action-btn--restart"
             :disabled="restartingRaid || !canRestartRaid"
             @click="handleRestartRaid"
           >
-            {{ restartingRaid ? 'Restarting…' : 'Restart Raid' }}
+            <span class="raid-action-btn__icon" aria-hidden="true">🔄</span>
+            <span>{{ restartingRaid ? 'Restarting…' : 'Restart Raid' }}</span>
           </button>
         </div>
       </header>
@@ -651,9 +772,11 @@
     :title="confirmModal.title"
     :description="confirmModal.message"
     :confirm-label="confirmModal.confirmLabel"
+    :secondary-confirm-label="confirmModal.secondaryConfirmLabel"
     :cancel-label="confirmModal.cancelLabel"
-    @confirm="resolveConfirmation(true)"
-    @cancel="resolveConfirmation(false)"
+    @confirm="resolveConfirmation('primary')"
+    @secondary-confirm="resolveConfirmation('secondary')"
+    @cancel="resolveConfirmation('cancel')"
   />
 </template>
 
@@ -844,11 +967,64 @@ const startingRaid = ref(false);
 const endingRaid = ref(false);
 const restartingRaid = ref(false);
 const renamingRaid = ref(false);
+type RecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
+const recurrenceForm = reactive({
+  enabled: false,
+  frequency: 'WEEKLY' as RecurrenceFrequency,
+  interval: 1,
+  endDate: ''
+});
+const initialRecurrence = reactive({
+  enabled: false,
+  frequency: 'WEEKLY' as RecurrenceFrequency,
+  interval: 1,
+  endDate: ''
+});
+const savingRecurrence = ref(false);
+const recurrenceError = ref<string | null>(null);
+const recurrenceIntervalSuffix = computed(() => {
+  const interval = Math.max(1, Number(recurrenceForm.interval) || 1);
+  switch (recurrenceForm.frequency) {
+    case 'DAILY':
+      return interval === 1 ? 'day' : 'days';
+    case 'MONTHLY':
+      return interval === 1 ? 'month' : 'months';
+    default:
+      return interval === 1 ? 'week' : 'weeks';
+  }
+});
+const recurrenceDirty = computed(() =>
+  recurrenceForm.enabled !== initialRecurrence.enabled ||
+  recurrenceForm.frequency !== initialRecurrence.frequency ||
+  recurrenceForm.interval !== initialRecurrence.interval ||
+  recurrenceForm.endDate !== initialRecurrence.endDate
+);
+
+watch(
+  () => recurrenceForm.interval,
+  (value) => {
+    if (!Number.isFinite(value) || Number(value) < 1) {
+      recurrenceForm.interval = 1;
+    } else {
+      recurrenceForm.interval = Math.floor(Number(value));
+    }
+  }
+);
+
+watch(
+  () => recurrenceForm.enabled,
+  async (enabled, previous) => {
+    if (previous && !enabled) {
+      await persistRecurrenceDisabled();
+    }
+  }
+);
 const confirmModal = reactive({
   visible: false,
   title: '',
   message: undefined as string | undefined,
   confirmLabel: 'Confirm',
+  secondaryConfirmLabel: undefined as string | undefined,
   cancelLabel: 'Cancel'
 });
 const shareStatus = ref<string | null>(null);
@@ -856,7 +1032,7 @@ let shareStatusTimeout: ReturnType<typeof setTimeout> | null = null;
 const updatingDiscordVoice = ref(false);
 let signupSuccessTimeout: ReturnType<typeof setTimeout> | null = null;
 
-let confirmResolver: ((value: boolean) => void) | null = null;
+let confirmResolver: ((value: 'primary' | 'secondary' | 'cancel') => void) | null = null;
 const actionError = ref<string | null>(null);
 const pendingEventTypes = ref<Array<'START' | 'END' | 'RESTART'>>([]);
 const editLootModal = reactive<{
@@ -882,6 +1058,10 @@ const hasEffectiveStarted = computed(() => {
   }
   return new Date(startedAt).getTime() <= Date.now();
 });
+const raidRecurrenceSummary = computed(() => describeRaidRecurrence(raid.value));
+const recurrenceCardCollapsed = computed(() => !recurrenceForm.enabled);
+const showRecurrenceSummary = computed(() => recurrenceForm.enabled);
+const showRecurrenceSummaryText = computed(() => recurrenceForm.enabled);
 const signupsLocked = computed(() => hasEffectiveStarted.value);
 const canManageRaid = computed(() => {
   const permissions = raid.value?.permissions;
@@ -1127,14 +1307,14 @@ async function saveSignups(options?: { characterIds?: string[]; successMessage?:
     return;
   }
   if (targetIds.length > 0) {
-    const confirmed = await showConfirmation({
+    const confirmation = await showConfirmation({
       title: 'Confirm Raid Signup',
       message:
         'Are you sure you want to confirm this raid signup? Depending on your guild\'s settings, a discord notification may be sent to notify others of your signup.',
       confirmLabel: 'Confirm',
       cancelLabel: 'Keep Editing'
     });
-    if (!confirmed) {
+    if (confirmation !== 'primary') {
       return;
     }
   }
@@ -1215,7 +1395,9 @@ async function loadRaid() {
   const data = await api.fetchRaid(raidId);
   raid.value = data;
   setTimingInputs(data);
+  setRecurrenceSettings(data);
   actionError.value = null;
+  recurrenceError.value = null;
   await refreshLootListSummary();
 }
 
@@ -1584,6 +1766,64 @@ function composeInputFromDefault(baseIso: string | null | undefined, defaultTime
   return local.toISOString().slice(0, 16);
 }
 
+function formatDateOnly(value?: string | null) {
+  if (!value) {
+    return 'unknown date';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'unknown date';
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium'
+  }).format(parsed);
+}
+
+function toDateInputOnly(value?: string | null) {
+  if (!value) {
+    return '';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function describeRecurrence(settings: {
+  frequency: RecurrenceFrequency;
+  interval: number;
+  endDate?: string | null;
+  isActive?: boolean;
+}) {
+  const interval = Math.max(1, settings.interval || 1);
+  const unit =
+    settings.frequency === 'DAILY'
+      ? 'day'
+      : settings.frequency === 'MONTHLY'
+        ? 'month'
+        : 'week';
+  const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
+  let summary = `Repeats ${everyLabel}`;
+  if (settings.endDate) {
+    summary += ` until ${formatDateOnly(settings.endDate)}`;
+  }
+  if (settings.isActive === false) {
+    summary += ' (paused)';
+  }
+  return summary;
+}
+
+function describeRaidRecurrence(detail: RaidDetail | null | undefined) {
+  if (!detail || !detail.isRecurring || !detail.recurrence) {
+    return 'Not set to repeat';
+  }
+  return describeRecurrence(detail.recurrence);
+}
+
 function setTimingInputs(current: RaidDetail) {
   let startValue = toInputValue(current.startedAt);
   if (!startValue && current.guild?.defaultRaidStartTime) {
@@ -1597,6 +1837,77 @@ function setTimingInputs(current: RaidDetail) {
   endedAtInput.value = endValue;
   initialStartedAt.value = startValue;
   initialEndedAt.value = endValue;
+}
+
+function setRecurrenceSettings(current: RaidDetail) {
+  const recurrence = current.recurrence ?? null;
+  const enabled = Boolean(recurrence && recurrence.isActive !== false);
+  recurrenceForm.enabled = enabled;
+  recurrenceForm.frequency = recurrence?.frequency ?? 'WEEKLY';
+  recurrenceForm.interval = recurrence?.interval ?? 1;
+  recurrenceForm.endDate = recurrence?.endDate ? toDateInputOnly(recurrence.endDate) : '';
+  Object.assign(initialRecurrence, {
+    enabled: recurrenceForm.enabled,
+    frequency: recurrenceForm.frequency,
+    interval: recurrenceForm.interval,
+    endDate: recurrenceForm.endDate
+  });
+}
+
+function resetRecurrence() {
+  recurrenceForm.enabled = initialRecurrence.enabled;
+  recurrenceForm.frequency = initialRecurrence.frequency;
+  recurrenceForm.interval = initialRecurrence.interval;
+  recurrenceForm.endDate = initialRecurrence.endDate;
+  recurrenceError.value = null;
+}
+
+async function saveRecurrence() {
+  if (!recurrenceDirty.value || savingRecurrence.value) {
+    return;
+  }
+
+  savingRecurrence.value = true;
+  recurrenceError.value = null;
+  try {
+    const payload = recurrenceForm.enabled
+      ? {
+          frequency: recurrenceForm.frequency,
+          interval: Math.max(1, recurrenceForm.interval),
+          endDate: recurrenceForm.endDate
+            ? new Date(`${recurrenceForm.endDate}T00:00:00`).toISOString()
+            : null,
+          isActive: true
+        }
+      : null;
+
+    await api.updateRaid(raidId, {
+      recurrence: payload
+    });
+    await loadRaid();
+  } catch (error) {
+    recurrenceError.value = extractErrorMessage(error, 'Unable to update recurrence settings.');
+  } finally {
+    savingRecurrence.value = false;
+  }
+}
+
+async function persistRecurrenceDisabled() {
+  if (!canManageRaid.value || savingRecurrence.value) {
+    return;
+  }
+
+  savingRecurrence.value = true;
+  recurrenceError.value = null;
+  try {
+    await api.updateRaid(raidId, { recurrence: null });
+    await loadRaid();
+  } catch (error) {
+    recurrenceError.value = extractErrorMessage(error, 'Unable to disable recurrence. Please try again.');
+    recurrenceForm.enabled = true;
+  } finally {
+    savingRecurrence.value = false;
+  }
 }
 
 const timesDirty = computed(
@@ -1634,23 +1945,26 @@ function showConfirmation(options: {
   title: string;
   message?: string;
   confirmLabel?: string;
+  secondaryConfirmLabel?: string;
   cancelLabel?: string;
 }) {
-  return new Promise<boolean>((resolve) => {
+  return new Promise<'primary' | 'secondary' | 'cancel'>((resolve) => {
     confirmModal.visible = true;
     confirmModal.title = options.title;
     confirmModal.message = options.message;
     confirmModal.confirmLabel = options.confirmLabel ?? 'Confirm';
+    confirmModal.secondaryConfirmLabel = options.secondaryConfirmLabel;
     confirmModal.cancelLabel = options.cancelLabel ?? 'Cancel';
     confirmResolver = resolve;
   });
 }
 
-function resolveConfirmation(result: boolean) {
+function resolveConfirmation(result: 'primary' | 'secondary' | 'cancel') {
   confirmModal.visible = false;
   confirmModal.title = '';
   confirmModal.message = undefined;
   confirmModal.confirmLabel = 'Confirm';
+  confirmModal.secondaryConfirmLabel = undefined;
   confirmModal.cancelLabel = 'Cancel';
   const resolver = confirmResolver;
   confirmResolver = null;
@@ -1668,8 +1982,8 @@ function confirmDeleteAttendance(event: any) {
     message: 'This will remove the attendance snapshot and all associated records.',
     confirmLabel: 'Delete Event',
     cancelLabel: 'Cancel'
-  }).then(async (confirmed) => {
-    if (!confirmed) {
+  }).then(async (action) => {
+    if (action !== 'primary') {
       return;
     }
 
@@ -1710,29 +2024,35 @@ function triggerAttendanceUpload(options?: { attendanceEventId?: string }) {
   });
 }
 
-function confirmDeleteRaid() {
+async function confirmDeleteRaid() {
   if (!canManageRaid.value) {
     return;
   }
 
-  showConfirmation({
-    title: 'Delete Raid',
-    message: 'This will remove the raid and all associated attendance events. This action cannot be undone.',
-    confirmLabel: 'Delete Raid',
+  const isRecurring = Boolean(raid.value?.isRecurring);
+  const action = await showConfirmation({
+    title: isRecurring ? 'Delete Recurring Raid' : 'Delete Raid',
+    message: isRecurring
+      ? 'Choose whether to delete only this raid event or the entire recurring series. Deleting the event will schedule the next occurrence automatically.'
+      : 'This will remove the raid and all associated attendance events. This action cannot be undone.',
+    confirmLabel: isRecurring ? 'Delete Event' : 'Delete Raid',
+    secondaryConfirmLabel: isRecurring ? 'Delete Series' : undefined,
     cancelLabel: 'Cancel'
-  }).then(async (confirmed) => {
-    if (!confirmed) {
-      return;
-    }
-
-    actionError.value = null;
-    try {
-      await api.deleteRaid(raidId);
-      router.push({ name: 'Raids' });
-    } catch (error) {
-      actionError.value = extractErrorMessage(error, 'Unable to delete raid. Please try again.');
-    }
   });
+
+  if (action === 'cancel') {
+    return;
+  }
+
+  const scope = isRecurring && action === 'secondary' ? 'SERIES' : 'EVENT';
+
+  actionError.value = null;
+  try {
+    await api.deleteRaid(raidId, scope === 'EVENT' ? undefined : { scope });
+    router.push({ name: 'Raids' });
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to delete raid. Please try again.');
+  }
 }
 
 async function handleStartRaid() {
@@ -1750,7 +2070,7 @@ async function handleStartRaid() {
       confirmLabel: 'Upload Log',
       cancelLabel: 'Later'
     });
-    if (shouldUpload) {
+    if (shouldUpload === 'primary') {
       pendingEventTypes.value.push('START');
       triggerAttendanceUpload();
     } else {
@@ -1781,7 +2101,7 @@ async function handleEndRaid() {
       confirmLabel: 'Upload Log',
       cancelLabel: 'Later'
     });
-    if (shouldUpload) {
+    if (shouldUpload === 'primary') {
       pendingEventTypes.value.push('END');
       triggerAttendanceUpload();
     } else {
@@ -1812,7 +2132,7 @@ async function handleRestartRaid() {
       confirmLabel: 'Upload Log',
       cancelLabel: 'Later'
     });
-    if (shouldUpload) {
+    if (shouldUpload === 'primary') {
       pendingEventTypes.value.push('RESTART');
       triggerAttendanceUpload();
     } else {
@@ -2116,6 +2436,16 @@ async function copyRaidLink() {
   gap: 0.4rem;
 }
 
+.raid-title-main h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.raid-recurring-icon {
+  font-size: 1.3rem;
+}
+
 .raid-status-badge {
   padding: 0.35rem 0.75rem;
   border-radius: 999px;
@@ -2197,7 +2527,273 @@ async function copyRaidLink() {
 }
 
 .share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   min-width: 120px;
+}
+
+.raid-recurrence-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.raid-recurrence-card--collapsed {
+  padding-top: 0.9rem;
+  padding-bottom: 0.75rem;
+}
+
+.raid-recurrence-card--collapsed .raid-recurrence-card__header {
+  margin-bottom: 0.25rem;
+}
+
+.raid-recurrence-card--collapsed .recurrence-form {
+  margin-top: 0.4rem;
+}
+
+.raid-recurrence-card__title {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.raid-recurrence-card__icon {
+  font-size: 1.6rem;
+}
+
+.raid-recurrence-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.raid-recurrence-card--collapsed .raid-recurrence-card__actions {
+  gap: 0.5rem;
+}
+
+.raid-recurrence-card__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.recurrence-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recurrence-chip--active {
+  background: rgba(16, 185, 129, 0.22);
+  color: #bbf7d0;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+}
+
+.recurrence-chip--inactive {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5f5;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.recurrence-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  margin-top: 1.25rem;
+}
+
+.recurrence-form--collapsed {
+  gap: 0;
+  margin-top: 0;
+}
+
+.recurrence-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: #e2e8f0;
+  transition: color 0.2s ease;
+}
+
+.recurrence-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.recurrence-toggle__track {
+  position: relative;
+  width: 3.25rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.recurrence-toggle__thumb {
+  position: absolute;
+  top: 50%;
+  left: 0.25rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: #f8fafc;
+  box-shadow: 0 6px 18px rgba(148, 163, 184, 0.35);
+  transform: translate(0, -50%);
+  transition: transform 0.25s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.recurrence-toggle--active .recurrence-toggle__track {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.recurrence-toggle--active .recurrence-toggle__thumb {
+  transform: translate(1.5rem, -50%);
+  background: #dcfce7;
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.35);
+}
+
+.recurrence-toggle--disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.recurrence-toggle__label {
+  font-size: 0.92rem;
+}
+
+.raid-recurrence-card--collapsed .recurrence-toggle__label {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.recurrence-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.2rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.6);
+  box-shadow: inset 0 1px 0 rgba(148, 163, 184, 0.08);
+}
+
+.recurrence-fields__grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.recurrence-form .form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.recurrence-form .form__field input,
+.recurrence-form .form__field select {
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  padding: 0.7rem 0.75rem;
+  color: #f8fafc;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.recurrence-form .form__field input:focus,
+.recurrence-form .form__field select:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.65);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+.form__field--inline {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.form__field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.recurrence-interval {
+  width: 6rem;
+  text-align: center;
+}
+
+.recurrence-interval__suffix {
+  color: #cbd5f5;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.recurrence-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.65rem;
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: #dbeafe;
+  font-size: 0.85rem;
+}
+
+.recurrence-note__icon {
+  font-size: 1rem;
+}
+
+.form__hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.recurrence-collapse-enter-active,
+.recurrence-collapse-leave-active {
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.25s ease;
+}
+
+.recurrence-collapse-enter-from,
+.recurrence-collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.recurrence-collapse-enter-to,
+.recurrence-collapse-leave-from {
+  max-height: 420px;
+  opacity: 1;
+}
+
+.recurrence-fade-enter-active,
+.recurrence-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.recurrence-fade-enter-from,
+.recurrence-fade-leave-to {
+  opacity: 0;
 }
 
 .share-toast {
@@ -3013,6 +3609,67 @@ th {
 .actions {
   display: flex;
   gap: 0.75rem;
+}
+
+.timing-actions {
+  flex-wrap: wrap;
+}
+
+.raid-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  color: #0f172a;
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.95), rgba(203, 213, 225, 0.8));
+  box-shadow: 0 12px 20px rgba(15, 23, 42, 0.18);
+}
+
+.raid-action-btn__icon {
+  font-size: 1.1rem;
+  filter: drop-shadow(0 4px 8px rgba(15, 23, 42, 0.2));
+}
+
+.raid-action-btn:hover:not(:disabled),
+.raid-action-btn:focus-visible:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 28px rgba(15, 23, 42, 0.25);
+}
+
+.raid-action-btn--start {
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.92), rgba(59, 130, 246, 0.88));
+  color: #ecfdf5;
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.raid-action-btn--start:hover:not(:disabled),
+.raid-action-btn--start:focus-visible:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.raid-action-btn--end {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.92), rgba(249, 115, 22, 0.88));
+  color: #fff1f2;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.raid-action-btn--restart {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(192, 132, 252, 0.88));
+  color: #f8fafc;
+  border-color: rgba(14, 165, 233, 0.35);
+}
+
+.raid-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+  filter: none;
 }
 
 .btn--outline {

@@ -279,7 +279,18 @@
           @keydown.space.prevent="openRaid(raidItem.id)"
         >
           <div class="raid-list__content">
-            <strong>{{ raidItem.name }}</strong>
+            <strong>
+              <span
+                v-if="raidItem.isRecurring"
+                class="raid-recurring-icon"
+                role="img"
+                :title="recurrenceTooltip(raidItem)"
+                :aria-label="recurrenceTooltip(raidItem)"
+              >
+                ♻️
+              </span>
+              {{ raidItem.name }}
+            </strong>
             <span class="muted raid-meta">
               {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
             </span>
@@ -1023,6 +1034,19 @@ function formatDate(date?: string | null) {
   }).format(parsed);
 }
 
+function formatDateOnly(date?: string | null) {
+  if (!date) {
+    return '—';
+  }
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return '—';
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium'
+  }).format(parsed);
+}
+
 function preferredUserName(user: { displayName?: string; nickname?: string | null }) {
   return user.nickname ?? user.displayName ?? '';
 }
@@ -1079,6 +1103,29 @@ function formatTargetZones(zones: RaidEventSummary['targetZones']) {
     return zones.join(', ');
   }
   return 'Unknown Target';
+}
+
+function recurrenceTooltip(raid: RaidEventSummary) {
+  if (!raid.isRecurring || !raid.recurrence) {
+    return 'Recurring raid';
+  }
+
+  const unit = raid.recurrence.frequency === 'DAILY'
+    ? 'day'
+    : raid.recurrence.frequency === 'MONTHLY'
+      ? 'month'
+      : 'week';
+  const interval = Math.max(1, raid.recurrence.interval);
+  const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
+
+  let summary = `Repeats ${everyLabel}`;
+  if (raid.recurrence.endDate) {
+    summary += ` until ${formatDateOnly(raid.recurrence.endDate)}`;
+  }
+  if (raid.recurrence.isActive === false) {
+    summary += ' (paused)';
+  }
+  return summary;
 }
 
 function isRaidRenderable(raid: RaidEventSummary) {
@@ -1648,6 +1695,16 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+}
+
+.raid-list__content strong {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.raid-recurring-icon {
+  font-size: 1.05rem;
 }
 
 .raid-list__status {

@@ -5,6 +5,17 @@ import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 
+const MAX_RECURRENCE_INTERVAL = 52;
+const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
+type RaidRecurrenceFrequency = (typeof RECURRENCE_FREQUENCIES)[number];
+
+type RecurrenceSettingsInput = {
+  frequency: RaidRecurrenceFrequency;
+  interval: number;
+  endDate?: Date | null;
+  isActive?: boolean;
+};
+
 interface CreateRaidInput {
   guildId: string;
   createdById: string;
@@ -16,6 +27,7 @@ interface CreateRaidInput {
   targetBosses: string[];
   notes?: string | null;
   discordVoiceUrl?: string | null;
+  recurrence?: RecurrenceSettingsInput | null;
 }
 
 interface UpdateRaidInput {
@@ -28,6 +40,7 @@ interface UpdateRaidInput {
   notes?: string | null;
   isActive?: boolean;
   discordVoiceUrl?: string | null;
+  recurrence?: RecurrenceSettingsInput | null;
 }
 
 export async function ensureCanManageRaid(userId: string, guildId: string) {
@@ -58,19 +71,48 @@ export async function listRaidEventsForGuild(guildId: string) {
           createdAt: true,
           eventType: true
         }
+      },
+      recurrenceSeries: {
+        select: {
+          id: true,
+          frequency: true,
+          interval: true,
+          endDate: true,
+          isActive: true
+        }
       }
     }
   });
-  return raids.map((raid) => ({
-    ...raid,
-    createdBy: withPreferredDisplayName(raid.createdBy)
-  }));
+  return raids.map((raid) => {
+    const formatted = formatRaidWithRecurrence(raid);
+    return {
+      ...formatted,
+      createdBy: withPreferredDisplayName(raid.createdBy)
+    };
+  });
 }
 
 export async function createRaidEvent(input: CreateRaidInput) {
   await ensureCanManageRaid(input.createdById, input.guildId);
 
   const discordVoiceUrl = sanitizeUrl(input.discordVoiceUrl);
+
+  const recurrenceSettings = normalizeRecurrenceInput(input.recurrence);
+  let recurrenceSeriesId: string | undefined;
+
+  if (recurrenceSettings) {
+    const createdSeries = await raidSeries(prisma).create({
+      data: {
+        guildId: input.guildId,
+        createdById: input.createdById,
+        frequency: recurrenceSettings.frequency,
+        interval: recurrenceSettings.interval,
+        endDate: recurrenceSettings.endDate ?? null,
+        isActive: recurrenceSettings.isActive ?? true
+      }
+    });
+    recurrenceSeriesId = createdSeries.id;
+  }
 
   const raid = await prisma.raidEvent.create({
     data: {
@@ -83,7 +125,8 @@ export async function createRaidEvent(input: CreateRaidInput) {
       targetZones: input.targetZones,
       targetBosses: input.targetBosses,
       notes: input.notes,
-      discordVoiceUrl
+      discordVoiceUrl,
+      recurrenceSeriesId
     },
     include: {
       guild: {
@@ -97,6 +140,15 @@ export async function createRaidEvent(input: CreateRaidInput) {
           id: true,
           displayName: true,
           nickname: true
+        }
+      },
+      recurrenceSeries: {
+        select: {
+          id: true,
+          frequency: true,
+          interval: true,
+          endDate: true,
+          isActive: true
         }
       }
     }
@@ -112,8 +164,10 @@ export async function createRaidEvent(input: CreateRaidInput) {
     createdByName: withPreferredDisplayName(raid.createdBy).displayName
   });
 
+  const formatted = formatRaidWithRecurrence(raid);
+
   return {
-    ...raid,
+    ...formatted,
     createdBy: withPreferredDisplayName(raid.createdBy)
   };
 }
@@ -124,7 +178,12 @@ export async function updateRaidEvent(
   data: UpdateRaidInput
 ) {
   const existing = await prisma.raidEvent.findUnique({
-    where: { id: raidId }
+    where: { id: raidId },
+    include: {
+      recurrenceSeries: {
+        select: recurrenceSelection
+      }
+    }
   });
 
   if (!existing) {
@@ -160,10 +219,69 @@ export async function updateRaidEvent(
     updateData.discordVoiceUrl = discordVoiceUrlUpdate;
   }
 
-  return prisma.raidEvent.update({
-    where: { id: raidId },
-    data: updateData
+  const recurrenceInput =
+    data.recurrence === undefined ? undefined : normalizeRecurrenceInput(data.recurrence);
+
+  const updatedRaid = await prisma.$transaction(async (tx) => {
+    let nextSeriesId = existing.recurrenceSeriesId ?? undefined;
+
+    if (data.recurrence !== undefined) {
+      if (!recurrenceInput) {
+        if (existing.recurrenceSeriesId) {
+          await raidSeries(tx).update({
+            where: { id: existing.recurrenceSeriesId },
+            data: {
+              isActive: false,
+              endDate: existing.startTime
+            }
+          });
+        }
+        nextSeriesId = undefined;
+      } else if (existing.recurrenceSeriesId) {
+        await raidSeries(tx).update({
+          where: { id: existing.recurrenceSeriesId },
+          data: {
+            frequency: recurrenceInput.frequency,
+            interval: recurrenceInput.interval,
+            endDate: recurrenceInput.endDate ?? null,
+            isActive: recurrenceInput.isActive ?? true
+          }
+        });
+      } else {
+        const newSeries = await raidSeries(tx).create({
+          data: {
+            guildId: existing.guildId,
+            createdById: userId,
+            frequency: recurrenceInput.frequency,
+            interval: recurrenceInput.interval,
+            endDate: recurrenceInput.endDate ?? null,
+            isActive: recurrenceInput.isActive ?? true
+          }
+        });
+        nextSeriesId = newSeries.id;
+      }
+    }
+
+    const raidUpdate: Prisma.RaidEventUpdateInput = {
+      ...updateData
+    };
+
+    if (data.recurrence !== undefined) {
+      raidUpdate.recurrenceSeriesId = nextSeriesId ?? null;
+    }
+
+    return tx.raidEvent.update({
+      where: { id: raidId },
+      data: raidUpdate,
+      include: {
+        recurrenceSeries: {
+          select: recurrenceSelection
+        }
+      }
+    });
   });
+
+  return formatRaidWithRecurrence(updatedRaid);
 }
 
 export async function getRaidEventById(raidId: string) {
@@ -189,6 +307,9 @@ export async function getRaidEventById(raidId: string) {
         include: {
           records: true
         }
+      },
+      recurrenceSeries: {
+        select: recurrenceSelection
       }
     }
   });
@@ -199,8 +320,9 @@ export async function getRaidEventById(raidId: string) {
     raid.guildId,
     'raid.signup'
   );
+  const formatted = formatRaidWithRecurrence(raid);
   return {
-    ...raid,
+    ...formatted,
     raidSignupNotificationsEnabled,
     createdBy: withPreferredDisplayName(raid.createdBy)
   };
@@ -231,6 +353,11 @@ export async function startRaidEvent(raidId: string, userId: string) {
       startedAt: new Date(),
       endedAt: null,
       isActive: true
+    },
+    include: {
+      recurrenceSeries: {
+        select: recurrenceSelection
+      }
     }
   });
 
@@ -241,7 +368,7 @@ export async function startRaidEvent(raidId: string, userId: string) {
     startedAt: updated.startedAt ?? new Date()
   });
 
-  return updated;
+  return formatRaidWithRecurrence(updated);
 }
 
 export async function endRaidEvent(raidId: string, userId: string) {
@@ -253,6 +380,9 @@ export async function endRaidEvent(raidId: string, userId: string) {
           id: true,
           name: true
         }
+      },
+      recurrenceSeries: {
+        select: recurrenceSelection
       }
     }
   });
@@ -263,25 +393,38 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  const [updatedRaid, attendeeCount, lootCount] = await prisma.$transaction([
-    prisma.raidEvent.update({
+  const transactionResult = await prisma.$transaction(async (tx) => {
+    const updatedRaid = await tx.raidEvent.update({
       where: { id: raidId },
       data: {
         endedAt: new Date(),
         isActive: false
+      },
+      include: {
+        recurrenceSeries: {
+          select: recurrenceSelection
+        }
       }
-    }),
-    prisma.attendanceRecord.count({
+    });
+
+    const attendeeCount = await tx.attendanceRecord.count({
       where: {
         attendanceEvent: {
           raidEventId: raidId
         }
       }
-    }),
-    prisma.raidLootEvent.count({
+    });
+
+    const lootCount = await tx.raidLootEvent.count({
       where: { raidId }
-    })
-  ]);
+    });
+
+    await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
+
+    return { updatedRaid, attendeeCount, lootCount };
+  });
+
+  const { updatedRaid, attendeeCount, lootCount } = transactionResult;
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
     guildName: existing.guild.name,
@@ -293,7 +436,7 @@ export async function endRaidEvent(raidId: string, userId: string) {
     lootCount
   });
 
-  return updatedRaid;
+  return formatRaidWithRecurrence(updatedRaid);
 }
 
 export async function restartRaidEvent(raidId: string, userId: string) {
@@ -325,6 +468,11 @@ export async function restartRaidEvent(raidId: string, userId: string) {
       startedAt: new Date(),
       endedAt: null,
       isActive: true
+    },
+    include: {
+      recurrenceSeries: {
+        select: recurrenceSelection
+      }
     }
   });
 
@@ -335,19 +483,24 @@ export async function restartRaidEvent(raidId: string, userId: string) {
     startedAt: updated.startedAt ?? new Date()
   });
 
-  return updated;
+  return formatRaidWithRecurrence(updated);
 }
 
-export async function deleteRaidEvent(raidId: string, userId: string) {
+export async function deleteRaidEvent(
+  raidId: string,
+  userId: string,
+  scope: 'EVENT' | 'SERIES' = 'EVENT'
+) {
   const existing = await prisma.raidEvent.findUnique({
     where: { id: raidId },
-    select: {
-      guildId: true,
-      name: true,
+    include: {
       guild: {
         select: {
           name: true
         }
+      },
+      recurrenceSeries: {
+        select: recurrenceSelection
       }
     }
   });
@@ -358,28 +511,42 @@ export async function deleteRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  await prisma.attendanceRecord.deleteMany({
-    where: {
-      attendanceEvent: {
-        raidEventId: raidId
-      }
+  await prisma.$transaction(async (tx) => {
+    if (scope === 'EVENT') {
+      await maybeCreateNextRecurringRaid(tx, existing, userId);
+    } else if (scope === 'SERIES' && existing.recurrenceSeriesId) {
+      await raidSeries(tx).update({
+        where: { id: existing.recurrenceSeriesId },
+        data: {
+          isActive: false,
+          endDate: existing.startTime
+        }
+      });
     }
-  });
 
-  await prisma.attendanceEvent.deleteMany({
-    where: { raidEventId: raidId }
-  });
+    await tx.attendanceRecord.deleteMany({
+      where: {
+        attendanceEvent: {
+          raidEventId: raidId
+        }
+      }
+    });
 
-  await prisma.raidLootEvent.deleteMany({
-    where: { raidId }
-  });
+    await tx.attendanceEvent.deleteMany({
+      where: { raidEventId: raidId }
+    });
 
-  await prisma.raidSignup.deleteMany({
-    where: { raidId }
-  });
+    await tx.raidLootEvent.deleteMany({
+      where: { raidId }
+    });
 
-  await prisma.raidEvent.delete({
-    where: { id: raidId }
+    await tx.raidSignup.deleteMany({
+      where: { raidId }
+    });
+
+    await tx.raidEvent.delete({
+      where: { id: raidId }
+    });
   });
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.deleted', {
@@ -419,6 +586,161 @@ export async function ensureUserCanEditRaid(raidId: string, userId: string) {
   }
 
   return { guildId: raid.guildId, membershipRole: membership.role };
+}
+
+const recurrenceSelection = {
+  id: true,
+  frequency: true,
+  interval: true,
+  endDate: true,
+  isActive: true
+} as const;
+
+type RecurrenceSelection = {
+  id: string;
+  frequency: RaidRecurrenceFrequency;
+  interval: number;
+  endDate: Date | null;
+  isActive: boolean;
+};
+
+type RecurrenceSelectionValue = RecurrenceSelection | null | undefined;
+
+type PrismaClientOrTx = Prisma.TransactionClient | typeof prisma;
+
+function raidSeries(client: PrismaClientOrTx) {
+  return (client as unknown as { raidEventSeries: any }).raidEventSeries;
+}
+
+function formatRaidWithRecurrence<T extends { recurrenceSeries?: RecurrenceSelectionValue }>(raid: T) {
+  const { recurrenceSeries, ...rest } = raid;
+  return {
+    ...(rest as Record<string, unknown>),
+    isRecurring: Boolean(recurrenceSeries),
+    recurrence: formatRecurrenceForResponse(recurrenceSeries ?? null)
+  } as any;
+}
+
+function formatRecurrenceForResponse(series: RecurrenceSelection | null) {
+  if (!series) {
+    return null;
+  }
+  return {
+    id: series.id,
+    frequency: series.frequency,
+    interval: series.interval,
+    endDate: series.endDate,
+    isActive: series.isActive
+  };
+}
+
+async function maybeCreateNextRecurringRaid(
+  tx: Prisma.TransactionClient,
+  raid: Prisma.RaidEventGetPayload<{
+    include: { recurrenceSeries: { select: typeof recurrenceSelection } };
+  }>,
+  actorId: string
+) {
+  if (!raid.recurrenceSeriesId || !raid.recurrenceSeries || !raid.recurrenceSeries.isActive) {
+    return null;
+  }
+
+  const nextStart = calculateNextOccurrence(raid.startTime, raid.recurrenceSeries);
+  if (!nextStart) {
+    return null;
+  }
+
+  if (raid.recurrenceSeries.endDate && nextStart > raid.recurrenceSeries.endDate) {
+    return null;
+  }
+
+  const duplicate = await tx.raidEvent.findFirst({
+    where: {
+      recurrenceSeriesId: raid.recurrenceSeriesId,
+      startTime: nextStart
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (duplicate) {
+    return null;
+  }
+
+  return tx.raidEvent.create({
+    data: {
+      guildId: raid.guildId,
+      createdById: actorId,
+      name: raid.name,
+      startTime: nextStart,
+      targetZones: raid.targetZones as Prisma.InputJsonValue,
+      targetBosses: raid.targetBosses as Prisma.InputJsonValue,
+      notes: raid.notes,
+      discordVoiceUrl: raid.discordVoiceUrl,
+      recurrenceSeriesId: raid.recurrenceSeriesId
+    }
+  });
+}
+
+function calculateNextOccurrence(
+  startTime: Date,
+  series: { frequency: RaidRecurrenceFrequency; interval: number }
+) {
+  const interval = Math.max(1, series.interval);
+  switch (series.frequency) {
+    case 'DAILY':
+      return addDays(startTime, interval);
+    case 'WEEKLY':
+      return addDays(startTime, interval * 7);
+    case 'MONTHLY':
+      return addMonths(startTime, interval);
+    default:
+      return null;
+  }
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function addMonths(date: Date, months: number) {
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+  const hours = date.getUTCHours();
+  const minutes = date.getUTCMinutes();
+  const seconds = date.getUTCSeconds();
+  const milliseconds = date.getUTCMilliseconds();
+
+  const totalMonths = month + months;
+  const targetYear = year + Math.floor(totalMonths / 12);
+  const targetMonth = ((totalMonths % 12) + 12) % 12;
+  const daysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(day, daysInTargetMonth);
+
+  return new Date(
+    Date.UTC(targetYear, targetMonth, clampedDay, hours, minutes, seconds, milliseconds)
+  );
+}
+
+function normalizeRecurrenceInput(settings?: RecurrenceSettingsInput | null) {
+  if (!settings) {
+    return null;
+  }
+
+  const interval = Number.isFinite(settings.interval)
+    ? Math.max(1, Math.min(Math.floor(settings.interval), MAX_RECURRENCE_INTERVAL))
+    : 1;
+
+  return {
+    frequency: settings.frequency,
+    interval,
+    endDate: settings.endDate ?? null,
+    isActive: settings.isActive ?? true
+  };
 }
 
 function normalizeStringArray(value: Prisma.JsonValue | null | undefined) {
