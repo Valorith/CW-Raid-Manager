@@ -5,6 +5,14 @@ import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
 import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError, RaidSignupLockedError } from '../services/raidSignupService.js';
 export async function raidsRoutes(server) {
+    const recurrenceSchema = z
+        .object({
+        frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+        interval: z.number().int().min(1).max(52),
+        endDate: z.string().datetime({ offset: true }).nullable().optional(),
+        isActive: z.boolean().optional()
+    })
+        .strict();
     server.get('/guild/:guildId', {
         preHandler: [authenticate]
     }, async (request, reply) => {
@@ -137,7 +145,8 @@ export async function raidsRoutes(server) {
             targetZones: z.array(z.string().min(1)).min(1),
             targetBosses: z.array(z.string().min(1)).min(1),
             notes: z.string().max(2000).optional(),
-            discordVoiceUrl: z.union([z.string().url().max(512), z.literal('')]).optional()
+            discordVoiceUrl: z.union([z.string().url().max(512), z.literal('')]).optional(),
+            recurrence: z.union([recurrenceSchema, z.null()]).optional()
         });
         const parsed = bodySchema.safeParse(request.body);
         if (!parsed.success) {
@@ -154,7 +163,16 @@ export async function raidsRoutes(server) {
                 targetBosses: parsed.data.targetBosses,
                 notes: parsed.data.notes,
                 discordVoiceUrl: parsed.data.discordVoiceUrl,
-                createdById: request.user.userId
+                createdById: request.user.userId,
+                recurrence: parsed.data.recurrence
+                    ? {
+                        frequency: parsed.data.recurrence.frequency,
+                        interval: parsed.data.recurrence.interval,
+                        endDate: parsed.data.recurrence.endDate
+                            ? new Date(parsed.data.recurrence.endDate)
+                            : null
+                    }
+                    : null
             });
             return reply.code(201).send({ raid });
         }
@@ -178,7 +196,8 @@ export async function raidsRoutes(server) {
             targetBosses: z.array(z.string().min(1)).min(1).optional(),
             notes: z.string().max(2000).optional(),
             isActive: z.boolean().optional(),
-            discordVoiceUrl: z.union([z.string().url().max(512), z.literal(''), z.null()]).optional()
+            discordVoiceUrl: z.union([z.string().url().max(512), z.literal(''), z.null()]).optional(),
+            recurrence: z.union([recurrenceSchema, z.null()]).optional()
         })
             .refine((value) => Object.keys(value).length > 0, {
             message: 'At least one field must be updated.'
@@ -201,7 +220,19 @@ export async function raidsRoutes(server) {
                         ? new Date(parsed.data.endedAt)
                         : null
                     : undefined,
-                discordVoiceUrl: parsed.data.discordVoiceUrl
+                discordVoiceUrl: parsed.data.discordVoiceUrl,
+                recurrence: parsed.data.recurrence === undefined
+                    ? undefined
+                    : parsed.data.recurrence
+                        ? {
+                            frequency: parsed.data.recurrence.frequency,
+                            interval: parsed.data.recurrence.interval,
+                            endDate: parsed.data.recurrence.endDate
+                                ? new Date(parsed.data.recurrence.endDate)
+                                : null,
+                            isActive: parsed.data.recurrence.isActive
+                        }
+                        : null
             });
             return { raid };
         }
@@ -295,8 +326,15 @@ export async function raidsRoutes(server) {
             raidId: z.string()
         });
         const { raidId } = paramsSchema.parse(request.params);
+        const bodySchema = z
+            .object({
+            scope: z.enum(['EVENT', 'SERIES']).optional()
+        })
+            .optional();
+        const parsedBody = bodySchema.parse(request.body ?? {});
+        const scope = parsedBody?.scope ?? 'EVENT';
         try {
-            await deleteRaidEvent(raidId, request.user.userId);
+            await deleteRaidEvent(raidId, request.user.userId, scope);
             return reply.code(204).send();
         }
         catch (error) {

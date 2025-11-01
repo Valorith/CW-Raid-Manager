@@ -194,6 +194,30 @@ export async function deleteGuildDiscordWebhook(webhookId, guildId) {
     }
     await prisma.guildDiscordWebhook.delete({ where: { id: webhookId } });
 }
+export async function isDiscordWebhookEventEnabled(guildId, event) {
+    if (!guildId) {
+        return false;
+    }
+    const records = await prisma.guildDiscordWebhook.findMany({
+        where: {
+            guildId,
+            isEnabled: true,
+            webhookUrl: {
+                not: null
+            }
+        },
+        select: {
+            eventSubscriptions: true
+        }
+    });
+    if (records.length === 0) {
+        return false;
+    }
+    return records.some((record) => {
+        const subscriptions = normalizeEventSubscriptions(record.eventSubscriptions);
+        return subscriptions[event] === true;
+    });
+}
 export async function emitDiscordWebhookEvent(guildId, event, payload) {
     try {
         const records = await prisma.guildDiscordWebhook.findMany({

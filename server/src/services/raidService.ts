@@ -267,7 +267,15 @@ export async function updateRaidEvent(
     };
 
     if (data.recurrence !== undefined) {
-      raidUpdate.recurrenceSeriesId = nextSeriesId ?? null;
+      if (nextSeriesId) {
+        raidUpdate.recurrenceSeries = {
+          connect: { id: nextSeriesId }
+        };
+      } else {
+        raidUpdate.recurrenceSeries = {
+          disconnect: true
+        };
+      }
     }
 
     return tx.raidEvent.update({
