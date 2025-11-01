@@ -30,7 +30,7 @@
           <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
         </div>
         <p class="muted">
-          {{ formatDate(raid.startTime) }} • Targets: {{ raid.targetZones.join(', ') }}
+          {{ formatDate(raid.startTime) }} • Targets: {{ formattedTargetZonesHeader || 'Not specified' }}
         </p>
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
@@ -459,6 +459,119 @@
       </div>
     </section>
 
+    <section
+      class="card raid-notes-card"
+      :class="{ 'card--collapsed': !notesPanelExpanded }"
+    >
+      <header class="card__header raid-notes-card__header" @click="toggleNotesPanel">
+        <div class="card-header-main">
+          <h2>Raid Notes</h2>
+          <p v-if="!notesPanelExpanded" class="card-header-subtle">Tap to edit raid notes</p>
+          <p v-if="notesPanelExpanded" class="muted">Share strategy details, reminders, or links with raiders.</p>
+        </div>
+        <div class="raid-notes-card__actions">
+          <button
+            v-if="canManageRaid && notesPanelExpanded"
+            class="btn btn--outline"
+            type="button"
+            :disabled="!notesDirty || savingNotes"
+            @click.stop="resetNotes"
+          >
+            Reset
+          </button>
+          <button
+            v-if="canManageRaid && notesPanelExpanded"
+            class="btn"
+            type="button"
+            :disabled="!notesDirty || savingNotes"
+            @click.stop="saveNotes"
+          >
+            {{ savingNotes ? 'Saving…' : 'Save Notes' }}
+          </button>
+          <button
+            class="collapse-indicator"
+            type="button"
+            @click.stop="toggleNotesPanel"
+            :aria-expanded="notesPanelExpanded"
+          >
+            <span class="collapse-indicator__icon" :data-expanded="notesPanelExpanded">⌄</span>
+          </button>
+        </div>
+      </header>
+      <transition name="panel-collapse">
+        <div v-show="notesPanelExpanded" class="raid-notes-card__body">
+          <template v-if="canManageRaid">
+            <textarea
+              v-model="notesInput"
+              class="raid-notes-card__textarea"
+              rows="5"
+              placeholder="Add raid notes, reminders, or useful links."
+            ></textarea>
+            <p class="muted small">Raid notes are visible to all raid members.</p>
+            <p v-if="notesError" class="error">{{ notesError }}</p>
+          </template>
+          <template v-else>
+            <p v-if="(raid.notes ?? '').trim().length > 0" class="raid-notes-card__display">
+              {{ raid.notes }}
+            </p>
+            <p v-else class="muted small">No notes have been added for this raid yet.</p>
+          </template>
+        </div>
+      </transition>
+    </section>
+
+    <section
+      class="card raid-targets-card"
+      :class="{ 'card--collapsed': !targetsPanelExpanded }"
+    >
+      <header class="card__header raid-targets-card__header" @click="toggleTargetsPanel">
+        <div class="card-header-main">
+          <h2>Raid Goals</h2>
+          <p v-if="!targetsPanelExpanded" class="card-header-subtle">Tap to view raid goals</p>
+          <p v-if="targetsPanelExpanded" class="muted">Keep everyone aligned on zones and targets for this raid.</p>
+        </div>
+        <div class="raid-targets-card__actions">
+          <button
+            v-if="canManageRaid && targetsPanelExpanded"
+            class="btn btn--outline"
+            type="button"
+            @click.stop="openTargetsModal"
+          >
+            Edit Goals
+          </button>
+          <button
+            class="collapse-indicator"
+            type="button"
+            @click.stop="toggleTargetsPanel"
+            :aria-expanded="targetsPanelExpanded"
+          >
+            <span class="collapse-indicator__icon" :data-expanded="targetsPanelExpanded">⌄</span>
+          </button>
+        </div>
+      </header>
+      <transition name="panel-collapse">
+        <div v-show="targetsPanelExpanded" class="raid-targets-card__body">
+          <div class="raid-targets-grid">
+            <div>
+              <p class="raid-targets-card__label">Target Zones</p>
+              <ul class="raid-targets-card__list" v-if="displayTargetZones.length">
+                <li v-for="zone in displayTargetZones" :key="zone">{{ zone }}</li>
+              </ul>
+              <p v-else class="muted small">No zones specified.</p>
+            </div>
+            <div>
+              <p class="raid-targets-card__label">Target Bosses</p>
+              <ul class="raid-targets-card__list" v-if="displayTargetBosses.length">
+                <li v-for="boss in displayTargetBosses" :key="boss">{{ boss }}</li>
+              </ul>
+              <p v-else class="muted small">No bosses specified.</p>
+            </div>
+          </div>
+          <p v-if="!canManageRaid" class="muted small">Only raid managers can edit goals.</p>
+        </div>
+      </transition>
+    </section>
+
     <section class="card raid-timing">
       <header class="card__header">
         <div>
@@ -760,6 +873,73 @@
       </form>
     </div>
   </div>
+  <div v-if="targetsModal.visible" class="modal-backdrop" @click.self="closeTargetsModal">
+    <div class="modal raid-targets-modal">
+      <header class="modal__header raid-targets-modal__header">
+        <div>
+          <h3>Edit Raid Goals</h3>
+          <p class="muted small">Fine-tune the zones and key targets for this raid.</p>
+        </div>
+        <button class="icon-button" type="button" :disabled="targetsModal.saving" @click="closeTargetsModal">
+          ✕
+        </button>
+      </header>
+      <form class="edit-targets-form" @submit.prevent="saveTargetsFromModal">
+        <div class="targets-summary">
+          <div>
+            <span class="targets-summary__label">Zones</span>
+            <span class="targets-summary__value">{{ displayTargetZones.length }}</span>
+          </div>
+          <div>
+            <span class="targets-summary__label">Bosses</span>
+            <span class="targets-summary__value">{{ displayTargetBosses.length }}</span>
+          </div>
+        </div>
+        <div class="edit-targets-grid">
+          <label class="form__field">
+            <span>Target Zones</span>
+            <textarea
+              v-model="targetsModal.zones"
+              class="raid-targets-card__textarea raid-targets-modal__textarea"
+              rows="5"
+              placeholder="Temple of Veeshan\nKael Drakkel"
+              :disabled="targetsModal.saving"
+            ></textarea>
+            <small class="form__hint">One zone per line. This list is visible to all raiders.</small>
+          </label>
+          <label class="form__field">
+            <span>Target Bosses</span>
+            <textarea
+              v-model="targetsModal.bosses"
+              class="raid-targets-card__textarea raid-targets-modal__textarea"
+              rows="5"
+              placeholder="Vulak`Aerr\nAvatar of War"
+              :disabled="targetsModal.saving"
+            ></textarea>
+            <small class="form__hint">One objective per line. Use this for key bosses or milestones.</small>
+          </label>
+        </div>
+        <p v-if="targetsModal.error" class="error">{{ targetsModal.error }}</p>
+        <footer class="targets-modal__actions">
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            :disabled="targetsModal.saving"
+            @click="resetTargetsModal"
+          >
+            Reset
+          </button>
+          <button
+            class="btn btn--modal-primary"
+            type="submit"
+            :disabled="targetsModal.saving || !targetsModalDirty"
+          >
+            {{ targetsModal.saving ? 'Saving…' : 'Save Goals' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
   <AttendanceEventModal
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
@@ -1019,6 +1199,30 @@ watch(
     }
   }
 );
+const notesInput = ref('');
+const initialNotes = ref('');
+const savingNotes = ref(false);
+const notesError = ref<string | null>(null);
+const notesDirty = computed(() => notesInput.value !== initialNotes.value);
+const targetsModal = reactive({
+  visible: false,
+  zones: '',
+  bosses: '',
+  initialZones: '',
+  initialBosses: '',
+  saving: false,
+  error: ''
+});
+const displayTargetZones = computed(() =>
+  (raid.value?.targetZones ?? []).map((zone) => zone.trim()).filter((zone) => zone.length > 0)
+);
+const displayTargetBosses = computed(() =>
+  (raid.value?.targetBosses ?? []).map((boss) => boss.trim()).filter((boss) => boss.length > 0)
+);
+const formattedTargetZonesHeader = computed(() => displayTargetZones.value.join(', '));
+const targetsModalDirty = computed(
+  () => targetsModal.zones !== targetsModal.initialZones || targetsModal.bosses !== targetsModal.initialBosses
+);
 const confirmModal = reactive({
   visible: false,
   title: '',
@@ -1051,6 +1255,8 @@ const editLootModal = reactive<{
     saving: false
   }
 );
+const notesPanelExpanded = ref(false);
+const targetsPanelExpanded = ref(false);
 const hasEffectiveStarted = computed(() => {
   const startedAt = raid.value?.startedAt;
   if (!startedAt) {
@@ -1396,6 +1602,11 @@ async function loadRaid() {
   raid.value = data;
   setTimingInputs(data);
   setRecurrenceSettings(data);
+  notesInput.value = data.notes ?? '';
+  initialNotes.value = notesInput.value;
+  notesError.value = null;
+  notesPanelExpanded.value = false;
+  targetsPanelExpanded.value = false;
   actionError.value = null;
   recurrenceError.value = null;
   await refreshLootListSummary();
@@ -1908,6 +2119,111 @@ async function persistRecurrenceDisabled() {
   } finally {
     savingRecurrence.value = false;
   }
+}
+
+function resetNotes() {
+  notesInput.value = initialNotes.value;
+  notesError.value = null;
+}
+
+async function saveNotes() {
+  if (!canManageRaid.value || savingNotes.value || !notesDirty.value) {
+    return;
+  }
+
+  savingNotes.value = true;
+  notesError.value = null;
+  try {
+    const payload = notesInput.value;
+    const updated = await api.updateRaid(raidId, {
+      notes: payload
+    });
+    const normalized = updated.notes ?? '';
+    notesInput.value = normalized;
+    initialNotes.value = normalized;
+    if (raid.value) {
+      raid.value = {
+        ...raid.value,
+        notes: updated.notes ?? null
+      };
+    }
+  } catch (error) {
+    notesError.value = extractErrorMessage(error, 'Unable to update notes. Please try again.');
+  } finally {
+    savingNotes.value = false;
+  }
+}
+
+function normalizeTargetInput(value: string) {
+  return value
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function openTargetsModal() {
+  targetsModal.visible = true;
+  targetsModal.zones = displayTargetZones.value.join('\n');
+  targetsModal.bosses = displayTargetBosses.value.join('\n');
+  targetsModal.initialZones = targetsModal.zones;
+  targetsModal.initialBosses = targetsModal.bosses;
+  targetsModal.error = '';
+}
+
+function closeTargetsModal() {
+  targetsModal.visible = false;
+  targetsModal.error = '';
+}
+
+function resetTargetsModal() {
+  targetsModal.zones = targetsModal.initialZones;
+  targetsModal.bosses = targetsModal.initialBosses;
+  targetsModal.error = '';
+}
+
+async function saveTargetsFromModal() {
+  if (!canManageRaid.value || targetsModal.saving || !targetsModalDirty.value) {
+    return;
+  }
+
+  targetsModal.saving = true;
+  targetsModal.error = '';
+  try {
+    const zones = normalizeTargetInput(targetsModal.zones);
+    const bosses = normalizeTargetInput(targetsModal.bosses);
+
+    const updated = await api.updateRaid(raidId, {
+      targetZones: zones,
+      targetBosses: bosses
+    });
+
+    targetsModal.initialZones = zones.join('\n');
+    targetsModal.initialBosses = bosses.join('\n');
+    targetsModal.zones = targetsModal.initialZones;
+    targetsModal.bosses = targetsModal.initialBosses;
+
+    if (raid.value) {
+      raid.value = {
+        ...raid.value,
+        targetZones: updated.targetZones ?? [],
+        targetBosses: updated.targetBosses ?? []
+      };
+    }
+
+    closeTargetsModal();
+  } catch (error) {
+    targetsModal.error = extractErrorMessage(error, 'Unable to update raid goals. Please try again.');
+  } finally {
+    targetsModal.saving = false;
+  }
+}
+
+function toggleNotesPanel() {
+  notesPanelExpanded.value = !notesPanelExpanded.value;
+}
+
+function toggleTargetsPanel() {
+  targetsPanelExpanded.value = !targetsPanelExpanded.value;
 }
 
 const timesDirty = computed(
@@ -3960,6 +4276,235 @@ th {
 .loot-context-menu__action--remove:focus-visible {
   background: rgba(248, 113, 113, 0.15);
   color: #fee2e2;
+}
+
+.card--collapsed {
+  padding-bottom: 0.75rem;
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.35);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.raid-notes-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.raid-notes-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.raid-notes-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.raid-notes-card__textarea {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.raid-notes-card__textarea:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.raid-notes-card__display {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.raid-notes-card .error {
+  margin-top: 0;
+}
+
+.raid-targets-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+}
+
+.raid-targets-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.raid-targets-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.raid-targets-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.raid-targets-card__label {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  display: block;
+}
+
+.raid-targets-card__list {
+  list-style: disc;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #e2e8f0;
+}
+
+.raid-targets-card__list li {
+  line-height: 1.4;
+}
+
+.collapse-indicator {
+  border: none;
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.35), rgba(71, 85, 105, 0.55));
+  border-radius: 999px;
+  width: 2.15rem;
+  height: 2.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #e2e8f0;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.collapse-indicator:hover,
+.collapse-indicator:focus-visible {
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+  filter: brightness(1.08);
+}
+
+.collapse-indicator__icon {
+  display: inline-flex;
+  font-size: 0.95rem;
+  transform: rotate(0deg);
+  transition: transform 0.22s ease;
+}
+
+.collapse-indicator__icon[data-expanded='true'] {
+  transform: rotate(180deg);
+}
+
+.panel-collapse-enter-active,
+.panel-collapse-leave-active {
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.25s ease;
+}
+
+.panel-collapse-enter-from,
+.panel-collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.panel-collapse-enter-to,
+.panel-collapse-leave-from {
+  max-height: 480px;
+  opacity: 1;
+}
+
+.raid-targets-modal {
+  width: min(600px, 100%);
+  background: linear-gradient(155deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.92) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 30px 60px rgba(15, 23, 42, 0.55);
+}
+
+.edit-targets-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.edit-targets-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.raid-targets-modal__header {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  padding-bottom: 0.75rem;
+}
+
+.targets-summary {
+  display: flex;
+  gap: 1.5rem;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.targets-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.targets-summary__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.targets-summary__value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e0f2fe;
+}
+
+.raid-targets-modal__textarea {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  color: #e2e8f0;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.raid-targets-modal__textarea:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.targets-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .modal-backdrop {
