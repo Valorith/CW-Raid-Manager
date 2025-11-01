@@ -2094,8 +2094,8 @@ onUnmounted(() => {
 }
 
 .roster-filter-icon {
-  width: 34px;
-  height: 34px;
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
