@@ -712,27 +712,39 @@
       </ul>
     </section>
 
-    <section class="card">
-      <header class="card__header">
-        <div>
+    <section class="card recorded-loot-card">
+      <header class="card__header recorded-loot__header">
+        <div class="recorded-loot__summary">
           <h2>Recorded Loot</h2>
           <p class="muted">All drops captured for this raid.</p>
         </div>
-        <RouterLink
-          v-if="canManageLootLists"
-          class="btn btn--manage-loot"
-          :to="{ name: 'RaidLoot', params: { raidId: raid.id } }"
+        <div
+          v-if="lootMonitorVisible"
+          class="recorded-loot__monitor"
+          role="status"
+          :aria-label="lootMonitorStatusLabel"
         >
-          <span aria-hidden="true">🧺</span>
-          Manage Loot
-        </RouterLink>
+          <span class="recorded-loot__monitor-label">
+            Monitoring<span v-if="lootMonitorDisplayName">: {{ lootMonitorDisplayName }}</span>
+          </span>
+          <span aria-hidden="true" class="recorded-loot__monitor-bar"></span>
+        </div>
+        <span v-if="lootMonitorVisible" class="recorded-loot__spacer" aria-hidden="true"></span>
       </header>
+      <RouterLink
+        v-if="canManageLootLists"
+        class="btn btn--manage-loot recorded-loot__manage"
+        :to="{ name: 'RaidLoot', params: { raidId: raid.id } }"
+      >
+        <span aria-hidden="true">🧺</span>
+        Manage Loot
+      </RouterLink>
       <p v-if="lootEvents.length === 0" class="muted">No loot recorded yet.</p>
       <div v-else class="raid-loot-grid">
         <article
           v-for="entry in groupedLoot"
           :key="entry.id"
-          class="raid-loot-card"
+          :class="['raid-loot-card', { 'raid-loot-card--needs-assignment': entry.isMasterLooter }]"
           role="button"
           tabindex="0"
         @click="handleLootCardClick($event, entry.itemName)"
@@ -749,14 +761,30 @@
           </span>
           <div class="raid-loot-card__count">{{ entry.count }}×</div>
           <header class="raid-loot-card__header">
-            <span class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
+            <div class="raid-loot-card__icon">
+              <template v-if="entry.itemIconId != null">
+                <img
+                  :src="getLootIconSrc(entry.itemIconId)"
+                  :alt="`${entry.itemName} icon`"
+                  loading="lazy"
+                />
+              </template>
+              <span v-else class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
+            </div>
             <div>
               <p class="raid-loot-card__item">{{ entry.itemName }}</p>
               <p class="raid-loot-card__looter">
-                <CharacterLink :name="entry.looterName" />
-                <span v-if="formatCharacterClassLabel(entry.looterClass)" class="raid-loot-card__looter-class">
-                  ({{ formatCharacterClassLabel(entry.looterClass) }})
-                </span>
+                <template v-if="entry.isGuildBank">
+                  <span class="raid-loot-card__looter-name">{{ entry.displayLooterName }}</span>
+                </template>
+                <template v-else-if="entry.isMasterLooter">
+                  <span class="raid-loot-card__looter-name raid-loot-card__looter-name--unassigned">
+                    {{ entry.displayLooterName }}
+                  </span>
+                </template>
+                <template v-else>
+                  <CharacterLink :name="entry.displayLooterName" />
+                </template>
               </p>
             </div>
           </header>
@@ -994,11 +1022,13 @@ import type {
   UserCharacter
 } from '../services/api';
 import { useAuthStore } from '../stores/auth';
+import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
+import { getLootIconSrc } from '../utils/itemIcons';
 import {
-  buildLootListLookup,
-  matchesLootListEntry,
-  normalizeLootItemName
-} from '../utils/lootLists';
+  getGuildBankDisplayName,
+  normalizeLooterName,
+  normalizeLooterForSubmission as normalizeLooterForSubmissionUtil
+} from '../utils/lootNames';
 import { normalizeOptionalUrl } from '../utils/urls';
 
 const route = useRoute();
@@ -1018,6 +1048,44 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const selectedAttendanceEvent = ref<AttendanceEventSummary | null>(null);
 const rosterEditingEventId = ref<string | null>(null);
 const lootEvents = ref<RaidLootEvent[]>([]);
+const guildBankDisplayName = computed(() =>
+  getGuildBankDisplayName(raid.value?.guild.name ?? null)
+);
+
+function normalizeLooterNameValue(value?: string | null): string {
+  return normalizeLooterName(value ?? null, raid.value?.guild.name ?? null).name;
+}
+
+function isGuildBankName(value?: string | null): boolean {
+  return normalizeLooterName(value ?? null, raid.value?.guild.name ?? null).isGuildBank;
+}
+
+function isMasterLooterName(value?: string | null): boolean {
+  return normalizeLooterName(value ?? null, raid.value?.guild.name ?? null).isMasterLooter;
+}
+
+function normalizeLooterForSubmission(value: string): string {
+  return normalizeLooterForSubmissionUtil(value, raid.value?.guild.name ?? null);
+}
+
+function normalizeRaidLootEvents(events: RaidLootEvent[]): RaidLootEvent[] {
+  return events.map((event) => {
+    const { name, isGuildBank, isMasterLooter } = normalizeLooterName(
+      event.looterName ?? null,
+      raid.value?.guild.name ?? null
+    );
+    return {
+      ...event,
+      looterName: name,
+      looterClass: isGuildBank || isMasterLooter ? null : event.looterClass ?? null
+    };
+  });
+}
+
+async function refreshLootEvents() {
+  const events = await api.fetchRaidLoot(raidId);
+  lootEvents.value = normalizeRaidLootEvents(events);
+}
 const pendingAttendanceEventId = ref<string | null>(
   typeof route.query.attendanceEventId === 'string'
     ? (route.query.attendanceEventId as string)
@@ -1043,11 +1111,31 @@ const whitelistLookup = computed(() =>
 const blacklistLookup = computed(() =>
   buildLootListLookup(lootListSummary.value?.blacklist ?? [])
 );
+const lootMonitorActive = computed(() => Boolean(raid.value?.logMonitor?.isActive));
+const lootMonitorVisible = computed(() => lootMonitorActive.value);
+const lootMonitorDisplayName = computed(() => {
+  const name = raid.value?.logMonitor?.userDisplayName?.trim();
+  return name && name.length > 0 ? name : null;
+});
+const lootMonitorStatusLabel = computed(() => {
+  if (!lootMonitorVisible.value) {
+    return 'Continuous loot monitoring inactive';
+  }
+  return lootMonitorDisplayName.value
+    ? `Continuous loot monitoring active by ${lootMonitorDisplayName.value}`
+    : 'Continuous loot monitoring active';
+});
+
 interface GroupedLootEntry {
   id: string;
   itemName: string;
+  itemId: number | null;
+  itemIconId: number | null;
   looterName: string;
   looterClass?: string | null;
+  displayLooterName: string;
+  isGuildBank: boolean;
+  isMasterLooter: boolean;
   emoji?: string | null;
   note?: string | null;
   count: number;
@@ -1068,13 +1156,21 @@ const lootContextMenu = reactive({
 const groupedLoot = computed<GroupedLootEntry[]>(() => {
   const grouped = new Map<string, GroupedLootEntry>();
   for (const event of lootEvents.value) {
-    const key = `${event.looterName}::${event.itemName}`;
+    const normalizedLooterName = normalizeLooterNameValue(event.looterName);
+    const key = `${normalizedLooterName}::${event.itemName}`;
+    const isBank = isGuildBankName(normalizedLooterName);
+    const isMaster = isMasterLooterName(normalizedLooterName);
     if (!grouped.has(key)) {
       grouped.set(key, {
         id: event.id,
         itemName: event.itemName,
-        looterName: event.looterName,
-        looterClass: event.looterClass,
+        itemId: event.itemId ?? null,
+        itemIconId: event.itemIconId ?? null,
+        looterName: normalizedLooterName,
+        looterClass: isBank || isMaster ? null : event.looterClass,
+        displayLooterName: isBank ? guildBankDisplayName.value : normalizedLooterName,
+        isGuildBank: isBank,
+        isMasterLooter: isMaster,
         emoji: event.emoji,
         note: event.note,
         count: 0,
@@ -1085,6 +1181,26 @@ const groupedLoot = computed<GroupedLootEntry[]>(() => {
     const entry = grouped.get(key)!;
     entry.count += 1;
     entry.eventIds.push(event.id);
+    if (entry.looterName !== normalizedLooterName) {
+      entry.looterName = normalizedLooterName;
+      entry.displayLooterName = isBank ? guildBankDisplayName.value : normalizedLooterName;
+    }
+    if (isBank) {
+      entry.isGuildBank = true;
+      entry.looterClass = null;
+      entry.displayLooterName = guildBankDisplayName.value;
+    }
+    if (isMaster) {
+      entry.isMasterLooter = true;
+      entry.looterClass = null;
+      entry.displayLooterName = normalizedLooterName;
+    }
+    if (entry.itemId == null && event.itemId != null) {
+      entry.itemId = event.itemId;
+    }
+    if (entry.itemIconId == null && event.itemIconId != null) {
+      entry.itemIconId = event.itemIconId;
+    }
   }
   const whitelistLookupValue = whitelistLookup.value;
   return Array.from(grouped.values())
@@ -1093,7 +1209,7 @@ const groupedLoot = computed<GroupedLootEntry[]>(() => {
       return {
         ...entry,
         isWhitelisted: Boolean(
-          matchesLootListEntry(whitelistLookupValue, null, normalized)
+          matchesLootListEntry(whitelistLookupValue, entry.itemId, normalized)
         )
       };
     })
@@ -1624,7 +1740,7 @@ async function loadRaid() {
 
 async function loadLoot() {
   try {
-    lootEvents.value = await api.fetchRaidLoot(raidId);
+    await refreshLootEvents();
   } catch (error) {
     console.warn('Failed to load loot events', error);
   }
@@ -1649,8 +1765,16 @@ function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
   }
   event.preventDefault();
   const normalizedName = normalizeLootItemName(entry.itemName);
-  const whitelistEntry = matchesLootListEntry(whitelistLookup.value, null, normalizedName);
-  const blacklistEntry = matchesLootListEntry(blacklistLookup.value, null, normalizedName);
+  const whitelistEntry = matchesLootListEntry(
+    whitelistLookup.value,
+    entry.itemId,
+    normalizedName
+  );
+  const blacklistEntry = matchesLootListEntry(
+    blacklistLookup.value,
+    entry.itemId,
+    normalizedName
+  );
   const menuWidth = 220;
   const menuHeight = 160;
   const x = Math.min(event.clientX, window.innerWidth - menuWidth);
@@ -1660,7 +1784,7 @@ function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
     x,
     y,
     itemName: entry.itemName,
-    itemId: whitelistEntry?.itemId ?? blacklistEntry?.itemId ?? null,
+    itemId: entry.itemId ?? whitelistEntry?.itemId ?? blacklistEntry?.itemId ?? null,
     normalizedName,
     whitelistEntry,
     blacklistEntry,
@@ -1799,9 +1923,9 @@ async function saveEditedLoot() {
   if (!raid.value || !editLootModal.entry) {
     return;
   }
-  const newLooter = editLootModal.form.looterName.trim();
+  const newLooterInput = editLootModal.form.looterName.trim();
   const newCount = Number(editLootModal.form.count);
-  if (!newLooter) {
+  if (!newLooterInput) {
     window.alert('Looter name is required.');
     return;
   }
@@ -1810,6 +1934,10 @@ async function saveEditedLoot() {
     return;
   }
 
+  const normalizedLooter = normalizeLooterForSubmission(newLooterInput);
+  const isBankLooter = isGuildBankName(normalizedLooter);
+  const isMasterLooter = isMasterLooterName(normalizedLooter);
+
   const entry = editLootModal.entry;
   const currentCount = entry.count;
   const countDiff = newCount - currentCount;
@@ -1817,10 +1945,15 @@ async function saveEditedLoot() {
 
   editLootModal.saving = true;
   try {
-    if (newLooter !== entry.looterName) {
+    if (normalizedLooter !== entry.looterName) {
       await Promise.all(
         entry.eventIds.map((lootId) =>
-          api.updateRaidLoot(raidId, lootId, { looterName: newLooter }).catch((error) => {
+          api
+            .updateRaidLoot(raidId, lootId, {
+              looterName: normalizedLooter,
+              looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? null
+            })
+            .catch((error) => {
             console.warn('Failed to update loot assignment', lootId, error);
             throw error;
           })
@@ -1831,7 +1964,9 @@ async function saveEditedLoot() {
     if (countDiff > 0) {
       const payload = Array.from({ length: countDiff }, () => ({
         itemName: entry.itemName,
-        looterName: newLooter,
+        itemId: entry.itemId ?? null,
+        looterName: normalizedLooter,
+        looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? undefined,
         emoji,
         note: entry.note ?? undefined
       }));
@@ -1848,13 +1983,13 @@ async function saveEditedLoot() {
       );
     }
 
-    lootEvents.value = await api.fetchRaidLoot(raidId);
+    await refreshLootEvents();
     await refreshLootListSummary();
     window.dispatchEvent(
       new CustomEvent('loot-updated', {
         detail: {
           title: 'Loot Updated',
-          message: `${entry.itemName} now assigned to ${newLooter} (${newCount}×)`
+          message: `${entry.itemName} now assigned to ${normalizedLooter} (${newCount}×)`
         }
       })
     );
@@ -4188,6 +4323,18 @@ th {
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.raid-loot-card--needs-assignment {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: linear-gradient(145deg, rgba(127, 29, 29, 0.85), rgba(220, 38, 38, 0.45));
+  box-shadow: 0 10px 24px rgba(127, 29, 29, 0.5);
+}
+
+.raid-loot-card--needs-assignment:hover,
+.raid-loot-card--needs-assignment:focus-visible {
+  border-color: rgba(248, 113, 113, 0.75);
+  box-shadow: 0 16px 32px rgba(127, 29, 29, 0.6);
+}
+
 
 .raid-loot-card__badge {
   position: absolute;
@@ -4203,8 +4350,8 @@ th {
   color: #facc15;
 }
 
-.raid-loot-card:hover,
-.raid-loot-card:focus-visible {
+.raid-loot-card:not(.raid-loot-card--needs-assignment):hover,
+.raid-loot-card:not(.raid-loot-card--needs-assignment):focus-visible {
   transform: translateY(-2px);
   border-color: rgba(34, 197, 94, 0.4);
   box-shadow: 0 14px 26px rgba(15, 23, 42, 0.5);
@@ -4223,6 +4370,12 @@ th {
   font-size: 0.85rem;
 }
 
+.raid-loot-card--needs-assignment .raid-loot-card__count {
+  background: rgba(248, 113, 113, 0.25);
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fecaca;
+}
+
 .raid-loot-card__header {
   display: flex;
   gap: 0.75rem;
@@ -4230,8 +4383,33 @@ th {
   padding-right: 3rem;
 }
 
+.raid-loot-card__icon {
+  width: 2.4rem;
+  height: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.raid-loot-card__icon picture,
+.raid-loot-card__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 .raid-loot-card__emoji {
-  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 1.45rem;
 }
 
 .raid-loot-card__item {
@@ -4243,6 +4421,15 @@ th {
   margin: 0;
   font-size: 0.9rem;
   color: #94a3b8;
+}
+
+.raid-loot-card__looter-name {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.raid-loot-card__looter-name--unassigned {
+  color: #fecaca;
 }
 
 .raid-loot-card__looter .character-link {
@@ -4264,6 +4451,101 @@ th {
   color: #cbd5f5;
 }
 
+.recorded-loot-card {
+  position: relative;
+  padding-top: 2.5rem;
+}
+
+.recorded-loot__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding-right: 8rem;
+}
+
+.recorded-loot__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  justify-self: start;
+}
+
+.recorded-loot__manage {
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
+  z-index: 1;
+}
+
+.recorded-loot__monitor {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 3rem;
+  width: clamp(280px, 40vw, 540px);
+  border-radius: 1.25rem;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(15, 23, 42, 0.65));
+  color: #dbeafe;
+  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.18), inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+  justify-self: center;
+}
+
+.recorded-loot__monitor-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  line-height: 1.4;
+  text-align: center;
+  white-space: normal;
+}
+
+.recorded-loot__spacer {
+  width: 100%;
+  height: 0;
+}
+
+.recorded-loot__monitor-bar {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(191, 219, 254, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.35);
+}
+
+.recorded-loot__monitor-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(191, 219, 254, 0),
+    rgba(191, 219, 254, 0.85),
+    rgba(191, 219, 254, 0)
+  );
+  transform: translateX(-100%);
+  animation: recorded-loot-monitor-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes recorded-loot-monitor-slide {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.recorded-loot__monitor-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(59, 130, 246, 0.6), transparent 60%);
+  opacity: 0.35;
+}
+
 .btn--manage-loot {
   display: inline-flex;
   align-items: center;
@@ -4283,6 +4565,36 @@ th {
   box-shadow: 0 14px 30px rgba(148, 163, 184, 0.5);
   color: #020617;
   transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .recorded-loot__header {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    padding-right: 0;
+  }
+
+  .recorded-loot-card {
+    padding-top: 3.75rem;
+  }
+
+  .recorded-loot__manage {
+    position: static;
+    align-self: flex-end;
+    margin-bottom: 0.5rem;
+  }
+
+  .recorded-loot__monitor {
+    width: 100%;
+    padding: 1rem 1.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .recorded-loot__spacer {
+    display: none;
+  }
 }
 
 .loot-context-menu {

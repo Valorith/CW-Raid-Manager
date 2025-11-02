@@ -29,6 +29,26 @@ export function buildServer() {
         .find((candidate) => existsSync(candidate));
     const clientDistPath = clientIndexPath ? dirname(clientIndexPath) : null;
     const clientIndexHtml = clientIndexPath ? readFileSync(clientIndexPath, 'utf-8') : null;
+    const assetPathCandidates = [
+        process.env.ASSETS_PATH ? resolve(process.env.ASSETS_PATH) : null,
+        resolve(process.cwd(), 'assets'),
+        resolve(process.cwd(), '../assets'),
+        resolve(currentDir, '../../assets'),
+        resolve(currentDir, '../../../assets')
+    ].filter((candidate) => Boolean(candidate));
+    const sharedAssetsPath = assetPathCandidates.find((candidate) => existsSync(candidate)) ?? null;
+    const sharedIconsPath = sharedAssetsPath ? resolve(sharedAssetsPath, 'icons') : null;
+    if (sharedIconsPath && existsSync(sharedIconsPath)) {
+        server.register(fastifyStatic, {
+            root: sharedIconsPath,
+            prefix: '/assets/icons',
+            decorateReply: false
+        });
+        server.log.info({ sharedIconsPath }, 'Serving shared icons from /assets/icons');
+    }
+    else {
+        server.log.warn({ assetPathCandidates }, 'Shared icons directory not found; /assets/icons will return 404 responses.');
+    }
     if (clientIndexPath) {
         server.log.info({ clientDistPath }, 'Serving client assets from build output');
     }

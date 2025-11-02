@@ -22,6 +22,16 @@ const fileConfigSchema = z
         url: z.string().min(1).optional()
     })
         .optional(),
+    eqDatabase: z
+        .object({
+        host: z.string().min(1).optional(),
+        port: z.number().int().positive().optional(),
+        user: z.string().min(1).optional(),
+        password: z.string().optional(),
+        name: z.string().min(1).optional(),
+        poolLimit: z.number().int().positive().optional()
+    })
+        .optional(),
     session: z
         .object({
         secret: z.string().min(16).optional()
@@ -108,6 +118,12 @@ const mysqlPort = readOptionalEnv('MYSQLPORT', mysqlPortSchema);
 const mysqlUser = readOptionalEnv('MYSQLUSER', mysqlIdentifierSchema);
 const mysqlPassword = readOptionalEnv('MYSQLPASSWORD', mysqlPasswordSchema) ??
     readOptionalEnv('MYSQL_ROOT_PASSWORD', mysqlPasswordSchema);
+const eqDbHost = readOptionalEnv('EQ_DB_HOST', mysqlIdentifierSchema);
+const eqDbPort = readOptionalEnv('EQ_DB_PORT', mysqlPortSchema);
+const eqDbUser = readOptionalEnv('EQ_DB_USER', mysqlIdentifierSchema);
+const eqDbPassword = readOptionalEnv('EQ_DB_PASSWORD', mysqlPasswordSchema);
+const eqDbName = readOptionalEnv('EQ_DB_NAME', mysqlIdentifierSchema);
+const eqDbPoolLimit = readOptionalEnv('EQ_DB_POOL_LIMIT', mysqlPortSchema);
 function buildMysqlUrl() {
     if (!mysqlHost || !mysqlUser || !mysqlDatabaseName) {
         return undefined;
@@ -125,6 +141,44 @@ const envDatabaseUrl = envDatabaseUrlDirect ?? envMysqlUrl ?? envMysqlPublicUrl 
 if (!envDatabaseUrlDirect && envDatabaseUrl && !process.env.DATABASE_URL) {
     console.info('DATABASE_URL not provided. Using derived MySQL connection string.');
     process.env.DATABASE_URL = envDatabaseUrl;
+}
+const eqDbSettingsProvided = eqDbHost !== undefined ||
+    eqDbPort !== undefined ||
+    eqDbUser !== undefined ||
+    eqDbPassword !== undefined ||
+    eqDbName !== undefined ||
+    eqDbPoolLimit !== undefined;
+let eqDatabaseConfig = null;
+if (eqDbSettingsProvided) {
+    if (!eqDbHost || !eqDbUser || !eqDbName) {
+        console.warn('EQ content database configuration incomplete. Provide EQ_DB_HOST, EQ_DB_USER, and EQ_DB_NAME.');
+    }
+    else {
+        eqDatabaseConfig = {
+            host: eqDbHost,
+            port: eqDbPort ?? 3306,
+            user: eqDbUser,
+            database: eqDbName,
+            ...(eqDbPassword ? { password: eqDbPassword } : {}),
+            ...(eqDbPoolLimit ? { poolLimit: eqDbPoolLimit } : {})
+        };
+    }
+}
+if (!eqDatabaseConfig && fileConfig.eqDatabase) {
+    const { host, user, name, port: filePort, password: filePassword, poolLimit: filePoolLimit } = fileConfig.eqDatabase;
+    if (!host || !user || !name) {
+        console.warn('config/app.config.json eqDatabase section is missing host, user, or name. Ignoring file configuration.');
+    }
+    else {
+        eqDatabaseConfig = {
+            host,
+            port: filePort ?? 3306,
+            user,
+            database: name,
+            ...(filePassword ? { password: filePassword } : {}),
+            ...(filePoolLimit ? { poolLimit: filePoolLimit } : {})
+        };
+    }
 }
 const envSessionSecret = readOptionalEnv('SESSION_SECRET', sessionSecretSchema);
 const envGoogleClientId = readOptionalEnv('GOOGLE_CLIENT_ID', z.string().min(1));
@@ -180,5 +234,6 @@ export const appConfig = {
     clientUrl,
     databaseUrl,
     sessionSecret,
+    eqDatabase: eqDatabaseConfig,
     google: googleConfig
 };

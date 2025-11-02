@@ -58,6 +58,7 @@ export async function authRoutes(server) {
                 email: true,
                 displayName: true,
                 nickname: true,
+                defaultLogFileName: true,
                 admin: true,
                 guildMemberships: {
                     select: {
@@ -104,6 +105,7 @@ export async function authRoutes(server) {
                 email: user.email,
                 displayName: user.nickname ?? user.displayName,
                 nickname: user.nickname ?? null,
+                defaultLogFileName: user.defaultLogFileName ?? null,
                 isAdmin: user.admin,
                 guilds: user.guildMemberships.map((membership) => ({
                     id: membership.guild.id,

@@ -185,6 +185,8 @@ model RaidLootEvent {
   raidId      String
   guildId     String
   itemName    String
+  itemId      Int?
+  itemIconId  Int?
   looterName  String
   looterClass String?   @db.VarChar(50)
   eventTime   DateTime?

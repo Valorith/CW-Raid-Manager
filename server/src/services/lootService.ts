@@ -4,9 +4,18 @@ import { prisma } from '../utils/prisma.js';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { getItemIconId } from './eqItemService.js';
+
+type AppLogger = {
+  debug?: (...args: unknown[]) => unknown;
+  info?: (...args: unknown[]) => unknown;
+  warn?: (...args: unknown[]) => unknown;
+  error?: (...args: unknown[]) => unknown;
+};
 
 export interface LootEventInput {
   itemName: string;
+  itemId?: number | null;
   looterName: string;
   looterClass?: string | null;
   eventTime?: string | null;
@@ -129,11 +138,39 @@ export async function updateGuildLootParserSettings(guildId: string, input: {
   return normalizeParserSettings(record);
 }
 
-export async function listRaidLootEvents(raidId: string) {
-  return prisma.raidLootEvent.findMany({
+export async function listRaidLootEvents(raidId: string, logger?: AppLogger) {
+  const loot = await prisma.raidLootEvent.findMany({
     where: { raidId },
     orderBy: { eventTime: 'asc' }
   });
+
+  const pendingIcons = loot.filter(
+    (event) => event.itemId != null && event.itemIconId == null
+  );
+
+  if (pendingIcons.length > 0) {
+    await Promise.all(
+      pendingIcons.map(async (event) => {
+        const iconId = await getItemIconId(event.itemId!, logger);
+        if (iconId != null) {
+          event.itemIconId = iconId;
+          try {
+            await prisma.raidLootEvent.update({
+              where: { id: event.id },
+              data: { itemIconId: iconId }
+            });
+          } catch (error) {
+            logger?.warn?.(
+              { err: error, lootId: event.id },
+              'Failed to persist EverQuest icon id for loot event'
+            );
+          }
+        }
+      })
+    );
+  }
+
+  return loot;
 }
 
 export async function createRaidLootEvents(options: {
@@ -142,19 +179,39 @@ export async function createRaidLootEvents(options: {
   createdById: string;
   events: LootEventInput[];
   notifyDiscord?: boolean;
+  logger?: AppLogger;
 }) {
   if (!options.events || options.events.length === 0) {
     return [];
   }
 
+  const eventsWithMetadata = await Promise.all(
+    options.events.map(async (event) => {
+      const itemId = event.itemId ?? null;
+      let itemIconId: number | null = null;
+
+      if (itemId != null) {
+        itemIconId = await getItemIconId(itemId, options.logger);
+      }
+
+      return {
+        ...event,
+        itemId,
+        itemIconId
+      };
+    })
+  );
+
   const created = await prisma.$transaction(async (tx) => {
     const results = [];
-    for (const event of options.events) {
+    for (const event of eventsWithMetadata) {
       const record = await tx.raidLootEvent.create({
         data: {
           raidId: options.raidId,
           guildId: options.guildId,
           itemName: event.itemName,
+          itemId: event.itemId ?? null,
+          itemIconId: event.itemIconId ?? null,
           looterName: event.looterName,
           looterClass: event.looterClass ?? null,
           eventTime: event.eventTime ? new Date(event.eventTime) : null,
@@ -180,7 +237,18 @@ export async function createRaidLootEvents(options: {
   return created;
 }
 
-export async function updateRaidLootEvent(lootId: string, guildId: string, data: Partial<LootEventInput>) {
+export async function updateRaidLootEvent(
+  lootId: string,
+  guildId: string,
+  data: Partial<LootEventInput>,
+  logger?: AppLogger
+) {
+  let itemIconId: number | null | undefined;
+
+  if (data.itemId !== undefined) {
+    itemIconId = data.itemId != null ? await getItemIconId(data.itemId, logger) : null;
+  }
+
   return prisma.raidLootEvent.update({
     where: {
       id: lootId,
@@ -188,6 +256,8 @@ export async function updateRaidLootEvent(lootId: string, guildId: string, data:
     },
     data: {
       itemName: data.itemName ?? undefined,
+      itemId: data.itemId === undefined ? undefined : data.itemId,
+      itemIconId: itemIconId === undefined ? undefined : itemIconId,
       looterName: data.looterName ?? undefined,
       looterClass: data.looterClass ?? undefined,
       eventTime: data.eventTime ? new Date(data.eventTime) : undefined,

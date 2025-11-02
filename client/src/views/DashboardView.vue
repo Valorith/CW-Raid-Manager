@@ -181,12 +181,31 @@
             @click="openAllaSearch(entry.itemName)"
             @keyup.enter="openAllaSearch(entry.itemName)"
           >
-            <div class="recent-loot__emoji">{{ entry.emoji ?? '💎' }}</div>
+            <div class="recent-loot__icon">
+              <template v-if="entry.itemIconId != null">
+                <img
+                  :src="getLootIconSrc(entry.itemIconId)"
+                  :alt="`${entry.itemName} icon`"
+                  loading="lazy"
+                />
+              </template>
+              <span v-else class="recent-loot__emoji">{{ entry.emoji ?? '💎' }}</span>
+            </div>
             <div class="recent-loot__details">
               <p class="recent-loot__item-name">{{ entry.itemName }}</p>
               <p class="recent-loot__meta">
-                <CharacterLink class="recent-loot__looter" :name="entry.looterName" /> •
-                {{ entry.raid.guild.name }} •
+                <template v-if="entry.isGuildBank">
+                  <span class="recent-loot__looter">{{ entry.displayLooterName }}</span>
+                </template>
+                <template v-else-if="entry.isMasterLooter">
+                  <span class="recent-loot__looter recent-loot__looter--unassigned">
+                    {{ entry.displayLooterName }}
+                  </span>
+                </template>
+                <template v-else>
+                  <CharacterLink class="recent-loot__looter" :name="entry.displayLooterName" />
+                </template>
+                • {{ entry.raid.guild.name }} •
                 {{ formatDate(entry.eventTime ?? entry.raid.startTime) }}
               </p>
             </div>
@@ -230,6 +249,8 @@ import CharacterLink from '../components/CharacterLink.vue';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
+import { getLootIconSrc } from '../utils/itemIcons';
+import { getGuildBankDisplayName, normalizeLooterName } from '../utils/lootNames';
 
 type EditableCharacter = {
   id: string;
@@ -238,6 +259,12 @@ type EditableCharacter = {
   class: CharacterClass;
   guildId?: string | null;
   isMain: boolean;
+};
+
+type RecentLootDisplay = RecentLootEntry & {
+  displayLooterName: string;
+  isGuildBank: boolean;
+  isMasterLooter: boolean;
 };
 
 const characters = ref<UserCharacter[]>([]);
@@ -253,7 +280,7 @@ const attendancePerPage = 5;
 const expandedAttendanceIds = ref<string[]>([]);
 const updatingCharacterId = ref<string | null>(null);
 const characterError = ref<string | null>(null);
-const recentLoot = ref<RecentLootEntry[]>([]);
+const recentLoot = ref<RecentLootDisplay[]>([]);
 const loadingLoot = ref(false);
 const lootError = ref<string | null>(null);
 const lootPage = ref(1);
@@ -312,12 +339,39 @@ async function loadRecentAttendance() {
   }
 }
 
+function normalizeRecentLootLooter(entry: RecentLootEntry): {
+  name: string;
+  isGuildBank: boolean;
+  isMasterLooter: boolean;
+} {
+  const guildName = entry.raid?.guild?.name ?? null;
+  const { name, isGuildBank, isMasterLooter } = normalizeLooterName(
+    entry.looterName ?? null,
+    guildName
+  );
+  const displayName = isGuildBank ? getGuildBankDisplayName(guildName) : name;
+  return { name: displayName, isGuildBank, isMasterLooter };
+}
+
 async function loadRecentLoot(page = lootPage.value) {
   loadingLoot.value = true;
   lootError.value = null;
   try {
     const response = await api.fetchRecentLoot(page, lootPageSize);
-    recentLoot.value = response.loot;
+    const lootEntries = Array.isArray(response.loot) ? response.loot : [];
+    const normalizedEntries = lootEntries
+      .map((entry) => {
+        const { name, isGuildBank, isMasterLooter } = normalizeRecentLootLooter(entry);
+        return {
+          ...entry,
+          looterName: name,
+          displayLooterName: name,
+          isGuildBank,
+          isMasterLooter
+        };
+      })
+      .filter((entry) => !entry.isMasterLooter);
+    recentLoot.value = normalizedEntries;
     lootPage.value = response.page ?? page;
     lootTotalPages.value = response.totalPages ?? 1;
   } catch (error) {
@@ -848,7 +902,32 @@ onMounted(() => {
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
 }
 
+.recent-loot__icon {
+  width: 2.4rem;
+  height: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: rgba(30, 41, 59, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.recent-loot__icon picture,
+.recent-loot__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 .recent-loot__emoji {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
   font-size: 1.5rem;
 }
 
@@ -871,6 +950,10 @@ onMounted(() => {
 
 .recent-loot__looter {
   font-weight: 600;
+}
+
+.recent-loot__looter--unassigned {
+  color: #fca5a5;
 }
 
 .attendance-badge {

@@ -135,6 +135,28 @@ export async function raidsRoutes(server) {
             return reply.internalServerError('Unable to update raid signups.');
         }
     });
+    const targetsArraySchema = z
+        .array(z.string())
+        .optional()
+        .transform((value) => {
+        if (!value) {
+            return [];
+        }
+        return value
+            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+            .filter((entry) => entry.length > 0);
+    });
+    const optionalTargetsArraySchema = z
+        .array(z.string())
+        .optional()
+        .transform((value) => {
+        if (value === undefined) {
+            return undefined;
+        }
+        return value
+            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+            .filter((entry) => entry.length > 0);
+    });
     server.post('/', { preHandler: [authenticate] }, async (request, reply) => {
         const bodySchema = z.object({
             guildId: z.string(),
@@ -142,8 +164,8 @@ export async function raidsRoutes(server) {
             startTime: z.string().datetime({ offset: true }),
             startedAt: z.string().datetime({ offset: true }).optional(),
             endedAt: z.string().datetime({ offset: true }).optional(),
-            targetZones: z.array(z.string().min(1)).min(1),
-            targetBosses: z.array(z.string().min(1)).min(1),
+            targetZones: targetsArraySchema,
+            targetBosses: targetsArraySchema,
             notes: z.string().max(2000).optional(),
             discordVoiceUrl: z.union([z.string().url().max(512), z.literal('')]).optional(),
             recurrence: z.union([recurrenceSchema, z.null()]).optional()
@@ -192,8 +214,8 @@ export async function raidsRoutes(server) {
             startTime: z.string().datetime({ offset: true }).optional(),
             startedAt: z.string().datetime({ offset: true }).nullable().optional(),
             endedAt: z.string().datetime({ offset: true }).nullable().optional(),
-            targetZones: z.array(z.string().min(1)).min(1).optional(),
-            targetBosses: z.array(z.string().min(1)).min(1).optional(),
+            targetZones: optionalTargetsArraySchema,
+            targetBosses: optionalTargetsArraySchema,
             notes: z.string().max(2000).optional(),
             isActive: z.boolean().optional(),
             discordVoiceUrl: z.union([z.string().url().max(512), z.literal(''), z.null()]).optional(),

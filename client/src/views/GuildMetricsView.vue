@@ -503,8 +503,15 @@
           <div class="metrics-recent__grid">
             <article v-for="event in recentLootEvents" :key="event.id" class="metrics-recent__card">
               <header class="metrics-recent__header">
-                <div class="metrics-recent__item-icon" aria-hidden="true">
-                  <span aria-hidden="true">🪙</span>
+                <div class="metrics-recent__item-icon">
+                  <template v-if="event.itemIconId != null">
+                    <img
+                      :src="getLootIconSrc(event.itemIconId)"
+                      :alt="`${event.itemName} icon`"
+                      loading="lazy"
+                    />
+                  </template>
+                  <span v-else aria-hidden="true">{{ event.emoji ?? '🪙' }}</span>
                 </div>
                 <div class="metrics-recent__item-title">
                   <strong>{{ event.itemName }}</strong>
@@ -518,9 +525,9 @@
                 <div class="metrics-recent__looter">
                   <span class="metrics-recent__looter-label">Awarded to</span>
                   <CharacterLink
-                    v-if="shouldLinkEntities"
+                    v-if="shouldLinkEntities && !event.isGuildBank && !event.isMasterLooter"
                     class="metrics-recent__looter-name"
-                    :name="event.looterName"
+                    :name="event.displayLooterName"
                   />
                   <span
                     v-else
@@ -728,7 +735,10 @@
                     </button>
                   </td>
                   <td>
-                    <CharacterLink :name="row.looterName">{{ row.looterName }}</CharacterLink>
+                    <template v-if="!row.isGuildBank && !row.isMasterLooter">
+                      <CharacterLink :name="row.looterName">{{ row.displayLooterName }}</CharacterLink>
+                    </template>
+                    <span v-else>{{ row.displayLooterName }}</span>
                   </td>
                   <td>
                     <div class="loot-detail__raid">
@@ -797,6 +807,11 @@ import { useRoute } from 'vue-router';
 
 import CharacterInspector from '../components/CharacterInspector.vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import {
+  getGuildBankDisplayName,
+  normalizeLooterName
+} from '../utils/lootNames';
+import { getLootIconSrc } from '../utils/itemIcons';
 import TimelineRangeSelector from '../components/TimelineRangeSelector.vue';
 import {
   api,
@@ -868,6 +883,8 @@ const memberDisplayNameLookup = ref<Map<string, string>>(new Map());
 const characterOwnerMap = ref<Map<string, { userId: string; displayName: string | null }>>(new Map());
 const guildPermissions = ref<GuildPermissions | null>(null);
 const guildMemberDirectory = ref<GuildMemberDirectoryEntry[]>([]);
+const guildName = ref<string | null>(null);
+const guildBankDisplayName = computed(() => getGuildBankDisplayName(guildName.value));
 
 const rangeForm = reactive({
   start: '',
@@ -904,6 +921,14 @@ const unknownAssignmentLoading = ref(false);
 const unknownAssignmentError = ref<string | null>(null);
 const showLootDetailModal = ref(false);
 const lootDetailTarget = ref<{ entry: LootParticipantSummary; identity: EntityIdentity | null } | null>(null);
+
+type LootMetricEventWithBank = LootMetricEvent & {
+  originalLooterName: string | null;
+  displayLooterName: string;
+  isGuildBank: boolean;
+  isMasterLooter: boolean;
+  normalizedLooterName: string;
+};
 const lootDetailPage = ref(0);
 const LOOT_DETAIL_PAGE_SIZE = 8;
 
@@ -1416,17 +1441,36 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
         aggregate.isMain = true;
       }
     }
-    for (const event of metricsSnapshot.lootEvents) {
-      const normalizedName = event.looterName?.trim();
-      if (!normalizedName) {
+    for (const event of normalizedLootEvents.value) {
+      const fallbackName =
+        event.originalLooterName?.trim() && event.originalLooterName.trim().length > 0
+          ? event.originalLooterName.trim()
+          : event.displayLooterName;
+      if (!fallbackName) {
         continue;
       }
+      const normalizedName = fallbackName;
       const normalizedLower = normalizedName.toLowerCase();
       let aggregateMatch: MemberAggregate | undefined;
       for (const aggregate of aggregates.values()) {
         if (aggregate.normalizedCharacterNames.has(normalizedLower)) {
           aggregateMatch = aggregate;
           break;
+        }
+      }
+      if (!aggregateMatch) {
+        const ownerInfo = resolveCharacterOwner(
+          fallbackName,
+          null,
+          null
+        );
+        if (ownerInfo.userId || ownerInfo.userDisplayName) {
+          aggregateMatch = ensureMemberAggregate(
+            aggregates,
+            ownerInfo.userId,
+            ownerInfo.userDisplayName,
+            ownerInfo.userDisplayName ?? fallbackName ?? UNKNOWN_MEMBER_LABEL
+          );
         }
       }
       if (!aggregateMatch) {
@@ -1818,7 +1862,7 @@ const lootItemOptions = computed<LootItemOption[]>(() => {
     return [];
   }
   const counts = new Map<string, number>();
-  for (const event of metrics.value.lootEvents) {
+  for (const event of normalizedLootEvents.value) {
     const name = event.itemName;
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
@@ -2304,8 +2348,8 @@ function recordMatchesIdentity(record: AttendanceMetricRecord, identity: EntityI
   return identity.normalizedCharacterNames.includes(normalizedName);
 }
 
-function lootEventMatchesIdentity(event: LootMetricEvent, identity: EntityIdentity): boolean {
-  const normalizedLooter = event.looterName.toLowerCase();
+function lootEventMatchesIdentity(event: LootMetricEventWithBank, identity: EntityIdentity): boolean {
+  const normalizedLooter = event.normalizedLooterName;
   if (identity.normalizedCharacterNames.includes(normalizedLooter)) {
     return true;
   }
@@ -2318,22 +2362,76 @@ function lootEventMatchesIdentity(event: LootMetricEvent, identity: EntityIdenti
   return false;
 }
 
-function displayLooterName(event: LootMetricEvent): string {
-  if (!isMemberMode.value) {
-    return event.looterName;
+function displayLooterName(event: LootMetricEventWithBank): string {
+  if (event.isGuildBank) {
+    return event.displayLooterName;
   }
-  const option = memberKeyByCharacterName.value.get(event.looterName.toLowerCase());
-  return formatEntityLabel(
-    option,
-    {
-      primaryName: event.looterName,
-      characterNames: option?.characterNames ?? [event.looterName],
-      userDisplayName: option?.userDisplayName ?? null,
-      userId: option?.userId ?? null
-    },
-    false,
-    true
-  );
+  if (event.isMasterLooter) {
+    return event.displayLooterName;
+  }
+  const fallbackCharacterName =
+    event.originalLooterName?.trim() && event.originalLooterName.trim().length > 0
+      ? event.originalLooterName.trim()
+      : event.displayLooterName;
+  if (!isMemberMode.value) {
+    return fallbackCharacterName;
+  }
+  const normalizedFallback = normalizeNameKey(fallbackCharacterName);
+  let option = memberKeyByCharacterName.value.get(event.normalizedLooterName);
+  if (!option && normalizedFallback) {
+    const ownerEntry = characterOwnerMap.value.get(normalizedFallback);
+    if (ownerEntry?.userId) {
+      option = memberOptionByUserId.value.get(ownerEntry.userId);
+    }
+  }
+  let resolvedName: string | null = null;
+  let ownerEntry: { userId: string | null; userDisplayName: string | null } | null = null;
+  if (option) {
+    resolvedName = formatEntityLabel(
+      option,
+      {
+        primaryName: fallbackCharacterName,
+        characterNames:
+          option.characterNames.length > 0 ? option.characterNames : [fallbackCharacterName],
+        userDisplayName: option.userDisplayName ?? null,
+        userId: option.userId ?? null
+      },
+      false,
+      true
+    );
+    ownerEntry = {
+      userId: option.userId ?? null,
+      userDisplayName: option.userDisplayName ?? null
+    };
+  } else {
+    resolvedName = fallbackCharacterName;
+    if (normalizedFallback) {
+      const mapped = characterOwnerMap.value.get(normalizedFallback);
+      if (mapped) {
+        ownerEntry = {
+          userId: mapped.userId,
+          userDisplayName: mapped.displayName ?? null
+        };
+      }
+    }
+  }
+  const trimmed = resolvedName?.trim();
+  if (!trimmed || trimmed === UNKNOWN_MEMBER_LABEL) {
+    const preferred = resolveMemberPreferredName(
+      ownerEntry?.userId ?? null,
+      ownerEntry?.userDisplayName ?? null,
+      fallbackCharacterName
+    );
+    if (preferred && preferred.trim().length > 0 && preferred.trim() !== UNKNOWN_MEMBER_LABEL) {
+      return preferred.trim();
+    }
+    const fallback = fallbackCharacterName?.trim();
+    if (fallback && fallback.length > 0) {
+      return fallback;
+    }
+    return event.displayLooterName;
+  }
+  return trimmed;
 }
 
 const allRaidIds = computed(() => {
@@ -2344,7 +2442,7 @@ const allRaidIds = computed(() => {
   for (const record of metrics.value.attendanceRecords) {
     ids.add(record.raid.id);
   }
-  for (const event of metrics.value.lootEvents) {
+  for (const event of normalizedLootEvents.value) {
     ids.add(event.raid.id);
   }
   return Array.from(ids);
@@ -2374,12 +2472,12 @@ const lootTotals = computed(() => {
   }
   const mainNames = mainCharacterNames.value;
   let mainCount = 0;
-  for (const event of metrics.value.lootEvents) {
-    if (mainNames.has(event.looterName.toLowerCase())) {
+  for (const event of normalizedLootEvents.value) {
+    if (mainNames.has(event.normalizedLooterName)) {
       mainCount += 1;
     }
   }
-  return { main: mainCount, all: metrics.value.lootEvents.length };
+  return { main: mainCount, all: normalizedLootEvents.value.length };
 });
 
 const totalUniqueAttendanceEvents = computed(() => {
@@ -2725,14 +2823,14 @@ const filteredAttendanceRecordsBase = computed<AttendanceMetricRecord[]>(() => {
     if (lootItemsSet.size > 0) {
       const identityValue = ensureIdentity();
       const identityNames = new Set(identityValue.normalizedCharacterNames);
-      const participatesInSelectedLoot = currentMetrics.lootEvents.some((event) => {
+      const participatesInSelectedLoot = normalizedLootEvents.value.some((event) => {
         if (!event.itemName) {
           return false;
         }
         if (!lootItemsSet.has(event.itemName.toLowerCase())) {
           return false;
         }
-        const normalizedLooter = event.looterName.toLowerCase();
+        const normalizedLooter = event.normalizedLooterName;
         return (
           identityNames.has(normalizedLooter) ||
           (identityValue.mode === 'member' &&
@@ -2769,21 +2867,47 @@ const filteredRaidIds = computed(() => {
   return ids;
 });
 
-const filteredLootEvents = computed<LootMetricEvent[]>(() => {
+const normalizedLootEvents = computed<LootMetricEventWithBank[]>(() => {
+  if (!metrics.value) {
+    return [];
+  }
+  const currentGuildName = guildName.value;
+  const normalizedEvents = metrics.value.lootEvents
+    .map((event) => {
+      const originalName = typeof event.looterName === 'string' ? event.looterName : null;
+      const { name, isGuildBank, isMasterLooter } = normalizeLooterName(
+        event.looterName ?? null,
+        currentGuildName
+      );
+      return {
+        ...event,
+        looterName: name,
+        displayLooterName: name,
+        originalLooterName: originalName,
+        isGuildBank,
+        isMasterLooter,
+        normalizedLooterName: name.toLowerCase()
+      };
+    })
+    .filter((event) => !event.isMasterLooter);
+  return normalizedEvents;
+});
+
+const filteredLootEvents = computed<LootMetricEventWithBank[]>(() => {
   if (!metrics.value) {
     return [];
   }
   const classSet = selectedClassSet.value;
   const lootItemsSet = selectedLootItemsSet.value;
   const characterNameSet = selectedCharacterNameSet.value;
-  return metrics.value.lootEvents.filter((event) => {
+  return normalizedLootEvents.value.filter((event) => {
     if (classSet.size > 0) {
       const eventClass = event.looterClass ? event.looterClass.toUpperCase() : null;
       if (eventClass && !classSet.has(eventClass)) {
         return false;
       }
     }
-    const looterName = event.looterName.toLowerCase();
+    const looterName = event.normalizedLooterName;
     if (characterNameSet.size > 0 && !characterNameSet.has(looterName)) {
       return false;
     }
@@ -3644,7 +3768,7 @@ const lootTimelineEntries = computed<LootTimelineEntry[]>(() => {
     }
     const entry = map.get(dayKey)!;
     entry.total += 1;
-    entry.looters.add(event.looterName.toLowerCase());
+    entry.looters.add(event.normalizedLooterName);
   }
   return Array.from(map.values())
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -3717,15 +3841,47 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
   >();
 
   for (const event of filteredLootEvents.value) {
-    const normalizedName = event.looterName.toLowerCase();
+    const normalizedName = event.normalizedLooterName;
     const normalizedEventClass = normalizeCharacterClass(event.looterClass);
+    const isGuildBank = event.isGuildBank;
+    const fallbackCharacterName =
+      event.originalLooterName?.trim() && event.originalLooterName.trim().length > 0
+        ? event.originalLooterName.trim()
+        : event.displayLooterName;
 
-    let mapKey = normalizedName;
-    let associatedOption: MetricsEntityOption | undefined = memberKeyByCharacterName.value.get(normalizedName);
-    let owner = resolveCharacterOwner(event.looterName, associatedOption?.userId, associatedOption?.userDisplayName);
+    let mapKey = isGuildBank ? `bank:${normalizedName}` : normalizedName;
+    let associatedOption: MetricsEntityOption | undefined = isGuildBank
+      ? undefined
+      : memberKeyByCharacterName.value.get(normalizedName);
+    const normalizedFallback = normalizeNameKey(fallbackCharacterName);
+    if (!associatedOption && normalizedFallback) {
+      const ownerEntry = characterOwnerMap.value.get(normalizedFallback);
+      if (ownerEntry?.userId) {
+        associatedOption = memberOptionByUserId.value.get(ownerEntry.userId);
+      }
+    }
+    let owner = isGuildBank
+      ? { userId: null, userDisplayName: null }
+      : resolveCharacterOwner(
+          fallbackCharacterName,
+          associatedOption?.userId,
+          associatedOption?.userDisplayName
+        );
+    if (!isGuildBank && normalizedFallback && !owner.userId) {
+      const mappedOwner = characterOwnerMap.value.get(normalizedFallback);
+      if (mappedOwner) {
+        owner = {
+          userId: mappedOwner.userId,
+          userDisplayName: mappedOwner.displayName ?? owner.userDisplayName
+        };
+      }
+      if (!associatedOption && mappedOwner?.userId) {
+        associatedOption = memberOptionByUserId.value.get(mappedOwner.userId);
+      }
+    }
 
     let resolvedCharacterIdentity: EntityIdentity | null = null;
-    if (mode === 'character') {
+    if (!isGuildBank && mode === 'character') {
       if (associatedOption?.key === UNKNOWN_MEMBER_ENTITY_KEY) {
         associatedOption = undefined;
       }
@@ -3743,7 +3899,7 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       mapKey = resolvedCharacterIdentity.key;
     }
 
-    if (mode === 'member') {
+    if (!isGuildBank && mode === 'member') {
       let targetOption: MetricsEntityOption | undefined = associatedOption;
       if (owner.userId) {
         const optionByUser = memberOptionByUserId.value.get(owner.userId);
@@ -3760,21 +3916,28 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       associatedOption = targetOption;
       mapKey = targetOption.key;
       owner = resolveCharacterOwner(
-        event.looterName,
+        fallbackCharacterName,
         targetOption.userId ?? owner.userId,
         targetOption.userDisplayName ?? owner.userDisplayName
       );
     }
 
     const fallbackLabelInfo = {
-      primaryName: event.looterName,
-      characterNames: associatedOption?.characterNames ?? [event.looterName],
+      primaryName: fallbackCharacterName,
+      characterNames: associatedOption?.characterNames ?? [fallbackCharacterName],
       userDisplayName: owner.userDisplayName ?? associatedOption?.userDisplayName ?? null,
       userId: owner.userId ?? associatedOption?.userId ?? null
     };
-    const displayLabel = formatEntityLabel(associatedOption, fallbackLabelInfo, false, mode === 'member');
-    let initialClass: string | null = normalizedEventClass ?? null;
-    if (mode === 'member' && associatedOption && associatedOption.classes.length === 1) {
+    const preferMemberName = mode === 'member' && !isGuildBank;
+    const displayLabel = isGuildBank
+      ? event.displayLooterName
+      : formatEntityLabel(associatedOption, fallbackLabelInfo, false, preferMemberName);
+    const effectiveDisplayLabel =
+      !displayLabel || displayLabel === UNKNOWN_MEMBER_LABEL
+        ? fallbackCharacterName
+        : displayLabel;
+    let initialClass: string | null = isGuildBank ? null : normalizedEventClass ?? null;
+    if (!isGuildBank && mode === 'member' && associatedOption && associatedOption.classes.length === 1) {
       initialClass = associatedOption.classes[0];
     }
 
@@ -3783,7 +3946,7 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       entry = {
         summary: {
           key: mapKey,
-          name: displayLabel,
+          name: effectiveDisplayLabel,
           class: initialClass,
           count: 0,
           lastAwarded: null
@@ -3796,16 +3959,16 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       map.set(mapKey, entry);
     }
 
+    entry.summary.name = effectiveDisplayLabel;
     entry.summary.count += 1;
     const timestamp = eventPrimaryTimestamp(event);
     if (timestamp && (!entry.summary.lastAwarded || timestamp > entry.summary.lastAwarded)) {
       entry.summary.lastAwarded = timestamp;
     }
-    if (normalizedEventClass) {
+    if (!isGuildBank && normalizedEventClass) {
       entry.classes.add(normalizedEventClass);
     }
     if (associatedOption) {
-      entry.summary.name = formatEntityLabel(associatedOption, fallbackLabelInfo, false, mode === 'member');
       if (mode === 'member') {
         entry.summary.key = associatedOption.key;
       }
@@ -3906,6 +4069,9 @@ const lootDetailRows = computed(() => {
       id: string;
       itemName: string;
       looterName: string;
+      displayLooterName: string;
+      isGuildBank: boolean;
+      isMasterLooter: boolean;
       raidId: string;
       raidName: string;
       raidStart: string | null;
@@ -3913,16 +4079,20 @@ const lootDetailRows = computed(() => {
     }>;
   }
   const { identity, entry } = target;
+  const normalizedEntryName = entry.name.toLowerCase();
   const rows = filteredLootEvents.value
     .filter((event) =>
       identity
         ? lootEventMatchesIdentity(event, identity)
-        : event.looterName.toLowerCase() === entry.name.toLowerCase()
+        : event.normalizedLooterName === normalizedEntryName
     )
     .map((event) => ({
       id: event.id,
       itemName: event.itemName,
       looterName: event.looterName,
+      displayLooterName: displayLooterName(event),
+      isGuildBank: event.isGuildBank,
+      isMasterLooter: event.isMasterLooter,
       raidId: event.raid.id,
       raidName: event.raid.name,
       raidStart: event.raid.startTime,
@@ -4117,8 +4287,8 @@ const summaryCards = computed(() => {
       attendanceRecordKeys.add(`${record.raid.id}::${timestamp}::${identity.key}`);
     }
 
-    for (const event of metricData.lootEvents) {
-      const normalized = event.looterName.toLowerCase();
+    for (const event of normalizedLootEvents.value) {
+      const normalized = event.normalizedLooterName;
       const memberOption =
         memberKeyByCharacterName.value.get(normalized) ??
         memberOptions.find((option) => option.normalizedCharacterNames.includes(normalized));
@@ -4255,7 +4425,7 @@ const timelineBounds = computed(() => {
     updateBounds(record.raid.startTime);
   }
 
-  for (const event of metrics.value.lootEvents) {
+  for (const event of normalizedLootEvents.value) {
     updateBounds(eventPrimaryTimestamp(event));
   }
 
@@ -4423,6 +4593,18 @@ function syncFiltersWithOptions(): void {
   selectedLootItems.value = selectedLootItems.value.filter((name) => lootItemSet.has(name));
 }
 
+async function ensureGuildName() {
+  if (guildName.value || !guildId.value) {
+    return;
+  }
+  try {
+    const detail = await api.fetchGuildDetail(guildId.value);
+    guildName.value = detail.name ?? null;
+  } catch (error) {
+    console.warn('Failed to load guild name for metrics view', error);
+  }
+}
+
 async function loadMetrics(params?: GuildMetricsQuery) {
   if (!guildId.value) {
     return;
@@ -4430,6 +4612,7 @@ async function loadMetrics(params?: GuildMetricsQuery) {
   loading.value = true;
   error.value = null;
   try {
+    await ensureGuildName();
     const result = await api.fetchGuildMetrics(guildId.value, params);
     metrics.value = result;
     updateGlobalTimeline(result);
@@ -5563,6 +5746,14 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 1.4rem;
+}
+
+.metrics-recent__item-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  image-rendering: pixelated;
 }
 
 .metrics-recent__item-title {

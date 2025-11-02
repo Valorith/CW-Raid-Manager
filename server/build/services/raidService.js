@@ -3,8 +3,41 @@ import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
+import { stopLootMonitorSession } from './logMonitorService.js';
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'];
+const MASTER_LOOTER_NAMES = ['Master Looter', 'master looter', 'MASTER LOOTER'];
+async function raidHasUnassignedLoot(raidId) {
+    const count = await prisma.raidLootEvent.count({
+        where: {
+            raidId,
+            looterName: {
+                in: MASTER_LOOTER_NAMES
+            }
+        }
+    });
+    return count > 0;
+}
+async function getUnassignedLootFlags(raidIds) {
+    const map = new Map();
+    if (raidIds.length === 0) {
+        return map;
+    }
+    const results = await prisma.raidLootEvent.findMany({
+        where: {
+            raidId: { in: raidIds },
+            looterName: {
+                in: MASTER_LOOTER_NAMES
+            }
+        },
+        select: { raidId: true },
+        distinct: ['raidId']
+    });
+    for (const row of results) {
+        map.set(row.raidId, true);
+    }
+    return map;
+}
 export async function ensureCanManageRaid(userId, guildId) {
     const membership = await getUserGuildRole(userId, guildId);
     if (!membership || !canManageGuild(membership.role)) {
@@ -44,11 +77,14 @@ export async function listRaidEventsForGuild(guildId) {
             }
         }
     });
+    const raidIds = raids.map((raid) => raid.id);
+    const unassignedMap = await getUnassignedLootFlags(raidIds);
     return raids.map((raid) => {
         const formatted = formatRaidWithRecurrence(raid);
         return {
             ...formatted,
-            createdBy: withPreferredDisplayName(raid.createdBy)
+            createdBy: withPreferredDisplayName(raid.createdBy),
+            hasUnassignedLoot: unassignedMap.get(raid.id) ?? false
         };
     });
 }
@@ -78,8 +114,8 @@ export async function createRaidEvent(input) {
             startTime: input.startTime,
             startedAt: input.startedAt ?? null,
             endedAt: input.endedAt ?? null,
-            targetZones: input.targetZones,
-            targetBosses: input.targetBosses,
+            targetZones: sanitizeTargets(input.targetZones),
+            targetBosses: sanitizeTargets(input.targetBosses),
             notes: input.notes,
             discordVoiceUrl,
             recurrenceSeriesId
@@ -121,7 +157,8 @@ export async function createRaidEvent(input) {
     const formatted = formatRaidWithRecurrence(raid);
     return {
         ...formatted,
-        createdBy: withPreferredDisplayName(raid.createdBy)
+        createdBy: withPreferredDisplayName(raid.createdBy),
+        hasUnassignedLoot: false
     };
 }
 export async function updateRaidEvent(raidId, userId, data) {
@@ -149,8 +186,12 @@ export async function updateRaidEvent(raidId, userId, data) {
         startTime: data.startTime ?? existing.startTime,
         startedAt: data.startedAt === undefined ? existing.startedAt : data.startedAt ?? null,
         endedAt: data.endedAt === undefined ? existing.endedAt : data.endedAt ?? null,
-        targetZones: targetZonesUpdate ?? existing.targetZones,
-        targetBosses: targetBossesUpdate ?? existing.targetBosses,
+        targetZones: targetZonesUpdate !== undefined
+            ? sanitizeTargets(targetZonesUpdate)
+            : sanitizeTargets(existing.targetZones),
+        targetBosses: targetBossesUpdate !== undefined
+            ? sanitizeTargets(targetBossesUpdate)
+            : sanitizeTargets(existing.targetBosses),
         notes: data.notes ?? existing.notes,
         isActive: data.isActive ?? existing.isActive
     };
@@ -223,7 +264,11 @@ export async function updateRaidEvent(raidId, userId, data) {
             }
         });
     });
-    return formatRaidWithRecurrence(updatedRaid);
+    const formatted = formatRaidWithRecurrence(updatedRaid);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
 }
 export async function getRaidEventById(raidId) {
     const raid = await prisma.raidEvent.findUnique({
@@ -259,10 +304,12 @@ export async function getRaidEventById(raidId) {
     }
     const raidSignupNotificationsEnabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.signup');
     const formatted = formatRaidWithRecurrence(raid);
+    const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
     return {
         ...formatted,
         raidSignupNotificationsEnabled,
-        createdBy: withPreferredDisplayName(raid.createdBy)
+        createdBy: withPreferredDisplayName(raid.createdBy),
+        hasUnassignedLoot
     };
 }
 export async function startRaidEvent(raidId, userId) {
@@ -300,7 +347,11 @@ export async function startRaidEvent(raidId, userId) {
         raidName: existing.name,
         startedAt: updated.startedAt ?? new Date()
     });
-    return formatRaidWithRecurrence(updated);
+    const formatted = formatRaidWithRecurrence(updated);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
 }
 export async function endRaidEvent(raidId, userId) {
     const existing = await prisma.raidEvent.findUnique({
@@ -348,6 +399,7 @@ export async function endRaidEvent(raidId, userId) {
         return { updatedRaid, attendeeCount, lootCount };
     });
     const { updatedRaid, attendeeCount, lootCount } = transactionResult;
+    stopLootMonitorSession(raidId);
     emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
         guildName: existing.guild.name,
         raidId,
@@ -357,7 +409,11 @@ export async function endRaidEvent(raidId, userId) {
         attendeeCount,
         lootCount
     });
-    return formatRaidWithRecurrence(updatedRaid);
+    const formatted = formatRaidWithRecurrence(updatedRaid);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
 }
 export async function restartRaidEvent(raidId, userId) {
     const existing = await prisma.raidEvent.findUnique({
@@ -397,7 +453,11 @@ export async function restartRaidEvent(raidId, userId) {
         raidName: existing.name,
         startedAt: updated.startedAt ?? new Date()
     });
-    return formatRaidWithRecurrence(updated);
+    const formatted = formatRaidWithRecurrence(updated);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
 }
 export async function deleteRaidEvent(raidId, userId, scope = 'EVENT') {
     const existing = await prisma.raidEvent.findUnique({
@@ -636,4 +696,13 @@ function sanitizeUrl(value) {
             return null;
         }
     }
+}
+function sanitizeTargets(values) {
+    if (!Array.isArray(values)) {
+        return [];
+    }
+    const filtered = values
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0);
+    return filtered.length > 0 ? filtered : [];
 }

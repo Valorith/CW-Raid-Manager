@@ -4,10 +4,46 @@ import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
+import { stopLootMonitorSession } from './logMonitorService.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
 type RaidRecurrenceFrequency = (typeof RECURRENCE_FREQUENCIES)[number];
+
+const MASTER_LOOTER_NAMES = ['Master Looter', 'master looter', 'MASTER LOOTER'];
+
+async function raidHasUnassignedLoot(raidId: string): Promise<boolean> {
+  const count = await prisma.raidLootEvent.count({
+    where: {
+      raidId,
+      looterName: {
+        in: MASTER_LOOTER_NAMES
+      }
+    }
+  });
+  return count > 0;
+}
+
+async function getUnassignedLootFlags(raidIds: string[]): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+  if (raidIds.length === 0) {
+    return map;
+  }
+  const results = await prisma.raidLootEvent.findMany({
+    where: {
+      raidId: { in: raidIds },
+      looterName: {
+        in: MASTER_LOOTER_NAMES
+      }
+    },
+    select: { raidId: true },
+    distinct: ['raidId']
+  });
+  for (const row of results) {
+    map.set(row.raidId, true);
+  }
+  return map;
+}
 
 type RecurrenceSettingsInput = {
   frequency: RaidRecurrenceFrequency;
@@ -83,11 +119,14 @@ export async function listRaidEventsForGuild(guildId: string) {
       }
     }
   });
+  const raidIds = raids.map((raid) => raid.id);
+  const unassignedMap = await getUnassignedLootFlags(raidIds);
   return raids.map((raid) => {
     const formatted = formatRaidWithRecurrence(raid);
     return {
       ...formatted,
-      createdBy: withPreferredDisplayName(raid.createdBy)
+      createdBy: withPreferredDisplayName(raid.createdBy),
+      hasUnassignedLoot: unassignedMap.get(raid.id) ?? false
     };
   });
 }
@@ -169,7 +208,8 @@ export async function createRaidEvent(input: CreateRaidInput) {
 
   return {
     ...formatted,
-    createdBy: withPreferredDisplayName(raid.createdBy)
+    createdBy: withPreferredDisplayName(raid.createdBy),
+    hasUnassignedLoot: false
   };
 }
 
@@ -296,7 +336,11 @@ export async function updateRaidEvent(
     });
   });
 
-  return formatRaidWithRecurrence(updatedRaid);
+  const formatted = formatRaidWithRecurrence(updatedRaid);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
 }
 
 export async function getRaidEventById(raidId: string) {
@@ -336,10 +380,12 @@ export async function getRaidEventById(raidId: string) {
     'raid.signup'
   );
   const formatted = formatRaidWithRecurrence(raid);
+  const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
   return {
     ...formatted,
     raidSignupNotificationsEnabled,
-    createdBy: withPreferredDisplayName(raid.createdBy)
+    createdBy: withPreferredDisplayName(raid.createdBy),
+    hasUnassignedLoot
   };
 }
 
@@ -383,7 +429,11 @@ export async function startRaidEvent(raidId: string, userId: string) {
     startedAt: updated.startedAt ?? new Date()
   });
 
-  return formatRaidWithRecurrence(updated);
+  const formatted = formatRaidWithRecurrence(updated);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
 }
 
 export async function endRaidEvent(raidId: string, userId: string) {
@@ -441,6 +491,8 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   const { updatedRaid, attendeeCount, lootCount } = transactionResult;
 
+  stopLootMonitorSession(raidId);
+
   emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
     guildName: existing.guild.name,
     raidId,
@@ -451,7 +503,11 @@ export async function endRaidEvent(raidId: string, userId: string) {
     lootCount
   });
 
-  return formatRaidWithRecurrence(updatedRaid);
+  const formatted = formatRaidWithRecurrence(updatedRaid);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
 }
 
 export async function restartRaidEvent(raidId: string, userId: string) {
@@ -498,7 +554,11 @@ export async function restartRaidEvent(raidId: string, userId: string) {
     startedAt: updated.startedAt ?? new Date()
   });
 
-  return formatRaidWithRecurrence(updated);
+  const formatted = formatRaidWithRecurrence(updated);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
 }
 
 export async function deleteRaidEvent(

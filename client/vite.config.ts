@@ -14,6 +14,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:4000',
         changeOrigin: true
+      },
+      '/assets/icons': {
+        target: 'http://localhost:4000',
+        changeOrigin: true
       }
     }
   }

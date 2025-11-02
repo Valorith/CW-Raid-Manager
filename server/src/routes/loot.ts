@@ -1,4 +1,7 @@
 import { FastifyInstance } from 'fastify';
+import { createReadStream, existsSync } from 'fs';
+import { join, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
@@ -28,8 +31,19 @@ import {
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 
+const currentDir = fileURLToPath(new URL('.', import.meta.url));
+const lootIconDirectoryCandidates = [
+  resolve(process.cwd(), 'assets/icons/items'),
+  resolve(process.cwd(), '../assets/icons/items'),
+  resolve(currentDir, '../../assets/icons/items'),
+  resolve(currentDir, '../../../assets/icons/items'),
+  resolve(currentDir, '../../../../assets/icons/items')
+];
+const lootIconDirectory = lootIconDirectoryCandidates.find((candidate) => existsSync(candidate)) ?? null;
+
 const lootEventSchema = z.object({
   itemName: z.string().min(2).max(191),
+  itemId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
   looterName: z.string().min(2).max(191),
   looterClass: z.string().max(50).optional().nullable(),
   emoji: z.string().max(16).optional().nullable(),
@@ -73,6 +87,77 @@ function serializeMonitorSession(viewerId: string, session: ReturnType<typeof ge
 }
 
 export async function lootRoutes(server: FastifyInstance) {
+  server.get('/loot-icons/:iconId', async (request, reply) => {
+    const paramsSchema = z.object({
+      iconId: z.coerce.number().int().nonnegative()
+    });
+    const querySchema = z
+      .object({
+        format: z.enum(['gif', 'png']).optional()
+      })
+      .partial();
+
+    const params = paramsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('Invalid icon identifier.');
+    }
+
+    const query = querySchema.safeParse(request.query ?? {});
+    if (!query.success) {
+      return reply.badRequest('Invalid icon query parameters.');
+    }
+
+    const preferredFormat = query.data.format ?? null;
+
+    if (!lootIconDirectory || !existsSync(lootIconDirectory)) {
+      request.log.warn(
+        { lootIconDirectory, lootIconDirectoryCandidates, currentDir },
+        'Item icon directory is not available on disk.'
+      );
+      return reply.notFound('Item icons are currently unavailable.');
+    }
+    const extensionOrder: Array<'gif' | 'png'> =
+      preferredFormat === 'png'
+        ? ['png', 'gif']
+        : preferredFormat === 'gif'
+          ? ['gif', 'png']
+          : ['gif', 'png'];
+
+    let selectedPath: string | null = null;
+    let selectedExtension: 'gif' | 'png' | null = null;
+    for (const extension of extensionOrder) {
+      const candidatePath = join(lootIconDirectory, `${params.data.iconId}.${extension}`);
+      if (existsSync(candidatePath)) {
+        selectedPath = candidatePath;
+        selectedExtension = extension;
+        break;
+      }
+    }
+
+    if (!selectedPath || !selectedExtension) {
+      return reply.notFound('Icon not found.');
+    }
+
+    try {
+      const stream = createReadStream(selectedPath);
+      stream.on('error', (error) => {
+        request.log.error(
+          { err: error, iconId: params.data.iconId, extension: selectedExtension },
+          'Failed to stream loot icon'
+        );
+      });
+
+      reply
+        .header('Cache-Control', 'public, max-age=31536000, immutable')
+        .type(selectedExtension === 'gif' ? 'image/gif' : 'image/png');
+
+      return reply.send(stream);
+    } catch (error) {
+      request.log.error({ err: error, iconId: params.data.iconId }, 'Failed to load loot icon');
+      return reply.internalServerError('Failed to load icon.');
+    }
+  });
+
   server.get('/user/recent-loot', { preHandler: [authenticate] }, async (request, reply) => {
     const querySchema = z.object({
       page: z.coerce.number().int().min(1).default(1),
@@ -112,7 +197,7 @@ export async function lootRoutes(server: FastifyInstance) {
       return reply.forbidden('You are not a member of this guild.');
     }
 
-    const loot = await listRaidLootEvents(raidId);
+    const loot = await listRaidLootEvents(raidId, request.log);
     return { loot };
   });
 
@@ -169,7 +254,8 @@ export async function lootRoutes(server: FastifyInstance) {
       guildId: raid.guildId,
       createdById: request.user.userId,
       events: parsed.data.events,
-      notifyDiscord: true
+      notifyDiscord: true,
+      logger: request.log
     });
 
     return reply.code(201).send({ loot: created });
@@ -197,7 +283,7 @@ export async function lootRoutes(server: FastifyInstance) {
       return reply.badRequest('Invalid loot update payload.');
     }
 
-    const loot = await updateRaidLootEvent(lootId, raid.guildId, parsed.data);
+    const loot = await updateRaidLootEvent(lootId, raid.guildId, parsed.data, request.log);
     return { loot };
   });
 

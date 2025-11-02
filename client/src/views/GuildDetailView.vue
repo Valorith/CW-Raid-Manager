@@ -264,22 +264,33 @@
           @keydown.enter.prevent="openRaid(raidItem.id)"
           @keydown.space.prevent="openRaid(raidItem.id)"
         >
-          <div class="raid-list__content">
-            <strong>
-              <span
-                v-if="raidItem.isRecurring"
-                class="raid-recurring-icon"
-                role="img"
+          <div class="raid-list__primary">
+            <span
+              v-if="raidItem.hasUnassignedLoot"
+              class="raid-list__alert"
+              role="img"
+              aria-label="Loot pending assignment"
+              title="Loot pending assignment"
+            >
+              ❗
+            </span>
+            <div class="raid-list__content">
+              <strong>
+                <span
+                  v-if="raidItem.isRecurring"
+                  class="raid-recurring-icon"
+                  role="img"
                 :title="recurrenceTooltip(raidItem)"
                 :aria-label="recurrenceTooltip(raidItem)"
               >
                 ♻️
               </span>
               {{ raidItem.name }}
-            </strong>
-            <span class="muted raid-meta">
-              {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
-            </span>
+              </strong>
+              <span class="muted raid-meta">
+                {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
+              </span>
+            </div>
           </div>
           <div class="raid-list__status">
             <span
@@ -391,6 +402,11 @@ import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../
 import { useAuthStore } from '../stores/auth';
 import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
 import CharacterLink from '../components/CharacterLink.vue';
+import {
+  getGuildBankDisplayName,
+  normalizeLooterName,
+  normalizeLooterForSubmission as normalizeLooterForSubmissionUtil
+} from '../utils/lootNames';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -414,6 +430,19 @@ type EditableCharacter = {
 };
 
 const guild = ref<GuildDetail | null>(null);
+const guildBankDisplayName = computed(() => getGuildBankDisplayName(guild.value?.name ?? null));
+
+function normalizeLooterNameValue(value?: string | null): string {
+  return normalizeLooterName(value ?? null, guild.value?.name ?? null).name;
+}
+
+function isGuildBankName(value?: string | null): boolean {
+  return normalizeLooterName(value ?? null, guild.value?.name ?? null).isGuildBank;
+}
+
+function normalizeLooterForSubmission(value: string): string {
+  return normalizeLooterForSubmissionUtil(value, guild.value?.name ?? null);
+}
 const discordWidgetSrc = computed(() => {
   if (!guild.value?.discordWidgetEnabled) {
     return null;
@@ -1656,6 +1685,19 @@ onUnmounted(() => {
   border-radius: 1rem;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.raid-list__primary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.raid-list__alert {
+  color: #f87171;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
 }
 
 .raid-list__content {

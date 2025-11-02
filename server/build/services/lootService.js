@@ -2,6 +2,14 @@ import { prisma } from '../utils/prisma.js';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { getItemIconId } from './eqItemService.js';
+export class InvalidLootPatternError extends Error {
+    constructor(message, patternId) {
+        super(message);
+        this.name = 'InvalidLootPatternError';
+        this.patternId = patternId;
+    }
+}
 const DEFAULT_PATTERN_PHRASES = [
     '{timestamp} {item} has been awarded to {looter} by the {method}.',
     '{timestamp} {item} has been awarded to {looter} by {method}.',
@@ -53,7 +61,16 @@ export async function getGuildLootParserSettings(guildId) {
 export async function updateGuildLootParserSettings(guildId, input) {
     const cleanedPatterns = Array.isArray(input.patterns)
         ? input.patterns.map((pattern, index) => {
-            const compiledPattern = convertPlaceholdersToRegex(pattern.pattern);
+            const rawPattern = typeof pattern.pattern === 'string' ? pattern.pattern.trim() : DEFAULT_LOOT_PATTERNS[0].pattern;
+            const compiledPattern = convertPlaceholdersToRegex(rawPattern || DEFAULT_LOOT_PATTERNS[0].pattern);
+            try {
+                RegExp(compiledPattern);
+            }
+            catch (error) {
+                const label = pattern.label || `Pattern ${index + 1}`;
+                const message = error instanceof Error ? error.message : 'Unknown pattern error.';
+                throw new InvalidLootPatternError(`Parser pattern "${label}" is invalid: ${message}`, pattern.id || `pattern-${index}`);
+            }
             return {
                 id: pattern.id || `pattern-${index}`,
                 label: pattern.label || `Pattern ${index + 1}`,
@@ -76,24 +93,57 @@ export async function updateGuildLootParserSettings(guildId, input) {
     });
     return normalizeParserSettings(record);
 }
-export async function listRaidLootEvents(raidId) {
-    return prisma.raidLootEvent.findMany({
+export async function listRaidLootEvents(raidId, logger) {
+    const loot = await prisma.raidLootEvent.findMany({
         where: { raidId },
         orderBy: { eventTime: 'asc' }
     });
+    const pendingIcons = loot.filter((event) => event.itemId != null && event.itemIconId == null);
+    if (pendingIcons.length > 0) {
+        await Promise.all(pendingIcons.map(async (event) => {
+            const iconId = await getItemIconId(event.itemId, logger);
+            if (iconId != null) {
+                event.itemIconId = iconId;
+                try {
+                    await prisma.raidLootEvent.update({
+                        where: { id: event.id },
+                        data: { itemIconId: iconId }
+                    });
+                }
+                catch (error) {
+                    logger?.warn?.({ err: error, lootId: event.id }, 'Failed to persist EverQuest icon id for loot event');
+                }
+            }
+        }));
+    }
+    return loot;
 }
 export async function createRaidLootEvents(options) {
     if (!options.events || options.events.length === 0) {
         return [];
     }
+    const eventsWithMetadata = await Promise.all(options.events.map(async (event) => {
+        const itemId = event.itemId ?? null;
+        let itemIconId = null;
+        if (itemId != null) {
+            itemIconId = await getItemIconId(itemId, options.logger);
+        }
+        return {
+            ...event,
+            itemId,
+            itemIconId
+        };
+    }));
     const created = await prisma.$transaction(async (tx) => {
         const results = [];
-        for (const event of options.events) {
+        for (const event of eventsWithMetadata) {
             const record = await tx.raidLootEvent.create({
                 data: {
                     raidId: options.raidId,
                     guildId: options.guildId,
                     itemName: event.itemName,
+                    itemId: event.itemId ?? null,
+                    itemIconId: event.itemIconId ?? null,
                     looterName: event.looterName,
                     looterClass: event.looterClass ?? null,
                     eventTime: event.eventTime ? new Date(event.eventTime) : null,
@@ -116,7 +166,11 @@ export async function createRaidLootEvents(options) {
     }
     return created;
 }
-export async function updateRaidLootEvent(lootId, guildId, data) {
+export async function updateRaidLootEvent(lootId, guildId, data, logger) {
+    let itemIconId;
+    if (data.itemId !== undefined) {
+        itemIconId = data.itemId != null ? await getItemIconId(data.itemId, logger) : null;
+    }
     return prisma.raidLootEvent.update({
         where: {
             id: lootId,
@@ -124,6 +178,8 @@ export async function updateRaidLootEvent(lootId, guildId, data) {
         },
         data: {
             itemName: data.itemName ?? undefined,
+            itemId: data.itemId === undefined ? undefined : data.itemId,
+            itemIconId: itemIconId === undefined ? undefined : itemIconId,
             looterName: data.looterName ?? undefined,
             looterClass: data.looterClass ?? undefined,
             eventTime: data.eventTime ? new Date(data.eventTime) : undefined,

@@ -34,6 +34,8 @@ export interface LootMetricEvent {
   timestamp: IsoDateString;
   createdAt: IsoDateString;
   itemName: string;
+  itemId: number | null;
+  itemIconId: number | null;
   looterName: string;
   looterClass: string | null;
   emoji: string | null;
@@ -250,6 +252,10 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
   }
 
   for (const event of lootEventsRaw) {
+    const normalizedLooter = event.looterName?.trim().toLowerCase();
+    if (normalizedLooter === 'master looter') {
+      continue;
+    }
     const raid = event.raid;
     if (raid) {
       uniqueRaids.set(raid.id, { id: raid.id, name: raid.name });
@@ -270,6 +276,8 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
       timestamp: toIsoString(event.eventTime) ?? event.createdAt.toISOString(),
       createdAt: event.createdAt.toISOString(),
       itemName: event.itemName,
+      itemId: event.itemId ?? null,
+      itemIconId: event.itemIconId ?? null,
       looterName: event.looterName,
       looterClass: event.looterClass ?? null,
       emoji: event.emoji ?? null,

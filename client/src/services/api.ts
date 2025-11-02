@@ -1,4 +1,5 @@
 import axios, { AxiosResponse } from 'axios';
+import { isMasterLooterName } from '../utils/lootNames';
 
 import type {
   AttendanceEventType,
@@ -156,6 +157,8 @@ export interface LootMetricEvent {
   timestamp: string;
   createdAt: string;
   itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
   looterName: string;
   looterClass: string | null;
   emoji: string | null;
@@ -270,6 +273,7 @@ export interface RaidEventSummary {
     canManage: boolean;
     role: GuildRole;
   };
+  hasUnassignedLoot: boolean;
   attendance?: Array<{
     id: string;
     createdAt: string;
@@ -493,6 +497,8 @@ export interface RaidLootEvent {
   raidId: string;
   guildId: string;
   itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
   looterName: string;
   looterClass?: string | null;
   eventTime?: string | null;
@@ -524,6 +530,8 @@ export interface RaidLogMonitorStatus {
 export interface RecentLootEntry {
   id: string;
   itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
   looterName: string;
   looterClass?: string | null;
   eventTime?: string | null;
@@ -873,7 +881,8 @@ function normalizeRaidSummary(
         : undefined,
     logMonitor,
     permissions: raid?.permissions ?? undefined,
-    attendance
+    attendance,
+    hasUnassignedLoot: Boolean(raid?.hasUnassignedLoot)
   };
 }
 
@@ -920,6 +929,18 @@ function normalizeLootMetricEvent(raw: any): LootMetricEvent {
     timestamp: typeof raw?.timestamp === 'string' ? raw.timestamp : '',
     createdAt: typeof raw?.createdAt === 'string' ? raw.createdAt : '',
     itemName: typeof raw?.itemName === 'string' ? raw.itemName : 'Unknown Item',
+    itemId:
+      typeof raw?.itemId === 'number'
+        ? raw.itemId
+        : typeof raw?.itemId === 'string'
+          ? Number.parseInt(raw.itemId, 10) || null
+          : null,
+    itemIconId:
+      typeof raw?.itemIconId === 'number'
+        ? raw.itemIconId
+        : typeof raw?.itemIconId === 'string'
+          ? Number.parseInt(raw.itemIconId, 10) || null
+          : null,
     looterName: typeof raw?.looterName === 'string' ? raw.looterName : 'Unknown',
     looterClass: typeof raw?.looterClass === 'string' ? raw.looterClass : null,
     emoji: typeof raw?.emoji === 'string' ? raw.emoji : null,
@@ -935,9 +956,10 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
   const attendanceRecords: AttendanceMetricRecord[] = Array.isArray(raw?.attendanceRecords)
     ? raw.attendanceRecords.map((record: any) => normalizeAttendanceMetricRecord(record))
     : [];
-  const lootEvents: LootMetricEvent[] = Array.isArray(raw?.lootEvents)
+  let lootEvents: LootMetricEvent[] = Array.isArray(raw?.lootEvents)
     ? raw.lootEvents.map((event: any) => normalizeLootMetricEvent(event))
     : [];
+  lootEvents = lootEvents.filter((event) => !isMasterLooterName(event.looterName));
 
   const filterOptionsRaw = raw?.filterOptions ?? {};
 
@@ -980,8 +1002,22 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
           }))
       : []
   };
+  filterOptions.lootParticipants = filterOptions.lootParticipants.filter(
+    (entry) => !isMasterLooterName(entry.name)
+  );
 
   const summaryRaw = raw?.summary ?? {};
+  const uniqueAttendanceCharacters = new Set(
+    attendanceRecords.map((record) =>
+      record.character.id ? `id:${record.character.id}` : `name:${record.character.name}`
+    )
+  ).size;
+  const uniqueLooters = new Set(lootEvents.map((event) => event.looterName.toLowerCase())).size;
+  const raidsTracked = new Set([
+    ...attendanceRecords.map((record) => record.raid.id),
+    ...lootEvents.map((event) => event.raid.id)
+  ]).size;
+
   const summary: GuildMetricsSummary = {
     attendanceRecords:
       typeof summaryRaw?.attendanceRecords === 'number'
@@ -990,26 +1026,13 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
     uniqueAttendanceCharacters:
       typeof summaryRaw?.uniqueAttendanceCharacters === 'number'
         ? summaryRaw.uniqueAttendanceCharacters
-        : new Set(
-            attendanceRecords.map((record) =>
-              record.character.id ? `id:${record.character.id}` : `name:${record.character.name}`
-            )
-          ).size,
-    lootEvents:
-      typeof summaryRaw?.lootEvents === 'number'
-        ? summaryRaw.lootEvents
-        : lootEvents.length,
-    uniqueLooters:
-      typeof summaryRaw?.uniqueLooters === 'number'
-        ? summaryRaw.uniqueLooters
-        : new Set(lootEvents.map((event) => event.looterName.toLowerCase())).size,
+        : uniqueAttendanceCharacters,
+    lootEvents: lootEvents.length,
+    uniqueLooters: uniqueLooters,
     raidsTracked:
       typeof summaryRaw?.raidsTracked === 'number'
         ? summaryRaw.raidsTracked
-        : new Set([
-            ...attendanceRecords.map((record) => record.raid.id),
-            ...lootEvents.map((event) => event.raid.id)
-          ]).size
+        : raidsTracked
   };
 
   const rangeRaw = raw?.range ?? {};
@@ -1170,6 +1193,7 @@ export const api = {
     raidId: string,
     events: Array<{
       itemName: string;
+      itemId?: number | null;
       looterName: string;
       looterClass?: string | null;
       emoji?: string | null;

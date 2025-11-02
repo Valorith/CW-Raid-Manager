@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { appConfig } from './config/appConfig.js';
 import { buildServer } from './app.js';
+import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 async function start() {
     const server = buildServer();
     try {
@@ -9,6 +10,14 @@ async function start() {
             host: appConfig.host
         });
         server.log.info({ port: appConfig.port, env: appConfig.nodeEnv }, 'CW Raid Manager API server started');
+        if (isEqDbConfigured()) {
+            void initializeEqDbPool(server.log).catch((error) => {
+                server.log.error({ err: error }, 'EQ content database pool failed to initialize; remote lookups will be unavailable.');
+            });
+        }
+        else {
+            server.log.debug('EQ content database not configured; skipping pool initialization.');
+        }
     }
     catch (error) {
         server.log.error(error, 'Failed to start CW Raid Manager API server');

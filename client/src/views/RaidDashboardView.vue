@@ -48,21 +48,34 @@
             @keydown.space.prevent="openRaid(raid.id)"
           >
             <div class="raid-info">
-              <strong>
+              <div class="raid-info__primary">
                 <span
-                  v-if="raid.isRecurring"
-                  class="raid-recurring-icon"
+                  v-if="raid.hasUnassignedLoot"
+                  class="raid-alert"
                   role="img"
-                  :title="recurrenceTooltip(raid)"
-                  :aria-label="recurrenceTooltip(raid)"
+                  aria-label="Loot pending assignment"
+                  title="Loot pending assignment"
                 >
-                  ♻️
+                  ❗
                 </span>
-                {{ raid.name }}
-              </strong>
-              <span class="muted">
-                ({{ formatDate(raid.startTime) }}) • {{ formatTargetZones(raid.targetZones) }}
-              </span>
+                <div class="raid-info__content">
+                  <strong>
+                    <span
+                      v-if="raid.isRecurring"
+                      class="raid-recurring-icon"
+                      role="img"
+                      :title="recurrenceTooltip(raid)"
+                      :aria-label="recurrenceTooltip(raid)"
+                    >
+                      ♻️
+                    </span>
+                    {{ raid.name }}
+                  </strong>
+                  <span class="muted">
+                    ({{ formatDate(raid.startTime) }}) • {{ formatTargetZones(raid.targetZones) }}
+                  </span>
+                </div>
+              </div>
             </div>
             <div class="raid-meta">
               <span
@@ -648,6 +661,25 @@ onUnmounted(() => {
 
 
 .raid-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.raid-info__primary {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.raid-alert {
+  color: #f87171;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.raid-info__content {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
