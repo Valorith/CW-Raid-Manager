@@ -40,7 +40,10 @@
           <li
             v-for="raid in displayedRaids"
             :key="raid.id"
-            class="raid-list__item"
+            :class="[
+              'raid-list__item',
+              { 'raid-list__item--active': raid.startedAt && !raid.endedAt }
+            ]"
             role="button"
             tabindex="0"
             @click="openRaid(raid.id)"
@@ -651,12 +654,23 @@ onUnmounted(() => {
   transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
 }
 
+.raid-list__item--active {
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.25);
+}
+
 .raid-list__item:hover,
 .raid-list__item:focus {
   background: rgba(59, 130, 246, 0.18);
   border: 1px solid rgba(59, 130, 246, 0.4);
   transform: translateY(-1px);
   outline: none;
+}
+
+.raid-list__item--active:hover,
+.raid-list__item--active:focus {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.6);
 }
 
 

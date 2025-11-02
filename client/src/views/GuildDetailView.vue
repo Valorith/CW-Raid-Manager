@@ -257,7 +257,10 @@
         <li
           v-for="raidItem in renderableRaids"
           :key="raidItem.id"
-          class="raid-list__item"
+          :class="[
+            'raid-list__item',
+            { 'raid-list__item--active': raidItem.startedAt && !raidItem.endedAt }
+          ]"
           role="button"
           tabindex="0"
           @click="openRaid(raidItem.id)"
@@ -1683,6 +1686,7 @@ onUnmounted(() => {
   background: rgba(30, 41, 59, 0.4);
   padding: 1rem;
   border-radius: 1rem;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
@@ -1691,6 +1695,11 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+}
+
+.raid-list__item--active {
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.25);
 }
 
 .raid-list__alert {
@@ -1727,6 +1736,12 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.15);
   transform: translateY(-1px);
   outline: none;
+}
+
+.raid-list__item--active:hover,
+.raid-list__item--active:focus {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.6);
 }
 
 .raid-monitor-indicator {
