@@ -5,7 +5,8 @@ const PLACEHOLDER_REGEX_MAP: Record<string, string> = {
   timestamp: '\\[[^\\]]+\\]',
   looter: '(?<looter>.+?)',
   item: '(?<item>[^.]+?)',
-  method: '(?<method>[^.]+?)'
+  method: '(?<method>[^.]+?)',
+  itemid: '\\((?<itemId>\\d{1,10})\\)'
 };
 
 const REVERSE_PLACEHOLDER_REPLACEMENTS = Object.entries(PLACEHOLDER_REGEX_MAP).map(([token, fragment]) => ({
@@ -52,7 +53,15 @@ export function convertRegexToPlaceholders(pattern: string): string {
     return '';
   }
 
-  let result = pattern;
+  let result = pattern.replace(/(^|[^\\])s\+/g, (match, prefix) => `${prefix}\\s+`);
+  for (const [token, fragment] of Object.entries(PLACEHOLDER_REGEX_MAP)) {
+    const variants = new Set<string>([fragment, fragment.replace(/\\/g, '')]);
+    for (const variant of variants) {
+      if (variant && result.includes(variant)) {
+        result = result.split(variant).join(`{${token}}`);
+      }
+    }
+  }
   for (const { regex, placeholder } of REVERSE_PLACEHOLDER_REPLACEMENTS) {
     result = result.replace(regex, placeholder);
   }

@@ -2,8 +2,11 @@ const PLACEHOLDER_PATTERN = /\{([a-z0-9_]+)\}/i;
 const PLACEHOLDER_SCAN_PATTERN = /\{([a-z0-9_]+)\}/gi;
 
 const PLACEHOLDER_REGEX_MAP: Record<string, string> = {
+  timestamp: '\\[[^\\]]+\\]',
   looter: '(?<looter>.+?)',
-  item: '(?<item>[^.]+)'
+  item: '(?<item>[^.]+?)',
+  method: '(?<method>[^.]+?)',
+  itemid: '\\((?<itemId>\\d{1,10})\\)'
 };
 
 export function convertPlaceholdersToRegex(input: string): string {

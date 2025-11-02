@@ -15,20 +15,6 @@
           <span aria-hidden="true">⚙️</span>
           <span>Settings</span>
         </RouterLink>
-        <button
-          v-if="canManageDiscordWebhook"
-          class="discord-button"
-          type="button"
-          @click="showDiscordModal = true"
-        >
-          <svg viewBox="0 0 245 240" aria-hidden="true">
-            <path
-              d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1" />
-            <path
-              d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .30 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z" />
-          </svg>
-          <span>Discord Webhook</span>
-        </button>
         <RouterLink
           class="btn btn--outline metrics-button"
           :to="{ name: 'GuildMetrics', params: { guildId } }"
@@ -328,11 +314,6 @@
       @close="showRaidModal = false"
       @created="handleRaidCreated"
     />
-    <DiscordWebhookModal
-      v-if="showDiscordModal && guild"
-      :guild-id="guild.id"
-      @close="showDiscordModal = false"
-    />
     <CharacterModal
       v-if="showCharacterForm && guild"
       :guilds="modalGuildOptions"
@@ -396,7 +377,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
-import DiscordWebhookModal from '../components/DiscordWebhookModal.vue';
 import CharacterModal from '../components/CharacterModal.vue';
 import {
   api,
@@ -453,7 +433,6 @@ const modalGuildOptions = computed<GuildSummary[]>(() => (guild.value ? [guild.v
 const raids = ref<RaidEventSummary[]>([]);
 const loadingRaids = ref(false);
 const showRaidModal = ref(false);
-const showDiscordModal = ref(false);
 let raidRefreshTimer: number | null = null;
 const router = useRouter();
 const updatingMemberId = ref<string | null>(null);
@@ -502,14 +481,6 @@ const canPlanRaid = computed(() => {
   }
 
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
-});
-
-const canManageDiscordWebhook = computed(() => {
-  const role = actorRole.value;
-  if (!role) {
-    return false;
-  }
-  return role === 'LEADER' || role === 'OFFICER';
 });
 
 const canManageGuildSettings = computed(() => {
@@ -1223,10 +1194,6 @@ onMounted(async () => {
   if (canViewDetails.value) {
     await loadRaids();
   }
-});
-
-watch(showDiscordModal, (isOpen) => {
-  document.body.classList.toggle('modal-open', isOpen);
 });
 
 onUnmounted(() => {

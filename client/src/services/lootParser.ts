@@ -20,6 +20,26 @@ export interface ParsedLootEvent {
   context?: string;
 }
 
+function parseItemDetails(
+  itemRaw: string | undefined,
+  existingItemId: number | null
+): { itemName: string | undefined; itemId: number | null } {
+  if (!itemRaw) {
+    return { itemName: itemRaw, itemId: existingItemId };
+  }
+
+  const trimmed = itemRaw.trim();
+  const trailingMatch = trimmed.match(/^(.+?)\s*\((\d{1,10})\)$/);
+  if (trailingMatch) {
+    const [, nameValue, idValue] = trailingMatch;
+    const parsedId = Number(idValue);
+    const normalizedId = Number.isFinite(parsedId) ? parsedId : existingItemId;
+    return { itemName: nameValue?.trim() ?? '', itemId: normalizedId ?? existingItemId };
+  }
+
+  return { itemName: trimmed, itemId: existingItemId };
+}
+
 export function parseLootLog(
   logContent: string,
   raidStart: Date,
@@ -36,13 +56,49 @@ export function parseLootLog(
     }
 
     for (const pattern of patterns) {
-      const regex = new RegExp(pattern.pattern, 'i');
+      if (!pattern?.pattern) {
+        continue;
+      }
+
+      let regex: RegExp;
+      try {
+        regex = new RegExp(pattern.pattern, 'i');
+      } catch (error) {
+        if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+          console.warn('[lootParser] Skipping invalid loot pattern', {
+            patternId: pattern.id,
+            label: pattern.label,
+            source: pattern.pattern,
+            error
+          });
+        }
+        continue;
+      }
       const match = line.match(regex);
       if (match) {
+        const itemSource = match.groups?.item ?? match[2] ?? match[1];
+        const includesTrailingId =
+          typeof itemSource === 'string' && /\(\d{1,10}\)\s*$/.test(itemSource.trim());
+        const hasItemIdGroup = Object.prototype.hasOwnProperty.call(match.groups ?? {}, 'itemId');
+        if (includesTrailingId && !hasItemIdGroup) {
+          continue;
+        }
+
+        const itemIdRaw = match.groups?.itemId ?? null;
+        const parsedItemId =
+          typeof itemIdRaw === 'string' && itemIdRaw.trim().length > 0
+            ? Number(itemIdRaw)
+            : null;
+        const { itemName: normalizedItemName, itemId: derivedItemId } = parseItemDetails(
+          itemSource,
+          Number.isFinite(parsedItemId) ? parsedItemId : null
+        );
+
         results.push({
           timestamp,
           rawLine: line,
-          itemName: match.groups?.item ?? match[1],
+          itemId: derivedItemId ?? null,
+          itemName: normalizedItemName,
           looter: match.groups?.looter ?? match[2],
           method: match.groups?.method ?? match[3] ?? null,
           patternId: pattern.id,

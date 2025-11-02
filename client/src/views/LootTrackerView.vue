@@ -12,14 +12,6 @@
         >
           Back to Raid
         </RouterLink>
-        <button
-          v-if="canViewParserSettings"
-          class="btn btn--outline btn--settings"
-          type="button"
-          @click="showSettings = true"
-        >
-          Parser Settings
-        </button>
       </div>
     </header>
 
@@ -203,8 +195,41 @@
             </button>
           </article>
         </div>
-      </div>
     </div>
+  </div>
+
+  <div v-if="defaultLogPrompt.visible" class="modal-backdrop">
+    <div class="modal default-log-modal">
+      <header class="modal__header">
+        <div>
+          <h3>Use Saved Log File?</h3>
+          <p class="muted small">You can use your default log file or pick a different one.</p>
+        </div>
+        <button class="icon-button" type="button" @click="handleDefaultLogPromptAction('skip')">
+          ✕
+        </button>
+      </header>
+      <div class="modal__body default-log-modal__body">
+        <div class="default-log-modal__icon" aria-hidden="true">📁</div>
+        <div>
+          <p class="default-log-modal__filename">{{ defaultLogPrompt.fileName }}</p>
+          <p class="muted x-small">{{ formatFileSize(defaultLogPrompt.fileSize) }}</p>
+        </div>
+      </div>
+      <footer class="default-log-modal__actions">
+        <button
+          class="btn btn--outline btn--modal-outline"
+          type="button"
+          @click="handleDefaultLogPromptAction('skip')"
+        >
+          Choose Different File
+        </button>
+        <button class="btn btn--modal-primary" type="button" @click="handleDefaultLogPromptAction('use')">
+          Use Saved File
+        </button>
+      </footer>
+    </div>
+  </div>
 
     <section
       v-if="canManageLoot && monitorSession"
@@ -383,387 +408,6 @@
         </article>
       </div>
     </section>
-
-    <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
-      <div class="modal modal--wide detected-modal">
-        <header class="modal__header">
-          <div>
-            <h3>Parser Settings</h3>
-            <p class="muted small">
-              Describe loot phrases using plain language. We convert them to precise patterns
-              automatically.
-            </p>
-          </div>
-          <button class="icon-button" type="button" @click="showSettings = false">✕</button>
-        </header>
-        <form class="settings-form" @submit.prevent="saveParserSettings">
-          <div class="settings-form__body">
-            <div class="settings-grid">
-              <div class="settings-grid__side">
-                <section class="settings-section">
-                  <h4>General</h4>
-                  <label class="form__field">
-                    <span>Default Loot Emoji</span>
-                    <input v-model="editableSettings.emoji" type="text" maxlength="4" />
-                    <small class="muted"
-                      >Used when the parser can’t find a specific emoji for an item.</small
-                    >
-                  </label>
-                </section>
-
-                <section class="settings-section sample-tester">
-                  <div>
-                    <h4>Try a Log Line</h4>
-                    <p class="muted small">
-                      Paste a log entry to see how each phrase would parse it.
-                    </p>
-                  </div>
-                  <textarea
-                    v-model="sampleLogLine"
-                    rows="3"
-                    placeholder="[Sun Sep 14 21:36:45 2025] Eye of Eashen has been awarded to Loladin by the Master Looter."
-                  ></textarea>
-                </section>
-
-                <section class="settings-section placeholder-panel">
-                  <div class="placeholder-panel__header">
-                    <div>
-                      <h4>Placeholders</h4>
-                      <p class="muted small">Click to insert into the phrase you’re editing.</p>
-                    </div>
-                    <p class="muted x-small">
-                      Example: “{timestamp} {item} has been awarded to {looter} by the {method}.”
-                    </p>
-                  </div>
-                  <div class="placeholder-toolbar">
-                    <div class="placeholder-toolbar__chips">
-                      <button
-                        v-for="option in placeholderOptions"
-                        :key="option.token"
-                        class="placeholder-chip"
-                        type="button"
-                        @click="appendPlaceholder(option.token)"
-                      >
-                        <span class="placeholder-chip__token">{{ option.token }}</span>
-                        <span class="placeholder-chip__text">{{ option.description }}</span>
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              </div>
-
-              <div class="settings-grid__main">
-                <section class="settings-section">
-                  <div class="section-heading section-heading--stacked">
-                    <div>
-                      <h4>Loot Phrase Builder</h4>
-                      <p class="muted small">
-                        Describe the exact log line and we’ll handle the complex regex for you.
-                      </p>
-                    </div>
-                    <button
-                      class="btn btn--outline btn--small btn--modal-outline"
-                      type="button"
-                      @click="addPattern()"
-                    >
-                      <span class="btn__icon">+</span>
-                      Add Phrase
-                    </button>
-                  </div>
-
-                  <div
-                    v-if="editableSettings.patterns.length === 0"
-                    class="pattern-card pattern-card--empty"
-                  >
-                    <p>No phrases yet. Start by describing how loot lines look in your logs.</p>
-                    <button class="btn btn--small" type="button" @click="addPattern()">
-                      Create First Phrase
-                    </button>
-                  </div>
-
-                  <div v-else class="pattern-list">
-                    <article
-                      v-for="(pattern, index) in editableSettings.patterns"
-                      :key="pattern.id"
-                      class="pattern-card"
-                      :class="{
-                        'pattern-card--active': activePatternIndex === index,
-                        'pattern-card--collapsed': collapsedPatternIds[pattern.id]
-                      }"
-                    >
-                      <div class="pattern-card__header">
-                        <div class="pattern-card__header-main">
-                          <button
-                            class="pattern-card__toggle"
-                            type="button"
-                            @click.stop="togglePatternCollapse(pattern.id)"
-                            :aria-expanded="!collapsedPatternIds[pattern.id]"
-                            :aria-controls="`pattern-body-${pattern.id}`"
-                          >
-                            <span
-                              class="pattern-card__chevron"
-                              :class="{
-                                'pattern-card__chevron--rotated': !collapsedPatternIds[pattern.id]
-                              }"
-                              >⌄</span
-                            >
-                          </button>
-                          <input
-                            v-model="pattern.label"
-                            type="text"
-                            placeholder="Description (e.g. Kael chest drops)"
-                            @focus="setActivePattern(index)"
-                          />
-                        </div>
-                        <button
-                          class="btn btn--danger btn--small btn--modal-danger"
-                          type="button"
-                          @click.stop="removePattern(index)"
-                        >
-                          <span class="btn__icon">×</span>
-                          Remove
-                        </button>
-                      </div>
-                      <div
-                        class="pattern-card__body"
-                        :id="`pattern-body-${pattern.id}`"
-                        v-show="!collapsedPatternIds[pattern.id]"
-                      >
-                        <label class="form__field">
-                          <span>Plain-language phrase</span>
-                          <textarea
-                            v-model="pattern.pattern"
-                            rows="3"
-                            placeholder="{timestamp} {item} has been awarded to {looter} by the {method}."
-                            :ref="(el) => setPatternTextareaRef(pattern.id, el as HTMLTextAreaElement | null)"
-                            @focus="handleTextareaFocus(index, pattern.id)"
-                            @keyup="updateCaretPosition(pattern.id)"
-                            @mouseup="updateCaretPosition(pattern.id)"
-                            @click="updateCaretPosition(pattern.id)"
-                            @input="updateCaretPosition(pattern.id)"
-                          ></textarea>
-                        </label>
-                        <div class="pattern-card__helper">
-                          <span class="pattern-card__helper-label">Includes</span>
-                          <div class="pattern-card__helper-content">
-                            <template v-if="placeholderUsage(pattern.pattern).length > 0">
-                              <span
-                                v-for="placeholder in placeholderUsage(pattern.pattern)"
-                                :key="placeholder.token"
-                                class="pattern-chip"
-                              >
-                                {{ placeholder.label }}
-                              </span>
-                            </template>
-                            <span v-else class="muted x-small"
-                              >Add placeholders like {timestamp}, {item}, {looter}, {method} so we
-                              know what to capture.</span
-                            >
-                          </div>
-                        </div>
-                        <div class="pattern-preview">
-                          <div>
-                            <p class="pattern-preview__label">Regex preview</p>
-                            <code class="pattern-preview__code">{{
-                              patternPreview(pattern.pattern)
-                            }}</code>
-                          </div>
-                          <p class="muted x-small">
-                            Sent to the parser automatically—no regex knowledge required.
-                          </p>
-                        </div>
-                        <div
-                          v-if="patternIncludesMethod(pattern.pattern)"
-                          class="pattern-method-ignore"
-                        >
-                          <label class="form__field">
-                            <span>Ignore loot methods</span>
-                            <div class="method-input">
-                              <input
-                                v-model="pattern.methodInput"
-                                type="text"
-                                class="method-input__field"
-                                placeholder="Type a method (e.g. Master Looter)"
-                                @keyup.enter.prevent="addIgnoredMethod(index)"
-                              />
-                              <button
-                                class="btn btn--outline btn--small"
-                                type="button"
-                                @click="addIgnoredMethod(index)"
-                              >
-                                Add
-                              </button>
-                            </div>
-                            <p class="muted x-small">
-                              Case-insensitive. Any detected loot using these methods will be
-                              discarded automatically.
-                            </p>
-                          </label>
-                          <div v-if="pattern.ignoredMethods.length" class="method-pill-container">
-                            <span
-                              v-for="method in pattern.ignoredMethods"
-                              :key="method"
-                              class="method-pill"
-                            >
-                              <span class="method-pill__label">{{ method }}</span>
-                              <button
-                                type="button"
-                                class="method-pill__remove"
-                                @click="removeIgnoredMethod(index, method)"
-                                aria-label="Remove ignored method"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          </div>
-                        </div>
-                        <div
-                          v-if="sampleLogLine"
-                          class="pattern-test"
-                          :class="
-                            patternSampleResult(pattern).matches
-                              ? 'pattern-test--match'
-                              : 'pattern-test--miss'
-                          "
-                        >
-                          <template v-if="patternSampleResult(pattern).matches">
-                            <p class="pattern-test__header">
-                              <span class="pattern-test__status">Matches sample line</span>
-                            </p>
-                            <ul class="pattern-test__list">
-                              <li>
-                                <strong>Looter:</strong>
-                                <span>{{
-                                  patternSampleResult(pattern).looter ?? 'Not captured'
-                                }}</span>
-                              </li>
-                              <li>
-                                <strong>Item:</strong>
-                                <span>{{
-                                  patternSampleResult(pattern).item ?? 'Not captured'
-                                }}</span>
-                              </li>
-                              <li>
-                                <strong>Method:</strong>
-                                <span>{{
-                                  patternSampleResult(pattern).method ?? 'Not captured'
-                                }}</span>
-                              </li>
-                            </ul>
-                          </template>
-                          <template v-else>
-                            <p class="pattern-test__header">
-                              <span class="pattern-test__status">
-                                {{ patternSampleResult(pattern).reason ?? 'No match for sample' }}
-                              </span>
-                            </p>
-                            <p class="muted x-small" v-if="patternSampleResult(pattern).ignored">
-                              Remove this method from the ignored list if you want the parser to
-                              capture lines like this.
-                            </p>
-                            <p class="muted x-small" v-else>
-                              Try aligning this phrase with the wording of your log.
-                            </p>
-                          </template>
-                        </div>
-                      </div>
-                    </article>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </div>
-
-          <footer class="form__actions">
-            <button
-              class="btn btn--outline btn--modal-outline"
-              type="button"
-              @click="showSettings = false"
-            >
-              Cancel
-            </button>
-            <button class="btn btn--modal-primary" type="submit" :disabled="updatingSettings">
-              {{ updatingSettings ? 'Saving…' : 'Save Settings' }}
-            </button>
-          </footer>
-        </form>
-      </div>
-    </div>
-
-    <div
-      v-if="showLeaveMonitorModal"
-      class="modal-backdrop"
-      @click.self="dismissLeaveMonitorModal(false)"
-    >
-      <div class="modal">
-        <header class="modal__header">
-          <div>
-            <h3>Stop Monitoring?</h3>
-            <p class="muted small">Navigating away will stop live log monitoring for this raid.</p>
-          </div>
-          <button class="icon-button" type="button" @click="dismissLeaveMonitorModal(false)">
-            ✕
-          </button>
-        </header>
-        <p class="muted">
-          If you leave this page, live loot parsing will stop and other officers will be able to
-          take over monitoring. Are you sure you want to continue?
-        </p>
-        <footer class="leave-monitor-actions">
-          <button
-            class="btn leave-monitor-button leave-monitor-button--stay"
-            type="button"
-            @click="dismissLeaveMonitorModal(false)"
-          >
-            Stay Here
-          </button>
-          <button
-            class="btn leave-monitor-button leave-monitor-button--leave"
-            type="button"
-            :disabled="monitorStopping"
-            @click="dismissLeaveMonitorModal(true)"
-          >
-            {{ monitorStopping ? 'Stopping…' : 'Leave Page' }}
-          </button>
-        </footer>
-      </div>
-    </div>
-
-    <div
-      v-if="defaultLogPrompt.visible"
-      class="modal-backdrop"
-      @click.self="handleDefaultLogPromptAction('skip')"
-    >
-      <div class="modal default-log-modal">
-        <header class="modal__header">
-          <div>
-            <h3>Use Saved Log File?</h3>
-            <p class="muted small">
-              We found your default log file. Choose whether to use it for this session.
-            </p>
-          </div>
-          <button class="icon-button" type="button" @click="handleDefaultLogPromptAction('skip')">
-            ✕
-          </button>
-        </header>
-        <div class="default-log-modal__body">
-          <p class="default-log-modal__filename">{{ defaultLogPrompt.fileName }}</p>
-          <p class="muted small">{{ formatFileSize(defaultLogPrompt.fileSize) }}</p>
-        </div>
-        <footer class="default-log-modal__actions">
-          <button
-            class="btn btn--outline btn--modal-outline"
-            type="button"
-            @click="handleDefaultLogPromptAction('skip')"
-          >
-            Choose a different file
-          </button>
-          <button class="btn btn--modal-primary" type="button" @click="handleDefaultLogPromptAction('use')">
-            Use saved log
-          </button>
-        </footer>
-      </div>
-    </div>
 
     <div v-if="showManualModal" class="modal-backdrop" @click.self="closeManualModal">
       <div class="modal">
@@ -1108,7 +752,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 
@@ -1129,10 +773,7 @@ import {
 } from '../services/lootParser';
 import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
-import {
-  convertPlaceholdersToRegex,
-  convertRegexToPlaceholders
-} from '../utils/patternPlaceholders';
+import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
 import {
   buildLootListLookup,
   matchesLootListEntry,
@@ -1213,7 +854,6 @@ const parseProgress = ref(0);
 const dragActive = ref(false);
 const savingLoot = ref(false);
 const manualSaving = ref(false);
-const showSettings = ref(false);
 const showManualModal = ref(false);
 const showWindowModal = ref(false);
 const showDebugConsole = ref(false);
@@ -1238,28 +878,6 @@ type PendingNavigation = { type: 'route'; to: any } | { type: 'refresh' };
 
 const pendingNavigation = ref<PendingNavigation | null>(null);
 const allowImmediateUnload = ref(false);
-const updatingSettings = ref(false);
-type EditablePattern = GuildLootParserPattern & { ignoredMethods: string[]; methodInput: string };
-
-interface PatternSampleResult {
-  matches: boolean;
-  looter?: string;
-  item?: string;
-  method?: string;
-  ignored?: boolean;
-  reason?: string;
-  error?: string;
-}
-
-const editableSettings = reactive<{
-  patterns: EditablePattern[];
-  emoji: string;
-}>({ patterns: [], emoji: '💎' });
-const activePatternIndex = ref<number | null>(null);
-const collapsedPatternIds = ref<Record<string, boolean>>({});
-const patternTextareas = ref<Record<string, HTMLTextAreaElement | null>>({});
-const patternCaretPositions = ref<Record<string, { start: number; end: number }>>({});
-const sampleLogLine = ref('');
 const manualForm = reactive({
   itemName: '',
   looterName: '',
@@ -1524,28 +1142,6 @@ watch(detectedLootModalOpen, (open) => {
     window.removeEventListener('keydown', handleDetectedModalKeydown);
   }
 });
-const placeholderOptions = [
-  {
-    token: '{timestamp}',
-    label: 'Timestamp',
-    description: 'Matches the leading [Day Mon DD HH:MM:SS YYYY] text.'
-  },
-  {
-    token: '{item}',
-    label: 'Item',
-    description: 'The item name pulled from the log line.'
-  },
-  {
-    token: '{looter}',
-    label: 'Recipient',
-    description: 'The character who received the loot.'
-  },
-  {
-    token: '{method}',
-    label: 'Loot method',
-    description: 'How the item was awarded (Master Looter, random roll, Loot Council, etc.).'
-  }
-];
 
 const dispositionOptions: Array<{
   value: DetectedLootDisposition;
@@ -1666,7 +1262,7 @@ async function loadData() {
   lootEvents.value = await api.fetchRaidLoot(raidId);
   await refreshLootListSummary();
   const guildSettings = await api.fetchGuildLootSettings(raid.value.guild.id);
-  syncEditableParserSettings(guildSettings);
+  syncParserSettings(guildSettings);
   resetManualForm();
   initializeParsingWindow();
   await fetchMonitorStatus();
@@ -2992,257 +2588,6 @@ function openEdit(event: RaidLootEvent) {
     });
 }
 
-async function saveParserSettings() {
-  updatingSettings.value = true;
-  try {
-    const payload = {
-      emoji: editableSettings.emoji,
-      patterns: editableSettings.patterns.map((pattern, index) => ({
-        id: pattern.id || `pattern-${index}`,
-        label: pattern.label || `Pattern ${index + 1}`,
-        pattern: convertPlaceholdersToRegex(pattern.pattern),
-        ignoredMethods: sanitizeIgnoredMethods(pattern.ignoredMethods ?? [])
-      }))
-    };
-    const settings = await api.updateGuildLootSettings(raid.value!.guild.id, payload);
-    syncEditableParserSettings(settings);
-    showSettings.value = false;
-  } finally {
-    updatingSettings.value = false;
-  }
-}
-
-function addPattern(initialPattern?: string) {
-  editableSettings.patterns.push({
-    id: `pattern-${Date.now()}`,
-    label: 'New Pattern',
-    pattern: typeof initialPattern === 'string' ? initialPattern : defaultPattern(),
-    ignoredMethods: [],
-    methodInput: ''
-  });
-  activePatternIndex.value = editableSettings.patterns.length - 1;
-  const newId = editableSettings.patterns[activePatternIndex.value].id;
-  collapsedPatternIds.value = {
-    ...collapsedPatternIds.value,
-    [newId]: false
-  };
-  const initialLength = editableSettings.patterns[activePatternIndex.value].pattern?.length ?? 0;
-  patternCaretPositions.value[newId] = { start: initialLength, end: initialLength };
-}
-
-function removePattern(index: number) {
-  const removed = editableSettings.patterns.splice(index, 1)[0];
-  if (activePatternIndex.value === index) {
-    activePatternIndex.value = editableSettings.patterns.length ? Math.max(0, index - 1) : null;
-  }
-  if (removed) {
-    const { [removed.id]: _, ...rest } = collapsedPatternIds.value;
-    collapsedPatternIds.value = rest;
-    const { [removed.id]: __, ...caretRest } = patternCaretPositions.value;
-    patternCaretPositions.value = caretRest;
-    const { [removed.id]: ___, ...textareaRest } = patternTextareas.value;
-    patternTextareas.value = textareaRest;
-  }
-}
-
-function syncEditableParserSettings(settings: GuildLootParserSettings) {
-  const preparedPatterns = preparePatternsForParsing(settings.patterns);
-  parserSettings.value = {
-    ...settings,
-    patterns: preparedPatterns
-  };
-  const editablePatterns: EditablePattern[] = preparedPatterns.map((pattern) => {
-    const friendlyPattern = convertRegexToPlaceholders(pattern.pattern);
-    const rawIgnored = Array.isArray(pattern.ignoredMethods)
-      ? pattern.ignoredMethods.map((method) => method.toString())
-      : [];
-    return {
-      ...pattern,
-      pattern: friendlyPattern || pattern.pattern,
-      ignoredMethods: sanitizeIgnoredMethods(rawIgnored),
-      methodInput: ''
-    };
-  });
-  editableSettings.patterns = editablePatterns;
-  editableSettings.emoji = settings.emoji;
-  manualForm.emoji = settings.emoji;
-  activePatternIndex.value = editablePatterns.length ? 0 : null;
-  collapsedPatternIds.value = editablePatterns.reduce<Record<string, boolean>>((acc, pattern) => {
-    acc[pattern.id] = false;
-    return acc;
-  }, {});
-  patternCaretPositions.value = editablePatterns.reduce<
-    Record<string, { start: number; end: number }>
-  >((acc, pattern) => {
-    const length = pattern.pattern?.length ?? 0;
-    acc[pattern.id] = { start: length, end: length };
-    return acc;
-  }, {});
-}
-
-function defaultPattern() {
-  return '{timestamp} {item} has been awarded to {looter} by the {method}.';
-}
-
-function setActivePattern(index: number) {
-  activePatternIndex.value = index;
-}
-
-function appendPlaceholder(token: string) {
-  if (!editableSettings.patterns.length) {
-    addPattern('');
-  }
-  const index = activePatternIndex.value ?? editableSettings.patterns.length - 1;
-  const target = editableSettings.patterns[index];
-  const patternId = target.id;
-  const current = target.pattern ?? '';
-  const caret = patternCaretPositions.value[patternId];
-  const start = caret?.start ?? current.length;
-  const end = caret?.end ?? start;
-  const before = current.slice(0, start);
-  const after = current.slice(end);
-  const updated = `${before}${token}${after}`;
-  target.pattern = updated;
-  const nextPos = start + token.length;
-  patternCaretPositions.value[patternId] = { start: nextPos, end: nextPos };
-  nextTick(() => {
-    const textarea = patternTextareas.value[patternId];
-    if (textarea) {
-      textarea.focus();
-      textarea.setSelectionRange(nextPos, nextPos);
-    }
-  });
-}
-
-function placeholderUsage(pattern: string) {
-  const lower = pattern?.toLowerCase() ?? '';
-  return placeholderOptions.filter((option) => lower.includes(option.token.toLowerCase()));
-}
-
-function patternIncludesMethod(pattern: string) {
-  return placeholderUsage(pattern).some((option) => option.token === '{method}');
-}
-
-function addIgnoredMethod(patternIndex: number) {
-  const pattern = editableSettings.patterns[patternIndex];
-  if (!pattern) {
-    return;
-  }
-  const rawValue = pattern.methodInput?.trim();
-  if (!rawValue) {
-    return;
-  }
-  const normalized = normalizeMethodName(rawValue);
-  if (!normalized) {
-    pattern.methodInput = '';
-    return;
-  }
-  const duplicate = pattern.ignoredMethods.some(
-    (method) => normalizeMethodName(method) === normalized
-  );
-  if (!duplicate) {
-    pattern.ignoredMethods = [...pattern.ignoredMethods, rawValue];
-  }
-  pattern.methodInput = '';
-}
-
-function removeIgnoredMethod(patternIndex: number, method: string) {
-  const pattern = editableSettings.patterns[patternIndex];
-  if (!pattern) {
-    return;
-  }
-  pattern.ignoredMethods = pattern.ignoredMethods.filter((value) => value !== method);
-}
-
-function patternPreview(phrase: string) {
-  const preview = convertPlaceholdersToRegex(phrase);
-  return preview || 'Waiting for placeholders…';
-}
-
-function patternSampleResult(pattern: EditablePattern): PatternSampleResult {
-  const sample = sampleLogLine.value.trim();
-  if (!sample) {
-    return { matches: false, reason: 'Enter a sample log line above.' };
-  }
-
-  const compiled = convertPlaceholdersToRegex(pattern.pattern);
-  if (!compiled.trim()) {
-    return { matches: false, reason: 'Add placeholders to build a valid phrase.' };
-  }
-
-  try {
-    const regex = new RegExp(compiled, 'i');
-    const match = sample.match(regex);
-    if (!match) {
-      return { matches: false, reason: 'No match for sample.' };
-    }
-
-    const looter = match.groups?.looter ?? match[1];
-    const item = match.groups?.item ?? match[2];
-    const methodRaw = match.groups?.method ?? match[3];
-    const displayMethod = methodRaw
-      ? methodRaw.trim().replace(/^./, (char) => char.toUpperCase())
-      : undefined;
-    const normalizedMethod = normalizeMethodName(methodRaw);
-
-    if (
-      normalizedMethod &&
-      Array.isArray(pattern.ignoredMethods) &&
-      pattern.ignoredMethods.some((ignored) => normalizeMethodName(ignored) === normalizedMethod)
-    ) {
-      return {
-        matches: false,
-        ignored: true,
-        reason: 'Matches sample line, but the loot method is currently ignored.'
-      };
-    }
-
-    return {
-      matches: true,
-      looter: looter?.trim(),
-      item: item?.trim(),
-      method: displayMethod
-    };
-  } catch (err) {
-    return {
-      matches: false,
-      reason: 'Invalid pattern. Check your placeholders.',
-      error: err instanceof Error ? err.message : String(err)
-    };
-  }
-}
-
-function togglePatternCollapse(id: string) {
-  collapsedPatternIds.value = {
-    ...collapsedPatternIds.value,
-    [id]: !collapsedPatternIds.value[id]
-  };
-}
-
-function setPatternTextareaRef(id: string, el: HTMLTextAreaElement | null) {
-  if (el) {
-    patternTextareas.value[id] = el;
-  } else {
-    const { [id]: _, ...rest } = patternTextareas.value;
-    patternTextareas.value = rest;
-  }
-}
-
-function updateCaretPosition(id: string) {
-  const textarea = patternTextareas.value[id];
-  if (!textarea) {
-    return;
-  }
-  patternCaretPositions.value[id] = {
-    start: textarea.selectionStart ?? textarea.value.length,
-    end: textarea.selectionEnd ?? textarea.selectionStart ?? textarea.value.length
-  };
-}
-
-function handleTextareaFocus(index: number, id: string) {
-  setActivePattern(index);
-  updateCaretPosition(id);
-}
 
 function openManualModal() {
   showManualModal.value = true;
@@ -3259,6 +2604,16 @@ function resetManualForm() {
   manualForm.looterClass = '';
   manualForm.emoji = parserSettings.value?.emoji ?? '💎';
   manualForm.note = '';
+}
+
+function syncParserSettings(settings: GuildLootParserSettings) {
+  const preparedPatterns = preparePatternsForParsing(settings.patterns ?? []);
+  const emoji = settings.emoji ?? '💎';
+  parserSettings.value = {
+    emoji,
+    patterns: preparedPatterns
+  };
+  manualForm.emoji = emoji;
 }
 
 function initializeParsingWindow() {

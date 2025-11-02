@@ -21,6 +21,16 @@ type ParserPattern = {
   ignoredMethods?: string[];
 };
 
+export class InvalidLootPatternError extends Error {
+  patternId?: string;
+
+  constructor(message: string, patternId?: string) {
+    super(message);
+    this.name = 'InvalidLootPatternError';
+    this.patternId = patternId;
+  }
+}
+
 const DEFAULT_PATTERN_PHRASES = [
   '{timestamp} {item} has been awarded to {looter} by the {method}.',
   '{timestamp} {item} has been awarded to {looter} by {method}.',
@@ -80,7 +90,20 @@ export async function updateGuildLootParserSettings(guildId: string, input: {
 }) {
   const cleanedPatterns = Array.isArray(input.patterns)
     ? input.patterns.map((pattern, index) => {
-        const compiledPattern = convertPlaceholdersToRegex(pattern.pattern);
+        const rawPattern =
+          typeof pattern.pattern === 'string' ? pattern.pattern.trim() : DEFAULT_LOOT_PATTERNS[0].pattern;
+        const compiledPattern = convertPlaceholdersToRegex(rawPattern || DEFAULT_LOOT_PATTERNS[0].pattern);
+        try {
+          RegExp(compiledPattern);
+        } catch (error) {
+          const label = pattern.label || `Pattern ${index + 1}`;
+          const message =
+            error instanceof Error ? error.message : 'Unknown pattern error.';
+          throw new InvalidLootPatternError(
+            `Parser pattern "${label}" is invalid: ${message}`,
+            pattern.id || `pattern-${index}`
+          );
+        }
         return {
           id: pattern.id || `pattern-${index}`,
           label: pattern.label || `Pattern ${index + 1}`,

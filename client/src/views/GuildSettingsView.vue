@@ -1,240 +1,295 @@
 <template>
   <section v-if="guild" class="guild-settings">
     <header class="section-header">
-      <div>
-        <h1>Guild Settings</h1>
-        <p class="muted">Manage description and default raid times for {{ guild.name }}.</p>
-      </div>
-      <div class="header-actions">
-        <RouterLink class="btn btn--outline" :to="{ name: 'GuildDetail', params: { guildId } }">
-          ← Back to Guild
-        </RouterLink>
+      <RouterLink
+        class="back-link"
+        :to="{ name: 'GuildDetail', params: { guildId } }"
+      >
+        ← Back to Guild
+      </RouterLink>
+      <div class="section-header__main">
+        <div class="section-header__title">
+          <h1>Guild Settings</h1>
+          <p class="muted">Manage description and default raid times for {{ guild.name }}.</p>
+        </div>
+        <div class="header-actions">
+          <button
+            v-if="canManageParserSettings"
+            class="parser-button"
+            type="button"
+            @click="showParserSettings = true"
+          >
+            Parser Settings
+          </button>
+          <button
+            v-if="canManageDiscordWebhook"
+            class="discord-button"
+            type="button"
+            @click="showDiscordModal = true"
+          >
+            <svg viewBox="0 0 245 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path
+                d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1" />
+              <path
+                d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .30 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z" />
+            </svg>
+            <span>Discord Webhook</span>
+          </button>
+        </div>
       </div>
     </header>
 
-    <form class="settings-form" @submit.prevent="saveSettings">
-      <label class="form__field">
-        <span>Guild Description</span>
-        <textarea
-          v-model="form.description"
-          rows="4"
-          maxlength="500"
-          placeholder="Describe your guild"
-          :disabled="!canEditGeneralSettings"
-        ></textarea>
-      </label>
-
-      <div class="grid">
-        <label class="form__field">
-          <span>Default Raid Start Time</span>
-          <input v-model="form.defaultRaidStartTime" type="time" :disabled="!canEditGeneralSettings" />
-          <small class="muted">Applied to the raid creation picker when scheduling future raids.</small>
-        </label>
-        <label class="form__field">
-          <span>Default Raid End Time</span>
-          <input v-model="form.defaultRaidEndTime" type="time" :disabled="!canEditGeneralSettings" />
-          <small class="muted">Used to prefill raid end times for your team.</small>
-        </label>
-      </div>
-
-      <label class="form__field">
-        <span>Default Discord Voice Channel</span>
-        <input
-          v-model="form.defaultDiscordVoiceUrl"
-          type="url"
-          placeholder="https://discord.gg/your-voice-channel"
-          :disabled="!canEditGeneralSettings"
-          @input="clearDefaultDiscordVoiceError"
-        />
-        <small v-if="fieldErrors.defaultDiscordVoiceUrl" class="form__error">
-          {{ fieldErrors.defaultDiscordVoiceUrl }}
-        </small>
-        <small v-else class="muted">Prefills the raid voice channel link when planning a new raid.</small>
-      </label>
-
-      <section class="discord-widget-settings">
-        <header class="discord-widget-settings__header">
-          <h3>Guild Discord Widget</h3>
-          <p class="muted small">Provide a Discord server ID to embed the live widget on your guild page.</p>
+    <div class="settings-content">
+      <form class="settings-card settings-card--form" @submit.prevent="saveSettings">
+        <header class="settings-card__header">
+          <div>
+            <h2>General Settings</h2>
+            <p class="muted small">Configure default raid details and optional Discord integrations.</p>
+          </div>
+          <span v-if="!canEditGeneralSettings" class="settings-badge">View Only</span>
         </header>
-        <div class="discord-widget-settings__toggle">
-          <label>
-            <input
-              v-model="form.discordWidgetEnabled"
-              type="checkbox"
-              :disabled="!canEditGeneralSettings || !form.discordWidgetServerId.trim()"
-            />
-            <span>Enable Discord Widget</span>
-          </label>
-          <p class="muted small">Keep your server ID saved and toggle the widget on or off at any time.</p>
+        <div class="settings-card__body">
+          <section class="settings-section">
+            <label class="form__field">
+              <span>Guild Description</span>
+              <textarea
+                v-model="form.description"
+                rows="4"
+                maxlength="500"
+                placeholder="Describe your guild"
+                :disabled="!canEditGeneralSettings"
+              ></textarea>
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-field-grid">
+              <label class="form__field">
+                <span>Default Raid Start Time</span>
+                <input v-model="form.defaultRaidStartTime" type="time" :disabled="!canEditGeneralSettings" />
+                <small class="muted">Applied to the raid creation picker when scheduling future raids.</small>
+              </label>
+              <label class="form__field">
+                <span>Default Raid End Time</span>
+                <input v-model="form.defaultRaidEndTime" type="time" :disabled="!canEditGeneralSettings" />
+                <small class="muted">Used to prefill raid end times for your team.</small>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <label class="form__field">
+              <span>Default Discord Voice Channel</span>
+              <input
+                v-model="form.defaultDiscordVoiceUrl"
+                type="url"
+                placeholder="https://discord.gg/your-voice-channel"
+                :disabled="!canEditGeneralSettings"
+                @input="clearDefaultDiscordVoiceError"
+              />
+              <small v-if="fieldErrors.defaultDiscordVoiceUrl" class="form__error">
+                {{ fieldErrors.defaultDiscordVoiceUrl }}
+              </small>
+              <small v-else class="muted">Prefills the raid voice channel link when planning a new raid.</small>
+            </label>
+          </section>
+
+          <section class="settings-section settings-section--widget">
+            <div class="section-heading section-heading--sub">
+              <div>
+                <h3>Discord Widget</h3>
+                <p class="muted small">Provide a Discord server ID to embed your live widget on the guild page.</p>
+              </div>
+            </div>
+            <label class="toggle-field">
+              <input
+                v-model="form.discordWidgetEnabled"
+                type="checkbox"
+                :disabled="!canEditGeneralSettings || !form.discordWidgetServerId.trim()"
+              />
+              <span>Enable Discord Widget</span>
+            </label>
+            <div class="settings-field-grid settings-field-grid--widget">
+              <label class="form__field">
+                <span>Discord Server ID</span>
+                <input
+                  v-model="form.discordWidgetServerId"
+                  type="text"
+                  maxlength="64"
+                  placeholder="Example: 123456789012345678"
+                  :disabled="!canEditGeneralSettings"
+                />
+                <small class="muted">Enable the Discord widget in your server settings, then paste the server ID.</small>
+              </label>
+              <label class="form__field">
+                <span>Widget Theme</span>
+                <select
+                  v-model="form.discordWidgetTheme"
+                  :disabled="!canEditGeneralSettings || !form.discordWidgetEnabled"
+                >
+                  <option value="DARK">Dark</option>
+                  <option value="LIGHT">Light</option>
+                </select>
+                <small class="muted">Used when rendering the Discord widget on the guild page.</small>
+              </label>
+            </div>
+          </section>
         </div>
-        <div class="discord-widget-settings__grid">
-          <label class="form__field">
-            <span>Discord Server ID</span>
+        <footer class="settings-card__footer">
+          <div class="settings-actions">
+            <button class="btn btn--outline" type="button" :disabled="saving || !canEditGeneralSettings" @click="resetForm">
+              Reset
+            </button>
+            <button class="btn" type="submit" :disabled="saving || !canEditGeneralSettings">
+              {{ saving ? 'Saving…' : 'Save Settings' }}
+            </button>
+          </div>
+          <p v-if="!canEditGeneralSettings" class="muted small">
+            Only guild leaders or officers can update general guild settings.
+          </p>
+        </footer>
+      </form>
+
+      <section v-if="canManageLootLists" class="settings-card settings-card--loot">
+        <header class="settings-card__header">
+          <div>
+            <h2>Loot Lists</h2>
+            <p class="muted small">Control automatic handling for detected loot across raids.</p>
+          </div>
+          <span class="settings-badge settings-badge--neutral">{{ lootListTotal }} items</span>
+        </header>
+        <div class="settings-card__body">
+          <div class="loot-list-toolbar">
+            <div class="loot-list-tabs">
+              <button
+                v-for="type in lootListTypes"
+                :key="type"
+                class="loot-list-tab"
+                :class="{ 'loot-list-tab--active': lootListActiveType === type }"
+                type="button"
+                @click="setLootListType(type)"
+              >
+                {{ lootListTypeLabels[type] }}
+              </button>
+            </div>
+            <div class="loot-list-filters">
+              <input v-model="lootListSearch" type="search" class="input loot-list-search" placeholder="Search items" />
+              <select v-model="lootListSortBy">
+                <option value="itemName">Sort: Name</option>
+                <option value="itemId">Sort: Item ID</option>
+                <option value="createdAt">Sort: Added Date</option>
+              </select>
+              <select v-model="lootListSortDirection">
+                <option value="asc">Asc</option>
+                <option value="desc">Desc</option>
+              </select>
+            </div>
+          </div>
+
+          <form class="loot-list-add" @submit.prevent="submitLootListEntry">
+            <input v-model="addEntryForm.itemName" type="text" placeholder="Item name" required />
             <input
-              v-model="form.discordWidgetServerId"
-              type="text"
-              maxlength="64"
-              placeholder="Example: 123456789012345678"
-              :disabled="!canEditGeneralSettings"
+              v-model="addEntryForm.itemId"
+              type="number"
+              inputmode="numeric"
+              placeholder="Item ID (optional)"
             />
-            <small class="muted">Enable the Discord widget in your server settings, then paste the server ID.</small>
-          </label>
-          <label class="form__field">
-            <span>Widget Theme</span>
-            <select
-              v-model="form.discordWidgetTheme"
-              :disabled="!canEditGeneralSettings || !form.discordWidgetEnabled"
+            <button class="btn btn--small" type="submit" :disabled="addingEntry">
+              {{ addingEntry ? 'Adding…' : 'Add Item' }}
+            </button>
+          </form>
+
+          <p v-if="lootListLoading" class="muted">Loading {{ lootListTypeLabels[lootListActiveType].toLowerCase() }}…</p>
+          <p v-else-if="lootListEntries.length === 0" class="muted small">
+            No {{ lootListTypeLabels[lootListActiveType].toLowerCase() }} entries found.
+          </p>
+
+          <div v-else class="loot-table-wrapper">
+            <table class="loot-list-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Item ID</th>
+                  <th>Added</th>
+                  <th class="loot-list-table__actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="entry in lootListEntries" :key="entry.id">
+                  <td>
+                    <template v-if="editingEntryId === entry.id">
+                      <input v-model="editingForm.itemName" type="text" required />
+                    </template>
+                    <template v-else>
+                      {{ entry.itemName }}
+                    </template>
+                  </td>
+                  <td>
+                    <template v-if="editingEntryId === entry.id">
+                      <input v-model="editingForm.itemId" type="number" inputmode="numeric" />
+                    </template>
+                    <template v-else>
+                      {{ entry.itemId ?? '—' }}
+                    </template>
+                  </td>
+                  <td>{{ formatListTimestamp(entry.createdAt) }}</td>
+                  <td class="loot-list-table__actions">
+                    <template v-if="editingEntryId === entry.id">
+                      <button class="btn btn--small" type="button" :disabled="editingSaving" @click="saveEditingEntry(entry.id)">
+                        {{ editingSaving ? 'Saving…' : 'Save' }}
+                      </button>
+                      <button class="btn btn--outline btn--small" type="button" @click="cancelEditing">
+                        Cancel
+                      </button>
+                    </template>
+                    <template v-else>
+                      <button class="btn btn--outline btn--small" type="button" @click="startEditingEntry(entry)">
+                        Edit
+                      </button>
+                      <button
+                        class="btn btn--danger btn--small"
+                        type="button"
+                        :disabled="deletingEntryId === entry.id"
+                        @click="deleteLootListEntry(entry)
+                      ">
+                        {{ deletingEntryId === entry.id ? 'Deleting…' : 'Delete' }}
+                      </button>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-if="lootListTotalPages > 1" class="pagination">
+            <button class="pagination__button" type="button" :disabled="lootListPage === 1" @click="setLootListPage(lootListPage - 1)">
+              Previous
+            </button>
+            <span class="pagination__label">Page {{ lootListPage }} of {{ lootListTotalPages }}</span>
+            <button
+              class="pagination__button"
+              type="button"
+              :disabled="lootListPage === lootListTotalPages"
+              @click="setLootListPage(lootListPage + 1)"
             >
-              <option value="DARK">Dark</option>
-              <option value="LIGHT">Light</option>
-            </select>
-            <small class="muted">Used when rendering the Discord widget on the guild page.</small>
-          </label>
+              Next
+            </button>
+          </div>
         </div>
       </section>
+    </div>
 
-      <footer class="form__actions">
-        <button class="btn btn--outline" type="button" :disabled="saving || !canEditGeneralSettings" @click="resetForm">
-          Reset
-        </button>
-        <button class="btn" type="submit" :disabled="saving || !canEditGeneralSettings">
-          {{ saving ? 'Saving…' : 'Save Settings' }}
-        </button>
-      </footer>
-      <p v-if="!canEditGeneralSettings" class="muted small">
-        Only guild leaders or officers can update general guild settings.
-      </p>
-    </form>
-    <section v-if="canManageLootLists" class="card loot-lists">
-      <header class="card__header card__header--loot">
-        <div>
-          <h2>Loot Lists</h2>
-          <p class="muted small">Control automatic handling for detected loot.</p>
-        </div>
-        <span class="muted small">{{ lootListTotal }} items</span>
-      </header>
-      <div class="loot-list-controls">
-        <div class="loot-list-tabs">
-          <button
-            v-for="type in lootListTypes"
-            :key="type"
-            class="loot-list-tab"
-            :class="{ 'loot-list-tab--active': lootListActiveType === type }"
-            type="button"
-            @click="setLootListType(type)"
-          >
-            {{ lootListTypeLabels[type] }}
-          </button>
-        </div>
-        <div class="loot-list-filters">
-          <input v-model="lootListSearch" type="search" class="loot-list-search" placeholder="Search items" />
-          <select v-model="lootListSortBy">
-            <option value="itemName">Sort: Name</option>
-            <option value="itemId">Sort: Item ID</option>
-            <option value="createdAt">Sort: Added Date</option>
-          </select>
-          <select v-model="lootListSortDirection">
-            <option value="asc">Asc</option>
-            <option value="desc">Desc</option>
-          </select>
-        </div>
-      </div>
-      <form class="loot-list-add" @submit.prevent="submitLootListEntry">
-        <input v-model="addEntryForm.itemName" type="text" placeholder="Item name" required />
-        <input
-          v-model="addEntryForm.itemId"
-          type="number"
-          inputmode="numeric"
-          placeholder="Item ID (optional)"
-        />
-        <button class="btn btn--small" type="submit" :disabled="addingEntry">
-          {{ addingEntry ? 'Adding…' : 'Add Item' }}
-        </button>
-      </form>
-      <p v-if="lootListLoading" class="muted">Loading {{ lootListTypeLabels[lootListActiveType].toLowerCase() }}…</p>
-      <p v-else-if="lootListEntries.length === 0" class="muted small">
-        No {{ lootListTypeLabels[lootListActiveType].toLowerCase() }} entries found.
-      </p>
-      <table v-else class="loot-list-table">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th>Item ID</th>
-            <th>Added</th>
-            <th class="loot-list-table__actions">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="entry in lootListEntries" :key="entry.id">
-            <td>
-              <template v-if="editingEntryId === entry.id">
-                <input v-model="editingForm.itemName" type="text" required />
-              </template>
-              <template v-else>
-                {{ entry.itemName }}
-              </template>
-            </td>
-            <td>
-              <template v-if="editingEntryId === entry.id">
-                <input v-model="editingForm.itemId" type="number" inputmode="numeric" />
-              </template>
-              <template v-else>
-                {{ entry.itemId ?? '—' }}
-              </template>
-            </td>
-            <td>{{ formatListTimestamp(entry.createdAt) }}</td>
-            <td class="loot-list-table__actions">
-              <template v-if="editingEntryId === entry.id">
-                <button
-                  class="btn btn--small"
-                  type="button"
-                  :disabled="editingSaving"
-                  @click="saveEditingEntry(entry.id)"
-                >
-                  {{ editingSaving ? 'Saving…' : 'Save' }}
-                </button>
-                <button class="btn btn--outline btn--small" type="button" @click="cancelEditing">
-                  Cancel
-                </button>
-              </template>
-              <template v-else>
-                <button class="btn btn--outline btn--small" type="button" @click="startEditingEntry(entry)">
-                  Edit
-                </button>
-                <button
-                  class="btn btn--danger btn--small"
-                  type="button"
-                  :disabled="deletingEntryId === entry.id"
-                  @click="deleteLootListEntry(entry)"
-                >
-                  {{ deletingEntryId === entry.id ? 'Deleting…' : 'Delete' }}
-                </button>
-              </template>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="lootListTotalPages > 1" class="pagination">
-        <button
-          class="pagination__button"
-          type="button"
-          :disabled="lootListPage === 1"
-          @click="setLootListPage(lootListPage - 1)"
-        >
-          Previous
-        </button>
-        <span class="pagination__label">Page {{ lootListPage }} of {{ lootListTotalPages }}</span>
-        <button
-          class="pagination__button"
-          type="button"
-          :disabled="lootListPage === lootListTotalPages"
-          @click="setLootListPage(lootListPage + 1)"
-        >
-          Next
-        </button>
-      </div>
-    </section>
+    <ParserSettingsModal
+      :guild-id="guildId"
+      :visible="showParserSettings"
+      @close="showParserSettings = false"
+      @saved="handleParserSettingsSaved"
+    />
+    <DiscordWebhookModal
+      v-if="showDiscordModal && guild"
+      :guild-id="guildId"
+      @close="handleDiscordModalClose"
+    />
   </section>
   <p v-else class="muted">Loading guild settings…</p>
 </template>
@@ -243,12 +298,14 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
-import type { GuildDetail, GuildLootListEntry } from '../services/api';
+import type { GuildDetail, GuildLootListEntry, GuildLootParserSettings } from '../services/api';
 import { api } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import type { DiscordWidgetTheme, LootListType } from '../services/types';
 import { lootListTypeLabels, lootListTypeOrder } from '../services/types';
 import { normalizeOptionalUrl } from '../utils/urls';
+import ParserSettingsModal from '../components/ParserSettingsModal.vue';
+import DiscordWebhookModal from '../components/DiscordWebhookModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -296,6 +353,16 @@ const canManageLootLists = computed(() => {
   const role = guild.value?.permissions?.userRole;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
+const canManageParserSettings = computed(() => {
+  const role = guild.value?.permissions?.userRole;
+  return role === 'LEADER' || role === 'OFFICER';
+});
+const canManageDiscordWebhook = computed(() => {
+  const role = guild.value?.permissions?.userRole;
+  return role === 'LEADER' || role === 'OFFICER';
+});
+const showParserSettings = ref(false);
+const showDiscordModal = ref(false);
 
 onMounted(async () => {
   await loadGuild();
@@ -312,6 +379,22 @@ watch(
     }
   }
 );
+
+watch(
+  () => showParserSettings.value || showDiscordModal.value,
+  (isOpen) => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    document.body.classList.toggle('modal-open', isOpen);
+  }
+);
+
+onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('modal-open');
+  }
+});
 
 async function loadGuild() {
   guild.value = await api.fetchGuildDetail(guildId);
@@ -375,6 +458,14 @@ async function fetchLootListEntries() {
   } finally {
     lootListLoading.value = false;
   }
+}
+
+function handleParserSettingsSaved(_settings: GuildLootParserSettings) {
+  showParserSettings.value = false;
+}
+
+function handleDiscordModalClose() {
+  showDiscordModal.value = false;
 }
 
 function setLootListType(type: LootListType) {
@@ -608,160 +699,224 @@ onBeforeUnmount(() => {
 .guild-settings {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .section-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  text-align: center;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  position: relative;
 }
 
-.settings-form {
+
+.header-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-content {
+  display: grid;
+  gap: 1.75rem;
+  margin-top: 0.5rem;
+}
+
+@media (min-width: 1024px) {
+  .settings-content {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.settings-card {
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.85), rgba(30, 41, 59, 0.8));
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 1.1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.45);
+}
+
+.settings-card--loot {
+  background: linear-gradient(135deg, rgba(30, 58, 138, 0.75), rgba(15, 23, 42, 0.82));
+}
+
+.settings-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-card__header h2,
+.settings-card__header h3 {
+  margin: 0;
+}
+
+.settings-card__body {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
 }
 
-.discord-widget-settings {
+.settings-card__footer {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 1rem;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 0.9rem;
-  background: rgba(15, 23, 42, 0.55);
 }
 
-.discord-widget-settings__header {
+.settings-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
 }
 
-.discord-widget-settings__toggle {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-bottom: 0.75rem;
-}
-
-.discord-widget-settings__toggle label {
+.settings-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  justify-content: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
+  border: 1px solid rgba(96, 165, 250, 0.4);
 }
 
-.discord-widget-settings__toggle input[type='checkbox'] {
-  width: 1.1rem;
-  height: 1.1rem;
-  accent-color: #5865f2;
+.settings-badge--neutral {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.35);
 }
 
-.discord-widget-settings__grid {
+.settings-section {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.9rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.section-heading--sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.settings-field-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
 }
 
-@media (min-width: 720px) {
-  .discord-widget-settings__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.25rem;
-  }
+.settings-field-grid--widget {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .form__field {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
-textarea,
-input[type='time'] {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.6rem;
-  padding: 0.6rem;
+.form__field input,
+.form__field select,
+.form__field textarea,
+.loot-list-filters input,
+.loot-list-filters select,
+.loot-list-add input,
+.loot-list-table input {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
   color: #f8fafc;
+  padding: 0.55rem 0.65rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
+.form__field input:focus,
+.form__field select:focus,
+.form__field textarea:focus,
+.loot-list-filters input:focus,
+.loot-list-filters select:focus,
+.loot-list-add input:focus,
+.loot-list-table input:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
-.form__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
+.form__field textarea {
+  resize: vertical;
+  min-height: 120px;
 }
 
 .form__error {
   color: #f87171;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
 }
 
-.card {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 1rem;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.card__header--loot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.loot-list-controls {
+.loot-list-toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 0.75rem;
   justify-content: space-between;
+  align-items: center;
 }
 
 .loot-list-tabs {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
 .loot-list-tab {
-  padding: 0.35rem 0.85rem;
+  padding: 0.4rem 0.95rem;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(30, 41, 59, 0.6);
   color: #e2e8f0;
   text-transform: uppercase;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
 .loot-list-tab--active {
   background: rgba(59, 130, 246, 0.25);
-  border-color: rgba(96, 165, 250, 0.4);
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #e0f2fe;
 }
 
 .loot-list-filters {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-}
-
-.loot-list-filters input,
-.loot-list-filters select {
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.6rem;
-  color: #f8fafc;
-  padding: 0.45rem 0.6rem;
 }
 
 .loot-list-add {
@@ -771,13 +926,11 @@ input[type='time'] {
   align-items: center;
 }
 
-.loot-list-add input {
-  flex: 1 1 200px;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.6rem;
-  color: #f8fafc;
-  padding: 0.45rem 0.6rem;
+.loot-table-wrapper {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.85rem;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.55);
 }
 
 .loot-list-table {
@@ -787,9 +940,14 @@ input[type='time'] {
 
 .loot-list-table th,
 .loot-list-table td {
-  padding: 0.6rem;
+  padding: 0.65rem 0.75rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   text-align: left;
+  font-size: 0.9rem;
+}
+
+.loot-list-table tr:last-child td {
+  border-bottom: none;
 }
 
 .loot-list-table__actions {
@@ -798,12 +956,162 @@ input[type='time'] {
   justify-content: flex-end;
 }
 
-.loot-list-table input {
-  width: 100%;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.5rem;
-  color: #f8fafc;
-  padding: 0.35rem 0.5rem;
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
 }
+
+.pagination__label {
+  color: #94a3b8;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.pagination__button {
+  padding: 0.45rem 0.9rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.55rem;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.pagination__button:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
+}
+
+.pagination__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.discord-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 102, 241, 0.6);
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.9), rgba(59, 130, 246, 0.7));
+  color: #f8fafc;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.discord-button svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.discord-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.55);
+}
+
+.parser-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.85), rgba(99, 102, 241, 0.8));
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 26px rgba(14, 165, 233, 0.25);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.parser-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.8);
+  box-shadow: 0 16px 32px rgba(14, 165, 233, 0.32);
+}
+
+.section-header__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.section-header__title h1 {
+  margin: 0;
+}
+
+.section-header__title p {
+  margin: 0;
+}
+
+.back-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.55);
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.back-link:hover {
+  transform: translateY(-1px);
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.18);
+}
+
+@media (max-width: 640px) {
+  .back-link {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.parser-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.85), rgba(99, 102, 241, 0.8));
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 26px rgba(14, 165, 233, 0.25);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.parser-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 211, 252, 0.8);
+  box-shadow: 0 16px 32px rgba(14, 165, 233, 0.32);
+}
+
 </style>

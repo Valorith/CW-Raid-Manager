@@ -14,7 +14,8 @@ import {
   updateGuildLootParserSettings,
   updateRaidLootEvent,
   defaultLootPatterns,
-  defaultLootEmoji
+  defaultLootEmoji,
+  InvalidLootPatternError
 } from '../services/lootService.js';
 import {
   getActiveLootMonitorSession,
@@ -430,7 +431,14 @@ export async function lootRoutes(server: FastifyInstance) {
       return reply.badRequest('Invalid parser settings payload.');
     }
 
-    const settings = await updateGuildLootParserSettings(guildId, parsed.data);
-    return { settings };
+    try {
+      const settings = await updateGuildLootParserSettings(guildId, parsed.data);
+      return { settings };
+    } catch (error) {
+      if (error instanceof InvalidLootPatternError) {
+        return reply.badRequest(error.message);
+      }
+      throw error;
+    }
   });
 }
