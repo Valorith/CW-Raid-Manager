@@ -153,6 +153,7 @@
             :link-mode="inspectorLinkMode"
             @reset="handleInspectorReset"
             @reorder="handleInspectorReorder"
+            @entry-select="handleInspectorEntrySelect"
           />
         </div>
       </div>
@@ -1039,7 +1040,7 @@ const searchPlaceholder = computed(() =>
 const inspectorHeading = computed(() =>
   isMemberMode.value ? 'Member Inspector' : 'Character Inspector'
 );
-const inspectorLinkMode = computed<'character' | 'plain'>(() =>
+const inspectorLinkMode = computed<InspectorLinkMode>(() =>
   isMemberMode.value ? 'plain' : 'character'
 );
 const attendanceSummaryText = computed(() =>
@@ -2802,6 +2803,26 @@ interface LootParticipantSummary {
   lastAwarded: string | null;
 }
 
+interface InspectorEntryPayload {
+  key: string;
+  label: string;
+  class: CharacterClass | null;
+  participationPercent: number;
+  lootPercent: number;
+  lootCount: number;
+  lastLootDate: string | null;
+  latePercent: number;
+  lateRaidCount: number;
+  leftEarlyPercent: number;
+  leftEarlyRaidCount: number;
+  absentPercent: number;
+  presentEvents: number;
+  totalAttendanceEvents: number;
+  isMain: boolean;
+}
+
+type InspectorLinkMode = 'character' | 'plain';
+
 interface LootItemSummary {
   itemName: string;
   count: number;
@@ -3912,6 +3933,20 @@ async function assignUnknownCharacterToMember(entry: AttendanceCharacterSummary)
   } finally {
     unknownAssignmentLoading.value = false;
   }
+}
+
+function handleInspectorEntrySelect(payload: { entry: InspectorEntryPayload; mode: InspectorLinkMode }) {
+  if (!payload?.entry) {
+    return;
+  }
+  const summary: LootParticipantSummary = {
+    key: payload.entry.key,
+    name: payload.entry.label,
+    class: payload.entry.class ?? null,
+    count: payload.entry.lootCount ?? 0,
+    lastAwarded: payload.entry.lastLootDate
+  };
+  openLootDetailModal(summary);
 }
 
 function resolveLootDetailIdentity(entry: LootParticipantSummary): EntityIdentity | null {

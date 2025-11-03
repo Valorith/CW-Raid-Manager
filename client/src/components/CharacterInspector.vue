@@ -61,10 +61,21 @@
             </span>
             <CharacterLink
               v-if="linkMode === 'character'"
-              class="inspector__name-link"
+              class="inspector__name-link inspector__name-link--interactive"
               :name="entry.label"
+              @click.prevent="handleEntryClick(entry)"
+              @keydown.enter.prevent="handleEntryClick(entry)"
+              @keydown.space.prevent="handleEntryClick(entry)"
             />
-            <span v-else class="inspector__name-link inspector__name-link--plain">
+            <span
+              v-else
+              class="inspector__name-link inspector__name-link--plain inspector__name-link--interactive"
+              role="button"
+              tabindex="0"
+              @click="handleEntryClick(entry)"
+              @keydown.enter.prevent="handleEntryClick(entry)"
+              @keydown.space.prevent="handleEntryClick(entry)"
+            >
               {{ entry.label }}
             </span>
             <span v-if="entry.isMain" class="inspector__badge">Main</span>
@@ -142,6 +153,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'reset'): void;
   (e: 'reorder', payload: string[]): void;
+  (e: 'entrySelect', payload: { entry: InspectorEntry; mode: 'character' | 'plain' }): void;
 }>();
 
 const linkMode = computed<'character' | 'plain'>(() => props.linkMode ?? 'character');
@@ -190,6 +202,10 @@ function formatPercent(value: number): string {
 function formatDiffValue(value: number, isPercent = false): string {
   const prefix = value > 0 ? '+' : '';
   return isPercent ? `${prefix}${value.toFixed(1)}%` : `${prefix}${formatNumber(value)}`;
+}
+
+function handleEntryClick(entry: InspectorEntry) {
+  emit('entrySelect', { entry, mode: linkMode.value });
 }
 
 function formatDateLong(isoDate: string): string {
@@ -767,6 +783,23 @@ function valueClass(key: StatKey, entryKey: string): string {
   color: inherit;
   text-decoration: none;
   cursor: default;
+}
+
+.inspector__name-link--interactive {
+  cursor: pointer;
+}
+
+.inspector__name-link--plain.inspector__name-link--interactive {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.inspector__name-link--interactive:hover,
+.inspector__name-link--interactive:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: rgba(94, 234, 212, 0.7);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
 }
 
 .inspector__badge {
