@@ -159,6 +159,20 @@
           <span class="settings-badge settings-badge--neutral">{{ lootListTotal }} items</span>
         </header>
         <div class="settings-card__body">
+          <div class="loot-list-preferences">
+            <label class="toggle-field">
+              <input
+                v-model="blacklistSpells"
+                type="checkbox"
+                :disabled="!canManageLootLists || blacklistSpellsSaving"
+                @change="handleBlacklistSpellsChange"
+              />
+              <span>Blacklist Spells</span>
+            </label>
+            <p class="muted x-small">
+              Automatically ignore detected loot whose name includes "Spell:" or "Song:".
+            </p>
+          </div>
           <div class="loot-list-toolbar">
             <div class="loot-list-tabs">
               <button
@@ -363,6 +377,8 @@ const canManageDiscordWebhook = computed(() => {
 });
 const showParserSettings = ref(false);
 const showDiscordModal = ref(false);
+const blacklistSpells = ref(false);
+const blacklistSpellsSaving = ref(false);
 
 onMounted(async () => {
   await loadGuild();
@@ -416,6 +432,7 @@ function initializeForm() {
   form.discordWidgetTheme = (guild.value?.discordWidgetTheme ?? 'DARK') as DiscordWidgetTheme;
   form.discordWidgetEnabled = guild.value?.discordWidgetEnabled ?? false;
   fieldErrors.defaultDiscordVoiceUrl = '';
+  blacklistSpells.value = guild.value?.blacklistSpells ?? false;
 }
 
 function resetForm() {
@@ -457,6 +474,35 @@ async function fetchLootListEntries() {
     console.error('Failed to load loot lists', error);
   } finally {
     lootListLoading.value = false;
+  }
+}
+
+async function handleBlacklistSpellsChange() {
+  const currentGuild = guild.value;
+  if (!currentGuild || !canManageLootLists.value) {
+    blacklistSpells.value = currentGuild?.blacklistSpells ?? false;
+    return;
+  }
+
+  const nextValue = blacklistSpells.value;
+  const previousValue = currentGuild.blacklistSpells ?? false;
+  if (nextValue === previousValue) {
+    return;
+  }
+
+  blacklistSpellsSaving.value = true;
+  try {
+    await api.updateGuildSettings(guildId, { blacklistSpells: nextValue });
+    guild.value = {
+      ...currentGuild,
+      blacklistSpells: nextValue
+    };
+  } catch (error) {
+    blacklistSpells.value = previousValue;
+    window.alert('Unable to update spell blacklist setting.');
+    console.error(error);
+  } finally {
+    blacklistSpellsSaving.value = false;
   }
 }
 
@@ -877,6 +923,18 @@ onBeforeUnmount(() => {
 .form__error {
   color: #f87171;
   font-size: 0.82rem;
+}
+
+.loot-list-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loot-list-preferences .toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .loot-list-toolbar {

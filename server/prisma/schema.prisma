@@ -43,6 +43,7 @@ model Guild {
   discordWidgetServerId String?                @db.VarChar(64)
   discordWidgetTheme   DiscordWidgetTheme?     @default(DARK)
   discordWidgetEnabled Boolean                 @default(false)
+  blacklistSpells      Boolean                 @default(false)
   characters           Character[]
   createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
   applications         GuildApplication[]

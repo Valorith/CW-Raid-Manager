@@ -21,6 +21,7 @@ export interface GuildSummary {
   discordWidgetServerId?: string | null;
   discordWidgetTheme?: DiscordWidgetTheme | null;
   discordWidgetEnabled?: boolean;
+  blacklistSpells?: boolean;
   createdAt: string;
   members: Array<{
     id: string;
@@ -324,6 +325,7 @@ export interface RaidDetail extends RaidEventSummary {
     name: string;
     defaultRaidStartTime?: string | null;
     defaultRaidEndTime?: string | null;
+    blacklistSpells?: boolean;
   };
   createdBy: {
     id: string;
@@ -1096,6 +1098,7 @@ export const api = {
     discordWidgetServerId?: string | null;
     discordWidgetTheme?: DiscordWidgetTheme | null;
     discordWidgetEnabled?: boolean;
+    blacklistSpells?: boolean;
   }): Promise<GuildDetail> {
     const response = await axios.patch(`/api/guilds/${guildId}`, payload);
     return response.data.guild;

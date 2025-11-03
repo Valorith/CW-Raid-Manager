@@ -1369,6 +1369,7 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const lootListSummary = ref<GuildLootListSummary | null>(null);
 const whitelistLookup = computed(() => buildLootListLookup(lootListSummary.value?.whitelist ?? []));
 const blacklistLookup = computed(() => buildLootListLookup(lootListSummary.value?.blacklist ?? []));
+const autoBlacklistSpells = computed(() => raid.value?.guild?.blacklistSpells ?? false);
 const canManageLootLists = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
@@ -3299,6 +3300,21 @@ function processLogContent(
     const candidateName = entry.itemName ?? entry.looter ?? null;
     const normalizedName = candidateName ? normalizeLootItemName(candidateName) : null;
     const itemId = entry.itemId ?? null;
+
+    if (autoBlacklistSpells.value && candidateName) {
+      const lowerName = candidateName.toLowerCase();
+      if (lowerName.includes('spell:') || lowerName.includes('song:')) {
+        processedLogKeys.add(key);
+        autoDiscarded.push(entry);
+        if (includeConsole) {
+          consolePayloads.push({
+            line: formatConsoleLine(entry),
+            status: 'REJECTED'
+          });
+        }
+        continue;
+      }
+    }
 
     const whitelistMatch = matchesLootListEntry(whitelistLookup.value, itemId, normalizedName);
     if (whitelistMatch) {

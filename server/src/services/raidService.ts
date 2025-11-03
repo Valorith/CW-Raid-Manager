@@ -352,7 +352,8 @@ export async function getRaidEventById(raidId: string) {
           id: true,
           name: true,
           defaultRaidStartTime: true,
-          defaultRaidEndTime: true
+          defaultRaidEndTime: true,
+          blacklistSpells: true
         }
       },
       createdBy: {

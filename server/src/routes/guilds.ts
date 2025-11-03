@@ -108,7 +108,8 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
         .nullable(),
       discordWidgetServerId: z.union([z.string().max(64), z.literal('')]).optional().nullable(),
       discordWidgetTheme: z.enum(['LIGHT', 'DARK']).optional().nullable(),
-      discordWidgetEnabled: z.boolean().optional()
+      discordWidgetEnabled: z.boolean().optional(),
+      blacklistSpells: z.boolean().optional()
     });
 
     const body = bodySchema.safeParse(request.body);
@@ -158,6 +159,9 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
 
     if (body.data.discordWidgetEnabled !== undefined) {
       data.discordWidgetEnabled = body.data.discordWidgetEnabled;
+    }
+    if (body.data.blacklistSpells !== undefined) {
+      data.blacklistSpells = body.data.blacklistSpells;
     }
 
     const guild = await prisma.guild.update({
