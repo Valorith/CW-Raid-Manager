@@ -1700,6 +1700,48 @@ function resolveCharacterIdentityByNormalizedName(normalizedName: string): Entit
   return null;
 }
 
+function cloneIdentity(identity: EntityIdentity): EntityIdentity {
+  return {
+    ...identity,
+    characterIds: [...identity.characterIds],
+    characterNames: [...identity.characterNames],
+    normalizedCharacterNames: [...identity.normalizedCharacterNames]
+  };
+}
+
+function mergeIdentityDetails(target: EntityIdentity, source: EntityIdentity) {
+  if (!target.userId && source.userId) {
+    target.userId = source.userId;
+  }
+  if (!target.userDisplayName && source.userDisplayName) {
+    target.userDisplayName = source.userDisplayName;
+  }
+  if (!target.normalizedUserDisplayName && source.normalizedUserDisplayName) {
+    target.normalizedUserDisplayName = source.normalizedUserDisplayName;
+  }
+  if (!target.primaryName && source.primaryName) {
+    target.primaryName = source.primaryName;
+  }
+  if (!target.normalizedPrimaryName && source.normalizedPrimaryName) {
+    target.normalizedPrimaryName = source.normalizedPrimaryName;
+  }
+  for (const id of source.characterIds) {
+    if (!target.characterIds.includes(id)) {
+      target.characterIds.push(id);
+    }
+  }
+  for (const name of source.characterNames) {
+    if (!target.characterNames.includes(name)) {
+      target.characterNames.push(name);
+    }
+  }
+  for (const normalized of source.normalizedCharacterNames) {
+    if (!target.normalizedCharacterNames.includes(normalized)) {
+      target.normalizedCharacterNames.push(normalized);
+    }
+  }
+}
+
 function identityFromRecord(record: AttendanceMetricRecord, mode: MetricsMode): EntityIdentity {
   const baseCharacterId = record.character.id ?? null;
   const baseCharacterName = record.character.name;
@@ -2851,6 +2893,21 @@ const filteredAttendanceRecords = computed<AttendanceMetricRecord[]>(
   () => filteredAttendanceRecordsBase.value
 );
 
+const filteredIdentityMap = computed(() => {
+  const map = new Map<string, EntityIdentity>();
+  const mode = metricsMode.value;
+  for (const record of filteredAttendanceRecords.value) {
+    const identity = identityFromRecord(record, mode);
+    const existing = map.get(identity.key);
+    if (existing) {
+      mergeIdentityDetails(existing, identity);
+    } else {
+      map.set(identity.key, cloneIdentity(identity));
+    }
+  }
+  return map;
+});
+
 const filteredUniqueAttendanceEventsCount = computed(() => {
   const events = new Set<string>();
   for (const record of filteredAttendanceRecords.value) {
@@ -2937,11 +2994,20 @@ const attendanceStatusTotals = computed<Record<DisplayAttendanceStatus, number>>
 
 const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
   const mode = metricsMode.value;
+  const globalIdentityMap = filteredIdentityMap.value;
 
   if (!isMemberMode.value) {
-    const map = new Map<string, AttendanceTimelineEntry>();
-    const lateTracker = new Set<string>();
-    const leftEarlyTracker = new Set<string>();
+    const raidIdentityMap = new Map<
+      string,
+      Map<
+        string,
+        {
+          identity: EntityIdentity;
+          statuses: Set<DisplayAttendanceStatus>;
+        }
+      >
+    >();
+    const raidDayMap = new Map<string, string>();
 
     for (const record of filteredAttendanceRecords.value) {
       const baseTimestamp = record.timestamp || record.raid.startTime;
@@ -2949,46 +3015,152 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
         continue;
       }
       const dayKey = baseTimestamp.slice(0, 10);
-      if (!map.has(dayKey)) {
-        map.set(dayKey, {
-          date: dayKey,
-          counts: {
-            PRESENT: 0,
-            LATE: 0,
-            ABSENT: 0,
-            LEFT_EARLY: 0
-          }
-        });
+      const raidId = record.raid.id;
+      let identityMap = raidIdentityMap.get(raidId);
+      if (!identityMap) {
+        identityMap = new Map();
+        raidIdentityMap.set(raidId, identityMap);
       }
-      const entry = map.get(dayKey)!;
+      if (!raidDayMap.has(raidId)) {
+        raidDayMap.set(raidId, dayKey);
+      }
       const identity = identityFromRecord(record, mode);
+      let entry = identityMap.get(identity.key);
+      if (!entry) {
+        entry = {
+          identity: cloneIdentity(identity),
+          statuses: new Set<DisplayAttendanceStatus>()
+        };
+        identityMap.set(identity.key, entry);
+      } else {
+        mergeIdentityDetails(entry.identity, identity);
+      }
       const status = record.status as AttendanceStatus;
       const displayStatus: DisplayAttendanceStatus = status === 'BENCHED' ? 'LEFT_EARLY' : status;
+      entry.statuses.add(displayStatus);
+    }
 
-      entry.counts[displayStatus] += 1;
+    const dayTotals = new Map<
+      string,
+      {
+        present: number;
+        late: number;
+        absent: number;
+        leftEarly: number;
+      }
+    >();
 
-      const snapshot = getRaidAttendanceSnapshot(record.raid.id, identity);
-      if (!snapshot) {
+    for (const [raidId, identityMap] of raidIdentityMap.entries()) {
+      const dayKey = raidDayMap.get(raidId);
+      if (!dayKey) {
         continue;
       }
-      const trackerKey = `${dayKey}::${record.raid.id}::${identity.key}`;
-
-      if (snapshot.wasLate && !lateTracker.has(trackerKey)) {
-        lateTracker.add(trackerKey);
-        if (displayStatus !== 'LATE') {
-          entry.counts.LATE += 1;
+      let buckets = dayTotals.get(dayKey);
+      if (!buckets) {
+        buckets = {
+          present: 0,
+          late: 0,
+          absent: 0,
+          leftEarly: 0
+        };
+        dayTotals.set(dayKey, buckets);
+      }
+      const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+      const combinedIdentities = new Map<
+        string,
+        { identity: EntityIdentity; statuses: Set<DisplayAttendanceStatus> }
+      >();
+      for (const [key, entry] of identityMap.entries()) {
+        combinedIdentities.set(key, {
+          identity: cloneIdentity(entry.identity),
+          statuses: new Set(entry.statuses)
+        });
+      }
+      for (const [key, identity] of globalIdentityMap.entries()) {
+        const existing = combinedIdentities.get(key);
+        if (existing) {
+          mergeIdentityDetails(existing.identity, identity);
+          continue;
         }
+        combinedIdentities.set(key, {
+          identity: cloneIdentity(identity),
+          statuses: new Set<DisplayAttendanceStatus>()
+        });
       }
 
-      if (snapshot.leftEarly && !leftEarlyTracker.has(trackerKey)) {
-        leftEarlyTracker.add(trackerKey);
-        if (displayStatus !== 'LEFT_EARLY') {
-          entry.counts.LEFT_EARLY += 1;
+      for (const { identity, statuses } of combinedIdentities.values()) {
+        const targetNames = identity.normalizedCharacterNames.length
+          ? identity.normalizedCharacterNames
+          : [identity.normalizedPrimaryName];
+        const processedNames = new Set<string>();
+
+        let hasPresence = false;
+        let wasLate = statuses.has('LATE');
+        let leftEarly = statuses.has('LEFT_EARLY');
+        let unresolvedIdentityAbsent = false;
+        let unresolvedSnapshotAbsent = false;
+
+        for (const normalizedName of targetNames) {
+          if (!normalizedName) {
+            continue;
+          }
+          const lower = normalizedName.toLowerCase();
+          if (processedNames.has(lower)) {
+            continue;
+          }
+          processedNames.add(lower);
+          const characterIdentity = resolveCharacterIdentityByNormalizedName(lower);
+          if (!characterIdentity) {
+            unresolvedIdentityAbsent = true;
+            continue;
+          }
+          const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
+          if (!snapshot || !snapshot.hasPresence) {
+            unresolvedSnapshotAbsent = true;
+            continue;
+          }
+          hasPresence = true;
+          if (snapshot.wasLate) {
+            wasLate = true;
+          }
+          if (snapshot.leftEarly) {
+            leftEarly = true;
+          }
+        }
+
+        if (hasPresence || statuses.has('PRESENT')) {
+          buckets.present += 1;
+          if (wasLate) {
+            buckets.late += 1;
+          }
+          if (leftEarly) {
+            buckets.leftEarly += 1;
+          }
+          continue;
+        }
+
+        if (
+          statuses.has('ABSENT') ||
+          unresolvedIdentityAbsent ||
+          unresolvedSnapshotAbsent ||
+          raidEventCount > 0
+        ) {
+          buckets.absent += 1;
         }
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    return Array.from(dayTotals.entries())
+      .map(([date, buckets]) => ({
+        date,
+        counts: {
+          PRESENT: buckets.present,
+          LATE: buckets.late,
+          ABSENT: buckets.absent,
+          LEFT_EARLY: buckets.leftEarly
+        }
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   const memberLookup = memberEntityOptionLookup.value;
@@ -3006,8 +3178,11 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
       identityMap = new Map<string, EntityIdentity>();
       raidIdentityMap.set(raidId, identityMap);
     }
-    if (!identityMap.has(identity.key)) {
-      identityMap.set(identity.key, identity);
+    const existing = identityMap.get(identity.key);
+    if (existing) {
+      mergeIdentityDetails(existing, identity);
+    } else {
+      identityMap.set(identity.key, cloneIdentity(identity));
     }
     if (!raidDayMap.has(raidId)) {
       const candidate = record.raid.startTime ?? record.timestamp;
@@ -3043,9 +3218,28 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
       dayTotals.set(dayKey, buckets);
     }
 
+    const combinedIdentities = new Map<string, EntityIdentity>();
     for (const identity of identityMap.values()) {
+      combinedIdentities.set(identity.key, cloneIdentity(identity));
+    }
+    for (const [key, globalIdentity] of globalIdentityMap.entries()) {
+      if (!memberLookup.has(key)) {
+        continue;
+      }
+      const existing = combinedIdentities.get(key);
+      if (existing) {
+        mergeIdentityDetails(existing, globalIdentity);
+      } else {
+        combinedIdentities.set(key, cloneIdentity(globalIdentity));
+      }
+    }
+
+    for (const identity of combinedIdentities.values()) {
       if (identity.key === UNKNOWN_MEMBER_ENTITY_KEY) {
         const processed = new Set<string>();
+        let hasPresence = false;
+        let late = false;
+        let leftEarly = false;
         for (const normalizedName of identity.normalizedCharacterNames) {
           const lower = normalizedName.toLowerCase();
           if (processed.has(lower)) {
@@ -3060,11 +3254,20 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
           if (!characterSnapshot || !characterSnapshot.hasPresence) {
             continue;
           }
-          buckets.present += 1;
+          hasPresence = true;
           if (characterSnapshot.wasLate) {
-            buckets.late += 1;
+            late = true;
           }
           if (characterSnapshot.leftEarly) {
+            leftEarly = true;
+          }
+        }
+        if (hasPresence) {
+          buckets.present += 1;
+          if (late) {
+            buckets.late += 1;
+          }
+          if (leftEarly) {
             buckets.leftEarly += 1;
           }
         }
@@ -3072,35 +3275,58 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
       }
 
       const processedMemberChars = new Set<string>();
-      const targetNames = identity.normalizedCharacterNames.length
-        ? identity.normalizedCharacterNames
-        : [identity.normalizedPrimaryName];
+      const targetNames = (
+        identity.normalizedCharacterNames.length
+          ? identity.normalizedCharacterNames
+          : [identity.normalizedPrimaryName]
+      )
+        .filter((name): name is string => Boolean(name))
+        .map((name) => name.toLowerCase());
 
-      for (const normalizedName of targetNames) {
-        const lower = normalizedName.toLowerCase();
+      let hasPresence = false;
+      let wasLate = false;
+      let leftEarly = false;
+      let unresolvedIdentityAbsent = false;
+      let unresolvedSnapshotAbsent = false;
+
+      for (const lower of targetNames) {
         if (processedMemberChars.has(lower)) {
           continue;
         }
         processedMemberChars.add(lower);
         const characterIdentity = resolveCharacterIdentityByNormalizedName(lower);
         if (!characterIdentity) {
+          unresolvedIdentityAbsent = true;
           continue;
         }
         const characterSnapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
         if (!characterSnapshot || !characterSnapshot.hasPresence) {
-          const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
-          if (raidEventCount > 0) {
-            buckets.absent += 1;
-          }
+          unresolvedSnapshotAbsent = true;
           continue;
         }
-        buckets.present += 1;
+        hasPresence = true;
         if (characterSnapshot.wasLate) {
-          buckets.late += 1;
+          wasLate = true;
         }
         if (characterSnapshot.leftEarly) {
+          leftEarly = true;
+        }
+      }
+
+      if (hasPresence) {
+        buckets.present += 1;
+        if (wasLate) {
+          buckets.late += 1;
+        }
+        if (leftEarly) {
           buckets.leftEarly += 1;
         }
+        continue;
+      }
+
+      const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+      if (unresolvedIdentityAbsent || unresolvedSnapshotAbsent || raidEventCount > 0) {
+        buckets.absent += 1;
       }
     }
   }
