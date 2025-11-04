@@ -737,9 +737,9 @@
                   </td>
                   <td>
                     <template v-if="!row.isGuildBank && !row.isMasterLooter">
-                      <CharacterLink :name="row.looterName">{{ row.displayLooterName }}</CharacterLink>
+                      <CharacterLink :name="row.characterName">{{ row.characterName }}</CharacterLink>
                     </template>
-                    <span v-else>{{ row.displayLooterName }}</span>
+                    <span v-else>{{ row.characterName }}</span>
                   </td>
                   <td>
                     <div class="loot-detail__raid">
@@ -2405,6 +2405,17 @@ function lootEventMatchesIdentity(event: LootMetricEventWithBank, identity: Enti
   return false;
 }
 
+function resolveLootCharacterName(event: LootMetricEventWithBank): string {
+  if (event.isGuildBank || event.isMasterLooter) {
+    return event.displayLooterName;
+  }
+  const original = event.originalLooterName?.trim();
+  if (original && original.length > 0) {
+    return original;
+  }
+  return event.displayLooterName;
+}
+
 function displayLooterName(event: LootMetricEventWithBank): string {
   if (event.isGuildBank) {
     return event.displayLooterName;
@@ -2412,10 +2423,7 @@ function displayLooterName(event: LootMetricEventWithBank): string {
   if (event.isMasterLooter) {
     return event.displayLooterName;
   }
-  const fallbackCharacterName =
-    event.originalLooterName?.trim() && event.originalLooterName.trim().length > 0
-      ? event.originalLooterName.trim()
-      : event.displayLooterName;
+  const fallbackCharacterName = resolveLootCharacterName(event);
   if (!isMemberMode.value) {
     return fallbackCharacterName;
   }
@@ -4331,6 +4339,7 @@ const lootDetailRows = computed(() => {
       itemName: string;
       looterName: string;
       displayLooterName: string;
+      characterName: string;
       isGuildBank: boolean;
       isMasterLooter: boolean;
       raidId: string;
@@ -4352,6 +4361,7 @@ const lootDetailRows = computed(() => {
       itemName: event.itemName,
       looterName: event.looterName,
       displayLooterName: displayLooterName(event),
+      characterName: resolveLootCharacterName(event),
       isGuildBank: event.isGuildBank,
       isMasterLooter: event.isMasterLooter,
       raidId: event.raid.id,
