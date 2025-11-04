@@ -1,4 +1,4 @@
-import { GuildRole, Prisma } from '@prisma/client';
+import { AttendanceStatus, GuildRole, Prisma } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
@@ -459,6 +459,8 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
+  const shouldEmitRaidEnded = existing.isActive;
+
   const transactionResult = await prisma.$transaction(async (tx) => {
     const updatedRaid = await tx.raidEvent.update({
       where: { id: raidId },
@@ -473,17 +475,40 @@ export async function endRaidEvent(raidId: string, userId: string) {
       }
     });
 
-    const attendeeCount = await tx.attendanceRecord.count({
-      where: {
-        attendanceEvent: {
-          raidEventId: raidId
-        }
-      }
-    });
+    let attendeeCount: number | null = null;
+    let lootCount: number | null = null;
 
-    const lootCount = await tx.raidLootEvent.count({
-      where: { raidId }
-    });
+    if (shouldEmitRaidEnded) {
+      const guildMemberAttendances = await tx.guildMembership.findMany({
+        where: {
+          guildId: existing.guildId,
+          user: {
+            characters: {
+              some: {
+                attendanceRecords: {
+                  some: {
+                    attendanceEvent: {
+                      raidEventId: raidId
+                    },
+                    status: {
+                      not: AttendanceStatus.ABSENT
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        select: {
+          userId: true
+        }
+      });
+
+      attendeeCount = new Set(guildMemberAttendances.map((membership) => membership.userId)).size;
+      lootCount = await tx.raidLootEvent.count({
+        where: { raidId }
+      });
+    }
 
     await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
 
@@ -494,15 +519,17 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   stopLootMonitorSession(raidId);
 
-  emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
-    guildName: existing.guild.name,
-    raidId,
-    raidName: existing.name,
-    startedAt: updatedRaid.startedAt,
-    endedAt: updatedRaid.endedAt ?? new Date(),
-    attendeeCount,
-    lootCount
-  });
+  if (shouldEmitRaidEnded) {
+    emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
+      guildName: existing.guild.name,
+      raidId,
+      raidName: existing.name,
+      startedAt: updatedRaid.startedAt,
+      endedAt: updatedRaid.endedAt ?? new Date(),
+      attendeeCount: attendeeCount ?? undefined,
+      lootCount: lootCount ?? undefined
+    });
+  }
 
   const formatted = formatRaidWithRecurrence(updatedRaid);
   return {
