@@ -510,12 +510,12 @@ export async function endRaidEvent(raidId: string, userId: string) {
       });
     }
 
-    await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
+    const nextRaid = await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
 
-    return { updatedRaid, attendeeCount, lootCount };
+    return { updatedRaid, attendeeCount, lootCount, nextRaid };
   });
 
-  const { updatedRaid, attendeeCount, lootCount } = transactionResult;
+  const { updatedRaid, attendeeCount, lootCount, nextRaid } = transactionResult;
 
   stopLootMonitorSession(raidId);
 
@@ -528,6 +528,18 @@ export async function endRaidEvent(raidId: string, userId: string) {
       endedAt: updatedRaid.endedAt ?? new Date(),
       attendeeCount: attendeeCount ?? undefined,
       lootCount: lootCount ?? undefined
+    });
+  }
+
+  if (nextRaid) {
+    emitDiscordWebhookEvent(nextRaid.guildId, 'raid.created', {
+      guildName: nextRaid.guild.name,
+      raidId: nextRaid.id,
+      raidName: nextRaid.name,
+      startTime: nextRaid.startTime,
+      targetZones: normalizeStringArray(nextRaid.targetZones),
+      targetBosses: normalizeStringArray(nextRaid.targetBosses),
+      createdByName: withPreferredDisplayName(nextRaid.createdBy).displayName
     });
   }
 
@@ -614,9 +626,10 @@ export async function deleteRaidEvent(
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  await prisma.$transaction(async (tx) => {
+  const nextRaid = await prisma.$transaction(async (tx) => {
+    let createdRaid: Awaited<ReturnType<typeof maybeCreateNextRecurringRaid>> = null;
     if (scope === 'EVENT') {
-      await maybeCreateNextRecurringRaid(tx, existing, userId);
+      createdRaid = await maybeCreateNextRecurringRaid(tx, existing, userId);
     } else if (scope === 'SERIES' && existing.recurrenceSeriesId) {
       await raidSeries(tx).update({
         where: { id: existing.recurrenceSeriesId },
@@ -650,6 +663,8 @@ export async function deleteRaidEvent(
     await tx.raidEvent.delete({
       where: { id: raidId }
     });
+
+    return createdRaid;
   });
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.deleted', {
@@ -657,6 +672,18 @@ export async function deleteRaidEvent(
     raidId,
     raidName: existing.name ?? 'Unnamed Raid'
   });
+
+  if (nextRaid) {
+    emitDiscordWebhookEvent(nextRaid.guildId, 'raid.created', {
+      guildName: nextRaid.guild.name,
+      raidId: nextRaid.id,
+      raidName: nextRaid.name,
+      startTime: nextRaid.startTime,
+      targetZones: normalizeStringArray(nextRaid.targetZones),
+      targetBosses: normalizeStringArray(nextRaid.targetBosses),
+      createdByName: withPreferredDisplayName(nextRaid.createdBy).displayName
+    });
+  }
 }
 
 export async function ensureUserCanViewGuild(userId: string, guildId: string) {
@@ -782,6 +809,21 @@ async function maybeCreateNextRecurringRaid(
       notes: raid.notes,
       discordVoiceUrl: raid.discordVoiceUrl,
       recurrenceSeriesId: raid.recurrenceSeriesId
+    },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      createdBy: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true
+        }
+      }
     }
   });
 }
