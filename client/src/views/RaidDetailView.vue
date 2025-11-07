@@ -935,7 +935,7 @@
               v-model="targetsModal.zones"
               class="raid-targets-card__textarea raid-targets-modal__textarea"
               rows="5"
-              placeholder="Temple of Veeshan\nKael Drakkel"
+              :placeholder="'Temple of Veeshan\nKael Drakkel'"
               :disabled="targetsModal.saving"
             ></textarea>
             <small class="form__hint">One zone per line. This list is visible to all raiders.</small>
@@ -946,7 +946,7 @@
               v-model="targetsModal.bosses"
               class="raid-targets-card__textarea raid-targets-modal__textarea"
               rows="5"
-              placeholder="Vulak`Aerr\nAvatar of War"
+              :placeholder="'Vulak`Aerr\nAvatar of War'"
               :disabled="targetsModal.saving"
             ></textarea>
             <small class="form__hint">One objective per line. Use this for key bosses or milestones.</small>

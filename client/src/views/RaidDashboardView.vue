@@ -75,7 +75,10 @@
                     {{ raid.name }}
                   </strong>
                   <span class="muted">
-                    ({{ formatDate(raid.startTime) }}) • {{ formatTargetZones(raid.targetZones) }}
+                    ({{ formatDate(raid.startTime) }})
+                    <template v-if="formatTargetZones(raid.targetZones)">
+                      • {{ formatTargetZones(raid.targetZones) }}
+                    </template>
                   </span>
                 </div>
               </div>
@@ -341,14 +344,14 @@ function formatDateOnly(date: string) {
 
 function formatTargetZones(zones: unknown): string {
   if (!Array.isArray(zones)) {
-    return 'Unknown Target';
+    return '';
   }
 
   const labels = zones
     .map((zone) => (typeof zone === 'string' ? zone.trim() : zone))
     .filter((zone): zone is string => typeof zone === 'string' && zone.length > 0);
 
-  return labels.length > 0 ? labels.join(', ') : 'Unknown Target';
+  return labels.length > 0 ? labels.join(', ') : '';
 }
 
 function recurrenceTooltip(raid: RaidEventSummary) {
