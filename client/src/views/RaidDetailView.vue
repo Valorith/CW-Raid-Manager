@@ -1036,40 +1036,172 @@
           ✕
         </button>
       </header>
-      <form class="edit-targets-form" @submit.prevent="saveTargetsFromModal">
-        <div class="targets-summary">
-          <div>
-            <span class="targets-summary__label">Zones</span>
-            <span class="targets-summary__value">{{ displayTargetZones.length }}</span>
-          </div>
-          <div>
-            <span class="targets-summary__label">Bosses</span>
-            <span class="targets-summary__value">{{ displayTargetBosses.length }}</span>
-          </div>
-        </div>
-        <div class="edit-targets-grid">
-          <label class="form__field">
-            <span>Target Zones</span>
-            <textarea
-              v-model="targetsModal.zones"
-              class="raid-targets-card__textarea raid-targets-modal__textarea"
-              rows="5"
-              :placeholder="'Temple of Veeshan\nKael Drakkel'"
-              :disabled="targetsModal.saving"
-            ></textarea>
-            <small class="form__hint">One zone per line. This list is visible to all raiders.</small>
-          </label>
-          <label class="form__field">
-            <span>Target Bosses</span>
-            <textarea
-              v-model="targetsModal.bosses"
-              class="raid-targets-card__textarea raid-targets-modal__textarea"
-              rows="5"
-              :placeholder="'Vulak`Aerr\nAvatar of War'"
-              :disabled="targetsModal.saving"
-            ></textarea>
-            <small class="form__hint">One objective per line. Use this for key bosses or milestones.</small>
-          </label>
+      <form class="targets-modal-content" @submit.prevent="saveTargetsFromModal">
+        <div class="targets-modal-columns">
+          <section class="targets-panel targets-panel--primary">
+            <header class="targets-panel__header">
+              <div>
+                <p class="targets-panel__eyebrow">Current Plan</p>
+                <h4 class="targets-panel__title">Current Raid Goals</h4>
+                <p class="muted small">Share the latest zones and boss objectives with your raid.</p>
+              </div>
+              <div class="targets-metrics">
+                <div class="targets-metric">
+                  <span class="targets-metric__label">Zones</span>
+                  <span class="targets-metric__value">{{ displayTargetZones.length }}</span>
+                </div>
+                <div class="targets-metric">
+                  <span class="targets-metric__label">Bosses</span>
+                  <span class="targets-metric__value">{{ displayTargetBosses.length }}</span>
+                </div>
+              </div>
+            </header>
+            <div class="targets-panel__body">
+              <div class="targets-input-grid">
+                <label class="form__field targets-field">
+                  <div class="targets-field__label">
+                    <span>Target Zones</span>
+                    <small class="muted small">{{ displayTargetZones.length }} saved</small>
+                  </div>
+                  <div class="targets-field__input">
+                    <textarea
+                      v-model="targetsModal.zones"
+                      class="raid-targets-card__textarea raid-targets-modal__textarea"
+                      rows="5"
+                      :placeholder="'Temple of Veeshan\nKael Drakkel'"
+                      :disabled="targetsModal.saving"
+                    ></textarea>
+                    <small class="form__hint">One zone per line. This list is visible to all raiders.</small>
+                  </div>
+                </label>
+                <label class="form__field targets-field">
+                  <div class="targets-field__label">
+                    <span>Target Bosses</span>
+                    <small class="muted small">{{ displayTargetBosses.length }} saved</small>
+                  </div>
+                  <div class="targets-field__input">
+                    <textarea
+                      v-model="targetsModal.bosses"
+                      class="raid-targets-card__textarea raid-targets-modal__textarea"
+                      rows="5"
+                      :placeholder="'Vulak`Aerr\nAvatar of War'"
+                      :disabled="targetsModal.saving"
+                    ></textarea>
+                    <small class="form__hint"
+                      >One objective per line. Use this for key bosses or milestones.</small
+                    >
+                  </div>
+                </label>
+              </div>
+            </div>
+          </section>
+          <section class="targets-panel targets-panel--secondary targets-copy-panel">
+            <header class="targets-panel__header">
+              <div>
+                <p class="targets-panel__eyebrow">Reuse Plan</p>
+                <h4 class="targets-panel__title">Copy From Another Raid</h4>
+                <p class="muted small">Search past raids, preview their goals, and copy them instantly.</p>
+              </div>
+              <button
+                class="btn btn--outline btn--modal-outline"
+                type="button"
+                @click="copyGoalsFromSelectedRaid"
+                :disabled="
+                  targetsCopyState.loading ||
+                  !targetsCopyState.selectedRaidId ||
+                  !copyableRaidOptions.length
+                "
+              >
+                Copy Goals
+              </button>
+            </header>
+            <div class="targets-panel__body targets-panel__body--copy">
+              <div class="targets-copy__content-grid">
+                <div class="targets-copy__controls">
+                  <label class="targets-copy__control">
+                    <span class="targets-copy__control-label">Search raids</span>
+                    <input
+                      v-model="targetsCopyState.search"
+                      class="targets-copy__search"
+                      type="search"
+                      placeholder="Search raids"
+                      :disabled="targetsCopyState.loading || !copyableRaidOptions.length"
+                    />
+                  </label>
+                  <label class="targets-copy__control targets-copy__control--select">
+                    <span class="targets-copy__control-label">Select a raid</span>
+                    <select
+                      v-model="targetsCopyState.selectedRaidId"
+                      class="targets-copy__select"
+                      size="8"
+                      :disabled="targetsCopyState.loading || !copyableRaidOptions.length"
+                    >
+                      <option
+                        v-for="raidOption in filteredCopyRaidOptions"
+                        :key="raidOption.id"
+                        :value="raidOption.id"
+                      >
+                        {{ raidOption.name }} — {{ formatDateOnly(raidOption.startTime) }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+                <div class="targets-copy__preview">
+                  <template v-if="selectedCopyRaid">
+                    <div class="targets-copy__preview-header">
+                      <div>
+                        <p class="targets-copy__preview-title">{{ selectedCopyRaid.name }}</p>
+                        <p class="targets-copy__preview-date">
+                          {{ formatDateOnly(selectedCopyRaid.startTime) }}
+                        </p>
+                      </div>
+                      <div class="targets-copy__preview-metrics">
+                        <span>{{ selectedCopyRaidZones.length }} zones</span>
+                        <span>{{ selectedCopyRaidBosses.length }} bosses</span>
+                      </div>
+                    </div>
+                    <div class="targets-copy__preview-grid">
+                      <div>
+                        <p class="targets-copy__preview-label">Zones</p>
+                        <ul class="targets-copy__list" v-if="selectedCopyRaidZones.length">
+                          <li v-for="zone in selectedCopyRaidZones" :key="zone">{{ zone }}</li>
+                        </ul>
+                        <p class="muted small" v-else>No zones saved for this raid.</p>
+                      </div>
+                      <div>
+                        <p class="targets-copy__preview-label">Bosses</p>
+                        <ul class="targets-copy__list" v-if="selectedCopyRaidBosses.length">
+                          <li v-for="boss in selectedCopyRaidBosses" :key="boss">{{ boss }}</li>
+                        </ul>
+                        <p class="muted small" v-else>No bosses saved for this raid.</p>
+                      </div>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="targets-copy__empty">
+                      <p class="targets-copy__empty-title">Select a raid to preview its goals.</p>
+                      <p class="muted small">
+                        Use the search on the left to find past events and preview their saved targets.
+                      </p>
+                    </div>
+                  </template>
+                </div>
+              </div>
+              <div class="targets-copy__status">
+                <p class="muted small" v-if="targetsCopyState.loading">Loading raids…</p>
+                <p class="error" v-else-if="targetsCopyState.loadError">{{ targetsCopyState.loadError }}</p>
+                <p class="muted small" v-else-if="!copyableRaidOptions.length">
+                  No other raid events are available to copy from yet.
+                </p>
+                <p class="muted small" v-else-if="filteredCopyRaidOptions.length === 0">
+                  No raids match your search.
+                </p>
+                <p class="muted small" v-else-if="targetsCopyState.lastCopiedRaidName">
+                  Copied goals from {{ targetsCopyState.lastCopiedRaidName }}.
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
         <p v-if="targetsModal.error" class="error">{{ targetsModal.error }}</p>
         <footer class="targets-modal__actions">
@@ -1158,6 +1290,7 @@ import type {
   GuildLootListEntry,
   GuildLootListSummary,
   RaidDetail,
+  RaidEventSummary,
   RaidLootEvent,
   RaidSignup,
   UserCharacter
@@ -1492,11 +1625,65 @@ const targetsModal = reactive({
   saving: false,
   error: ''
 });
+const targetsCopyState = reactive({
+  raids: [] as RaidEventSummary[],
+  loading: false,
+  loadError: '',
+  selectedRaidId: '',
+  search: '',
+  lastCopiedRaidName: ''
+});
 const displayTargetZones = computed(() =>
   (raid.value?.targetZones ?? []).map((zone) => zone.trim()).filter((zone) => zone.length > 0)
 );
 const displayTargetBosses = computed(() =>
   (raid.value?.targetBosses ?? []).map((boss) => boss.trim()).filter((boss) => boss.length > 0)
+);
+const copyableRaidOptions = computed(() => {
+  const excludeId = raidId;
+  const withStart = (value: string) => {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  return [...targetsCopyState.raids]
+    .filter((summary) => summary.id !== excludeId)
+    .sort((a, b) => withStart(b.startTime) - withStart(a.startTime));
+});
+const filteredCopyRaidOptions = computed(() => {
+  const query = targetsCopyState.search.trim().toLowerCase();
+  if (!query) {
+    return copyableRaidOptions.value;
+  }
+  return copyableRaidOptions.value.filter((raid) => raid.name.toLowerCase().includes(query));
+});
+const selectedCopyRaid = computed(
+  () =>
+    copyableRaidOptions.value.find(
+      (raidOption) => raidOption.id === targetsCopyState.selectedRaidId
+    ) ?? null
+);
+const selectedCopyRaidZones = computed(() =>
+  (selectedCopyRaid.value?.targetZones ?? [])
+    .map((zone) => zone.trim())
+    .filter((zone) => zone.length > 0)
+);
+const selectedCopyRaidBosses = computed(() =>
+  (selectedCopyRaid.value?.targetBosses ?? [])
+    .map((boss) => boss.trim())
+    .filter((boss) => boss.length > 0)
+);
+watch(
+  () => filteredCopyRaidOptions.value,
+  (options: RaidEventSummary[]) => {
+    if (options.length === 0) {
+      targetsCopyState.selectedRaidId = '';
+      return;
+    }
+    if (!options.some((option) => option.id === targetsCopyState.selectedRaidId)) {
+      targetsCopyState.selectedRaidId = options[0].id;
+    }
+  },
+  { immediate: true }
 );
 const normalizedTargetBosses = computed(() =>
   displayTargetBosses.value.map((boss) => ({
@@ -2936,6 +3123,46 @@ function normalizeTargetInput(value: string) {
     .filter((entry) => entry.length > 0);
 }
 
+async function loadCopyableRaidOptions() {
+  if (targetsCopyState.loading) {
+    return;
+  }
+
+  const guildId = raid.value?.guild?.id;
+  if (!guildId) {
+    return;
+  }
+
+  targetsCopyState.loading = true;
+  targetsCopyState.loadError = '';
+  try {
+    const response = await api.fetchRaidsForGuild(guildId);
+    targetsCopyState.raids = Array.isArray(response.raids) ? response.raids : [];
+  } catch (error) {
+    targetsCopyState.loadError = extractErrorMessage(
+      error,
+      'Unable to load other raid events. Please try again.'
+    );
+  } finally {
+    targetsCopyState.loading = false;
+  }
+}
+
+function copyGoalsFromSelectedRaid() {
+  if (!targetsCopyState.selectedRaidId) {
+    return;
+  }
+
+  const source = selectedCopyRaid.value;
+  if (!source) {
+    return;
+  }
+
+  targetsModal.zones = (source.targetZones ?? []).join('\n');
+  targetsModal.bosses = (source.targetBosses ?? []).join('\n');
+  targetsCopyState.lastCopiedRaidName = source.name;
+}
+
 function openTargetsModal() {
   targetsModal.visible = true;
   targetsModal.zones = displayTargetZones.value.join('\n');
@@ -2943,6 +3170,10 @@ function openTargetsModal() {
   targetsModal.initialZones = targetsModal.zones;
   targetsModal.initialBosses = targetsModal.bosses;
   targetsModal.error = '';
+  targetsCopyState.search = '';
+  targetsCopyState.lastCopiedRaidName = '';
+  targetsCopyState.loadError = '';
+  void loadCopyableRaidOptions();
 }
 
 function closeTargetsModal() {
@@ -5637,23 +5868,132 @@ th {
   opacity: 1;
 }
 
-.raid-targets-modal {
-  width: min(600px, 100%);
+.modal.raid-targets-modal {
+  width: min(1400px, calc(100vw - 1.5rem));
+  max-width: min(1400px, calc(100vw - 1.5rem));
   background: linear-gradient(155deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.92) 100%);
   border: 1px solid rgba(148, 163, 184, 0.25);
   box-shadow: 0 30px 60px rgba(15, 23, 42, 0.55);
 }
 
-.edit-targets-form {
+.targets-modal-content {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.edit-targets-grid {
+.targets-modal-columns {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.targets-panel {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.3);
+}
+
+.targets-panel--primary {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.75));
+}
+
+.targets-panel--secondary {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(17, 24, 39, 0.9));
+}
+
+.targets-panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.targets-panel__eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+  margin-bottom: 0.1rem;
+}
+
+.targets-panel__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.targets-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.targets-panel__body--copy {
+  gap: 1.25rem;
+}
+
+.targets-metrics {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.targets-metric {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  min-width: 90px;
+}
+
+.targets-metric__label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(148, 163, 184, 0.8);
+  margin-bottom: 0.25rem;
+}
+
+.targets-metric__value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.targets-field__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
+}
+
+.targets-field__input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.targets-field textarea {
+  min-height: 180px;
+}
+
+.targets-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.targets-input-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .raid-targets-modal__header {
@@ -5664,11 +6004,13 @@ th {
 .targets-summary {
   display: flex;
   gap: 1.5rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
   background: rgba(59, 130, 246, 0.12);
   border: 1px solid rgba(59, 130, 246, 0.25);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
 }
 
 .targets-summary > div {
@@ -5688,6 +6030,188 @@ th {
   font-size: 1.1rem;
   font-weight: 700;
   color: #e0f2fe;
+}
+
+.targets-copy {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.85rem;
+  padding: 0.9rem 1rem;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.targets-copy__header {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.targets-copy__title {
+  font-weight: 600;
+  margin-bottom: 0.2rem;
+}
+
+.targets-copy-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.targets-copy {
+  flex: 1;
+}
+
+.targets-copy__controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  height: 100%;
+}
+
+.targets-copy__control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.targets-copy__control--select {
+  flex: 1;
+}
+
+.targets-copy__control--select .targets-copy__select {
+  flex: 1;
+  min-height: 0;
+}
+
+.targets-copy__control-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.targets-copy__content-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .targets-copy__content-grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+}
+
+.targets-copy__search,
+.targets-copy__select {
+  width: 100%;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  padding: 0.5rem 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+}
+
+.targets-copy__search:focus,
+.targets-copy__select:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.targets-copy__select {
+  min-height: 7rem;
+}
+
+.targets-copy__preview {
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.targets-copy__preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.targets-copy__preview-title {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.targets-copy__preview-date {
+  font-size: 0.9rem;
+  color: rgba(248, 250, 252, 0.75);
+}
+
+.targets-copy__preview-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.targets-copy__preview-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+  margin-bottom: 0.25rem;
+}
+
+.targets-copy__list {
+  list-style: disc;
+  padding-left: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  color: #e2e8f0;
+  margin: 0;
+}
+
+.targets-copy__preview-metrics {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: rgba(248, 250, 252, 0.8);
+}
+
+.targets-copy__empty {
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.targets-copy__empty-title {
+  font-weight: 600;
+  margin: 0;
+}
+
+.targets-copy__status {
+  min-height: 1.2rem;
+}
+
+@media (min-width: 880px) {
+  .targets-modal-columns {
+    grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.8fr);
+  }
+
+  .targets-copy-panel {
+    min-width: 360px;
+  }
 }
 
 .raid-targets-modal__textarea {
