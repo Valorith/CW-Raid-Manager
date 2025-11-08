@@ -1238,6 +1238,10 @@ export const api = {
     await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
   },
 
+  async deleteRaidNpcKills(raidId: string) {
+    await axios.delete(`/api/raids/${raidId}/npc-kills`);
+  },
+
   async createRaidLoot(
     raidId: string,
     events: Array<{

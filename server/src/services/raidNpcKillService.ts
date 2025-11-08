@@ -130,3 +130,12 @@ export async function listRaidNpcKillEvents(raidId: string) {
     occurredAt: event.occurredAt
   }));
 }
+
+export async function deleteRaidNpcKillEvents(raidId: string, guildId: string) {
+  await prisma.raidNpcKillEvent.deleteMany({
+    where: {
+      raidId,
+      guildId
+    }
+  });
+}

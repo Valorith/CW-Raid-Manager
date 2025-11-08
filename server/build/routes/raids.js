@@ -4,7 +4,7 @@ import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEven
 import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
 import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError, RaidSignupLockedError } from '../services/raidSignupService.js';
-import { recordRaidNpcKills } from '../services/raidNpcKillService.js';
+import { recordRaidNpcKills, deleteRaidNpcKillEvents } from '../services/raidNpcKillService.js';
 import { prisma } from '../utils/prisma.js';
 export async function raidsRoutes(server) {
     const recurrenceSchema = z
@@ -191,6 +191,24 @@ export async function raidsRoutes(server) {
         }
         const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
         return { inserted: result.inserted };
+    });
+    server.delete('/:raidId/npc-kills', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        const raid = await prisma.raidEvent.findUnique({
+            where: { id: raidId },
+            select: { guildId: true }
+        });
+        if (!raid) {
+            return reply.notFound('Raid event not found.');
+        }
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+        await deleteRaidNpcKillEvents(raidId, raid.guildId);
+        return reply.code(204).send();
     });
     const targetsArraySchema = z
         .array(z.string())

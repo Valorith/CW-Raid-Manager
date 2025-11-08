@@ -582,6 +582,22 @@
                   >
                     ✔️
                   </span>
+                  <span
+                    v-else-if="targetBossThreats.has(boss)"
+                    class="raid-targets-card__threat"
+                    title="Players killed"
+                    aria-label="Players killed"
+                  >
+                    ✖
+                  </span>
+                  <span
+                    v-else
+                    class="raid-targets-card__unknown"
+                    title="Pending"
+                    aria-label="Pending"
+                  >
+                    ?
+                  </span>
                 </li>
               </ul>
               <p v-else class="muted small">No bosses specified.</p>
@@ -599,17 +615,37 @@
           <p class="muted">Captured automatically from recorded log lines.</p>
         </div>
         <div class="raid-kills-card__actions">
-          <button
-            v-if="npcKillEvents.length > 0"
-            class="btn btn--outline btn--small"
-            type="button"
-            @click="showNpcKillGraph = true"
-          >
-            Graph
-          </button>
-          <div v-if="totalNpcKills > 0" class="raid-kills-card__totals">
-            <span class="raid-kills-card__totals-label">Total Kills</span>
-            <span class="raid-kills-card__badge">{{ totalNpcKills }}</span>
+          <div class="raid-kills-card__actions-center">
+            <button
+              v-if="npcKillEvents.length > 0"
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="showNpcKillGraph = true"
+            >
+              Graph
+            </button>
+            <div v-if="totalNpcKills > 0" class="raid-kills-card__totals">
+              <span class="raid-kills-card__totals-label">Total Kills</span>
+              <span class="raid-kills-card__badge">{{ totalNpcKills }}</span>
+            </div>
+          </div>
+          <div class="raid-kills-card__upload">
+            <input
+              ref="killLogInput"
+              type="file"
+              class="sr-only"
+              accept=".txt,.log"
+              @change="handleKillLogFileChange"
+            />
+            <button
+              class="upload-btn"
+              type="button"
+              :disabled="uploadingKillLog"
+              @click.stop="triggerKillLogUpload"
+            >
+              <span class="upload-btn__icon" aria-hidden="true">📁</span>
+              <span>{{ uploadingKillLog ? 'Uploading…' : 'Upload Log' }}</span>
+            </button>
           </div>
         </div>
       </header>
@@ -623,6 +659,7 @@
               { 'raid-kills-grid__item--target': kill.isTargetBoss }
             ]"
             role="listitem"
+            @contextmenu.prevent="openKillContextMenu($event, kill.npcName)"
           >
             <span class="raid-kills-grid__name">
               <span>{{ kill.npcName }}</span>
@@ -636,6 +673,16 @@
       </div>
       <p v-else class="muted small">No NPC kills have been recorded for this raid yet.</p>
     </section>
+    <div
+      v-if="killContextMenu.visible"
+      class="loot-context-menu kill-context-menu"
+      :style="{ top: `${killContextMenu.y}px`, left: `${killContextMenu.x}px` }
+      "
+    >
+      <button class="loot-context-menu__action" type="button" @click="addTargetBossFromKill">
+        Add boss target
+      </button>
+    </div>
 
     <section class="card raid-timing">
       <header class="card__header">
@@ -1125,6 +1172,7 @@ import {
 } from '../utils/lootNames';
 import { normalizeOptionalUrl } from '../utils/urls';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
+import { parseNpcKills } from '../services/npcKillParser';
 
 ensureChartJsRegistered();
 
@@ -1456,6 +1504,15 @@ const normalizedTargetBosses = computed(() =>
     normalized: boss.trim().toLowerCase()
   }))
 );
+const normalizedTargetBossMap = computed(() => {
+  const map = new Map<string, string>();
+  normalizedTargetBosses.value.forEach((boss) => {
+    if (boss.normalized) {
+      map.set(boss.normalized, boss.label);
+    }
+  });
+  return map;
+});
 const defeatedTargetBosses = computed(() => {
   const defeated = new Set<string>();
   const targetSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
@@ -1478,6 +1535,29 @@ const targetBossStatus = computed(() => {
   });
   return statuses;
 });
+const targetBossThreats = computed(() => {
+  const threats = new Set<string>();
+  const lookup = normalizedTargetBossMap.value;
+  const playerNames = registeredCharacterNames.value;
+  if (lookup.size === 0) {
+    return threats;
+  }
+  npcKillEvents.value.forEach((event) => {
+    const killer = event.killerName?.trim().toLowerCase();
+    const victim = event.npcName?.trim().toLowerCase();
+    if (!killer || !victim) {
+      return;
+    }
+    if (!playerNames.has(victim)) {
+      return;
+    }
+    const bossLabel = lookup.get(killer);
+    if (bossLabel) {
+      threats.add(bossLabel);
+    }
+  });
+  return threats;
+});
 const npcKillEvents = computed(() => raid.value?.npcKillEvents ?? []);
 const registeredCharacterNames = computed(() => guildMainCharacterNames.value);
 const npcKillSummary = computed(() => {
@@ -1497,9 +1577,59 @@ const totalNpcKills = computed(() =>
   npcKillSummary.value.reduce((sum, kill) => sum + kill.killCount, 0)
 );
 const showNpcKillGraph = ref(false);
+const uploadingKillLog = ref(false);
+const killLogInput = ref<HTMLInputElement | null>(null);
 const npcKillZoomRange = ref<{ min: number; max: number } | null>(null);
 const npcKillChartRef = ref<any>(null);
 let detachNpcKillWheel: (() => void) | null = null;
+const killContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  npcName: ''
+});
+
+function openKillContextMenu(event: MouseEvent, npcName: string) {
+  killContextMenu.visible = true;
+  killContextMenu.x = event.clientX;
+  killContextMenu.y = event.clientY;
+  killContextMenu.npcName = npcName;
+}
+
+function closeKillContextMenu() {
+  killContextMenu.visible = false;
+  killContextMenu.npcName = '';
+}
+
+async function addTargetBossFromKill() {
+  const npcName = killContextMenu.npcName.trim();
+  if (!npcName) {
+    closeKillContextMenu();
+    return;
+  }
+  const normalized = npcName.toLowerCase();
+  const existing = new Set(displayTargetBosses.value.map((boss) => boss.trim().toLowerCase()));
+  if (existing.has(normalized)) {
+    closeKillContextMenu();
+    return;
+  }
+  try {
+    await updateRaidTargets([...displayTargetBosses.value, npcName], displayTargetZones.value);
+    await loadRaid();
+  } catch (error) {
+    window.alert('Unable to add boss target.');
+    console.error(error);
+  } finally {
+    closeKillContextMenu();
+  }
+}
+
+async function updateRaidTargets(bosses: string[], zones: string[]) {
+  await api.updateRaid(raidId, {
+    targetBosses: bosses,
+    targetZones: zones
+  });
+}
 
 const npcKillColorCache = new Map<string, string>();
 const npcColorPalette = ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#f97316', '#38bdf8', '#f87171'];
@@ -2131,6 +2261,62 @@ async function loadRaid() {
   await refreshLootListSummary();
 }
 
+function triggerKillLogUpload() {
+  if (uploadingKillLog.value) {
+    return;
+  }
+  killLogInput.value?.click();
+}
+
+async function handleKillLogFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  await uploadKillLogFile(file);
+  input.value = '';
+}
+
+async function uploadKillLogFile(file: File) {
+  if (!raid.value) {
+    window.alert('Raid data is still loading.');
+    return;
+  }
+  const startIso = raid.value.startedAt ?? raid.value.startTime;
+  if (!startIso) {
+    window.alert('Raid start time is not set.');
+    return;
+  }
+  const start = new Date(startIso);
+  const end = raid.value.endedAt ? new Date(raid.value.endedAt) : null;
+  uploadingKillLog.value = true;
+  try {
+    const content = await file.text();
+    const parsed = parseNpcKills(content, start, end);
+    await api.deleteRaidNpcKills(raidId);
+    if (parsed.length > 0) {
+      const payload = parsed.map((entry) => ({
+        npcName: entry.npcName,
+        occurredAt: entry.timestamp ? entry.timestamp.toISOString() : start.toISOString(),
+        killerName: entry.killerName ?? null,
+        rawLine: entry.rawLine
+      }));
+      for (let index = 0; index < payload.length; index += 100) {
+        await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
+      }
+      await loadRaid();
+    } else {
+      window.alert('No kills found within the raid window.');
+    }
+  } catch (error) {
+    console.error('Failed to upload kill log', error);
+    window.alert('Unable to upload kill log. Please try again.');
+  } finally {
+    uploadingKillLog.value = false;
+  }
+}
+
 async function loadGuildMainCharacters(guildId: string) {
   try {
     const detail = await api.fetchGuildDetail(guildId);
@@ -2217,22 +2403,35 @@ function handleEditLootClick() {
 }
 
 function handleGlobalPointerDown(event: MouseEvent) {
-  if (!lootContextMenu.visible) {
-    return;
-  }
   const target = event.target as HTMLElement | null;
-  if (target && target.closest('.loot-context-menu')) {
-    return;
+  if (lootContextMenu.visible) {
+    if (target && target.closest('.loot-context-menu')) {
+      return;
+    }
+    if (event.type === 'contextmenu' && target && target.closest('.raid-loot-card')) {
+      return;
+    }
+    closeLootContextMenu();
   }
-  if (event.type === 'contextmenu' && target && target.closest('.raid-loot-card')) {
-    return;
+  if (killContextMenu.visible) {
+    if (target && target.closest('.kill-context-menu')) {
+      return;
+    }
+    if (event.type === 'contextmenu' && target && target.closest('.raid-kills-grid__item')) {
+      return;
+    }
+    closeKillContextMenu();
   }
-  closeLootContextMenu();
 }
 
 function handleLootContextMenuKey(event: KeyboardEvent) {
-  if (event.key === 'Escape' && lootContextMenu.visible) {
-    closeLootContextMenu();
+  if (event.key === 'Escape') {
+    if (lootContextMenu.visible) {
+      closeLootContextMenu();
+    }
+    if (killContextMenu.visible) {
+      closeKillContextMenu();
+    }
   }
 }
 
@@ -5209,6 +5408,16 @@ th {
   color: #4ade80;
 }
 
+.raid-targets-card__threat {
+  font-size: 0.9rem;
+  color: #f87171;
+}
+
+.raid-targets-card__unknown {
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
 .raid-kills-card__header {
   display: flex;
   align-items: flex-start;
@@ -5222,7 +5431,15 @@ th {
   align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
+}
+
+.raid-kills-card__actions-center {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .raid-kills-card__totals {
@@ -5231,6 +5448,10 @@ th {
   align-items: flex-end;
   gap: 0.25rem;
   min-width: 0;
+}
+
+.raid-kills-card__upload {
+  margin-left: auto;
 }
 
 .raid-kills-card__totals-label {
