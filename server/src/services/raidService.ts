@@ -5,6 +5,7 @@ import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
+import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
@@ -382,11 +383,15 @@ export async function getRaidEventById(raidId: string) {
   );
   const formatted = formatRaidWithRecurrence(raid);
   const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
+  const npcKills = await listRaidNpcKillSummary(raidId);
+  const npcKillEvents = await listRaidNpcKillEvents(raidId);
   return {
     ...formatted,
     raidSignupNotificationsEnabled,
     createdBy: withPreferredDisplayName(raid.createdBy),
-    hasUnassignedLoot
+    hasUnassignedLoot,
+    npcKills,
+    npcKillEvents
   };
 }
 

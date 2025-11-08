@@ -11,7 +11,8 @@ import {
   startRaidEvent,
   endRaidEvent,
   restartRaidEvent,
-  deleteRaidEvent
+  deleteRaidEvent,
+  ensureCanManageRaid
 } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
@@ -23,6 +24,8 @@ import {
   RaidSignupPermissionError,
   RaidSignupLockedError
 } from '../services/raidSignupService.js';
+import { recordRaidNpcKills } from '../services/raidNpcKillService.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {
   const recurrenceSchema = z
@@ -182,6 +185,77 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         request.log.warn({ error }, 'Failed to update raid signups.');
         return reply.internalServerError('Unable to update raid signups.');
       }
+    }
+  );
+
+  server.post(
+    '/:raidId/npc-kills',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      const killsSchema = z.array(
+        z.object({
+          npcName: z.string().min(2).max(191),
+          occurredAt: z.string().datetime({ offset: true }),
+          killerName: z.string().min(1).max(191).optional(),
+          rawLine: z.string().max(500).optional()
+        })
+      );
+
+      const bodySchema = z.object({
+        kills: killsSchema.max(500)
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid NPC kill payload.');
+      }
+
+      if (parsed.data.kills.length === 0) {
+        return { inserted: 0 };
+      }
+
+      const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: { guildId: true }
+      });
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      await ensureCanManageRaid(request.user.userId, raid.guildId);
+
+      const normalizedKills = parsed.data.kills
+        .map((kill) => {
+          const occurredAt = new Date(kill.occurredAt);
+          if (Number.isNaN(occurredAt.getTime())) {
+            return null;
+          }
+          const npcName = kill.npcName.trim();
+          if (!npcName) {
+            return null;
+          }
+          return {
+            npcName,
+            occurredAt,
+            killerName: kill.killerName?.trim() ?? null,
+            rawLine: kill.rawLine ?? null
+          };
+        })
+        .filter((kill): kill is NonNullable<typeof kill> => Boolean(kill));
+
+      if (normalizedKills.length === 0) {
+        return { inserted: 0 };
+      }
+
+      const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
+      return { inserted: result.inserted };
     }
   );
 

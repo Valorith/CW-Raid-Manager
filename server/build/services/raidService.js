@@ -1,9 +1,10 @@
-import { GuildRole } from '@prisma/client';
+import { AttendanceStatus, GuildRole } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
+import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'];
 const MASTER_LOOTER_NAMES = ['Master Looter', 'master looter', 'MASTER LOOTER'];
@@ -279,7 +280,8 @@ export async function getRaidEventById(raidId) {
                     id: true,
                     name: true,
                     defaultRaidStartTime: true,
-                    defaultRaidEndTime: true
+                    defaultRaidEndTime: true,
+                    blacklistSpells: true
                 }
             },
             createdBy: {
@@ -305,11 +307,15 @@ export async function getRaidEventById(raidId) {
     const raidSignupNotificationsEnabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.signup');
     const formatted = formatRaidWithRecurrence(raid);
     const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
+    const npcKills = await listRaidNpcKillSummary(raidId);
+    const npcKillEvents = await listRaidNpcKillEvents(raidId);
     return {
         ...formatted,
         raidSignupNotificationsEnabled,
         createdBy: withPreferredDisplayName(raid.createdBy),
-        hasUnassignedLoot
+        hasUnassignedLoot,
+        npcKills,
+        npcKillEvents
     };
 }
 export async function startRaidEvent(raidId, userId) {
@@ -372,6 +378,7 @@ export async function endRaidEvent(raidId, userId) {
         throw new Error('Raid event not found.');
     }
     await ensureCanManageRaid(userId, existing.guildId);
+    const shouldEmitRaidEnded = existing.isActive;
     const transactionResult = await prisma.$transaction(async (tx) => {
         const updatedRaid = await tx.raidEvent.update({
             where: { id: raidId },
@@ -385,30 +392,65 @@ export async function endRaidEvent(raidId, userId) {
                 }
             }
         });
-        const attendeeCount = await tx.attendanceRecord.count({
-            where: {
-                attendanceEvent: {
-                    raidEventId: raidId
+        let attendeeCount = null;
+        let lootCount = null;
+        if (shouldEmitRaidEnded) {
+            const guildMemberAttendances = await tx.guildMembership.findMany({
+                where: {
+                    guildId: existing.guildId,
+                    user: {
+                        characters: {
+                            some: {
+                                attendanceRecords: {
+                                    some: {
+                                        attendanceEvent: {
+                                            raidEventId: raidId
+                                        },
+                                        status: {
+                                            not: AttendanceStatus.ABSENT
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                select: {
+                    userId: true
                 }
-            }
-        });
-        const lootCount = await tx.raidLootEvent.count({
-            where: { raidId }
-        });
-        await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
-        return { updatedRaid, attendeeCount, lootCount };
+            });
+            attendeeCount = new Set(guildMemberAttendances.map((membership) => membership.userId)).size;
+            lootCount = await tx.raidLootEvent.count({
+                where: { raidId }
+            });
+        }
+        const nextRaid = await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
+        return { updatedRaid, attendeeCount, lootCount, nextRaid };
     });
-    const { updatedRaid, attendeeCount, lootCount } = transactionResult;
+    const { updatedRaid, attendeeCount, lootCount, nextRaid } = transactionResult;
     stopLootMonitorSession(raidId);
-    emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
-        guildName: existing.guild.name,
-        raidId,
-        raidName: existing.name,
-        startedAt: updatedRaid.startedAt,
-        endedAt: updatedRaid.endedAt ?? new Date(),
-        attendeeCount,
-        lootCount
-    });
+    if (shouldEmitRaidEnded) {
+        emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
+            guildName: existing.guild.name,
+            raidId,
+            raidName: existing.name,
+            startedAt: updatedRaid.startedAt,
+            endedAt: updatedRaid.endedAt ?? new Date(),
+            attendeeCount: attendeeCount ?? undefined,
+            lootCount: lootCount ?? undefined
+        });
+    }
+    if (nextRaid) {
+        emitDiscordWebhookEvent(nextRaid.guildId, 'raid.created', {
+            guildName: nextRaid.guild.name,
+            raidId: nextRaid.id,
+            raidName: nextRaid.name,
+            startTime: nextRaid.startTime,
+            targetZones: normalizeStringArray(nextRaid.targetZones),
+            targetBosses: normalizeStringArray(nextRaid.targetBosses),
+            createdByName: withPreferredDisplayName(nextRaid.createdBy).displayName
+        });
+    }
     const formatted = formatRaidWithRecurrence(updatedRaid);
     return {
         ...formatted,
@@ -477,9 +519,10 @@ export async function deleteRaidEvent(raidId, userId, scope = 'EVENT') {
         throw new Error('Raid event not found.');
     }
     await ensureCanManageRaid(userId, existing.guildId);
-    await prisma.$transaction(async (tx) => {
+    const nextRaid = await prisma.$transaction(async (tx) => {
+        let createdRaid = null;
         if (scope === 'EVENT') {
-            await maybeCreateNextRecurringRaid(tx, existing, userId);
+            createdRaid = await maybeCreateNextRecurringRaid(tx, existing, userId);
         }
         else if (scope === 'SERIES' && existing.recurrenceSeriesId) {
             await raidSeries(tx).update({
@@ -509,12 +552,24 @@ export async function deleteRaidEvent(raidId, userId, scope = 'EVENT') {
         await tx.raidEvent.delete({
             where: { id: raidId }
         });
+        return createdRaid;
     });
     emitDiscordWebhookEvent(existing.guildId, 'raid.deleted', {
         guildName: existing.guild?.name ?? 'Guild',
         raidId,
         raidName: existing.name ?? 'Unnamed Raid'
     });
+    if (nextRaid) {
+        emitDiscordWebhookEvent(nextRaid.guildId, 'raid.created', {
+            guildName: nextRaid.guild.name,
+            raidId: nextRaid.id,
+            raidName: nextRaid.name,
+            startTime: nextRaid.startTime,
+            targetZones: normalizeStringArray(nextRaid.targetZones),
+            targetBosses: normalizeStringArray(nextRaid.targetBosses),
+            createdByName: withPreferredDisplayName(nextRaid.createdBy).displayName
+        });
+    }
 }
 export async function ensureUserCanViewGuild(userId, guildId) {
     const membership = await getUserGuildRole(userId, guildId);
@@ -606,6 +661,21 @@ async function maybeCreateNextRecurringRaid(tx, raid, actorId) {
             notes: raid.notes,
             discordVoiceUrl: raid.discordVoiceUrl,
             recurrenceSeriesId: raid.recurrenceSeriesId
+        },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            },
+            createdBy: {
+                select: {
+                    id: true,
+                    displayName: true,
+                    nickname: true
+                }
+            }
         }
     });
 }

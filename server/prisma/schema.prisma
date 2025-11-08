@@ -54,6 +54,7 @@ model Guild {
   raids                RaidEvent[]
   lootEvents           RaidLootEvent[]
   raidSeries           RaidEventSeries[]
+  npcKillEvents       RaidNpcKillEvent[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -146,6 +147,7 @@ model RaidEvent {
   guild        Guild             @relation(fields: [guildId], references: [id])
   signups      RaidSignup[]
   loot         RaidLootEvent[]
+  npcKillEvents RaidNpcKillEvent[]
   recurrenceSeries   RaidEventSeries? @relation(fields: [recurrenceSeriesId], references: [id], onDelete: SetNull)
 
   @@index([createdById], map: "RaidEvent_createdById_fkey")
@@ -203,6 +205,25 @@ model RaidLootEvent {
   @@index([createdById], map: "RaidLootEvent_createdById_fkey")
   @@index([guildId])
   @@index([raidId])
+}
+
+model RaidNpcKillEvent {
+  id                String    @id @default(cuid())
+  raidId            String
+  guildId           String
+  npcName           String    @db.VarChar(191)
+  npcNameNormalized String    @db.VarChar(191)
+  killerName        String?   @db.VarChar(191)
+  occurredAt        DateTime
+  logSignature      String    @db.VarChar(191)
+  createdAt         DateTime  @default(now())
+  raid              RaidEvent @relation(fields: [raidId], references: [id], onDelete: Cascade)
+  guild             Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([raidId, logSignature])
+  @@index([raidId])
+  @@index([guildId])
+  @@index([raidId, npcNameNormalized])
 }
 
 model RaidSignup {

@@ -904,6 +904,7 @@ import {
   type GuildLootParserPattern,
   type ParsedLootEvent
 } from '../services/lootParser';
+import { parseNpcKills, type ParsedNpcKillEvent } from '../services/npcKillParser';
 import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
@@ -1107,6 +1108,7 @@ const monitorController = reactive({
   fileSignature: null as string | null
 });
 const processedLogKeys = new Set<string>();
+const processedNpcKillKeys = new Set<string>();
 const activeLogSignature = ref<string | null>(null);
 const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
 let liveChunkInFlight = false;
@@ -1262,6 +1264,7 @@ function activateProcessedLogSignature(signature: string | null, reset: boolean)
   const shouldReload = reset || activeLogSignature.value !== signature;
   if (shouldReload) {
     processedLogKeys.clear();
+    processedNpcKillKeys.clear();
     const stored = loadStoredProcessedKeys(signature);
     for (const key of stored) {
       processedLogKeys.add(key);
@@ -1286,6 +1289,7 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
     }
   }
   processedLogKeys.clear();
+  processedNpcKillKeys.clear();
   if (options?.signature !== undefined) {
     activeLogSignature.value = options.signature;
   } else {
@@ -3014,6 +3018,34 @@ async function persistAutoKeptLoot(entries: ParsedLootEvent[], emoji: string) {
   }
 }
 
+async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
+  if (!raid.value || kills.length === 0 || !canManageLoot.value) {
+    return;
+  }
+
+  const payload = kills
+    .filter((kill) => kill.timestamp && kill.npcName.trim().length > 0)
+    .map((kill) => ({
+      npcName: kill.npcName.trim(),
+      occurredAt: kill.timestamp!.toISOString(),
+      killerName: kill.killerName ?? null,
+      rawLine: kill.rawLine ?? null
+    }));
+
+  if (payload.length === 0) {
+    return;
+  }
+
+  const chunkSize = 100;
+  try {
+    for (let index = 0; index < payload.length; index += chunkSize) {
+      await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
+    }
+  } catch (error) {
+    appendDebugLog('Failed to record NPC kills', { error: String(error) });
+  }
+}
+
 async function createManualEntry() {
   if (!manualForm.itemName || !manualForm.looterName) {
     appendDebugLog('Manual entry blocked: missing item or looter');
@@ -3279,14 +3311,31 @@ function processLogContent(
 
   if (options.resetKeys) {
     processedLogKeys.clear();
+    processedNpcKillKeys.clear();
     parsedLootPage.value = 1;
   }
 
   const patterns = getPatternsForParsing();
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
+  const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null);
   const includeConsole = Boolean(monitorSession.value);
   const consolePayloads: LootConsolePayload[] = [];
+
+  if (npcKillEvents.length > 0) {
+    const newKills: ParsedNpcKillEvent[] = [];
+    for (const kill of npcKillEvents) {
+      const key = buildNpcKillKey(kill);
+      if (processedNpcKillKeys.has(key)) {
+        continue;
+      }
+      processedNpcKillKeys.add(key);
+      newKills.push(kill);
+    }
+    if (newKills.length > 0) {
+      void persistRaidNpcKillEvents(newKills);
+    }
+  }
 
   if (parsed.length === 0) {
     if (!options.append) {
@@ -3532,6 +3581,12 @@ function buildParsedEventKey(entry: ParsedLootEvent) {
   return `${timestamp}::${entry.rawLine}`;
 }
 
+function buildNpcKillKey(entry: ParsedNpcKillEvent) {
+  const timestamp = entry.timestamp ? entry.timestamp.toISOString() : 'unknown';
+  const killer = entry.killerName?.toLowerCase() ?? '';
+  return `${timestamp}::${entry.npcName.toLowerCase()}::${killer}`;
+}
+
 const formatLooterLabel = (name: string, looterClass?: string | null) => {
   const classLabel = formatCharacterClassLabel(looterClass);
   return classLabel ? `${name} (${classLabel})` : name;
@@ -3739,6 +3794,7 @@ function resetDetectedLoot() {
     clearStoredProcessedKeys(activeLogSignature.value);
   }
   processedLogKeys.clear();
+  processedNpcKillKeys.clear();
   activeLogSignature.value = null;
   showDetectedModal.value = false;
   appendDebugLog('Detected loot reset');

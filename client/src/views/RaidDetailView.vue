@@ -531,7 +531,12 @@
     >
       <header class="card__header raid-targets-card__header" @click="toggleTargetsPanel">
         <div class="card-header-main">
-          <h2>Raid Goals</h2>
+          <div class="raid-targets-header">
+            <h2>Raid Goals</h2>
+            <span v-if="displayTargetBosses.length > 0" class="raid-targets-progress">
+              {{ defeatedTargetBosses.size }} / {{ displayTargetBosses.length }}
+            </span>
+          </div>
           <p v-if="!targetsPanelExpanded" class="card-header-subtle">Tap to view raid goals</p>
           <p v-if="targetsPanelExpanded" class="muted">Keep everyone aligned on zones and targets for this raid.</p>
         </div>
@@ -567,7 +572,17 @@
             <div>
               <p class="raid-targets-card__label">Target Bosses</p>
               <ul class="raid-targets-card__list" v-if="displayTargetBosses.length">
-                <li v-for="boss in displayTargetBosses" :key="boss">{{ boss }}</li>
+                <li v-for="boss in displayTargetBosses" :key="boss">
+                  <span>{{ boss }}</span>
+                  <span
+                    v-if="targetBossStatus.get(boss)"
+                    class="raid-targets-card__check"
+                    title="Defeated"
+                    aria-label="Defeated"
+                  >
+                    ✔️
+                  </span>
+                </li>
               </ul>
               <p v-else class="muted small">No bosses specified.</p>
             </div>
@@ -575,6 +590,51 @@
           <p v-if="!canManageRaid" class="muted small">Only raid managers can edit goals.</p>
         </div>
       </transition>
+    </section>
+
+    <section class="card raid-kills-card">
+      <header class="card__header raid-kills-card__header">
+        <div>
+          <h2>Kills</h2>
+          <p class="muted">Captured automatically from recorded log lines.</p>
+        </div>
+        <div class="raid-kills-card__actions">
+          <button
+            v-if="npcKillEvents.length > 0"
+            class="btn btn--outline btn--small"
+            type="button"
+            @click="showNpcKillGraph = true"
+          >
+            Graph
+          </button>
+          <div v-if="totalNpcKills > 0" class="raid-kills-card__totals">
+            <span class="raid-kills-card__totals-label">Total Kills</span>
+            <span class="raid-kills-card__badge">{{ totalNpcKills }}</span>
+          </div>
+        </div>
+      </header>
+      <div v-if="npcKillSummary.length > 0" class="raid-kills-grid-wrapper">
+        <div class="raid-kills-grid" role="list">
+          <article
+            v-for="kill in npcKillSummary"
+            :key="kill.npcName"
+            :class="[
+              'raid-kills-grid__item',
+              { 'raid-kills-grid__item--target': kill.isTargetBoss }
+            ]"
+            role="listitem"
+          >
+            <span class="raid-kills-grid__name">
+              <span>{{ kill.npcName }}</span>
+              <span v-if="kill.isTargetBoss" class="raid-kills-grid__icon" title="Target boss defeated">⭐</span>
+            </span>
+            <span class="raid-kills-grid__badge" :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }">
+              {{ kill.killCount }}
+            </span>
+          </article>
+        </div>
+      </div>
+      <p v-else class="muted small">No NPC kills have been recorded for this raid yet.</p>
     </section>
 
     <section class="card raid-timing">
@@ -1003,10 +1063,32 @@
     @secondary-confirm="resolveConfirmation('secondary')"
     @cancel="resolveConfirmation('cancel')"
   />
+  <div v-if="showNpcKillGraph" class="modal-backdrop" @click.self="showNpcKillGraph = false">
+    <div class="modal modal--wide npc-kill-modal">
+      <header class="modal__header">
+        <div>
+          <h3>NPC Kills Over Time</h3>
+          <p class="muted small">Scatterplot of every recorded kill within the raid window.</p>
+        </div>
+        <button class="icon-button" type="button" @click="showNpcKillGraph = false">✕</button>
+      </header>
+      <div class="npc-kill-chart">
+        <Scatter
+          ref="npcKillChartRef"
+          v-if="npcKillScatterData && npcKillEvents.length > 0"
+          :data="npcKillScatterData"
+          :options="npcKillScatterOptions"
+          :plugins="[npcKillScatterPlugin]"
+        />
+        <p v-else class="muted small">No kill data available.</p>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { Scatter } from 'vue-chartjs';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
@@ -1042,6 +1124,9 @@ import {
   normalizeLooterForSubmission as normalizeLooterForSubmissionUtil
 } from '../utils/lootNames';
 import { normalizeOptionalUrl } from '../utils/urls';
+import { ensureChartJsRegistered } from '../utils/registerCharts';
+
+ensureChartJsRegistered();
 
 const route = useRoute();
 const router = useRouter();
@@ -1050,6 +1135,7 @@ const authStore = useAuthStore();
 
 const raid = ref<RaidDetail | null>(null);
 const attendanceEvents = ref<AttendanceEventSummary[]>([]);
+const guildMainCharacterNames = ref<Set<string>>(new Set());
 const deletingAttendanceId = ref<string | null>(null);
 const attendanceLoading = ref(false);
 const showRosterModal = ref(false);
@@ -1364,6 +1450,290 @@ const displayTargetZones = computed(() =>
 const displayTargetBosses = computed(() =>
   (raid.value?.targetBosses ?? []).map((boss) => boss.trim()).filter((boss) => boss.length > 0)
 );
+const normalizedTargetBosses = computed(() =>
+  displayTargetBosses.value.map((boss) => ({
+    label: boss,
+    normalized: boss.trim().toLowerCase()
+  }))
+);
+const defeatedTargetBosses = computed(() => {
+  const defeated = new Set<string>();
+  const targetSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
+  if (targetSet.size === 0) {
+    return defeated;
+  }
+  for (const event of npcKillEvents.value) {
+    const normalized = event.npcName?.trim().toLowerCase();
+    if (normalized && targetSet.has(normalized)) {
+      defeated.add(normalized);
+    }
+  }
+  return defeated;
+});
+const targetBossStatus = computed(() => {
+  const statuses = new Map<string, boolean>();
+  const defeated = defeatedTargetBosses.value;
+  normalizedTargetBosses.value.forEach((boss) => {
+    statuses.set(boss.label, defeated.has(boss.normalized));
+  });
+  return statuses;
+});
+const npcKillEvents = computed(() => raid.value?.npcKillEvents ?? []);
+const registeredCharacterNames = computed(() => guildMainCharacterNames.value);
+const npcKillSummary = computed(() => {
+  const kills = raid.value?.npcKills ?? [];
+  const targetBossSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
+  return [...kills].sort((a, b) => {
+    if (b.killCount !== a.killCount) {
+      return b.killCount - a.killCount;
+    }
+    return a.npcName.localeCompare(b.npcName);
+  }).map((kill) => ({
+    ...kill,
+    isTargetBoss: targetBossSet.has(kill.npcName.trim().toLowerCase())
+  }));
+});
+const totalNpcKills = computed(() =>
+  npcKillSummary.value.reduce((sum, kill) => sum + kill.killCount, 0)
+);
+const showNpcKillGraph = ref(false);
+const npcKillZoomRange = ref<{ min: number; max: number } | null>(null);
+const npcKillChartRef = ref<any>(null);
+let detachNpcKillWheel: (() => void) | null = null;
+
+const npcKillColorCache = new Map<string, string>();
+const npcColorPalette = ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#f97316', '#38bdf8', '#f87171'];
+
+function getNpcColor(name: string) {
+  const key = name.toLowerCase();
+  if (npcKillColorCache.has(key)) {
+    return npcKillColorCache.get(key)!;
+  }
+  const index = npcKillColorCache.size % npcColorPalette.length;
+  const color = npcColorPalette[index];
+  npcKillColorCache.set(key, color);
+  return color;
+}
+
+const npcKillTimeBounds = computed(() => {
+  const times = npcKillEvents.value
+    .map((event) => new Date(event.occurredAt).getTime())
+    .filter((time) => !Number.isNaN(time));
+  if (times.length === 0) {
+    return null;
+  }
+  return {
+    min: Math.min(...times),
+    max: Math.max(...times)
+  };
+});
+
+const npcKillScatterData = computed(() => {
+  const events = npcKillEvents.value;
+  if (events.length === 0) {
+    return null;
+  }
+  const targetBossSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
+  const points = events
+    .map((event, index) => {
+      const occurredAt = new Date(event.occurredAt);
+      if (Number.isNaN(occurredAt.getTime())) {
+        return null;
+      }
+      const normalizedName = event.npcName.trim().toLowerCase();
+      const isPlayerDeath = registeredCharacterNames.value.has(normalizedName);
+      const isTargetBossKill = targetBossSet.has(normalizedName);
+      return {
+        x: occurredAt.getTime(),
+        y: index + 1,
+        npcName: event.npcName,
+        killerName: event.killerName ?? null,
+        occurredAt,
+        color: isTargetBossKill ? '#facc15' : isPlayerDeath ? '#f87171' : getNpcColor(event.npcName),
+        isPlayerDeath,
+        isTargetBossKill
+      };
+    })
+    .filter((point): point is NonNullable<typeof point> => Boolean(point));
+
+  return {
+    datasets: [
+      {
+        label: 'NPC Kills',
+        data: points,
+        showLine: false,
+        pointBackgroundColor: points.map((point) => point.color),
+        pointBorderColor: points.map((point) => point.color),
+        pointRadius: points.map((point) => (point.isPlayerDeath ? 6 : 4)),
+        pointHoverRadius: points.map((point) => (point.isPlayerDeath ? 8 : 6)),
+        pointStyle: points.map((point) => (point.isTargetBossKill ? 'star' : 'circle'))
+      }
+    ]
+  };
+});
+
+const npcKillScatterOptions = computed(() => ({
+  maintainAspectRatio: false,
+  parsing: false,
+  scales: {
+    x: {
+      type: 'linear' as const,
+      min: (npcKillZoomRange.value ?? npcKillTimeBounds.value)?.min,
+      max: (npcKillZoomRange.value ?? npcKillTimeBounds.value)?.max,
+      title: {
+        display: true,
+        text: 'Time'
+      },
+      ticks: {
+        callback(value: string | number) {
+          const date = new Date(Number(value));
+          return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString();
+        }
+      }
+    },
+    y: {
+      beginAtZero: true,
+      title: {
+        display: true,
+        text: 'Kill Sequence'
+      },
+      ticks: {
+        precision: 0
+      }
+    }
+  },
+  plugins: {
+    tooltip: {
+      callbacks: {
+        label(context: any) {
+          const raw = context.raw as {
+            npcName: string;
+            killerName?: string | null;
+            occurredAt: Date;
+          };
+          const timeLabel = raw.occurredAt.toLocaleTimeString();
+          const killerLabel = raw.killerName ? ` • ${raw.killerName}` : '';
+          return `${raw.npcName}${killerLabel} @ ${timeLabel}`;
+        }
+      }
+    }
+  }
+}));
+
+const npcKillScatterPlugin = {
+  id: 'npcKillScatterPlugin',
+  afterDatasetsDraw(chart: any) {
+    const dataset = chart.data.datasets?.[0];
+    if (!dataset) {
+      return;
+    }
+    const meta = chart.getDatasetMeta(0);
+    const points = dataset.data as Array<{
+      isPlayerDeath?: boolean;
+      isTargetBossKill?: boolean;
+    }>;
+    const { ctx } = chart;
+    meta.data.forEach((element: any, index: number) => {
+      const raw = points?.[index];
+      if (!raw) {
+        return;
+      }
+      const icon = raw.isPlayerDeath ? '☠️' : raw.isTargetBossKill ? '⭐' : null;
+      if (!icon) {
+        return;
+      }
+      const x = element.x;
+      const y = element.y;
+      ctx.save();
+      ctx.font = '20px "Segoe UI Emoji", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (raw.isPlayerDeath) {
+        ctx.shadowColor = 'rgba(248, 113, 113, 0.7)';
+      } else {
+        ctx.shadowColor = 'rgba(250, 204, 21, 0.65)';
+      }
+      ctx.shadowBlur = 12;
+      ctx.fillText(icon, x, y);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    });
+  }
+};
+
+function handleNpcKillChartWheel(event: WheelEvent) {
+  event.preventDefault();
+  const chart = npcKillChartRef.value?.chart;
+  const bounds = npcKillTimeBounds.value;
+  if (!chart || !bounds) {
+    return;
+  }
+  const baseRange = npcKillZoomRange.value ?? bounds;
+  const chartArea = chart.chartArea;
+  if (!chartArea) {
+    return;
+  }
+  const canvasRect = chart.canvas.getBoundingClientRect();
+  const mouseX = event.clientX - canvasRect.left;
+  if (mouseX < chartArea.left || mouseX > chartArea.right) {
+    return;
+  }
+  const ratio = (mouseX - chartArea.left) / (chartArea.right - chartArea.left);
+  const delta = event.deltaY;
+  const zoomFactor = delta > 0 ? 1.1 : 0.9;
+  const totalRange = baseRange.max - baseRange.min;
+  const minRange = Math.max((bounds.max - bounds.min) / 200, 1000);
+  const maxRange = bounds.max - bounds.min;
+  let newRange = totalRange * zoomFactor;
+  newRange = Math.min(Math.max(newRange, minRange), maxRange);
+  const centerValue = baseRange.min + totalRange * ratio;
+  let newMin = centerValue - newRange * ratio;
+  let newMax = newMin + newRange;
+  if (newMin < bounds.min) {
+    newMin = bounds.min;
+    newMax = newMin + newRange;
+  }
+  if (newMax > bounds.max) {
+    newMax = bounds.max;
+    newMin = newMax - newRange;
+  }
+  npcKillZoomRange.value = { min: newMin, max: newMax };
+  chart.update('none');
+}
+
+watch(npcKillEvents, (events) => {
+  if (events.length === 0) {
+    showNpcKillGraph.value = false;
+  }
+});
+
+watch(showNpcKillGraph, (open) => {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  if (open) {
+    document.body.classList.add('modal-open');
+    npcKillZoomRange.value = null;
+    nextTick(() => {
+      detachNpcKillWheel?.();
+      const chart = npcKillChartRef.value?.chart;
+      if (!chart) {
+        return;
+      }
+      const handler = (event: WheelEvent) => handleNpcKillChartWheel(event);
+      chart.canvas.addEventListener('wheel', handler, { passive: false });
+      detachNpcKillWheel = () => chart.canvas.removeEventListener('wheel', handler);
+    });
+  } else {
+    document.body.classList.remove('modal-open');
+    detachNpcKillWheel?.();
+    detachNpcKillWheel = null;
+  }
+});
+
+watch(npcKillEvents, () => {
+  npcKillZoomRange.value = null;
+});
 const formattedTargetZonesHeader = computed(() => displayTargetZones.value.join(', '));
 const targetsModalDirty = computed(
   () => targetsModal.zones !== targetsModal.initialZones || targetsModal.bosses !== targetsModal.initialBosses
@@ -1746,6 +2116,9 @@ async function handleWithdrawAll() {
 async function loadRaid() {
   const data = await api.fetchRaid(raidId);
   raid.value = data;
+  if (data.guild?.id) {
+    loadGuildMainCharacters(data.guild.id);
+  }
   setTimingInputs(data);
   setRecurrenceSettings(data);
   notesInput.value = data.notes ?? '';
@@ -1756,6 +2129,21 @@ async function loadRaid() {
   actionError.value = null;
   recurrenceError.value = null;
   await refreshLootListSummary();
+}
+
+async function loadGuildMainCharacters(guildId: string) {
+  try {
+    const detail = await api.fetchGuildDetail(guildId);
+    const names = new Set(
+      detail.characters
+        .filter((character) => character.isMain)
+        .map((character) => character.name.trim().toLowerCase())
+        .filter((name) => name.length > 0)
+    );
+    guildMainCharacterNames.value = names;
+  } catch (error) {
+    console.warn('Failed to load guild characters', error);
+  }
 }
 
 async function loadLoot() {
@@ -2842,6 +3230,11 @@ onUnmounted(() => {
   window.removeEventListener('click', handleGlobalPointerDown);
   window.removeEventListener('contextmenu', handleGlobalPointerDown);
   window.removeEventListener('keydown', handleLootContextMenuKey);
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove('modal-open');
+  }
+  detachNpcKillWheel?.();
+  detachNpcKillWheel = null;
 });
 
 async function promptDiscordVoiceLink() {
@@ -4755,6 +5148,22 @@ th {
   cursor: pointer;
 }
 
+.raid-targets-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.raid-targets-progress {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+
 .raid-targets-card__actions {
   display: flex;
   gap: 0.75rem;
@@ -4790,6 +5199,172 @@ th {
 
 .raid-targets-card__list li {
   line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.raid-targets-card__check {
+  font-size: 0.85rem;
+  color: #4ade80;
+}
+
+.raid-kills-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.raid-kills-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.raid-kills-card__totals {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.raid-kills-card__totals-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.raid-kills-card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 1rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 1.1rem;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.85), rgba(34, 197, 94, 0.7));
+  border: 1px solid rgba(16, 185, 129, 0.6);
+  color: #0f172a;
+  box-shadow: 0 8px 18px rgba(16, 185, 129, 0.35);
+}
+
+.raid-kills-grid-wrapper {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  padding: 0.65rem;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.65));
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.4);
+}
+
+.raid-kills-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(90px, 1fr));
+  gap: 0.5rem;
+}
+
+
+.raid-kills-grid__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  min-height: 92px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.raid-kills-grid__item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.25), transparent 55%);
+  transition: opacity 0.2s ease;
+}
+
+.raid-kills-grid__item:hover,
+.raid-kills-grid__item:focus-within {
+  transform: translateY(-2px);
+  border-color: rgba(125, 211, 252, 0.4);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.35);
+}
+
+.raid-kills-grid__item:hover::after,
+.raid-kills-grid__item:focus-within::after {
+  opacity: 1;
+}
+
+.raid-kills-grid__name {
+  font-weight: 600;
+  color: #e2e8f0;
+  font-size: 0.82rem;
+  max-height: 2.6em;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.raid-kills-grid__badge {
+  align-self: flex-start;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  color: #0f172a;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.92), rgba(103, 232, 249, 0.85));
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+  font-size: 0.85rem;
+}
+
+.raid-kills-grid__icon {
+  font-size: 0.85rem;
+  color: #facc15;
+}
+
+.raid-kills-grid__item--target {
+  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.raid-kills-grid__badge--target {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.95), rgba(251, 191, 36, 0.85));
+  border-color: rgba(234, 179, 8, 0.8);
+  color: #1f1f1f;
+}
+
+@media (max-width: 1200px) {
+  .raid-kills-grid {
+    grid-template-columns: repeat(5, minmax(90px, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .raid-kills-grid {
+    grid-template-columns: repeat(4, minmax(90px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .raid-kills-grid-wrapper {
+    max-height: 220px;
+  }
+
+  .raid-kills-grid {
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+  }
 }
 
 .collapse-indicator {
@@ -4938,6 +5513,32 @@ th {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+}
+
+.npc-kill-modal {
+  width: calc(100vw - 3rem);
+  max-width: calc(100vw - 3rem);
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.npc-kill-chart {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 768px) {
+  .npc-kill-modal {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    height: 80vh;
+  }
+}
+
+:global(body.modal-open) {
+  overflow: hidden;
 }
 
 .modal__header {

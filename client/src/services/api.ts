@@ -319,6 +319,17 @@ export interface AttendanceEventSummary {
   records: AttendanceRecordSummary[];
 }
 
+export interface RaidNpcKillSummary {
+  npcName: string;
+  killCount: number;
+}
+
+export interface RaidNpcKillEvent {
+  npcName: string;
+  killerName?: string | null;
+  occurredAt: string;
+}
+
 export interface RaidDetail extends RaidEventSummary {
   guild: {
     id: string;
@@ -334,6 +345,8 @@ export interface RaidDetail extends RaidEventSummary {
   };
   attendance: AttendanceEventSummary[];
   signups: RaidSignup[];
+  npcKills: RaidNpcKillSummary[];
+  npcKillEvents: RaidNpcKillEvent[];
 }
 
 export type LootListMatchType = 'ITEM_ID' | 'ITEM_NAME';
@@ -1141,13 +1154,36 @@ export const api = {
     const normalizedSignups = Array.isArray(raid?.signups)
       ? raid.signups.map((signup: any) => normalizeRaidSignup(signup))
       : [];
+    const npcKills = Array.isArray(raid?.npcKills)
+      ? raid.npcKills
+          .map((kill: any) => ({
+            npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
+            killCount:
+              typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
+          }))
+          .filter((kill) => kill.killCount > 0 && kill.npcName.trim().length > 0)
+      : [];
+    const npcKillEvents = Array.isArray(raid?.npcKillEvents)
+      ? raid.npcKillEvents
+          .map((event: any) => ({
+            npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
+            killerName:
+              typeof event?.killerName === 'string' && event.killerName.trim().length > 0
+                ? event.killerName
+                : null,
+            occurredAt: normalizeDateString(event?.occurredAt)
+          }))
+          .filter((event) => Boolean(event.occurredAt))
+      : [];
     return {
       ...raid,
       ...normalizedSummary,
       attendance: Array.isArray(raid?.attendance)
         ? raid.attendance.map(normalizeAttendanceEvent)
         : [],
-      signups: normalizedSignups
+      signups: normalizedSignups,
+      npcKills,
+      npcKillEvents
     };
   },
 
@@ -1190,6 +1226,16 @@ export const api = {
   async fetchRaidLoot(raidId: string): Promise<RaidLootEvent[]> {
     const response = await axios.get(`/api/raids/${raidId}/loot`);
     return Array.isArray(response.data.loot) ? response.data.loot : [];
+  },
+
+  async recordRaidNpcKills(
+    raidId: string,
+    kills: Array<{ npcName: string; occurredAt: string; killerName?: string | null; rawLine?: string | null }>
+  ) {
+    if (!Array.isArray(kills) || kills.length === 0) {
+      return;
+    }
+    await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
   },
 
   async createRaidLoot(

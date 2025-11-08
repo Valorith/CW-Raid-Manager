@@ -18,6 +18,7 @@ export async function listGuilds() {
             discordWidgetServerId: true,
             discordWidgetTheme: true,
             discordWidgetEnabled: true,
+            blacklistSpells: true,
             createdAt: true,
             members: {
                 select: {
@@ -155,6 +156,7 @@ export async function getGuildById(id, options) {
         discordWidgetServerId: guild.discordWidgetServerId,
         discordWidgetTheme: guild.discordWidgetTheme,
         discordWidgetEnabled: guild.discordWidgetEnabled,
+        blacklistSpells: guild.blacklistSpells,
         createdAt: guild.createdAt,
         updatedAt: guild.updatedAt,
         members,
