@@ -369,9 +369,9 @@
           :class="['loot-card', { 'loot-card--needs-assignment': entry.isMasterLooter }]"
           role="button"
           tabindex="0"
-          @click="handleExistingLootCardClick($event, entry.itemName)"
+          @click="handleExistingLootCardClick($event, entry.itemName, entry.itemId)"
           @contextmenu.prevent="openLootContextMenu($event, entry)"
-          @keyup.enter="handleExistingLootCardKeyEnter($event, entry.itemName)"
+          @keyup.enter="handleExistingLootCardKeyEnter($event, entry.itemName, entry.itemId)"
         >
           <div class="loot-card__count">{{ entry.count }}×</div>
           <header class="loot-card__header">
@@ -482,6 +482,18 @@
               required
               :disabled="editLootModal.saving"
             />
+          </label>
+          <label class="form__field">
+            <span>Item ID (optional)</span>
+            <input
+              v-model.number="editLootModal.form.itemId"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="12345"
+              :disabled="editLootModal.saving"
+            />
+            <small class="form__hint">Set this to pull the matching EQ icon.</small>
           </label>
           <label class="form__field">
             <span>Quantity</span>
@@ -1129,6 +1141,7 @@ const editLootModal = reactive<{
     looterName: string;
     itemName: string;
     count: number;
+    itemId: number | null;
   };
   saving: boolean;
 }>({
@@ -1137,7 +1150,8 @@ const editLootModal = reactive<{
   form: {
     looterName: '',
     itemName: '',
-    count: 1
+    count: 1,
+    itemId: null
   },
   saving: false
 });
@@ -1760,6 +1774,7 @@ function openEditLootModal(entry: GroupedLootEntry) {
   editLootModal.entry = entry;
   editLootModal.form.looterName = entry.looterName;
   editLootModal.form.count = entry.count;
+  editLootModal.form.itemId = entry.itemId ?? null;
   editLootModal.visible = true;
   editLootModal.saving = false;
 }
@@ -1776,6 +1791,7 @@ function closeEditLootModal(forceOrEvent?: boolean | Event) {
   editLootModal.entry = null;
   editLootModal.form.looterName = '';
   editLootModal.form.count = 1;
+  editLootModal.form.itemId = null;
   editLootModal.saving = false;
 }
 
@@ -2117,20 +2133,41 @@ async function saveEditedLoot() {
   const normalizedLooter = normalizeLooterForSubmission(newLooterInput);
   const isBankLooter = isGuildBankName(normalizedLooter);
   const isMasterLooter = isMasterLooterName(normalizedLooter);
+  const rawItemId = editLootModal.form.itemId;
+  let normalizedItemId: number | null = null;
+  if (rawItemId !== null && rawItemId !== undefined) {
+    if (!Number.isFinite(rawItemId) || rawItemId < 1) {
+      window.alert('Item ID must be a positive number.');
+      return;
+    }
+    if (!Number.isInteger(rawItemId)) {
+      window.alert('Item ID must be a whole number.');
+      return;
+    }
+    normalizedItemId = rawItemId;
+  }
 
   const entry = editLootModal.entry;
   const currentCount = entry.count;
   const countDiff = newCount - currentCount;
   const emoji = entry.emoji ?? parserSettings.value?.emoji ?? '💎';
+  const currentItemId = entry.itemId ?? null;
+  const itemIdChanged = currentItemId !== (normalizedItemId ?? null);
+  const desiredItemId = itemIdChanged ? normalizedItemId ?? null : currentItemId;
 
   editLootModal.saving = true;
   try {
-    if (normalizedLooter !== entry.looterName) {
+    if (normalizedLooter !== entry.looterName || itemIdChanged) {
       await Promise.all(
         entry.eventIds.map((lootId) =>
           api.updateRaidLoot(raidId, lootId, {
-            looterName: normalizedLooter,
-            looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? null
+            ...(normalizedLooter !== entry.looterName
+              ? {
+                  looterName: normalizedLooter,
+                  looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? null
+                }
+              : {}),
+            ...(itemIdChanged ? { itemId: normalizedItemId ?? null } : {})
           })
         )
       );
@@ -2139,7 +2176,7 @@ async function saveEditedLoot() {
     if (countDiff > 0) {
       const payload = Array.from({ length: countDiff }, () => ({
         itemName: entry.itemName,
-        itemId: entry.itemId ?? null,
+        itemId: desiredItemId ?? null,
         looterName: normalizedLooter,
         looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? undefined,
         emoji,
@@ -2158,7 +2195,9 @@ async function saveEditedLoot() {
       previousCount: currentCount,
       newCount,
       previousLooter: entry.looterName,
-      newLooter: normalizedLooter
+      newLooter: normalizedLooter,
+      previousItemId: currentItemId,
+      newItemId: desiredItemId
     });
     window.dispatchEvent(
       new CustomEvent('loot-updated', {
@@ -3498,20 +3537,20 @@ const formatLooterLabel = (name: string, looterClass?: string | null) => {
   return classLabel ? `${name} (${classLabel})` : name;
 };
 
-function handleExistingLootCardClick(event: MouseEvent, itemName: string) {
+function handleExistingLootCardClick(event: MouseEvent, itemName: string, itemId?: number | null) {
   const target = event.target as HTMLElement | null;
   if (target?.closest('a')) {
     return;
   }
-  openAllaSearch(itemName);
+  openAllaSearch(itemName, itemId);
 }
 
-function handleExistingLootCardKeyEnter(event: KeyboardEvent, itemName: string) {
+function handleExistingLootCardKeyEnter(event: KeyboardEvent, itemName: string, itemId?: number | null) {
   const target = event.target as HTMLElement | null;
   if (target?.closest('a')) {
     return;
   }
-  openAllaSearch(itemName);
+  openAllaSearch(itemName, itemId);
 }
 
 const formatCharacterClassLabel = (value?: string | null) => {
@@ -3735,10 +3774,17 @@ async function deleteLootGroup(entry: GroupedLootEntry, options?: { skipConfirm?
   }
 }
 
-function openAllaSearch(itemName: string) {
+function openAllaSearch(itemName: string, itemId?: number | null) {
+  const trimmedName = itemName?.trim();
+  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
+    const directUrl = `https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`;
+    window.open(directUrl, '_blank');
+    return;
+  }
   const base =
     'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
-  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  const query = trimmedName && trimmedName.length > 0 ? trimmedName : itemName;
+  const url = `${base}&iname=${encodeURIComponent(query)}`;
   window.open(url, '_blank');
 }
 

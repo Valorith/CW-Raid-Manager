@@ -178,8 +178,8 @@
             class="recent-loot__item"
             role="button"
             tabindex="0"
-            @click="openAllaSearch(entry.itemName)"
-            @keyup.enter="openAllaSearch(entry.itemName)"
+            @click="openAllaSearch(entry.itemName, entry.itemId)"
+            @keyup.enter="openAllaSearch(entry.itemName, entry.itemId)"
           >
             <div class="recent-loot__icon">
               <template v-if="entry.itemIconId != null">
@@ -504,10 +504,16 @@ function setLootPage(page: number) {
   loadRecentLoot(normalized);
 }
 
-function openAllaSearch(itemName: string) {
+function openAllaSearch(itemName: string, itemId?: number | null) {
+  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
+    window.open(`https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`, '_blank');
+    return;
+  }
   const base =
     'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
-  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  const trimmed = itemName?.trim();
+  const query = trimmed && trimmed.length > 0 ? trimmed : itemName;
+  const url = `${base}&iname=${encodeURIComponent(query)}`;
   window.open(url, '_blank');
 }
 

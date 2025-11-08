@@ -502,47 +502,55 @@
         <div v-if="recentLootEvents.length > 0" class="metrics-recent">
           <h3>Recent Loot Events</h3>
           <div class="metrics-recent__grid">
-            <article v-for="event in recentLootEvents" :key="event.id" class="metrics-recent__card">
+            <article
+              v-for="lootEvent in recentLootEvents"
+              :key="lootEvent.id"
+              class="metrics-recent__card"
+              role="button"
+              tabindex="0"
+              @click="openAllaSearch(lootEvent.itemName, lootEvent.itemId)"
+              @keyup.enter.prevent="openAllaSearch(lootEvent.itemName, lootEvent.itemId)"
+            >
               <header class="metrics-recent__header">
                 <div class="metrics-recent__item-icon">
-                  <template v-if="event.itemIconId != null">
+                  <template v-if="lootEvent.itemIconId != null">
                     <img
-                      :src="getLootIconSrc(event.itemIconId)"
-                      :alt="`${event.itemName} icon`"
+                      :src="getLootIconSrc(lootEvent.itemIconId)"
+                      :alt="`${lootEvent.itemName} icon`"
                       loading="lazy"
                     />
                   </template>
-                  <span v-else aria-hidden="true">{{ event.emoji ?? '🪙' }}</span>
+                  <span v-else aria-hidden="true">{{ lootEvent.emoji ?? '🪙' }}</span>
                 </div>
                 <div class="metrics-recent__item-title">
-                  <strong>{{ event.itemName }}</strong>
-                  <span class="metrics-recent__raid muted tiny">{{ event.raid.name }}</span>
+                  <strong>{{ lootEvent.itemName }}</strong>
+                  <span class="metrics-recent__raid muted tiny">{{ lootEvent.raid.name }}</span>
                 </div>
                 <span class="metrics-recent__time muted tiny">
-                  {{ formatDateLong(eventPrimaryTimestamp(event)) }}
+                  {{ formatDateLong(eventPrimaryTimestamp(lootEvent)) }}
                 </span>
               </header>
               <section class="metrics-recent__body">
                 <div class="metrics-recent__looter">
                   <span class="metrics-recent__looter-label">Awarded to</span>
                   <CharacterLink
-                    v-if="shouldLinkEntities && !event.isGuildBank && !event.isMasterLooter"
+                    v-if="shouldLinkEntities && !lootEvent.isGuildBank && !lootEvent.isMasterLooter"
                     class="metrics-recent__looter-name"
-                    :name="event.displayLooterName"
+                    :name="lootEvent.displayLooterName"
                   />
                   <span
                     v-else
                     class="metrics-recent__looter-name metrics-recent__looter-name--plain"
                   >
-                    {{ displayLooterName(event) }}
+                    {{ displayLooterName(lootEvent) }}
                   </span>
                 </div>
                 <span
-                  v-if="event.emoji"
+                  v-if="lootEvent.emoji"
                   class="metrics-recent__emoji"
-                  :title="`Reaction: ${event.emoji}`"
+                  :title="`Reaction: ${lootEvent.emoji}`"
                 >
-                  {{ event.emoji }}
+                  {{ lootEvent.emoji }}
                 </span>
               </section>
             </article>
@@ -730,7 +738,7 @@
                     <button
                       type="button"
                       class="loot-detail__item-link"
-                      @click="openAllaSearch(row.itemName)"
+                      @click="openAllaSearch(row.itemName, row.itemId)"
                     >
                       {{ row.itemName }}
                     </button>
@@ -3994,10 +4002,16 @@ function closeLootDetailModal() {
   lootDetailPage.value = 0;
 }
 
-function openAllaSearch(itemName: string) {
+function openAllaSearch(itemName: string, itemId?: number | null) {
+  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
+    window.open(`https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`, '_blank');
+    return;
+  }
   const base =
     'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
-  const url = `${base}&iname=${encodeURIComponent(itemName)}`;
+  const trimmed = itemName?.trim();
+  const query = trimmed && trimmed.length > 0 ? trimmed : itemName;
+  const url = `${base}&iname=${encodeURIComponent(query)}`;
   window.open(url, '_blank');
 }
 
@@ -4337,6 +4351,7 @@ const lootDetailRows = computed(() => {
     return [] as Array<{
       id: string;
       itemName: string;
+      itemId: number | null;
       looterName: string;
       displayLooterName: string;
       characterName: string;
@@ -4359,6 +4374,7 @@ const lootDetailRows = computed(() => {
     .map((event) => ({
       id: event.id,
       itemName: event.itemName,
+      itemId: event.itemId ?? null,
       looterName: event.looterName,
       displayLooterName: displayLooterName(event),
       characterName: resolveLootCharacterName(event),
@@ -5992,6 +6008,7 @@ onMounted(() => {
   padding: 1.15rem 1.3rem;
   box-shadow: 0 18px 36px rgba(13, 23, 42, 0.38);
   backdrop-filter: blur(14px);
+  cursor: pointer;
   transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
