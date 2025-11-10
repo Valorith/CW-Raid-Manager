@@ -5,6 +5,7 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
     'raid.created',
     'raid.started',
     'raid.ended',
+    'raid.targetKilled',
     'raid.deleted',
     'raid.signup',
     'raid.withdraw',
@@ -32,6 +33,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         key: 'raid.ended',
         label: 'Raid Ended',
         description: 'Sent when a raid is marked as completed.',
+        category: 'RAID'
+    },
+    {
+        key: 'raid.targetKilled',
+        label: 'Raid Target Killed',
+        description: 'Triggered when a tracked raid target boss is killed.',
         category: 'RAID'
     },
     {
@@ -93,6 +100,7 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS = Object.freeze({
     'raid.created': true,
     'raid.started': true,
     'raid.ended': true,
+    'raid.targetKilled': true,
     'raid.deleted': false,
     'raid.signup': true,
     'raid.withdraw': true,
@@ -107,6 +115,7 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS = Object.freeze({
     'raid.created': true,
     'raid.started': true,
     'raid.ended': true,
+    'raid.targetKilled': true,
     'raid.deleted': false,
     'raid.signup': false,
     'raid.withdraw': false,
@@ -368,6 +377,37 @@ function buildWebhookMessage(event, payload) {
                                     }
                                 ]
                                 : [])
+                        ],
+                        timestamp: nowIso
+                    }
+                ]
+            };
+        case 'raid.targetKilled':
+            const raidTargetPayload = payload;
+            if (!Array.isArray(raidTargetPayload.kills) || raidTargetPayload.kills.length === 0) {
+                return null;
+            }
+            const raidTargetUrl = buildRaidUrl(raidTargetPayload.raidId);
+            const killLines = raidTargetPayload.kills.slice(0, 10).map((kill) => {
+                return `• **${kill.npcName}** — ${formatDiscordTimestamp(kill.occurredAt)}`;
+            });
+            if (raidTargetPayload.kills.length > 10) {
+                const remaining = raidTargetPayload.kills.length - 10;
+                killLines.push(`…and ${remaining} more target${remaining === 1 ? '' : 's'}.`);
+            }
+            if (raidTargetUrl) {
+                killLines.push(`[View Raid](${raidTargetUrl})`);
+            }
+            return {
+                embeds: [
+                    {
+                        title: `🎯 Raid Target Killed: ${raidTargetPayload.raidName}`,
+                        color: DISCORD_COLORS.success,
+                        fields: [
+                            {
+                                name: 'Targets',
+                                value: killLines.join('\n')
+                            }
                         ],
                         timestamp: nowIso
                     }

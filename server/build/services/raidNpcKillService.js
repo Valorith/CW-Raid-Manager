@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { prisma } from '../utils/prisma.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 function normalizeNpcName(name) {
     return name.replace(/\s+/g, ' ').trim();
 }
@@ -27,6 +28,23 @@ function chunkArray(items, size) {
         chunks.push(items.slice(index, index + size));
     }
     return chunks;
+}
+function buildTargetLookup(targets) {
+    const lookup = new Map();
+    if (!Array.isArray(targets)) {
+        return lookup;
+    }
+    for (const target of targets) {
+        if (typeof target !== 'string') {
+            continue;
+        }
+        const normalized = normalizeNpcName(target);
+        if (!normalized) {
+            continue;
+        }
+        lookup.set(normalized.toLowerCase(), target.trim());
+    }
+    return lookup;
 }
 export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
     if (kills.length === 0) {
@@ -57,17 +75,76 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
     if (prepared.length === 0) {
         return { inserted: 0 };
     }
+    const raidContext = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: {
+            id: true,
+            name: true,
+            targetBosses: true,
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            }
+        }
+    });
+    const targetLookup = buildTargetLookup(raidContext?.targetBosses);
+    const signatures = prepared.map((entry) => entry.logSignature);
+    let uniqueEntries = prepared;
+    if (signatures.length > 0) {
+        const existing = await prisma.raidNpcKillEvent.findMany({
+            where: {
+                raidId,
+                logSignature: {
+                    in: signatures
+                }
+            },
+            select: { logSignature: true }
+        });
+        const seen = new Set(existing.map((item) => item.logSignature));
+        uniqueEntries = [];
+        for (const entry of prepared) {
+            if (seen.has(entry.logSignature)) {
+                continue;
+            }
+            seen.add(entry.logSignature);
+            uniqueEntries.push(entry);
+        }
+    }
+    if (uniqueEntries.length === 0) {
+        return { inserted: 0 };
+    }
     let inserted = 0;
-    for (const chunk of chunkArray(prepared, 100)) {
+    const insertedEntries = [];
+    for (const chunk of chunkArray(uniqueEntries, 100)) {
         try {
             const result = await prisma.raidNpcKillEvent.createMany({
                 data: chunk,
                 skipDuplicates: true
             });
             inserted += result.count;
+            insertedEntries.push(...chunk);
         }
         catch (error) {
             logger?.warn({ error }, 'Failed to persist NPC kill chunk.');
+        }
+    }
+    if (insertedEntries.length > 0 && targetLookup.size > 0) {
+        const targetKills = insertedEntries
+            .filter((entry) => targetLookup.has(entry.npcNameNormalized))
+            .map((entry) => ({
+            npcName: targetLookup.get(entry.npcNameNormalized) ?? entry.npcName,
+            killerName: entry.killerName,
+            occurredAt: entry.occurredAt
+        }));
+        if (targetKills.length > 0) {
+            await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+                guildName: raidContext?.guild?.name ?? 'Guild',
+                raidId,
+                raidName: raidContext?.name ?? 'Raid',
+                kills: targetKills
+            });
         }
     }
     return { inserted };

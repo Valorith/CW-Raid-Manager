@@ -44,7 +44,7 @@ function chunkArray<T>(items: T[], size: number) {
   return chunks;
 }
 
-function buildTargetLookup(targets?: string[] | null) {
+function buildTargetLookup(targets?: unknown) {
   const lookup = new Map<string, string>();
   if (!Array.isArray(targets)) {
     return lookup;
