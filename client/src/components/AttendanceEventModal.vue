@@ -12,27 +12,32 @@
       <section class="summary">
         <div class="summary__header">
           <p v-if="event.note" class="muted note">“{{ event.note }}”</p>
-          <button
-            v-if="canEdit"
-            class="btn btn--primary"
-            type="button"
-            @click="upload"
-          >
-            Upload Snapshot
-          </button>
+          <div class="summary__actions" v-if="canEdit">
+            <template v-if="isEditing">
+              <button class="btn btn--success" type="button" @click="saveEdit" :disabled="saving">
+                {{ saving ? 'Saving…' : 'Save' }}
+              </button>
+              <button
+                class="btn btn--danger"
+                type="button"
+                @click="handleCancelEdit"
+                :disabled="saving"
+              >
+                Cancel
+              </button>
+            </template>
+            <button v-else class="btn btn--outline" type="button" @click="startEdit">Edit</button>
+            <button class="btn btn--primary" type="button" @click="upload">Upload Snapshot</button>
+          </div>
         </div>
         <div class="summary__stats">
-          <div
-            v-for="status in visibleStatuses"
-            :key="status"
-            class="summary__stat"
-          >
+          <div v-for="status in visibleStatuses" :key="status" class="summary__stat">
             <span class="label">{{ statusLabels[status] }}</span>
             <strong>{{ statusCounts[status] ?? 0 }}</strong>
           </div>
           <div class="summary__stat">
             <span class="label">Total</span>
-            <strong>{{ event.records.length }}</strong>
+            <strong>{{ currentRecords.length }}</strong>
           </div>
         </div>
       </section>
@@ -47,43 +52,118 @@
               <th>Status</th>
               <th>Group</th>
               <th>Flags</th>
+              <th v-if="isEditing" class="actions-col">Actions</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(record, index) in event.records" :key="index">
+            <tr v-for="(record, index) in currentRecords" :key="record.id ?? index">
               <td class="name-cell">
-                <span class="name-wrapper">
+                <span v-if="!isEditing" class="name-wrapper">
                   <CharacterLink class="name-link" :name="record.characterName" />
                   <span v-if="record.isMain" class="badge badge--main">Main</span>
                 </span>
-              </td>
-              <td>{{ record.level ?? '—' }}</td>
-              <td class="class-cell">
-                <span v-if="record.class" class="class-wrapper">
-                  <img
-                    v-if="getCharacterClassIcon(record.class)"
-                    :src="getCharacterClassIcon(record.class) || undefined"
-                    :alt="formatClass(record.class)"
-                    class="class-icon"
+                <div v-else class="name-edit-wrapper">
+                  <input
+                    class="table-input"
+                    type="text"
+                    v-model="editableRecords[index].characterName"
+                    placeholder="Character name"
                   />
-                  <span>{{ formatClass(record.class) }}</span>
-                </span>
-                <span v-else>—</span>
+                  <span v-if="editableRecords[index].isMain" class="badge badge--main">Main</span>
+                </div>
               </td>
-              <td>{{ formatStatus(record.status) }}</td>
-              <td>{{ record.groupNumber ?? '—' }}</td>
-              <td>{{ record.flags || '—' }}</td>
+              <td>
+                <span v-if="!isEditing">{{ record.level ?? '—' }}</span>
+                <input
+                  v-else
+                  class="table-input"
+                  type="number"
+                  min="1"
+                  max="95"
+                  v-model.number="editableRecords[index].level"
+                />
+              </td>
+              <td class="class-cell">
+                <template v-if="!isEditing">
+                  <span v-if="record.class" class="class-wrapper">
+                    <img
+                      v-if="getCharacterClassIcon(record.class!)"
+                      :src="getCharacterClassIcon(record.class!) || undefined"
+                      :alt="formatClass(record.class!)"
+                      class="class-icon"
+                    />
+                    <span>{{ formatClass(record.class!) }}</span>
+                  </span>
+                  <span v-else>—</span>
+                </template>
+                <select
+                  v-else
+                  class="table-input class-select"
+                  v-model="editableRecords[index].class"
+                >
+                  <option value="">—</option>
+                  <option v-for="option in classOptions" :key="option" :value="option">
+                    {{ formatClass(option as CharacterClass) }}
+                  </option>
+                </select>
+              </td>
+              <td>
+                <span v-if="!isEditing">{{ formatStatus(record.status) }}</span>
+                <select v-else class="table-input" v-model="editableRecords[index].status">
+                  <option v-for="status in statusOptions" :key="status" :value="status">
+                    {{ statusLabels[status] }}
+                  </option>
+                </select>
+              </td>
+              <td>
+                <span v-if="!isEditing">{{ record.groupNumber ?? '—' }}</span>
+                <input
+                  v-else
+                  class="table-input"
+                  type="number"
+                  min="1"
+                  max="12"
+                  v-model.number="editableRecords[index].groupNumber"
+                />
+              </td>
+              <td>
+                <span v-if="!isEditing">{{ record.flags || '—' }}</span>
+                <input
+                  v-else
+                  class="table-input"
+                  type="text"
+                  v-model="editableRecords[index].flags"
+                />
+              </td>
+              <td v-if="isEditing" class="actions-col">
+                <button
+                  class="icon-button icon-button--danger"
+                  type="button"
+                  @click="removeRecord(index)"
+                  aria-label="Remove row"
+                >
+                  ✕
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
+        <button
+          v-if="isEditing"
+          class="btn btn--outline btn--small add-row-button"
+          type="button"
+          @click="addRecord"
+          :disabled="saving"
+        >
+          + Add Character
+        </button>
       </div>
-
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import CharacterLink from './CharacterLink.vue';
 
 import type { AttendanceRecordSummary } from '../services/api';
@@ -97,15 +177,32 @@ interface AttendanceEvent {
   records: AttendanceRecordSummary[];
 }
 
+type EditableAttendanceRecordInput = {
+  characterId?: string | null;
+  characterName: string;
+  level?: number | null;
+  class?: CharacterClass | null;
+  groupNumber?: number | null;
+  status?: AttendanceStatus | null;
+  flags?: string | null;
+  isMain?: boolean;
+  id?: string;
+};
+
 const props = defineProps<{
   event: AttendanceEvent;
   canEdit?: boolean;
+  saving?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'upload', attendanceEventId: string): void;
+  (e: 'save', payload: { eventId: string; records: EditableAttendanceRecordInput[] }): void;
 }>();
+
+const isEditing = ref(false);
+const editableRecords = ref<EditableAttendanceRecordInput[]>([]);
 
 const formattedDate = computed(() =>
   new Intl.DateTimeFormat('en-US', {
@@ -113,17 +210,26 @@ const formattedDate = computed(() =>
     timeStyle: 'short'
   }).format(new Date(props.event.createdAt))
 );
+const saving = computed(() => props.saving ?? false);
 
-const statusLabels: Record<string, string> = {
+const statusLabels: Record<AttendanceStatus, string> = {
   PRESENT: 'Present',
   LATE: 'Late',
   BENCHED: 'Left Early',
   ABSENT: 'Absent'
 };
 
+const statusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED', 'ABSENT'];
+
+const classOptions = computed(() => Object.keys(characterClassLabels));
+
+const currentRecords = computed(() =>
+  isEditing.value ? editableRecords.value : props.event.records
+);
+
 const statusCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
-  for (const record of props.event.records) {
+  for (const record of currentRecords.value) {
     const key = record.status ?? 'UNKNOWN';
     counts[key] = (counts[key] ?? 0) + 1;
   }
@@ -131,8 +237,31 @@ const statusCounts = computed<Record<string, number>>(() => {
 });
 
 const visibleStatuses = computed(() =>
-  Object.keys(statusLabels).filter((status) => (statusCounts.value[status] ?? 0) > 0)
+  statusOptions.filter((status) => (statusCounts.value[status] ?? 0) > 0)
 );
+
+watch(
+  () => props.event,
+  () => {
+    isEditing.value = false;
+    resetEditableRecords();
+  },
+  { immediate: true }
+);
+
+function resetEditableRecords() {
+  editableRecords.value = props.event.records.map((record) => ({
+    id: record.id,
+    characterId: record.characterId,
+    characterName: record.characterName,
+    level: record.level ?? null,
+    class: record.class ?? null,
+    groupNumber: record.groupNumber ?? null,
+    status: (record.status as AttendanceStatus) ?? 'PRESENT',
+    flags: record.flags ?? null,
+    isMain: record.isMain
+  }));
+}
 
 function close() {
   emit('close');
@@ -140,6 +269,97 @@ function close() {
 
 function upload() {
   emit('upload', props.event.id);
+}
+
+function startEdit() {
+  if (!props.canEdit || isEditing.value) {
+    return;
+  }
+  if (editableRecords.value.length === 0) {
+    resetEditableRecords();
+  }
+  isEditing.value = true;
+}
+
+function saveEdit() {
+  if (!isEditing.value || saving.value) {
+    return;
+  }
+  const prepared = editableRecords.value
+    .map((record) => ({
+      characterId: record.characterId ?? undefined,
+      characterName: record.characterName.trim(),
+      level: normalizeNumber(record.level),
+      class: normalizeClass(record.class),
+      groupNumber: normalizeNumber(record.groupNumber),
+      status: normalizeStatus(record.status),
+      flags: normalizeString(record.flags)
+    }))
+    .filter((record) => record.characterName.length >= 2);
+
+  emit('save', {
+    eventId: props.event.id,
+    records: prepared
+  });
+}
+
+function addRecord() {
+  editableRecords.value.push({
+    characterId: null,
+    characterName: '',
+    level: null,
+    class: null,
+    groupNumber: null,
+    status: 'PRESENT',
+    flags: null,
+    isMain: false
+  });
+  nextTick(() => {
+    const inputs = document.querySelectorAll<HTMLInputElement>('input.table-input');
+    inputs[inputs.length - 1]?.focus();
+  });
+}
+
+function removeRecord(index: number) {
+  editableRecords.value.splice(index, 1);
+}
+
+function handleCancelEdit() {
+  if (!isEditing.value) {
+    return;
+  }
+  if (saving.value) {
+    return;
+  }
+  resetEditableRecords();
+  isEditing.value = false;
+}
+
+function normalizeString(value?: string | null) {
+  const trimmed = (value ?? '').trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeNumber(value?: number | null) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeClass(value?: CharacterClass | null) {
+  if (!value) {
+    return null;
+  }
+  return value;
+}
+
+function normalizeStatus(value?: AttendanceStatus | null): AttendanceStatus {
+  if (value && statusOptions.includes(value)) {
+    return value;
+  }
+  return 'PRESENT';
 }
 
 function formatClass(characterClass?: CharacterClass | null) {
@@ -173,8 +393,8 @@ function formatStatus(status?: AttendanceStatus | null) {
 }
 
 .modal {
-  width: min(720px, 100%);
-  max-height: min(720px, 90vh);
+  width: min(1100px, 100%);
+  max-height: min(760px, 90vh);
   background: rgba(15, 23, 42, 0.95);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 1rem;
@@ -223,6 +443,35 @@ function formatStatus(status?: AttendanceStatus | null) {
   box-shadow: 0 12px 28px rgba(14, 165, 233, 0.25);
 }
 
+.btn--success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(16, 185, 129, 0.85));
+  color: #ecfdf5;
+  box-shadow: 0 12px 24px rgba(34, 197, 94, 0.25);
+}
+
+.btn--danger {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.9), rgba(239, 68, 68, 0.85));
+  color: #fef2f2;
+  box-shadow: 0 12px 24px rgba(239, 68, 68, 0.2);
+}
+
+.btn--outline {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: transparent;
+  color: #cbd5f5;
+}
+
+.btn--outline:focus-visible,
+.btn--outline:hover {
+  border-color: rgba(59, 130, 246, 0.6);
+  color: #e2e8f0;
+}
+
+.btn--small {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.8rem;
+}
+
 .summary {
   display: flex;
   flex-direction: column;
@@ -234,6 +483,12 @@ function formatStatus(status?: AttendanceStatus | null) {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.summary__actions {
+  display: inline-flex;
+  gap: 0.6rem;
 }
 
 .note {
@@ -252,7 +507,7 @@ function formatStatus(status?: AttendanceStatus | null) {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.75rem;
   padding: 0.75rem 1rem;
-  min-width: 120px;
+  min-width: 140px;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -271,8 +526,11 @@ function formatStatus(status?: AttendanceStatus | null) {
 }
 
 .table-wrapper {
-  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.75rem;
+  padding: 0.5rem;
+  max-height: 460px;
+  overflow: auto;
 }
 
 table {
@@ -288,7 +546,7 @@ td {
 }
 
 .name-cell {
-  white-space: nowrap;
+  min-width: 180px;
 }
 
 .name-wrapper {
@@ -297,18 +555,24 @@ td {
   gap: 0.5rem;
 }
 
+.name-edit-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .name-link {
   font-weight: 600;
 }
 
 .class-cell {
-  white-space: nowrap;
+  min-width: 160px;
 }
 
 .class-wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .class-icon {
@@ -328,14 +592,51 @@ td {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  border: 1px solid transparent;
 }
 
 .badge--main {
   background: linear-gradient(135deg, rgba(250, 204, 21, 0.45), rgba(251, 191, 36, 0.25));
   color: #fef3c7;
-  border-color: rgba(252, 211, 77, 0.4);
-  box-shadow: 0 2px 6px rgba(250, 204, 21, 0.18);
+  border: 1px solid rgba(252, 211, 77, 0.35);
+}
+
+.table-input {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f8fafc;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.table-input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  border-color: transparent;
+}
+
+.class-select {
+  width: 90px;
+  min-width: 80px;
+  display: inline-block;
+}
+
+.actions-col {
+  width: 60px;
+  text-align: center;
+}
+
+.icon-button--danger {
+  color: #f87171;
+}
+
+.icon-button--danger:hover {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.add-row-button {
+  margin-top: 0.75rem;
 }
 
 tbody tr:nth-child(even) {

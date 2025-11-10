@@ -1228,8 +1228,10 @@
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
     :can-edit="canManageRaid"
+    :saving="attendanceModalSaving"
     @close="closeAttendanceEvent"
     @upload="handleAttendanceUploadFromModal"
+    @save="handleAttendanceModalSave"
   />
   <ConfirmationModal
     v-if="confirmModal.visible"
@@ -1281,6 +1283,7 @@ import {
   getRoleCategoryForClass,
   roleCategoryLabels,
   roleCategoryOrder,
+  type AttendanceStatus,
   type CharacterClass,
   type RaidRoleCategory
 } from '../services/types';
@@ -1325,7 +1328,12 @@ const rosterMeta = ref<{ filename: string; uploadedAt: string } | null>(null);
 const submittingAttendance = ref(false);
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedAttendanceEvent = ref<AttendanceEventSummary | null>(null);
+const attendanceModalSaving = ref(false);
 const rosterEditingEventId = ref<string | null>(null);
+const validCharacterClasses = new Set<CharacterClass>(
+  Object.keys(characterClassLabels) as CharacterClass[]
+);
+const attendanceStatusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED', 'ABSENT'];
 const lootEvents = ref<RaidLootEvent[]>([]);
 const guildBankDisplayName = computed(() =>
   getGuildBankDisplayName(raid.value?.guild.name ?? null)
@@ -1878,7 +1886,11 @@ const npcKillScatterData = computed(() => {
       {
         label: 'NPC Kills',
         data: points,
-        showLine: false,
+        showLine: true,
+        spanGaps: false,
+        borderColor: '#94a3b8',
+        borderWidth: 1.5,
+        pointBorderWidth: 1,
         pointBackgroundColor: points.map((point) => point.color),
         pointBorderColor: points.map((point) => point.color),
         pointRadius: points.map((point) => (point.isPlayerDeath ? 6 : 4)),
@@ -2868,6 +2880,12 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
     return;
   }
 
+  const normalizedRecords = prepareAttendanceRecords(rosterPreview.value);
+  if (normalizedRecords.length === 0) {
+    actionError.value = 'No valid attendance records to save.';
+    return;
+  }
+
   submittingAttendance.value = true;
   try {
     if (rosterEditingEventId.value) {
@@ -2877,7 +2895,7 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
           filename: rosterMeta.value?.filename,
           uploadedAt: rosterMeta.value?.uploadedAt
         },
-        records: rosterPreview.value
+        records: normalizedRecords
       });
     } else {
       const eventType = pendingEventTypes.value.shift();
@@ -2887,7 +2905,7 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
           filename: rosterMeta.value?.filename,
           uploadedAt: rosterMeta.value?.uploadedAt
         },
-        records: rosterPreview.value,
+        records: normalizedRecords,
         ...(eventType ? { eventType } : {})
       });
     }
@@ -2897,6 +2915,72 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
   } finally {
     submittingAttendance.value = false;
   }
+}
+
+function prepareAttendanceRecords(records: AttendanceRecordInput[]): AttendanceRecordInput[] {
+  return records
+    .map((record) => {
+      const characterName = (record.characterName ?? '').trim();
+      return {
+        characterId: record.characterId ?? undefined,
+        characterName,
+        level: normalizeOptionalLevel(record.level),
+        class: normalizeRecordClass(record.class),
+        groupNumber: normalizeGroupNumber(record.groupNumber),
+        status: normalizeRecordStatus(record.status),
+        flags: normalizeRecordFlags(record.flags)
+      };
+    })
+    .filter((record) => record.characterName.length >= 2);
+}
+
+function normalizeOptionalLevel(value?: number | null): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const normalized = Math.trunc(parsed);
+  if (normalized < 1 || normalized > 125) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeGroupNumber(value?: number | null): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  const normalized = Math.trunc(parsed);
+  if (normalized < 1 || normalized > 12) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeRecordClass(value?: CharacterClass | null): CharacterClass | null {
+  if (!value) {
+    return null;
+  }
+  return validCharacterClasses.has(value) ? value : null;
+}
+
+function normalizeRecordStatus(value?: AttendanceStatus | null): AttendanceStatus {
+  if (value && attendanceStatusOptions.includes(value)) {
+    return value;
+  }
+  return 'PRESENT';
+}
+
+function normalizeRecordFlags(value?: string | null): string | null {
+  const trimmed = (value ?? '').trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 function formatDate(date: string) {
@@ -3616,6 +3700,25 @@ watch(
 function handleAttendanceUploadFromModal(attendanceEventId: string) {
   selectedAttendanceEvent.value = null;
   triggerAttendanceUpload({ attendanceEventId });
+}
+
+async function handleAttendanceModalSave(payload: { eventId: string; records: AttendanceRecordInput[] }) {
+  if (attendanceModalSaving.value) {
+    return;
+  }
+  attendanceModalSaving.value = true;
+  try {
+    await api.updateAttendanceEvent(payload.eventId, {
+      records: payload.records
+    });
+    await loadAttendance();
+    const updatedEvent = attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;
+    selectedAttendanceEvent.value = updatedEvent;
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to save attendance snapshot.');
+  } finally {
+    attendanceModalSaving.value = false;
+  }
 }
 
 async function createPlaceholderAttendanceEvent(eventType: 'START' | 'END' | 'RESTART') {
