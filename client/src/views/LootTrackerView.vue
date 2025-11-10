@@ -231,6 +231,118 @@
     </div>
   </div>
 
+  <div v-if="lootCouncilModalVisible" class="modal-backdrop loot-council-backdrop">
+    <div class="modal loot-council-modal" role="dialog" aria-live="polite">
+      <header class="modal__header loot-council-modal__header">
+        <div>
+          <h3>Loot Council In Progress</h3>
+          <p class="muted small">
+            {{
+              lootCouncilActiveItems.length === 1
+                ? '1 item awaiting a decision.'
+                : `${lootCouncilActiveItems.length} items awaiting decisions.`
+            }}
+          </p>
+        </div>
+        <div class="modal__header-actions">
+          <button
+            v-if="lootCouncilActiveItems.length > 0"
+            class="loot-council-clear-all"
+            type="button"
+            @click="clearLootCouncilItem('ALL')"
+          >
+            Clear All
+          </button>
+          <button
+            class="icon-button icon-button--muted"
+            type="button"
+            aria-label="Minimize loot council tracker"
+            @click="minimizeLootCouncilModal"
+          >
+            ▁
+          </button>
+        </div>
+      </header>
+      <section class="loot-council-modal__body">
+        <div class="loot-council-columns">
+          <article
+            v-for="item in lootCouncilActiveItems"
+            :key="item.key"
+            class="loot-council-column"
+          >
+            <header class="loot-council-column__header">
+              <div>
+                <p class="loot-council-column__name">{{ item.itemName }}</p>
+                <p class="loot-council-column__meta">
+                  Tracking since {{ formatRelativeTime(item.startedAt.toISOString()) }}
+                </p>
+              </div>
+              <span v-if="item.ordinal != null" class="loot-council-column__ordinal">
+                #{{ item.ordinal }}
+              </span>
+            </header>
+            <div class="loot-council-column__actions">
+              <button
+                class="loot-council-column__chip"
+                type="button"
+                @click="clearLootCouncilItem(item.key)"
+              >
+                ✕ Clear
+              </button>
+            </div>
+            <ul v-if="item.interests.length > 0" class="loot-council-interest-list">
+              <li
+                v-for="interest in item.interests"
+                :key="`${item.key}-${interest.playerKey}`"
+                class="loot-council-interest"
+              >
+                <div class="loot-council-interest__details">
+                  <div class="loot-council-interest__headline">
+                    <strong class="loot-council-interest__name">{{ interest.playerName }}</strong>
+                    <div class="loot-council-interest__votes" aria-label="Votes received">
+                      <span
+                        v-for="(voter, voteIndex) in interest.voters"
+                        :key="`${item.key}-${interest.playerKey}-vote-${voteIndex}`"
+                        class="loot-council-interest__vote-badge"
+                        :title="formatVoteBadgeTooltip(voter, voteIndex)"
+                      >
+                        ✔
+                      </span>
+                    </div>
+                  </div>
+                  <p
+                    class="loot-council-interest__replacement"
+                    :class="{
+                      'loot-council-interest__replacement--none': !interest.replacing
+                    }"
+                  >
+                    {{
+                      interest.replacing
+                        ? `Replacing ${interest.replacing}`
+                        : 'Not replacing a current item'
+                    }}
+                  </p>
+                </div>
+                <div class="loot-council-interest__meta">
+                  <span class="loot-council-interest__vote-count" :title="formatVoteTooltip(interest)">
+                    {{ getInterestVoteCount(interest) }}
+                    {{ getInterestVoteCount(interest) === 1 ? 'vote' : 'votes' }}
+                  </span>
+                  <span class="loot-council-interest__timestamp">
+                    {{ formatRelativeTime(interest.lastUpdatedAt.toISOString()) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+            <p v-else class="muted x-small loot-council-column__empty">
+              Waiting for raiders to signal interest…
+            </p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </div>
+
     <section
       v-if="canManageLoot && monitorSession"
       class="card monitor-card"
@@ -712,7 +824,19 @@
             <h3>Detected Loot</h3>
             <p class="muted small">Review each drop before adding it to the raid log.</p>
           </div>
-          <button class="icon-button" type="button" @click="showDetectedModal = false">✕</button>
+          <div class="modal__header-actions">
+            <button
+              class="icon-button icon-button--muted"
+              type="button"
+              aria-label="Minimize detected loot modal"
+              @click="minimizeDetectedLootModal"
+            >
+              ▁
+            </button>
+            <button class="icon-button" type="button" aria-label="Close" @click="closeDetectedLootModal">
+              ✕
+            </button>
+          </div>
         </header>
         <div class="detected-controls">
           <button
@@ -904,9 +1028,15 @@ import {
   type GuildLootParserPattern,
   type ParsedLootEvent
 } from '../services/lootParser';
+import {
+  parseLootCouncilEvents,
+  type LootCouncilEvent,
+  type LootCouncilInterestMode
+} from '../services/lootCouncilParser';
 import { parseNpcKills, type ParsedNpcKillEvent } from '../services/npcKillParser';
 import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
+import { useAttentionStore } from '../stores/attention';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
@@ -992,12 +1122,37 @@ interface LootConsolePayload {
   status: LootConsoleStatus;
 }
 
+type LootCouncilItemStatus = 'ACTIVE' | 'AWARDED' | 'REMOVED';
+
+interface LootCouncilInterestState {
+  playerKey: string;
+  playerName: string;
+  replacing?: string | null;
+  mode: LootCouncilInterestMode;
+  votes?: number | null;
+  lastUpdatedAt: Date;
+  source: 'LIVE' | 'SYNC';
+  voters: string[];
+}
+
+interface LootCouncilItemState {
+  key: string;
+  itemName: string;
+  ordinal?: number | null;
+  startedAt: Date;
+  lastUpdatedAt: Date;
+  status: LootCouncilItemStatus;
+  awardedTo?: string | null;
+  interests: LootCouncilInterestState[];
+}
+
 defineOptions({ name: 'LootTrackerView' });
 
 const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
 const monitorStore = useMonitorStore();
+const attentionStore = useAttentionStore();
 
 const raid = ref<RaidDetail | null>(null);
 const GUILD_BANK_ID = '__guild_bank__';
@@ -1041,6 +1196,7 @@ function normalizeRaidLootEvents(events: RaidLootEvent[]): RaidLootEvent[] {
 async function refreshLootEvents() {
   const events = await api.fetchRaidLoot(raidId);
   lootEvents.value = normalizeRaidLootEvents(events);
+  reconcileLootCouncilWithAssignments();
 }
 const parserSettings = ref<GuildLootParserSettings | null>(null);
 const parsedLoot = ref<ParsedRow[]>([]);
@@ -1109,6 +1265,7 @@ const monitorController = reactive({
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
+const processedLootCouncilKeys = new Set<string>();
 const activeLogSignature = ref<string | null>(null);
 const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
 let liveChunkInFlight = false;
@@ -1118,6 +1275,29 @@ const lootConsoleTimerId = ref<number | null>(null);
 const lootConsoleCooldownId = ref<number | null>(null);
 const lootConsoleVisible = computed(
   () => lootConsoleCurrent.value !== null || lootConsoleQueue.value.length > 0
+);
+const lootCouncilState = reactive<{
+  items: LootCouncilItemState[];
+  suppressed: boolean;
+  lastUpdatedAt: Date | null;
+}>({
+  items: [],
+  suppressed: false,
+  lastUpdatedAt: null
+});
+const resolvedLootCouncilItems = new Map<string, Date>();
+const lootCouncilActiveItems = computed(() =>
+  lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
+);
+const canViewLootCouncilModal = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
+const lootCouncilModalVisible = computed(
+  () =>
+    canViewLootCouncilModal.value &&
+    lootCouncilActiveItems.value.length > 0 &&
+    !lootCouncilState.suppressed
 );
 const supportsContinuousMonitoring = computed(
   () => typeof window !== 'undefined' && typeof (window as any).showOpenFilePicker === 'function'
@@ -1136,6 +1316,8 @@ const clearLootPrompt = reactive<{
   mode: 'single',
   resolve: null
 });
+const DETECTED_LOOT_INDICATOR_ID = 'detected-loot';
+const LOOT_COUNCIL_INDICATOR_ID = 'loot-council';
 const editLootModal = reactive<{
   visible: boolean;
   entry: GroupedLootEntry | null;
@@ -1290,11 +1472,454 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   }
   processedLogKeys.clear();
   processedNpcKillKeys.clear();
+  resetLootCouncilTracking();
   if (options?.signature !== undefined) {
     activeLogSignature.value = options.signature;
   } else {
     activeLogSignature.value = null;
   }
+}
+
+function normalizeLootCouncilItemKey(itemName: string) {
+  const normalized = normalizeLootItemName(itemName ?? '');
+  return normalized || itemName.trim().toLowerCase();
+}
+
+function resetLootCouncilTracking() {
+  lootCouncilState.items.splice(0, lootCouncilState.items.length);
+  lootCouncilState.suppressed = false;
+  lootCouncilState.lastUpdatedAt = null;
+  processedLootCouncilKeys.clear();
+  resolvedLootCouncilItems.clear();
+}
+
+function minimizeLootCouncilModal() {
+  lootCouncilState.suppressed = true;
+}
+
+function toggleLootCouncilModalFromIndicator() {
+  if (lootCouncilActiveItems.value.length === 0) {
+    attentionStore.unregisterIndicator(LOOT_COUNCIL_INDICATOR_ID);
+    return;
+  }
+  lootCouncilState.suppressed = !lootCouncilState.suppressed;
+}
+
+function minimizeDetectedLootModal() {
+  showDetectedModal.value = false;
+}
+
+function toggleDetectedLootModalFromIndicator() {
+  if (parsedLoot.value.length === 0) {
+    attentionStore.unregisterIndicator(DETECTED_LOOT_INDICATOR_ID);
+    return;
+  }
+  showDetectedModal.value = !detectedLootModalOpen.value;
+}
+
+function clearLootCouncilItem(itemKey: string) {
+  if (itemKey === 'ALL') {
+    if (lootCouncilState.items.length === 0) {
+      return;
+    }
+    while (lootCouncilState.items.length > 0) {
+      const removed = lootCouncilState.items.pop();
+      if (removed) {
+        resolvedLootCouncilItems.set(removed.key, new Date());
+      }
+    }
+    lootCouncilState.suppressed = false;
+    appendDebugLog('All loot council items cleared manually');
+    return;
+  }
+  const index = lootCouncilState.items.findIndex((item) => item.key === itemKey);
+  if (index === -1) {
+    return;
+  }
+  const [removed] = lootCouncilState.items.splice(index, 1);
+  resolvedLootCouncilItems.set(removed.key, new Date());
+  appendDebugLog('Loot council item manually cleared', { itemName: removed.itemName });
+  if (lootCouncilState.items.length === 0) {
+    lootCouncilState.suppressed = false;
+  }
+}
+
+function handleLootCouncilEvents(events: LootCouncilEvent[]) {
+  if (!monitorSession.value?.isOwner || events.length === 0) {
+    return;
+  }
+  let changed = false;
+  let newItemActivated = false;
+  for (const event of events) {
+    if (processedLootCouncilKeys.has(event.key)) {
+      continue;
+    }
+    processedLootCouncilKeys.add(event.key);
+    const applied = applyLootCouncilEvent(event);
+    if (applied && event.type === 'ITEM_CONSIDERED') {
+      newItemActivated = true;
+    }
+    changed = changed || applied;
+  }
+  if (changed) {
+    lootCouncilState.lastUpdatedAt = new Date();
+    if (newItemActivated) {
+      lootCouncilState.suppressed = false;
+    }
+    if (lootCouncilActiveItems.value.length === 0) {
+      lootCouncilState.suppressed = false;
+    }
+  }
+}
+
+function applyLootCouncilEvent(event: LootCouncilEvent) {
+  switch (event.type) {
+    case 'ITEM_CONSIDERED':
+      return activateLootCouncilItem(event.itemName, event.timestamp, event.ordinal ?? null);
+    case 'REQUEST':
+      return registerLootCouncilRequest(event);
+    case 'SYNC_SUMMARY':
+      return applyLootCouncilSyncSummary(event);
+    case 'VOTE':
+      return applyLootCouncilVote(event);
+    case 'AWARD':
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: event.awardedTo,
+        status: 'AWARDED'
+      });
+    case 'DONATION':
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: null,
+        status: 'REMOVED'
+      });
+    case 'RANDOM_AWARD':
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: event.awardedTo,
+        status: 'AWARDED'
+      });
+    case 'MASTER_LOOTED':
+    case 'LEFT_ON_CORPSE':
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: null,
+        status: 'REMOVED'
+      });
+    default:
+      return false;
+  }
+}
+
+function activateLootCouncilItem(itemName: string, timestamp: Date, ordinal: number | null) {
+  const key = normalizeLootCouncilItemKey(itemName);
+  const resolvedAt = resolvedLootCouncilItems.get(key);
+  if (resolvedAt && timestamp.getTime() <= resolvedAt.getTime()) {
+    return false;
+  }
+  let item = lootCouncilState.items.find((entry) => entry.key === key) ?? null;
+  if (!item) {
+    item = {
+      key,
+      itemName,
+      ordinal: ordinal ?? null,
+      startedAt: timestamp,
+      lastUpdatedAt: timestamp,
+      status: 'ACTIVE',
+      awardedTo: null,
+      interests: []
+    };
+    lootCouncilState.items.push(item);
+    appendDebugLog('Loot council item detected', { itemName, ordinal });
+    return true;
+  }
+  let changed = false;
+  if (item.status !== 'ACTIVE') {
+    item.status = 'ACTIVE';
+    item.interests = [];
+    item.awardedTo = null;
+    item.startedAt = timestamp;
+    changed = true;
+  }
+  if (ordinal != null && ordinal !== item.ordinal) {
+    item.ordinal = ordinal;
+    changed = true;
+  }
+  if (item.itemName !== itemName) {
+    item.itemName = itemName;
+    changed = true;
+  }
+  item.lastUpdatedAt = timestamp;
+  return changed;
+}
+
+function findLootCouncilItem(itemName: string) {
+  const key = normalizeLootCouncilItemKey(itemName);
+  return lootCouncilState.items.find((entry) => entry.key === key) ?? null;
+}
+
+function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'REQUEST' }>) {
+  const activated = activateLootCouncilItem(event.itemName, event.timestamp, null);
+  const item = findLootCouncilItem(event.itemName);
+  if (!item) {
+    return activated;
+  }
+  const changed = upsertLootCouncilInterest(item, {
+    playerName: event.playerName,
+    replacing: event.replacing ?? null,
+    mode: event.mode,
+    votes: 0,
+    voters: [],
+    timestamp: event.timestamp,
+    source: 'LIVE'
+  });
+  if (changed) {
+    appendDebugLog('Loot council interest recorded', {
+      itemName: event.itemName,
+      playerName: event.playerName,
+      replacing: event.replacing ?? null,
+      mode: event.mode
+    });
+  }
+  return activated || changed;
+}
+
+function upsertLootCouncilInterest(
+  item: LootCouncilItemState,
+  options: {
+    playerName: string;
+    replacing?: string | null;
+    mode: LootCouncilInterestMode;
+    votes?: number | null;
+    voters?: string[];
+    timestamp: Date;
+    source: 'LIVE' | 'SYNC';
+  }
+) {
+  const playerKey = options.playerName.trim().toLowerCase();
+  const existing = item.interests.find((interest) => interest.playerKey === playerKey);
+  const votesNormalized = options.votes ?? null;
+  let changed = false;
+  if (existing) {
+    if (existing.playerName !== options.playerName) {
+      existing.playerName = options.playerName;
+      changed = true;
+    }
+    if ((options.replacing ?? null) !== (existing.replacing ?? null)) {
+      existing.replacing = options.replacing ?? null;
+      changed = true;
+    }
+    if (existing.mode !== options.mode) {
+      existing.mode = options.mode;
+      changed = true;
+    }
+    if (votesNormalized !== null) {
+      if ((existing.votes ?? null) !== votesNormalized) {
+        existing.votes = votesNormalized;
+        changed = true;
+      }
+    }
+    if (Array.isArray(options.voters)) {
+      const normalizedVoters = dedupeVoters(options.voters);
+      if (!areVoterListsEqual(existing.voters, normalizedVoters)) {
+        existing.voters = normalizedVoters;
+        changed = true;
+      }
+    }
+    existing.lastUpdatedAt = options.timestamp;
+    existing.source = options.source;
+    ensureInterestVoterPlaceholders(existing);
+  } else {
+    item.interests.push({
+      playerKey,
+      playerName: options.playerName,
+      replacing: options.replacing ?? null,
+      mode: options.mode,
+      votes: votesNormalized,
+      lastUpdatedAt: options.timestamp,
+      source: options.source,
+      voters: dedupeVoters(options.voters ?? [])
+    });
+    ensureInterestVoterPlaceholders(item.interests[item.interests.length - 1]);
+    changed = true;
+  }
+  item.lastUpdatedAt = options.timestamp;
+  sortLootCouncilInterests(item.interests);
+  return changed;
+}
+
+function sortLootCouncilInterests(interests: LootCouncilInterestState[]) {
+  interests.sort((a, b) => {
+    const voteDelta = (b.votes ?? 0) - (a.votes ?? 0);
+    if (voteDelta !== 0) {
+      return voteDelta;
+    }
+    return a.playerName.localeCompare(b.playerName);
+  });
+}
+
+function dedupeVoters(voters: string[]) {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const voter of voters) {
+    const name = voter.trim();
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(name);
+  }
+  return normalized;
+}
+
+function areVoterListsEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const normalize = (list: string[]) =>
+    list.map((entry) => entry.trim().toLowerCase()).sort();
+  const normalizedA = normalize(a);
+  const normalizedB = normalize(b);
+  return normalizedA.every((entry, index) => entry === normalizedB[index]);
+}
+
+function ensureInterestVoterPlaceholders(interest: LootCouncilInterestState) {
+  const desiredCount = interest.votes ?? 0;
+  if (!Array.isArray(interest.voters)) {
+    interest.voters = [];
+  }
+  while (interest.voters.length < desiredCount) {
+    interest.voters.push(`Council vote #${interest.voters.length + 1}`);
+  }
+  if (interest.voters.length > desiredCount) {
+    interest.voters.splice(desiredCount);
+  }
+}
+
+function applyLootCouncilSyncSummary(
+  event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>
+) {
+  const activated = activateLootCouncilItem(event.itemName, event.timestamp, null);
+  const item = findLootCouncilItem(event.itemName);
+  if (!item) {
+    return activated;
+  }
+  if (event.empty) {
+    const hadInterests = item.interests.length > 0;
+    if (hadInterests) {
+      item.interests = [];
+      item.lastUpdatedAt = event.timestamp;
+    }
+    return activated || hadInterests;
+  }
+  const previousMap = new Map(
+    item.interests.map((interest) => [interest.playerKey, interest] as const)
+  );
+  const mapped = event.requests.map<LootCouncilInterestState>((request) => {
+    const playerKey = request.playerName.trim().toLowerCase();
+    const existing = previousMap.get(playerKey);
+    return {
+      playerKey,
+      playerName: request.playerName,
+      replacing: request.replacing ?? null,
+      mode: request.mode,
+      votes: request.votes ?? 0,
+      lastUpdatedAt: event.timestamp,
+      source: 'SYNC',
+      voters: existing?.voters?.slice() ?? []
+    };
+  });
+  for (const entry of mapped) {
+    ensureInterestVoterPlaceholders(entry);
+  }
+  sortLootCouncilInterests(mapped);
+  const signature = JSON.stringify(
+    mapped.map((entry) => ({
+      playerKey: entry.playerKey,
+      replacing: entry.replacing ?? null,
+      mode: entry.mode,
+      votes: entry.votes ?? 0,
+      voters: entry.voters.slice().sort((a, b) => a.localeCompare(b))
+    }))
+  );
+  const existingSignature = JSON.stringify(
+    item.interests.map((entry) => ({
+      playerKey: entry.playerKey,
+      replacing: entry.replacing ?? null,
+      mode: entry.mode,
+      votes: entry.votes ?? 0,
+      voters: entry.voters.slice().sort((a, b) => a.localeCompare(b))
+    }))
+  );
+  const changed = signature !== existingSignature;
+  if (changed) {
+    item.interests = mapped;
+    item.lastUpdatedAt = event.timestamp;
+    appendDebugLog('Loot council sync updated', {
+      itemName: event.itemName,
+      interestCount: mapped.length
+    });
+  }
+  return activated || changed;
+}
+
+function applyLootCouncilVote(event: Extract<LootCouncilEvent, { type: 'VOTE' }>) {
+  const item = findLootCouncilItem(event.itemName);
+  if (!item) {
+    return false;
+  }
+  const candidateKey = event.candidateName.trim().toLowerCase();
+  const interest = item.interests.find((entry) => entry.playerKey === candidateKey);
+  if (!interest) {
+    return false;
+  }
+  interest.votes = (interest.votes ?? 0) + 1;
+  const voterName = event.voterName.trim();
+  if (voterName.length > 0) {
+    const voterKey = voterName.toLowerCase();
+    if (!interest.voters.some((existing) => existing.toLowerCase() === voterKey)) {
+      interest.voters.push(voterName);
+    }
+  }
+  interest.lastUpdatedAt = event.timestamp;
+  item.lastUpdatedAt = event.timestamp;
+  ensureInterestVoterPlaceholders(interest);
+  sortLootCouncilInterests(item.interests);
+  appendDebugLog('Loot council vote detected', {
+    itemName: event.itemName,
+    voter: event.voterName,
+    candidate: event.candidateName,
+    votes: interest.votes
+  });
+  return true;
+}
+
+function finalizeLootCouncilItem(
+  itemName: string,
+  timestamp: Date,
+  options: { awardedTo: string | null; status: LootCouncilItemStatus }
+) {
+  const key = normalizeLootCouncilItemKey(itemName);
+  const index = lootCouncilState.items.findIndex((entry) => entry.key === key);
+  if (index === -1) {
+    return false;
+  }
+  const [item] = lootCouncilState.items.splice(index, 1);
+  appendDebugLog('Loot council item finalized', {
+    itemName,
+    awardedTo: options.awardedTo,
+    status: options.status
+  });
+  resolvedLootCouncilItems.set(key, timestamp);
+  applyLocalLootResolution(itemName, options);
+  if (options.status === 'AWARDED' && options.awardedTo) {
+    void autoAssignLootFromCouncil(itemName, options.awardedTo, timestamp);
+  }
+  if (lootCouncilState.items.length === 0) {
+    lootCouncilState.suppressed = false;
+  }
+  return Boolean(item);
 }
 watch(
   () => [raid.value?.startedAt ?? raid.value?.startTime, raid.value?.endedAt],
@@ -1331,6 +1956,19 @@ watch(
   (isOwner, wasOwner) => {
     if (!isOwner && wasOwner) {
       cleanupMonitorController();
+    }
+  }
+);
+watch(
+  () => ({
+    id: monitorSession.value?.sessionId ?? null,
+    isOwner: monitorSession.value?.isOwner ?? false
+  }),
+  (next, prev) => {
+    const becameOwner = next.isOwner && next.id && next.id !== prev?.id;
+    const lostOwnership = !next.isOwner && prev?.isOwner;
+    if (becameOwner || lostOwnership) {
+      resetLootCouncilTracking();
     }
   }
 );
@@ -1393,6 +2031,68 @@ const canManageLootLists = computed(() => {
   return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
 });
 const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
+
+watch(
+  () => ({
+    lootEvents: lootEvents.value.map((event) => ({
+      id: event.id,
+      itemName: event.itemName,
+      looterName: event.looterName,
+      note: event.note
+    })),
+    lootCouncilCount: lootCouncilState.items.length
+  }),
+  () => {
+    reconcileLootCouncilWithAssignments();
+  }
+);
+
+watch(
+  () => ({
+    pending: parsedLoot.value.length > 0,
+    visible: detectedLootModalOpen.value,
+    permitted: canManageLoot.value
+  }),
+  (state) => {
+    if (!state.pending || !state.permitted) {
+      attentionStore.unregisterIndicator(DETECTED_LOOT_INDICATOR_ID);
+      return;
+    }
+    attentionStore.registerIndicator(DETECTED_LOOT_INDICATOR_ID, {
+      id: DETECTED_LOOT_INDICATOR_ID,
+      label: 'Loot',
+      description: 'Detected loot review queue',
+      icon: 'L',
+      active: state.visible,
+      requiresAttention: !state.visible,
+      onToggle: toggleDetectedLootModalFromIndicator
+    });
+  },
+  { immediate: true }
+);
+
+watch(
+  () => ({
+    hasItems: lootCouncilActiveItems.value.length > 0 && canViewLootCouncilModal.value,
+    visible: lootCouncilModalVisible.value
+  }),
+  (state) => {
+    if (!state.hasItems) {
+      attentionStore.unregisterIndicator(LOOT_COUNCIL_INDICATOR_ID);
+      return;
+    }
+    attentionStore.registerIndicator(LOOT_COUNCIL_INDICATOR_ID, {
+      id: LOOT_COUNCIL_INDICATOR_ID,
+      label: 'LC',
+      description: 'Loot council session tracker',
+      icon: 'LC',
+      active: state.visible,
+      requiresAttention: !state.visible,
+      onToggle: toggleLootCouncilModalFromIndicator
+    });
+  },
+  { immediate: true }
+);
 const canViewParserSettings = computed(() => {
   const role = raid.value?.permissions?.role;
   return role === 'LEADER' || role === 'OFFICER';
@@ -3312,6 +4012,7 @@ function processLogContent(
   if (options.resetKeys) {
     processedLogKeys.clear();
     processedNpcKillKeys.clear();
+    resetLootCouncilTracking();
     parsedLootPage.value = 1;
   }
 
@@ -3319,6 +4020,17 @@ function processLogContent(
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
   const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null);
+  const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
+  if (shouldTrackLootCouncil) {
+    const lootCouncilEvents = parseLootCouncilEvents(
+      content,
+      options.start,
+      options.end ?? null
+    );
+    if (lootCouncilEvents.length > 0) {
+      handleLootCouncilEvents(lootCouncilEvents);
+    }
+  }
   const includeConsole = Boolean(monitorSession.value);
   const consolePayloads: LootConsolePayload[] = [];
 
@@ -3591,6 +4303,191 @@ const formatLooterLabel = (name: string, looterClass?: string | null) => {
   const classLabel = formatCharacterClassLabel(looterClass);
   return classLabel ? `${name} (${classLabel})` : name;
 };
+
+function formatVoteTooltip(interest: LootCouncilInterestState) {
+  if (!interest.voters || interest.voters.length === 0) {
+    return 'No votes recorded yet.';
+  }
+  if (interest.voters.length === 1) {
+    return `Vote from ${interest.voters[0]}`;
+  }
+  return `Votes from ${interest.voters.join(', ')}`;
+}
+
+function formatVoteBadgeTooltip(voter: string, index: number) {
+  const label = voter && voter.trim().length > 0 ? voter : `Council vote #${index + 1}`;
+  return `Vote from ${label}`;
+}
+
+function getInterestVoteCount(interest: LootCouncilInterestState) {
+  const tally = interest.votes ?? 0;
+  const voterTally = interest.voters?.length ?? 0;
+  return Math.max(tally, voterTally);
+}
+
+function applyLocalLootResolution(
+  itemName: string,
+  options: { awardedTo: string | null; status: LootCouncilItemStatus }
+) {
+  if (!lootEvents.value.length) {
+    return;
+  }
+  const normalized = normalizeLootItemName(itemName);
+  if (!normalized) {
+    return;
+  }
+  let mutated = false;
+  const next: RaidLootEvent[] = [];
+  let remainingAwards = options.status === 'AWARDED' && options.awardedTo ? 1 : 0;
+  for (const event of lootEvents.value) {
+    if (!event?.itemName) {
+      next.push(event);
+      continue;
+    }
+    const eventNormalized = normalizeLootItemName(event.itemName);
+    if (eventNormalized !== normalized) {
+      next.push(event);
+      continue;
+    }
+    if (!event.looterName || !isMasterLooterName(event.looterName)) {
+      next.push(event);
+      continue;
+    }
+    if (options.status === 'REMOVED') {
+      mutated = true;
+      continue;
+    }
+    if (options.status === 'AWARDED' && options.awardedTo && remainingAwards > 0) {
+      mutated = true;
+      remainingAwards -= 1;
+      next.push({
+        ...event,
+        looterName: normalizeLooterNameValue(options.awardedTo)
+      });
+      continue;
+    }
+    next.push(event);
+  }
+  if (mutated) {
+    lootEvents.value = next;
+  }
+}
+
+function isResolvedLootEvent(event: RaidLootEvent) {
+  if (!event.itemName) {
+    return false;
+  }
+  if (!event.looterName) {
+    return false;
+  }
+  if (!isMasterLooterName(event.looterName)) {
+    return true;
+  }
+  const note = event.note?.toLowerCase() ?? '';
+  if (note.includes('donated') || note.includes('guild')) {
+    return true;
+  }
+  if (isGuildBankName(event.looterName)) {
+    return true;
+  }
+  return false;
+}
+
+function reconcileLootCouncilWithAssignments() {
+  if (!lootCouncilState.items.length || !lootEvents.value.length) {
+    return;
+  }
+  const resolvedLookup = new Map<string, Date>();
+  for (const event of lootEvents.value) {
+    if (!isResolvedLootEvent(event)) {
+      continue;
+    }
+    const normalized = normalizeLootItemName(event.itemName ?? '');
+    if (!normalized) {
+      continue;
+    }
+    const eventTime = event.eventTime ? new Date(event.eventTime) : new Date();
+    resolvedLookup.set(normalized, eventTime);
+  }
+  if (resolvedLookup.size === 0) {
+    return;
+  }
+  let changed = false;
+  for (let index = lootCouncilState.items.length - 1; index >= 0; index -= 1) {
+    const item = lootCouncilState.items[index];
+    const resolvedAt = resolvedLookup.get(item.key);
+    if (!resolvedAt) {
+      continue;
+    }
+    lootCouncilState.items.splice(index, 1);
+    resolvedLootCouncilItems.set(item.key, resolvedAt);
+    changed = true;
+  }
+  if (changed && lootCouncilState.items.length === 0) {
+    lootCouncilState.suppressed = false;
+  }
+}
+
+async function autoAssignLootFromCouncil(itemName: string, awardedTo: string, timestamp: Date) {
+  if (!raid.value || !canManageLoot.value) {
+    return;
+  }
+  const normalizedItem = normalizeLootItemName(itemName);
+  const normalizedLooter = normalizeLooterNameValue(awardedTo);
+  const target = findPendingLootEventForItem(normalizedItem);
+  if (!target) {
+    appendDebugLog('Loot council assignment skipped: no pending loot matches', {
+      itemName,
+      awardedTo
+    });
+    return;
+  }
+  try {
+    await api.updateRaidLoot(raidId, target.id, {
+      looterName: normalizedLooter,
+      looterClass: target.looterClass ?? null,
+      eventTime: timestamp.toISOString()
+    });
+    appendDebugLog('Loot council assignment applied', {
+      lootId: target.id,
+      itemName,
+      awardedTo: normalizedLooter
+    });
+    await refreshLootEvents();
+    window.dispatchEvent(
+      new CustomEvent('loot-assigned', {
+        detail: {
+          raidId,
+          itemName,
+          looterName: normalizedLooter
+        }
+      })
+    );
+  } catch (error) {
+    appendDebugLog('Failed to assign loot from council award', {
+      itemName,
+      awardedTo,
+      error: String(error)
+    });
+  }
+}
+
+function findPendingLootEventForItem(normalizedItemName: string) {
+  for (const event of lootEvents.value) {
+    if (!event.itemName) {
+      continue;
+    }
+    const eventItem = normalizeLootItemName(event.itemName);
+    if (eventItem !== normalizedItemName) {
+      continue;
+    }
+    if (!event.looterName || !isMasterLooterName(event.looterName)) {
+      continue;
+    }
+    return event;
+  }
+  return null;
+}
 
 function handleExistingLootCardClick(event: MouseEvent, itemName: string, itemId?: number | null) {
   const target = event.target as HTMLElement | null;
@@ -3869,6 +4766,8 @@ onBeforeUnmount(() => {
     cleanupMonitorController();
   }
   clearLootConsole();
+  attentionStore.unregisterIndicator(DETECTED_LOOT_INDICATOR_ID);
+  attentionStore.unregisterIndicator(LOOT_COUNCIL_INDICATOR_ID);
 });
 </script>
 
@@ -5510,6 +6409,48 @@ onBeforeUnmount(() => {
     background 0.2s ease;
 }
 
+.modal__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.icon-button--muted {
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: #cbd5f5;
+  background: rgba(15, 23, 42, 0.3);
+}
+
+.icon-button--muted:hover,
+.icon-button--muted:focus-visible {
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.5);
+  border-color: rgba(148, 163, 184, 0.45);
+}
+
+.loot-council-clear-all {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.3);
+  color: #cbd5f5;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.loot-council-clear-all:hover,
+.loot-council-clear-all:focus-visible {
+  color: #f8fafc;
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.15);
+}
+
 .icon-button--delete {
   color: rgba(248, 113, 113, 0.8);
 }
@@ -5574,4 +6515,184 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
   box-shadow: none;
 }
+
+.loot-council-backdrop {
+  z-index: 30;
+}
+
+.loot-council-modal {
+  max-width: 760px;
+  width: calc(100% - 2rem);
+}
+
+.loot-council-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.loot-council-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+.loot-council-column {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
+}
+
+.loot-council-column__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.loot-council-column__name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.loot-council-column__meta {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.loot-council-column__ordinal {
+  font-size: 0.85rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #bfdbfe;
+  height: fit-content;
+}
+
+.loot-council-column__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+}
+
+.loot-council-column__chip {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: #94a3b8;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.loot-council-column__chip:hover,
+.loot-council-column__chip:focus-visible {
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.55);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.loot-council-column__empty {
+  margin: 0.75rem 0 0;
+}
+
+.loot-council-interest-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loot-council-interest {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.loot-council-interest:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.loot-council-interest__details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.loot-council-interest__headline {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.loot-council-interest__name {
+  font-size: 0.95rem;
+}
+
+.loot-council-interest__replacement {
+  font-size: 0.8rem;
+  color: #cbd5f5;
+  margin: 0;
+}
+
+.loot-council-interest__replacement--none {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.loot-council-interest__votes {
+  display: inline-flex;
+  gap: 0.15rem;
+}
+
+.loot-council-interest__vote-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  font-size: 0.7rem;
+  cursor: help;
+}
+
+.loot-council-interest__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.loot-council-interest__vote-count {
+  font-weight: 600;
+  color: #facc15;
+}
+
+.loot-council-interest__timestamp {
+  font-size: 0.75rem;
+}
+
 </style>

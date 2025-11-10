@@ -28,27 +28,52 @@
         </RouterLink>
         <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
       </nav>
-      <div
-        v-if="monitorStore.indicatorVisible"
-        class="nav-monitor"
-        :class="{ 'nav-monitor--attention': monitorStore.hasPendingActions }"
-      >
-        <button
-          type="button"
-          class="nav-monitor__button"
-          @click="goToActiveMonitor"
-          :aria-label="monitorIndicatorLabel"
+      <div class="nav-alerts">
+        <div
+          v-if="attentionStore.hasIndicators"
+          class="nav-attention"
+          role="group"
+          aria-label="Attention controls"
         >
-          <span class="nav-monitor__pulse" aria-hidden="true"></span>
-          <span class="nav-monitor__content">
-            <span class="nav-monitor__label">
-              {{ monitorStore.hasPendingActions ? 'Loot Actions Pending' : 'Monitoring Live' }}
+          <button
+            v-for="indicator in attentionStore.indicatorList"
+            :key="indicator.id"
+            type="button"
+            class="nav-attention__button"
+            :class="{
+              'nav-attention__button--active': indicator.active,
+              'nav-attention__button--pulse': indicator.requiresAttention
+            }"
+            :aria-label="indicator.description ?? indicator.label"
+            @click="attentionStore.triggerIndicator(indicator.id)"
+          >
+            <span class="nav-attention__badge" aria-hidden="true">
+              {{ (indicator.icon ?? indicator.label.charAt(0)).toUpperCase() }}
             </span>
-            <span class="nav-monitor__file">
-              {{ monitorStore.activeSession?.raidName ?? 'Raid' }}
+          </button>
+        </div>
+        <div
+          v-if="monitorStore.indicatorVisible"
+          class="nav-monitor"
+          :class="{ 'nav-monitor--attention': monitorStore.hasPendingActions }"
+        >
+          <button
+            type="button"
+            class="nav-monitor__button"
+            @click="goToActiveMonitor"
+            :aria-label="monitorIndicatorLabel"
+          >
+            <span class="nav-monitor__pulse" aria-hidden="true"></span>
+            <span class="nav-monitor__content">
+              <span class="nav-monitor__label">
+                {{ monitorStore.hasPendingActions ? 'Loot Actions Pending' : 'Monitoring Live' }}
+              </span>
+              <span class="nav-monitor__file">
+                {{ monitorStore.activeSession?.raidName ?? 'Raid' }}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        </div>
       </div>
       <div class="auth">
         <RouterLink
@@ -117,12 +142,14 @@ import { RouterLink, RouterView, useRouter, type RouteLocationNormalized } from 
 import { useAuthStore } from './stores/auth';
 import { api, type RaidEventSummary } from './services/api';
 import { useMonitorStore } from './stores/monitor';
+import { useAttentionStore } from './stores/attention';
 import { playLootAlertChime } from './utils/audio';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
 const router = useRouter();
 const monitorStore = useMonitorStore();
+const attentionStore = useAttentionStore();
 
 const toasts = ref<{ id: number; title: string; message: string }[]>([]);
 let toastId = 0;
@@ -327,6 +354,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background: rgba(15, 23, 42, 0.9);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .brand__title {
@@ -348,6 +377,66 @@ function hasRaidStarted(raid: RaidEventSummary) {
   gap: 1.25rem;
 }
 
+.nav-alerts {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.nav-attention {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nav-attention__button {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(15, 23, 42, 0.75);
+  color: #f8fafc;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.35);
+}
+
+.nav-attention__button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid rgba(59, 130, 246, 0.35);
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.nav-attention__button--active {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.4);
+}
+
+.nav-attention__button--pulse::after {
+  animation: navAttentionPulse 2.8s ease-in-out infinite;
+  opacity: 1;
+}
+
+.nav-attention__button:hover,
+.nav-attention__button:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.45);
+}
+
+.nav-attention__badge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
 .nav__link {
   color: #e2e8f0;
   text-decoration: none;
@@ -359,7 +448,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav-monitor {
-  margin-left: 1.5rem;
+  margin-left: 0.5rem;
 }
 
 .nav-monitor__button {
@@ -468,6 +557,21 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
   100% {
     box-shadow: 0 0 0 0 rgba(248, 113, 113, 0);
+  }
+}
+
+@keyframes navAttentionPulse {
+  0% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  55% {
+    opacity: 0.6;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.85);
   }
 }
 
@@ -659,8 +763,14 @@ function hasRaidStarted(raid: RaidEventSummary) {
     width: 100%;
   }
 
-  .nav-monitor {
+  .nav-alerts {
     order: 4;
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .nav-monitor {
     width: 100%;
     margin-left: 0;
   }
