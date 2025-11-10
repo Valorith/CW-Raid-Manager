@@ -1025,7 +1025,7 @@
       </form>
     </div>
   </div>
-  <div v-if="targetsModal.visible" class="modal-backdrop" @click.self="closeTargetsModal">
+  <div v-if="targetsModal.visible" class="modal-backdrop">
     <div class="modal raid-targets-modal">
       <header class="modal__header raid-targets-modal__header">
         <div>
@@ -1064,14 +1064,35 @@
                     <small class="muted small">{{ displayTargetZones.length }} saved</small>
                   </div>
                   <div class="targets-field__input">
-                    <textarea
-                      v-model="targetsModal.zones"
-                      class="raid-targets-card__textarea raid-targets-modal__textarea"
-                      rows="5"
-                      :placeholder="'Temple of Veeshan\nKael Drakkel'"
+                    <div class="targets-pill-list" :class="{ 'targets-pill-list--empty': targetsModal.zones.length === 0 }">
+                      <span
+                        v-for="(zone, index) in targetsModal.zones"
+                        :key="zone.id"
+                        class="target-pill"
+                      >
+                        <span class="target-pill__label">{{ zone.value }}</span>
+                        <button
+                          class="target-pill__remove"
+                          type="button"
+                          :disabled="targetsModal.saving"
+                          @click.stop.prevent="removeTargetEntry('zones', zone.id)"
+                        >
+                          ✕<span class="sr-only">Remove {{ zone.value }}</span>
+                        </button>
+                      </span>
+                      <span v-if="targetsModal.zones.length === 0" class="targets-pill-empty muted small">
+                        No target zones yet.
+                      </span>
+                    </div>
+                    <input
+                      v-model="targetsModal.zoneInput"
+                      class="targets-pill-input"
+                      type="text"
+                      :placeholder="'Add a zone and press Enter'"
                       :disabled="targetsModal.saving"
-                    ></textarea>
-                    <small class="form__hint">One zone per line. This list is visible to all raiders.</small>
+                      @keydown.enter.prevent="commitTargetInput('zones')"
+                    />
+                    <small class="form__hint">Press Enter to add a zone. This list is visible to all raiders.</small>
                   </div>
                 </label>
                 <label class="form__field targets-field">
@@ -1080,15 +1101,36 @@
                     <small class="muted small">{{ displayTargetBosses.length }} saved</small>
                   </div>
                   <div class="targets-field__input">
-                    <textarea
-                      v-model="targetsModal.bosses"
-                      class="raid-targets-card__textarea raid-targets-modal__textarea"
-                      rows="5"
-                      :placeholder="'Vulak`Aerr\nAvatar of War'"
+                    <div class="targets-pill-list" :class="{ 'targets-pill-list--empty': targetsModal.bosses.length === 0 }">
+                      <span
+                        v-for="(boss, index) in targetsModal.bosses"
+                        :key="boss.id"
+                        class="target-pill"
+                      >
+                        <span class="target-pill__label">{{ boss.value }}</span>
+                        <button
+                          class="target-pill__remove"
+                          type="button"
+                          :disabled="targetsModal.saving"
+                          @click.stop.prevent="removeTargetEntry('bosses', boss.id)"
+                        >
+                          ✕<span class="sr-only">Remove {{ boss.value }}</span>
+                        </button>
+                      </span>
+                      <span v-if="targetsModal.bosses.length === 0" class="targets-pill-empty muted small">
+                        No bosses added yet.
+                      </span>
+                    </div>
+                    <input
+                      v-model="targetsModal.bossInput"
+                      class="targets-pill-input"
+                      type="text"
+                      :placeholder="'Add a boss and press Enter'"
                       :disabled="targetsModal.saving"
-                    ></textarea>
+                      @keydown.enter.prevent="commitTargetInput('bosses')"
+                    />
                     <small class="form__hint"
-                      >One objective per line. Use this for key bosses or milestones.</small
+                      >Press Enter to add each objective. Use this for key bosses or milestones.</small
                     >
                   </div>
                 </label>
@@ -1624,15 +1666,23 @@ const initialNotes = ref('');
 const savingNotes = ref(false);
 const notesError = ref<string | null>(null);
 const notesDirty = computed(() => notesInput.value !== initialNotes.value);
+type TargetEntry = {
+  id: string;
+  value: string;
+};
+
 const targetsModal = reactive({
   visible: false,
-  zones: '',
-  bosses: '',
-  initialZones: '',
-  initialBosses: '',
+  zones: [] as TargetEntry[],
+  bosses: [] as TargetEntry[],
+  initialZones: [] as string[],
+  initialBosses: [] as string[],
+  zoneInput: '',
+  bossInput: '',
   saving: false,
   error: ''
 });
+type TargetField = 'zones' | 'bosses';
 const targetsCopyState = reactive({
   raids: [] as RaidEventSummary[],
   loading: false,
@@ -2064,9 +2114,15 @@ watch(npcKillEvents, () => {
   npcKillZoomRange.value = null;
 });
 const formattedTargetZonesHeader = computed(() => displayTargetZones.value.join(', '));
-const targetsModalDirty = computed(
-  () => targetsModal.zones !== targetsModal.initialZones || targetsModal.bosses !== targetsModal.initialBosses
-);
+const targetsModalDirty = computed(() => {
+  const hasPendingInput =
+    targetsModal.zoneInput.trim().length > 0 || targetsModal.bossInput.trim().length > 0;
+  return (
+    hasPendingInput ||
+    !areTargetListsEqual(extractTargetValues(targetsModal.zones), targetsModal.initialZones) ||
+    !areTargetListsEqual(extractTargetValues(targetsModal.bosses), targetsModal.initialBosses)
+  );
+});
 const confirmModal = reactive({
   visible: false,
   title: '',
@@ -3200,11 +3256,90 @@ async function saveNotes() {
   }
 }
 
-function normalizeTargetInput(value: string) {
-  return value
-    .split('\n')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
+function commitTargetInput(type: TargetField) {
+  const pending =
+    type === 'zones' ? targetsModal.zoneInput.trim() : targetsModal.bossInput.trim();
+  if (!pending) {
+    return;
+  }
+
+  const list = type === 'zones' ? targetsModal.zones : targetsModal.bosses;
+  const normalized = pending.toLowerCase();
+  if (list.some((entry) => entry.value.trim().toLowerCase() === normalized)) {
+    if (type === 'zones') {
+      targetsModal.zoneInput = '';
+    } else {
+      targetsModal.bossInput = '';
+    }
+    return;
+  }
+
+  const nextEntry = createTargetEntry(pending);
+  if (type === 'zones') {
+    targetsModal.zones = [...list, nextEntry];
+    targetsModal.zoneInput = '';
+  } else {
+    targetsModal.bosses = [...list, nextEntry];
+    targetsModal.bossInput = '';
+  }
+}
+
+function removeTargetEntry(type: TargetField, entryId: string) {
+  if (type === 'zones') {
+    targetsModal.zones = targetsModal.zones.filter((entry) => entry.id !== entryId);
+  } else {
+    targetsModal.bosses = targetsModal.bosses.filter((entry) => entry.id !== entryId);
+  }
+}
+
+function commitPendingTargetEntries() {
+  if (targetsModal.zoneInput.trim().length > 0) {
+    commitTargetInput('zones');
+  }
+  if (targetsModal.bossInput.trim().length > 0) {
+    commitTargetInput('bosses');
+  }
+}
+
+function createTargetEntry(value: string): TargetEntry {
+  const id =
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `target-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    id,
+    value
+  };
+}
+
+function mapTargetsToEntries(entries: Iterable<string> | null | undefined): TargetEntry[] {
+  return sanitizeTargets(entries).map((value) => createTargetEntry(value));
+}
+
+function extractTargetValues(entries: TargetEntry[]): string[] {
+  return entries.map((entry) => entry.value);
+}
+
+function sanitizeTargets(entries: Iterable<string> | null | undefined): string[] {
+  const sanitized: string[] = [];
+  if (!entries) {
+    return sanitized;
+  }
+  for (const entry of entries) {
+    const trimmed = (entry ?? '').toString().trim();
+    if (!trimmed) {
+      continue;
+    }
+    sanitized.push(trimmed);
+  }
+  return sanitized;
+}
+
+function areTargetListsEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return a.every((value, index) => value === b[index]);
 }
 
 async function loadCopyableRaidOptions() {
@@ -3242,17 +3377,21 @@ function copyGoalsFromSelectedRaid() {
     return;
   }
 
-  targetsModal.zones = (source.targetZones ?? []).join('\n');
-  targetsModal.bosses = (source.targetBosses ?? []).join('\n');
+  targetsModal.zones = mapTargetsToEntries(source.targetZones ?? []);
+  targetsModal.bosses = mapTargetsToEntries(source.targetBosses ?? []);
+  targetsModal.zoneInput = '';
+  targetsModal.bossInput = '';
   targetsCopyState.lastCopiedRaidName = source.name;
 }
 
 function openTargetsModal() {
   targetsModal.visible = true;
-  targetsModal.zones = displayTargetZones.value.join('\n');
-  targetsModal.bosses = displayTargetBosses.value.join('\n');
-  targetsModal.initialZones = targetsModal.zones;
-  targetsModal.initialBosses = targetsModal.bosses;
+  targetsModal.zones = mapTargetsToEntries(displayTargetZones.value);
+  targetsModal.bosses = mapTargetsToEntries(displayTargetBosses.value);
+  targetsModal.initialZones = extractTargetValues(targetsModal.zones);
+  targetsModal.initialBosses = extractTargetValues(targetsModal.bosses);
+  targetsModal.zoneInput = '';
+  targetsModal.bossInput = '';
   targetsModal.error = '';
   targetsCopyState.search = '';
   targetsCopyState.lastCopiedRaidName = '';
@@ -3263,34 +3402,46 @@ function openTargetsModal() {
 function closeTargetsModal() {
   targetsModal.visible = false;
   targetsModal.error = '';
+  targetsModal.zoneInput = '';
+  targetsModal.bossInput = '';
 }
 
 function resetTargetsModal() {
-  targetsModal.zones = targetsModal.initialZones;
-  targetsModal.bosses = targetsModal.initialBosses;
+  targetsModal.zones = mapTargetsToEntries(targetsModal.initialZones);
+  targetsModal.bosses = mapTargetsToEntries(targetsModal.initialBosses);
+  targetsModal.zoneInput = '';
+  targetsModal.bossInput = '';
   targetsModal.error = '';
 }
 
 async function saveTargetsFromModal() {
-  if (!canManageRaid.value || targetsModal.saving || !targetsModalDirty.value) {
+  if (!canManageRaid.value || targetsModal.saving) {
+    return;
+  }
+
+  commitPendingTargetEntries();
+
+  if (!targetsModalDirty.value) {
     return;
   }
 
   targetsModal.saving = true;
   targetsModal.error = '';
   try {
-    const zones = normalizeTargetInput(targetsModal.zones);
-    const bosses = normalizeTargetInput(targetsModal.bosses);
+    const zones = sanitizeTargets(extractTargetValues(targetsModal.zones));
+    const bosses = sanitizeTargets(extractTargetValues(targetsModal.bosses));
 
     const updated = await api.updateRaid(raidId, {
       targetZones: zones,
       targetBosses: bosses
     });
 
-    targetsModal.initialZones = zones.join('\n');
-    targetsModal.initialBosses = bosses.join('\n');
-    targetsModal.zones = targetsModal.initialZones;
-    targetsModal.bosses = targetsModal.initialBosses;
+    targetsModal.initialZones = [...zones];
+    targetsModal.initialBosses = [...bosses];
+    targetsModal.zones = mapTargetsToEntries(zones);
+    targetsModal.bosses = mapTargetsToEntries(bosses);
+    targetsModal.zoneInput = '';
+    targetsModal.bossInput = '';
 
     if (raid.value) {
       raid.value = {
@@ -6080,6 +6231,73 @@ th {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+.targets-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-height: 52px;
+  padding: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.8rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.targets-pill-list--empty {
+  align-items: center;
+}
+
+.targets-pill-empty {
+  font-style: italic;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.target-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #cfe1ff;
+  font-size: 0.85rem;
+  line-height: 1.1;
+}
+
+.target-pill__label {
+  white-space: nowrap;
+}
+
+.target-pill__remove {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.target-pill__remove:hover {
+  color: #fca5a5;
+}
+
+.targets-pill-input {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f8fafc;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.targets-pill-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.65);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
 }
 
 .targets-field textarea {
