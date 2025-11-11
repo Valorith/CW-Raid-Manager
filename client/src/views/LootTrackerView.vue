@@ -15,6 +15,13 @@
       </div>
     </header>
 
+    <section v-if="!canManageLoot" class="card loot-readonly-card">
+      <p class="muted">
+        You have read-only access to this raid's loot data. Loot council updates will appear here
+        automatically when they are being tracked by raid leadership.
+      </p>
+    </section>
+
     <div class="parsing-window" role="status" aria-live="polite">
       <div class="parsing-window__icon">⏱</div>
       <div class="parsing-window__details">
@@ -246,7 +253,7 @@
         </div>
         <div class="modal__header-actions">
           <button
-            v-if="lootCouncilActiveItems.length > 0"
+            v-if="lootCouncilActiveItems.length > 0 && monitorSession?.isOwner"
             class="loot-council-clear-all"
             type="button"
             @click="clearLootCouncilItem('ALL')"
@@ -254,12 +261,12 @@
             Clear All
           </button>
           <button
-            class="icon-button icon-button--muted"
+            class="loot-council-minimize"
             type="button"
             aria-label="Minimize loot council tracker"
             @click="minimizeLootCouncilModal"
           >
-            ▁
+            <span aria-hidden="true" class="loot-council-minimize__icon">⌄</span>
           </button>
         </div>
       </header>
@@ -268,7 +275,7 @@
           <article
             v-for="item in lootCouncilActiveItems"
             :key="item.key"
-            class="loot-council-column"
+            :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
           >
             <header class="loot-council-column__header">
               <div>
@@ -281,7 +288,7 @@
                 #{{ item.ordinal }}
               </span>
             </header>
-            <div class="loot-council-column__actions">
+            <div v-if="monitorSession?.isOwner" class="loot-council-column__actions">
               <button
                 class="loot-council-column__chip"
                 type="button"
@@ -298,13 +305,22 @@
               >
                 <div class="loot-council-interest__details">
                   <div class="loot-council-interest__headline">
-                    <strong class="loot-council-interest__name">{{ interest.playerName }}</strong>
+                    <span
+                      v-if="interest.classHint && getCharacterClassIcon(interest.classHint)"
+                      class="loot-council-interest__class"
+                      :title="characterClassLabels[interest.classHint]"
+                    >
+                      <img
+                        :src="getCharacterClassIcon(interest.classHint) ?? undefined"
+                        :alt="characterClassLabels[interest.classHint]"
+                      />
+                    </span>
+                    <CharacterLink class="loot-council-interest__name" :name="interest.playerName" />
                     <div class="loot-council-interest__votes" aria-label="Votes received">
                       <span
                         v-for="(voter, voteIndex) in interest.voters"
                         :key="`${item.key}-${interest.playerKey}-vote-${voteIndex}`"
                         class="loot-council-interest__vote-badge"
-                        :title="formatVoteBadgeTooltip(voter, voteIndex)"
                       >
                         ✔
                       </span>
@@ -324,7 +340,7 @@
                   </p>
                 </div>
                 <div class="loot-council-interest__meta">
-                  <span class="loot-council-interest__vote-count" :title="formatVoteTooltip(interest)">
+                  <span class="loot-council-interest__vote-count">
                     {{ getInterestVoteCount(interest) }}
                     {{ getInterestVoteCount(interest) === 1 ? 'vote' : 'votes' }}
                   </span>
@@ -454,6 +470,35 @@
         <div v-if="parsing" class="progress">
           <div class="progress__bar" :style="{ width: `${parseProgress}%` }"></div>
         </div>
+      </div>
+    </section>
+    <section v-else-if="!canManageLoot" class="card upload-status-card">
+      <header class="card__header">
+        <div>
+          <h2>Upload Log</h2>
+          <p class="muted">
+            {{
+              monitorSession
+                ? `${monitorSession.user.displayName} is currently streaming logs for this raid.`
+                : 'Waiting for raid leadership to upload or monitor logs for this raid.'
+            }}
+          </p>
+        </div>
+      </header>
+      <div class="upload-status-card__body">
+        <template v-if="monitorSession">
+          <p class="muted small">
+            File: <strong>{{ monitorSession.fileName }}</strong>
+          </p>
+          <p class="muted small">
+            Last update {{ formatRelativeTime(monitorSession.lastHeartbeatAt) }} • Started
+            {{ formatDate(monitorSession.startedAt) }}
+          </p>
+        </template>
+        <p v-else class="muted small">
+          No live monitoring is active. Loot council updates will appear once leadership streams a
+          log.
+        </p>
       </div>
     </section>
 
@@ -637,7 +682,7 @@
     <div
       v-if="assignLootModal.visible"
       class="modal-backdrop"
-      @click.self="closeAssignLootModal"
+      @click.self="closeAssignLootModal()"
     >
       <div class="modal assign-loot-modal">
         <header class="modal__header">
@@ -652,7 +697,7 @@
             class="icon-button"
             type="button"
             :disabled="assignLootModal.saving"
-            @click="closeAssignLootModal"
+          @click="closeAssignLootModal()"
           >
             ✕
           </button>
@@ -715,7 +760,7 @@
             class="btn btn--outline btn--modal-outline"
             type="button"
             :disabled="assignLootModal.saving"
-            @click="closeAssignLootModal"
+            @click="closeAssignLootModal()"
           >
             Cancel
           </button>
@@ -796,6 +841,9 @@
             @click="debugLogs = []"
           >
             Clear
+          </button>
+          <button class="btn btn--outline btn--small" type="button" @click="handleResetProcessedLogs">
+            Reset Processed Logs
           </button>
         </div>
       </header>
@@ -1022,7 +1070,7 @@ import {
   type RaidLootEvent,
   type RaidLogMonitorSession
 } from '../services/api';
-import { characterClassLabels, type CharacterClass } from '../services/types';
+import { characterClassLabels, getCharacterClassIcon, type CharacterClass } from '../services/types';
 import {
   parseLootLog,
   type GuildLootParserPattern,
@@ -1031,7 +1079,8 @@ import {
 import {
   parseLootCouncilEvents,
   type LootCouncilEvent,
-  type LootCouncilInterestMode
+  type LootCouncilInterestMode,
+  type LootCouncilConsideredOrigin
 } from '../services/lootCouncilParser';
 import { parseNpcKills, type ParsedNpcKillEvent } from '../services/npcKillParser';
 import { useAuthStore } from '../stores/auth';
@@ -1094,6 +1143,7 @@ interface AssignableCharacterOption {
   level: number;
   isMain: boolean;
   userName: string;
+  userId: string | null;
   isGuildBank: boolean;
 }
 
@@ -1133,10 +1183,13 @@ interface LootCouncilInterestState {
   lastUpdatedAt: Date;
   source: 'LIVE' | 'SYNC';
   voters: string[];
+  classHint?: CharacterClass | null;
 }
 
 interface LootCouncilItemState {
   key: string;
+  nameKey: string;
+  instanceId: number;
   itemName: string;
   ordinal?: number | null;
   startedAt: Date;
@@ -1160,6 +1213,11 @@ const GUILD_BANK_ID = '__guild_bank__';
 const guildBankDisplayName = computed(() =>
   getGuildBankDisplayName(raid.value?.guild.name ?? null)
 );
+const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
+const canManageLootLists = computed(() => {
+  const role = raid.value?.permissions?.role;
+  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
+});
 
 function normalizeLooterNameValue(value?: string | null): string {
   return normalizeLooterName(value ?? null, raid.value?.guild.name ?? null).name;
@@ -1211,7 +1269,7 @@ const showDebugConsole = ref(false);
 const showDetectedModal = ref(false);
 const parsedLootPage = ref(1);
 const detectedLootModalOpen = computed(
-  () => showDetectedModal.value && parsedLoot.value.length > 0
+  () => canManageLoot.value && showDetectedModal.value && parsedLoot.value.length > 0
 );
 const PAGE_SIZE = 10;
 const parsedLootTotalPages = computed(() =>
@@ -1261,11 +1319,23 @@ const monitorController = reactive({
   pendingFragment: '',
   pollTimerId: null as number | null,
   heartbeatTimerId: null as number | null,
-  fileSignature: null as string | null
+  fileSignature: null as string | null,
+  pendingSummaryBlock: ''
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
 const processedLootCouncilKeys = new Set<string>();
+let lootCouncilItemSequence = 0;
+const summarySessionState = {
+  sessionId: null as number | null,
+  lastResetSessionKeyByName: new Map<string, string>(),
+  sessionCounters: new Map<string, Map<string, number>>(),
+  activeImplicitKey: null as string | null,
+  implicitSessionCounter: 0,
+  implicitSessionStartedAt: null as number | null,
+  implicitSessionLastOrder: null as number | null
+};
+const lootCouncilDebugEnabled = true;
 const activeLogSignature = ref<string | null>(null);
 const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
 let liveChunkInFlight = false;
@@ -1289,10 +1359,7 @@ const resolvedLootCouncilItems = new Map<string, Date>();
 const lootCouncilActiveItems = computed(() =>
   lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
 );
-const canViewLootCouncilModal = computed(() => {
-  const role = raid.value?.permissions?.role;
-  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
-});
+const canViewLootCouncilModal = computed(() => Boolean(raid.value));
 const lootCouncilModalVisible = computed(
   () =>
     canViewLootCouncilModal.value &&
@@ -1485,12 +1552,230 @@ function normalizeLootCouncilItemKey(itemName: string) {
   return normalized || itemName.trim().toLowerCase();
 }
 
+function nextLootCouncilItemIdentity(nameKey: string, timestamp: Date) {
+  lootCouncilItemSequence += 1;
+  return {
+    key: `${nameKey}::${timestamp.getTime()}::${lootCouncilItemSequence}`,
+    instanceId: lootCouncilItemSequence
+  };
+}
+
+type LootCouncilItemSelectionHint = {
+  ordinal?: number | null;
+  playerName?: string | null;
+  requestPlayers?: string[];
+  awardee?: string | null;
+  preferOldest?: boolean;
+  sessionItemIndex?: number | null;
+};
+
+function getLootCouncilCandidates(nameKey: string) {
+  return lootCouncilState.items.filter((entry) => entry.nameKey === nameKey);
+}
+
+function createLootCouncilItemState(
+  nameKey: string,
+  itemName: string,
+  timestamp: Date,
+  ordinal: number | null,
+  source: 'ANNOUNCE' | 'PENDING' | 'REFERENCE' | 'SUMMARY'
+) {
+  const identity = nextLootCouncilItemIdentity(nameKey, timestamp);
+  const item: LootCouncilItemState = {
+    key: identity.key,
+    nameKey,
+    instanceId: identity.instanceId,
+    itemName,
+    ordinal: ordinal ?? null,
+    startedAt: timestamp,
+    lastUpdatedAt: timestamp,
+    status: 'ACTIVE',
+    awardedTo: null,
+    interests: []
+  };
+  lootCouncilState.items.push(item);
+  appendDebugLog('Loot council item detected', { itemName, ordinal, source });
+  replicatePeerInterestsToItem(item);
+  return item;
+}
+
+function selectLootCouncilItem(itemName: string, hint?: LootCouncilItemSelectionHint) {
+  const nameKey = normalizeLootCouncilItemKey(itemName);
+  const candidates = getLootCouncilCandidates(nameKey);
+  if (!candidates.length) {
+    return null;
+  }
+  if (hint?.ordinal != null) {
+    const ordinalMatch = candidates.find((entry) => entry.ordinal === hint.ordinal);
+    if (ordinalMatch) {
+      return ordinalMatch;
+    }
+  }
+  if (hint?.sessionItemIndex && hint.sessionItemIndex > 0) {
+    const ordered = [...candidates].sort(compareLootCouncilInstanceOrder);
+    const target = ordered[hint.sessionItemIndex - 1];
+    if (target) {
+      return target;
+    }
+  }
+  let best: LootCouncilItemState | null = null;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  const preferredPlayers = (hint?.requestPlayers ?? []).map((name) => name.trim().toLowerCase());
+  const preferredPlayerSet = new Set(preferredPlayers);
+  const singlePlayerKey = hint?.playerName?.trim().toLowerCase() ?? null;
+  const awardeeKey = hint?.awardee?.trim().toLowerCase() ?? null;
+  for (const candidate of candidates) {
+    let score = 0;
+    if (singlePlayerKey) {
+      if (candidate.interests.some((interest) => interest.playerKey === singlePlayerKey)) {
+        score += 500;
+      }
+    }
+    if (awardeeKey) {
+      if (candidate.interests.some((interest) => interest.playerKey === awardeeKey)) {
+        score += 750;
+      }
+    }
+    if (preferredPlayerSet.size > 0) {
+      const interestKeys = candidate.interests.map((interest) => interest.playerKey);
+      let matches = 0;
+      for (const key of interestKeys) {
+        if (preferredPlayerSet.has(key)) {
+          matches += 1;
+        }
+      }
+      score += matches * 50;
+      const diff = Math.abs(interestKeys.length - preferredPlayerSet.size);
+      score -= diff * 5;
+    }
+    if (hint?.preferOldest) {
+      score -= candidate.startedAt.getTime() / 1000;
+    } else {
+      score -= candidate.lastUpdatedAt.getTime() / 1_000_000;
+    }
+    if (
+      !best ||
+      score > bestScore ||
+      (score === bestScore && candidate.lastUpdatedAt < best.lastUpdatedAt) ||
+      (score === bestScore &&
+        candidate.lastUpdatedAt.getTime() === best.lastUpdatedAt.getTime() &&
+        candidate.startedAt < best.startedAt)
+    ) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best ?? candidates[0];
+}
+
+function compareLootCouncilInstanceOrder(a: LootCouncilItemState, b: LootCouncilItemState) {
+  const startDelta = a.startedAt.getTime() - b.startedAt.getTime();
+  if (startDelta !== 0) {
+    return startDelta;
+  }
+  return a.instanceId - b.instanceId;
+}
+
+function ensureLootCouncilItem(itemName: string, timestamp: Date, ordinal: number | null) {
+  const nameKey = normalizeLootCouncilItemKey(itemName);
+  const resolvedAt = resolvedLootCouncilItems.get(nameKey);
+  if (resolvedAt && timestamp.getTime() <= resolvedAt.getTime()) {
+    return false;
+  }
+  let candidates = getLootCouncilCandidates(nameKey);
+  if (candidates.length > 0) {
+    return false;
+  }
+  createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'REFERENCE');
+  return true;
+}
+
+function replicatePeerInterestsToItem(target: LootCouncilItemState) {
+  const peers = lootCouncilState.items.filter(
+    (entry) => entry.nameKey === target.nameKey && entry.key !== target.key
+  );
+  if (!peers.length) {
+    return;
+  }
+  const template = peers.reduce((latest, entry) =>
+    entry.lastUpdatedAt > latest.lastUpdatedAt ? entry : latest
+  );
+  for (const peerInterest of template.interests) {
+    upsertLootCouncilInterest(target, {
+      playerName: peerInterest.playerName,
+      replacing: peerInterest.replacing ?? null,
+      mode: peerInterest.mode,
+      votes: null,
+      voters: [],
+      timestamp: target.startedAt,
+      source: 'LIVE'
+    });
+  }
+}
+
+function removeLootCouncilItemsByName(nameKey: string) {
+  let removed = false;
+  for (let index = lootCouncilState.items.length - 1; index >= 0; index -= 1) {
+    if (lootCouncilState.items[index].nameKey === nameKey) {
+      lootCouncilState.items.splice(index, 1);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+function ensureLootCouncilSummaryCapacity(
+  itemName: string,
+  timestamp: Date,
+  requiredIndex: number | null | undefined
+) {
+  const normalizedIndex = Math.max(1, requiredIndex ?? 1);
+  const nameKey = normalizeLootCouncilItemKey(itemName);
+  let candidates = getLootCouncilCandidates(nameKey);
+  let created = false;
+  while (candidates.length < normalizedIndex) {
+    createLootCouncilItemState(nameKey, itemName, timestamp, null, 'SUMMARY');
+    candidates = getLootCouncilCandidates(nameKey);
+    created = true;
+  }
+  return created;
+}
+
+function debugLootCouncilSnapshot(context: string) {
+  if (!lootCouncilDebugEnabled) {
+    return;
+  }
+  const snapshot = lootCouncilState.items.map((item) => ({
+    key: item.key,
+    name: item.itemName,
+    nameKey: item.nameKey,
+    ordinal: item.ordinal,
+    instanceId: item.instanceId,
+    status: item.status,
+    interests: item.interests.map((interest) => ({
+      player: interest.playerName,
+      votes: interest.votes ?? 0
+    }))
+  }));
+  appendDebugLog(`Loot council snapshot: ${context}`, { snapshot });
+  // eslint-disable-next-line no-console
+  console.info('[LootCouncil Debug]', context, snapshot);
+}
+
 function resetLootCouncilTracking() {
   lootCouncilState.items.splice(0, lootCouncilState.items.length);
   lootCouncilState.suppressed = false;
   lootCouncilState.lastUpdatedAt = null;
   processedLootCouncilKeys.clear();
   resolvedLootCouncilItems.clear();
+  lootCouncilItemSequence = 0;
+  summarySessionState.sessionId = null;
+  summarySessionState.lastResetSessionKeyByName.clear();
+  summarySessionState.sessionCounters.clear();
+  summarySessionState.activeImplicitKey = null;
+  summarySessionState.implicitSessionCounter = 0;
+  summarySessionState.implicitSessionStartedAt = null;
+  summarySessionState.implicitSessionLastOrder = null;
 }
 
 function minimizeLootCouncilModal() {
@@ -1518,6 +1803,9 @@ function toggleDetectedLootModalFromIndicator() {
 }
 
 function clearLootCouncilItem(itemKey: string) {
+  if (!monitorSession.value?.isOwner) {
+    return;
+  }
   if (itemKey === 'ALL') {
     if (lootCouncilState.items.length === 0) {
       return;
@@ -1525,7 +1813,7 @@ function clearLootCouncilItem(itemKey: string) {
     while (lootCouncilState.items.length > 0) {
       const removed = lootCouncilState.items.pop();
       if (removed) {
-        resolvedLootCouncilItems.set(removed.key, new Date());
+        resolvedLootCouncilItems.set(removed.nameKey, new Date());
       }
     }
     lootCouncilState.suppressed = false;
@@ -1537,7 +1825,7 @@ function clearLootCouncilItem(itemKey: string) {
     return;
   }
   const [removed] = lootCouncilState.items.splice(index, 1);
-  resolvedLootCouncilItems.set(removed.key, new Date());
+  resolvedLootCouncilItems.set(removed.nameKey, new Date());
   appendDebugLog('Loot council item manually cleared', { itemName: removed.itemName });
   if (lootCouncilState.items.length === 0) {
     lootCouncilState.suppressed = false;
@@ -1575,7 +1863,12 @@ function handleLootCouncilEvents(events: LootCouncilEvent[]) {
 function applyLootCouncilEvent(event: LootCouncilEvent) {
   switch (event.type) {
     case 'ITEM_CONSIDERED':
-      return activateLootCouncilItem(event.itemName, event.timestamp, event.ordinal ?? null);
+      return activateLootCouncilItem(
+        event.itemName,
+        event.timestamp,
+        event.ordinal ?? null,
+        event.origin
+      );
     case 'REQUEST':
       return registerLootCouncilRequest(event);
     case 'SYNC_SUMMARY':
@@ -1599,6 +1892,7 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     case 'MASTER_LOOTED':
     case 'LEFT_ON_CORPSE':
+    case 'DISCARDED':
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
         awardedTo: null,
         status: 'REMOVED'
@@ -1608,28 +1902,61 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
   }
 }
 
-function activateLootCouncilItem(itemName: string, timestamp: Date, ordinal: number | null) {
-  const key = normalizeLootCouncilItemKey(itemName);
-  const resolvedAt = resolvedLootCouncilItems.get(key);
+function activateLootCouncilItem(
+  itemName: string,
+  timestamp: Date,
+  ordinal: number | null,
+  origin: LootCouncilConsideredOrigin
+) {
+  const nameKey = normalizeLootCouncilItemKey(itemName);
+  const resolvedAt = resolvedLootCouncilItems.get(nameKey);
   if (resolvedAt && timestamp.getTime() <= resolvedAt.getTime()) {
     return false;
   }
-  let item = lootCouncilState.items.find((entry) => entry.key === key) ?? null;
-  if (!item) {
-    item = {
-      key,
-      itemName,
-      ordinal: ordinal ?? null,
-      startedAt: timestamp,
-      lastUpdatedAt: timestamp,
-      status: 'ACTIVE',
-      awardedTo: null,
-      interests: []
-    };
-    lootCouncilState.items.push(item);
-    appendDebugLog('Loot council item detected', { itemName, ordinal });
+  const candidates = getLootCouncilCandidates(nameKey);
+  const ordinalMatch =
+    ordinal != null ? candidates.find((entry) => entry.ordinal === ordinal) : null;
+  if (origin === 'ANNOUNCE') {
+    if (!candidates.length) {
+      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'ANNOUNCE');
+      return true;
+    }
+    if (ordinalMatch) {
+      return refreshLootCouncilItemMetadata(ordinalMatch, itemName, timestamp, ordinal);
+    }
+    if (ordinal != null) {
+      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'ANNOUNCE');
+      return true;
+    }
+    const fallback =
+      candidates.find((entry) => entry.ordinal == null) ??
+      candidates.reduce((prev, current) => (current.startedAt < prev.startedAt ? current : prev));
+    return refreshLootCouncilItemMetadata(fallback, itemName, timestamp, ordinal);
+  }
+  // origin === 'PENDING'
+  if (ordinalMatch) {
+    return refreshLootCouncilItemMetadata(ordinalMatch, itemName, timestamp, ordinal);
+  }
+  if (!candidates.length) {
+    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'PENDING');
     return true;
   }
+  if (ordinal != null) {
+    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'PENDING');
+    return true;
+  }
+  const fallback =
+    candidates.find((entry) => entry.ordinal == null) ??
+    candidates.reduce((prev, current) => (current.startedAt < prev.startedAt ? current : prev));
+  return refreshLootCouncilItemMetadata(fallback, itemName, timestamp, ordinal);
+}
+
+function refreshLootCouncilItemMetadata(
+  item: LootCouncilItemState,
+  itemName: string,
+  timestamp: Date,
+  ordinal: number | null
+) {
   let changed = false;
   if (item.status !== 'ACTIVE') {
     item.status = 'ACTIVE';
@@ -1650,26 +1977,26 @@ function activateLootCouncilItem(itemName: string, timestamp: Date, ordinal: num
   return changed;
 }
 
-function findLootCouncilItem(itemName: string) {
-  const key = normalizeLootCouncilItemKey(itemName);
-  return lootCouncilState.items.find((entry) => entry.key === key) ?? null;
-}
-
 function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'REQUEST' }>) {
-  const activated = activateLootCouncilItem(event.itemName, event.timestamp, null);
-  const item = findLootCouncilItem(event.itemName);
-  if (!item) {
+  const activated = ensureLootCouncilItem(event.itemName, event.timestamp, null);
+  const nameKey = normalizeLootCouncilItemKey(event.itemName);
+  const items = getLootCouncilCandidates(nameKey);
+  if (!items.length) {
     return activated;
   }
-  const changed = upsertLootCouncilInterest(item, {
-    playerName: event.playerName,
-    replacing: event.replacing ?? null,
-    mode: event.mode,
-    votes: 0,
-    voters: [],
-    timestamp: event.timestamp,
-    source: 'LIVE'
-  });
+  let changed = activated;
+  for (const item of items) {
+    const itemChanged = upsertLootCouncilInterest(item, {
+      playerName: event.playerName,
+      replacing: event.replacing ?? null,
+      mode: event.mode,
+      votes: null,
+      voters: [],
+      timestamp: event.timestamp,
+      source: 'LIVE'
+    });
+    changed = changed || itemChanged;
+  }
   if (changed) {
     appendDebugLog('Loot council interest recorded', {
       itemName: event.itemName,
@@ -1678,7 +2005,7 @@ function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'RE
       mode: event.mode
     });
   }
-  return activated || changed;
+  return changed;
 }
 
 function upsertLootCouncilInterest(
@@ -1725,6 +2052,7 @@ function upsertLootCouncilInterest(
     }
     existing.lastUpdatedAt = options.timestamp;
     existing.source = options.source;
+    existing.classHint = getInterestCharacterClass(existing.playerName);
     ensureInterestVoterPlaceholders(existing);
   } else {
     item.interests.push({
@@ -1735,7 +2063,8 @@ function upsertLootCouncilInterest(
       votes: votesNormalized,
       lastUpdatedAt: options.timestamp,
       source: options.source,
-      voters: dedupeVoters(options.voters ?? [])
+      voters: dedupeVoters(options.voters ?? []),
+      classHint: getInterestCharacterClass(options.playerName)
     });
     ensureInterestVoterPlaceholders(item.interests[item.interests.length - 1]);
     changed = true;
@@ -1755,33 +2084,20 @@ function sortLootCouncilInterests(interests: LootCouncilInterestState[]) {
   });
 }
 
+function buildAnonymousVoteLabel(order: number) {
+  return `Vote #${order}`;
+}
+
 function dedupeVoters(voters: string[]) {
-  const seen = new Set<string>();
   const normalized: string[] = [];
-  for (const voter of voters) {
-    const name = voter.trim();
-    if (!name) {
-      continue;
-    }
-    const key = name.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    normalized.push(name);
+  for (let index = 0; index < voters.length; index += 1) {
+    normalized.push(buildAnonymousVoteLabel(index + 1));
   }
   return normalized;
 }
 
 function areVoterListsEqual(a: string[], b: string[]) {
-  if (a.length !== b.length) {
-    return false;
-  }
-  const normalize = (list: string[]) =>
-    list.map((entry) => entry.trim().toLowerCase()).sort();
-  const normalizedA = normalize(a);
-  const normalizedB = normalize(b);
-  return normalizedA.every((entry, index) => entry === normalizedB[index]);
+  return a.length === b.length;
 }
 
 function ensureInterestVoterPlaceholders(interest: LootCouncilInterestState) {
@@ -1790,18 +2106,122 @@ function ensureInterestVoterPlaceholders(interest: LootCouncilInterestState) {
     interest.voters = [];
   }
   while (interest.voters.length < desiredCount) {
-    interest.voters.push(`Council vote #${interest.voters.length + 1}`);
+    interest.voters.push(buildAnonymousVoteLabel(interest.voters.length + 1));
   }
   if (interest.voters.length > desiredCount) {
     interest.voters.splice(desiredCount);
   }
 }
 
+function getLootCouncilSummarySessionKey(
+  event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>
+): string {
+  const nowTs = event.timestamp.getTime();
+  const order = event.sessionOrder ?? null;
+  const startImplicitSession = () => {
+    summarySessionState.implicitSessionCounter += 1;
+    summarySessionState.activeImplicitKey = `implicit:${summarySessionState.implicitSessionCounter}`;
+    summarySessionState.implicitSessionStartedAt = nowTs;
+    summarySessionState.implicitSessionLastOrder = order;
+  };
+  if (!summarySessionState.activeImplicitKey) {
+    startImplicitSession();
+    return summarySessionState.activeImplicitKey ?? 'implicit:0';
+  }
+  if (order !== null) {
+    const orderReset =
+      order === 1 ||
+      (summarySessionState.implicitSessionLastOrder !== null &&
+        order <= summarySessionState.implicitSessionLastOrder);
+    if (orderReset) {
+      startImplicitSession();
+    } else {
+      summarySessionState.implicitSessionLastOrder = order;
+    }
+    return summarySessionState.activeImplicitKey;
+  }
+  const implicitExpired =
+    summarySessionState.implicitSessionStartedAt === null ||
+    nowTs - summarySessionState.implicitSessionStartedAt > 2_000;
+  if (implicitExpired) {
+    startImplicitSession();
+  } else {
+    summarySessionState.implicitSessionStartedAt = nowTs;
+  }
+  return summarySessionState.activeImplicitKey ?? 'implicit:0';
+}
+
+function getSummarySessionCounter(sessionKey: string) {
+  let bucket = summarySessionState.sessionCounters.get(sessionKey);
+  if (!bucket) {
+    bucket = new Map<string, number>();
+    summarySessionState.sessionCounters.set(sessionKey, bucket);
+    if (summarySessionState.sessionCounters.size > 25) {
+      const oldestKey = summarySessionState.sessionCounters.keys().next().value;
+      if (oldestKey) {
+        summarySessionState.sessionCounters.delete(oldestKey);
+      }
+    }
+  }
+  return bucket;
+}
+
+function resolveSummaryItemIndex(
+  event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>,
+  nameKey: string
+) {
+  const sessionKey = getLootCouncilSummarySessionKey(event);
+  const bucket = getSummarySessionCounter(sessionKey);
+  const declaredIndex =
+    event.sessionItemIndex && event.sessionItemIndex > 0 ? event.sessionItemIndex : null;
+  const current = bucket.get(nameKey) ?? 0;
+  if (declaredIndex && declaredIndex > current) {
+    bucket.set(nameKey, declaredIndex);
+    return { sessionKey, index: declaredIndex };
+  }
+  const next = current + 1;
+  bucket.set(nameKey, next);
+  return { sessionKey, index: next };
+}
+
 function applyLootCouncilSyncSummary(
   event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>
 ) {
-  const activated = activateLootCouncilItem(event.itemName, event.timestamp, null);
-  const item = findLootCouncilItem(event.itemName);
+  const nameKey = normalizeLootCouncilItemKey(event.itemName);
+  const { sessionKey, index: summaryIndex } = resolveSummaryItemIndex(event, nameKey);
+  if (lootCouncilDebugEnabled) {
+    appendDebugLog('Loot council summary metadata', {
+      itemName: event.itemName,
+      sessionKey,
+      summaryIndex,
+      sourceSessionId: event.sessionId ?? null,
+      sourceSessionOrder: event.sessionOrder ?? null,
+      sourceSessionItemIndex: event.sessionItemIndex ?? null
+    });
+  }
+  const lastResetKey = summarySessionState.lastResetSessionKeyByName.get(nameKey);
+  const shouldReset = summaryIndex === 1 && lastResetKey !== sessionKey;
+  if (shouldReset) {
+    removeLootCouncilItemsByName(nameKey);
+    summarySessionState.lastResetSessionKeyByName.set(nameKey, sessionKey);
+    debugLootCouncilSnapshot(`summary-reset:${event.itemName}`);
+  } else if (summaryIndex === 1 && lastResetKey === undefined) {
+    summarySessionState.lastResetSessionKeyByName.set(nameKey, sessionKey);
+  }
+  const activated = ensureLootCouncilItem(event.itemName, event.timestamp, null);
+  const ensured = ensureLootCouncilSummaryCapacity(
+    event.itemName,
+    event.timestamp,
+    summaryIndex
+  );
+  debugLootCouncilSnapshot(`summary-apply:${event.itemName}:idx=${summaryIndex ?? 'n/a'}`);
+  const requestPlayers = event.requests.map((request) => request.playerName);
+  const item =
+    selectLootCouncilItem(event.itemName, {
+      requestPlayers,
+      sessionItemIndex: summaryIndex
+    }) ??
+    selectLootCouncilItem(event.itemName);
   if (!item) {
     return activated;
   }
@@ -1827,7 +2247,8 @@ function applyLootCouncilSyncSummary(
       votes: request.votes ?? 0,
       lastUpdatedAt: event.timestamp,
       source: 'SYNC',
-      voters: existing?.voters?.slice() ?? []
+      voters: existing?.voters?.slice() ?? [],
+      classHint: getInterestCharacterClass(request.playerName)
     };
   });
   for (const entry of mapped) {
@@ -1855,17 +2276,18 @@ function applyLootCouncilSyncSummary(
   const changed = signature !== existingSignature;
   if (changed) {
     item.interests = mapped;
+    refreshInterestClassHintsForItem(item);
     item.lastUpdatedAt = event.timestamp;
     appendDebugLog('Loot council sync updated', {
       itemName: event.itemName,
       interestCount: mapped.length
     });
   }
-  return activated || changed;
+  return activated || ensured || changed;
 }
 
 function applyLootCouncilVote(event: Extract<LootCouncilEvent, { type: 'VOTE' }>) {
-  const item = findLootCouncilItem(event.itemName);
+  const item = selectLootCouncilItem(event.itemName, { playerName: event.candidateName });
   if (!item) {
     return false;
   }
@@ -1875,13 +2297,6 @@ function applyLootCouncilVote(event: Extract<LootCouncilEvent, { type: 'VOTE' }>
     return false;
   }
   interest.votes = (interest.votes ?? 0) + 1;
-  const voterName = event.voterName.trim();
-  if (voterName.length > 0) {
-    const voterKey = voterName.toLowerCase();
-    if (!interest.voters.some((existing) => existing.toLowerCase() === voterKey)) {
-      interest.voters.push(voterName);
-    }
-  }
   interest.lastUpdatedAt = event.timestamp;
   item.lastUpdatedAt = event.timestamp;
   ensureInterestVoterPlaceholders(interest);
@@ -1900,8 +2315,16 @@ function finalizeLootCouncilItem(
   timestamp: Date,
   options: { awardedTo: string | null; status: LootCouncilItemStatus }
 ) {
-  const key = normalizeLootCouncilItemKey(itemName);
-  const index = lootCouncilState.items.findIndex((entry) => entry.key === key);
+  const hint: LootCouncilItemSelectionHint = {
+    awardee: options.awardedTo,
+    preferOldest: options.status !== 'AWARDED'
+  };
+  const itemHint =
+    selectLootCouncilItem(itemName, hint) ?? selectLootCouncilItem(itemName);
+  if (!itemHint) {
+    return false;
+  }
+  const index = lootCouncilState.items.findIndex((entry) => entry.key === itemHint.key);
   if (index === -1) {
     return false;
   }
@@ -1911,7 +2334,7 @@ function finalizeLootCouncilItem(
     awardedTo: options.awardedTo,
     status: options.status
   });
-  resolvedLootCouncilItems.set(key, timestamp);
+  resolvedLootCouncilItems.set(item.nameKey, timestamp);
   applyLocalLootResolution(itemName, options);
   if (options.status === 'AWARDED' && options.awardedTo) {
     void autoAssignLootFromCouncil(itemName, options.awardedTo, timestamp);
@@ -2026,12 +2449,6 @@ const lootListSummary = ref<GuildLootListSummary | null>(null);
 const whitelistLookup = computed(() => buildLootListLookup(lootListSummary.value?.whitelist ?? []));
 const blacklistLookup = computed(() => buildLootListLookup(lootListSummary.value?.blacklist ?? []));
 const autoBlacklistSpells = computed(() => raid.value?.guild?.blacklistSpells ?? false);
-const canManageLootLists = computed(() => {
-  const role = raid.value?.permissions?.role;
-  return role === 'LEADER' || role === 'OFFICER' || role === 'RAID_LEADER';
-});
-const canManageLoot = computed(() => raid.value?.permissions?.canManage ?? false);
-
 watch(
   () => ({
     lootEvents: lootEvents.value.map((event) => ({
@@ -2083,9 +2500,9 @@ watch(
     }
     attentionStore.registerIndicator(LOOT_COUNCIL_INDICATOR_ID, {
       id: LOOT_COUNCIL_INDICATOR_ID,
-      label: 'LC',
+      label: 'Loot Council',
       description: 'Loot council session tracker',
-      icon: 'LC',
+      icon: 'scale',
       active: state.visible,
       requiresAttention: !state.visible,
       onToggle: toggleLootCouncilModalFromIndicator
@@ -2121,6 +2538,139 @@ const guildCharacters = ref<AssignableCharacterOption[]>([]);
 const guildCharactersLoaded = ref(false);
 const guildCharactersLoading = ref(false);
 const assignSearchInput = ref<HTMLInputElement | null>(null);
+const characterClassLookup = computed(() => {
+  const map = new Map<string, CharacterClass>();
+  const addEntry = (name?: string | null, klass?: CharacterClass | null | undefined) => {
+    if (!name || !klass) {
+      return;
+    }
+    const key = name.trim().toLowerCase();
+    if (!key || map.has(key)) {
+      return;
+    }
+    map.set(key, klass);
+  };
+  if (guildCharacters.value.length > 0) {
+    for (const character of guildCharacters.value) {
+      addEntry(character.name, character.class);
+    }
+  } else {
+    if (raid.value?.signups) {
+      for (const signup of raid.value.signups) {
+        addEntry(signup.characterName, signup.characterClass);
+      }
+    }
+    if (raid.value?.attendance) {
+      for (const event of raid.value.attendance) {
+        for (const record of event.records ?? []) {
+          addEntry(record.characterName, record.class ?? null);
+        }
+      }
+    }
+    for (const event of lootEvents.value) {
+      addEntry(event.looterName, normalizeCharacterClassValue(event.looterClass));
+    }
+  }
+  return map;
+});
+
+const viewerCharacterNames = computed(() => {
+  const viewerId = authStore.user?.userId ?? null;
+  const set = new Set<string>();
+  if (!viewerId) {
+    return set;
+  }
+  for (const character of guildCharacters.value) {
+    if (character.userId === viewerId) {
+      const key = character.name.trim().toLowerCase();
+      if (key) {
+        set.add(key);
+      }
+    }
+  }
+  return set;
+});
+
+watch(
+  () => characterClassLookup.value,
+  () => {
+    refreshAllInterestClassHints();
+  },
+  { immediate: true }
+);
+
+function hasViewerInterest(item: LootCouncilItemState) {
+  if (!viewerCharacterNames.value.size) {
+    return false;
+  }
+  return item.interests.some((interest) =>
+    viewerCharacterNames.value.has(interest.playerName.trim().toLowerCase())
+  );
+}
+
+function evaluateViewerVoteState(item: LootCouncilItemState) {
+  const viewerNames = viewerCharacterNames.value;
+  if (viewerNames.size === 0) {
+    return { hasViewerInterest: false, state: 'neutral' as const };
+  }
+  const interests = item.interests;
+  const hasViewer = interests.some((interest) =>
+    viewerNames.has(interest.playerName.trim().toLowerCase())
+  );
+  if (!hasViewer) {
+    return { hasViewerInterest: false, state: 'neutral' as const };
+  }
+  const votes = interests.map((interest) => ({
+    interest,
+    votes: interest.votes ?? 0,
+    isViewer: viewerNames.has(interest.playerName.trim().toLowerCase())
+  }));
+  const topVotes = votes.reduce((max, entry) => Math.max(max, entry.votes), 0);
+  if (topVotes === 0) {
+    return { hasViewerInterest: true, state: 'neutral' as const };
+  }
+  const leaders = votes.filter((entry) => entry.votes === topVotes);
+  const viewerLeader = leaders.filter((entry) => entry.isViewer);
+  if (viewerLeader.length > 0 && leaders.length === 1) {
+    return { hasViewerInterest: true, state: 'lead' as const };
+  }
+  if (viewerLeader.length === 0) {
+    return { hasViewerInterest: true, state: 'behind' as const };
+  }
+  return { hasViewerInterest: true, state: 'neutral' as const };
+}
+
+function getLootCouncilViewerClasses(item: LootCouncilItemState) {
+  const evaluation = evaluateViewerVoteState(item);
+  return {
+    'loot-council-column--viewer-interest': evaluation.hasViewerInterest,
+    'loot-council-column--viewer-favored': evaluation.state === 'lead',
+    'loot-council-column--viewer-unfavored': evaluation.state === 'behind'
+  };
+}
+
+function getInterestCharacterClass(playerName: string): CharacterClass | null {
+  if (!playerName) {
+    return null;
+  }
+  const key = playerName.trim().toLowerCase();
+  if (!key) {
+    return null;
+  }
+  return characterClassLookup.value.get(key) ?? null;
+}
+
+function refreshInterestClassHintsForItem(item: LootCouncilItemState) {
+  for (const interest of item.interests) {
+    interest.classHint = getInterestCharacterClass(interest.playerName);
+  }
+}
+
+function refreshAllInterestClassHints() {
+  for (const item of lootCouncilState.items) {
+    refreshInterestClassHintsForItem(item);
+  }
+}
 
 const filteredAssignableCharacters = computed(() => {
   const query = assignLootModal.search.trim().toLowerCase();
@@ -2236,6 +2786,7 @@ async function loadData() {
   syncParserSettings(guildSettings);
   resetManualForm();
   initializeParsingWindow();
+  await ensureGuildCharacters();
   await fetchMonitorStatus();
   startMonitorStatusPolling();
 }
@@ -2314,6 +2865,7 @@ async function ensureGuildCharacters() {
           character.user?.displayName?.trim() ||
           character.user?.nickname?.trim() ||
           character.user?.id,
+        userId: character.user?.id ?? null,
         isGuildBank: false
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -2324,6 +2876,7 @@ async function ensureGuildCharacters() {
       level: 0,
       isMain: false,
       userName: raid.value?.guild.name ?? 'Guild',
+      userId: null,
       isGuildBank: true
     };
     guildCharacters.value = [
@@ -2333,6 +2886,7 @@ async function ensureGuildCharacters() {
       )
     ];
     guildCharactersLoaded.value = true;
+    refreshAllInterestClassHints();
   } catch (error) {
     assignLootModal.error = extractErrorMessage(error, 'Unable to load guild characters.');
     appendDebugLog('Failed to load guild characters', { error: String(error) });
@@ -3067,7 +3621,8 @@ async function readLiveLogChunk() {
     const text = await blob.text();
     monitorController.lastSize = file.size;
     const chunk = drainMonitorChunk(text);
-    if (!chunk.trim()) {
+    const normalizedChunk = normalizeLootCouncilSummaryChunk(chunk);
+    if (!normalizedChunk.trim()) {
       return;
     }
     const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
@@ -3075,7 +3630,7 @@ async function readLiveLogChunk() {
     const start = new Date(startIso);
     const end = endIso ? new Date(endIso) : undefined;
     activateProcessedLogSignature(monitorController.fileSignature, false);
-    processLogContent(chunk, { append: true, resetKeys: false, start, end });
+    processLogContent(normalizedChunk, { append: true, resetKeys: false, start, end });
     persistActiveProcessedLogState();
   } catch (error) {
     appendDebugLog('Failed to read live log chunk', { error: String(error) });
@@ -3093,6 +3648,49 @@ function drainMonitorChunk(raw: string) {
     monitorController.pendingFragment = '';
   }
   return parts.join('\n');
+}
+
+function normalizeLootCouncilSummaryChunk(chunk: string) {
+  let combined = chunk;
+  if (monitorController.pendingSummaryBlock) {
+    const prefix = monitorController.pendingSummaryBlock;
+    const needsSeparator =
+      prefix.length > 0 &&
+      !prefix.endsWith('\n') &&
+      chunk.length > 0 &&
+      !chunk.startsWith('\n');
+    combined = `${prefix}${needsSeparator ? '\n' : ''}${chunk}`;
+    monitorController.pendingSummaryBlock = '';
+  }
+  if (!combined) {
+    return '';
+  }
+  const lines = combined.split(/\r?\n/);
+  const summaryStartPattern = /^\/{2,}\s*Showing All Loot Requests\s*\/{2,}$/i;
+  let openIndex: number | null = null;
+
+  const stripTimestamp = (value: string) => value.replace(/^\[[^\]]+]\s*/, '');
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = stripTimestamp(lines[index]);
+    if (summaryStartPattern.test(trimmed)) {
+      openIndex = index;
+    }
+    if (
+      openIndex !== null &&
+      /^[/\s]+$/.test(trimmed) &&
+      (trimmed.match(/\//g) ?? []).length >= 5
+    ) {
+      openIndex = null;
+    }
+  }
+
+  if (openIndex !== null) {
+    monitorController.pendingSummaryBlock = lines.slice(openIndex).join('\n');
+    lines.splice(openIndex);
+  }
+
+  return lines.join('\n');
 }
 
 function startMonitorHeartbeat() {
@@ -3147,6 +3745,7 @@ function cleanupMonitorController() {
   monitorController.lastSize = 0;
   monitorController.pendingFragment = '';
   monitorController.fileSignature = null;
+  monitorController.pendingSummaryBlock = '';
 }
 
 async function stopActiveMonitor(options?: { force?: boolean }) {
@@ -4182,7 +4781,9 @@ function processLogContent(
 
   parsedLoot.value = options.append ? [...parsedLoot.value, ...newRows] : newRows;
   if (parsedLoot.value.length > 0) {
-    showDetectedModal.value = true;
+    if (canManageLoot.value) {
+      showDetectedModal.value = true;
+    }
     parsedLootPage.value = 1;
     if (monitorSession.value?.isOwner) {
       window.dispatchEvent(
@@ -4304,21 +4905,6 @@ const formatLooterLabel = (name: string, looterClass?: string | null) => {
   return classLabel ? `${name} (${classLabel})` : name;
 };
 
-function formatVoteTooltip(interest: LootCouncilInterestState) {
-  if (!interest.voters || interest.voters.length === 0) {
-    return 'No votes recorded yet.';
-  }
-  if (interest.voters.length === 1) {
-    return `Vote from ${interest.voters[0]}`;
-  }
-  return `Votes from ${interest.voters.join(', ')}`;
-}
-
-function formatVoteBadgeTooltip(voter: string, index: number) {
-  const label = voter && voter.trim().length > 0 ? voter : `Council vote #${index + 1}`;
-  return `Vote from ${label}`;
-}
-
 function getInterestVoteCount(interest: LootCouncilInterestState) {
   const tally = interest.votes ?? 0;
   const voterTally = interest.voters?.length ?? 0;
@@ -4415,12 +5001,12 @@ function reconcileLootCouncilWithAssignments() {
   let changed = false;
   for (let index = lootCouncilState.items.length - 1; index >= 0; index -= 1) {
     const item = lootCouncilState.items[index];
-    const resolvedAt = resolvedLookup.get(item.key);
+    const resolvedAt = resolvedLookup.get(item.nameKey);
     if (!resolvedAt) {
       continue;
     }
     lootCouncilState.items.splice(index, 1);
-    resolvedLootCouncilItems.set(item.key, resolvedAt);
+    resolvedLootCouncilItems.set(item.nameKey, resolvedAt);
     changed = true;
   }
   if (changed && lootCouncilState.items.length === 0) {
@@ -4503,6 +5089,19 @@ function handleExistingLootCardKeyEnter(event: KeyboardEvent, itemName: string, 
     return;
   }
   openAllaSearch(itemName, itemId);
+}
+
+function normalizeCharacterClassValue(value?: string | null): CharacterClass | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+  return Object.prototype.hasOwnProperty.call(characterClassLabels, normalized)
+    ? (normalized as CharacterClass)
+    : null;
 }
 
 const formatCharacterClassLabel = (value?: string | null) => {
@@ -4685,6 +5284,11 @@ async function copyDebugLogs() {
   }
 }
 
+function handleResetProcessedLogs() {
+  resetProcessedLogState({ clearStorage: true, signature: null });
+  appendDebugLog('Processed log state reset manually');
+}
+
 function resetDetectedLoot() {
   parsedLoot.value = [];
   if (activeLogSignature.value) {
@@ -4776,6 +5380,26 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.loot-readonly-card {
+  border-left: 4px solid rgba(59, 130, 246, 0.6);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.loot-readonly-card p {
+  margin: 0;
+}
+
+.upload-status-card {
+  border-left: 4px solid rgba(56, 189, 248, 0.5);
+}
+
+.upload-status-card__body {
+  padding: 0.75rem 0 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .monitor-card {
@@ -6428,6 +7052,33 @@ onBeforeUnmount(() => {
   border-color: rgba(148, 163, 184, 0.45);
 }
 
+.loot-council-minimize {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.45), rgba(15, 23, 42, 0.85));
+  color: #f8fafc;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.loot-council-minimize__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.loot-council-minimize:hover,
+.loot-council-minimize:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.45);
+}
+
 .loot-council-clear-all {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.3);
@@ -6549,6 +7200,21 @@ onBeforeUnmount(() => {
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
 }
 
+.loot-council-column--viewer-interest {
+  border-color: rgba(250, 204, 21, 0.7);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35), 0 20px 40px rgba(15, 23, 42, 0.35);
+}
+
+.loot-council-column--viewer-favored {
+  background: rgba(34, 197, 94, 0.28);
+  border-color: rgba(34, 197, 94, 0.6);
+}
+
+.loot-council-column--viewer-unfavored {
+  background: rgba(248, 113, 113, 0.28);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
 .loot-council-column__header {
   display: flex;
   justify-content: space-between;
@@ -6643,8 +7309,17 @@ onBeforeUnmount(() => {
   gap: 0.35rem;
 }
 
-.loot-council-interest__name {
-  font-size: 0.95rem;
+.loot-council-interest__class {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.loot-council-interest__class img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 
 .loot-council-interest__replacement {

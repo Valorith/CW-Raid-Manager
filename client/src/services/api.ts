@@ -1154,27 +1154,39 @@ export const api = {
     const normalizedSignups = Array.isArray(raid?.signups)
       ? raid.signups.map((signup: any) => normalizeRaidSignup(signup))
       : [];
-    const npcKills = Array.isArray(raid?.npcKills)
-      ? raid.npcKills
-          .map((kill: any) => ({
-            npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
-            killCount:
-              typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
-          }))
-          .filter((kill) => kill.killCount > 0 && kill.npcName.trim().length > 0)
-      : [];
-    const npcKillEvents = Array.isArray(raid?.npcKillEvents)
-      ? raid.npcKillEvents
-          .map((event: any) => ({
-            npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
-            killerName:
-              typeof event?.killerName === 'string' && event.killerName.trim().length > 0
-                ? event.killerName
-                : null,
-            occurredAt: normalizeDateString(event?.occurredAt)
-          }))
-          .filter((event) => Boolean(event.occurredAt))
-      : [];
+    const npcKills =
+      Array.isArray(raid?.npcKills) && raid.npcKills.length > 0
+        ? raid.npcKills
+            .map(
+              (kill: any): { npcName: string; killCount: number } => ({
+                npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
+                killCount:
+                  typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
+              })
+            )
+            .filter(
+              (kill: { npcName: string; killCount: number }) =>
+                kill.killCount > 0 && kill.npcName.trim().length > 0
+            )
+        : [];
+    const npcKillEvents =
+      Array.isArray(raid?.npcKillEvents) && raid.npcKillEvents.length > 0
+        ? raid.npcKillEvents
+            .map(
+              (event: any): { npcName: string; killerName: string | null; occurredAt: string | null } => ({
+                npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
+                killerName:
+                  typeof event?.killerName === 'string' && event.killerName.trim().length > 0
+                    ? event.killerName
+                    : null,
+                occurredAt: normalizeDateString(event?.occurredAt)
+              })
+            )
+            .filter(
+              (event: { npcName: string; killerName: string | null; occurredAt: string | null }) =>
+                Boolean(event.occurredAt)
+            )
+        : [];
     return {
       ...raid,
       ...normalizedSummary,

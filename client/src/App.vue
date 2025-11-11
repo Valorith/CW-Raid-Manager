@@ -42,13 +42,33 @@
             class="nav-attention__button"
             :class="{
               'nav-attention__button--active': indicator.active,
-              'nav-attention__button--pulse': indicator.requiresAttention
+              'nav-attention__button--pulse': indicator.requiresAttention,
+              'nav-attention__button--lc': indicator.icon === 'scale' || indicator.label === 'Loot Council'
             }"
             :aria-label="indicator.description ?? indicator.label"
             @click="attentionStore.triggerIndicator(indicator.id)"
+            :title="indicator.icon === 'scale' || indicator.label === 'Loot Council' ? 'Loot Council' : indicator.label"
           >
             <span class="nav-attention__badge" aria-hidden="true">
-              {{ (indicator.icon ?? indicator.label.charAt(0)).toUpperCase() }}
+              <svg
+                v-if="indicator.icon === 'scale' || indicator.label === 'Loot Council'"
+                class="nav-attention__icon"
+                viewBox="0 0 24 24"
+                role="presentation"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 3v3m-7 5h4l-2 4-2-4Zm14 0h-4l2 4 2-4ZM5 19h14M8 11c0 2 1.5 3.6 4 3.6s4-1.6 4-3.6M12 6h6"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
+              </svg>
+              <span v-else>
+                {{ indicator.icon ?? indicator.label.charAt(0).toUpperCase() }}
+              </span>
             </span>
           </button>
         </div>
@@ -393,8 +413,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
   width: 40px;
   height: 40px;
   border-radius: 999px;
-  border: none;
-  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.28), rgba(15, 23, 42, 0.85));
   color: #f8fafc;
   display: inline-flex;
   align-items: center;
@@ -425,6 +445,11 @@ function hasRaidStarted(raid: RaidEventSummary) {
   opacity: 1;
 }
 
+.nav-attention__button--lc::after {
+  animation: navAttentionPulse 2.4s ease-in-out infinite;
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
 .nav-attention__button:hover,
 .nav-attention__button:focus-visible {
   transform: translateY(-1px);
@@ -432,9 +457,14 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav-attention__badge {
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.nav-attention__icon {
+  width: 18px;
+  height: 18px;
 }
 
 .nav__link {

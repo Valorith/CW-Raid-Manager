@@ -6,7 +6,7 @@ import type { RaidLogMonitorSession } from '../services/api';
 interface MonitorIndicatorSession {
   raidId: string;
   raidName: string;
-  sessionId: string;
+  sessionId: string | null;
   fileName: string;
   startedAt: string;
   lastHeartbeatAt: string | null;
@@ -22,7 +22,7 @@ export const useMonitorStore = defineStore('monitor', () => {
     activeSession.value = {
       raidId,
       raidName,
-      sessionId: session.sessionId,
+      sessionId: session.sessionId ?? null,
       fileName: session.fileName,
       startedAt: session.startedAt,
       lastHeartbeatAt: session.lastHeartbeatAt ?? null

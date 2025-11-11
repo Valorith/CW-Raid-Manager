@@ -839,12 +839,12 @@
         <span v-if="lootMonitorVisible" class="recorded-loot__spacer" aria-hidden="true"></span>
       </header>
       <RouterLink
-        v-if="canManageLootLists"
+        v-if="canAccessLootTracker"
         class="btn btn--manage-loot recorded-loot__manage"
         :to="{ name: 'RaidLoot', params: { raidId: raid.id } }"
       >
         <span aria-hidden="true">🧺</span>
-        Manage Loot
+        Open Loot Tracker
       </RouterLink>
       <p v-if="lootEvents.length === 0" class="muted">No loot recorded yet.</p>
       <div v-else class="raid-loot-grid">
@@ -1352,6 +1352,13 @@ import { normalizeOptionalUrl } from '../utils/urls';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
 import { parseNpcKills } from '../services/npcKillParser';
 
+type AttendanceModalRecordInput = Omit<AttendanceRecordInput, 'characterId' | 'status'> & {
+  characterId?: string | null;
+  status?: AttendanceStatus | null;
+  id?: string;
+  isMain?: boolean;
+};
+
 ensureChartJsRegistered();
 
 const route = useRoute();
@@ -1377,6 +1384,7 @@ const validCharacterClasses = new Set<CharacterClass>(
 );
 const attendanceStatusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED', 'ABSENT'];
 const lootEvents = ref<RaidLootEvent[]>([]);
+const canAccessLootTracker = computed(() => Boolean(raid.value));
 const guildBankDisplayName = computed(() =>
   getGuildBankDisplayName(raid.value?.guild.name ?? null)
 );
@@ -1953,7 +1961,7 @@ const npcKillScatterData = computed(() => {
 
 const npcKillScatterOptions = computed(() => ({
   maintainAspectRatio: false,
-  parsing: false,
+  parsing: false as const,
   scales: {
     x: {
       type: 'linear' as const,
@@ -3853,14 +3861,26 @@ function handleAttendanceUploadFromModal(attendanceEventId: string) {
   triggerAttendanceUpload({ attendanceEventId });
 }
 
-async function handleAttendanceModalSave(payload: { eventId: string; records: AttendanceRecordInput[] }) {
+async function handleAttendanceModalSave(payload: {
+  eventId: string;
+  records: AttendanceModalRecordInput[];
+}) {
   if (attendanceModalSaving.value) {
     return;
   }
   attendanceModalSaving.value = true;
   try {
+    const normalizedRecords: AttendanceRecordInput[] = payload.records.map((record) => ({
+      characterId: record.characterId ?? undefined,
+      characterName: record.characterName,
+      level: record.level ?? null,
+      class: record.class ?? null,
+      groupNumber: record.groupNumber ?? null,
+      status: record.status ?? undefined,
+      flags: record.flags ?? null
+    }));
     await api.updateAttendanceEvent(payload.eventId, {
-      records: payload.records
+      records: normalizedRecords
     });
     await loadAttendance();
     const updatedEvent = attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;

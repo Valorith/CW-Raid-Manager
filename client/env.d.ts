@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 
-declare module '*.gif' {
-  const src: string;
-  export default src;
+type FileSystemHandlePermissionDescriptor = {
+  mode?: 'read' | 'readwrite';
+};
+
+interface FileSystemHandle {
+  queryPermission?: (descriptor?: FileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
+  requestPermission?: (descriptor?: FileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
 }

@@ -252,8 +252,9 @@
 <script setup lang="ts">
 import { isAxiosError } from 'axios';
 import { nextTick, reactive, ref, watch } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 
-import type { GuildLootParserPattern, GuildLootParserSettings } from '../services/api';
+import type { GuildLootParserPatternSettings, GuildLootParserSettings } from '../services/api';
 import { api } from '../services/api';
 import { convertPlaceholdersToRegex, convertRegexToPlaceholders } from '../utils/patternPlaceholders';
 
@@ -267,7 +268,8 @@ const emit = defineEmits<{
   saved: [settings: GuildLootParserSettings];
 }>();
 
-type EditablePattern = GuildLootParserPattern & { ignoredMethods: string[]; methodInput: string };
+type EditablePattern = GuildLootParserPatternSettings & { methodInput: string };
+type TemplateRefHandler = (el: Element | ComponentPublicInstance | null) => void;
 
 const placeholderOptions = [
   {
@@ -297,7 +299,7 @@ const placeholderOptions = [
   }
 ];
 
-const defaultRegexPatterns: GuildLootParserPattern[] = [
+const defaultRegexPatterns: GuildLootParserPatternSettings[] = [
   {
     id: 'default-master-method',
     label: 'Awarded by Master Looter / Loot Council',
@@ -318,11 +320,14 @@ const defaultRegexPatterns: GuildLootParserPattern[] = [
   }
 ];
 
-const editable = reactive<{ patterns: EditablePattern[]; emoji: string }>({ patterns: [], emoji: '💎' });
+const editable = reactive<{ patterns: EditablePattern[]; emoji: string }>({
+  patterns: [],
+  emoji: '💎'
+});
 const sampleLogLine = ref('');
 const activePatternIndex = ref<number | null>(null);
 const collapsedPatternIds = ref<Record<string, boolean>>({});
-const patternTextareas = ref<Record<string, HTMLTextAreaElement | null>>({});
+const patternTextareas = ref<Record<string, HTMLTextAreaElement>>({});
 const patternCaretPositions = ref<Record<string, { start: number; end: number }>>({});
 const loadingSettings = ref(false);
 const updatingSettings = ref(false);
@@ -384,7 +389,7 @@ function applySettings(settings: GuildLootParserSettings) {
   formErrors.value = [];
 }
 
-function preparePatternsForEditing(patterns: GuildLootParserPattern[]) {
+function preparePatternsForEditing(patterns: GuildLootParserPatternSettings[]) {
   const merged = ensureDefaultPatterns(patterns);
   return merged.map((pattern) => {
     const friendlyPattern = convertRegexToPlaceholders(pattern.pattern);
@@ -400,7 +405,7 @@ function preparePatternsForEditing(patterns: GuildLootParserPattern[]) {
   });
 }
 
-function ensureDefaultPatterns(patterns: GuildLootParserPattern[]) {
+function ensureDefaultPatterns(patterns: GuildLootParserPatternSettings[]) {
   if (!Array.isArray(patterns) || patterns.length === 0) {
     return defaultRegexPatterns;
   }
@@ -709,14 +714,16 @@ function togglePatternCollapse(id: string) {
   };
 }
 
-function setPatternTextareaRef(id: string) {
-  return (el: HTMLTextAreaElement | null) => {
-    if (el) {
-      patternTextareas.value[id] = el;
-    } else {
-      const { [id]: _, ...rest } = patternTextareas.value;
-      patternTextareas.value = rest;
+function setPatternTextareaRef(id: string): TemplateRefHandler {
+  return (el) => {
+    const textarea = el instanceof HTMLTextAreaElement ? el : null;
+    if (textarea) {
+      patternTextareas.value = { ...patternTextareas.value, [id]: textarea };
+      return;
     }
+    const next = { ...patternTextareas.value };
+    delete next[id];
+    patternTextareas.value = next;
   };
 }
 
