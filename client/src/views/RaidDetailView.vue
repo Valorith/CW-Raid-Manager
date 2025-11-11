@@ -613,21 +613,24 @@
         <div>
           <h2>Kills</h2>
           <p class="muted">Captured automatically from recorded log lines.</p>
+          <div v-if="totalNpcKills > 0" class="raid-kills-card__summary">
+            <div class="raid-kills-card__totals raid-kills-card__totals--inline">
+              <span class="raid-kills-card__totals-label">Total Kills</span>
+              <span class="raid-kills-card__badge">{{ totalNpcKills }}</span>
+            </div>
+          </div>
         </div>
         <div class="raid-kills-card__actions">
           <div class="raid-kills-card__actions-center">
             <button
               v-if="npcKillEvents.length > 0"
-              class="btn btn--outline btn--small"
+              class="icon-button icon-button--graph"
               type="button"
               @click="showNpcKillGraph = true"
             >
-              Graph
+              <span class="sr-only">Show kill graph</span>
+              <span aria-hidden="true">📊</span>
             </button>
-            <div v-if="totalNpcKills > 0" class="raid-kills-card__totals">
-              <span class="raid-kills-card__totals-label">Total Kills</span>
-              <span class="raid-kills-card__badge">{{ totalNpcKills }}</span>
-            </div>
           </div>
           <div class="raid-kills-card__upload">
             <input
@@ -645,6 +648,15 @@
             >
               <span class="upload-btn__icon" aria-hidden="true">📁</span>
               <span>{{ uploadingKillLog ? 'Uploading…' : 'Upload Log' }}</span>
+            </button>
+            <button
+              v-if="canManageRaid"
+              class="upload-btn raid-kills-card__add"
+              type="button"
+              @click="openAddKillModal"
+            >
+              <span class="upload-btn__icon" aria-hidden="true">➕</span>
+              <span>Add Kill</span>
             </button>
           </div>
         </div>
@@ -1263,13 +1275,71 @@
             {{ targetsModal.saving ? 'Saving…' : 'Save Goals' }}
           </button>
         </footer>
-      </form>
-    </div>
+  </form>
+</div>
+</div>
+<div v-if="addKillModal.visible" class="modal-backdrop" @click.self="closeAddKillModal()">
+  <div class="modal manual-kill-modal">
+    <header class="modal__header">
+      <div>
+        <h3>Add Kill</h3>
+        <p class="muted small">Record a kill manually when log lines are unavailable.</p>
+      </div>
+      <button class="icon-button" type="button" @click="closeAddKillModal()">✕</button>
+    </header>
+    <form class="manual-kill-form" @submit.prevent="submitManualKill">
+      <label class="manual-kill-field">
+        <span>NPC Name</span>
+        <input
+          v-model="addKillModal.npcName"
+          class="manual-kill-input"
+          type="text"
+          name="npcName"
+          maxlength="191"
+          required
+        />
+      </label>
+      <label class="manual-kill-field">
+        <span>Killer (optional)</span>
+        <input
+          v-model="addKillModal.killerName"
+          class="manual-kill-input"
+          type="text"
+          name="killerName"
+          maxlength="191"
+        />
+      </label>
+      <label class="manual-kill-field">
+        <span>Occurred At</span>
+        <input
+          v-model="addKillModal.occurredAt"
+          class="manual-kill-input"
+          type="datetime-local"
+          name="occurredAt"
+          required
+        />
+      </label>
+      <p v-if="addKillModal.error" class="error manual-kill-error">{{ addKillModal.error }}</p>
+      <footer class="modal__actions">
+        <button
+          class="btn btn--outline btn--modal-outline"
+          type="button"
+          :disabled="addKillModal.saving"
+          @click="closeAddKillModal()"
+        >
+          Cancel
+        </button>
+        <button class="btn btn--modal-primary" type="submit" :disabled="addKillModal.saving">
+          {{ addKillModal.saving ? 'Saving…' : 'Save Kill' }}
+        </button>
+      </footer>
+    </form>
   </div>
-  <AttendanceEventModal
-    v-if="selectedAttendanceEvent"
-    :event="selectedAttendanceEvent"
-    :can-edit="canManageRaid"
+</div>
+<AttendanceEventModal
+  v-if="selectedAttendanceEvent"
+  :event="selectedAttendanceEvent"
+  :can-edit="canManageRaid"
     :saving="attendanceModalSaving"
     @close="closeAttendanceEvent"
     @upload="handleAttendanceUploadFromModal"
@@ -1841,6 +1911,14 @@ const killContextMenu = reactive({
   y: 0,
   npcName: ''
 });
+const addKillModal = reactive({
+  visible: false,
+  npcName: '',
+  killerName: '',
+  occurredAt: '',
+  saving: false,
+  error: ''
+});
 
 function openKillContextMenu(event: MouseEvent, npcName: string) {
   killContextMenu.visible = true;
@@ -1882,6 +1960,62 @@ async function updateRaidTargets(bosses: string[], zones: string[]) {
     targetBosses: bosses,
     targetZones: zones
   });
+}
+
+function resetAddKillModalFields() {
+  addKillModal.npcName = '';
+  addKillModal.killerName = '';
+  addKillModal.occurredAt = toInputValue(new Date().toISOString());
+  addKillModal.error = '';
+}
+
+function openAddKillModal() {
+  if (!canManageRaid.value) {
+    return;
+  }
+  resetAddKillModalFields();
+  addKillModal.visible = true;
+}
+
+function closeAddKillModal(force = false) {
+  if (addKillModal.saving && !force) {
+    return;
+  }
+  addKillModal.visible = false;
+}
+
+async function submitManualKill() {
+  if (!raid.value || !canManageRaid.value || addKillModal.saving) {
+    return;
+  }
+  const npcName = addKillModal.npcName.trim();
+  if (npcName.length < 2) {
+    addKillModal.error = 'Enter the NPC name.';
+    return;
+  }
+  const occurredAtIso = fromInputValue(addKillModal.occurredAt);
+  if (!occurredAtIso) {
+    addKillModal.error = 'Select when the kill occurred.';
+    return;
+  }
+  const killer = addKillModal.killerName.trim();
+  addKillModal.saving = true;
+  addKillModal.error = '';
+  try {
+    await api.recordRaidNpcKills(raid.value.id, [
+      {
+        npcName,
+        occurredAt: occurredAtIso,
+        killerName: killer.length > 0 ? killer : null
+      }
+    ]);
+    await loadRaid();
+    closeAddKillModal(true);
+  } catch (error) {
+    addKillModal.error = extractErrorMessage(error, 'Unable to add kill. Please try again.');
+  } finally {
+    addKillModal.saving = false;
+  }
 }
 
 const npcKillColorCache = new Map<string, string>();
@@ -2895,7 +3029,20 @@ async function saveEditedLoot() {
   }
 }
 
-async function loadAttendance() {
+async function refreshRaidSignups() {
+  try {
+    const latestRaid = await api.fetchRaid(raidId);
+    if (raid.value) {
+      raid.value.signups = latestRaid.signups;
+    } else {
+      raid.value = latestRaid;
+    }
+  } catch (error) {
+    console.warn('Failed to refresh raid signups', error);
+  }
+}
+
+async function loadAttendance(options?: { syncSignups?: boolean }) {
   attendanceLoading.value = true;
   try {
     attendanceEvents.value = await api.fetchAttendance(raidId);
@@ -2903,6 +3050,9 @@ async function loadAttendance() {
     attendanceLoading.value = false;
   }
   maybeOpenAttendanceFromQuery();
+  if (options?.syncSignups) {
+    await refreshRaidSignups();
+  }
 }
 
 async function handleFileUpload(event: Event) {
@@ -2975,7 +3125,7 @@ async function saveAttendance(entries?: AttendanceRecordInput[]) {
     }
     discardPreview(false);
     showRosterModal.value = false;
-    await loadAttendance();
+    await loadAttendance({ syncSignups: true });
   } finally {
     submittingAttendance.value = false;
   }
@@ -3561,6 +3711,7 @@ function confirmDeleteAttendance(event: any) {
       if (selectedAttendanceEvent.value?.id === event.id) {
         selectedAttendanceEvent.value = null;
       }
+      await refreshRaidSignups();
     } catch (error) {
       actionError.value = extractErrorMessage(error, 'Unable to delete attendance event. Please try again.');
     } finally {
@@ -3642,7 +3793,7 @@ async function handleStartRaid() {
       await createPlaceholderAttendanceEvent('START');
     }
     await loadRaid();
-    await loadAttendance();
+    await loadAttendance({ syncSignups: true });
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to start raid. Please try again.');
@@ -3673,7 +3824,7 @@ async function handleEndRaid() {
       await createPlaceholderAttendanceEvent('END');
     }
     await loadRaid();
-    await loadAttendance();
+    await loadAttendance({ syncSignups: true });
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to end raid. Please try again.');
@@ -3704,7 +3855,7 @@ async function handleRestartRaid() {
       await createPlaceholderAttendanceEvent('RESTART');
     }
     await loadRaid();
-    await loadAttendance();
+    await loadAttendance({ syncSignups: true });
     window.dispatchEvent(new CustomEvent('active-raid-updated'));
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to restart raid. Please try again.');
@@ -3882,7 +4033,7 @@ async function handleAttendanceModalSave(payload: {
     await api.updateAttendanceEvent(payload.eventId, {
       records: normalizedRecords
     });
-    await loadAttendance();
+    await loadAttendance({ syncSignups: true });
     const updatedEvent = attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;
     selectedAttendanceEvent.value = updatedEvent;
   } catch (error) {
@@ -4502,6 +4653,7 @@ async function copyRaidLink() {
   font-size: 0.95rem;
   line-height: 1;
 }
+
 
 .badge {
   display: inline-flex;
@@ -5422,6 +5574,24 @@ th {
   cursor: not-allowed;
 }
 
+.icon-button--graph {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  font-size: 1.1rem;
+  color: #cbd5f5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button--graph:hover {
+  background: rgba(59, 130, 246, 0.3);
+  color: #f1f5f9;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -5947,16 +6117,34 @@ th {
   justify-content: center;
 }
 
+.raid-kills-card__summary {
+  margin-top: 0.65rem;
+}
+
 .raid-kills-card__totals {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
-  align-items: flex-end;
   gap: 0.25rem;
   min-width: 0;
 }
 
+.raid-kills-card__totals--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.2);
+}
+
 .raid-kills-card__upload {
   margin-left: auto;
+}
+
+.raid-kills-card__add {
+  margin-left: 0.75rem;
 }
 
 .raid-kills-card__totals-label {
@@ -6613,6 +6801,48 @@ th {
   flex: 1;
   width: 100%;
   height: 100%;
+}
+
+.manual-kill-modal {
+  max-width: 28rem;
+}
+
+.manual-kill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.manual-kill-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #cbd5f5;
+}
+
+.manual-kill-field span {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #e2e8f0;
+}
+
+.manual-kill-input {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  color: #f8fafc;
+}
+
+.manual-kill-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.65);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.manual-kill-error {
+  margin: 0;
 }
 
 @media (max-width: 768px) {

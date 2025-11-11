@@ -148,6 +148,121 @@ export async function listRaidSignups(raidId: string): Promise<RaidSignupSummary
   });
 }
 
+export async function syncRaidSignupsWithAttendance(raidId: string): Promise<void> {
+  const attendanceRecords = await prisma.attendanceRecord.findMany({
+    where: {
+      attendanceEvent: {
+        raidEventId: raidId
+      }
+    },
+    select: {
+      characterId: true,
+      characterName: true
+    }
+  });
+
+  if (attendanceRecords.length === 0) {
+    await prisma.raidSignup.deleteMany({ where: { raidId } });
+    return;
+  }
+
+  const characterIds = new Set<string>();
+  const fallbackNames = new Set<string>();
+  attendanceRecords.forEach((record) => {
+    if (record.characterId) {
+      characterIds.add(record.characterId);
+      return;
+    }
+    const name = record.characterName?.trim();
+    if (name) {
+      fallbackNames.add(name);
+    }
+  });
+
+  const matchedById = characterIds.size
+    ? await prisma.character.findMany({
+        where: { id: { in: Array.from(characterIds) } },
+        select: {
+          id: true,
+          userId: true,
+          name: true,
+          class: true,
+          level: true,
+          isMain: true
+        }
+      })
+    : [];
+
+  const uniqueFallbackNames = Array.from(fallbackNames);
+
+  const matchedByName = uniqueFallbackNames.length
+    ? await prisma.character.findMany({
+        where: {
+          name: {
+            in: uniqueFallbackNames
+          }
+        },
+        select: {
+          id: true,
+          userId: true,
+          name: true,
+          class: true,
+          level: true,
+          isMain: true
+        }
+      })
+    : [];
+
+  const characterMap = new Map<string, (typeof matchedById)[number]>();
+  [...matchedById, ...matchedByName].forEach((character) => {
+    characterMap.set(character.id, character);
+  });
+
+  if (characterMap.size === 0) {
+    await prisma.raidSignup.deleteMany({ where: { raidId } });
+    return;
+  }
+
+  const characters = Array.from(characterMap.values());
+
+  await prisma.$transaction([
+    prisma.raidSignup.deleteMany({
+      where: {
+        raidId,
+        characterId: {
+          notIn: characters.map((character) => character.id)
+        }
+      }
+    }),
+    ...characters.map((character) =>
+      prisma.raidSignup.upsert({
+        where: {
+          raidId_characterId: {
+            raidId,
+            characterId: character.id
+          }
+        },
+        update: {
+          userId: character.userId,
+          characterName: character.name,
+          characterClass: character.class,
+          characterLevel: character.level,
+          isMain: character.isMain
+        },
+        create: {
+          raidId,
+          userId: character.userId,
+          characterId: character.id,
+          characterName: character.name,
+          characterClass: character.class,
+          characterLevel: character.level,
+          isMain: character.isMain
+        }
+      })
+    )
+  ]);
+}
+
 export async function replaceRaidSignupsForUser(
   raidId: string,
   userId: string,

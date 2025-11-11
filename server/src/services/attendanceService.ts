@@ -4,6 +4,7 @@ import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { ensureUserCanEditRaid } from './raidService.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { syncRaidSignupsWithAttendance } from './raidSignupService.js';
 
 export interface AttendanceRecordInput {
   characterId?: string | null;
@@ -132,6 +133,15 @@ export async function getAttendanceEvent(attendanceEventId: string) {
 }
 
 export async function deleteAttendanceEvent(attendanceEventId: string) {
+  const event = await prisma.attendanceEvent.findUnique({
+    where: { id: attendanceEventId },
+    select: { raidEventId: true }
+  });
+
+  if (!event) {
+    return;
+  }
+
   await prisma.attendanceRecord.deleteMany({
     where: { attendanceEventId }
   });
@@ -139,6 +149,8 @@ export async function deleteAttendanceEvent(attendanceEventId: string) {
   await prisma.attendanceEvent.delete({
     where: { id: attendanceEventId }
   });
+
+  await syncRaidSignupsWithAttendance(event.raidEventId);
 }
 
 export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
@@ -220,6 +232,8 @@ export async function createAttendanceEvent(input: CreateAttendanceEventInput) {
       }))
     )
   });
+
+  await syncRaidSignupsWithAttendance(input.raidEventId);
 
   return {
     ...event,
@@ -312,6 +326,8 @@ export async function overwriteAttendanceEventRecords(input: {
       )
     });
   }
+
+  await syncRaidSignupsWithAttendance(existing.raidEventId);
 
   return updated;
 }
