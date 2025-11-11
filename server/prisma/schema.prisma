@@ -55,6 +55,7 @@ model Guild {
   lootEvents           RaidLootEvent[]
   raidSeries           RaidEventSeries[]
   npcKillEvents       RaidNpcKillEvent[]
+  npcNotes            GuildNpcNote[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -205,6 +206,52 @@ model RaidLootEvent {
   @@index([createdById], map: "RaidLootEvent_createdById_fkey")
   @@index([guildId])
   @@index([raidId])
+}
+
+model GuildNpcNote {
+  id                String                   @id @default(cuid())
+  guildId           String
+  npcName           String                   @db.VarChar(191)
+  npcNameNormalized String                   @db.VarChar(191)
+  notes             String?                  @db.LongText
+  allaLink          String?                  @db.VarChar(512)
+  lastEditedById    String?
+  lastEditedByName  String?                  @db.VarChar(191)
+  deletionRequestedById   String?
+  deletionRequestedByName String?            @db.VarChar(191)
+  deletionRequestedAt     DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  guild             Guild                    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  spells            GuildNpcNoteSpell[]
+  relatedNpcs       GuildNpcNoteAssociation[]
+
+  @@unique([guildId, npcNameNormalized], map: "GuildNpcNote_guild_npc_unique")
+  @@index([guildId])
+}
+
+model GuildNpcNoteSpell {
+  id        String        @id @default(cuid())
+  noteId    String
+  name      String        @db.VarChar(191)
+  allaLink  String        @db.VarChar(512)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  note      GuildNpcNote  @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
+}
+
+model GuildNpcNoteAssociation {
+  id                String        @id @default(cuid())
+  noteId            String
+  associatedNpcName String        @db.VarChar(191)
+  allaLink          String        @db.VarChar(512)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  note              GuildNpcNote  @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId])
 }
 
 model RaidNpcKillEvent {

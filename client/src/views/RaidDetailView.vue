@@ -631,6 +631,14 @@
               <span class="sr-only">Show kill graph</span>
               <span aria-hidden="true">📊</span>
             </button>
+            <button
+              class="npc-notes-btn npc-notes-btn--pill npc-notes-btn--compact"
+              type="button"
+              @click="handleOpenNpcNotes()"
+            >
+              <span aria-hidden="true">📘</span>
+              <span>NPC Notes</span>
+            </button>
           </div>
           <div class="raid-kills-card__upload">
             <input
@@ -676,6 +684,13 @@
             <span class="raid-kills-grid__name">
               <span>{{ kill.npcName }}</span>
               <span v-if="kill.isTargetBoss" class="raid-kills-grid__icon" title="Target boss defeated">⭐</span>
+              <span
+                v-if="npcHasNote(kill.npcName)"
+                class="raid-kills-grid__icon raid-kills-grid__icon--note"
+                title="NPC notes available"
+              >
+                📜
+              </span>
             </span>
             <span class="raid-kills-grid__badge" :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }">
               {{ kill.killCount }}
@@ -693,6 +708,24 @@
     >
       <button class="loot-context-menu__action" type="button" @click="addTargetBossFromKill">
         Add boss target
+      </button>
+      <button class="loot-context-menu__action" type="button" @click="openNpcNotesFromKill">
+        NPC notes
+      </button>
+    </div>
+    <div
+      v-if="npcNotesState.associationMenu.visible"
+      class="loot-context-menu association-context-menu"
+      :style="{
+        top: `${npcNotesState.associationMenu.y}px`,
+        left: `${npcNotesState.associationMenu.x}px`
+      }"
+    >
+      <button class="loot-context-menu__action" type="button" @click="handleAssociationContextEdit">
+        Edit
+      </button>
+      <button class="loot-context-menu__action" type="button" @click="handleAssociationContextDelete">
+        Delete
       </button>
     </div>
 
@@ -1338,6 +1371,369 @@
     </form>
   </div>
 </div>
+<div v-if="npcNotesState.visible" class="modal-backdrop" @click.self="closeNpcNotesModal()">
+  <div class="modal npc-notes-modal">
+    <header class="modal__header">
+      <div>
+        <h3>NPC Notes</h3>
+        <p class="muted small">Guild bestiary and intel on priority targets.</p>
+      </div>
+      <button class="icon-button" type="button" @click="closeNpcNotesModal()">✕</button>
+    </header>
+    <div class="npc-notes-body">
+      <aside class="npc-notes-sidebar">
+        <div class="npc-notes-search">
+          <input
+            v-model="npcNotesState.search"
+            type="search"
+            placeholder="Search NPCs"
+            aria-label="Search NPC notes"
+          />
+        </div>
+        <ul class="npc-notes-list">
+          <li
+            v-for="note in filteredNpcNotes"
+            :key="note.id || note.npcName"
+            class="npc-notes-list__row"
+            :class="{
+              'npc-notes-list__row--active': note.npcName === npcNotesState.draft.npcName,
+              'npc-notes-list__row--pending': note.deletionRequestedAt
+            }"
+          >
+            <button
+              class="npc-notes-list__item"
+              type="button"
+              @click="selectNpcNotesEntry(note.npcName)"
+            >
+              <span>{{ note.npcName }}</span>
+              <span v-if="note.deletionRequestedAt" class="npc-notes-list__pill">Pending</span>
+            </button>
+            <div
+              v-if="npcNotesState.canApproveDeletion && note.deletionRequestedAt"
+              class="npc-notes-approval"
+            >
+              <button
+                class="npc-notes-approval__btn npc-notes-approval__btn--approve"
+                type="button"
+                @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'APPROVE')"
+              >
+                👍
+              </button>
+              <button
+                class="npc-notes-approval__btn npc-notes-approval__btn--deny"
+                type="button"
+                @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'DENY')"
+              >
+                👎
+              </button>
+            </div>
+          </li>
+        </ul>
+        <p v-if="!npcNotesState.loading && filteredNpcNotes.length === 0" class="muted small">
+          No NPC notes yet.
+        </p>
+        <button
+          v-if="npcNotesState.canEdit"
+          class="npc-notes-btn npc-notes-btn--ghost npc-notes-new"
+          type="button"
+          @click="startNewNpcNoteEntry()"
+        >
+          New NPC
+        </button>
+      </aside>
+      <section class="npc-notes-content">
+        <div v-if="npcNotesState.loading" class="npc-notes-placeholder">
+          Loading NPC notes…
+        </div>
+        <template v-else>
+          <header class="npc-notes-content-header">
+            <div>
+              <p class="npc-notes-eyebrow">
+                {{ npcNotesReadOnly ? 'Viewing entry' : 'Editing entry' }}
+              </p>
+              <h3>{{ npcNotesState.draft.npcName || 'New NPC' }}</h3>
+              <p v-if="selectedNpcNote?.lastEditedByName" class="npc-notes-meta">
+                Last edited by {{ selectedNpcNote.lastEditedByName }}
+              </p>
+              <p v-else-if="selectedNpcNote?.updatedAt" class="npc-notes-meta">
+                Last updated {{ formatDate(selectedNpcNote.updatedAt) }}
+              </p>
+              <p v-if="selectedNpcNotePendingDeletion" class="npc-notes-pending-hint">
+                Deletion requested
+                {{ selectedNpcNote?.deletionRequestedAt ? formatDate(selectedNpcNote.deletionRequestedAt) : '' }}
+                by {{ selectedNpcNote?.deletionRequestedByName ?? 'a guild member' }}
+              </p>
+              <p v-if="npcNotesState.deletionStatus" class="npc-notes-status">
+                {{ npcNotesState.deletionStatus }}
+              </p>
+            </div>
+            <div class="npc-notes-header-actions">
+              <a
+                v-if="npcNotesExternalLink"
+                class="npc-notes-link"
+                :href="npcNotesExternalLink"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View Alla Entry ↗
+              </a>
+              <span v-if="npcNotesReadOnly" class="npc-notes-badge">View only</span>
+              <button
+                v-if="!npcNotesReadOnly && selectedNpcNote && !selectedNpcNotePendingDeletion && !npcNotesState.canApproveDeletion"
+                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                type="button"
+                :disabled="!npcNotesState.selectedName"
+                @click="requestNpcNoteDeletion"
+              >
+                Request Deletion
+              </button>
+              <button
+                v-else-if="npcNotesState.canApproveDeletion && selectedNpcNote && !selectedNpcNotePendingDeletion"
+                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                type="button"
+                :disabled="!npcNotesState.selectedName"
+                @click="confirmImmediateNpcDeletion"
+              >
+                Delete
+              </button>
+              <span
+                v-else-if="selectedNpcNotePendingDeletion"
+                class="npc-notes-pending-pill"
+              >
+                Pending approval
+              </span>
+            </div>
+          </header>
+          <div class="npc-notes-grid">
+            <section class="npc-notes-panel">
+              <div class="npc-notes-field">
+                <span>NPC Name</span>
+                <input
+                  v-model="npcNotesState.draft.npcName"
+                  class="npc-notes-input"
+                  type="text"
+                  maxlength="191"
+                  :disabled="npcNotesReadOnly"
+                />
+              </div>
+              <div class="npc-notes-field">
+                <span>Alla Link</span>
+                <input
+                  v-model="npcNotesState.draft.allaLink"
+                  class="npc-notes-input"
+                  type="url"
+                  placeholder="https://alla.clumsysworld.com/..."
+                  :disabled="npcNotesReadOnly"
+                />
+              </div>
+            </section>
+            <section class="npc-notes-panel npc-notes-panel--notes">
+              <div class="npc-notes-field">
+                <span>Notes</span>
+                <textarea
+                  v-model="npcNotesState.draft.notes"
+                  class="npc-notes-textarea"
+                  rows="10"
+                  :disabled="npcNotesReadOnly"
+                />
+              </div>
+            </section>
+          </div>
+          <div class="npc-notes-grid">
+            <section class="npc-notes-panel">
+            <header>
+              <div>
+                <h4>Spells</h4>
+                <p class="muted small">Document dangerous abilities with Alla references.</p>
+              </div>
+              <button
+                v-if="!npcNotesReadOnly"
+                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                type="button"
+                @click="addNpcNoteAssociationRow('spells')"
+              >
+                Add Spell
+              </button>
+            </header>
+            <div v-if="npcNotesState.draft.spells.length === 0" class="npc-notes-empty muted small">
+              No spells tracked yet.
+            </div>
+            <div class="npc-notes-chip-grid">
+              <div
+                v-for="spell in npcNotesState.draft.spells"
+                :key="spell.localId"
+                class="npc-notes-chip-wrapper"
+                :class="{ 'npc-notes-chip-wrapper--active': isEditingAssociation('spells', spell.localId) }"
+              >
+                <template v-if="npcNotesReadOnly">
+                  <a
+                    v-if="getAssociationDisplayLink('spells', spell)"
+                    class="npc-notes-chip"
+                    :href="getAssociationDisplayLink('spells', spell) || undefined"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
+                  >
+                    {{ getAssociationDisplayName('spells', spell) }}
+                  </a>
+                  <span v-else class="npc-notes-chip npc-notes-chip--disabled">
+                    {{ getAssociationDisplayName('spells', spell) }}
+                  </span>
+                </template>
+                <template v-else>
+                  <button
+                    class="npc-notes-chip npc-notes-chip--button"
+                    type="button"
+                    @click="handleAssociationChipClick('spells', spell)"
+                    @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
+                  >
+                    {{ getAssociationDisplayName('spells', spell) }}
+                    <span v-if="getAssociationDisplayLink('spells', spell)" aria-hidden="true">↗</span>
+                  </button>
+                  <button
+                    class="icon-button icon-button--chip-delete"
+                    type="button"
+                    @click.stop="confirmAssociationDelete('spells', spell.localId)"
+                  >
+                    ✕
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div
+              v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'spells'"
+              class="npc-notes-association-form"
+            >
+              <div class="npc-notes-association-edit">
+                <input
+                  v-model="npcNotesState.associationEditor.name"
+                  class="npc-notes-input"
+                  type="text"
+                  placeholder="Spell name"
+                />
+                <input
+                  v-model="npcNotesState.associationEditor.allaLink"
+                  class="npc-notes-input"
+                  type="url"
+                  placeholder="https://alla.clumsysworld.com/..."
+                />
+                <button class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact" type="button" @click="confirmAssociationEdit()" :disabled="!associationEditorActive()">
+                  Apply
+                </button>
+              </div>
+              <div class="npc-notes-association-actions">
+                <button class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact" type="button" @click="resetAssociationEditor()">
+                  Cancel
+                </button>
+              </div>
+            </div>
+            </section>
+            <section class="npc-notes-panel">
+            <header>
+              <div>
+                <h4>Associated NPCs</h4>
+                <p class="muted small">Track adds, escorts, or other linked encounters.</p>
+              </div>
+              <button
+                v-if="!npcNotesReadOnly"
+                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                type="button"
+                @click="addNpcNoteAssociationRow('relatedNpcs')"
+              >
+                Add NPC
+              </button>
+            </header>
+            <div v-if="npcNotesState.draft.relatedNpcs.length === 0" class="npc-notes-empty muted small">
+              No associated NPCs listed.
+            </div>
+            <div class="npc-notes-chip-grid">
+              <div
+                v-for="assoc in npcNotesState.draft.relatedNpcs"
+                :key="assoc.localId"
+                class="npc-notes-chip-wrapper"
+                :class="{ 'npc-notes-chip-wrapper--active': isEditingAssociation('relatedNpcs', assoc.localId) }"
+              >
+                <template v-if="npcNotesReadOnly">
+                  <a
+                    v-if="getAssociationDisplayLink('relatedNpcs', assoc)"
+                    class="npc-notes-chip"
+                    :href="getAssociationDisplayLink('relatedNpcs', assoc) || undefined"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
+                  >
+                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                  </a>
+                  <span v-else class="npc-notes-chip npc-notes-chip--disabled">
+                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                  </span>
+                </template>
+                <template v-else>
+                  <button
+                    class="npc-notes-chip npc-notes-chip--button"
+                    type="button"
+                    @click="handleAssociationChipClick('relatedNpcs', assoc)"
+                    @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
+                  >
+                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                    <span v-if="getAssociationDisplayLink('relatedNpcs', assoc)" aria-hidden="true">↗</span>
+                  </button>
+                  <button
+                    class="icon-button icon-button--chip-delete"
+                    type="button"
+                    @click.stop="confirmAssociationDelete('relatedNpcs', assoc.localId)"
+                  >
+                    ✕
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div
+              v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'relatedNpcs'"
+              class="npc-notes-association-form"
+            >
+              <div class="npc-notes-association-edit">
+                <input
+                  v-model="npcNotesState.associationEditor.name"
+                  class="npc-notes-input"
+                  type="text"
+                  placeholder="NPC name"
+                />
+                <input
+                  v-model="npcNotesState.associationEditor.allaLink"
+                  class="npc-notes-input"
+                  type="url"
+                  placeholder="https://alla.clumsysworld.com/..."
+                />
+                <button class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact" type="button" @click="confirmAssociationEdit()" :disabled="!associationEditorActive()">
+                  Apply
+                </button>
+              </div>
+              <div class="npc-notes-association-actions">
+                <button class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact" type="button" @click="resetAssociationEditor()">
+                  Cancel
+                </button>
+              </div>
+            </div>
+            </section>
+          </div>
+          <p v-if="npcNotesState.error" class="error npc-notes-error">{{ npcNotesState.error }}</p>
+          <footer class="modal__actions npc-notes-actions">
+            <button
+              v-if="!npcNotesReadOnly"
+              class="npc-notes-btn npc-notes-btn--primary"
+              type="button"
+              :disabled="npcNotesState.saving"
+              @click="saveNpcNote"
+            >
+              {{ npcNotesState.saving ? 'Saving…' : 'Save Notes' }}
+            </button>
+          </footer>
+        </template>
+      </section>
+    </div>
+  </div>
+</div>
 <AttendanceEventModal
   v-if="selectedAttendanceEvent"
   :event="selectedAttendanceEvent"
@@ -1399,13 +1795,15 @@ import {
   roleCategoryOrder,
   type AttendanceStatus,
   type CharacterClass,
-  type RaidRoleCategory
+  type RaidRoleCategory,
+  type GuildRole
 } from '../services/types';
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
   GuildLootListEntry,
   GuildLootListSummary,
+  GuildNpcNote,
   RaidDetail,
   RaidEventSummary,
   RaidLootEvent,
@@ -1430,6 +1828,14 @@ type AttendanceModalRecordInput = Omit<AttendanceRecordInput, 'characterId' | 's
   id?: string;
   isMain?: boolean;
 };
+
+type NpcNoteAssociationDraft = {
+  localId: string;
+  name: string;
+  allaLink: string;
+};
+
+type NpcAssociationType = 'spells' | 'relatedNpcs';
 
 ensureChartJsRegistered();
 
@@ -1456,6 +1862,41 @@ const validCharacterClasses = new Set<CharacterClass>(
 );
 const attendanceStatusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED', 'ABSENT'];
 const lootEvents = ref<RaidLootEvent[]>([]);
+const npcNotes = ref<GuildNpcNote[]>([]);
+const npcNotesLoaded = ref(false);
+const npcNotesState = reactive({
+  visible: false,
+  loading: false,
+  saving: false,
+  error: '',
+  canEdit: false,
+  canApproveDeletion: false,
+  viewerRole: null as GuildRole | null,
+  search: '',
+  selectedName: '',
+  draft: {
+    npcName: '',
+    notes: '',
+    allaLink: '',
+    spells: [] as NpcNoteAssociationDraft[],
+    relatedNpcs: [] as NpcNoteAssociationDraft[]
+  },
+  associationEditor: {
+    type: null as 'spells' | 'relatedNpcs' | null,
+    localId: '',
+    name: '',
+    allaLink: ''
+  },
+  associationMenu: {
+    visible: false,
+    x: 0,
+    y: 0,
+    type: null as NpcAssociationType | null,
+    localId: ''
+  },
+  deletionStatus: ''
+});
+const npcNotesReadOnly = computed(() => !npcNotesState.canEdit);
 const canAccessLootTracker = computed(() => Boolean(raid.value));
 const guildBankDisplayName = computed(() =>
   getGuildBankDisplayName(raid.value?.guild.name ?? null)
@@ -1495,6 +1936,462 @@ async function refreshLootEvents() {
   const events = await api.fetchRaidLoot(raidId);
   lootEvents.value = normalizeRaidLootEvents(events);
 }
+
+function generateLocalId() {
+  return `temp-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function createAssociationDraft(initial?: Partial<NpcNoteAssociationDraft>): NpcNoteAssociationDraft {
+  return {
+    localId: initial?.localId ?? initial?.id ?? generateLocalId(),
+    name: initial?.name ?? '',
+    allaLink: initial?.allaLink ?? ''
+  };
+}
+
+async function ensureNpcNotesLoaded() {
+  if (npcNotesLoaded.value || npcNotesState.loading) {
+    return;
+  }
+  if (!raid.value?.guild?.id) {
+    return;
+  }
+  npcNotesState.loading = true;
+  npcNotesState.error = '';
+  try {
+    const response = await api.fetchGuildNpcNotes(raid.value.guild.id);
+    npcNotes.value = response.notes;
+    npcNotesState.canEdit = response.canEdit;
+    npcNotesState.canApproveDeletion = response.canApproveDeletion;
+    npcNotesState.viewerRole = response.viewerRole;
+    npcNotesLoaded.value = true;
+  } catch (error) {
+    npcNotesState.error = extractErrorMessage(error, 'Unable to load NPC notes.');
+  } finally {
+    npcNotesState.loading = false;
+  }
+}
+
+function setNpcNotesDraft(note: GuildNpcNote | null, fallbackName?: string) {
+  npcNotesState.draft.npcName = note?.npcName ?? fallbackName ?? '';
+  npcNotesState.draft.notes = note?.notes ?? '';
+  npcNotesState.draft.allaLink = note?.allaLink ?? '';
+  npcNotesState.draft.spells = note?.spells
+    ? note.spells.map((spell) => createAssociationDraft({
+        localId: spell.id,
+        name: spell.name,
+        allaLink: spell.allaLink
+      }))
+    : [];
+  npcNotesState.draft.relatedNpcs = note?.relatedNpcs
+    ? note.relatedNpcs.map((npc) => createAssociationDraft({
+        localId: npc.id,
+        name: npc.name,
+        allaLink: npc.allaLink
+      }))
+    : [];
+  resetAssociationEditor();
+}
+
+function selectNpcNotesEntry(name?: string) {
+  const target = (name ?? '').trim();
+  npcNotesState.selectedName = target;
+  if (!target) {
+    setNpcNotesDraft(null, '');
+    return;
+  }
+  const match = npcNotes.value.find(
+    (note) => note.npcName.toLowerCase() === target.toLowerCase()
+  );
+  setNpcNotesDraft(match ?? null, target);
+  closeAssociationContext();
+  npcNotesState.deletionStatus = '';
+}
+
+async function handleOpenNpcNotes(npcName?: string) {
+  if (!raid.value?.guild?.id) {
+    window.alert('Raid data is still loading.');
+    return;
+  }
+  npcNotesState.visible = true;
+  await ensureNpcNotesLoaded();
+  if (npcName) {
+    selectNpcNotesEntry(npcName);
+  } else if (!npcNotesState.selectedName) {
+    selectNpcNotesEntry(sortedNpcNotes.value[0]?.npcName ?? '');
+  }
+}
+
+function closeNpcNotesModal() {
+  if (npcNotesState.saving) {
+    return;
+  }
+  npcNotesState.visible = false;
+  resetAssociationEditor();
+  npcNotesState.deletionStatus = '';
+}
+
+function addNpcNoteAssociationRow(type: NpcAssociationType) {
+  const draft = createAssociationDraft();
+  npcNotesState.draft[type].push(draft);
+  beginAssociationEdit(type, draft);
+}
+
+function upsertLocalNpcNote(note: GuildNpcNote) {
+  const index = npcNotes.value.findIndex(
+    (entry) => entry.npcName.toLowerCase() === note.npcName.toLowerCase()
+  );
+  if (index >= 0) {
+    npcNotes.value.splice(index, 1, note);
+  } else {
+    npcNotes.value.push(note);
+  }
+}
+
+function removeLocalNpcNote(npcName: string) {
+  const index = npcNotes.value.findIndex(
+    (entry) => entry.npcName.toLowerCase() === npcName.toLowerCase()
+  );
+  if (index >= 0) {
+    npcNotes.value.splice(index, 1);
+  }
+}
+
+function normalizeClientAllaLink(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const withoutProtocol = withProtocol.replace(/^https?:\/\//i, '').toLowerCase();
+  if (!withoutProtocol.startsWith('alla.clumsysworld.com')) {
+    throw new Error('Alla links must start with alla.clumsysworld.com');
+  }
+  return withProtocol;
+}
+
+function formatDisplayAllaLink(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function resetAssociationEditor() {
+  npcNotesState.associationEditor.type = null;
+  npcNotesState.associationEditor.localId = '';
+  npcNotesState.associationEditor.name = '';
+  npcNotesState.associationEditor.allaLink = '';
+}
+
+function getAssociationCollection(type: NpcAssociationType): NpcNoteAssociationDraft[] {
+  return type === 'spells' ? npcNotesState.draft.spells : npcNotesState.draft.relatedNpcs;
+}
+
+function getAssociationById(type: NpcAssociationType, localId: string) {
+  return getAssociationCollection(type).find((entry) => entry.localId === localId) ?? null;
+}
+
+function isEditingAssociation(type: NpcAssociationType, localId: string) {
+  return (
+    npcNotesState.associationEditor.type === type &&
+    npcNotesState.associationEditor.localId === localId
+  );
+}
+
+function beginAssociationEdit(type: NpcAssociationType, entry: NpcNoteAssociationDraft) {
+  if (npcNotesReadOnly.value) {
+    return;
+  }
+  closeAssociationContext();
+  npcNotesState.associationEditor.type = type;
+  npcNotesState.associationEditor.localId = entry.localId;
+  npcNotesState.associationEditor.name = entry.name;
+  npcNotesState.associationEditor.allaLink = entry.allaLink;
+}
+
+function handleAssociationChipClick(type: NpcAssociationType, entry: NpcNoteAssociationDraft) {
+  const url = formatDisplayAllaLink(entry.allaLink);
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+  beginAssociationEdit(type, entry);
+}
+
+async function requestNpcNoteDeletion() {
+  if (!raid.value?.guild?.id || !npcNotesState.selectedName) {
+    return;
+  }
+  if (selectedNpcNotePendingDeletion.value) {
+    npcNotesState.deletionStatus = 'Deletion already pending approval.';
+    return;
+  }
+  npcNotesState.deletionStatus = 'Requesting deletion…';
+  try {
+    const note = await api.requestGuildNpcNoteDeletion(
+      raid.value.guild.id,
+      npcNotesState.selectedName
+    );
+    upsertLocalNpcNote(note);
+    selectNpcNotesEntry(note.npcName);
+    npcNotesState.deletionStatus = 'Awaiting officer approval.';
+  } catch (error) {
+    npcNotesState.deletionStatus = extractErrorMessage(
+      error,
+      'Unable to request deletion.'
+    );
+  }
+}
+
+function confirmImmediateNpcDeletion() {
+  if (!npcNotesState.selectedName) {
+    return;
+  }
+  const confirmed = window.confirm(
+    `This will permanently delete ${npcNotesState.selectedName}. Continue?`
+  );
+  if (!confirmed) {
+    return;
+  }
+  handleNpcNoteDeletionDecision(npcNotesState.selectedName, 'APPROVE');
+}
+
+async function handleNpcNoteDeletionDecision(
+  npcName: string,
+  decision: 'APPROVE' | 'DENY'
+) {
+  if (!raid.value?.guild?.id || !npcNotesState.canApproveDeletion) {
+    return;
+  }
+  if (decision === 'APPROVE') {
+    const confirmed = window.confirm(`Approve deletion of ${npcName}?`);
+    if (!confirmed) {
+      return;
+    }
+  }
+  try {
+    const result = await api.decideGuildNpcNoteDeletion(
+      raid.value.guild.id,
+      npcName,
+      decision
+    );
+    if (decision === 'APPROVE') {
+      removeLocalNpcNote(npcName);
+      if (npcNotesState.selectedName.toLowerCase() === npcName.toLowerCase()) {
+        selectNpcNotesEntry(sortedNpcNotes.value[0]?.npcName ?? '');
+      }
+      npcNotesState.deletionStatus = 'Deletion approved.';
+    } else if (result) {
+      upsertLocalNpcNote(result);
+      if (npcNotesState.selectedName.toLowerCase() === npcName.toLowerCase()) {
+        selectNpcNotesEntry(result.npcName);
+      }
+      npcNotesState.deletionStatus = 'Deletion request denied.';
+    }
+  } catch (error) {
+    window.alert(
+      extractErrorMessage(error, 'Unable to process deletion decision.')
+    );
+  }
+}
+
+function openAssociationContext(
+  event: MouseEvent,
+  type: NpcAssociationType,
+  entry: NpcNoteAssociationDraft
+) {
+  if (npcNotesReadOnly.value) {
+    return;
+  }
+  closeAssociationContext();
+  npcNotesState.associationMenu.visible = true;
+  npcNotesState.associationMenu.type = type;
+  npcNotesState.associationMenu.localId = entry.localId;
+  npcNotesState.associationMenu.x = event.clientX;
+  npcNotesState.associationMenu.y = event.clientY;
+}
+
+function closeAssociationContext() {
+  npcNotesState.associationMenu.visible = false;
+  npcNotesState.associationMenu.type = null;
+  npcNotesState.associationMenu.localId = '';
+}
+
+function handleAssociationContextMenu(
+  event: MouseEvent,
+  type: NpcAssociationType,
+  entry: NpcNoteAssociationDraft
+) {
+  if (npcNotesReadOnly.value) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  openAssociationContext(event, type, entry);
+}
+
+function handleAssociationContextEdit() {
+  const { type, localId } = npcNotesState.associationMenu;
+  if (!type || !localId) {
+    closeAssociationContext();
+    return;
+  }
+  const entry = getAssociationById(type, localId);
+  if (entry) {
+    beginAssociationEdit(type, entry);
+  }
+  closeAssociationContext();
+}
+
+function handleAssociationContextDelete() {
+  const { type, localId } = npcNotesState.associationMenu;
+  if (!type || !localId) {
+    closeAssociationContext();
+    return;
+  }
+  confirmAssociationDelete(type, localId);
+  closeAssociationContext();
+}
+
+function confirmAssociationEdit() {
+  const { type, localId, name, allaLink } = npcNotesState.associationEditor;
+  if (!type || !localId) {
+    return;
+  }
+  const collection = getAssociationCollection(type);
+  const target = collection.find((entry) => entry.localId === localId);
+  if (!target) {
+    resetAssociationEditor();
+    return;
+  }
+  target.name = name.trim();
+  target.allaLink = allaLink.trim();
+  resetAssociationEditor();
+}
+
+function confirmAssociationDelete(type: NpcAssociationType, localId: string) {
+  if (!window.confirm('Remove this entry?')) {
+    return;
+  }
+  const collection = getAssociationCollection(type);
+  const index = collection.findIndex((entry) => entry.localId === localId);
+  if (index !== -1) {
+    collection.splice(index, 1);
+  }
+  if (isEditingAssociation(type, localId)) {
+    resetAssociationEditor();
+  }
+}
+
+function associationEditorActive() {
+  return Boolean(npcNotesState.associationEditor.type && npcNotesState.associationEditor.localId);
+}
+
+function getAssociationDisplayName(type: NpcAssociationType, entry: NpcNoteAssociationDraft) {
+  if (isEditingAssociation(type, entry.localId)) {
+    return npcNotesState.associationEditor.name || (type === 'spells' ? 'Spell name' : 'NPC name');
+  }
+  return entry.name || (type === 'spells' ? 'Spell name' : 'NPC name');
+}
+
+function getAssociationDisplayLink(type: NpcAssociationType, entry: NpcNoteAssociationDraft) {
+  if (isEditingAssociation(type, entry.localId)) {
+    return formatDisplayAllaLink(npcNotesState.associationEditor.allaLink);
+  }
+  return formatDisplayAllaLink(entry.allaLink);
+}
+
+async function saveNpcNote() {
+  if (!raid.value?.guild?.id || npcNotesReadOnly.value) {
+    return;
+  }
+  const npcName = npcNotesState.draft.npcName.trim();
+  if (!npcName) {
+    npcNotesState.error = 'NPC name is required.';
+    return;
+  }
+
+  let npcAllaLink: string | null = null;
+  try {
+    npcAllaLink = normalizeClientAllaLink(npcNotesState.draft.allaLink);
+  } catch (error) {
+    npcNotesState.error = error instanceof Error ? error.message : 'Invalid Alla link.';
+    return;
+  }
+
+  const spellsPayload: Array<{ name: string; allaLink: string }> = [];
+  for (const spell of npcNotesState.draft.spells) {
+    const name = spell.name.trim();
+    const link = spell.allaLink.trim();
+    if (!name && !link) {
+      continue;
+    }
+    if (!name || !link) {
+      npcNotesState.error = 'Spell name and Alla link are required.';
+      return;
+    }
+    try {
+      spellsPayload.push({ name, allaLink: normalizeClientAllaLink(link) ?? link });
+    } catch (error) {
+      npcNotesState.error = error instanceof Error ? error.message : 'Invalid Alla link.';
+      return;
+    }
+  }
+
+  const relatedPayload: Array<{ name: string; allaLink: string }> = [];
+  for (const npc of npcNotesState.draft.relatedNpcs) {
+    const name = npc.name.trim();
+    const link = npc.allaLink.trim();
+    if (!name && !link) {
+      continue;
+    }
+    if (!name || !link) {
+      npcNotesState.error = 'Associated NPC name and Alla link are required.';
+      return;
+    }
+    try {
+      relatedPayload.push({ name, allaLink: normalizeClientAllaLink(link) ?? link });
+    } catch (error) {
+      npcNotesState.error = error instanceof Error ? error.message : 'Invalid Alla link.';
+      return;
+    }
+  }
+
+  npcNotesState.saving = true;
+  npcNotesState.error = '';
+  try {
+    const note = await api.upsertGuildNpcNote(raid.value.guild.id, npcName, {
+      notes: npcNotesState.draft.notes ? npcNotesState.draft.notes : null,
+      allaLink: npcAllaLink,
+      spells: spellsPayload,
+      relatedNpcs: relatedPayload
+    });
+    upsertLocalNpcNote(note);
+    selectNpcNotesEntry(note.npcName);
+  } catch (error) {
+    npcNotesState.error = extractErrorMessage(error, 'Unable to save NPC note.');
+  } finally {
+    npcNotesState.saving = false;
+  }
+}
+
+function startNewNpcNoteEntry(prefillName?: string) {
+  npcNotesState.selectedName = prefillName?.trim() ?? '';
+  setNpcNotesDraft(null, npcNotesState.selectedName);
+}
+
+async function openNpcNotesFromKill() {
+  const npcName = killContextMenu.npcName.trim();
+  closeKillContextMenu();
+  await handleOpenNpcNotes(npcName || undefined);
+}
 const pendingAttendanceEventId = ref<string | null>(
   typeof route.query.attendanceEventId === 'string'
     ? (route.query.attendanceEventId as string)
@@ -1511,6 +2408,41 @@ const signupError = ref<string | null>(null);
 const signupSuccess = ref<string | null>(null);
 const maxSignupSlots = 2;
 const roleCategories = roleCategoryOrder;
+const sortedNpcNotes = computed(() =>
+  [...npcNotes.value].sort((a, b) => a.npcName.localeCompare(b.npcName))
+);
+const filteredNpcNotes = computed(() => {
+  const query = npcNotesState.search.trim().toLowerCase();
+  if (!query) {
+    return sortedNpcNotes.value;
+  }
+  return sortedNpcNotes.value.filter((note) => note.npcName.toLowerCase().includes(query));
+});
+const selectedNpcNote = computed(() => {
+  const target = npcNotesState.selectedName.trim().toLowerCase();
+  if (!target) {
+    return null;
+  }
+  return npcNotes.value.find((note) => note.npcName.toLowerCase() === target) ?? null;
+});
+const npcNotesExternalLink = computed(() => formatDisplayAllaLink(npcNotesState.draft.allaLink));
+const selectedNpcNotePendingDeletion = computed(
+  () => Boolean(selectedNpcNote.value?.deletionRequestedAt)
+);
+const npcNotesNameSet = computed(() => {
+  const set = new Set<string>();
+  for (const note of npcNotes.value) {
+    const normalized = note.npcName?.trim().toLowerCase();
+    if (normalized) {
+      set.add(normalized);
+    }
+  }
+  return set;
+});
+
+function npcHasNote(name: string) {
+  return npcNotesNameSet.value.has(name.trim().toLowerCase());
+}
 const signupsCollapsed = ref(true);
 const signupsToggleLabel = computed(() => (signupsCollapsed.value ? 'Expand Signups' : 'Collapse Signups'));
 const collapsedGroupPreviewSize = 6;
@@ -2643,8 +3575,19 @@ async function handleWithdrawAll() {
 }
 
 async function loadRaid() {
+  const previousGuildId = raid.value?.guild?.id ?? null;
   const data = await api.fetchRaid(raidId);
   raid.value = data;
+  if (data.guild?.id !== previousGuildId) {
+    npcNotesLoaded.value = false;
+    npcNotes.value = [];
+    npcNotesState.selectedName = '';
+    npcNotesState.search = '';
+    npcNotesState.canEdit = false;
+    npcNotesState.canApproveDeletion = false;
+    npcNotesState.viewerRole = null;
+    npcNotesState.deletionStatus = '';
+  }
   if (data.guild?.id) {
     loadGuildMainCharacters(data.guild.id);
   }
@@ -2658,6 +3601,7 @@ async function loadRaid() {
   actionError.value = null;
   recurrenceError.value = null;
   await refreshLootListSummary();
+  await ensureNpcNotesLoaded();
 }
 
 function triggerKillLogUpload() {
@@ -2821,6 +3765,15 @@ function handleGlobalPointerDown(event: MouseEvent) {
     }
     closeKillContextMenu();
   }
+  if (npcNotesState.associationMenu.visible) {
+    if (target && target.closest('.association-context-menu')) {
+      return;
+    }
+    if (event.type === 'contextmenu' && target && target.closest('.npc-notes-chip-wrapper')) {
+      return;
+    }
+    closeAssociationContext();
+  }
 }
 
 function handleLootContextMenuKey(event: KeyboardEvent) {
@@ -2830,6 +3783,9 @@ function handleLootContextMenuKey(event: KeyboardEvent) {
     }
     if (killContextMenu.visible) {
       closeKillContextMenu();
+    }
+    if (npcNotesState.associationMenu.visible) {
+      closeAssociationContext();
     }
   }
 }
@@ -5971,6 +6927,11 @@ th {
   color: #fee2e2;
 }
 
+.association-context-menu {
+  min-width: 150px;
+  z-index: 90;
+}
+
 .card--collapsed {
   padding-bottom: 0.75rem;
   border-color: rgba(148, 163, 184, 0.25);
@@ -6263,6 +7224,11 @@ th {
 .raid-kills-grid__icon {
   font-size: 0.85rem;
   color: #facc15;
+}
+
+.raid-kills-grid__icon--note {
+  color: #cbd5f5;
+  margin-left: 0.25rem;
 }
 
 .raid-kills-grid__item--target {
@@ -6806,6 +7772,12 @@ th {
   gap: 1.25rem;
 }
 
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
 .npc-kill-modal {
   width: calc(100vw - 3rem);
   max-width: calc(100vw - 3rem);
@@ -6862,11 +7834,523 @@ th {
   margin: 0;
 }
 
+.npc-notes-modal {
+  width: min(1540px, calc(100vw - 1.5rem));
+  max-width: calc(100vw - 1.5rem);
+  height: min(900px, calc(100vh - 2rem));
+  background: radial-gradient(circle at top, rgba(59, 130, 246, 0.2), rgba(15, 23, 42, 0.96));
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: 0 35px 70px rgba(15, 23, 42, 0.75);
+  padding: 1.75rem;
+}
+
+.npc-notes-body {
+  flex: 1;
+  display: flex;
+  gap: 1.5rem;
+  min-height: 0;
+}
+
+.npc-notes-sidebar {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.35);
+}
+
+.npc-notes-search input {
+  width: 100%;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  padding: 0.6rem 0.75rem;
+  color: #f8fafc;
+}
+
+.npc-notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.npc-notes-list__item {
+  width: 100%;
+  text-align: left;
+  border-radius: 0.6rem;
+  border: 1px solid transparent;
+  background: rgba(15, 23, 42, 0.65);
+  color: #e2e8f0;
+  padding: 0.55rem 0.75rem;
+  transition: border 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  overflow: hidden;
+}
+
+.npc-notes-list__row {
+  position: relative;
+}
+
+.npc-notes-list__row--active .npc-notes-list__item {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(14, 116, 144, 0.35));
+}
+
+.npc-notes-list__pill {
+  margin-left: auto;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #bbf7d0;
+}
+
+.npc-notes-list__row--pending::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+  background: rgba(34, 197, 94, 0.08);
+  pointer-events: none;
+}
+
+.npc-notes-list__row--pending .npc-notes-list__item {
+  color: #bbf7d0;
+}
+
+.npc-notes-list__item:hover,
+.npc-notes-list__row--active .npc-notes-list__item {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(14, 116, 144, 0.35));
+  transform: translateX(2px);
+}
+
+.npc-notes-approval {
+  position: absolute;
+  top: 50%;
+  right: 0.4rem;
+  display: flex;
+  gap: 0.25rem;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.npc-notes-list__row--pending:hover .npc-notes-approval {
+  opacity: 1;
+}
+
+.npc-notes-approval__btn {
+  border: none;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 999px;
+  width: 28px;
+  height: 28px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #cbd5f5;
+  transition: background 0.15s ease;
+}
+
+.npc-notes-approval__btn--approve:hover {
+  background: rgba(34, 197, 94, 0.3);
+  color: #bbf7d0;
+}
+
+.npc-notes-approval__btn--deny:hover {
+  background: rgba(248, 113, 113, 0.3);
+  color: #fecaca;
+}
+
+.npc-notes-new {
+  margin-top: auto;
+}
+
+.npc-notes-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 0;
+}
+
+.npc-notes-meta {
+  margin: 0.3rem 0 0;
+  color: #94a3b8;
+}
+
+.npc-notes-pending-hint {
+  margin: 0.25rem 0 0;
+  color: #facc15;
+  font-size: 0.85rem;
+}
+
+.npc-notes-status {
+  margin: 0.35rem 0 0;
+  color: #bfdbfe;
+  font-size: 0.85rem;
+}
+
+.npc-notes-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #cbd5f5;
+}
+
+.npc-notes-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.npc-notes-content-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.npc-notes-eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.npc-notes-content-header h3 {
+  margin: 0.2rem 0 0;
+  font-size: 1.75rem;
+  color: #f8fafc;
+}
+
+.npc-notes-header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.npc-notes-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  color: #bfdbfe;
+  text-decoration: none;
+  font-size: 0.85rem;
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.npc-notes-link:hover {
+  border-color: rgba(191, 219, 254, 0.8);
+  color: #e0f2fe;
+}
+
+.npc-notes-badge {
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5f5;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.npc-notes-pending-pill {
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.2);
+  color: #bbf7d0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.npc-notes-actions {
+  justify-content: center;
+}
+
+.npc-notes-btn--ghost:hover {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+.npc-notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.npc-notes-panel {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.npc-notes-panel header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.npc-notes-panel h4 {
+  margin: 0;
+}
+
+.npc-notes-panel--notes .npc-notes-textarea {
+  min-height: 220px;
+}
+
+.npc-notes-input,
+.npc-notes-textarea {
+  width: 100%;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  padding: 0.55rem 0.65rem;
+}
+
+.npc-notes-textarea {
+  resize: vertical;
+  min-height: 140px;
+}
+
+.npc-notes-association-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.npc-notes-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.45rem;
+}
+
+.npc-notes-chip-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.npc-notes-chip-wrapper--active {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.npc-notes-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.npc-notes-association-edit {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 0.65rem;
+  padding: 0.5rem;
+}
+
+.npc-notes-association-form {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.npc-notes-association-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.npc-notes-empty {
+  font-style: italic;
+}
+
+.npc-notes-error {
+  margin: 0;
+}
+
+.npc-notes-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #bfdbfe;
+  text-decoration: none;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.npc-notes-chip:hover {
+  background: rgba(59, 130, 246, 0.28);
+  border-color: rgba(191, 219, 254, 0.6);
+}
+
+.npc-notes-chip--disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
+.npc-notes-chip--button {
+  width: 100%;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #dbeafe;
+  cursor: pointer;
+}
+
+.npc-notes-chip--button:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.npc-notes-chip__external {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.35rem;
+  color: #bfdbfe;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.npc-notes-chip__external:hover {
+  color: #e0f2fe;
+}
+
+.icon-button--chip-delete {
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+.icon-button--chip-delete:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fee2e2;
+}
+
+.icon-button--success {
+  border: 1px solid rgba(34, 197, 94, 0.6);
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.icon-button--success:hover {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.npc-notes-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  padding: 0.55rem 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #e2e8f0;
+  background: rgba(15, 23, 42, 0.6);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.npc-notes-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.35);
+}
+
+.npc-notes-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.npc-notes-btn--primary {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(14, 165, 233, 0.9));
+  border-color: rgba(59, 130, 246, 0.65);
+  color: #0f172a;
+  box-shadow: 0 14px 28px rgba(59, 130, 246, 0.35);
+}
+
+.npc-notes-btn--primary:hover:not(:disabled) {
+  box-shadow: 0 18px 32px rgba(59, 130, 246, 0.4);
+}
+
+.npc-notes-btn--ghost {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.npc-notes-btn--ghost:hover:not(:disabled) {
+  border-color: rgba(191, 219, 254, 0.6);
+  background: rgba(30, 41, 59, 0.8);
+}
+
+.npc-notes-btn--pill {
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.85), rgba(99, 102, 241, 0.85));
+  border-color: rgba(14, 165, 233, 0.45);
+  color: #0f172a;
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.28);
+}
+
+.npc-notes-btn--compact {
+  padding: 0.45rem 0.7rem;
+  font-size: 0.85rem;
+}
+
 @media (max-width: 768px) {
   .npc-kill-modal {
     width: calc(100vw - 1rem);
     max-width: calc(100vw - 1rem);
     height: 80vh;
+  }
+
+  .npc-notes-modal {
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    height: calc(100vh - 1rem);
+    padding: 1rem;
+  }
+
+  .npc-notes-body {
+    flex-direction: column;
+  }
+
+  .npc-notes-sidebar {
+    width: 100%;
   }
 }
 

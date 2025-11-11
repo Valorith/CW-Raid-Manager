@@ -101,6 +101,28 @@ export interface GuildApplicant {
   };
 }
 
+export interface GuildNpcAssociation {
+  id: string;
+  name: string;
+  allaLink: string;
+}
+
+export interface GuildNpcNote {
+  id: string;
+  npcName: string;
+  notes: string | null;
+  allaLink: string | null;
+  lastEditedById: string | null;
+  lastEditedByName: string | null;
+  deletionRequestedById: string | null;
+  deletionRequestedByName: string | null;
+  deletionRequestedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  spells: GuildNpcAssociation[];
+  relatedNpcs: GuildNpcAssociation[];
+}
+
 export interface GuildPermissions {
   canViewDetails: boolean;
   canManageMembers: boolean;
@@ -937,6 +959,62 @@ function normalizeAttendanceMetricRecord(raw: any): AttendanceMetricRecord {
   };
 }
 
+function normalizeGuildNpcAssociation(entry: any): GuildNpcAssociation {
+  return {
+    id: typeof entry?.id === 'string' ? entry.id : '',
+    name:
+      typeof entry?.name === 'string'
+        ? entry.name
+        : typeof entry?.associatedNpcName === 'string'
+          ? entry.associatedNpcName
+          : 'Unknown NPC',
+    allaLink: typeof entry?.allaLink === 'string' ? entry.allaLink : ''
+  };
+}
+
+function normalizeGuildNpcNote(note: any): GuildNpcNote {
+  const spells = Array.isArray(note?.spells)
+    ? note.spells.map((entry: any) => normalizeGuildNpcAssociation(entry))
+    : [];
+  const relatedNpcs = Array.isArray(note?.relatedNpcs)
+    ? note.relatedNpcs.map((entry: any) =>
+        normalizeGuildNpcAssociation({
+          ...entry,
+          name: entry?.associatedNpcName ?? entry?.name
+        })
+      )
+    : [];
+
+  return {
+    id: typeof note?.id === 'string' ? note.id : '',
+    npcName: typeof note?.npcName === 'string' ? note.npcName : 'Unknown NPC',
+    notes: typeof note?.notes === 'string' ? note.notes : note?.notes ?? null,
+    allaLink:
+      typeof note?.allaLink === 'string'
+        ? note.allaLink
+        : note?.allaLink ?? null,
+    lastEditedById:
+      typeof note?.lastEditedById === 'string' ? note.lastEditedById : null,
+    lastEditedByName:
+      typeof note?.lastEditedByName === 'string'
+        ? note.lastEditedByName
+        : null,
+    deletionRequestedById:
+      typeof note?.deletionRequestedById === 'string'
+        ? note.deletionRequestedById
+        : null,
+    deletionRequestedByName:
+      typeof note?.deletionRequestedByName === 'string'
+        ? note.deletionRequestedByName
+        : null,
+    deletionRequestedAt: normalizeDateString(note?.deletionRequestedAt),
+    createdAt: normalizeDateString(note?.createdAt),
+    updatedAt: normalizeDateString(note?.updatedAt),
+    spells,
+    relatedNpcs
+  };
+}
+
 function normalizeLootMetricEvent(raw: any): LootMetricEvent {
   const raid = raw?.raid ?? {};
   return {
@@ -1091,6 +1169,67 @@ export const api = {
   async fetchGuildDetail(guildId: string): Promise<GuildDetail> {
     const response = await axios.get(`/api/guilds/${guildId}`);
     return response.data.guild;
+  },
+
+  async fetchGuildNpcNotes(
+    guildId: string
+  ): Promise<{ notes: GuildNpcNote[]; canEdit: boolean; canApproveDeletion: boolean; viewerRole: GuildRole | null }> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-notes`);
+    const notes = Array.isArray(response.data.notes)
+      ? response.data.notes.map((note: any) => normalizeGuildNpcNote(note))
+      : [];
+    return {
+      notes,
+      canEdit: Boolean(response.data.canEdit ?? true),
+      canApproveDeletion: Boolean(response.data.canApproveDeletion),
+      viewerRole:
+        typeof response.data.viewerRole === 'string'
+          ? response.data.viewerRole
+          : null
+    };
+  },
+
+  async upsertGuildNpcNote(
+    guildId: string,
+    npcName: string,
+    payload: {
+      notes?: string | null;
+      allaLink?: string | null;
+      spells: Array<{ name: string; allaLink: string }>;
+      relatedNpcs: Array<{ name: string; allaLink: string }>;
+    }
+  ): Promise<GuildNpcNote> {
+    const response = await axios.put(
+      `/api/guilds/${guildId}/npc-notes/${encodeURIComponent(npcName)}`,
+      payload
+    );
+    return normalizeGuildNpcNote(response.data.note);
+  },
+
+  async deleteGuildNpcNote(guildId: string, npcName: string) {
+    await axios.delete(`/api/guilds/${guildId}/npc-notes/${encodeURIComponent(npcName)}`);
+  },
+
+  async requestGuildNpcNoteDeletion(guildId: string, npcName: string): Promise<GuildNpcNote> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/npc-notes/${encodeURIComponent(npcName)}/delete-request`
+    );
+    return normalizeGuildNpcNote(response.data.note);
+  },
+
+  async decideGuildNpcNoteDeletion(
+    guildId: string,
+    npcName: string,
+    decision: 'APPROVE' | 'DENY'
+  ): Promise<GuildNpcNote | null> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/npc-notes/${encodeURIComponent(npcName)}/delete-decision`,
+      { decision }
+    );
+    if (decision === 'APPROVE') {
+      return null;
+    }
+    return normalizeGuildNpcNote(response.data.note);
   },
 
   async fetchGuildMetrics(guildId: string, params?: GuildMetricsQuery): Promise<GuildMetrics> {
