@@ -735,25 +735,27 @@
           <span class="label">Scheduled Start</span>
           <p class="muted">{{ formatDate(raid.startTime) }}</p>
         </div>
-        <div class="timing-field">
-          <label for="actual-start">Actual Start</label>
-          <input
-            id="actual-start"
-            v-model="startedAtInput"
-            type="datetime-local"
-            class="timing-input"
-            :disabled="!canManageRaid"
-          />
-        </div>
-        <div class="timing-field">
-          <label for="actual-end">Actual End</label>
-          <input
-            id="actual-end"
-            v-model="endedAtInput"
-            type="datetime-local"
-            class="timing-input"
-            :disabled="!canManageRaid"
-          />
+        <div class="timing-actual-group">
+          <div class="timing-field timing-field--actual">
+            <label for="actual-start">Actual Start</label>
+            <input
+              id="actual-start"
+              v-model="startedAtInput"
+              type="datetime-local"
+              class="timing-input"
+              :disabled="!canManageRaid"
+            />
+          </div>
+          <div class="timing-field timing-field--actual">
+            <label for="actual-end">Actual End</label>
+            <input
+              id="actual-end"
+              v-model="endedAtInput"
+              type="datetime-local"
+              class="timing-input"
+              :disabled="!canManageRaid"
+            />
+          </div>
         </div>
       </div>
 
@@ -5289,11 +5291,24 @@ async function copyRaidLink() {
   gap: 0.5rem;
 }
 
+.timing-actual-group {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+}
+
 .timing-field .label {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #94a3b8;
+}
+
+.timing-field--actual {
+  flex: 1 1 auto;
+  max-width: 280px;
 }
 
 .timing-input {
@@ -5302,6 +5317,8 @@ async function copyRaidLink() {
   border-radius: 0.5rem;
   padding: 0.6rem 0.75rem;
   color: #f8fafc;
+  width: 100%;
+  max-width: 260px;
 }
 
 .timing-input:disabled {
