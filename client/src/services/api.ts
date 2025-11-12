@@ -7,7 +7,11 @@ import type {
   CharacterClass,
   DiscordWidgetTheme,
   GuildRole,
-  LootListType
+  LootListType,
+  QuestAssignmentStatus,
+  QuestBlueprintVisibility,
+  QuestNodeProgressStatus,
+  QuestNodeType
 } from './types';
 
 export interface GuildSummary {
@@ -129,6 +133,115 @@ export interface GuildPermissions {
   canViewApplicants: boolean;
   canManageLootLists: boolean;
   userRole?: GuildRole | null;
+}
+
+export interface QuestProgressSummary {
+  totalNodes: number;
+  completed: number;
+  inProgress: number;
+  blocked: number;
+  notStarted: number;
+  percentComplete: number;
+}
+
+export interface QuestNodeProgress {
+  nodeId: string;
+  status: QuestNodeProgressStatus;
+  progressCount: number;
+  targetCount: number;
+  notes: string | null;
+}
+
+export interface QuestAssignment {
+  id: string;
+  status: QuestAssignmentStatus;
+  startedAt: string;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  lastProgressAt: string | null;
+  progressSummary: QuestProgressSummary;
+  user?: {
+    id: string;
+    displayName: string;
+    nickname?: string | null;
+  };
+  progress: QuestNodeProgress[];
+}
+
+export interface QuestAssignmentCounts extends Record<QuestAssignmentStatus, number> {}
+
+export interface QuestBlueprintSummaryLite {
+  id: string;
+  title: string;
+  summary: string | null;
+  visibility: QuestBlueprintVisibility;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastEditedByName?: string | null;
+  nodeCount: number;
+  assignmentCounts: QuestAssignmentCounts;
+  viewerAssignment?: QuestAssignment | null;
+}
+
+export interface QuestNodeViewModel {
+  id: string;
+  title: string;
+  description: string | null;
+  nodeType: QuestNodeType;
+  position: { x: number; y: number };
+  sortOrder: number;
+  requirements: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  isGroup: boolean;
+}
+
+export interface QuestNodeLinkViewModel {
+  id: string;
+  parentNodeId: string;
+  childNodeId: string;
+  conditions: Record<string, unknown>;
+}
+
+export interface QuestTrackerPermissions {
+  role: GuildRole | null;
+  canManageBlueprints: boolean;
+  canViewGuildBoard: boolean;
+}
+
+export interface QuestTrackerSummary {
+  blueprints: QuestBlueprintSummaryLite[];
+  permissions: QuestTrackerPermissions;
+}
+
+export interface QuestBlueprintDetailPayload {
+  blueprint: QuestBlueprintSummaryLite;
+  nodes: QuestNodeViewModel[];
+  links: QuestNodeLinkViewModel[];
+  assignmentStats: QuestAssignmentCounts;
+  viewerAssignment?: QuestAssignment | null;
+  guildAssignments?: QuestAssignment[];
+  permissions: QuestTrackerPermissions;
+  availableNodeTypes: QuestNodeType[];
+}
+
+export interface QuestNodeInputPayload {
+  id: string;
+  title: string;
+  description?: string | null;
+  nodeType: QuestNodeType;
+  position: { x: number; y: number };
+  sortOrder: number;
+  requirements?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  isGroup?: boolean;
+}
+
+export interface QuestLinkInputPayload {
+  id: string;
+  parentNodeId: string;
+  childNodeId: string;
+  conditions?: Record<string, unknown>;
 }
 
 export interface MetricsDateRange {
@@ -772,6 +885,182 @@ function normalizeBooleanRecord(raw: any) {
   }, {});
 }
 
+const QUEST_ASSIGNMENT_STATUS_VALUES: QuestAssignmentStatus[] = ['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'];
+const QUEST_NODE_PROGRESS_VALUES: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
+const QUEST_NODE_TYPE_VALUES: QuestNodeType[] = [
+  'DELIVER',
+  'KILL',
+  'LOOT',
+  'SPEAK_WITH',
+  'EXPLORE',
+  'TRADESKILL',
+  'FISH',
+  'FORAGE',
+  'USE',
+  'TOUCH',
+  'GIVE_CASH'
+];
+const QUEST_BLUEPRINT_VISIBILITY_VALUES: QuestBlueprintVisibility[] = ['GUILD', 'LINK_ONLY', 'PRIVATE'];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isQuestAssignmentStatus(value: unknown): value is QuestAssignmentStatus {
+  return typeof value === 'string' && (QUEST_ASSIGNMENT_STATUS_VALUES as string[]).includes(value);
+}
+
+function isQuestNodeProgressStatus(value: unknown): value is QuestNodeProgressStatus {
+  return typeof value === 'string' && (QUEST_NODE_PROGRESS_VALUES as string[]).includes(value);
+}
+
+function isQuestNodeType(value: unknown): value is QuestNodeType {
+  return typeof value === 'string' && (QUEST_NODE_TYPE_VALUES as string[]).includes(value);
+}
+
+function isQuestBlueprintVisibility(value: unknown): value is QuestBlueprintVisibility {
+  return typeof value === 'string' && (QUEST_BLUEPRINT_VISIBILITY_VALUES as string[]).includes(value);
+}
+
+function normalizeQuestPermissions(raw: any): QuestTrackerPermissions {
+  return {
+    role: typeof raw?.role === 'string' ? (raw.role as GuildRole) : null,
+    canManageBlueprints: Boolean(raw?.canManageBlueprints),
+    canViewGuildBoard: Boolean(raw?.canViewGuildBoard)
+  };
+}
+
+function normalizeQuestProgressSummary(raw: any): QuestProgressSummary {
+  return {
+    totalNodes: typeof raw?.totalNodes === 'number' ? raw.totalNodes : 0,
+    completed: typeof raw?.completed === 'number' ? raw.completed : 0,
+    inProgress: typeof raw?.inProgress === 'number' ? raw.inProgress : 0,
+    blocked: typeof raw?.blocked === 'number' ? raw.blocked : 0,
+    notStarted: typeof raw?.notStarted === 'number' ? raw.notStarted : 0,
+    percentComplete: typeof raw?.percentComplete === 'number' ? raw.percentComplete : 0
+  };
+}
+
+function normalizeAssignmentCounts(raw: any): QuestAssignmentCounts {
+  const counts: QuestAssignmentCounts = {
+    ACTIVE: 0,
+    PAUSED: 0,
+    COMPLETED: 0,
+    CANCELLED: 0
+  };
+  if (raw && typeof raw === 'object') {
+    for (const status of QUEST_ASSIGNMENT_STATUS_VALUES) {
+      const value = raw?.[status];
+      counts[status] = typeof value === 'number' ? value : 0;
+    }
+  }
+  return counts;
+}
+
+function normalizeQuestAssignment(raw: any): QuestAssignment {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    status: isQuestAssignmentStatus(raw?.status) ? raw.status : 'ACTIVE',
+    startedAt: normalizeDateString(raw?.startedAt),
+    completedAt: normalizeNullableDate(raw?.completedAt),
+    cancelledAt: normalizeNullableDate(raw?.cancelledAt),
+    lastProgressAt: normalizeNullableDate(raw?.lastProgressAt),
+    progressSummary: normalizeQuestProgressSummary(raw?.progressSummary),
+    user: raw?.user && typeof raw.user === 'object'
+      ? {
+          id: typeof raw.user.id === 'string' ? raw.user.id : '',
+          displayName: typeof raw.user.displayName === 'string' ? raw.user.displayName : '',
+          nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
+        }
+      : undefined,
+    progress: Array.isArray(raw?.progress)
+      ? raw.progress.map((entry: any): QuestNodeProgress => ({
+          nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
+          status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
+          progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
+          targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
+          notes: typeof entry?.notes === 'string' ? entry.notes : null
+        }))
+      : []
+  };
+}
+
+function normalizeQuestNode(raw: any): QuestNodeViewModel {
+  const position = isPlainObject(raw?.position)
+    ? raw.position
+    : {
+        x: typeof raw?.positionX === 'number' ? raw.positionX : 0,
+        y: typeof raw?.positionY === 'number' ? raw.positionY : 0
+      };
+
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    title: typeof raw?.title === 'string' ? raw.title : 'Quest Step',
+    description: typeof raw?.description === 'string' ? raw.description : null,
+    nodeType: isQuestNodeType(raw?.nodeType) ? raw.nodeType : 'EXPLORE',
+    position: {
+      x: typeof position?.x === 'number' ? position.x : 0,
+      y: typeof position?.y === 'number' ? position.y : 0
+    },
+    sortOrder: typeof raw?.sortOrder === 'number' ? raw.sortOrder : 0,
+    requirements: isPlainObject(raw?.requirements) ? (raw.requirements as Record<string, unknown>) : {},
+    metadata: isPlainObject(raw?.metadata) ? (raw.metadata as Record<string, unknown>) : {},
+    isGroup: Boolean(raw?.isGroup)
+  };
+}
+
+function normalizeQuestLink(raw: any): QuestNodeLinkViewModel {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    parentNodeId: typeof raw?.parentNodeId === 'string' ? raw.parentNodeId : '',
+    childNodeId: typeof raw?.childNodeId === 'string' ? raw.childNodeId : '',
+    conditions: isPlainObject(raw?.conditions) ? (raw.conditions as Record<string, unknown>) : {}
+  };
+}
+
+function normalizeQuestBlueprintSummary(raw: any): QuestBlueprintSummaryLite {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    title: typeof raw?.title === 'string' ? raw.title : 'Quest Blueprint',
+    summary:
+      typeof raw?.summary === 'string'
+        ? raw.summary
+        : raw?.summary != null
+          ? String(raw.summary)
+          : null,
+    visibility: isQuestBlueprintVisibility(raw?.visibility) ? raw.visibility : 'GUILD',
+    isArchived: Boolean(raw?.isArchived),
+    createdAt: normalizeDateString(raw?.createdAt),
+    updatedAt: normalizeDateString(raw?.updatedAt),
+    lastEditedByName:
+      typeof raw?.lastEditedByName === 'string'
+        ? raw.lastEditedByName
+        : raw?.lastEditedByName == null
+          ? null
+          : String(raw.lastEditedByName),
+    nodeCount: typeof raw?.nodeCount === 'number' ? raw.nodeCount : 0,
+    assignmentCounts: normalizeAssignmentCounts(raw?.assignmentCounts),
+    viewerAssignment: raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null
+  };
+}
+
+function normalizeQuestBlueprintDetail(raw: any): QuestBlueprintDetailPayload {
+  return {
+    blueprint: normalizeQuestBlueprintSummary(raw?.blueprint ?? raw),
+    nodes: Array.isArray(raw?.nodes) ? raw.nodes.map((node: any) => normalizeQuestNode(node)) : [],
+    links: Array.isArray(raw?.links) ? raw.links.map((link: any) => normalizeQuestLink(link)) : [],
+    assignmentStats: normalizeAssignmentCounts(raw?.assignmentStats),
+    viewerAssignment: raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null,
+    guildAssignments: Array.isArray(raw?.guildAssignments)
+      ? raw.guildAssignments.map((assignment: any) => normalizeQuestAssignment(assignment))
+      : undefined,
+    permissions: normalizeQuestPermissions(raw?.permissions),
+    availableNodeTypes: Array.isArray(raw?.availableNodeTypes)
+      ? raw.availableNodeTypes.filter((type: any) => isQuestNodeType(type))
+      : QUEST_NODE_TYPE_VALUES
+  };
+}
+
 function normalizeRaidSignup(raw: any): RaidSignup {
   const fallbackCharacterName =
     typeof raw?.character?.name === 'string'
@@ -1169,6 +1458,87 @@ export const api = {
   async fetchGuildDetail(guildId: string): Promise<GuildDetail> {
     const response = await axios.get(`/api/guilds/${guildId}`);
     return response.data.guild;
+  },
+
+  async fetchQuestTracker(guildId: string): Promise<QuestTrackerSummary> {
+    const response = await axios.get(`/api/guilds/${guildId}/quest-tracker`);
+    return {
+      blueprints: Array.isArray(response.data.blueprints)
+        ? response.data.blueprints.map((bp: any) => normalizeQuestBlueprintSummary(bp))
+        : [],
+      permissions: normalizeQuestPermissions(response.data.permissions)
+    };
+  },
+
+  async fetchQuestBlueprintDetail(
+    guildId: string,
+    blueprintId: string
+  ): Promise<QuestBlueprintDetailPayload> {
+    const response = await axios.get(`/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`);
+    return normalizeQuestBlueprintDetail(response.data);
+  },
+
+  async createQuestBlueprint(
+    guildId: string,
+    payload: { title: string; summary?: string | null; visibility?: QuestBlueprintVisibility }
+  ): Promise<QuestBlueprintSummaryLite> {
+    const response = await axios.post(`/api/guilds/${guildId}/quest-tracker/blueprints`, payload);
+    return normalizeQuestBlueprintSummary(response.data.blueprint);
+  },
+
+  async updateQuestBlueprint(
+    guildId: string,
+    blueprintId: string,
+    payload: Partial<{ title: string; summary: string | null; visibility: QuestBlueprintVisibility; isArchived: boolean }>
+  ): Promise<QuestBlueprintSummaryLite> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`,
+      payload
+    );
+    return normalizeQuestBlueprintSummary(response.data.blueprint);
+  },
+
+  async saveQuestBlueprintGraph(
+    guildId: string,
+    blueprintId: string,
+    payload: { nodes: QuestNodeInputPayload[]; links: QuestLinkInputPayload[] }
+  ): Promise<QuestBlueprintDetailPayload> {
+    const response = await axios.put(
+      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}/graph`,
+      payload
+    );
+    return normalizeQuestBlueprintDetail(response.data);
+  },
+
+  async startQuestAssignment(guildId: string, blueprintId: string): Promise<QuestAssignment> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}/start`
+    );
+    return normalizeQuestAssignment(response.data.assignment);
+  },
+
+  async updateQuestAssignmentStatus(
+    guildId: string,
+    assignmentId: string,
+    status: QuestAssignmentStatus
+  ): Promise<QuestAssignment> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/quest-tracker/assignments/${assignmentId}/status`,
+      { status }
+    );
+    return normalizeQuestAssignment(response.data.assignment);
+  },
+
+  async updateQuestAssignmentProgress(
+    guildId: string,
+    assignmentId: string,
+    updates: Array<{ nodeId: string; status?: QuestNodeProgressStatus; progressCount?: number; notes?: string | null }>
+  ): Promise<QuestAssignment> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/quest-tracker/assignments/${assignmentId}/progress`,
+      { updates }
+    );
+    return normalizeQuestAssignment(response.data.assignment);
   },
 
   async fetchGuildNpcNotes(

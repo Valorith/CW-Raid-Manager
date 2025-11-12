@@ -21,6 +21,13 @@
         >
           Metrics
         </RouterLink>
+        <RouterLink
+          v-if="canViewQuestTracker"
+          class="btn btn--outline quest-tracker-button"
+          :to="{ name: 'GuildQuestTracker', params: { guildId }, query: { guildName: guild?.name } }"
+        >
+          Quest Tracker
+        </RouterLink>
         <button v-if="canPlanRaid" class="plan-raid-button" @click="showRaidModal = true">
           Plan Raid
         </button>
@@ -519,6 +526,8 @@ const canManageGuildSettings = computed(() => {
   const role = actorRole.value;
   return role === 'LEADER' || role === 'OFFICER';
 });
+
+const canViewQuestTracker = computed(() => authStore.isAdmin);
 
 
 const pendingApplication = computed(() => authStore.pendingApplication);

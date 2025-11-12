@@ -27,6 +27,8 @@ model User {
   createdLootEvents  RaidLootEvent[]    @relation("LootCreator")
   createdRaidSeries  RaidEventSeries[] @relation("RaidSeriesCreator")
   raidSignups        RaidSignup[]
+  createdQuestBlueprints QuestBlueprint[] @relation("QuestBlueprintCreator")
+  questAssignments   QuestAssignment[]
 }
 
 model Guild {
@@ -56,6 +58,8 @@ model Guild {
   raidSeries           RaidEventSeries[]
   npcKillEvents       RaidNpcKillEvent[]
   npcNotes            GuildNpcNote[]
+  questBlueprints    QuestBlueprint[]
+  questAssignments   QuestAssignment[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -349,6 +353,110 @@ model AttendanceRecord {
   @@index([characterId], map: "AttendanceRecord_characterId_fkey")
 }
 
+model QuestBlueprint {
+  id            String                    @id @default(cuid())
+  guildId       String
+  createdById   String
+  title         String                    @db.VarChar(191)
+  summary       String?                   @db.VarChar(500)
+  visibility    QuestBlueprintVisibility  @default(GUILD)
+  isArchived    Boolean                   @default(false)
+  metadata      Json                      @default(dbgenerated("(json_object())"))
+  lastEditedById   String?
+  lastEditedByName String?                 @db.VarChar(191)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  guild         Guild                     @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  createdBy     User                      @relation("QuestBlueprintCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  nodes         QuestNode[]
+  links         QuestNodeLink[]
+  assignments   QuestAssignment[]
+
+  @@index([guildId])
+  @@index([createdById])
+}
+
+model QuestNode {
+  id            String          @id @default(cuid())
+  blueprintId   String
+  title         String          @db.VarChar(191)
+  description   String?         @db.VarChar(1000)
+  nodeType      QuestNodeType
+  requirements  Json            @default(dbgenerated("(json_object())"))
+  metadata      Json            @default(dbgenerated("(json_object())"))
+  positionX     Int             @default(0)
+  positionY     Int             @default(0)
+  sortOrder     Int             @default(0)
+  isGroup       Boolean?        @ignore
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  blueprint     QuestBlueprint  @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  outgoingLinks QuestNodeLink[] @relation("QuestNodeOutgoing")
+  incomingLinks QuestNodeLink[] @relation("QuestNodeIncoming")
+  progresses    QuestNodeProgress[]
+
+  @@index([blueprintId], map: "QuestNode_blueprintId_idx")
+  @@index([nodeType])
+}
+
+model QuestNodeLink {
+  id           String         @id @default(cuid())
+  blueprintId  String
+  parentNodeId String
+  childNodeId  String
+  conditions   Json           @default(dbgenerated("(json_object())"))
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  blueprint    QuestBlueprint @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  parentNode   QuestNode      @relation("QuestNodeOutgoing", fields: [parentNodeId], references: [id], onDelete: Cascade)
+  childNode    QuestNode      @relation("QuestNodeIncoming", fields: [childNodeId], references: [id], onDelete: Cascade)
+
+  @@index([blueprintId])
+  @@index([childNodeId])
+  @@unique([parentNodeId, childNodeId])
+}
+
+model QuestAssignment {
+  id              String                 @id @default(cuid())
+  blueprintId     String
+  guildId         String
+  userId          String
+  status          QuestAssignmentStatus  @default(ACTIVE)
+  startedAt       DateTime               @default(now())
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  lastProgressAt  DateTime?
+  progressSummary Json                   @default(dbgenerated("(json_object())"))
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  blueprint       QuestBlueprint         @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
+  guild           Guild                  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  progress        QuestNodeProgress[]
+
+  @@index([guildId])
+  @@index([userId])
+  @@index([blueprintId])
+}
+
+model QuestNodeProgress {
+  id            String                  @id @default(cuid())
+  assignmentId  String
+  nodeId        String
+  status        QuestNodeProgressStatus @default(NOT_STARTED)
+  progressCount Int                     @default(0)
+  targetCount   Int                     @default(0)
+  notes         String?                 @db.VarChar(500)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  updatedAt     DateTime                @updatedAt
+  assignment    QuestAssignment         @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  node          QuestNode               @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, nodeId])
+  @@index([nodeId])
+}
+
 enum GuildApplicationStatus {
   PENDING
   APPROVED
@@ -423,4 +531,38 @@ enum RaidRecurrenceFrequency {
   DAILY
   WEEKLY
   MONTHLY
+}
+
+enum QuestBlueprintVisibility {
+  GUILD
+  LINK_ONLY
+  PRIVATE
+}
+
+enum QuestAssignmentStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  PAUSED
+}
+
+enum QuestNodeProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+}
+
+enum QuestNodeType {
+  DELIVER
+  KILL
+  LOOT
+  SPEAK_WITH
+  EXPLORE
+  TRADESKILL
+  FISH
+  FORAGE
+  USE
+  TOUCH
+  GIVE_CASH
 }

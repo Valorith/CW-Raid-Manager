@@ -1,6 +1,22 @@
 export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER';
 export type LootListType = 'WHITELIST' | 'BLACKLIST';
 
+export type QuestBlueprintVisibility = 'GUILD' | 'LINK_ONLY' | 'PRIVATE';
+export type QuestAssignmentStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'PAUSED';
+export type QuestNodeProgressStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED';
+export type QuestNodeType =
+  | 'DELIVER'
+  | 'KILL'
+  | 'LOOT'
+  | 'SPEAK_WITH'
+  | 'EXPLORE'
+  | 'TRADESKILL'
+  | 'FISH'
+  | 'FORAGE'
+  | 'USE'
+  | 'TOUCH'
+  | 'GIVE_CASH';
+
 export type CharacterClass =
   | 'BARD'
   | 'BEASTLORD'
@@ -30,6 +46,41 @@ export const lootListTypeOrder: LootListType[] = ['WHITELIST', 'BLACKLIST'];
 export const lootListTypeLabels: Record<LootListType, string> = {
   WHITELIST: 'Whitelist',
   BLACKLIST: 'Blacklist'
+};
+
+export const questAssignmentStatusLabels: Record<QuestAssignmentStatus, string> = {
+  ACTIVE: 'Active',
+  PAUSED: 'Paused',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled'
+};
+
+export const questNodeTypeLabels: Record<QuestNodeType, string> = {
+  DELIVER: 'Deliver',
+  KILL: 'Kill',
+  LOOT: 'Loot',
+  SPEAK_WITH: 'Speak with',
+  EXPLORE: 'Explore',
+  TRADESKILL: 'Tradeskill',
+  FISH: 'Fish',
+  FORAGE: 'Forage',
+  USE: 'Use',
+  TOUCH: 'Touch',
+  GIVE_CASH: 'Give cash'
+};
+
+export const questNodeTypeColors: Record<QuestNodeType, string> = {
+  DELIVER: '#8b5cf6',
+  KILL: '#ef4444',
+  LOOT: '#f59e0b',
+  SPEAK_WITH: '#3b82f6',
+  EXPLORE: '#10b981',
+  TRADESKILL: '#ec4899',
+  FISH: '#0ea5e9',
+  FORAGE: '#84cc16',
+  USE: '#f97316',
+  TOUCH: '#a855f7',
+  GIVE_CASH: '#eab308'
 };
 
 export const characterClassLabels: Record<CharacterClass, string> = {

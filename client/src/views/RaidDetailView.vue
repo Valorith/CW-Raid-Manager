@@ -1941,7 +1941,9 @@ function generateLocalId() {
   return `temp-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function createAssociationDraft(initial?: Partial<NpcNoteAssociationDraft>): NpcNoteAssociationDraft {
+function createAssociationDraft(
+  initial?: Partial<NpcNoteAssociationDraft> & { id?: string }
+): NpcNoteAssociationDraft {
   return {
     localId: initial?.localId ?? initial?.id ?? generateLocalId(),
     name: initial?.name ?? '',
