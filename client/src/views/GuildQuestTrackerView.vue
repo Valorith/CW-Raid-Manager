@@ -139,56 +139,65 @@
         </div>
 
         <section v-if="activeTab === 'overview'" class="quest-panel quest-panel--canvas">
-          <div class="quest-canvas" :style="overviewCanvasStyle" @contextmenu.prevent="openCanvasMenu($event)">
-            <svg class="quest-canvas__links" aria-hidden="true" :style="linkSvgStyle">
-              <path
-                v-for="link in renderedLinks"
-                :key="link.id"
-                :d="link.path"
-                pointer-events="none"
-              />
-              <path
-                v-for="link in renderedLinks"
-                :key="`hit-overview-${link.id}`"
-                class="quest-link-hit"
-                :d="link.path"
-                @pointerenter="handleLinkHover(link.id)"
-                @pointerleave="handleLinkHover(null)"
-              />
-            </svg>
-            <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
-              <path
-                v-for="link in renderedLinks"
-                :key="`animated-overview-${link.id}`"
-                class="quest-link-animated"
-                :d="link.path"
-                :stroke="link.branchColor"
-                :style="linkAnimationStyle(link)"
-              />
-            </svg>
-            <div
-              v-for="node in renderedNodes"
-              :key="node.id"
-              class="quest-node"
-              :style="nodeStyle(node, false)"
-              @contextmenu.prevent="openNodeMenu(node, $event)"
-              :data-node-id="node.id"
-            >
-              <header class="quest-node__header">
-                <span class="quest-node__type" :style="typeAccent(node.nodeType, node.isGroup)">
-                  {{ displayNodeType(node.nodeType, node.isGroup) }}
-                </span>
-                <span class="quest-node__status" :class="statusClass(viewerNodeStatus(node.id))">
-                  {{ viewerNodeStatus(node.id) ?? 'NOT_STARTED' }}
-                </span>
-              </header>
-              <h3>{{ node.title }}</h3>
-              <p v-if="node.requirements?.targetName" class="quest-node__target">
-                Target / Item: {{ node.requirements.targetName }}
-              </p>
-              <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
-              <div v-if="node.isGroup" class="quest-node__group-indicator">
-                Group node · {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
+          <div
+            :class="['quest-canvas', { 'quest-canvas--panning': isOverviewPanning }]"
+            ref="overviewCanvasRef"
+            :style="overviewCanvasStyle"
+            @contextmenu.prevent="openCanvasMenu($event)"
+            @pointerdown.capture="handleOverviewPointerDown"
+            @wheel.prevent="handleOverviewWheel"
+          >
+            <div class="quest-canvas__stage" :style="overviewStageStyle">
+              <svg class="quest-canvas__links" aria-hidden="true" :style="linkSvgStyle">
+                <path
+                  v-for="link in renderedLinks"
+                  :key="link.id"
+                  :d="link.path"
+                  pointer-events="none"
+                />
+                <path
+                  v-for="link in renderedLinks"
+                  :key="`hit-overview-${link.id}`"
+                  class="quest-link-hit"
+                  :d="link.path"
+                  @pointerenter="handleLinkHover(link.id)"
+                  @pointerleave="handleLinkHover(null)"
+                />
+              </svg>
+              <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
+                <path
+                  v-for="link in renderedLinks"
+                  :key="`animated-overview-${link.id}`"
+                  class="quest-link-animated"
+                  :d="link.path"
+                  :stroke="link.branchColor"
+                  :style="linkAnimationStyle(link)"
+                />
+              </svg>
+              <div
+                v-for="node in renderedNodes"
+                :key="node.id"
+                class="quest-node"
+                :style="nodeStyle(node, false)"
+                @contextmenu.prevent="openNodeMenu(node, $event)"
+                :data-node-id="node.id"
+              >
+                <header class="quest-node__header">
+                  <span class="quest-node__type" :style="typeAccent(node.nodeType, node.isGroup)">
+                    {{ displayNodeType(node.nodeType, node.isGroup) }}
+                  </span>
+                  <span class="quest-node__status" :class="statusClass(viewerNodeStatus(node.id))">
+                    {{ viewerNodeStatus(node.id) ?? 'NOT_STARTED' }}
+                  </span>
+                </header>
+                <h3>{{ node.title }}</h3>
+                <p v-if="node.requirements?.targetName" class="quest-node__target">
+                  Target / Item: {{ node.requirements.targetName }}
+                </p>
+                <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
+                <div v-if="node.isGroup" class="quest-node__group-indicator">
+                  Group node · {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
+                </div>
               </div>
             </div>
           </div>
@@ -615,6 +624,10 @@ const isPanning = ref(false);
 const panStart = reactive({ x: 0, y: 0, originX: 0, originY: 0 });
 const DEFAULT_ACCENT_COLOR = '#8b5cf6';
 const editorCanvasRef = ref<HTMLElement | null>(null);
+const overviewCanvasRef = ref<HTMLElement | null>(null);
+const overviewTransform = reactive({ scale: 1, offsetX: 0, offsetY: 0 });
+const isOverviewPanning = ref(false);
+const overviewPanStart = reactive({ x: 0, y: 0, originX: 0, originY: 0, moved: false });
 type NodeFace = 'top' | 'right' | 'bottom' | 'left';
 type Point = { x: number; y: number };
 type SelectionBounds = { left: number; right: number; top: number; bottom: number };
@@ -768,25 +781,77 @@ const canvasTransformStyle = computed(() => ({
   transform: `translate(${editorOffset.x}px, ${editorOffset.y}px) scale(${editorScale.value.toFixed(2)})`
 }));
 
-const overviewCanvasStyle = computed(() => {
-  if (activeTab.value !== 'overview') {
-    return {};
-  }
-  const nodes = renderedNodes.value;
+const overviewCanvasStyle = computed(() => ({
+  minHeight: '420px',
+  height: '100%'
+}));
+
+const overviewStageStyle = computed(() => ({
+  transform: `translate(${overviewTransform.offsetX}px, ${overviewTransform.offsetY}px) scale(${overviewTransform.scale.toFixed(3)})`,
+  transformOrigin: '0 0'
+}));
+
+type ContentBounds = { minX: number; minY: number; width: number; height: number };
+
+function getNodesBounds(nodes: QuestNodeViewModel[]): ContentBounds {
   if (!nodes.length) {
-    return {};
+    return { minX: 0, minY: 0, width: NODE_WIDTH, height: NODE_HEIGHT };
   }
-  let maxBottom = 0;
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
   for (const node of nodes) {
     const bounds = getNodeBounds(node);
-    maxBottom = Math.max(maxBottom, bounds.bottom);
+    minX = Math.min(minX, bounds.left);
+    minY = Math.min(minY, bounds.top);
+    maxX = Math.max(maxX, bounds.right);
+    maxY = Math.max(maxY, bounds.bottom);
   }
-  const height = Math.max(420, maxBottom + OVERVIEW_CANVAS_PADDING);
   return {
-    minHeight: `${height}px`,
-    height: `${height}px`
+    minX: Number.isFinite(minX) ? minX : 0,
+    minY: Number.isFinite(minY) ? minY : 0,
+    width: Math.max(1, Number.isFinite(maxX - minX) ? maxX - minX : NODE_WIDTH),
+    height: Math.max(1, Number.isFinite(maxY - minY) ? maxY - minY : NODE_HEIGHT)
   };
-});
+}
+
+type FitOptions = {
+  padding?: number;
+  minScale?: number;
+  maxScale?: number;
+};
+
+function calculateFitTransform(
+  bounds: ContentBounds,
+  containerWidth: number,
+  containerHeight: number,
+  options: FitOptions = {}
+) {
+  const padding = options.padding ?? 160;
+  const minScale = options.minScale ?? 0.25;
+  const maxScale = options.maxScale ?? 1.25;
+  if (!containerWidth || !containerHeight) {
+    return { scale: 1, offsetX: 0, offsetY: 0 };
+  }
+  const paddedWidth = bounds.width + padding * 2;
+  const paddedHeight = bounds.height + padding * 2;
+  const rawScale = Math.min(containerWidth / paddedWidth, containerHeight / paddedHeight);
+  const scale = Math.min(maxScale, Math.max(minScale, Number.isFinite(rawScale) ? rawScale : 1));
+  const viewportWidth = paddedWidth * scale;
+  const viewportHeight = paddedHeight * scale;
+  const offsetX = (containerWidth - viewportWidth) / 2 - (bounds.minX - padding) * scale;
+  const offsetY = (containerHeight - viewportHeight) / 2 - (bounds.minY - padding) * scale;
+  return {
+    scale,
+    offsetX: Number.isFinite(offsetX) ? offsetX : 0,
+    offsetY: Number.isFinite(offsetY) ? offsetY : 0
+  };
+}
+
+let overviewFitPending = true;
+let editorFitPending = true;
+let overviewResizeObserver: ResizeObserver | null = null;
 
 const linkCanvasBounds = computed(() => {
   const nodes = renderedNodes.value;
@@ -838,6 +903,165 @@ const linkSvgStyle = computed(() => {
   };
 });
 
+function applyOverviewFit() {
+  const canvas = overviewCanvasRef.value;
+  if (!canvas) {
+    return false;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return false;
+  }
+  const bounds = getNodesBounds(detail.value?.nodes ?? []);
+  const { scale, offsetX, offsetY } = calculateFitTransform(bounds, rect.width, rect.height, {
+    padding: OVERVIEW_CANVAS_PADDING,
+    minScale: 0.3,
+    maxScale: 1
+  });
+  overviewTransform.scale = scale;
+  overviewTransform.offsetX = offsetX;
+  overviewTransform.offsetY = offsetY;
+  return true;
+}
+
+function scheduleOverviewFit(force = false) {
+  if (!force && activeTab.value !== 'overview') {
+    return;
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      if (activeTab.value !== 'overview') {
+        return;
+      }
+      const applied = applyOverviewFit();
+      if (!applied) {
+        overviewFitPending = true;
+      } else {
+        overviewFitPending = false;
+      }
+    });
+  });
+}
+
+function requestOverviewFit() {
+  overviewFitPending = true;
+  if (activeTab.value === 'overview') {
+    scheduleOverviewFit(true);
+  }
+}
+
+function handleOverviewPointerDown(event: PointerEvent) {
+  if (activeTab.value !== 'overview' || event.button !== 0) {
+    return;
+  }
+  beginOverviewPan(event);
+}
+
+function beginOverviewPan(event: PointerEvent) {
+  const canvas = overviewCanvasRef.value;
+  if (!canvas) {
+    return;
+  }
+  event.preventDefault();
+  isOverviewPanning.value = true;
+  overviewPanStart.x = event.clientX;
+  overviewPanStart.y = event.clientY;
+  overviewPanStart.originX = overviewTransform.offsetX;
+  overviewPanStart.originY = overviewTransform.offsetY;
+  overviewPanStart.moved = false;
+
+  const moveHandler = (moveEvent: PointerEvent) => {
+    const dx = moveEvent.clientX - overviewPanStart.x;
+    const dy = moveEvent.clientY - overviewPanStart.y;
+    if (
+      !overviewPanStart.moved &&
+      (Math.abs(dx) > PAN_SUPPRESS_THRESHOLD || Math.abs(dy) > PAN_SUPPRESS_THRESHOLD)
+    ) {
+      overviewPanStart.moved = true;
+    }
+    overviewTransform.offsetX = overviewPanStart.originX + dx;
+    overviewTransform.offsetY = overviewPanStart.originY + dy;
+  };
+
+  const upHandler = () => {
+    document.removeEventListener('pointermove', moveHandler);
+    document.removeEventListener('pointerup', upHandler);
+    isOverviewPanning.value = false;
+  };
+
+  document.addEventListener('pointermove', moveHandler);
+  document.addEventListener('pointerup', upHandler);
+}
+
+function handleOverviewWheel(event: WheelEvent) {
+  if (activeTab.value !== 'overview') {
+    return;
+  }
+  const canvas = overviewCanvasRef.value;
+  if (!canvas) {
+    return;
+  }
+  event.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const pointerX = event.clientX - rect.left;
+  const pointerY = event.clientY - rect.top;
+  const worldX = (pointerX - overviewTransform.offsetX) / overviewTransform.scale;
+  const worldY = (pointerY - overviewTransform.offsetY) / overviewTransform.scale;
+  const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+  const nextScale = clamp(overviewTransform.scale * zoomFactor, 0.25, 2);
+  overviewTransform.scale = Number(nextScale.toFixed(3));
+  overviewTransform.offsetX = pointerX - worldX * overviewTransform.scale;
+  overviewTransform.offsetY = pointerY - worldY * overviewTransform.scale;
+}
+
+function applyEditorFit() {
+  const canvas = editorCanvasRef.value;
+  if (!canvas) {
+    return false;
+  }
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return false;
+  }
+  const bounds = getNodesBounds(editableNodes.value);
+  const { scale, offsetX, offsetY } = calculateFitTransform(bounds, rect.width, rect.height, {
+    padding: LINK_CANVAS_PADDING,
+    minScale: 0.35,
+    maxScale: 1.5
+  });
+  editorScale.value = scale;
+  editorOffset.x = offsetX;
+  editorOffset.y = offsetY;
+  return true;
+}
+
+function scheduleEditorFit(force = false) {
+  if (!force && !editorFitPending) {
+    return;
+  }
+  if (activeTab.value !== 'editor' && !force) {
+    return;
+  }
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      if (activeTab.value !== 'editor') {
+        return;
+      }
+      const applied = applyEditorFit();
+      if (applied) {
+        editorFitPending = false;
+      }
+    });
+  });
+}
+
+function requestEditorFit() {
+  editorFitPending = true;
+  if (activeTab.value === 'editor') {
+    scheduleEditorFit(true);
+  }
+}
+
 const marqueeVisible = computed(() => {
   if (!marqueeSelection.active) {
     return false;
@@ -866,8 +1090,12 @@ const NODE_WIDTH = 220;
 const NODE_HEIGHT = 140;
 const DEFAULT_NODE_SIZE = { width: NODE_WIDTH, height: NODE_HEIGHT };
 const PAN_SUPPRESS_THRESHOLD = 3;
-const LINK_CANVAS_PADDING = 300;
-const OVERVIEW_CANVAS_PADDING = 160;
+const LINK_CANVAS_PADDING = 120;
+const OVERVIEW_CANVAS_PADDING = 48;
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#34d399', '#a78bfa', '#f97316', '#a3e635'];
 const BRANCH_ANIMATION_STAGGER = 0.25;
 const DEFAULT_BRANCH_COLOR = '#38bdf8';
@@ -1329,14 +1557,44 @@ function measureNodeDimensions() {
   });
 }
 
+const handleWindowResize = () => {
+  measureNodeDimensions();
+  requestOverviewFit();
+};
+
 onMounted(() => {
   measureNodeDimensions();
-  window.addEventListener('resize', measureNodeDimensions);
+  window.addEventListener('resize', handleWindowResize);
+  if (typeof ResizeObserver !== 'undefined') {
+    overviewResizeObserver = new ResizeObserver(() => requestOverviewFit());
+    if (overviewCanvasRef.value) {
+      overviewResizeObserver.observe(overviewCanvasRef.value);
+    }
+  }
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', measureNodeDimensions);
+  window.removeEventListener('resize', handleWindowResize);
+  overviewResizeObserver?.disconnect();
+  overviewResizeObserver = null;
 });
+
+watch(
+  () => overviewCanvasRef.value,
+  (element, previous) => {
+    if (overviewResizeObserver) {
+      if (previous) {
+        overviewResizeObserver.unobserve(previous);
+      }
+      if (element) {
+        overviewResizeObserver.observe(element);
+      }
+    }
+    if (element) {
+      requestOverviewFit();
+    }
+  }
+);
 
 watch(
   () => [renderedNodes.value, activeTab.value],
@@ -1488,6 +1746,8 @@ async function loadDetail(blueprintId: string) {
     blueprintMetaForm.isArchived = response.blueprint.isArchived;
     updateTabAvailability();
     measureNodeDimensions();
+    requestOverviewFit();
+    requestEditorFit();
   } finally {
     loadingDetail.value = false;
   }
@@ -1511,9 +1771,8 @@ function toggleEditorTab() {
 }
 
 function resetCanvasTransform() {
-  editorScale.value = 1;
-  editorOffset.x = 0;
-  editorOffset.y = 0;
+  requestEditorFit();
+  requestOverviewFit();
 }
 
 function toggleStepSettings() {
@@ -1776,10 +2035,20 @@ function handleCanvasWheel(event: WheelEvent) {
     return;
   }
   event.preventDefault();
-  const delta = -event.deltaY;
-  const scaleStep = delta > 0 ? 0.1 : -0.1;
-  const nextScale = Math.min(2, Math.max(0.4, editorScale.value + scaleStep));
-  editorScale.value = Number(nextScale.toFixed(2));
+  const canvas = editorCanvasRef.value;
+  if (!canvas) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const pointerX = event.clientX - rect.left;
+  const pointerY = event.clientY - rect.top;
+  const worldX = (pointerX - editorOffset.x) / editorScale.value;
+  const worldY = (pointerY - editorOffset.y) / editorScale.value;
+  const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+  const nextScale = clamp(editorScale.value * zoomFactor, 0.35, 2);
+  editorScale.value = Number(nextScale.toFixed(3));
+  editorOffset.x = pointerX - worldX * editorScale.value;
+  editorOffset.y = pointerY - worldY * editorScale.value;
 }
 
 function beginSelectionMarquee(event: PointerEvent) {
@@ -2236,6 +2505,18 @@ watch(selectedBlueprintId, (blueprintId) => {
   loadDetail(blueprintId).catch((error) => console.error('Failed to load quest detail', error));
 });
 
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (tab === 'overview') {
+      scheduleOverviewFit(true);
+    }
+    if (tab === 'editor') {
+      scheduleEditorFit();
+    }
+  }
+);
+
 watch(selectedNodeId, (nodeId) => {
   if (!nodeId) {
     showStepSettings.value = false;
@@ -2422,6 +2703,11 @@ onUnmounted(() => {
 .quest-panel--canvas {
   padding: 0;
   background: transparent;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 1.5rem;
 }
 
 .quest-panel__actions {
@@ -2449,7 +2735,22 @@ onUnmounted(() => {
 .quest-canvas {
   position: relative;
   min-height: 420px;
+  flex: 1;
+  height: 100%;
   overflow: hidden;
+  cursor: grab;
+}
+
+.quest-canvas--panning {
+  cursor: grabbing;
+}
+
+.quest-canvas__stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .quest-canvas__links {
