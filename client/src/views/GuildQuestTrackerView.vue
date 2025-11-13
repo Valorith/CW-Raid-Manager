@@ -54,28 +54,10 @@
     <main class="quest-tracker__main">
       <div v-if="selectedDetail" class="quest-detail">
         <header class="quest-detail__header">
-          <div>
-            <p class="muted small">Quest Blueprint</p>
+          <div class="quest-detail__title">
             <h2>{{ selectedDetail.blueprint.title }}</h2>
-            <p v-if="selectedDetail.blueprint.summary" class="muted">{{ selectedDetail.blueprint.summary }}</p>
           </div>
           <div class="quest-detail__actions">
-            <button
-              v-if="permissions?.canManageBlueprints"
-              class="btn btn--secondary btn--small"
-              type="button"
-              @click="toggleEditorTab"
-            >
-              {{ activeTab === 'editor' ? 'View Quest' : 'Edit Blueprint' }}
-            </button>
-            <button
-              v-if="permissions?.canViewGuildBoard"
-              class="btn btn--secondary btn--small"
-              type="button"
-              @click="setTab('guild')"
-            >
-              Guild Board
-            </button>
             <button
               v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
               class="btn btn--outline btn--small"
@@ -96,7 +78,7 @@
             </button>
             <button
               v-if="!viewerAssignment"
-              class="btn btn--primary btn--small"
+              class="btn btn--start"
               type="button"
               :disabled="assignmentUpdating"
               @click="startAssignment"
@@ -105,25 +87,6 @@
             </button>
           </div>
         </header>
-
-        <div class="quest-stat-row">
-          <div class="quest-stat-chip">
-            <span class="label">Steps</span>
-            <strong>{{ selectedDetail.blueprint.nodeCount }}</strong>
-          </div>
-          <div class="quest-stat-chip">
-            <span class="label">Active Players</span>
-            <strong>{{ selectedDetail.blueprint.assignmentCounts.ACTIVE }}</strong>
-          </div>
-          <div class="quest-stat-chip">
-            <span class="label">My Completion</span>
-            <strong>{{ formatPercent(viewerAssignment?.progressSummary.percentComplete ?? 0) }}</strong>
-          </div>
-          <div class="quest-stat-chip">
-            <span class="label">Updated</span>
-            <strong>{{ formatDate(selectedDetail.blueprint.updatedAt) }}</strong>
-          </div>
-        </div>
 
         <div class="quest-tabs">
           <button
@@ -1096,7 +1059,7 @@ const OVERVIEW_CANVAS_PADDING = 48;
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
-const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#34d399', '#a78bfa', '#f97316', '#a3e635'];
+const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#a855f7', '#a78bfa', '#f97316', '#a3e635'];
 const BRANCH_ANIMATION_STAGGER = 0.25;
 const DEFAULT_BRANCH_COLOR = '#38bdf8';
 
@@ -1764,10 +1727,6 @@ function updateTabAvailability() {
 
 function setTab(tab: 'overview' | 'editor' | 'guild') {
   activeTab.value = tab;
-}
-
-function toggleEditorTab() {
-  activeTab.value = activeTab.value === 'editor' ? 'overview' : 'editor';
 }
 
 function resetCanvasTransform() {
@@ -2627,9 +2586,15 @@ onUnmounted(() => {
 
 .quest-detail__header {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.quest-detail__title {
+  text-align: center;
+  width: 100%;
 }
 
 .quest-detail__stats {
@@ -2641,32 +2606,11 @@ onUnmounted(() => {
   padding: 1rem;
 }
 
-.quest-stat-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.quest-stat-chip {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  border-radius: 0.85rem;
-  padding: 0.6rem 0.9rem;
-  min-width: 140px;
-}
-
-.quest-stat-chip .label {
-  display: block;
-  font-size: 0.7rem;
-  color: rgba(148, 163, 184, 0.9);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
 .quest-tabs {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 .quest-tabs__button {
@@ -3374,6 +3318,40 @@ onUnmounted(() => {
   color: #fff;
 }
 
+.quest-tracker .btn--start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.65rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  background: linear-gradient(130deg, #34d399, #10b981);
+  color: #032c1f;
+  border: none;
+  box-shadow:
+    0 12px 25px rgba(16, 185, 129, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.quest-tracker .btn--start:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.01);
+  box-shadow:
+    0 16px 35px rgba(16, 185, 129, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  filter: brightness(1.02);
+}
+
+.quest-tracker .btn--start:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .quest-tracker .btn--pill {
   padding: 0.3rem 0.9rem;
   border-radius: 999px;
@@ -3423,6 +3401,25 @@ onUnmounted(() => {
 .quest-editor__toolbar,
 .quest-modal__actions {
   flex-wrap: wrap;
+}
+
+.quest-detail__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  align-self: flex-end;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .quest-detail__header {
+    justify-content: center;
+  }
+  .quest-detail__actions {
+    width: 100%;
+    justify-content: center;
+    align-self: center;
+  }
 }
 
 @keyframes questModalFade {
