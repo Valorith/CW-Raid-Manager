@@ -231,18 +231,14 @@
         <section v-if="activeTab === 'editor'" class="quest-panel quest-panel--editor">
           <div class="quest-editor__status">
             <div class="quest-editor__status-meta">
-              <span>Last saved {{ lastSavedAt ? formatDateTime(lastSavedAt) : '—' }} by {{ lastSavedBy }}</span>
-              <span class="quest-editor__status-note">{{ dirtyGraph ? 'Unsaved changes' : 'Ctrl+S to quick-save' }}</span>
-            </div>
-          </div>
-          <div class="quest-editor__toolbar">
-            <div class="quest-editor__toolbar-group">
-            </div>
-            <div class="quest-editor__toolbar-group quest-editor__toolbar-group--end">
-              <button class="btn btn--primary btn--small" type="button" :disabled="!dirtyGraph || savingGraph" @click="saveGraph">
-                {{ savingGraph ? 'Saving…' : 'Save Blueprint' }}
+              <span class="quest-editor__status-text">
+                Last saved {{ lastSavedAt ? formatDateTime(lastSavedAt) : '—' }} by {{ lastSavedBy }}
+              </span>
+              <button class="btn btn--save" type="button" :disabled="!dirtyGraph || savingGraph" @click="saveGraph">
+                {{ savingGraph ? 'Saving…' : 'Save' }}
               </button>
             </div>
+            <span class="quest-editor__status-note">{{ dirtyGraph ? 'Unsaved changes' : 'Ctrl+S to quick-save' }}</span>
           </div>
           <div class="quest-editor">
             <div
@@ -969,6 +965,12 @@ const nodeBranchAssignments = computed(() => {
   return assignments;
 });
 
+function nodeBranchColor(nodeId: string) {
+  const branchInfo = nodeBranchAssignments.value.get(nodeId);
+  const branchIndex = branchInfo?.branchIndex ?? 0;
+  return BRANCH_COLORS[branchIndex % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
+}
+
 const contextMenuStyle = computed(() => ({
   top: `${contextMenu.y}px`,
   left: `${contextMenu.x}px`
@@ -1382,13 +1384,12 @@ function formatDateTime(value?: string | null) {
 }
 
 function nodeStyle(node: QuestNodeViewModel, draggable: boolean) {
+  const accent = nodeBranchColor(node.id);
   return {
     transform: `translate(${node.position.x}px, ${node.position.y}px)`,
     cursor: draggable ? 'move' : 'default',
-    borderColor:
-      typeof (node as EditableNode).metadata?.accentColor === 'string'
-        ? ensureAccentColor((node as EditableNode).metadata.accentColor)
-        : typeAccent(node.nodeType, (node as EditableNode).isGroup).background
+    borderColor: accent,
+    '--accent': accent
   };
 }
 
@@ -2522,12 +2523,8 @@ onUnmounted(() => {
     stroke-dashoffset: 0;
     opacity: 1;
   }
-  90% {
-    stroke-dashoffset: 0;
-    opacity: 1;
-  }
   100% {
-    stroke-dashoffset: var(--path-length);
+    stroke-dashoffset: 0;
     opacity: 0;
   }
 }
@@ -2608,6 +2605,29 @@ onUnmounted(() => {
 
 .quest-node:hover .quest-node__handle-dot {
   opacity: 0.85;
+}
+
+.btn--save {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(248, 250, 252, 0.92);
+  padding: 0.3rem 1rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.2s ease, transform 0.2s ease;
+  margin-left: 1rem;
+}
+
+.btn--save:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.85);
+  transform: translateY(-1px);
+}
+
+.btn--save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .quest-node__handle-dot--top {
@@ -2748,19 +2768,21 @@ onUnmounted(() => {
 
 .quest-editor__status {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-  color: rgba(226, 232, 240, 0.8);
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
 }
 
 .quest-editor__status-meta {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.quest-editor__status-text {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .quest-editor__status-note {
