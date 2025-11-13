@@ -276,7 +276,8 @@ export async function questTrackerRoutes(server: FastifyInstance) {
       nodeId: z.string().min(1),
       status: z.nativeEnum(QuestNodeProgressStatus).optional(),
       progressCount: z.number().int().min(0).max(9999).optional(),
-      notes: z.string().max(500).optional().nullable()
+      notes: z.string().max(500).optional().nullable(),
+      isDisabled: z.boolean().optional()
     });
 
     const bodySchema = z.object({

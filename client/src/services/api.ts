@@ -150,6 +150,7 @@ export interface QuestNodeProgress {
   progressCount: number;
   targetCount: number;
   notes: string | null;
+  isDisabled?: boolean;
 }
 
 export interface QuestAssignment {
@@ -194,6 +195,7 @@ export interface QuestNodeViewModel {
   requirements: Record<string, unknown>;
   metadata: Record<string, unknown>;
   isGroup: boolean;
+  isFinal?: boolean;
 }
 
 export interface QuestNodeLinkViewModel {
@@ -979,7 +981,8 @@ function normalizeQuestAssignment(raw: any): QuestAssignment {
           status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
           progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
           targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
-          notes: typeof entry?.notes === 'string' ? entry.notes : null
+          notes: typeof entry?.notes === 'string' ? entry.notes : null,
+          isDisabled: Boolean(entry?.isDisabled)
         }))
       : []
   };
@@ -1005,7 +1008,8 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
     sortOrder: typeof raw?.sortOrder === 'number' ? raw.sortOrder : 0,
     requirements: isPlainObject(raw?.requirements) ? (raw.requirements as Record<string, unknown>) : {},
     metadata: isPlainObject(raw?.metadata) ? (raw.metadata as Record<string, unknown>) : {},
-    isGroup: Boolean(raw?.isGroup)
+    isGroup: Boolean(raw?.isGroup),
+    isFinal: Boolean(raw?.isFinal)
   };
 }
 
@@ -1532,7 +1536,13 @@ export const api = {
   async updateQuestAssignmentProgress(
     guildId: string,
     assignmentId: string,
-    updates: Array<{ nodeId: string; status?: QuestNodeProgressStatus; progressCount?: number; notes?: string | null }>
+    updates: Array<{
+      nodeId: string;
+      status?: QuestNodeProgressStatus;
+      progressCount?: number;
+      notes?: string | null;
+      isDisabled?: boolean;
+    }>
   ): Promise<QuestAssignment> {
     const response = await axios.patch(
       `/api/guilds/${guildId}/quest-tracker/assignments/${assignmentId}/progress`,

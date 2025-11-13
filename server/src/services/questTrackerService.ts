@@ -74,6 +74,7 @@ export interface QuestNodeViewModel {
   requirements: Record<string, unknown>;
   metadata: Record<string, unknown>;
   isGroup: boolean;
+  isFinal: boolean;
 }
 
 export interface QuestNodeLinkViewModel {
@@ -148,8 +149,17 @@ async function loadBlueprintGraph(
     })
   ]);
 
-  const nodeMap = new Map(
-    nodes.map((node) => [node.id, Boolean(normalizeJsonRecord(node.metadata).isGroup)])
+  const nodeMeta = new Map(
+    nodes.map((node) => {
+      const normalized = normalizeJsonRecord(node.metadata);
+      return [
+        node.id,
+        {
+          isGroup: Boolean(normalized.isGroup),
+          isFinal: Boolean(normalized.isFinal)
+        }
+      ];
+    })
   );
   const childMap = new Map<string, string[]>();
   for (const link of links) {
@@ -158,7 +168,35 @@ async function loadBlueprintGraph(
     childMap.set(link.parentNodeId, list);
   }
 
-  return { nodeMap, childMap };
+  return { nodeMeta, childMap };
+}
+
+function collectDescendantNodeIds(
+  nodeId: string,
+  childMap: Map<string, string[]>,
+  cache: Map<string, string[]>
+) {
+  if (cache.has(nodeId)) {
+    return cache.get(nodeId)!;
+  }
+  const visited = new Set<string>();
+  const queue = [...(childMap.get(nodeId) ?? [])];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    const children = childMap.get(current) ?? [];
+    for (const childId of children) {
+      if (!visited.has(childId)) {
+        queue.push(childId);
+      }
+    }
+  }
+  const result = Array.from(visited);
+  cache.set(nodeId, result);
+  return result;
 }
 
 function deriveGroupNodeStatus(children: QuestNodeProgressStatus[]) {
@@ -192,8 +230,8 @@ async function syncGroupProgressForAssignment(
   blueprintId: string,
   tx: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  const { nodeMap, childMap } = await loadBlueprintGraph(blueprintId, tx);
-  const groupNodeEntries = [...nodeMap.entries()].filter(([, isGroup]) => isGroup);
+  const { nodeMeta, childMap } = await loadBlueprintGraph(blueprintId, tx);
+  const groupNodeEntries = [...nodeMeta.entries()].filter(([, meta]) => meta.isGroup);
   if (!groupNodeEntries.length) {
     return;
   }
@@ -202,10 +240,33 @@ async function syncGroupProgressForAssignment(
     where: { assignmentId }
   });
   const progressMap = new Map(progressRecords.map((record) => [record.nodeId, record]));
+  const descendantCache = new Map<string, string[]>();
 
   for (const [groupNodeId] of groupNodeEntries) {
-    const childIds = childMap.get(groupNodeId) ?? [];
-    const childStatuses = childIds.map(
+    const groupRecord = progressMap.get(groupNodeId);
+    if (groupRecord?.isDisabled) {
+      await tx.questNodeProgress.update({
+        where: {
+          assignmentId_nodeId: {
+            assignmentId,
+            nodeId: groupNodeId
+          }
+        },
+        data: {
+          status: QuestNodeProgressStatus.NOT_STARTED,
+          progressCount: 0,
+          targetCount: 0,
+          completedAt: null
+        }
+      });
+      continue;
+    }
+
+    const descendantIds = collectDescendantNodeIds(groupNodeId, childMap, descendantCache);
+    const targetIds = descendantIds.filter(
+      (childId) => !(progressMap.get(childId)?.isDisabled)
+    );
+    const childStatuses = targetIds.map(
       (childId) => progressMap.get(childId)?.status ?? QuestNodeProgressStatus.NOT_STARTED
     );
     const { status, completed } = deriveGroupNodeStatus(childStatuses);
@@ -219,7 +280,7 @@ async function syncGroupProgressForAssignment(
       data: {
         status,
         progressCount: completed,
-        targetCount: childIds.length,
+        targetCount: targetIds.length,
         completedAt: status === QuestNodeProgressStatus.COMPLETED ? new Date() : null
       }
     });
@@ -268,9 +329,10 @@ function coerceQuestProgressSummary(value: Prisma.JsonValue | null): QuestProgre
   };
 }
 
-function buildProgressSummary(records: Array<{ status: QuestNodeProgressStatus }>): QuestProgressSummary {
+function buildProgressSummary(records: Array<{ status: QuestNodeProgressStatus; isDisabled?: boolean }>): QuestProgressSummary {
+  const filtered = records.filter((record) => !record.isDisabled);
   const summary: QuestProgressSummary = {
-    totalNodes: records.length,
+    totalNodes: filtered.length,
     completed: 0,
     inProgress: 0,
     blocked: 0,
@@ -278,7 +340,7 @@ function buildProgressSummary(records: Array<{ status: QuestNodeProgressStatus }
     percentComplete: 0
   };
 
-  for (const record of records) {
+  for (const record of filtered) {
     switch (record.status) {
       case QuestNodeProgressStatus.COMPLETED:
         summary.completed += 1;
@@ -323,7 +385,8 @@ function mapAssignment(
       status: record.status,
       progressCount: record.progressCount,
       targetCount: record.targetCount,
-      notes: record.notes ?? null
+      notes: record.notes ?? null,
+      isDisabled: record.isDisabled ?? false
     }))
   };
 }
@@ -364,7 +427,7 @@ async function refreshAssignmentSummary(
 ) {
   const progressRecords = await tx.questNodeProgress.findMany({
     where: { assignmentId },
-    select: { status: true }
+    select: { status: true, isDisabled: true }
   });
   const summary = buildProgressSummary(progressRecords);
   await tx.questAssignment.update({
@@ -657,7 +720,8 @@ export async function getQuestBlueprintDetail(options: {
         sortOrder: node.sortOrder,
         requirements: normalizedRequirements,
         metadata: normalizedMetadata,
-        isGroup: Boolean(normalizedMetadata.isGroup)
+        isGroup: Boolean(normalizedMetadata.isGroup),
+        isFinal: Boolean(normalizedMetadata.isFinal)
       };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
@@ -1053,20 +1117,26 @@ export async function applyAssignmentProgressUpdates(options: {
     }
 
     const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-    const groupNodeIds = new Set(
-      (
-        await tx.questNode.findMany({
-          where: { blueprintId: assignment.blueprintId },
-          select: { id: true, metadata: true }
-        })
-      )
-        .filter((node) => Boolean(normalizeJsonRecord(node.metadata).isGroup))
-        .map((node) => node.id)
+    const { nodeMeta } = await loadBlueprintGraph(assignment.blueprintId, tx);
+    const groupNodeIds = new Set<string>();
+    const disabledNodeIds = new Set<string>(
+      assignment.progress.filter((record) => record.isDisabled).map((record) => record.nodeId)
     );
+    const finalNodeIds = new Set<string>();
+    for (const [nodeId, meta] of nodeMeta.entries()) {
+      if (meta.isGroup) {
+        groupNodeIds.add(nodeId);
+      }
+      if (meta.isFinal) {
+        finalNodeIds.add(nodeId);
+      }
+    }
 
     for (const update of options.updates) {
-      if (groupNodeIds.has(update.nodeId)) {
-        continue;
+      if (groupNodeIds.has(update.nodeId) || disabledNodeIds.has(update.nodeId)) {
+        if (typeof update.isDisabled !== 'boolean') {
+          continue;
+        }
       }
 
       const current = progressMap.get(update.nodeId);
@@ -1097,6 +1167,15 @@ export async function applyAssignmentProgressUpdates(options: {
         data.notes = note;
       }
 
+      if (typeof update.isDisabled === 'boolean') {
+        data.isDisabled = update.isDisabled;
+        if (update.isDisabled) {
+          disabledNodeIds.add(update.nodeId);
+        } else {
+          disabledNodeIds.delete(update.nodeId);
+        }
+      }
+
       if (Object.keys(data).length === 0) {
         continue;
       }
@@ -1114,6 +1193,33 @@ export async function applyAssignmentProgressUpdates(options: {
 
     await syncGroupProgressForAssignment(assignment.id, assignment.blueprintId, tx);
     await refreshAssignmentSummary(assignment.id, tx);
+
+    if (finalNodeIds.size) {
+      const finalProgress = await tx.questNodeProgress.findMany({
+        where: {
+          assignmentId: assignment.id,
+          nodeId: { in: Array.from(finalNodeIds) }
+        },
+        select: { nodeId: true, status: true }
+      });
+      const shouldComplete = finalProgress.some(
+        (record) => record.status === QuestNodeProgressStatus.COMPLETED
+      );
+      if (
+        shouldComplete &&
+        assignment.status !== QuestAssignmentStatus.COMPLETED &&
+        assignment.status !== QuestAssignmentStatus.CANCELLED
+      ) {
+        await tx.questAssignment.update({
+          where: { id: assignment.id },
+          data: {
+            status: QuestAssignmentStatus.COMPLETED,
+            completedAt: new Date(),
+            cancelledAt: null
+          }
+        });
+      }
+    }
 
     const refreshed = await tx.questAssignment.findUnique({
       where: { id: assignment.id },

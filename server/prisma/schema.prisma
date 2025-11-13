@@ -444,6 +444,7 @@ model QuestNodeProgress {
   assignmentId  String
   nodeId        String
   status        QuestNodeProgressStatus @default(NOT_STARTED)
+  isDisabled    Boolean                 @default(false)
   progressCount Int                     @default(0)
   targetCount   Int                     @default(0)
   notes         String?                 @db.VarChar(500)

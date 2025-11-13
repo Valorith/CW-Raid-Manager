@@ -115,6 +115,7 @@
                 <path
                   v-for="link in renderedLinks"
                   :key="link.id"
+                  :stroke="link.branchColor"
                   :d="link.path"
                   pointer-events="none"
                 />
@@ -140,15 +141,36 @@
               <div
                 v-for="node in renderedNodes"
                 :key="node.id"
-                class="quest-node"
+                :class="[
+                  'quest-node',
+                  {
+                    'quest-node--completed':
+                      (!showOverviewDisabledState || !isNodeDisabled(node.id)) && isNodeCompleted(node.id),
+                    'quest-node--disabled': showOverviewDisabledState && isNodeDisabled(node.id),
+                    'quest-node--final': isNodeFinal(node.id)
+                  }
+                ]"
                 :style="nodeStyle(node, false)"
                 @contextmenu.prevent="openNodeMenu(node, $event)"
                 :data-node-id="node.id"
               >
                 <header class="quest-node__header">
-                  <span class="quest-node__type" :style="typeAccent(node.nodeType, node.isGroup)">
+                  <span class="quest-node__type" :style="typeAccent(node)">
                     {{ displayNodeType(node.nodeType, node.isGroup) }}
                   </span>
+                  <span
+                    v-if="showOverviewDisabledState && isNodeDisabled(node.id)"
+                    class="quest-node__badge quest-node__badge--disabled"
+                  >
+                    Disabled
+                  </span>
+                  <img
+                    v-else-if="isNodeFinal(node.id)"
+                    class="quest-node__icon quest-node__icon--final"
+                    src="/icons/checkered-flag.svg"
+                    alt="Final step"
+                    title="End of Quest"
+                  />
                   <span class="quest-node__status" :class="statusClass(viewerNodeStatus(node.id))">
                     {{ viewerNodeStatus(node.id) ?? 'NOT_STARTED' }}
                   </span>
@@ -159,45 +181,15 @@
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
                 <div v-if="node.isGroup" class="quest-node__group-indicator">
-                  Group node · {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
+                  <span>Group node</span>
+                  <span class="quest-node__group-indicator-value">
+                    {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
-          <div v-if="viewerAssignment" class="quest-my-progress">
-            <h3>My Steps</h3>
-            <ul>
-              <li v-for="node in selectedDetail.nodes" :key="node.id">
-                <div class="quest-my-progress__row">
-                  <div>
-                    <strong>{{ node.title }}</strong>
-                    <span class="muted small">{{ displayNodeType(node.nodeType, node.isGroup) }}</span>
-                    <p v-if="node.requirements?.targetName" class="quest-node__target quest-node__target--inline">
-                      Target / Item: {{ node.requirements.targetName }}
-                    </p>
-                    <p v-if="node.description" class="quest-node__zone quest-node__zone--inline">
-                      Zone: {{ node.description }}
-                    </p>
-                    <div v-if="node.isGroup" class="quest-node__group-indicator">
-                      Group node · {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
-                    </div>
-                  </div>
-                  <div class="quest-my-progress__actions">
-                    <button
-                      v-for="status in nodeStatuses"
-                      :key="status"
-                      :class="['btn btn--pill', { 'btn--primary': viewerNodeStatus(node.id) === status }]"
-                      type="button"
-                      :disabled="progressUpdating"
-                      @click="updateNodeStatus(node.id, status)"
-                    >
-                      {{ status }}
-                    </button>
-                  </div>
-                </div>
-              </li>
-            </ul>
-          </div>
+          <p v-if="viewerAssignment" class="quest-overview__hint">Right-click any quest step to update its status.</p>
         </section>
 
         <section v-if="activeTab === 'editor'" class="quest-panel quest-panel--editor">
@@ -226,6 +218,7 @@
                   <path
                     v-for="link in renderedLinks"
                     :key="link.id"
+                    :stroke="link.branchColor"
                     :d="link.path"
                     pointer-events="none"
                   />
@@ -257,7 +250,7 @@
                   :style="marqueeStyle"
                 ></div>
                 <template v-if="activeTab === 'editor'">
-                  <button
+                    <button
                     v-for="link in renderedLinks"
                     :key="`remove-${link.id}`"
                     :class="['quest-link-remove', { 'quest-link-remove--visible': hoveredLinkId === link.id }]"
@@ -274,12 +267,14 @@
                 <div
                   v-for="node in editableNodes"
                   :key="node.id"
-                  :class="[
-                    'quest-node',
-                    {
-                      'quest-node--selected': isNodeSelected(node.id)
-                    }
-                  ]"
+                :class="[
+                  'quest-node',
+                  {
+                    'quest-node--selected': isNodeSelected(node.id),
+                    'quest-node--completed': isNodeCompleted(node.id),
+                    'quest-node--final': isNodeFinal(node.id)
+                  }
+                ]"
                   :style="nodeStyle(node, true)"
                   @pointerdown.stop="handleNodePointerDown(node, $event)"
                   @click.stop="handleNodeClick(node, $event)"
@@ -287,19 +282,29 @@
                   @contextmenu.prevent.stop="openNodeMenu(node, $event)"
                   :data-node-id="node.id"
                 >
-                  <header class="quest-node__header">
-                    <span class="quest-node__type" :style="typeAccent(node.nodeType, node.isGroup)">
-                      {{ displayNodeType(node.nodeType, node.isGroup) }}
-                    </span>
-                    <span class="quest-node__handle" title="Drag to move">⇲</span>
-                  </header>
+                <header class="quest-node__header">
+                  <span class="quest-node__type" :style="typeAccent(node)">
+                    {{ displayNodeType(node.nodeType, node.isGroup) }}
+                  </span>
+                  <img
+                    v-if="isNodeFinal(node.id)"
+                    class="quest-node__icon quest-node__icon--final"
+                    src="/icons/checkered-flag.svg"
+                    alt="Final step"
+                    title="End of Quest"
+                  />
+                  <span class="quest-node__handle" title="Drag to move">⇲</span>
+                </header>
                   <h3>{{ node.title }}</h3>
                 <p v-if="node.requirements?.targetName" class="quest-node__target">
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
                 <div v-if="node.isGroup" class="quest-node__group-indicator">
-                  Group node · {{ formatGroupProgress(node.id, undefined, 'editor') }}
+                  <span>Group node</span>
+                  <span class="quest-node__group-indicator-value">
+                    {{ formatGroupProgress(node.id, undefined, 'editor') }}
+                  </span>
                 </div>
                 <div v-if="activeTab === 'editor'" class="quest-node__handles">
                   <button
@@ -335,11 +340,11 @@
                 class="input"
                 @input="markDirty()"
               />
-              <label class="switch switch--inline">
-                <input
-                  type="checkbox"
-                  v-model="selectedNode.isGroup"
-                  :disabled="nodeHasGroupParent(selectedNode.id)"
+      <label class="switch switch--inline">
+        <input
+          type="checkbox"
+          v-model="selectedNode.isGroup"
+          :disabled="nodeHasGroupParent(selectedNode.id)"
                   @change="markDirty()"
                 />
                 <span>
@@ -347,9 +352,17 @@
                   <template v-if="nodeHasGroupParent(selectedNode.id)">
                     — cannot enable while parent is a group
                   </template>
-                </span>
-              </label>
-              <label class="form-label">Type</label>
+        </span>
+      </label>
+      <label class="switch switch--inline">
+        <input
+          type="checkbox"
+          :checked="readNodeFlag(selectedNode, 'isFinal')"
+          @change="toggleFinalFlag"
+        />
+        <span>Final step (completing this finishes the quest)</span>
+      </label>
+      <label class="form-label">Type</label>
               <template v-if="selectedNode.isGroup">
                 <div class="quest-node__group-type">Group</div>
               </template>
@@ -508,7 +521,7 @@
       <li @click="handleOpenBlueprintSettings">Blueprint settings…</li>
       <li @click="handleResetViewFromMenu">Reset view</li>
     </template>
-    <template v-else>
+    <template v-else-if="contextMenu.type === 'editor-node'">
       <template v-if="hasMultiSelection">
         <li class="danger" @click="handleDeleteNodeFromMenu">
           Delete {{ selectedNodeCount }} selected {{ selectedNodeCount === 1 ? 'step' : 'steps' }}
@@ -517,7 +530,27 @@
       <template v-else>
         <li @click="handleAddChildFromMenu">Add child step</li>
         <li @click="handleEditNodeFromMenu">Edit step settings</li>
+        <li @click="handleToggleFinalFromMenu">
+          {{ contextMenuNodeFinal ? 'Clear final flag' : 'Mark as final step' }}
+        </li>
         <li class="danger" @click="handleDeleteNodeFromMenu">Delete step</li>
+      </template>
+    </template>
+    <template v-else-if="contextMenu.type === 'viewer-node'">
+      <template v-if="contextMenuNodeDisabled">
+        <li v-if="canUpdateNodeProgress" @click="handleEnableNodeFromMenu">Enable step (and descendants)</li>
+        <li v-else class="disabled">Step disabled</li>
+      </template>
+      <template v-else>
+        <li
+          v-for="status in nodeStatuses"
+          :key="status"
+          :class="{ disabled: progressUpdating }"
+          @click="handleViewerStatusChange(status)"
+        >
+          Mark {{ nodeProgressStatusLabels[status] }}
+        </li>
+        <li v-if="canUpdateNodeProgress" @click="handleDisableNodeFromMenu">Disable step (and descendants)</li>
       </template>
     </template>
   </ul>
@@ -586,6 +619,10 @@ const editorOffset = reactive({ x: 0, y: 0 });
 const isPanning = ref(false);
 const panStart = reactive({ x: 0, y: 0, originX: 0, originY: 0 });
 const DEFAULT_ACCENT_COLOR = '#8b5cf6';
+const COMPLETED_ACCENT_COLOR = '#16a34a';
+const DEFAULT_LINK_SHADOW = 'rgba(56, 189, 248, 0.35)';
+const COMPLETED_LINK_SHADOW = 'rgba(34, 197, 94, 0.45)';
+const DISABLED_LINK_SHADOW = 'rgba(71, 85, 105, 0.35)';
 const editorCanvasRef = ref<HTMLElement | null>(null);
 const overviewCanvasRef = ref<HTMLElement | null>(null);
 const overviewTransform = reactive({ scale: 1, offsetX: 0, offsetY: 0 });
@@ -605,6 +642,8 @@ type RenderedLink = {
   branchColor: string;
   animationDelay: number;
   pathLength: number;
+  isCompletedPath: boolean;
+  isDisabledPath: boolean;
 };
 const NODE_FACES: NodeFace[] = ['top', 'right', 'bottom', 'left'];
 const FACE_NORMALS: Record<NodeFace, Point> = {
@@ -650,13 +689,20 @@ const marqueeSelection = reactive({
 const isSpacePanning = ref(false);
 const panState = reactive({ button: null as number | null, moved: false });
 const suppressCanvasContextMenu = ref(false);
+type ContextMenuType = 'canvas' | 'editor-node' | 'viewer-node';
 const contextMenu = reactive({
   visible: false,
   x: 0,
   y: 0,
-  type: 'canvas' as 'canvas' | 'node',
+  type: 'canvas' as ContextMenuType,
   nodeId: null as string | null
 });
+const contextMenuNodeDisabled = computed(() =>
+  contextMenu.nodeId ? isNodeDisabled(contextMenu.nodeId) : false
+);
+const contextMenuNodeFinal = computed(() =>
+  contextMenu.nodeId ? isNodeFinal(contextMenu.nodeId) : false
+);
 
 const newBlueprintForm = reactive({
   title: '',
@@ -692,10 +738,130 @@ const filteredBlueprints = computed(() => {
 
 const selectedDetail = computed(() => detail.value);
 const viewerAssignment = computed(() => detail.value?.viewerAssignment ?? null);
+const viewerProgressMap = computed(() => {
+  const map = new Map<string, QuestNodeProgressStatus>();
+  const progress = viewerAssignment.value?.progress ?? [];
+  for (const record of progress) {
+    map.set(record.nodeId, record.status);
+  }
+  return map;
+});
+const completedNodeIds = computed(() => {
+  const set = new Set<string>();
+  viewerProgressMap.value.forEach((status, nodeId) => {
+    if (status === 'COMPLETED') {
+      set.add(nodeId);
+    }
+  });
+  return set;
+});
 const viewerAssignmentId = computed(() => viewerAssignment.value?.id ?? null);
+const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value));
 const nodeStatuses: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
+const nodeProgressStatusLabels: Record<QuestNodeProgressStatus, string> = {
+  NOT_STARTED: 'Not started',
+  IN_PROGRESS: 'In progress',
+  COMPLETED: 'Completed',
+  BLOCKED: 'Blocked'
+};
+const renderedNodes = computed(() =>
+  activeTab.value === 'editor' ? editableNodes.value : detail.value?.nodes ?? []
+);
+
+const activeLinks = computed(() =>
+  activeTab.value === 'editor' ? editableLinks.value : detail.value?.links ?? []
+);
+
+const selectedNode = computed<EditableNode | null>(() =>
+  editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
+);
+
+const editableNodeIndex = computed(() => {
+  const map = new Map<string, EditableNode>();
+  editableNodes.value.forEach((node) => map.set(node.id, node));
+  return map;
+});
+
 const selectedNodeCount = computed(() => selectedNodeIds.value.size);
 const hasMultiSelection = computed(() => selectedNodeCount.value > 1);
+const renderedNodeIndex = computed(() => {
+  const map = new Map<string, QuestNodeViewModel>();
+  for (const node of renderedNodes.value) {
+    map.set(node.id, node);
+  }
+  return map;
+});
+const showOverviewDisabledState = computed(() => activeTab.value === 'overview');
+
+const finalNodeIds = computed(() => {
+  const set = new Set<string>();
+  renderedNodes.value.forEach((node) => {
+    if (readNodeFlag(node, 'isFinal')) {
+      set.add(node.id);
+    }
+  });
+  return set;
+});
+
+const viewerDisabledNodeIds = computed(() => {
+  const set = new Set<string>();
+  viewerAssignment.value?.progress.forEach((record) => {
+    if (record.isDisabled) {
+      set.add(record.nodeId);
+    }
+  });
+  return set;
+});
+
+function isNodeDisabled(nodeId: string) {
+  return viewerDisabledNodeIds.value.has(nodeId);
+}
+
+function isNodeFinal(nodeId: string) {
+  return finalNodeIds.value.has(nodeId);
+}
+
+function isGroupNode(nodeId: string) {
+  return renderedNodeIndex.value.get(nodeId)?.isGroup ?? false;
+}
+
+function isNodeCompleted(nodeId: string) {
+  return completedNodeIds.value.has(nodeId);
+}
+
+function readNodeFlag(node: QuestNodeViewModel | EditableNode | undefined, flag: 'isFinal'): boolean {
+  if (!node) {
+    return false;
+  }
+  const directValue = (node as any)[flag];
+  if (typeof directValue === 'boolean') {
+    return directValue;
+  }
+  const metadataValue = (node.metadata as Record<string, unknown> | undefined)?.[flag];
+  return typeof metadataValue === 'boolean' ? metadataValue : Boolean(metadataValue);
+}
+
+function setNodeFinalFlag(nodeId: string, value: boolean) {
+  const applyFlag = (node: QuestNodeViewModel | EditableNode | undefined) => {
+    if (!node) {
+      return;
+    }
+    const metadata = { ...(node.metadata ?? {}) };
+    if (value) {
+      metadata.isFinal = true;
+    } else {
+      delete metadata.isFinal;
+    }
+    node.metadata = metadata;
+    (node as any).isFinal = value;
+  };
+
+  applyFlag(editableNodeIndex.value.get(nodeId));
+  if (detail.value) {
+    applyFlag(detail.value.nodes.find((node) => node.id === nodeId));
+  }
+}
+
 function setSelectedNodes(nodeIds: string[]) {
   selectedNodeIds.value = new Set(nodeIds);
   selectedNodeId.value = nodeIds[0] ?? null;
@@ -720,17 +886,17 @@ function ensureAccentColor(value?: string | null): string {
   return DEFAULT_ACCENT_COLOR;
 }
 
-const renderedNodes = computed(() =>
-  activeTab.value === 'editor' ? editableNodes.value : detail.value?.nodes ?? []
-);
-
-const activeLinks = computed(() =>
-  activeTab.value === 'editor' ? editableLinks.value : detail.value?.links ?? []
-);
-
-const selectedNode = computed<EditableNode | null>(() =>
-  editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
-);
+function buildEditableNode(node: QuestNodeViewModel): EditableNode {
+  const metadata = { ...(node.metadata ?? {}), accentColor: ensureAccentColor((node.metadata as any)?.accentColor) };
+  const editable = {
+    ...node,
+    position: { ...node.position },
+    requirements: { ...(node.requirements ?? {}) },
+    metadata,
+    isFinal: readNodeFlag(node, 'isFinal')
+  } as EditableNode;
+  return editable;
+}
 
 const nodePositionMap = computed(() => {
   const map = new Map<string, { x: number; y: number }>();
@@ -1062,6 +1228,7 @@ function clamp(value: number, min: number, max: number) {
 const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#a855f7', '#a78bfa', '#f97316', '#a3e635'];
 const BRANCH_ANIMATION_STAGGER = 0.25;
 const DEFAULT_BRANCH_COLOR = '#38bdf8';
+const DISABLED_BRANCH_COLOR = '#475569';
 
 const childNodeMap = computed(() => {
   const map = new Map<string, string[]>();
@@ -1073,37 +1240,60 @@ const childNodeMap = computed(() => {
   return map;
 });
 
+const parentNodeMap = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const link of activeLinks.value) {
+    const list = map.get(link.childNodeId) ?? [];
+    list.push(link.parentNodeId);
+    map.set(link.childNodeId, list);
+  }
+  return map;
+});
+
+function getUpstreamNodeIds(nodeId: string): string[] {
+  const parents = parentNodeMap.value;
+  const visited = new Set<string>();
+  const queue = [...(parents.get(nodeId) ?? [])];
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    const nextParents = parents.get(current) ?? [];
+    nextParents.forEach((parentId) => {
+      if (!visited.has(parentId)) {
+        queue.push(parentId);
+      }
+    });
+  }
+  return Array.from(visited);
+}
+
 const groupDescendantsMap = computed(() => {
-  const cache = new Map<string, Set<string>>();
+  const map = new Map<string, string[]>();
   const children = childNodeMap.value;
   const allNodeIds = new Set(renderedNodes.value.map((node) => node.id));
 
-  function visit(nodeId: string, path: Set<string>): Set<string> {
-    if (cache.has(nodeId)) {
-      return cache.get(nodeId)!;
+  for (const nodeId of allNodeIds) {
+    const visited = new Set<string>();
+    const queue = [...(children.get(nodeId) ?? [])];
+    while (queue.length) {
+      const childId = queue.shift()!;
+      if (visited.has(childId)) {
+        continue;
+      }
+      visited.add(childId);
+      const childChildren = children.get(childId) ?? [];
+      childChildren.forEach((descendantId) => {
+        if (!visited.has(descendantId)) {
+          queue.push(descendantId);
+        }
+      });
     }
-    if (path.has(nodeId)) {
-      cache.set(nodeId, new Set());
-      return cache.get(nodeId)!;
-    }
-    const nextPath = new Set(path);
-    nextPath.add(nodeId);
-    const collected = new Set<string>();
-    const directChildren = children.get(nodeId) ?? [];
-    for (const childId of directChildren) {
-      collected.add(childId);
-      const descendants = visit(childId, nextPath);
-      descendants.forEach((descendantId) => collected.add(descendantId));
-    }
-    cache.set(nodeId, collected);
-    return collected;
+    map.set(nodeId, Array.from(visited));
   }
 
-  const map = new Map<string, string[]>();
-  for (const nodeId of allNodeIds) {
-    const descendants = visit(nodeId, new Set());
-    map.set(nodeId, Array.from(descendants));
-  }
   return map;
 });
 
@@ -1167,22 +1357,31 @@ const contextMenuStyle = computed(() => ({
   left: `${contextMenu.x}px`
 }));
 
-const parentNodeMap = computed(() => {
-  const map = new Map<string, string[]>();
-  for (const link of activeLinks.value) {
-    const list = map.get(link.childNodeId) ?? [];
-    list.push(link.parentNodeId);
-    map.set(link.childNodeId, list);
-  }
-  return map;
-});
-
 function getGroupDescendants(nodeId: string) {
   return groupDescendantsMap.value.get(nodeId) ?? [];
 }
 
-function getGroupProgress(nodeId: string, progress: QuestNodeProgress[] | undefined, mode: 'editor' | 'viewer' = 'viewer') {
-  const childIds = getGroupDescendants(nodeId);
+function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>) {
+  const descendants = getGroupDescendants(nodeId).filter((childId) => !isNodeDisabled(childId));
+  if (!descendants.length) {
+    return true;
+  }
+  return descendants.every((childId) => {
+    if (newlyCompleted.has(childId)) {
+      return true;
+    }
+    return viewerProgressMap.value.get(childId) === 'COMPLETED';
+  });
+}
+
+function getGroupProgress(
+  nodeId: string,
+  progress: QuestNodeProgress[] | undefined,
+  mode: 'editor' | 'viewer' = 'viewer'
+) {
+  const childIds = getGroupDescendants(nodeId).filter((childId) =>
+    mode === 'viewer' ? !isNodeDisabled(childId) : true
+  );
   if (!childIds.length) {
     return { completed: 0, total: 0 };
   }
@@ -1435,9 +1634,15 @@ function handleLinkHover(linkId: string | null) {
 }
 
 function linkAnimationStyle(link: RenderedLink) {
+  const shadowColor = link.isCompletedPath
+    ? COMPLETED_LINK_SHADOW
+    : link.isDisabledPath
+      ? DISABLED_LINK_SHADOW
+      : DEFAULT_LINK_SHADOW;
   return {
     '--path-length': `${link.pathLength}px`,
-    '--animation-delay': `${link.animationDelay}s`
+    '--animation-delay': `${link.animationDelay}s`,
+    '--link-shadow-color': shadowColor
   } as Record<string, string>;
 }
 
@@ -1468,8 +1673,16 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const path = buildPathFromPoints(normalizedCurve);
     const pathLength = approximateBezierLength(normalizedCurve);
     const branchInfo = branchAssignmentsMap.get(link.childNodeId);
-    const branchColor =
-      BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
+    const linkDisabled =
+      showOverviewDisabledState.value &&
+      (isNodeDisabled(link.parentNodeId) || isNodeDisabled(link.childNodeId));
+    const isCompletedPath =
+      !linkDisabled && isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
+    const branchColor = linkDisabled
+      ? DISABLED_BRANCH_COLOR
+      : isCompletedPath
+        ? COMPLETED_ACCENT_COLOR
+        : BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
     const animationDelay = (branchInfo?.depth ?? 0) * BRANCH_ANIMATION_STAGGER;
 
     return {
@@ -1482,7 +1695,9 @@ const renderedLinks = computed<RenderedLink[]>(() => {
       midPoint,
       branchColor,
       animationDelay,
-      pathLength
+      pathLength,
+      isCompletedPath,
+      isDisabledPath: linkDisabled
     };
   });
 });
@@ -1605,25 +1820,36 @@ function formatDateTime(value?: string | null) {
 }
 
 function nodeStyle(node: QuestNodeViewModel, draggable: boolean) {
-  const accent = nodeBranchColor(node.id);
+  const disabled = showOverviewDisabledState.value && isNodeDisabled(node.id);
+  const accent = disabled ? DISABLED_BRANCH_COLOR : isNodeCompleted(node.id) ? COMPLETED_ACCENT_COLOR : nodeBranchColor(node.id);
   return {
     transform: `translate(${node.position.x}px, ${node.position.y}px)`,
-    cursor: draggable ? 'move' : 'default',
+    cursor: disabled && !draggable ? 'not-allowed' : draggable ? 'move' : 'default',
     borderColor: accent,
-    '--accent': accent
+    '--accent': accent,
+    opacity: disabled ? 0.7 : 1
   };
 }
 
-function typeAccent(nodeType: QuestNodeType, isGroup?: boolean) {
-  if (isGroup) {
+function typeAccent(node: QuestNodeViewModel) {
+  if (showOverviewDisabledState.value && isNodeDisabled(node.id)) {
+    return { background: DISABLED_BRANCH_COLOR, color: '#e2e8f0' };
+  }
+  if (isNodeCompleted(node.id)) {
+    return { background: COMPLETED_ACCENT_COLOR, color: '#022c22' };
+  }
+  if (node.isGroup) {
     return { background: '#14b8a6' };
   }
-  const color = questNodeTypeColors[nodeType] ?? '#2563eb';
+  const color = questNodeTypeColors[node.nodeType] ?? '#2563eb';
   return { background: color };
 }
 
 function viewerNodeStatus(nodeId: string): QuestNodeProgressStatus {
-  return viewerAssignment.value?.progress.find((record) => record.nodeId === nodeId)?.status ?? 'NOT_STARTED';
+  if (isNodeDisabled(nodeId)) {
+    return 'NOT_STARTED';
+  }
+  return viewerProgressMap.value.get(nodeId) ?? 'NOT_STARTED';
 }
 
 function statusClass(status?: QuestNodeProgressStatus) {
@@ -1691,12 +1917,7 @@ async function loadDetail(blueprintId: string) {
     nodeDimensions.value = {};
     lastSavedAt.value = response.blueprint.updatedAt ?? response.blueprint.createdAt ?? null;
     lastSavedBy.value = response.blueprint.lastEditedByName ?? 'Unknown member';
-    editableNodes.value = response.nodes.map((node) => ({
-      ...node,
-      position: { ...node.position },
-      requirements: { ...node.requirements },
-      metadata: { ...node.metadata, accentColor: ensureAccentColor((node.metadata as any)?.accentColor) }
-    })) as EditableNode[];
+    editableNodes.value = response.nodes.map((node) => buildEditableNode(node)) as EditableNode[];
     editableLinks.value = response.links.map((link) => ({ ...link }));
     dirtyGraph.value = false;
     editorScale.value = 1;
@@ -1832,17 +2053,24 @@ function openCanvasMenu(event: MouseEvent) {
   contextMenu.type = 'canvas';
 }
 
-function openNodeMenu(node: EditableNode, event: MouseEvent) {
-  if (activeTab.value !== 'editor' || !canManageBlueprint.value) {
+function openNodeMenu(node: QuestNodeViewModel, event: MouseEvent) {
+  const isEditorContext = activeTab.value === 'editor' && canManageBlueprint.value;
+  const isViewerContext = activeTab.value === 'overview' && canUpdateNodeProgress.value;
+  if (!isEditorContext && !isViewerContext) {
     return;
   }
-  if (!isNodeSelected(node.id)) {
-    selectNode(node.id);
-  }
   hideContextMenu();
-  positionContextMenu(event);
+  if (isEditorContext) {
+    if (!isNodeSelected(node.id)) {
+      selectNode(node.id);
+    }
+    positionContextMenu(event);
+    contextMenu.type = 'editor-node';
+  } else {
+    positionContextMenu(event, 220, 220);
+    contextMenu.type = 'viewer-node';
+  }
   contextMenu.visible = true;
-  contextMenu.type = 'node';
   contextMenu.nodeId = node.id;
 }
 
@@ -1899,6 +2127,63 @@ function handleDeleteNodeFromMenu() {
   hideContextMenu();
 }
 
+function collectNodeWithDescendants(nodeId: string) {
+  return [nodeId, ...getGroupDescendants(nodeId)];
+}
+
+async function applyViewerDisableUpdates(nodeIds: string[], disabled: boolean) {
+  if (!viewerAssignmentId.value) {
+    window.alert('Start the quest before adjusting steps.');
+    return;
+  }
+  progressUpdating.value = true;
+  try {
+    const assignment = await api.updateQuestAssignmentProgress(
+      guildId,
+      viewerAssignmentId.value,
+      nodeIds.map((id) => ({ nodeId: id, isDisabled: disabled }))
+    );
+    if (detail.value) {
+      detail.value.viewerAssignment = assignment;
+    }
+    await loadSummary();
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : 'Unable to update step visibility.');
+  } finally {
+    progressUpdating.value = false;
+  }
+}
+
+async function handleDisableNodeFromMenu() {
+  if (!contextMenu.nodeId || !canUpdateNodeProgress.value) {
+    hideContextMenu();
+    return;
+  }
+  const targets = collectNodeWithDescendants(contextMenu.nodeId);
+  await applyViewerDisableUpdates(targets, true);
+  hideContextMenu();
+}
+
+async function handleEnableNodeFromMenu() {
+  if (!contextMenu.nodeId || !canUpdateNodeProgress.value) {
+    hideContextMenu();
+    return;
+  }
+  const targets = collectNodeWithDescendants(contextMenu.nodeId);
+  await applyViewerDisableUpdates(targets, false);
+  hideContextMenu();
+}
+
+function handleToggleFinalFromMenu() {
+  if (!contextMenu.nodeId || !canManageBlueprint.value) {
+    hideContextMenu();
+    return;
+  }
+  setNodeFinalFlag(contextMenu.nodeId, !contextMenuNodeFinal.value);
+  markDirty();
+  hideContextMenu();
+}
+
 function handleEditNodeFromMenu() {
   if (!contextMenu.nodeId) {
     return;
@@ -1915,6 +2200,15 @@ function handleEditNodeFromMenu() {
 function handleResetViewFromMenu() {
   resetCanvasTransform();
   hideContextMenu();
+}
+
+async function handleViewerStatusChange(status: QuestNodeProgressStatus) {
+  const nodeId = contextMenu.nodeId;
+  hideContextMenu();
+  if (!nodeId || progressUpdating.value || isNodeDisabled(nodeId)) {
+    return;
+  }
+  await updateNodeStatus(nodeId, status);
 }
 
 function closeSaveError() {
@@ -1947,6 +2241,15 @@ function updateAccentColor(event: Event) {
   }
   const input = event.target as HTMLInputElement;
   selectedNode.value.metadata.accentColor = ensureAccentColor(input.value);
+  markDirty();
+}
+
+function toggleFinalFlag(event: Event) {
+  if (!selectedNode.value) {
+    return;
+  }
+  const input = event.target as HTMLInputElement;
+  setNodeFinalFlag(selectedNode.value.id, input.checked);
   markDirty();
 }
 
@@ -2303,12 +2606,7 @@ async function saveGraph() {
     blueprintMetaForm.title = response.blueprint.title;
     blueprintMetaForm.summary = response.blueprint.summary ?? '';
     blueprintMetaForm.isArchived = response.blueprint.isArchived;
-    editableNodes.value = response.nodes.map((node) => ({
-      ...node,
-      position: { ...node.position },
-      requirements: { ...node.requirements },
-      metadata: { ...node.metadata, accentColor: ensureAccentColor((node.metadata as any)?.accentColor) }
-    })) as EditableNode[];
+    editableNodes.value = response.nodes.map((node) => buildEditableNode(node)) as EditableNode[];
     editableLinks.value = response.links.map((link) => ({ ...link }));
     dirtyGraph.value = false;
     lastSavedAt.value = response.blueprint.updatedAt ?? new Date().toISOString();
@@ -2411,11 +2709,55 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
   if (!viewerAssignmentId.value) {
     return;
   }
+  if (isNodeDisabled(nodeId)) {
+    progressUpdating.value = false;
+    return;
+  }
   progressUpdating.value = true;
+  const shouldAutoComplete = status === 'COMPLETED' && isNodeFinal(nodeId);
   try {
-    const assignment = await api.updateQuestAssignmentProgress(guildId, viewerAssignmentId.value, [
-      { nodeId, status }
-    ]);
+    const updates = new Set<string>([nodeId]);
+    const newlyCompleted = new Set<string>();
+    if (status === 'COMPLETED') {
+      newlyCompleted.add(nodeId);
+    }
+
+    if (isGroupNode(nodeId)) {
+      const descendants = getGroupDescendants(nodeId);
+      if (status === 'COMPLETED') {
+        descendants.forEach((descendantId) => {
+          updates.add(descendantId);
+          newlyCompleted.add(descendantId);
+        });
+      } else if (status === 'NOT_STARTED') {
+        descendants.forEach((descendantId) => updates.add(descendantId));
+      }
+      if (status === 'COMPLETED' && !areAllDescendantsComplete(nodeId, newlyCompleted)) {
+        window.alert('Complete all child steps before marking this group as complete.');
+        progressUpdating.value = false;
+        return;
+      }
+    }
+
+    if (status === 'COMPLETED') {
+      const upstreamIds = getUpstreamNodeIds(nodeId);
+      for (const ancestorId of upstreamIds) {
+        if (isGroupNode(ancestorId)) {
+          if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
+            updates.add(ancestorId);
+            newlyCompleted.add(ancestorId);
+          }
+          continue;
+        }
+        updates.add(ancestorId);
+        newlyCompleted.add(ancestorId);
+      }
+    }
+    const assignment = await api.updateQuestAssignmentProgress(
+      guildId,
+      viewerAssignmentId.value,
+      Array.from(updates).map((targetId) => ({ nodeId: targetId, status }))
+    );
     if (detail.value) {
       detail.value.viewerAssignment = assignment;
     }
@@ -2424,6 +2766,9 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
     window.alert(error instanceof Error ? error.message : 'Unable to update quest step.');
   } finally {
     progressUpdating.value = false;
+    if (shouldAutoComplete) {
+      completeAssignment();
+    }
   }
 }
 
@@ -2753,7 +3098,7 @@ onUnmounted(() => {
   animation: quest-link-trace 9s linear infinite;
   animation-delay: var(--animation-delay, 0s);
   opacity: 0;
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.35));
+  filter: drop-shadow(0 0 6px var(--link-shadow-color, rgba(56, 189, 248, 0.35)));
 }
 
 @keyframes quest-link-trace {
@@ -2821,6 +3166,31 @@ onUnmounted(() => {
   box-shadow:
     0 0 0 3px rgba(139, 92, 246, 0.35),
     0 12px 35px rgba(15, 23, 42, 0.45);
+}
+
+.quest-node--completed {
+  border-color: var(--accent, #16a34a);
+  box-shadow:
+    0 0 0 2px rgba(34, 197, 94, 0.2),
+    0 15px 35px rgba(5, 46, 22, 0.4);
+  background: rgba(22, 163, 74, 0.12);
+}
+
+.quest-node--final {
+  box-shadow:
+    0 0 12px rgba(250, 204, 21, 0.45),
+    inset 0 0 0 2px rgba(250, 204, 21, 0.6);
+  border-color: rgba(250, 204, 21, 0.85);
+}
+
+.quest-node--disabled {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.7);
+  box-shadow: none;
+}
+
+.quest-node--disabled .quest-node__status {
+  color: #94a3b8;
 }
 
 .quest-node__header {
@@ -2925,9 +3295,28 @@ onUnmounted(() => {
 }
 
 .quest-node__group-indicator {
-  font-size: 0.75rem;
-  color: rgba(248, 250, 252, 0.85);
-  margin-top: 0.3rem;
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.65rem;
+  background: rgba(59, 130, 246, 0.12);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.quest-node__group-indicator::before {
+  content: '⛓️';
+  font-size: 0.85rem;
+}
+
+.quest-node__group-indicator-value {
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.12);
+  color: rgba(248, 250, 252, 0.95);
 }
 
 .quest-node__group-type {
@@ -2958,6 +3347,34 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
+.quest-node__badge {
+  margin-right: auto;
+  margin-left: 0.5rem;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.25);
+  color: rgba(248, 250, 252, 0.9);
+}
+
+.quest-node__badge--disabled {
+  background: rgba(100, 116, 139, 0.35);
+  color: #e2e8f0;
+}
+
+.quest-node__icon {
+  margin-right: auto;
+  margin-left: 0.5rem;
+  width: 48px;
+  height: 48px;
+  display: inline-block;
+}
+
+.quest-node__icon--final {
+  object-fit: contain;
+}
+
 .status-pill {
   border-radius: 0.5rem;
   padding: 0.15rem 0.45rem;
@@ -2980,26 +3397,13 @@ onUnmounted(() => {
   color: #f87171;
 }
 
-.quest-my-progress ul {
-  list-style: none;
-  padding: 0;
+.quest-overview__hint {
   margin: 1rem 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.quest-my-progress__row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.quest-my-progress__actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
+  padding: 0.65rem 0.95rem;
+  border-radius: 0.65rem;
+  background: rgba(59, 130, 246, 0.12);
+  color: rgba(248, 250, 252, 0.9);
+  font-size: 0.9rem;
 }
 
 .quest-editor__toolbar {
@@ -3243,6 +3647,12 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.15);
 }
 
+.quest-context-menu li.disabled {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
 .quest-context-menu li.danger:hover {
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
@@ -3363,11 +3773,6 @@ onUnmounted(() => {
 .quest-tracker .btn--pill.btn--primary {
   background: linear-gradient(135deg, #22d3ee, #3b82f6);
   border-color: rgba(59, 130, 246, 0.4);
-}
-
-.quest-my-progress__actions .btn {
-  font-size: 0.75rem;
-  letter-spacing: 0.01em;
 }
 
 .quest-node__actions .btn {
