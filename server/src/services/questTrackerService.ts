@@ -6,7 +6,8 @@ import {
   QuestAssignmentStatus,
   QuestNodeProgressStatus,
   QuestNodeType,
-  QuestBlueprintVisibility as PrismaQuestBlueprintVisibility
+  QuestBlueprintVisibility as PrismaQuestBlueprintVisibility,
+  QuestBlueprint
 } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
@@ -99,15 +100,17 @@ export type QuestBlueprintVisibility = PrismaQuestBlueprintVisibility;
 
 interface JsonRecord extends Record<string, Prisma.JsonValue> {}
 
+const QUEST_ASSIGNMENT_USER_SELECT = {
+  id: true,
+  displayName: true,
+  nickname: true
+} as const;
+
 type AssignmentWithProgress = Prisma.QuestAssignmentGetPayload<{
   include: {
     progress: true;
-    user?: {
-      select: {
-        id: true;
-        displayName: true;
-        nickname: true;
-      };
+    user: {
+      select: typeof QUEST_ASSIGNMENT_USER_SELECT;
     };
   };
 }>;
@@ -326,7 +329,7 @@ function mapAssignment(
 }
 
 function mapBlueprintSummary(
-  blueprint: Prisma.QuestBlueprint,
+  blueprint: QuestBlueprint,
   nodeCount: number,
   assignmentCounts: Record<QuestAssignmentStatus, number>,
   viewerAssignment?: QuestAssignmentWithProgress | null
@@ -367,7 +370,7 @@ async function refreshAssignmentSummary(
   await tx.questAssignment.update({
     where: { id: assignmentId },
     data: {
-      progressSummary: summary,
+      progressSummary: summary as unknown as Prisma.InputJsonValue,
       lastProgressAt: new Date()
     }
   });
@@ -463,7 +466,10 @@ export async function listGuildQuestTrackerSummary(options: {
       },
       orderBy: [{ startedAt: 'desc' }],
       include: {
-        progress: true
+        progress: true,
+        user: {
+          select: QUEST_ASSIGNMENT_USER_SELECT
+        }
       }
     })
   ]);
@@ -610,7 +616,10 @@ export async function getQuestBlueprintDetail(options: {
       },
       orderBy: [{ startedAt: 'desc' }],
       include: {
-        progress: true
+        progress: true,
+        user: {
+          select: QUEST_ASSIGNMENT_USER_SELECT
+        }
       }
     }),
     options.includeGuildAssignments
@@ -621,11 +630,7 @@ export async function getQuestBlueprintDetail(options: {
           },
           include: {
             user: {
-              select: {
-                id: true,
-                displayName: true,
-                nickname: true
-              }
+              select: QUEST_ASSIGNMENT_USER_SELECT
             },
             progress: true
           },
@@ -788,7 +793,7 @@ export async function upsertQuestBlueprintGraph(options: {
       sortOrder: node.sortOrder,
       requirements: sanitizeJsonInput(node.requirements),
       metadata: metadataInput
-    } satisfies Prisma.QuestNodeUncheckedCreateInput;
+    } satisfies Omit<Prisma.QuestNodeUncheckedCreateInput, 'blueprintId'>;
 
       if (existingIds.has(node.id)) {
         const updateData: Prisma.QuestNodeUpdateInput = {
@@ -923,7 +928,12 @@ export async function startQuestAssignment(options: {
 
     const hydrated = await tx.questAssignment.findUnique({
       where: { id: assignment.id },
-      include: { progress: true }
+      include: {
+        progress: true,
+        user: {
+          select: QUEST_ASSIGNMENT_USER_SELECT
+        }
+      }
     });
 
     if (!hydrated) {
@@ -1047,10 +1057,10 @@ export async function applyAssignmentProgressUpdates(options: {
       (
         await tx.questNode.findMany({
           where: { blueprintId: assignment.blueprintId },
-          select: { id: true, isGroup: true }
+          select: { id: true, metadata: true }
         })
       )
-        .filter((node) => node.isGroup)
+        .filter((node) => Boolean(normalizeJsonRecord(node.metadata).isGroup))
         .map((node) => node.id)
     );
 

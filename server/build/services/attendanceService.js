@@ -3,6 +3,7 @@ import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { ensureUserCanEditRaid } from './raidService.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { syncRaidSignupsWithAttendance } from './raidSignupService.js';
 function normalizeNullableJsonInput(value) {
     if (value === undefined) {
         return undefined;
@@ -102,12 +103,20 @@ export async function getAttendanceEvent(attendanceEventId) {
     };
 }
 export async function deleteAttendanceEvent(attendanceEventId) {
+    const event = await prisma.attendanceEvent.findUnique({
+        where: { id: attendanceEventId },
+        select: { raidEventId: true }
+    });
+    if (!event) {
+        return;
+    }
     await prisma.attendanceRecord.deleteMany({
         where: { attendanceEventId }
     });
     await prisma.attendanceEvent.delete({
         where: { id: attendanceEventId }
     });
+    await syncRaidSignupsWithAttendance(event.raidEventId);
 }
 export async function createAttendanceEvent(input) {
     const { guildId } = await ensureUserCanEditRaid(input.raidEventId, input.createdById);
@@ -178,6 +187,7 @@ export async function createAttendanceEvent(input) {
             class: record.class ?? null
         })))
     });
+    await syncRaidSignupsWithAttendance(input.raidEventId);
     return {
         ...event,
         records: event.records.map(({ character, ...rest }) => ({
@@ -252,6 +262,7 @@ export async function overwriteAttendanceEventRecords(input) {
             })))
         });
     }
+    await syncRaidSignupsWithAttendance(existing.raidEventId);
     return updated;
 }
 export async function listRecentAttendanceForUser(userId, limit = 10) {
