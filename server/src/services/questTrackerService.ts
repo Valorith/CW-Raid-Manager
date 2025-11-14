@@ -1086,6 +1086,7 @@ export async function applyAssignmentProgressUpdates(options: {
     status?: QuestNodeProgressStatus;
     progressCount?: number;
     notes?: string | null;
+    isDisabled?: boolean;
   }>;
 }): Promise<QuestAssignmentWithProgress> {
   if (!options.updates.length) {
