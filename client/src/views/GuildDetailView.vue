@@ -9,26 +9,31 @@
       <div class="guild-actions">
         <RouterLink
           v-if="canManageGuildSettings"
-          class="guild-settings-button"
+          class="guild-action-button guild-action-button--settings"
           :to="{ name: 'GuildSettings', params: { guildId } }"
         >
           <span aria-hidden="true">⚙️</span>
           <span>Settings</span>
         </RouterLink>
         <RouterLink
-          class="btn btn--outline metrics-button"
+          class="guild-action-button guild-action-button--metrics"
           :to="{ name: 'GuildMetrics', params: { guildId } }"
         >
           Metrics
         </RouterLink>
         <RouterLink
           v-if="canViewQuestTracker"
-          class="btn btn--outline quest-tracker-button"
+          class="guild-action-button guild-action-button--quest"
           :to="{ name: 'GuildQuestTracker', params: { guildId }, query: { guildName: guild?.name } }"
         >
           Quest Tracker
         </RouterLink>
-        <button v-if="canPlanRaid" class="plan-raid-button" @click="showRaidModal = true">
+        <button
+          v-if="canPlanRaid"
+          type="button"
+          class="guild-action-button guild-action-button--plan"
+          @click="showRaidModal = true"
+        >
           Plan Raid
         </button>
       </div>
@@ -1258,10 +1263,6 @@ onUnmounted(() => {
   text-align: center;
 }
 
-.section-header--guild .plan-raid-button {
-  align-self: center;
-}
-
 .guild-actions {
   display: flex;
   flex-direction: column;
@@ -1269,57 +1270,77 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.guild-settings-button {
+.guild-action-button {
+  --guild-action-bg: linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(30, 41, 59, 0.78));
+  --guild-action-border: rgba(148, 163, 184, 0.35);
+  --guild-action-shadow: rgba(15, 23, 42, 0.45);
+  --guild-action-color: #e2e8f0;
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.35rem;
   border-radius: 999px;
-  padding: 0.4rem 0.85rem;
-  color: #e2e8f0;
-  text-decoration: none;
-  background: rgba(15, 23, 42, 0.6);
-  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
-}
-
-.guild-settings-button:hover,
-.guild-settings-button:focus-visible {
-  border-color: rgba(99, 102, 241, 0.8);
-  color: #c7d2fe;
-  transform: translateY(-1px);
-}
-
-.metrics-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+  appearance: none;
+  border: 1px solid var(--guild-action-border);
+  background: var(--guild-action-bg);
+  color: var(--guild-action-color);
+  box-shadow: 0 10px 24px var(--guild-action-shadow);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 600;
-  border-radius: 999px;
-  border: 1px solid rgba(14, 165, 233, 0.45);
-  padding: 0.55rem 1.1rem;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(59, 130, 246, 0.25));
-  color: #e2e8f0;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
+  font-size: 0.9rem;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
   transition:
     transform 0.2s ease,
+    box-shadow 0.2s ease,
     border-color 0.2s ease,
     background 0.2s ease,
     color 0.2s ease;
 }
 
-.metrics-button:hover,
-.metrics-button:focus-visible {
+.guild-action-button:hover,
+.guild-action-button:focus-visible {
   transform: translateY(-1px);
-  border-color: rgba(14, 165, 233, 0.75);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), rgba(14, 165, 233, 0.3));
-  color: #f8fafc;
+  border-color: rgba(226, 232, 240, 0.75);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.55);
+}
+
+.guild-action-button:focus-visible {
+  outline: 2px solid rgba(148, 163, 184, 0.7);
+  outline-offset: 2px;
+}
+
+.guild-action-button--settings {
+  --guild-action-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.85));
+  --guild-action-border: rgba(148, 163, 184, 0.55);
+}
+
+.guild-action-button--metrics {
+  --guild-action-bg: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(59, 130, 246, 0.45));
+  --guild-action-border: rgba(14, 165, 233, 0.65);
+  --guild-action-shadow: rgba(14, 165, 233, 0.25);
+}
+
+.guild-action-button--quest {
+  --guild-action-bg: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(167, 139, 250, 0.35));
+  --guild-action-border: rgba(236, 72, 153, 0.6);
+  --guild-action-shadow: rgba(126, 34, 206, 0.3);
+}
+
+.guild-action-button--plan {
+  --guild-action-bg: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(16, 185, 129, 0.45));
+  --guild-action-border: rgba(45, 212, 191, 0.65);
+  --guild-action-shadow: rgba(6, 95, 70, 0.35);
 }
 
 @media (min-width: 640px) {
   .guild-actions {
     flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }
 
@@ -1863,31 +1884,6 @@ onUnmounted(() => {
 
 .small {
   font-size: 0.85rem;
-}
-
-.plan-raid-button {
-  padding: 0.55rem 1.25rem;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.85), rgba(14, 165, 233, 0.85));
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 0.65rem;
-  color: #f8fafc;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.25);
-}
-
-.plan-raid-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.35);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.plan-raid-button:focus {
-  outline: 2px solid rgba(59, 130, 246, 0.5);
-  outline-offset: 2px;
 }
 
 .guild-summary {

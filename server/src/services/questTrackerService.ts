@@ -1053,16 +1053,17 @@ export async function upsertQuestBlueprintGraph(options: {
     }
 
     await syncGroupProgressForBlueprint(options.blueprintId, tx);
-    await refreshSummariesForBlueprint(options.blueprintId, tx);
+  });
 
-    const editorName = await resolveUserDisplayName(options.actorUserId, tx);
-    await tx.questBlueprint.update({
-      where: { id: options.blueprintId },
-      data: {
-        lastEditedById: options.actorUserId,
-        lastEditedByName: editorName
-      }
-    });
+  await refreshSummariesForBlueprint(options.blueprintId);
+
+  const editorName = await resolveUserDisplayName(options.actorUserId);
+  await prisma.questBlueprint.update({
+    where: { id: options.blueprintId },
+    data: {
+      lastEditedById: options.actorUserId,
+      lastEditedByName: editorName
+    }
   });
 }
 

@@ -205,10 +205,11 @@
                     'quest-node--completed':
                       (!showOverviewDisabledState || !isNodeDisabled(node.id)) && isNodeCompleted(node.id),
                     'quest-node--disabled': showOverviewDisabledState && isNodeDisabled(node.id),
-                    'quest-node--final': isNodeFinal(node.id)
+                    'quest-node--final': isNodeFinal(node.id),
+                    'quest-node--group': node.isGroup
                   }
                 ]"
-                :style="nodeStyle(node, false)"
+                :style="nodeStyle(node, false, 'viewer')"
                 @contextmenu.prevent="openNodeMenu(node, $event)"
                 :data-node-id="node.id"
               >
@@ -229,7 +230,11 @@
                     alt="Final step"
                     title="End of Quest"
                   />
-                  <span class="quest-node__status" :class="statusClass(viewerNodeStatus(node.id))">
+                  <span
+                    v-if="viewerNodeStatus(node.id) !== 'NOT_STARTED'"
+                    class="quest-node__status"
+                    :class="statusClass(viewerNodeStatus(node.id))"
+                  >
                     {{ nodeProgressStatusLabels[viewerNodeStatus(node.id)] ?? 'Not Started' }}
                   </span>
                 </header>
@@ -238,11 +243,8 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
-                <div v-if="node.isGroup" class="quest-node__group-indicator">
-                  <span>Group node</span>
-                  <span class="quest-node__group-indicator-value">
-                    {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
-                  </span>
+                <div v-if="node.isGroup" class="quest-node__group-tally">
+                  {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
                 </div>
               </div>
             </div>
@@ -336,15 +338,16 @@
                 <div
                   v-for="node in editableNodes"
                   :key="node.id"
-                :class="[
-                  'quest-node',
-                  {
-                    'quest-node--selected': isNodeSelected(node.id),
-                    'quest-node--completed': isNodeCompleted(node.id),
-                    'quest-node--final': isNodeFinal(node.id)
-                  }
-                ]"
-                  :style="nodeStyle(node, true)"
+                  :class="[
+                    'quest-node',
+                    {
+                      'quest-node--selected': isNodeSelected(node.id),
+                      'quest-node--completed': isNodeCompleted(node.id),
+                      'quest-node--final': isNodeFinal(node.id),
+                      'quest-node--group': node.isGroup
+                    }
+                  ]"
+                  :style="nodeStyle(node, true, 'editor')"
                   @pointerdown.stop="handleNodePointerDown(node, $event)"
                   @click.stop="handleNodeClick(node, $event)"
                   @dblclick.stop="handleNodeDoubleClick(node.id)"
@@ -369,11 +372,8 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
-                <div v-if="node.isGroup" class="quest-node__group-indicator">
-                  <span>Group node</span>
-                  <span class="quest-node__group-indicator-value">
-                    {{ formatGroupProgress(node.id, undefined, 'editor') }}
-                  </span>
+                <div v-if="node.isGroup" class="quest-node__group-tally">
+                  {{ formatGroupProgress(node.id, undefined, 'editor') }}
                 </div>
                 <div v-if="activeTab === 'editor'" class="quest-node__handles">
                   <button
@@ -671,10 +671,13 @@
         <li
           v-for="status in nodeStatuses"
           :key="status"
-          :class="{ disabled: progressUpdating }"
+          :class="['quest-context-menu__status', viewerStatusMenuClass(status), { disabled: progressUpdating }]"
           @click="handleViewerStatusChange(status)"
         >
-          Mark {{ nodeProgressStatusLabels[status] }}
+          <span class="quest-context-menu__status-dot" aria-hidden="true"></span>
+          <span class="quest-context-menu__status-label">
+            Mark {{ nodeProgressStatusLabels[status] }}
+          </span>
         </li>
         <li v-if="canUpdateNodeProgress" @click="handleDisableNodeFromMenu">Disable step (and descendants)</li>
       </template>
@@ -873,9 +876,16 @@ const filteredBlueprints = computed(() => {
 });
 
 const selectedDetail = computed(() => detail.value);
-const viewerAssignment = computed(() =>
-  activeTab.value === 'overview' ? detail.value?.viewerAssignment ?? null : null
-);
+const viewerAssignment = computed(() => {
+  if (activeTab.value !== 'overview') {
+    return null;
+  }
+  const assignment = detail.value?.viewerAssignment ?? null;
+  if (assignment?.status === 'CANCELLED') {
+    return null;
+  }
+  return assignment;
+});
 const viewerAssignmentCharacter = computed(() => viewerAssignment.value?.character ?? null);
 const eligibleCharacters = computed(() =>
   characterOptions.value.filter((character) => character.guild?.id === guildId)
@@ -911,6 +921,12 @@ const completedNodeIds = computed(() => {
 const viewerAssignmentId = computed(() => viewerAssignment.value?.id ?? null);
 const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value));
 const nodeStatuses: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
+const nodeStatusMenuClassMap: Record<QuestNodeProgressStatus, string> = {
+  NOT_STARTED: 'quest-context-menu__status--muted',
+  IN_PROGRESS: 'quest-context-menu__status--warning',
+  COMPLETED: 'quest-context-menu__status--success',
+  BLOCKED: 'quest-context-menu__status--danger'
+};
 const nodeProgressStatusLabels: Record<QuestNodeProgressStatus, string> = {
   NOT_STARTED: 'Not Started',
   IN_PROGRESS: 'In Progress',
@@ -1577,6 +1593,16 @@ function formatGroupProgress(nodeId: string, progress: QuestNodeProgress[] | und
   return `${completed}/${total}`;
 }
 
+function groupProgressMeta(nodeId: string, mode: 'editor' | 'viewer') {
+  const progress = mode === 'viewer' ? viewerAssignment.value?.progress : undefined;
+  const { completed, total } = getGroupProgress(nodeId, progress, mode);
+  return {
+    completed,
+    total,
+    ratio: total ? completed / total : 0
+  };
+}
+
 function nodeHasGroupParent(nodeId: string): boolean {
   const parents = parentNodeMap.value.get(nodeId) ?? [];
   return parents.some((parentId) => {
@@ -2016,16 +2042,21 @@ function formatDateTime(value?: string | null) {
   });
 }
 
-function nodeStyle(node: QuestNodeViewModel, draggable: boolean) {
+function nodeStyle(node: QuestNodeViewModel, draggable: boolean, mode: 'viewer' | 'editor') {
   const disabled = showOverviewDisabledState.value && isNodeDisabled(node.id);
   const accent = disabled ? DISABLED_BRANCH_COLOR : isNodeCompleted(node.id) ? COMPLETED_ACCENT_COLOR : nodeBranchColor(node.id);
-  return {
+  const style: Record<string, string | number> = {
     transform: `translate(${node.position.x}px, ${node.position.y}px)`,
     cursor: disabled && !draggable ? 'not-allowed' : draggable ? 'move' : 'default',
     borderColor: accent,
     '--accent': accent,
     opacity: disabled ? 0.7 : 1
   };
+  if (node.isGroup) {
+    const { ratio } = groupProgressMeta(node.id, mode);
+    style['--group-progress'] = ratio.toString();
+  }
+  return style;
 }
 
 function typeAccent(node: QuestNodeViewModel) {
@@ -2062,6 +2093,10 @@ function statusClass(status?: QuestNodeProgressStatus) {
   }
 }
 
+function viewerStatusMenuClass(status: QuestNodeProgressStatus) {
+  return nodeStatusMenuClassMap[status];
+}
+
 function displayNodeType(nodeType: QuestNodeType, isGroup?: boolean) {
   if (isGroup) {
     return 'Group';
@@ -2091,6 +2126,23 @@ function selectBlueprint(id: string) {
     return;
   }
   selectedBlueprintId.value = id;
+}
+
+function syncViewerAssignmentState(blueprintId: string | null, assignment: QuestAssignment | null) {
+  if (detail.value && (!blueprintId || detail.value.blueprint.id === blueprintId)) {
+    detail.value.viewerAssignment = assignment;
+  }
+  if (!blueprintId) {
+    return;
+  }
+  const summaryBlueprints = summary.value?.blueprints;
+  if (!summaryBlueprints) {
+    return;
+  }
+  const target = summaryBlueprints.find((entry) => entry.id === blueprintId);
+  if (target) {
+    target.viewerAssignment = assignment;
+  }
 }
 
 async function loadSummary(initial = false) {
@@ -2329,20 +2381,20 @@ function collectNodeWithDescendants(nodeId: string) {
 }
 
 async function applyViewerDisableUpdates(nodeIds: string[], disabled: boolean) {
-  if (!viewerAssignmentId.value) {
+  const assignmentId = viewerAssignmentId.value;
+  if (!assignmentId) {
     window.alert('Start the quest before adjusting steps.');
     return;
   }
+  const blueprintId = detail.value?.blueprint.id ?? null;
   progressUpdating.value = true;
   try {
     const assignment = await api.updateQuestAssignmentProgress(
       guildId,
-      viewerAssignmentId.value,
+      assignmentId,
       nodeIds.map((id) => ({ nodeId: id, isDisabled: disabled }))
     );
-    if (detail.value) {
-      detail.value.viewerAssignment = assignment;
-    }
+    syncViewerAssignmentState(blueprintId, assignment);
     await loadSummary();
   } catch (error) {
     window.alert(error instanceof Error ? error.message : 'Unable to update step visibility.');
@@ -2859,19 +2911,20 @@ function startAssignment() {
 }
 
 async function updateAssignmentStatus(status: QuestAssignmentStatus) {
-  if (!selectedBlueprintId.value || !viewerAssignmentId.value) {
+  const blueprintId = selectedBlueprintId.value;
+  const assignmentId = viewerAssignmentId.value;
+  if (!blueprintId || !assignmentId) {
     return;
   }
   assignmentUpdating.value = true;
   try {
     const assignment = await api.updateQuestAssignmentStatus(
       guildId,
-      viewerAssignmentId.value,
+      assignmentId,
       status
     );
-    if (detail.value) {
-      detail.value.viewerAssignment = assignment;
-    }
+    const nextAssignment = assignment.status === 'CANCELLED' ? null : assignment;
+    syncViewerAssignmentState(blueprintId, nextAssignment);
     await loadSummary();
   } catch (error) {
     window.alert(error instanceof Error ? error.message : 'Unable to update quest assignment.');
@@ -2925,16 +2978,15 @@ async function loadCharacterOptions() {
 }
 
 async function startAssignmentWithCharacter(characterId: string) {
-  if (!selectedBlueprintId.value || !characterId) {
+  const blueprintId = selectedBlueprintId.value;
+  if (!blueprintId || !characterId) {
     return;
   }
   characterStartError.value = null;
   assignmentUpdating.value = true;
   try {
-    const assignment = await api.startQuestAssignment(guildId, selectedBlueprintId.value, { characterId });
-    if (detail.value) {
-      detail.value.viewerAssignment = assignment;
-    }
+    const assignment = await api.startQuestAssignment(guildId, blueprintId, { characterId });
+    syncViewerAssignmentState(blueprintId, assignment);
     await loadSummary();
     showCharacterModal.value = false;
   } catch (error) {
@@ -2945,13 +2997,15 @@ async function startAssignmentWithCharacter(characterId: string) {
 }
 
 async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus) {
-  if (!viewerAssignmentId.value) {
+  const assignmentId = viewerAssignmentId.value;
+  if (!assignmentId) {
     return;
   }
   if (isNodeDisabled(nodeId)) {
     progressUpdating.value = false;
     return;
   }
+  const blueprintId = detail.value?.blueprint.id ?? null;
   progressUpdating.value = true;
   const shouldAutoComplete = status === 'COMPLETED' && isNodeFinal(nodeId);
   try {
@@ -2995,15 +3049,13 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
     }
     const assignment = await api.updateQuestAssignmentProgress(
       guildId,
-      viewerAssignmentId.value,
+      assignmentId,
       Array.from(updates.entries()).map(([targetId, targetStatus]) => ({
         nodeId: targetId,
         status: targetStatus
       }))
     );
-    if (detail.value) {
-      detail.value.viewerAssignment = assignment;
-    }
+    syncViewerAssignmentState(blueprintId, assignment);
     await loadSummary();
   } catch (error) {
     window.alert(error instanceof Error ? error.message : 'Unable to update quest step.');
@@ -3667,6 +3719,80 @@ onUnmounted(() => {
   box-shadow: none;
 }
 
+.quest-node--group {
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  padding: 1.25rem;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
+  background: transparent;
+  box-shadow: none;
+  isolation: isolate;
+}
+
+.quest-node--group::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: conic-gradient(
+      var(--accent, rgba(56, 189, 248, 0.9)) calc(var(--group-progress, 0) * 1turn),
+      rgba(51, 65, 85, 0.35) 0
+    );
+  mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 12px));
+  z-index: -2;
+  transition: background 0.3s ease;
+}
+
+.quest-node--group::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 15px 35px rgba(2, 6, 23, 0.65);
+  z-index: -1;
+}
+
+.quest-node--group.quest-node--completed::before {
+  background: conic-gradient(
+      var(--accent, rgba(34, 197, 94, 0.9)) calc(var(--group-progress, 0) * 1turn),
+      rgba(30, 58, 30, 0.35) 0
+    );
+}
+
+.quest-node--group .quest-node__header {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.quest-node--group .quest-node__status {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+
+.quest-node--group h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.quest-node--group .quest-node__target,
+.quest-node--group .quest-node__zone {
+  text-align: center;
+  width: 100%;
+}
+
+.quest-node--group .quest-node__handles {
+  inset: -4px;
+}
+
 .quest-node--disabled .quest-node__status {
   color: #94a3b8;
 }
@@ -3772,29 +3898,12 @@ onUnmounted(() => {
   margin-top: 0.15rem;
 }
 
-.quest-node__group-indicator {
-  margin-top: 0.4rem;
-  padding: 0.4rem 0.55rem;
-  border-radius: 0.65rem;
-  background: rgba(59, 130, 246, 0.12);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  color: rgba(248, 250, 252, 0.92);
-}
-
-.quest-node__group-indicator::before {
-  content: '⛓️';
-  font-size: 0.85rem;
-}
-
-.quest-node__group-indicator-value {
-  font-weight: 600;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  background: rgba(248, 250, 252, 0.12);
-  color: rgba(248, 250, 252, 0.95);
+.quest-node__group-tally {
+  margin-top: auto;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #f8fafc;
 }
 
 .quest-node__group-type {
@@ -4306,6 +4415,51 @@ onUnmounted(() => {
 .quest-context-menu li.danger:hover {
   background: rgba(248, 113, 113, 0.2);
   color: #fecaca;
+}
+
+.quest-context-menu__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  --menu-status-color: rgba(248, 250, 252, 0.9);
+  --menu-status-bg: rgba(59, 130, 246, 0.15);
+  color: var(--menu-status-color);
+}
+
+.quest-context-menu__status:hover {
+  background: var(--menu-status-bg);
+}
+
+.quest-context-menu__status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--menu-status-color);
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.9);
+}
+
+.quest-context-menu__status-label {
+  flex: 1;
+}
+
+.quest-context-menu__status--muted {
+  --menu-status-color: #cbd5f5;
+  --menu-status-bg: rgba(148, 163, 184, 0.2);
+}
+
+.quest-context-menu__status--warning {
+  --menu-status-color: #facc15;
+  --menu-status-bg: rgba(234, 179, 8, 0.2);
+}
+
+.quest-context-menu__status--success {
+  --menu-status-color: #34d399;
+  --menu-status-bg: rgba(16, 185, 129, 0.2);
+}
+
+.quest-context-menu__status--danger {
+  --menu-status-color: #f87171;
+  --menu-status-bg: rgba(248, 113, 113, 0.2);
 }
 
 .badge--archived {
