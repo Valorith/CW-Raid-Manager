@@ -194,7 +194,7 @@
                     title="End of Quest"
                   />
                   <span class="quest-node__status" :class="statusClass(viewerNodeStatus(node.id))">
-                    {{ viewerNodeStatus(node.id) ?? 'NOT_STARTED' }}
+                    {{ nodeProgressStatusLabels[viewerNodeStatus(node.id)] ?? 'Not Started' }}
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
@@ -783,8 +783,8 @@ const viewerAssignmentId = computed(() => viewerAssignment.value?.id ?? null);
 const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value));
 const nodeStatuses: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
 const nodeProgressStatusLabels: Record<QuestNodeProgressStatus, string> = {
-  NOT_STARTED: 'Not started',
-  IN_PROGRESS: 'In progress',
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
   COMPLETED: 'Completed',
   BLOCKED: 'Blocked'
 };
@@ -1730,7 +1730,7 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const parentGroupChildCompleted =
       showOverviewDisabledState.value &&
       isGroupNode(link.parentNodeId) &&
-      viewerNodeStatus(link.childNodeId) === 'COMPLETED';
+      groupHasCompletedChild(link.parentNodeId);
     const baseCompleted =
       isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
     const isCompletedPath =
@@ -2784,23 +2784,24 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
   progressUpdating.value = true;
   const shouldAutoComplete = status === 'COMPLETED' && isNodeFinal(nodeId);
   try {
-    const updates = new Set<string>([nodeId]);
+    const updates = new Map<string, QuestNodeProgressStatus>();
+    updates.set(nodeId, status);
     const newlyCompleted = new Set<string>();
     if (status === 'COMPLETED') {
       newlyCompleted.add(nodeId);
     }
 
-    if (isGroupNode(nodeId)) {
-      const descendants = getGroupDescendants(nodeId);
-      if (status === 'COMPLETED') {
-        descendants.forEach((descendantId) => {
-          updates.add(descendantId);
-          newlyCompleted.add(descendantId);
-        });
-      } else if (status === 'NOT_STARTED') {
-        descendants.forEach((descendantId) => updates.add(descendantId));
-      }
-      if (status === 'COMPLETED' && !areAllDescendantsComplete(nodeId, newlyCompleted)) {
+    const downstreamIds = getGroupDescendants(nodeId);
+    if (['NOT_STARTED', 'IN_PROGRESS', 'BLOCKED'].includes(status)) {
+      downstreamIds.forEach((descendantId) => updates.set(descendantId, 'NOT_STARTED'));
+    }
+
+    if (isGroupNode(nodeId) && status === 'COMPLETED') {
+      downstreamIds.forEach((descendantId) => {
+        updates.set(descendantId, 'COMPLETED');
+        newlyCompleted.add(descendantId);
+      });
+      if (!areAllDescendantsComplete(nodeId, newlyCompleted)) {
         window.alert('Complete all child steps before marking this group as complete.');
         progressUpdating.value = false;
         return;
@@ -2812,19 +2813,22 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
       for (const ancestorId of upstreamIds) {
         if (isGroupNode(ancestorId)) {
           if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
-            updates.add(ancestorId);
+            updates.set(ancestorId, status);
             newlyCompleted.add(ancestorId);
           }
           continue;
         }
-        updates.add(ancestorId);
+        updates.set(ancestorId, status);
         newlyCompleted.add(ancestorId);
       }
     }
     const assignment = await api.updateQuestAssignmentProgress(
       guildId,
       viewerAssignmentId.value,
-      Array.from(updates).map((targetId) => ({ nodeId: targetId, status }))
+      Array.from(updates.entries()).map(([targetId, targetStatus]) => ({
+        nodeId: targetId,
+        status: targetStatus
+      }))
     );
     if (detail.value) {
       detail.value.viewerAssignment = assignment;
