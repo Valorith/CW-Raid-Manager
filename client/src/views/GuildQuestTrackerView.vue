@@ -7,7 +7,6 @@
           <h1>{{ guildNameDisplay }}</h1>
         </div>
         <button
-          v-if="canManageBlueprints"
           class="btn btn--small quest-tracker__new-btn"
           type="button"
           @click="openCreateModal"
@@ -51,7 +50,10 @@
                 <strong>{{ blueprint.title }}</strong>
                 <span v-if="blueprint.isArchived" class="badge badge--archived">Archived</span>
               </div>
-              <span class="quest-blueprint-card__chip">{{ blueprint.nodeCount }} steps</span>
+              <span class="quest-blueprint-card__chip">
+                <span class="quest-blueprint-card__chip-count">{{ blueprint.nodeCount }}</span>
+                <span class="quest-blueprint-card__chip-label">steps</span>
+              </span>
             </div>
             <p class="quest-blueprint-card__summary">
               {{ blueprint.summary || 'No summary provided yet.' }}
@@ -184,6 +186,7 @@
                   :d="link.path"
                   @pointerenter="handleLinkHover(link.id)"
                   @pointerleave="handleLinkHover(null)"
+                  @contextmenu="openLinkMenu(link, $event)"
                 />
               </svg>
               <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
@@ -300,6 +303,7 @@
                     :d="link.path"
                     @pointerenter="handleLinkHover(link.id)"
                     @pointerleave="handleLinkHover(null)"
+                    @contextmenu="openLinkMenu(link, $event)"
                   />
                 </svg>
                 <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
@@ -330,6 +334,7 @@
                     @pointerenter="handleLinkHover(link.id)"
                     @pointerleave="handleLinkHover(null)"
                     @click.stop="removeLink(link.id)"
+                    @contextmenu.prevent.stop="openLinkMenu(link, $event)"
                     aria-label="Remove connection"
                   >
                     ×
@@ -682,6 +687,21 @@
         <li v-if="canUpdateNodeProgress" @click="handleDisableNodeFromMenu">Disable step (and descendants)</li>
       </template>
     </template>
+    <template v-else-if="contextMenu.type === 'editor-link'">
+      <li
+        v-if="contextMenuLink && contextMenuLinkIsNextStep"
+        @click="handleLinkNextStepToggle(false)"
+      >
+        Remove next step
+      </li>
+      <li
+        v-else-if="contextMenuLink"
+        @click="handleLinkNextStepToggle(true)"
+      >
+        Set next step
+      </li>
+      <li v-else class="disabled">Link unavailable</li>
+    </template>
   </ul>
 </template>
 
@@ -783,6 +803,10 @@ type RenderedLink = {
   isCompletedPath: boolean;
   isDisabledPath: boolean;
 };
+type NodeAdjacencyEntry = {
+  nodeId: string;
+  isNextStep: boolean;
+};
 const NODE_FACES: NodeFace[] = ['top', 'right', 'bottom', 'left'];
 const FACE_NORMALS: Record<NodeFace, Point> = {
   top: { x: 0, y: -1 },
@@ -790,6 +814,7 @@ const FACE_NORMALS: Record<NodeFace, Point> = {
   bottom: { x: 0, y: 1 },
   left: { x: -1, y: 0 }
 };
+const NEXT_STEP_CONDITION_KEY = '__isNextStep';
 
 function extractFace(value: unknown): NodeFace | undefined {
   if (typeof value !== 'string') {
@@ -806,6 +831,12 @@ function readFaceCondition(
     return undefined;
   }
   return extractFace(conditions[key]);
+}
+function isNextStepLink(link: { conditions?: Record<string, unknown> } | null | undefined): boolean {
+  if (!link?.conditions) {
+    return false;
+  }
+  return link.conditions[NEXT_STEP_CONDITION_KEY] === true;
 }
 const nodeDimensions = ref<Record<string, { width: number; height: number }>>({});
 const linkDrag = reactive({
@@ -827,13 +858,14 @@ const marqueeSelection = reactive({
 const isSpacePanning = ref(false);
 const panState = reactive({ button: null as number | null, moved: false });
 const suppressCanvasContextMenu = ref(false);
-type ContextMenuType = 'canvas' | 'editor-node' | 'viewer-node';
+type ContextMenuType = 'canvas' | 'editor-node' | 'viewer-node' | 'editor-link';
 const contextMenu = reactive({
   visible: false,
   x: 0,
   y: 0,
   type: 'canvas' as ContextMenuType,
-  nodeId: null as string | null
+  nodeId: null as string | null,
+  linkId: null as string | null
 });
 const contextMenuNodeDisabled = computed(() =>
   contextMenu.nodeId ? isNodeDisabled(contextMenu.nodeId) : false
@@ -841,6 +873,13 @@ const contextMenuNodeDisabled = computed(() =>
 const contextMenuNodeFinal = computed(() =>
   contextMenu.nodeId ? isNodeFinal(contextMenu.nodeId) : false
 );
+const contextMenuLink = computed(() => {
+  if (contextMenu.type !== 'editor-link' || !contextMenu.linkId) {
+    return null;
+  }
+  return editableLinks.value.find((link) => link.id === contextMenu.linkId) ?? null;
+});
+const contextMenuLinkIsNextStep = computed(() => (contextMenuLink.value ? isNextStepLink(contextMenuLink.value) : false));
 
 const newBlueprintForm = reactive({
   title: '',
@@ -1400,21 +1439,49 @@ const DEFAULT_BRANCH_COLOR = '#38bdf8';
 const DISABLED_BRANCH_COLOR = '#475569';
 
 const childNodeMap = computed(() => {
-  const map = new Map<string, string[]>();
+  const map = new Map<string, NodeAdjacencyEntry[]>();
   for (const link of activeLinks.value) {
     const list = map.get(link.parentNodeId) ?? [];
-    list.push(link.childNodeId);
+    list.push({
+      nodeId: link.childNodeId,
+      isNextStep: isNextStepLink(link)
+    });
     map.set(link.parentNodeId, list);
   }
   return map;
 });
 
 const parentNodeMap = computed(() => {
-  const map = new Map<string, string[]>();
+  const map = new Map<string, NodeAdjacencyEntry[]>();
   for (const link of activeLinks.value) {
     const list = map.get(link.childNodeId) ?? [];
-    list.push(link.parentNodeId);
+    list.push({
+      nodeId: link.parentNodeId,
+      isNextStep: isNextStepLink(link)
+    });
     map.set(link.childNodeId, list);
+  }
+  return map;
+});
+
+const groupChildNodeMap = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const [parentId, entries] of childNodeMap.value.entries()) {
+    const filtered = entries.filter((entry) => !entry.isNextStep).map((entry) => entry.nodeId);
+    if (filtered.length) {
+      map.set(parentId, filtered);
+    }
+  }
+  return map;
+});
+
+const groupParentNodeMap = computed(() => {
+  const map = new Map<string, string[]>();
+  for (const [childId, entries] of parentNodeMap.value.entries()) {
+    const filtered = entries.filter((entry) => !entry.isNextStep).map((entry) => entry.nodeId);
+    if (filtered.length) {
+      map.set(childId, filtered);
+    }
   }
   return map;
 });
@@ -1424,7 +1491,7 @@ const groupChildCompletion = computed(() => {
   if (!viewerAssignment.value) {
     return map;
   }
-  const children = childNodeMap.value;
+  const children = groupChildNodeMap.value;
   for (const node of renderedNodes.value) {
     if (!node.isGroup) {
       continue;
@@ -1441,7 +1508,7 @@ const groupChildCompletion = computed(() => {
 function getUpstreamNodeIds(nodeId: string): string[] {
   const parents = parentNodeMap.value;
   const visited = new Set<string>();
-  const queue = [...(parents.get(nodeId) ?? [])];
+  const queue = [...(parents.get(nodeId)?.map((entry) => entry.nodeId) ?? [])];
   while (queue.length) {
     const current = queue.shift()!;
     if (visited.has(current)) {
@@ -1449,7 +1516,8 @@ function getUpstreamNodeIds(nodeId: string): string[] {
     }
     visited.add(current);
     const nextParents = parents.get(current) ?? [];
-    nextParents.forEach((parentId) => {
+    nextParents.forEach((parentEntry) => {
+      const parentId = parentEntry.nodeId;
       if (!visited.has(parentId)) {
         queue.push(parentId);
       }
@@ -1460,7 +1528,7 @@ function getUpstreamNodeIds(nodeId: string): string[] {
 
 const groupDescendantsMap = computed(() => {
   const map = new Map<string, string[]>();
-  const children = childNodeMap.value;
+  const children = groupChildNodeMap.value;
   const allNodeIds = new Set(renderedNodes.value.map((node) => node.id));
 
   for (const nodeId of allNodeIds) {
@@ -1517,17 +1585,23 @@ const nodeBranchAssignments = computed(() => {
       continue;
     }
     assignments.set(nodeId, { branchIndex, depth });
-    const childIds = children.get(nodeId) ?? [];
-    if (!childIds.length) {
+    const childEntries = children.get(nodeId) ?? [];
+    if (!childEntries.length) {
       continue;
     }
-    if (childIds.length === 1) {
-      enqueue(childIds[0], branchIndex, depth + 1);
+    const nextStepChildren = childEntries.filter((entry) => entry.isNextStep);
+    nextStepChildren.forEach((entry) => enqueue(entry.nodeId, branchIndex, depth + 1));
+    const branchChildren = childEntries.filter((entry) => !entry.isNextStep);
+    if (!branchChildren.length) {
+      continue;
+    }
+    if (branchChildren.length === 1) {
+      enqueue(branchChildren[0].nodeId, branchIndex, depth + 1);
     } else {
-      childIds.forEach((childId) => {
+      branchChildren.forEach((entry) => {
         const nextBranch = branchCounter % BRANCH_COLORS.length;
         branchCounter += 1;
-        enqueue(childId, nextBranch, depth + 1);
+        enqueue(entry.nodeId, nextBranch, depth + 1);
       });
     }
   }
@@ -1604,7 +1678,7 @@ function groupProgressMeta(nodeId: string, mode: 'editor' | 'viewer') {
 }
 
 function nodeHasGroupParent(nodeId: string): boolean {
-  const parents = parentNodeMap.value.get(nodeId) ?? [];
+  const parents = groupParentNodeMap.value.get(nodeId) ?? [];
   return parents.some((parentId) => {
     const parent = editableNodes.value.find((node) => node.id === parentId);
     return parent?.isGroup ?? false;
@@ -2279,6 +2353,7 @@ function showSaveError(message: string) {
 function hideContextMenu() {
   contextMenu.visible = false;
   contextMenu.nodeId = null;
+  contextMenu.linkId = null;
 }
 
 function positionContextMenu(event: MouseEvent, width = 200, height = 140) {
@@ -2321,6 +2396,53 @@ function openNodeMenu(node: QuestNodeViewModel, event: MouseEvent) {
   }
   contextMenu.visible = true;
   contextMenu.nodeId = node.id;
+}
+
+function openLinkMenu(link: RenderedLink, event: MouseEvent) {
+  if (activeTab.value !== 'editor' || !canEditBlueprint.value) {
+    return;
+  }
+  if (!isGroupNode(link.parentNodeId)) {
+    return;
+  }
+  const target = editableLinks.value.find((entry) => entry.id === link.id);
+  if (!target) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  hideContextMenu();
+  positionContextMenu(event, 200, 140);
+  contextMenu.visible = true;
+  contextMenu.type = 'editor-link';
+  contextMenu.linkId = target.id;
+}
+
+function updateLinkNextStepState(linkId: string, nextStep: boolean) {
+  const index = editableLinks.value.findIndex((link) => link.id === linkId);
+  if (index === -1) {
+    return;
+  }
+  const target = editableLinks.value[index];
+  const conditions: Record<string, unknown> = { ...(target.conditions ?? {}) };
+  if (nextStep) {
+    conditions[NEXT_STEP_CONDITION_KEY] = true;
+  } else if (NEXT_STEP_CONDITION_KEY in conditions) {
+    delete conditions[NEXT_STEP_CONDITION_KEY];
+  }
+  editableLinks.value[index] = {
+    ...target,
+    conditions
+  };
+  dirtyGraph.value = true;
+}
+
+function handleLinkNextStepToggle(nextStep: boolean) {
+  if (!contextMenu.linkId) {
+    return;
+  }
+  updateLinkNextStepState(contextMenu.linkId, nextStep);
+  hideContextMenu();
 }
 
 function handleCanvasAddNode() {
@@ -3163,9 +3285,10 @@ onUnmounted(() => {
 
 .quest-tracker__header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   gap: 0.85rem;
 }
 
@@ -3173,6 +3296,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  align-items: center;
 }
 
 .quest-tracker__eyebrow {
@@ -3190,12 +3314,70 @@ onUnmounted(() => {
 }
 
 .quest-tracker__new-btn {
+  --pulse-color: rgba(45, 212, 191, 0.35);
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  padding: 0.5rem 1.4rem;
   border-radius: 999px;
-  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: linear-gradient(135deg, #34d399, #22d3ee 60%, #38bdf8);
+  color: #022c22;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  box-shadow:
+    0 10px 30px rgba(2, 6, 23, 0.45),
+    0 0 20px rgba(45, 212, 191, 0.45);
   text-transform: none;
+  overflow: hidden;
+}
+
+.quest-tracker__new-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at top, rgba(255, 255, 255, 0.45), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.quest-tracker__new-btn::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.quest-tracker__new-btn span[aria-hidden='true'] {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.quest-tracker__new-btn:hover,
+.quest-tracker__new-btn:focus-visible {
+  transform: translateY(-1px);
+  box-shadow:
+    0 14px 32px rgba(2, 6, 23, 0.55),
+    0 0 26px rgba(14, 165, 233, 0.6);
+}
+
+.quest-tracker__new-btn:hover::before,
+.quest-tracker__new-btn:focus-visible::before,
+.quest-tracker__new-btn:hover::after,
+.quest-tracker__new-btn:focus-visible::after {
+  opacity: 1;
+}
+
+.quest-tracker__new-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
 }
 
 .quest-tracker__search {
@@ -3300,12 +3482,31 @@ onUnmounted(() => {
 }
 
 .quest-blueprint-card__chip {
-  padding: 0.2rem 0.6rem;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.25rem 0.85rem;
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  background: rgba(30, 64, 175, 0.3);
   color: #bfdbfe;
-  font-size: 0.75rem;
   font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  min-width: 72px;
+  justify-content: center;
+}
+
+.quest-blueprint-card__chip-count {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quest-blueprint-card__chip-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(191, 219, 254, 0.8);
 }
 
 .quest-blueprint-card__summary {
@@ -3590,9 +3791,15 @@ onUnmounted(() => {
 .quest-link-hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 14px;
+  stroke-width: 24px;
+  stroke-linecap: round;
   pointer-events: stroke;
   cursor: pointer;
+  transition: stroke-width 0.15s ease;
+}
+
+.quest-link-hit:hover {
+  stroke-width: 30px;
 }
 
 .quest-link-preview {

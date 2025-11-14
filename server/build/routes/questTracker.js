@@ -28,8 +28,8 @@ export async function questTrackerRoutes(server) {
     server.post('/:guildId/quest-tracker/blueprints', { preHandler: [authenticate] }, async (request, reply) => {
         const { guildId } = guildIdParams.parse(request.params);
         const membership = await getUserGuildRole(request.user.userId, guildId);
-        if (!membership || !canManageQuestBlueprints(membership.role)) {
-            return reply.forbidden('Only guild leaders or officers can create quest blueprints.');
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to create quest blueprints.');
         }
         const bodySchema = z.object({
             title: z.string().min(3).max(180),

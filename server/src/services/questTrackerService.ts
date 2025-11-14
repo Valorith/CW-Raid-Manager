@@ -134,6 +134,7 @@ const QUEST_ASSIGNMENT_USER_SELECT = {
   displayName: true,
   nickname: true
 } as const;
+const NEXT_STEP_CONDITION_KEY = '__isNextStep';
 
 type AssignmentWithProgress = Prisma.QuestAssignmentGetPayload<{
   include: {
@@ -165,6 +166,10 @@ async function resolveUserDisplayName(
   return withPreferredDisplayName(user).displayName;
 }
 
+function isNextStepCondition(value: unknown): boolean {
+  return value === true;
+}
+
 async function loadBlueprintGraph(
   blueprintId: string,
   tx: Prisma.TransactionClient | typeof prisma = prisma
@@ -176,7 +181,7 @@ async function loadBlueprintGraph(
     }),
     tx.questNodeLink.findMany({
       where: { blueprintId },
-      select: { parentNodeId: true, childNodeId: true }
+      select: { parentNodeId: true, childNodeId: true, conditions: true }
     })
   ]);
 
@@ -194,6 +199,10 @@ async function loadBlueprintGraph(
   );
   const childMap = new Map<string, string[]>();
   for (const link of links) {
+    const conditions = normalizeJsonRecord(link.conditions);
+    if (isNextStepCondition(conditions[NEXT_STEP_CONDITION_KEY])) {
+      continue;
+    }
     const list = childMap.get(link.parentNodeId) ?? [];
     list.push(link.childNodeId);
     childMap.set(link.parentNodeId, list);
@@ -928,7 +937,8 @@ export async function upsertQuestBlueprintGraph(options: {
   }
 
   for (const link of options.links) {
-    if (nodeGroupMap.get(link.parentNodeId) && nodeGroupMap.get(link.childNodeId)) {
+    const isNextStepLink = Boolean(link.conditions?.[NEXT_STEP_CONDITION_KEY]);
+    if (!isNextStepLink && nodeGroupMap.get(link.parentNodeId) && nodeGroupMap.get(link.childNodeId)) {
       throw new Error('Group nodes cannot have group node children.');
     }
   }

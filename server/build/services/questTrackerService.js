@@ -21,6 +21,7 @@ const QUEST_ASSIGNMENT_USER_SELECT = {
     displayName: true,
     nickname: true
 };
+const NEXT_STEP_CONDITION_KEY = '__isNextStep';
 function isRecord(value) {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -42,7 +43,7 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
         }),
         tx.questNodeLink.findMany({
             where: { blueprintId },
-            select: { parentNodeId: true, childNodeId: true }
+            select: { parentNodeId: true, childNodeId: true, conditions: true }
         })
     ]);
     const nodeMeta = new Map(nodes.map((node) => {
@@ -57,6 +58,10 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
     }));
     const childMap = new Map();
     for (const link of links) {
+        const conditions = normalizeJsonRecord(link.conditions);
+        if (conditions[NEXT_STEP_CONDITION_KEY] === true) {
+            continue;
+        }
         const list = childMap.get(link.parentNodeId) ?? [];
         list.push(link.childNodeId);
         childMap.set(link.parentNodeId, list);
@@ -631,7 +636,8 @@ export async function upsertQuestBlueprintGraph(options) {
         nodeGroupMap.set(node.id, Boolean(node.isGroup));
     }
     for (const link of options.links) {
-        if (nodeGroupMap.get(link.parentNodeId) && nodeGroupMap.get(link.childNodeId)) {
+        const isNextStepLink = Boolean(link.conditions?.[NEXT_STEP_CONDITION_KEY]);
+        if (!isNextStepLink && nodeGroupMap.get(link.parentNodeId) && nodeGroupMap.get(link.childNodeId)) {
             throw new Error('Group nodes cannot have group node children.');
         }
     }
