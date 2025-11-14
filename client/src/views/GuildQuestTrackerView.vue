@@ -7,7 +7,7 @@
           <h1>{{ guildNameDisplay }}</h1>
         </div>
         <button
-          v-if="permissions?.canManageBlueprints"
+          v-if="canManageBlueprints"
           class="btn btn--small quest-tracker__new-btn"
           type="button"
           @click="openCreateModal"
@@ -83,6 +83,9 @@
                     :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment)) }"
                   ></div>
               </div>
+            </div>
+            <div class="quest-blueprint-card__footer" v-if="blueprint.createdByName">
+              <span class="quest-blueprint-card__author">By {{ blueprint.createdByName }}</span>
             </div>
           </button>
         </li>
@@ -776,7 +779,8 @@ const blueprintMetaForm = reactive({
 });
 
 const permissions = computed(() => detail.value?.permissions ?? summary.value?.permissions ?? null);
-const canManageBlueprint = computed(() => permissions.value?.canManageBlueprints ?? false);
+const canManageBlueprints = computed(() => permissions.value?.canManageBlueprints ?? false);
+const canEditBlueprint = computed(() => permissions.value?.canEditBlueprint ?? canManageBlueprints.value);
 const guildNameDisplay = computed(() =>
   typeof route.query.guildName === 'string' ? route.query.guildName : 'Quest Tracker'
 );
@@ -1888,7 +1892,7 @@ watch(
 
 const availableTabs = computed(() => [
   { key: 'overview' as const, label: 'Overview', disabled: false },
-  { key: 'editor' as const, label: 'Blueprint Editor', disabled: !permissions.value?.canManageBlueprints },
+  { key: 'editor' as const, label: 'Blueprint Editor', disabled: !canEditBlueprint.value },
   { key: 'guild' as const, label: 'Guild Board', disabled: !permissions.value?.canViewGuildBoard }
 ]);
 
@@ -2054,7 +2058,7 @@ async function loadDetail(blueprintId: string) {
 }
 
 function updateTabAvailability() {
-  if (activeTab.value === 'editor' && !permissions.value?.canManageBlueprints) {
+  if (activeTab.value === 'editor' && !canEditBlueprint.value) {
     activeTab.value = 'overview';
   }
   if (activeTab.value === 'guild' && !permissions.value?.canViewGuildBoard) {
@@ -2111,7 +2115,7 @@ function selectNode(nodeId: string, mode: SelectionMode = 'exclusive') {
 }
 
 function handleNodeDoubleClick(nodeId: string) {
-  if (activeTab.value !== 'editor' || !canManageBlueprint.value) {
+  if (activeTab.value !== 'editor' || !canEditBlueprint.value) {
     return;
   }
   if (selectedNodeId.value === nodeId && showStepSettings.value) {
@@ -2156,7 +2160,7 @@ function positionContextMenu(event: MouseEvent, width = 200, height = 140) {
 }
 
 function openCanvasMenu(event: MouseEvent) {
-  if (activeTab.value !== 'editor' || !canManageBlueprint.value) {
+  if (activeTab.value !== 'editor' || !canEditBlueprint.value) {
     return;
   }
   if (suppressCanvasContextMenu.value) {
@@ -2170,7 +2174,7 @@ function openCanvasMenu(event: MouseEvent) {
 }
 
 function openNodeMenu(node: QuestNodeViewModel, event: MouseEvent) {
-  const isEditorContext = activeTab.value === 'editor' && canManageBlueprint.value;
+  const isEditorContext = activeTab.value === 'editor' && canEditBlueprint.value;
   const isViewerContext = activeTab.value === 'overview' && canUpdateNodeProgress.value;
   if (!isEditorContext && !isViewerContext) {
     return;
@@ -2191,7 +2195,7 @@ function openNodeMenu(node: QuestNodeViewModel, event: MouseEvent) {
 }
 
 function handleCanvasAddNode() {
-  if (!canManageBlueprint.value) {
+  if (!canEditBlueprint.value) {
     hideContextMenu();
     return;
   }
@@ -2204,7 +2208,7 @@ function handleCanvasAddNode() {
 }
 
 function handleOpenBlueprintSettings() {
-  if (!selectedBlueprintId.value) {
+  if (!selectedBlueprintId.value || !canEditBlueprint.value) {
     return;
   }
   showBlueprintSettings.value = true;
@@ -2215,7 +2219,7 @@ function handleAddChildFromMenu() {
   if (!contextMenu.nodeId) {
     return;
   }
-  if (!canManageBlueprint.value) {
+  if (!canEditBlueprint.value) {
     hideContextMenu();
     return;
   }
@@ -2231,7 +2235,7 @@ function handleDeleteNodeFromMenu() {
   if (!contextMenu.nodeId) {
     return;
   }
-  if (!canManageBlueprint.value) {
+  if (!canEditBlueprint.value) {
     hideContextMenu();
     return;
   }
@@ -2291,7 +2295,7 @@ async function handleEnableNodeFromMenu() {
 }
 
 function handleToggleFinalFromMenu() {
-  if (!contextMenu.nodeId || !canManageBlueprint.value) {
+  if (!contextMenu.nodeId || !canEditBlueprint.value) {
     hideContextMenu();
     return;
   }
@@ -2304,7 +2308,7 @@ function handleEditNodeFromMenu() {
   if (!contextMenu.nodeId) {
     return;
   }
-  if (!canManageBlueprint.value) {
+  if (!canEditBlueprint.value) {
     hideContextMenu();
     return;
   }
@@ -3179,6 +3183,18 @@ onUnmounted(() => {
 .quest-blueprint-card__progress-value {
   font-weight: 600;
   color: rgba(248, 250, 252, 0.9);
+}
+
+.quest-blueprint-card__footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.quest-blueprint-card__author {
+  font-weight: 600;
 }
 
 .quest-progress-bar {

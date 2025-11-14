@@ -18,6 +18,13 @@ const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
   QuestAssignmentStatus.PAUSED
 ];
 
+const USER_NAME_FIELDS = {
+  displayName: true,
+  nickname: true
+} as const;
+
+export const QUEST_BLUEPRINT_PERMISSION_ERROR = 'QUEST_BLUEPRINT_PERMISSION_DENIED';
+
 
 export interface QuestProgressSummary {
   totalNodes: number;
@@ -28,12 +35,21 @@ export interface QuestProgressSummary {
   percentComplete: number;
 }
 
+type QuestBlueprintWithCreator = QuestBlueprint & {
+  createdBy?: {
+    displayName: string;
+    nickname: string | null;
+  } | null;
+};
+
 export interface QuestBlueprintSummary {
   id: string;
   title: string;
   summary: string | null;
   visibility: QuestBlueprintVisibility;
   isArchived: boolean;
+  createdById: string;
+  createdByName: string | null;
   createdAt: Date;
   updatedAt: Date;
   lastEditedByName?: string | null;
@@ -394,17 +410,22 @@ function mapAssignment(
 }
 
 function mapBlueprintSummary(
-  blueprint: QuestBlueprint,
+  blueprint: QuestBlueprintWithCreator,
   nodeCount: number,
   assignmentCounts: Record<QuestAssignmentStatus, number>,
   viewerAssignment?: QuestAssignmentWithProgress | null
 ): QuestBlueprintSummary {
+  const creatorName = blueprint.createdBy
+    ? withPreferredDisplayName(blueprint.createdBy).displayName
+    : null;
   return {
     id: blueprint.id,
     title: blueprint.title,
     summary: blueprint.summary ?? null,
     visibility: blueprint.visibility,
     isArchived: blueprint.isArchived,
+    createdById: blueprint.createdById,
+    createdByName: creatorName,
     createdAt: blueprint.createdAt,
     updatedAt: blueprint.updatedAt,
     lastEditedByName: blueprint.lastEditedByName ?? null,
@@ -496,6 +517,11 @@ export async function listGuildQuestTrackerSummary(options: {
 }): Promise<QuestTrackerSummaryResponse> {
   const blueprints = await prisma.questBlueprint.findMany({
     where: { guildId: options.guildId },
+    include: {
+      createdBy: {
+        select: USER_NAME_FIELDS
+      }
+    },
     orderBy: [
       { isArchived: 'asc' },
       { title: 'asc' }
@@ -589,6 +615,11 @@ export async function createQuestBlueprint(options: {
       visibility: options.visibility ?? 'GUILD',
       lastEditedById: options.creatorUserId,
       lastEditedByName: creatorName
+    },
+    include: {
+      createdBy: {
+        select: USER_NAME_FIELDS
+      }
     }
   });
 
@@ -599,6 +630,7 @@ export async function updateQuestBlueprintMetadata(options: {
   guildId: string;
   blueprintId: string;
   actorUserId: string;
+  actorRole: GuildRole | null | undefined;
   data: {
     title?: string;
     summary?: string | null;
@@ -612,6 +644,16 @@ export async function updateQuestBlueprintMetadata(options: {
 
   if (!existing || existing.guildId !== options.guildId) {
     throw new Error('Quest blueprint not found.');
+  }
+
+  if (
+    !canEditQuestBlueprint(
+      options.actorRole,
+      options.actorUserId,
+      existing.createdById
+    )
+  ) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
   }
 
   const updatePayload: Prisma.QuestBlueprintUpdateInput = {};
@@ -634,7 +676,12 @@ export async function updateQuestBlueprintMetadata(options: {
 
   const updated = await prisma.questBlueprint.update({
     where: { id: options.blueprintId },
-    data: updatePayload
+    data: updatePayload,
+    include: {
+      createdBy: {
+        select: USER_NAME_FIELDS
+      }
+    }
   });
 
   const [blueprintNodes, blueprintLinks, latestCounts] = await Promise.all([
@@ -673,7 +720,10 @@ export async function getQuestBlueprintDetail(options: {
     where: { id: options.blueprintId },
     include: {
       nodes: true,
-      links: true
+      links: true,
+      createdBy: {
+        select: USER_NAME_FIELDS
+      }
     }
   });
 
@@ -798,6 +848,7 @@ export async function upsertQuestBlueprintGraph(options: {
   guildId: string;
   blueprintId: string;
   actorUserId: string;
+  actorRole: GuildRole | null | undefined;
   nodes: Array<{
     id: string;
     title: string;
@@ -855,11 +906,21 @@ export async function upsertQuestBlueprintGraph(options: {
   await prisma.$transaction(async (tx) => {
     const blueprint = await tx.questBlueprint.findUnique({
       where: { id: options.blueprintId },
-      select: { id: true, guildId: true }
+      select: { id: true, guildId: true, createdById: true }
     });
 
     if (!blueprint || blueprint.guildId !== options.guildId) {
       throw new Error('Quest blueprint not found.');
+    }
+
+    if (
+      !canEditQuestBlueprint(
+        options.actorRole,
+        options.actorUserId,
+        blueprint.createdById
+      )
+    ) {
+      throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
     }
 
     const existingNodes = await tx.questNode.findMany({
@@ -1373,6 +1434,17 @@ function computeShortestPathMap(
 
 export function canManageQuestBlueprints(role: GuildRole | null | undefined): boolean {
   return role === GuildRole.LEADER || role === GuildRole.OFFICER;
+}
+
+export function canEditQuestBlueprint(
+  role: GuildRole | null | undefined,
+  actorUserId: string | null | undefined,
+  blueprintOwnerId: string | null | undefined
+): boolean {
+  if (canManageQuestBlueprints(role)) {
+    return true;
+  }
+  return Boolean(actorUserId && blueprintOwnerId && actorUserId === blueprintOwnerId);
 }
 
 export function canViewGuildQuestBoard(role: GuildRole | null | undefined): boolean {

@@ -178,6 +178,8 @@ export interface QuestBlueprintSummaryLite {
   summary: string | null;
   visibility: QuestBlueprintVisibility;
   isArchived: boolean;
+  createdById: string;
+  createdByName: string | null;
   createdAt: string;
   updatedAt: string;
   lastEditedByName?: string | null;
@@ -210,6 +212,7 @@ export interface QuestTrackerPermissions {
   role: GuildRole | null;
   canManageBlueprints: boolean;
   canViewGuildBoard: boolean;
+  canEditBlueprint?: boolean;
 }
 
 export interface QuestTrackerSummary {
@@ -929,7 +932,8 @@ function normalizeQuestPermissions(raw: any): QuestTrackerPermissions {
   return {
     role: typeof raw?.role === 'string' ? (raw.role as GuildRole) : null,
     canManageBlueprints: Boolean(raw?.canManageBlueprints),
-    canViewGuildBoard: Boolean(raw?.canViewGuildBoard)
+    canViewGuildBoard: Boolean(raw?.canViewGuildBoard),
+    canEditBlueprint: raw?.canEditBlueprint != null ? Boolean(raw.canEditBlueprint) : undefined
   };
 }
 
@@ -1037,6 +1041,13 @@ function normalizeQuestBlueprintSummary(raw: any): QuestBlueprintSummaryLite {
           : null,
     visibility: isQuestBlueprintVisibility(raw?.visibility) ? raw.visibility : 'GUILD',
     isArchived: Boolean(raw?.isArchived),
+    createdById: typeof raw?.createdById === 'string' ? raw.createdById : '',
+    createdByName:
+      typeof raw?.createdByName === 'string'
+        ? raw.createdByName
+        : raw?.createdByName == null
+          ? null
+          : String(raw.createdByName),
     createdAt: normalizeDateString(raw?.createdAt),
     updatedAt: normalizeDateString(raw?.updatedAt),
     lastEditedByName:
