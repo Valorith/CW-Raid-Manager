@@ -1627,6 +1627,33 @@ function groupHasCompletedChild(nodeId: string) {
   return groupChildCompletion.value.get(nodeId) ?? false;
 }
 
+function getNextStepGroupAncestors(nodeId: string): string[] {
+  const parentEntries = parentNodeMap.value.get(nodeId) ?? [];
+  return parentEntries
+    .filter((entry) => entry.isNextStep && isGroupNode(entry.nodeId))
+    .map((entry) => entry.nodeId);
+}
+
+function applyGroupHierarchyStatus(
+  groupId: string,
+  status: 'COMPLETED' | 'NOT_STARTED',
+  updates: Map<string, QuestNodeProgressStatus>,
+  newlyCompleted?: Set<string>
+) {
+  const targets = [groupId, ...getGroupDescendants(groupId)];
+  for (const targetId of targets) {
+    if (isNodeDisabled(targetId)) {
+      continue;
+    }
+    updates.set(targetId, status);
+    if (status === 'COMPLETED') {
+      newlyCompleted?.add(targetId);
+    } else {
+      newlyCompleted?.delete(targetId);
+    }
+  }
+}
+
 function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>) {
   const descendants = getGroupDescendants(nodeId).filter((childId) => !isNodeDisabled(childId));
   if (!descendants.length) {
@@ -3141,6 +3168,15 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
     const downstreamIds = getGroupDescendants(nodeId);
     if (['NOT_STARTED', 'IN_PROGRESS', 'BLOCKED'].includes(status)) {
       downstreamIds.forEach((descendantId) => updates.set(descendantId, 'NOT_STARTED'));
+    }
+
+    const nextStepGroups = getNextStepGroupAncestors(nodeId);
+    if (nextStepGroups.length) {
+      if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
+        nextStepGroups.forEach((groupId) => applyGroupHierarchyStatus(groupId, 'COMPLETED', updates, newlyCompleted));
+      } else if (status === 'NOT_STARTED' || status === 'BLOCKED') {
+        nextStepGroups.forEach((groupId) => applyGroupHierarchyStatus(groupId, 'NOT_STARTED', updates, newlyCompleted));
+      }
     }
 
     if (isGroupNode(nodeId) && status === 'COMPLETED') {
