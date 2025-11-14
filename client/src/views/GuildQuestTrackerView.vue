@@ -737,7 +737,9 @@ const filteredBlueprints = computed(() => {
 });
 
 const selectedDetail = computed(() => detail.value);
-const viewerAssignment = computed(() => detail.value?.viewerAssignment ?? null);
+const viewerAssignment = computed(() =>
+  activeTab.value === 'overview' ? detail.value?.viewerAssignment ?? null : null
+);
 const viewerProgressMap = computed(() => {
   const map = new Map<string, QuestNodeProgressStatus>();
   const progress = viewerAssignment.value?.progress ?? [];
@@ -3174,6 +3176,12 @@ onUnmounted(() => {
     0 0 0 2px rgba(34, 197, 94, 0.2),
     0 15px 35px rgba(5, 46, 22, 0.4);
   background: rgba(22, 163, 74, 0.12);
+}
+
+.quest-panel--editor .quest-node--completed {
+  border-color: rgba(148, 163, 184, 0.4);
+  box-shadow: none;
+  background: rgba(15, 23, 42, 0.9);
 }
 
 .quest-node--final {
