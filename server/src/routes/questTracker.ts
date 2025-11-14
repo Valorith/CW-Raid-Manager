@@ -241,11 +241,20 @@ export async function questTrackerRoutes(server: FastifyInstance) {
       return reply.forbidden('You must be a guild member to start a quest.');
     }
 
+    const bodySchema = z.object({
+      characterId: z.string().min(1, 'Character is required.')
+    });
+    const parsedBody = bodySchema.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply.badRequest('Character selection is required to start this quest.');
+    }
+
     try {
       const assignment = await startQuestAssignment({
         guildId,
         blueprintId,
-        userId: request.user.userId
+        userId: request.user.userId,
+        characterId: parsedBody.data.characterId
       });
       return reply.code(201).send({ assignment });
     } catch (error) {

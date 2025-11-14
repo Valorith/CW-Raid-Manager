@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  CharacterClass,
   GuildRole,
   Prisma,
   QuestAssignmentStatus,
@@ -21,6 +22,11 @@ const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
 const USER_NAME_FIELDS = {
   displayName: true,
   nickname: true
+} as const;
+const CHARACTER_SUMMARY_FIELDS = {
+  id: true,
+  name: true,
+  class: true
 } as const;
 
 export const QUEST_BLUEPRINT_PERMISSION_ERROR = 'QUEST_BLUEPRINT_PERMISSION_DENIED';
@@ -72,6 +78,11 @@ export interface QuestAssignmentWithProgress {
     displayName: string;
     nickname?: string | null;
   };
+  character?: {
+    id: string;
+    name: string;
+    class: CharacterClass;
+  } | null;
   progress: Array<{
     nodeId: string;
     status: QuestNodeProgressStatus;
@@ -129,6 +140,9 @@ type AssignmentWithProgress = Prisma.QuestAssignmentGetPayload<{
     progress: true;
     user: {
       select: typeof QUEST_ASSIGNMENT_USER_SELECT;
+    };
+    character: {
+      select: typeof CHARACTER_SUMMARY_FIELDS;
     };
   };
 }>;
@@ -398,6 +412,13 @@ function mapAssignment(
       options?.includeUser !== false && assignment.user
         ? withPreferredDisplayName(assignment.user)
         : undefined,
+    character: assignment.character
+      ? {
+          id: assignment.character.id,
+          name: assignment.character.name,
+          class: assignment.character.class
+        }
+      : null,
     progress: assignment.progress.map((record) => ({
       nodeId: record.nodeId,
       status: record.status,
@@ -563,6 +584,9 @@ export async function listGuildQuestTrackerSummary(options: {
         progress: true,
         user: {
           select: QUEST_ASSIGNMENT_USER_SELECT
+        },
+        character: {
+          select: CHARACTER_SUMMARY_FIELDS
         }
       }
     })
@@ -752,6 +776,9 @@ export async function getQuestBlueprintDetail(options: {
         progress: true,
         user: {
           select: QUEST_ASSIGNMENT_USER_SELECT
+        },
+        character: {
+          select: CHARACTER_SUMMARY_FIELDS
         }
       }
     }),
@@ -765,7 +792,10 @@ export async function getQuestBlueprintDetail(options: {
             user: {
               select: QUEST_ASSIGNMENT_USER_SELECT
             },
-            progress: true
+            progress: true,
+            character: {
+              select: CHARACTER_SUMMARY_FIELDS
+            }
           },
           orderBy: [{ startedAt: 'asc' }]
         })
@@ -1040,6 +1070,7 @@ export async function startQuestAssignment(options: {
   guildId: string;
   blueprintId: string;
   userId: string;
+  characterId: string;
 }): Promise<QuestAssignmentWithProgress> {
   const blueprint = await prisma.questBlueprint.findUnique({
     where: { id: options.blueprintId },
@@ -1053,10 +1084,29 @@ export async function startQuestAssignment(options: {
     throw new Error('This quest blueprint is archived and cannot be started.');
   }
 
+  const character = await prisma.character.findUnique({
+    where: { id: options.characterId },
+    select: {
+      id: true,
+      userId: true,
+      guildId: true,
+      class: true,
+      name: true
+    }
+  });
+
+  if (!character || character.userId !== options.userId) {
+    throw new Error('Character not found.');
+  }
+  if (character.guildId !== options.guildId) {
+    throw new Error('This character is not part of the selected guild.');
+  }
+
   const existingAssignment = await prisma.questAssignment.findFirst({
     where: {
       blueprintId: options.blueprintId,
       userId: options.userId,
+      characterId: character.id,
       status: { in: ACTIVE_ASSIGNMENT_STATUSES }
     }
   });
@@ -1071,7 +1121,8 @@ export async function startQuestAssignment(options: {
         blueprintId: options.blueprintId,
         guildId: options.guildId,
         userId: options.userId,
-        status: QuestAssignmentStatus.ACTIVE
+        status: QuestAssignmentStatus.ACTIVE,
+        characterId: character.id
       }
     });
 
@@ -1094,6 +1145,9 @@ export async function startQuestAssignment(options: {
         progress: true,
         user: {
           select: QUEST_ASSIGNMENT_USER_SELECT
+        },
+        character: {
+          select: CHARACTER_SUMMARY_FIELDS
         }
       }
     });
@@ -1123,6 +1177,9 @@ export async function updateAssignmentStatus(options: {
           displayName: true,
           nickname: true
         }
+      },
+      character: {
+        select: CHARACTER_SUMMARY_FIELDS
       }
     }
   });
@@ -1167,6 +1224,9 @@ export async function updateAssignmentStatus(options: {
           displayName: true,
           nickname: true
         }
+      },
+      character: {
+        select: CHARACTER_SUMMARY_FIELDS
       }
     }
   });
@@ -1202,6 +1262,9 @@ export async function applyAssignmentProgressUpdates(options: {
             displayName: true,
             nickname: true
           }
+        },
+        character: {
+          select: CHARACTER_SUMMARY_FIELDS
         }
       }
     });
@@ -1330,6 +1393,9 @@ export async function applyAssignmentProgressUpdates(options: {
             displayName: true,
             nickname: true
           }
+        },
+        character: {
+          select: CHARACTER_SUMMARY_FIELDS
         }
       }
     });

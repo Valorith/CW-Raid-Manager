@@ -97,6 +97,23 @@
         <header class="quest-detail__header">
           <div class="quest-detail__title">
             <h2>{{ selectedDetail.blueprint.title }}</h2>
+            <div v-if="viewerAssignmentCharacter" class="quest-character-pill">
+              <div class="quest-character-pill__icon">
+                <img
+                  v-if="getCharacterClassIcon(viewerAssignmentCharacter.class)"
+                  :src="getCharacterClassIcon(viewerAssignmentCharacter.class) || undefined"
+                  :alt="characterClassLabels[viewerAssignmentCharacter.class] || 'Class icon'"
+                />
+                <span v-else>{{ viewerAssignmentCharacter.class?.[0] ?? '?' }}</span>
+              </div>
+              <div class="quest-character-pill__meta">
+                <span class="quest-character-pill__label">Tracking as</span>
+                <strong>{{ viewerAssignmentCharacter.name }}</strong>
+                <span class="quest-character-pill__class">
+                  {{ characterClassLabels[viewerAssignmentCharacter.class] ?? viewerAssignmentCharacter.class }}
+                </span>
+              </div>
+            </div>
           </div>
           <div class="quest-detail__actions">
             <button
@@ -556,6 +573,52 @@
     </div>
   </div>
 
+  <div v-if="showCharacterModal" class="quest-modal">
+    <div class="quest-modal__content quest-character-modal">
+      <header>
+        <h3>Select Character</h3>
+        <button class="btn btn--icon" type="button" @click="closeCharacterModal">×</button>
+      </header>
+      <p class="muted small">Choose which character will run this quest.</p>
+      <div v-if="characterModalLoading" class="quest-character-modal__loading">Loading characters…</div>
+      <template v-else>
+        <p v-if="characterModalError" class="quest-character-modal__error">{{ characterModalError }}</p>
+        <ul v-if="hasEligibleCharacters" class="quest-character-list">
+          <li v-for="character in eligibleCharacters" :key="character.id">
+            <button
+              class="quest-character-button"
+              type="button"
+              :disabled="assignmentUpdating"
+              @click="startAssignmentWithCharacter(character.id)"
+            >
+              <div class="quest-character-button__icon">
+                <img
+                  v-if="getCharacterClassIcon(character.class)"
+                  :src="getCharacterClassIcon(character.class) || undefined"
+                  :alt="characterClassLabels[character.class]"
+                />
+                <span v-else>{{ character.class[0] }}</span>
+              </div>
+              <div class="quest-character-button__details">
+                <div class="quest-character-button__title">
+                  <strong>{{ character.name }}</strong>
+                  <span v-if="character.isMain" class="badge badge--main">Main</span>
+                </div>
+                <span class="quest-character-button__meta">
+                  {{ characterClassLabels[character.class] }} &middot; Level {{ character.level }}
+                </span>
+              </div>
+            </button>
+          </li>
+        </ul>
+        <p v-else class="quest-character-modal__empty">
+          You don't have any characters in this guild yet. Visit the Characters page to add one before starting a quest.
+        </p>
+      </template>
+      <p v-if="characterStartError" class="quest-character-modal__error">{{ characterStartError }}</p>
+    </div>
+  </div>
+
   <div v-if="saveErrorModal.open" class="quest-modal quest-modal--error">
     <div class="quest-modal__content">
       <header>
@@ -632,15 +695,18 @@ import {
   type QuestNodeInputPayload,
   type QuestNodeViewModel,
   type QuestNodeProgress,
-  type QuestTrackerSummary
+  type QuestTrackerSummary,
+  type UserCharacter
 } from '../services/api';
 import {
   QuestAssignmentStatus,
   QuestNodeProgressStatus,
   QuestNodeType,
+  characterClassLabels,
   questAssignmentStatusLabels,
   questNodeTypeColors,
-  questNodeTypeLabels
+  questNodeTypeLabels,
+  getCharacterClassIcon
 } from '../services/types';
 import { extractErrorMessage } from '../utils/errors';
 
@@ -671,6 +737,12 @@ const saveToast = reactive({ visible: false, message: '' });
 const saveErrorModal = reactive({ open: false, message: '' });
 const showStepSettings = ref(false);
 const showBlueprintSettings = ref(false);
+const showCharacterModal = ref(false);
+const characterOptions = ref<UserCharacter[]>([]);
+const characterModalLoading = ref(false);
+const characterModalError = ref<string | null>(null);
+const characterStartError = ref<string | null>(null);
+const charactersLoaded = ref(false);
 
 const editableNodes = ref<EditableNode[]>([]);
 const editableLinks = ref<QuestBlueprintDetailPayload['links']>([]);
@@ -804,6 +876,11 @@ const selectedDetail = computed(() => detail.value);
 const viewerAssignment = computed(() =>
   activeTab.value === 'overview' ? detail.value?.viewerAssignment ?? null : null
 );
+const viewerAssignmentCharacter = computed(() => viewerAssignment.value?.character ?? null);
+const eligibleCharacters = computed(() =>
+  characterOptions.value.filter((character) => character.guild?.id === guildId)
+);
+const hasEligibleCharacters = computed(() => eligibleCharacters.value.length > 0);
 const showLoadingOverlay = computed(() => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value));
 const loadingOverlayMessage = computed(() => {
   if (loadingDetail.value) {
@@ -2774,22 +2851,11 @@ async function saveBlueprintSettings() {
   }
 }
 
-async function startAssignment() {
-  if (!selectedBlueprintId.value) {
+function startAssignment() {
+  if (!selectedBlueprintId.value || assignmentUpdating.value) {
     return;
   }
-  assignmentUpdating.value = true;
-  try {
-    const assignment = await api.startQuestAssignment(guildId, selectedBlueprintId.value);
-    if (detail.value) {
-      detail.value.viewerAssignment = assignment;
-    }
-    await loadSummary();
-  } catch (error) {
-    window.alert(error instanceof Error ? error.message : 'Unable to start quest.');
-  } finally {
-    assignmentUpdating.value = false;
-  }
+  openCharacterModal();
 }
 
 async function updateAssignmentStatus(status: QuestAssignmentStatus) {
@@ -2823,6 +2889,59 @@ function cancelAssignment() {
     return;
   }
   updateAssignmentStatus('CANCELLED');
+}
+
+function openCharacterModal() {
+  characterStartError.value = null;
+  characterModalError.value = null;
+  showCharacterModal.value = true;
+  if (!charactersLoaded.value && !characterModalLoading.value) {
+    loadCharacterOptions().catch((error) => {
+      characterModalError.value = extractErrorMessage(error, 'Unable to load characters.');
+    });
+  }
+}
+
+function closeCharacterModal() {
+  if (assignmentUpdating.value) {
+    return;
+  }
+  showCharacterModal.value = false;
+  characterStartError.value = null;
+}
+
+async function loadCharacterOptions() {
+  characterModalLoading.value = true;
+  characterModalError.value = null;
+  try {
+    const characters = await api.fetchUserCharacters();
+    characterOptions.value = characters;
+    charactersLoaded.value = true;
+  } catch (error) {
+    characterModalError.value = extractErrorMessage(error, 'Unable to load your characters.');
+  } finally {
+    characterModalLoading.value = false;
+  }
+}
+
+async function startAssignmentWithCharacter(characterId: string) {
+  if (!selectedBlueprintId.value || !characterId) {
+    return;
+  }
+  characterStartError.value = null;
+  assignmentUpdating.value = true;
+  try {
+    const assignment = await api.startQuestAssignment(guildId, selectedBlueprintId.value, { characterId });
+    if (detail.value) {
+      detail.value.viewerAssignment = assignment;
+    }
+    await loadSummary();
+    showCharacterModal.value = false;
+  } catch (error) {
+    characterStartError.value = extractErrorMessage(error, 'Unable to start quest for that character.');
+  } finally {
+    assignmentUpdating.value = false;
+  }
 }
 
 async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus) {
@@ -2931,6 +3050,8 @@ watch(selectedBlueprintId, (blueprintId) => {
     return;
   }
   loadDetail(blueprintId).catch((error) => console.error('Failed to load quest detail', error));
+  showCharacterModal.value = false;
+  characterStartError.value = null;
 });
 
 watch(
@@ -3239,6 +3360,54 @@ onUnmounted(() => {
 .quest-detail__title {
   text-align: center;
   width: 100%;
+}
+
+.quest-character-pill {
+  margin: 0.5rem auto 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.45);
+}
+
+.quest-character-pill__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.quest-character-pill__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.quest-character-pill__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.quest-character-pill__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.65rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.quest-character-pill__class {
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.9);
 }
 
 .quest-detail__stats {
@@ -3953,6 +4122,98 @@ onUnmounted(() => {
   box-shadow: 0 30px 60px rgba(2, 6, 23, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.15);
   animation: questModalPop 0.3s ease forwards;
+}
+
+.quest-character-modal {
+  width: min(520px, 95vw);
+}
+
+.quest-character-modal__loading {
+  text-align: center;
+  color: rgba(148, 163, 184, 0.9);
+  padding: 1rem 0;
+}
+
+.quest-character-modal__error {
+  color: #fca5a5;
+  font-size: 0.85rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.65rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.quest-character-modal__empty {
+  margin: 1rem 0 0;
+  color: rgba(226, 232, 240, 0.85);
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.quest-character-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.quest-character-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.65);
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.quest-character-button:disabled {
+  opacity: 0.7;
+}
+
+.quest-character-button:not(:disabled):hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.45);
+  transform: translateY(-1px);
+}
+
+.quest-character-button__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.85);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.quest-character-button__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.quest-character-button__details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.quest-character-button__title {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.quest-character-button__meta {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.9);
 }
 
 .quest-modal__actions {

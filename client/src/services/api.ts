@@ -167,6 +167,11 @@ export interface QuestAssignment {
     displayName: string;
     nickname?: string | null;
   };
+  character?: {
+    id: string;
+    name: string;
+    class: CharacterClass;
+  } | null;
   progress: QuestNodeProgress[];
 }
 
@@ -982,6 +987,17 @@ function normalizeQuestAssignment(raw: any): QuestAssignment {
           nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
         }
       : undefined,
+    character:
+      raw?.character && typeof raw.character === 'object'
+        ? {
+            id: typeof raw.character.id === 'string' ? raw.character.id : '',
+            name: typeof raw.character.name === 'string' ? raw.character.name : 'Character',
+            class:
+              typeof raw.character.class === 'string'
+                ? (raw.character.class as CharacterClass)
+                : 'WARRIOR'
+          }
+        : null,
     progress: Array.isArray(raw?.progress)
       ? raw.progress.map((entry: any): QuestNodeProgress => ({
           nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
@@ -1528,9 +1544,14 @@ export const api = {
     return normalizeQuestBlueprintDetail(response.data);
   },
 
-  async startQuestAssignment(guildId: string, blueprintId: string): Promise<QuestAssignment> {
+  async startQuestAssignment(
+    guildId: string,
+    blueprintId: string,
+    payload: { characterId: string }
+  ): Promise<QuestAssignment> {
     const response = await axios.post(
-      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}/start`
+      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}/start`,
+      payload
     );
     return normalizeQuestAssignment(response.data.assignment);
   },

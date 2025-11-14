@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows"]
 }
 
 datasource db {
@@ -125,6 +126,7 @@ model Character {
   raidSignups       RaidSignup[]
   guild             Guild?              @relation(fields: [guildId], references: [id])
   user              User                @relation(fields: [userId], references: [id])
+  questAssignments  QuestAssignment[]
 
   @@index([guildId], map: "Characters_guildId_fkey")
   @@index([userId], map: "Characters_userId_fkey")
@@ -421,6 +423,7 @@ model QuestAssignment {
   blueprintId     String
   guildId         String
   userId          String
+  characterId     String?
   status          QuestAssignmentStatus  @default(ACTIVE)
   startedAt       DateTime               @default(now())
   completedAt     DateTime?
@@ -432,11 +435,13 @@ model QuestAssignment {
   blueprint       QuestBlueprint         @relation(fields: [blueprintId], references: [id], onDelete: Cascade)
   guild           Guild                  @relation(fields: [guildId], references: [id], onDelete: Cascade)
   user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character       Character?             @relation(fields: [characterId], references: [id], onDelete: SetNull)
   progress        QuestNodeProgress[]
 
   @@index([guildId])
   @@index([userId])
   @@index([blueprintId])
+  @@index([characterId])
 }
 
 model QuestNodeProgress {

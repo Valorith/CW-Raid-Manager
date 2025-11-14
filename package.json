@@ -20,5 +20,12 @@
     "lint:server": "npm --workspace server run lint",
     "lint:client": "npm --workspace client run lint",
     "format": "npm run format:server && npm run format:client"
+  },
+  "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.53.2",
+    "prisma": "^6.19.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
   }
 }
