@@ -1,27 +1,43 @@
 <template>
-  <section class="quest-tracker" v-if="!loadingSummary">
+  <section class="quest-tracker" v-if="summary">
     <aside class="quest-tracker__sidebar">
       <header class="quest-tracker__header">
-        <div>
-          <p class="muted small">Guild</p>
+        <div class="quest-tracker__header-meta">
+          <p class="quest-tracker__eyebrow">Quest Planner</p>
           <h1>{{ guildNameDisplay }}</h1>
         </div>
         <button
           v-if="permissions?.canManageBlueprints"
-          class="btn btn--small"
+          class="btn btn--small quest-tracker__new-btn"
           type="button"
           @click="openCreateModal"
         >
-          New Blueprint
+          <span aria-hidden="true">＋</span>
+          <span>New Blueprint</span>
         </button>
       </header>
       <div class="quest-tracker__search">
-        <input
-          v-model="sidebarSearch"
-          type="search"
-          class="input input--search"
-          placeholder="Search blueprints"
-        />
+        <div class="quest-tracker__search-field">
+          <span class="quest-tracker__search-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" focusable="false">
+              <path
+                d="M13.5 12.5l3.25 3.25m-1.75-6a5.75 5.75 0 11-11.5 0 5.75 5.75 0 0111.5 0z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <input
+            v-model="sidebarSearch"
+            type="search"
+            class="quest-tracker__search-input"
+            placeholder="Search blueprints"
+            aria-label="Search quest blueprints"
+          />
+        </div>
       </div>
       <ul class="quest-blueprint-list">
         <li
@@ -211,7 +227,18 @@
               </div>
             </div>
           </div>
-          <p v-if="viewerAssignment" class="quest-overview__hint">Right-click any quest step to update its status.</p>
+          <div v-if="viewerAssignment" class="quest-overview__footer">
+            <p class="quest-overview__hint">Right-click any quest step to update its status.</p>
+            <div class="quest-overview__legend">
+              <img
+                class="quest-overview__legend-icon"
+                src="/icons/checkered-flag.svg"
+                alt=""
+                aria-hidden="true"
+              />
+              <span class="quest-overview__legend-label">Quest Complete</span>
+            </div>
+          </div>
         </section>
 
         <section v-if="activeTab === 'editor'" class="quest-panel quest-panel--editor">
@@ -469,10 +496,21 @@
         <p>Select a quest blueprint to begin or create a new one.</p>
       </div>
     </main>
+    <transition name="quest-loading-fade">
+      <div v-if="showLoadingOverlay" class="quest-loading-overlay" aria-live="polite">
+        <div class="quest-loading__inner">
+          <span class="quest-loading__spinner" role="status" aria-label="Refreshing quest data"></span>
+          <p>{{ loadingOverlayMessage }}</p>
+        </div>
+      </div>
+    </transition>
   </section>
 
-  <div v-else class="quest-loading">
-    <span>Loading quest tracker…</span>
+  <div v-else class="quest-loading quest-loading--fullscreen">
+    <div class="quest-loading__inner">
+      <span class="quest-loading__spinner" role="status" aria-label="Loading quest tracker"></span>
+      <p>Loading quest tracker…</p>
+    </div>
   </div>
 
   <div v-if="showCreateModal" class="quest-modal">
@@ -762,6 +800,16 @@ const selectedDetail = computed(() => detail.value);
 const viewerAssignment = computed(() =>
   activeTab.value === 'overview' ? detail.value?.viewerAssignment ?? null : null
 );
+const showLoadingOverlay = computed(() => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value));
+const loadingOverlayMessage = computed(() => {
+  if (loadingDetail.value) {
+    return 'Loading quest steps…';
+  }
+  if (loadingSummary.value) {
+    return 'Refreshing quest tracker…';
+  }
+  return 'Updating quest tracker…';
+});
 const viewerProgressMap = computed(() => {
   const map = new Map<string, QuestNodeProgressStatus>();
   const progress = viewerAssignment.value?.progress ?? [];
@@ -2808,17 +2856,17 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
       }
     }
 
-    if (status === 'COMPLETED') {
+    if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
       const upstreamIds = getUpstreamNodeIds(nodeId);
       for (const ancestorId of upstreamIds) {
         if (isGroupNode(ancestorId)) {
           if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
-            updates.set(ancestorId, status);
+            updates.set(ancestorId, 'COMPLETED');
             newlyCompleted.add(ancestorId);
           }
           continue;
         }
-        updates.set(ancestorId, status);
+        updates.set(ancestorId, 'COMPLETED');
         newlyCompleted.add(ancestorId);
       }
     }
@@ -2923,6 +2971,7 @@ onUnmounted(() => {
   grid-template-columns: 320px 1fr;
   gap: 1.5rem;
   min-height: calc(100vh - 120px);
+  position: relative;
 }
 
 .quest-tracker__sidebar {
@@ -2932,15 +2981,93 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.quest-tracker__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.quest-tracker__header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.quest-tracker__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.9);
 }
 
 .quest-tracker__header h1 {
   margin: 0;
   font-size: 1.5rem;
+  color: rgba(248, 250, 252, 0.95);
 }
 
-.quest-tracker__search .input {
+.quest-tracker__new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.45);
+  text-transform: none;
+}
+
+.quest-tracker__search {
   width: 100%;
+}
+
+.quest-tracker__search-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.quest-tracker__search-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+
+.quest-tracker__search-icon {
+  color: rgba(148, 163, 184, 0.8);
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+}
+
+.quest-tracker__search-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.quest-tracker__search-input {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  width: 100%;
+  font-size: 0.9rem;
+  padding: 0.35rem 0;
+}
+
+.quest-tracker__search-input::placeholder {
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.quest-tracker__search-input:focus {
+  outline: none;
 }
 
 .quest-blueprint-list {
@@ -3563,13 +3690,42 @@ onUnmounted(() => {
   color: #f87171;
 }
 
+.quest-overview__footer {
+  margin-top: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .quest-overview__hint {
-  margin: 1rem 0 0;
+  margin: 0;
   padding: 0.65rem 0.95rem;
   border-radius: 0.65rem;
   background: rgba(59, 130, 246, 0.12);
   color: rgba(248, 250, 252, 0.9);
   font-size: 0.9rem;
+}
+
+.quest-overview__legend {
+  margin-top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.quest-overview__legend-label {
+  font-weight: 600;
+}
+
+.quest-overview__legend-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.6));
 }
 
 .quest-editor__toolbar {
@@ -3717,6 +3873,48 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.6);
 }
 
+.quest-loading--fullscreen {
+  min-height: calc(100vh - 120px);
+}
+
+.quest-loading__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.quest-loading__spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 4px solid rgba(148, 163, 184, 0.25);
+  border-top-color: #38bdf8;
+  animation: questSpinner 0.9s linear infinite;
+}
+
+.quest-loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 15;
+  pointer-events: all;
+}
+
+.quest-loading-fade-enter-active,
+.quest-loading-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.quest-loading-fade-enter-from,
+.quest-loading-fade-leave-to {
+  opacity: 0;
+}
+
 .quest-modal {
   position: fixed;
   inset: 0;
@@ -3776,6 +3974,15 @@ onUnmounted(() => {
   color: #f8fafc;
   box-shadow: 0 15px 35px rgba(2, 6, 23, 0.45);
   animation: questToastFade 0.25s ease forwards;
+}
+
+@keyframes questSpinner {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes questToastFade {

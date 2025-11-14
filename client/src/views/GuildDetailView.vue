@@ -527,7 +527,7 @@ const canManageGuildSettings = computed(() => {
   return role === 'LEADER' || role === 'OFFICER';
 });
 
-const canViewQuestTracker = computed(() => authStore.isAdmin);
+const canViewQuestTracker = computed(() => canViewDetails.value);
 
 
 const pendingApplication = computed(() => authStore.pendingApplication);
