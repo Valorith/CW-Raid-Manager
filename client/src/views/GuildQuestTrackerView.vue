@@ -3247,14 +3247,14 @@ onUnmounted(() => {
 
 .quest-link-animated {
   fill: none;
-  stroke-width: 2.75;
+  stroke-width: 3.5;
   stroke-linecap: round;
   stroke-dasharray: var(--path-length);
   stroke-dashoffset: var(--path-length);
-  animation: quest-link-trace 9s linear infinite;
+  animation: quest-link-trace 6s ease-in-out infinite;
   animation-delay: var(--animation-delay, 0s);
   opacity: 0;
-  filter: drop-shadow(0 0 6px var(--link-shadow-color, rgba(56, 189, 248, 0.35)));
+  filter: drop-shadow(0 0 8px var(--link-shadow-color, rgba(56, 189, 248, 0.35)));
 }
 
 @keyframes quest-link-trace {
@@ -3262,10 +3262,14 @@ onUnmounted(() => {
     stroke-dashoffset: var(--path-length);
     opacity: 0;
   }
-  15% {
+  10% {
+    opacity: 0.4;
+  }
+  35% {
+    stroke-dashoffset: calc(var(--path-length) * 0.5);
     opacity: 1;
   }
-  45% {
+  60% {
     stroke-dashoffset: 0;
     opacity: 1;
   }
