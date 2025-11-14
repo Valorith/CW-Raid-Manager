@@ -27,23 +27,45 @@
         <li
           v-for="blueprint in filteredBlueprints"
           :key="blueprint.id"
-          :class="['quest-blueprint-list__item', { 'quest-blueprint-list__item--active': blueprint.id === selectedBlueprintId }]"
+          :class="['quest-blueprint-card', { 'quest-blueprint-card--active': blueprint.id === selectedBlueprintId }]"
         >
-          <button type="button" @click="selectBlueprint(blueprint.id)">
-            <div>
-              <strong>{{ blueprint.title }}</strong>
-              <span v-if="blueprint.isArchived" class="badge badge--archived">Archived</span>
+          <button type="button" class="quest-blueprint-card__button" @click="selectBlueprint(blueprint.id)">
+            <div class="quest-blueprint-card__header">
+              <div class="quest-blueprint-card__title">
+                <strong>{{ blueprint.title }}</strong>
+                <span v-if="blueprint.isArchived" class="badge badge--archived">Archived</span>
+              </div>
+              <span class="quest-blueprint-card__chip">{{ blueprint.nodeCount }} steps</span>
             </div>
-            <p class="muted small quest-blueprint-list__summary">
-              {{ blueprint.nodeCount }} steps · {{ blueprint.assignmentCounts.ACTIVE }} active
+            <p class="quest-blueprint-card__summary">
+              {{ blueprint.summary || 'No summary provided yet.' }}
             </p>
-            <div class="quest-blueprint-list__progress" v-if="blueprint.viewerAssignment">
-              <span class="muted x-small">My progress</span>
+            <div class="quest-blueprint-card__stats">
+              <div class="quest-blueprint-card__stat">
+                <span class="label">Active</span>
+                <span class="value">{{ blueprint.assignmentCounts.ACTIVE }}</span>
+              </div>
+              <div class="quest-blueprint-card__stat">
+                <span class="label">Completed</span>
+                <span class="value">{{ blueprint.assignmentCounts.COMPLETED }}</span>
+              </div>
+              <div class="quest-blueprint-card__stat">
+                <span class="label">Paused</span>
+                <span class="value">{{ blueprint.assignmentCounts.PAUSED }}</span>
+              </div>
+            </div>
+            <div class="quest-blueprint-card__progress" v-if="blueprint.viewerAssignment">
+              <div class="quest-blueprint-card__progress-meta">
+                <span class="muted x-small">My progress</span>
+                <span class="quest-blueprint-card__progress-value">
+                  {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment)) }}
+                </span>
+              </div>
               <div class="quest-progress-bar">
                 <div
                   class="quest-progress-bar__value"
-                  :style="{ width: formatPercent(blueprint.viewerAssignment.progressSummary.percentComplete) }"
-                ></div>
+                    :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment)) }"
+                  ></div>
               </div>
             </div>
           </button>
@@ -1252,6 +1274,25 @@ const parentNodeMap = computed(() => {
   return map;
 });
 
+const groupChildCompletion = computed(() => {
+  const map = new Map<string, boolean>();
+  if (!viewerAssignment.value) {
+    return map;
+  }
+  const children = childNodeMap.value;
+  for (const node of renderedNodes.value) {
+    if (!node.isGroup) {
+      continue;
+    }
+    const childIds = children.get(node.id) ?? [];
+    map.set(
+      node.id,
+      childIds.some((childId) => viewerNodeStatus(childId) === 'COMPLETED')
+    );
+  }
+  return map;
+});
+
 function getUpstreamNodeIds(nodeId: string): string[] {
   const parents = parentNodeMap.value;
   const visited = new Set<string>();
@@ -1361,6 +1402,10 @@ const contextMenuStyle = computed(() => ({
 
 function getGroupDescendants(nodeId: string) {
   return groupDescendantsMap.value.get(nodeId) ?? [];
+}
+
+function groupHasCompletedChild(nodeId: string) {
+  return groupChildCompletion.value.get(nodeId) ?? false;
 }
 
 function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>) {
@@ -1678,8 +1723,18 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const linkDisabled =
       showOverviewDisabledState.value &&
       (isNodeDisabled(link.parentNodeId) || isNodeDisabled(link.childNodeId));
+    const childGroupCompleted =
+      showOverviewDisabledState.value &&
+      isGroupNode(link.childNodeId) &&
+      groupHasCompletedChild(link.childNodeId);
+    const parentGroupChildCompleted =
+      showOverviewDisabledState.value &&
+      isGroupNode(link.parentNodeId) &&
+      viewerNodeStatus(link.childNodeId) === 'COMPLETED';
+    const baseCompleted =
+      isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
     const isCompletedPath =
-      !linkDisabled && isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
+      !linkDisabled && (baseCompleted || childGroupCompleted || parentGroupChildCompleted);
     const branchColor = linkDisabled
       ? DISABLED_BRANCH_COLOR
       : isCompletedPath
@@ -1792,6 +1847,17 @@ const availableTabs = computed(() => [
 function formatPercent(value: number) {
   const percent = Math.max(0, Math.min(1, value ?? 0));
   return `${Math.round(percent * 100)}%`;
+}
+
+function viewerProgressRatio(assignment?: QuestAssignment | null) {
+  if (!assignment) {
+    return 0;
+  }
+  if (assignment.totalViewerSteps && assignment.totalViewerSteps > 0) {
+    const completed = assignment.progressSummary.completed ?? 0;
+    return Math.min(1, completed / assignment.totalViewerSteps);
+  }
+  return assignment.progressSummary.percentComplete ?? 0;
 }
 
 function formatDate(value?: string | null) {
@@ -2879,25 +2945,109 @@ onUnmounted(() => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
-.quest-blueprint-list__item > button {
+.quest-blueprint-card {
+  margin: 0;
+}
+
+.quest-blueprint-card__button {
   width: 100%;
   text-align: left;
-  padding: 0.75rem;
-  border-radius: 0.75rem;
-  background: var(--surface-card, #111);
-  border: 1px solid transparent;
+  padding: 0.95rem 1.1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.75));
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.quest-blueprint-list__item--active > button {
+.quest-blueprint-card__button:hover {
+  transform: translateY(-2px);
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 12px 35px rgba(15, 23, 42, 0.35);
+}
+
+.quest-blueprint-card--active .quest-blueprint-card__button {
   border-color: var(--accent, #8b5cf6);
-  background: rgba(139, 92, 246, 0.1);
+  box-shadow:
+    0 0 0 2px rgba(139, 92, 246, 0.25),
+    0 20px 35px rgba(15, 23, 42, 0.45);
 }
 
-.quest-blueprint-list__summary {
-  margin: 0.25rem 0 0;
+.quest-blueprint-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.quest-blueprint-card__title {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.quest-blueprint-card__chip {
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #bfdbfe;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.quest-blueprint-card__summary {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.85);
+  font-size: 0.85rem;
+}
+
+.quest-blueprint-card__stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.quest-blueprint-card__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.quest-blueprint-card__stat .label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.65rem;
+}
+
+.quest-blueprint-card__stat .value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.quest-blueprint-card__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.quest-blueprint-card__progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.quest-blueprint-card__progress-value {
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.9);
 }
 
 .quest-progress-bar {

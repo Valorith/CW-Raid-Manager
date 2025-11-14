@@ -161,6 +161,7 @@ export interface QuestAssignment {
   cancelledAt: string | null;
   lastProgressAt: string | null;
   progressSummary: QuestProgressSummary;
+  totalViewerSteps?: number;
   user?: {
     id: string;
     displayName: string;
@@ -968,6 +969,8 @@ function normalizeQuestAssignment(raw: any): QuestAssignment {
     cancelledAt: normalizeNullableDate(raw?.cancelledAt),
     lastProgressAt: normalizeNullableDate(raw?.lastProgressAt),
     progressSummary: normalizeQuestProgressSummary(raw?.progressSummary),
+    totalViewerSteps:
+      typeof raw?.totalViewerSteps === 'number' ? Math.max(0, raw.totalViewerSteps) : undefined,
     user: raw?.user && typeof raw.user === 'object'
       ? {
           id: typeof raw.user.id === 'string' ? raw.user.id : '',

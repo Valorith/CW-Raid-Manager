@@ -219,6 +219,7 @@ function mapAssignment(assignment, options) {
         cancelledAt: assignment.cancelledAt,
         lastProgressAt: assignment.lastProgressAt,
         progressSummary: coerceQuestProgressSummary(assignment.progressSummary),
+        totalViewerSteps: options?.totalViewerSteps,
         user: options?.includeUser !== false && assignment.user
             ? withPreferredDisplayName(assignment.user)
             : undefined,
@@ -322,11 +323,14 @@ export async function listGuildQuestTrackerSummary(options) {
         return { blueprints: [] };
     }
     const blueprintIds = blueprints.map((bp) => bp.id);
-    const [nodeGroups, assignmentGroups, viewerAssignments] = await Promise.all([
-        prisma.questNode.groupBy({
-            by: ['blueprintId'],
+    const [blueprintNodes, blueprintLinks, assignmentGroups, viewerAssignments] = await Promise.all([
+        prisma.questNode.findMany({
             where: { blueprintId: { in: blueprintIds } },
-            _count: { _all: true }
+            select: { id: true, blueprintId: true, metadata: true }
+        }),
+        prisma.questNodeLink.findMany({
+            where: { blueprintId: { in: blueprintIds } },
+            select: { blueprintId: true, parentNodeId: true, childNodeId: true }
         }),
         prisma.questAssignment.groupBy({
             by: ['blueprintId', 'status'],
@@ -352,10 +356,7 @@ export async function listGuildQuestTrackerSummary(options) {
             }
         })
     ]);
-    const nodeCountMap = new Map();
-    for (const group of nodeGroups) {
-        nodeCountMap.set(group.blueprintId, group._count._all ?? 0);
-    }
+    const stepCountMap = computeShortestPathMap(blueprintIds, blueprintNodes, blueprintLinks);
     const assignmentCountMap = new Map();
     for (const group of assignmentGroups) {
         const entry = assignmentCountMap.get(group.blueprintId) ?? getDefaultAssignmentCounts();
@@ -364,12 +365,18 @@ export async function listGuildQuestTrackerSummary(options) {
     }
     const viewerAssignmentMap = new Map();
     for (const assignment of viewerAssignments) {
-        viewerAssignmentMap.set(assignment.blueprintId, mapAssignment(assignment));
+        viewerAssignmentMap.set(assignment.blueprintId, assignment);
     }
     const summaries = blueprints.map((blueprint) => {
-        const nodeCount = nodeCountMap.get(blueprint.id) ?? 0;
+        const nodeCount = stepCountMap.get(blueprint.id) ?? 0;
         const assignmentCounts = assignmentCountMap.get(blueprint.id) ?? getDefaultAssignmentCounts();
-        const viewerAssignment = viewerAssignmentMap.get(blueprint.id) ?? null;
+        const viewerAssignmentRaw = viewerAssignmentMap.get(blueprint.id);
+        const viewerAssignment = viewerAssignmentRaw
+            ? mapAssignment(viewerAssignmentRaw, {
+                totalViewerSteps: nodeCount,
+                includeUser: true
+            })
+            : null;
         return mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignment);
     });
     return { blueprints: summaries };
@@ -416,16 +423,27 @@ export async function updateQuestBlueprintMetadata(options) {
         where: { id: options.blueprintId },
         data: updatePayload
     });
-    const nodeCount = await prisma.questNode.count({ where: { blueprintId: updated.id } });
+    const [blueprintNodes, blueprintLinks, latestCounts] = await Promise.all([
+        prisma.questNode.findMany({
+            where: { blueprintId: updated.id },
+            select: { id: true, metadata: true, blueprintId: true }
+        }),
+        prisma.questNodeLink.findMany({
+            where: { blueprintId: updated.id },
+            select: { blueprintId: true, parentNodeId: true, childNodeId: true }
+        }),
+        prisma.questAssignment.groupBy({
+            by: ['status'],
+            where: { blueprintId: updated.id },
+            _count: { _all: true }
+        })
+    ]);
     const assignmentCounts = getDefaultAssignmentCounts();
-    const latestCounts = await prisma.questAssignment.groupBy({
-        by: ['status'],
-        where: { blueprintId: updated.id },
-        _count: { _all: true }
-    });
     for (const entry of latestCounts) {
         assignmentCounts[entry.status] = entry._count._all ?? 0;
     }
+    const stepCountMap = computeShortestPathMap([updated.id], blueprintNodes, blueprintLinks);
+    const nodeCount = stepCountMap.get(updated.id) ?? blueprintNodes.length;
     return mapBlueprintSummary(updated, nodeCount, assignmentCounts, null);
 }
 export async function getQuestBlueprintDetail(options) {
@@ -507,7 +525,18 @@ export async function getQuestBlueprintDetail(options) {
         childNodeId: link.childNodeId,
         conditions: normalizeJsonRecord(link.conditions)
     }));
-    const viewerAssignmentPayload = viewerAssignment ? mapAssignment(viewerAssignment) : null;
+    const totalViewerSteps = computeShortestPathMap([blueprint.id], blueprint.nodes.map((node) => ({
+        id: node.id,
+        blueprintId: node.blueprintId,
+        metadata: node.metadata
+    })), blueprint.links.map((link) => ({
+        blueprintId: link.blueprintId,
+        parentNodeId: link.parentNodeId,
+        childNodeId: link.childNodeId
+    }))).get(blueprint.id) ?? blueprint.nodes.length;
+    const viewerAssignmentPayload = viewerAssignment
+        ? mapAssignment(viewerAssignment, { totalViewerSteps })
+        : null;
     const guildAssignmentPayloads = options.includeGuildAssignments
         ? guildAssignments.map((assignment) => mapAssignment(assignment, { includeUser: true }))
         : [];
@@ -908,6 +937,79 @@ export async function applyAssignmentProgressUpdates(options) {
         }
         return mapAssignment(refreshed, { includeUser: true });
     });
+}
+function computeShortestPathMap(blueprintIds, nodes, links) {
+    const nodesByBlueprint = new Map();
+    for (const blueprintId of blueprintIds) {
+        nodesByBlueprint.set(blueprintId, []);
+    }
+    for (const node of nodes) {
+        const metadata = normalizeJsonRecord(node.metadata);
+        const bucket = nodesByBlueprint.get(node.blueprintId);
+        if (!bucket) {
+            continue;
+        }
+        bucket.push({ id: node.id, isFinal: Boolean(metadata.isFinal) });
+    }
+    const childMap = new Map();
+    const parentCounts = new Map();
+    for (const link of links) {
+        const adjacency = childMap.get(link.blueprintId) ?? new Map();
+        const children = adjacency.get(link.parentNodeId) ?? [];
+        children.push(link.childNodeId);
+        adjacency.set(link.parentNodeId, children);
+        childMap.set(link.blueprintId, adjacency);
+        const parentMap = parentCounts.get(link.blueprintId) ?? new Map();
+        parentMap.set(link.childNodeId, (parentMap.get(link.childNodeId) ?? 0) + 1);
+        parentCounts.set(link.blueprintId, parentMap);
+    }
+    const result = new Map();
+    for (const blueprintId of blueprintIds) {
+        const blueprintNodes = nodesByBlueprint.get(blueprintId) ?? [];
+        if (!blueprintNodes.length) {
+            result.set(blueprintId, 0);
+            continue;
+        }
+        const finals = new Set(blueprintNodes.filter((node) => node.isFinal).map((node) => node.id));
+        if (!finals.size) {
+            result.set(blueprintId, blueprintNodes.length);
+            continue;
+        }
+        const adjacency = childMap.get(blueprintId) ?? new Map();
+        const parentMap = parentCounts.get(blueprintId) ?? new Map();
+        const roots = blueprintNodes
+            .map((node) => node.id)
+            .filter((nodeId) => !parentMap.has(nodeId));
+        const queue = [];
+        const visited = new Set();
+        const enqueue = (nodeId, depth) => {
+            if (visited.has(nodeId)) {
+                return;
+            }
+            visited.add(nodeId);
+            queue.push({ nodeId, depth });
+        };
+        if (roots.length) {
+            roots.forEach((rootId) => enqueue(rootId, 1));
+        }
+        else {
+            blueprintNodes.forEach((node) => enqueue(node.id, 1));
+        }
+        let shortest = blueprintNodes.length;
+        while (queue.length) {
+            const { nodeId, depth } = queue.shift();
+            if (finals.has(nodeId)) {
+                shortest = depth;
+                break;
+            }
+            const children = adjacency.get(nodeId) ?? [];
+            for (const childId of children) {
+                enqueue(childId, depth + 1);
+            }
+        }
+        result.set(blueprintId, shortest);
+    }
+    return result;
 }
 export function canManageQuestBlueprints(role) {
     return role === GuildRole.LEADER || role === GuildRole.OFFICER;
