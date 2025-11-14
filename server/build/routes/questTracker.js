@@ -2,7 +2,7 @@ import { QuestAssignmentStatus, QuestNodeProgressStatus, QuestNodeType, QuestBlu
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { getUserGuildRole } from '../services/guildService.js';
-import { applyAssignmentProgressUpdates, canManageQuestBlueprints, canViewGuildQuestBoard, createQuestBlueprint, getQuestBlueprintDetail, listGuildQuestTrackerSummary, startQuestAssignment, updateAssignmentStatus, updateQuestBlueprintMetadata, upsertQuestBlueprintGraph } from '../services/questTrackerService.js';
+import { applyAssignmentProgressUpdates, canManageQuestBlueprints, canEditQuestBlueprint, canViewGuildQuestBoard, createQuestBlueprint, getQuestBlueprintDetail, listGuildQuestTrackerSummary, startQuestAssignment, updateAssignmentStatus, updateQuestBlueprintMetadata, upsertQuestBlueprintGraph, QUEST_BLUEPRINT_PERMISSION_ERROR } from '../services/questTrackerService.js';
 export async function questTrackerRoutes(server) {
     const guildIdParams = z.object({ guildId: z.string() });
     server.get('/:guildId/quest-tracker', { preHandler: [authenticate] }, async (request, reply) => {
@@ -20,7 +20,8 @@ export async function questTrackerRoutes(server) {
             permissions: {
                 role: membership.role,
                 canManageBlueprints: canManageQuestBlueprints(membership.role),
-                canViewGuildBoard: canViewGuildQuestBoard(membership.role)
+                canViewGuildBoard: canViewGuildQuestBoard(membership.role),
+                canEditBlueprint: canManageQuestBlueprints(membership.role)
             }
         };
     });
@@ -62,12 +63,14 @@ export async function questTrackerRoutes(server) {
                 viewerUserId: request.user.userId,
                 includeGuildAssignments: canViewGuildQuestBoard(membership.role)
             });
+            const canEditBlueprint = canEditQuestBlueprint(membership.role, request.user.userId, detail.blueprint.createdById);
             return {
                 ...detail,
                 permissions: {
                     role: membership.role,
                     canManageBlueprints: canManageQuestBlueprints(membership.role),
-                    canViewGuildBoard: canViewGuildQuestBoard(membership.role)
+                    canViewGuildBoard: canViewGuildQuestBoard(membership.role),
+                    canEditBlueprint
                 },
                 availableNodeTypes: Object.values(QuestNodeType)
             };
@@ -81,8 +84,8 @@ export async function questTrackerRoutes(server) {
         const paramsSchema = guildIdParams.extend({ blueprintId: z.string() });
         const { guildId, blueprintId } = paramsSchema.parse(request.params);
         const membership = await getUserGuildRole(request.user.userId, guildId);
-        if (!membership || !canManageQuestBlueprints(membership.role)) {
-            return reply.forbidden('Only guild leaders or officers can update quest blueprints.');
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to update quest blueprints.');
         }
         const bodySchema = z.object({
             title: z.string().min(3).max(180).optional(),
@@ -99,11 +102,15 @@ export async function questTrackerRoutes(server) {
                 guildId,
                 blueprintId,
                 actorUserId: request.user.userId,
+                actorRole: membership.role,
                 data: parsed.data
             });
             return { blueprint };
         }
         catch (error) {
+            if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                return reply.forbidden('Only the creator or guild leaders/officers can edit this quest blueprint.');
+            }
             request.log.error({ error }, 'Failed to update quest blueprint');
             return reply.notFound('Quest blueprint not found.');
         }
@@ -112,8 +119,8 @@ export async function questTrackerRoutes(server) {
         const paramsSchema = guildIdParams.extend({ blueprintId: z.string() });
         const { guildId, blueprintId } = paramsSchema.parse(request.params);
         const membership = await getUserGuildRole(request.user.userId, guildId);
-        if (!membership || !canManageQuestBlueprints(membership.role)) {
-            return reply.forbidden('Only guild leaders or officers can edit quest blueprints.');
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to edit quest blueprints.');
         }
         const nodeSchema = z.object({
             id: z.string().min(1),
@@ -148,6 +155,7 @@ export async function questTrackerRoutes(server) {
                 guildId,
                 blueprintId,
                 actorUserId: request.user.userId,
+                actorRole: membership.role,
                 nodes: parsed.data.nodes,
                 links: parsed.data.links
             });
@@ -157,17 +165,22 @@ export async function questTrackerRoutes(server) {
                 viewerUserId: request.user.userId,
                 includeGuildAssignments: canViewGuildQuestBoard(membership.role)
             });
+            const canEditBlueprint = canEditQuestBlueprint(membership.role, request.user.userId, detail.blueprint.createdById);
             return {
                 ...detail,
                 permissions: {
                     role: membership.role,
                     canManageBlueprints: canManageQuestBlueprints(membership.role),
-                    canViewGuildBoard: canViewGuildQuestBoard(membership.role)
+                    canViewGuildBoard: canViewGuildQuestBoard(membership.role),
+                    canEditBlueprint
                 },
                 availableNodeTypes: Object.values(QuestNodeType)
             };
         }
         catch (error) {
+            if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                return reply.forbidden('Only the creator or guild leaders/officers can edit this quest blueprint.');
+            }
             request.log.error({ error }, 'Failed to update quest blueprint graph');
             const message = error instanceof Error && error.message ? error.message : 'Unable to update quest blueprint graph.';
             return reply.badRequest(message);
@@ -180,11 +193,19 @@ export async function questTrackerRoutes(server) {
         if (!membership) {
             return reply.forbidden('You must be a guild member to start a quest.');
         }
+        const bodySchema = z.object({
+            characterId: z.string().min(1, 'Character is required.')
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Character selection is required to start this quest.');
+        }
         try {
             const assignment = await startQuestAssignment({
                 guildId,
                 blueprintId,
-                userId: request.user.userId
+                userId: request.user.userId,
+                characterId: parsedBody.data.characterId
             });
             return reply.code(201).send({ assignment });
         }

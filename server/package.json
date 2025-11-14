@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ../scripts/run-with-db-url.cjs tsx watch --clear-screen=false src/index.ts",
-    "build": "node ../scripts/run-with-db-url.cjs --allow-missing prisma generate && tsc",
+    "build": "npm run prisma:generate && tsc",
     "start": "node ../scripts/run-with-db-url.cjs node build/index.js",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
