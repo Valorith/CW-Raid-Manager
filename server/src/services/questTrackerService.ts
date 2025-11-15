@@ -2028,5 +2028,5 @@ export function canEditQuestBlueprint(
 }
 
 export function canViewGuildQuestBoard(role: GuildRole | null | undefined): boolean {
-  return canManageQuestBlueprints(role);
+  return Boolean(role);
 }

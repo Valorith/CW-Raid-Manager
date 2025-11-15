@@ -214,18 +214,20 @@
           </div>
           <div class="quest-detail__toolbar">
             <div class="quest-detail__tracking">
-              <div v-if="viewerAssignmentCharacter" class="quest-character-pill">
+              <div v-if="displayAssignmentCharacter" class="quest-character-pill">
                 <div class="quest-character-pill__icon">
                   <img
-                    v-if="getCharacterClassIcon(viewerAssignmentCharacter.class)"
-                    :src="getCharacterClassIcon(viewerAssignmentCharacter.class) || undefined"
-                    :alt="characterClassLabels[viewerAssignmentCharacter.class] || 'Class icon'"
+                    v-if="getCharacterClassIcon(displayAssignmentCharacter.class)"
+                    :src="getCharacterClassIcon(displayAssignmentCharacter.class) || undefined"
+                    :alt="characterClassLabels[displayAssignmentCharacter.class] || 'Class icon'"
                   />
-                  <span v-else>{{ viewerAssignmentCharacter.class?.[0] ?? '?' }}</span>
+                  <span v-else>{{ displayAssignmentCharacter.class?.[0] ?? '?' }}</span>
                 </div>
                 <div class="quest-character-pill__meta">
-                  <span class="quest-character-pill__label">Tracking as</span>
-                  <template v-if="hasMultipleViewerAssignments">
+                  <span class="quest-character-pill__label">
+                    {{ isViewingGuildAssignment ? 'Viewing' : 'Tracking as' }}
+                  </span>
+                  <template v-if="hasMultipleViewerAssignments && !isViewingGuildAssignment">
                     <select
                       id="viewer-character-select"
                       class="quest-character-select"
@@ -238,12 +240,18 @@
                     </select>
                   </template>
                   <template v-else>
-                    <strong>{{ viewerAssignmentCharacter.name }}</strong>
+                    <strong>{{ displayAssignmentCharacter.name }}</strong>
                   </template>
                   <span v-if="!hasMultipleViewerAssignments" class="quest-character-pill__class">
-                    {{ characterClassLabels[viewerAssignmentCharacter.class] ?? viewerAssignmentCharacter.class }}
+                    {{ characterClassLabels[displayAssignmentCharacter.class] ?? displayAssignmentCharacter.class }}
                   </span>
                 </div>
+              </div>
+              <div v-if="focusedGuildAssignmentLabel" class="quest-detail__viewing-note">
+                Viewing progress for {{ focusedGuildAssignmentLabel }}.
+                <button class="btn btn--ghost btn--tiny" type="button" @click="clearGuildAssignmentFocus">
+                  View my quest
+                </button>
               </div>
             </div>
             <div class="quest-tabs quest-detail__tabs">
@@ -262,45 +270,54 @@
               </button>
             </div>
             <div class="quest-detail__actions">
-              <button
-                v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
-                class="btn btn--outline btn--small"
-                type="button"
-                :disabled="assignmentUpdating"
-                @click="completeAssignment"
-              >
-                {{ assignmentUpdating ? 'Saving…' : 'Mark Complete' }}
-              </button>
-              <button
-                v-if="viewerAssignment && viewerAssignment.status !== 'CANCELLED'"
-                class="btn btn--danger btn--small"
-                type="button"
-                :disabled="assignmentUpdating"
-                @click="cancelAssignment"
-              >
-                {{ assignmentUpdating ? 'Updating…' : 'Abandon Quest' }}
-              </button>
-              <button
-                v-if="!charactersLoaded || hasEligibleCharacters"
-                class="btn btn--start"
-                type="button"
-                :disabled="assignmentUpdating"
-                @click="startAssignment"
-              >
-                {{ assignmentUpdating ? 'Starting…' : 'Start Quest' }}
-              </button>
-              <p v-else class="quest-detail__hint muted">
-                {{
-                  viewerAssignments.length
-                    ? 'All of your characters are already tracking this quest.'
-                    : 'Add a guild character to start tracking this quest.'
-                }}
-              </p>
+              <template v-if="!isViewingGuildAssignment">
+                <button
+                  v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  :disabled="assignmentUpdating"
+                  @click="completeAssignment"
+                >
+                  {{ assignmentUpdating ? 'Saving…' : 'Mark Complete' }}
+                </button>
+                <button
+                  v-if="viewerAssignment && viewerAssignment.status !== 'CANCELLED'"
+                  class="btn btn--danger btn--small"
+                  type="button"
+                  :disabled="assignmentUpdating"
+                  @click="cancelAssignment"
+                >
+                  {{ assignmentUpdating ? 'Updating…' : 'Abandon Quest' }}
+                </button>
+                <button
+                  v-if="!charactersLoaded || hasEligibleCharacters"
+                  class="btn btn--start"
+                  type="button"
+                  :disabled="assignmentUpdating"
+                  @click="startAssignment"
+                >
+                  {{ assignmentUpdating ? 'Starting…' : 'Start Quest' }}
+                </button>
+                <p v-else class="quest-detail__hint muted">
+                  {{
+                    viewerAssignments.length
+                      ? 'All of your characters are already tracking this quest.'
+                      : 'Add a guild character to start tracking this quest.'
+                  }}
+                </p>
+              </template>
+              <div v-else class="quest-detail__hint quest-detail__hint--inline">
+                Viewing another guild member's progress. Switch back to your quest to make updates.
+              </div>
             </div>
           </div>
         </header>
 
-        <section v-if="activeTab === 'overview'" class="quest-panel quest-panel--canvas">
+        <section
+          v-if="isCanvasView"
+          class="quest-panel quest-panel--canvas"
+          :class="{ 'quest-panel--guild': isGuildView }"
+        >
           <div
             :class="['quest-canvas', { 'quest-canvas--panning': isOverviewPanning }]"
             ref="overviewCanvasRef"
@@ -348,7 +365,8 @@
                       (!showOverviewDisabledState || !isNodeDisabled(node.id)) && isNodeCompleted(node.id),
                     'quest-node--disabled': showOverviewDisabledState && isNodeDisabled(node.id),
                     'quest-node--final': isNodeFinal(node.id),
-                    'quest-node--group': node.isGroup
+                    'quest-node--group': node.isGroup,
+                    'quest-node--guild-active': isGuildView && guildIconNodeIds.has(node.id)
                   }
                 ]"
                 :style="nodeStyle(node, false, 'viewer')"
@@ -374,7 +392,7 @@
                     title="End of Quest"
                   />
                   <span
-                    v-if="viewerNodeStatus(node.id) !== 'NOT_STARTED'"
+                    v-if="!isGuildView && viewerNodeStatus(node.id) !== 'NOT_STARTED'"
                     class="quest-node__status"
                     :class="statusClass(viewerNodeStatus(node.id))"
                   >
@@ -386,13 +404,31 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
-                <div v-if="node.isGroup" class="quest-node__group-tally">
-                  {{ formatGroupProgress(node.id, viewerAssignment?.progress, 'viewer') }}
+                <div v-if="node.isGroup && canvasAssignment" class="quest-node__group-tally">
+                  {{ formatGroupProgress(node.id, canvasAssignment?.progress, 'viewer') }}
+                </div>
+                <div
+                  v-if="isGuildView && guildPinsForNode(node.id).length"
+                  class="quest-node__badges"
+                  :class="{ 'quest-node__badges--intro': showGuildIntroHighlight }"
+                >
+                  <button
+                    v-for="pin in guildPinsForNode(node.id)"
+                    :key="`${pin.assignmentId}-${pin.characterName}`"
+                    type="button"
+                    class="quest-node-badge"
+                    :title="pin.tooltip"
+                    :aria-label="`View ${pin.characterName}`"
+                    @click.stop="handleGuildAssignmentClick(pin.assignmentId)"
+                  >
+                    <img v-if="pin.icon" :src="pin.icon || undefined" :alt="pin.classLabel" />
+                    <span v-else>{{ pin.fallback }}</span>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-          <div v-if="viewerAssignment" class="quest-overview__footer">
+          <div v-if="!isGuildView && viewerAssignment" class="quest-overview__footer">
             <p class="quest-overview__hint">Right-click any quest step to update its status.</p>
             <div class="quest-overview__legend">
               <img
@@ -403,6 +439,11 @@
               />
               <span class="quest-overview__legend-label">Quest Complete</span>
             </div>
+          </div>
+          <div v-else-if="isGuildView" class="quest-guild-legend">
+            <p class="quest-guild-legend__hint">
+              Hover a class icon to see who owns it, then click to jump into their progress on the overview canvas.
+            </p>
           </div>
         </section>
 
@@ -624,32 +665,6 @@
           </div>
         </section>
 
-        <section v-if="activeTab === 'guild'" class="quest-panel">
-          <h3>Active Players</h3>
-          <p v-if="!selectedDetail.guildAssignments?.length" class="muted">No active assignments for this blueprint.</p>
-          <ul v-else class="quest-guild-list">
-            <li v-for="assignment in selectedDetail.guildAssignments" :key="assignment.id" class="quest-guild-list__item">
-              <div>
-                <strong>{{ assignment.user?.displayName ?? 'Member' }}</strong>
-                <span class="muted small">{{ questAssignmentStatusLabels[assignment.status] }}</span>
-              </div>
-              <div class="quest-progress-bar quest-progress-bar--compact">
-                <div
-                  class="quest-progress-bar__value"
-                  :style="{ width: formatPercent(assignment.progressSummary.percentComplete) }"
-                ></div>
-              </div>
-              <div class="quest-guild-list__nodes">
-                <span
-                  v-for="node in selectedDetail.nodes"
-                  :key="`${assignment.id}-${node.id}`"
-                  :class="['quest-guild-list__node', assignmentNodeClass(assignmentNodeStatus(assignment, node.id))]"
-                  :title="`${node.title}: ${assignmentNodeStatus(assignment, node.id)}`"
-                ></span>
-              </div>
-            </li>
-          </ul>
-        </section>
       </div>
 
       <div v-else class="quest-empty">
@@ -884,7 +899,6 @@ import {
   QuestNodeProgressStatus,
   QuestNodeType,
   characterClassLabels,
-  questAssignmentStatusLabels,
   questNodeTypeColors,
   questNodeTypeLabels,
   getCharacterClassIcon
@@ -911,6 +925,8 @@ const progressUpdating = ref(false);
 const sidebarSearch = ref('');
 const selectedBlueprintId = ref<string | null>(null);
 const activeTab = ref<'overview' | 'editor' | 'guild'>('overview');
+const isCanvasView = computed(() => activeTab.value === 'overview' || activeTab.value === 'guild');
+const isGuildView = computed(() => activeTab.value === 'guild');
 const showCreateModal = ref(false);
 const metadataSaving = ref(false);
 const lastSavedAt = ref<string | null>(null);
@@ -1191,6 +1207,7 @@ const folderOrderIndex = (folderId: string) => orderedFolders.value.findIndex((e
 
 
 const selectedDetail = computed(() => detail.value);
+const guildAssignments = computed(() => detail.value?.guildAssignments ?? []);
 const viewerAssignments = computed(() => detail.value?.viewerAssignments ?? []);
 const viewerAssignmentOptions = computed(() =>
   viewerAssignments.value.map((assignment) => {
@@ -1232,6 +1249,22 @@ watch(
   { immediate: true, deep: true }
 );
 
+const guildFocusAssignmentId = ref<string | null>(null);
+const showGuildIntroHighlight = ref(false);
+
+watch(
+  guildAssignments,
+  (assignments) => {
+    if (!guildFocusAssignmentId.value) {
+      return;
+    }
+    if (!assignments.some((assignment) => assignment.id === guildFocusAssignmentId.value)) {
+      guildFocusAssignmentId.value = null;
+    }
+  },
+  { immediate: true, deep: true }
+);
+
 const viewerAssignment = computed(() => {
   if (activeTab.value !== 'overview') {
     return null;
@@ -1242,7 +1275,11 @@ const viewerAssignment = computed(() => {
   }
   return assignment;
 });
-const viewerAssignmentCharacter = computed(() => viewerAssignment.value?.character ?? null);
+const focusedGuildAssignment = computed(
+  () => guildAssignments.value.find((assignment) => assignment.id === guildFocusAssignmentId.value) ?? null
+);
+const canvasAssignment = computed(() => focusedGuildAssignment.value ?? viewerAssignment.value ?? null);
+const displayAssignmentCharacter = computed(() => canvasAssignment.value?.character ?? null);
 const blockedAssignmentCharacterIds = computed(() => {
   const set = new Set<string>();
   for (const assignment of viewerAssignments.value) {
@@ -1280,9 +1317,17 @@ const viewerProgressMap = computed(() => {
   }
   return map;
 });
-const completedNodeIds = computed(() => {
+const canvasProgressMap = computed(() => {
+  const map = new Map<string, QuestNodeProgressStatus>();
+  const progress = canvasAssignment.value?.progress ?? [];
+  for (const record of progress) {
+    map.set(record.nodeId, record.status);
+  }
+  return map;
+});
+const canvasCompletedNodeIds = computed(() => {
   const set = new Set<string>();
-  viewerProgressMap.value.forEach((status, nodeId) => {
+  canvasProgressMap.value.forEach((status, nodeId) => {
     if (status === 'COMPLETED') {
       set.add(nodeId);
     }
@@ -1290,7 +1335,17 @@ const completedNodeIds = computed(() => {
   return set;
 });
 const viewerAssignmentId = computed(() => viewerAssignment.value?.id ?? null);
-const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value));
+const isViewingGuildAssignment = computed(
+  () => Boolean(focusedGuildAssignment.value && focusedGuildAssignment.value.id !== viewerAssignmentId.value)
+);
+const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value) && !isViewingGuildAssignment.value);
+const focusedGuildAssignmentLabel = computed(() => {
+  const assignment = focusedGuildAssignment.value;
+  if (!assignment) {
+    return null;
+  }
+  return assignment.character?.name ?? assignment.user?.displayName ?? 'Guild member';
+});
 const nodeStatuses: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
 const nodeStatusMenuClassMap: Record<QuestNodeProgressStatus, string> = {
   NOT_STARTED: 'quest-context-menu__status--muted',
@@ -1366,7 +1421,7 @@ function isGroupNode(nodeId: string) {
 }
 
 function isNodeCompleted(nodeId: string) {
-  return completedNodeIds.value.has(nodeId);
+  return canvasCompletedNodeIds.value.has(nodeId);
 }
 
 function readNodeFlag(node: QuestNodeViewModel | EditableNode | undefined, flag: 'isFinal'): boolean {
@@ -1594,12 +1649,12 @@ function applyOverviewFit() {
 }
 
 function scheduleOverviewFit(force = false) {
-  if (!force && activeTab.value !== 'overview') {
+  if (!force && !isCanvasView.value) {
     return;
   }
   nextTick(() => {
     requestAnimationFrame(() => {
-      if (activeTab.value !== 'overview') {
+      if (!isCanvasView.value) {
         return;
       }
       const applied = applyOverviewFit();
@@ -1614,13 +1669,13 @@ function scheduleOverviewFit(force = false) {
 
 function requestOverviewFit() {
   overviewFitPending = true;
-  if (activeTab.value === 'overview') {
+  if (isCanvasView.value) {
     scheduleOverviewFit(true);
   }
 }
 
 function handleOverviewPointerDown(event: PointerEvent) {
-  if (activeTab.value !== 'overview' || event.button !== 0) {
+  if (!isCanvasView.value || event.button !== 0) {
     return;
   }
   beginOverviewPan(event);
@@ -1663,7 +1718,7 @@ function beginOverviewPan(event: PointerEvent) {
 }
 
 function handleOverviewWheel(event: WheelEvent) {
-  if (activeTab.value !== 'overview') {
+  if (!isCanvasView.value) {
     return;
   }
   const canvas = overviewCanvasRef.value;
@@ -2564,7 +2619,7 @@ function viewerNodeStatus(nodeId: string): QuestNodeProgressStatus {
   if (isNodeDisabled(nodeId)) {
     return 'NOT_STARTED';
   }
-  return viewerProgressMap.value.get(nodeId) ?? 'NOT_STARTED';
+  return canvasProgressMap.value.get(nodeId) ?? 'NOT_STARTED';
 }
 
 function statusClass(status?: QuestNodeProgressStatus) {
@@ -2591,21 +2646,94 @@ function displayNodeType(nodeType: QuestNodeType, isGroup?: boolean) {
   return questNodeTypeLabels[nodeType] ?? nodeType;
 }
 
-function assignmentNodeClass(status?: QuestNodeProgressStatus) {
-  switch (status) {
-    case 'COMPLETED':
-      return 'quest-node-dot--success';
-    case 'IN_PROGRESS':
-      return 'quest-node-dot--warning';
-    case 'BLOCKED':
-      return 'quest-node-dot--danger';
-    default:
-      return 'quest-node-dot--muted';
+type GuildNodePin = {
+  assignmentId: string;
+  characterName: string;
+  classLabel: string;
+  icon: string | null;
+  fallback: string;
+  tooltip: string;
+};
+
+const guildNodePinsById = computed(() => {
+  const map = new Map<string, GuildNodePin[]>();
+  const nodes = detail.value?.nodes ?? [];
+  if (!nodes.length) {
+    return map;
   }
+  for (const assignment of guildAssignments.value) {
+    if (!assignment.character) {
+      continue;
+    }
+    if (assignment.status === 'COMPLETED' || assignment.status === 'CANCELLED') {
+      continue;
+    }
+    const nextNodeId = findNextNodeIdForAssignment(assignment, nodes);
+    if (!nextNodeId) {
+      continue;
+    }
+    const classLabel = characterClassLabels[assignment.character.class] ?? assignment.character.class;
+    const tooltipParts = [assignment.character.name];
+    if (assignment.user?.displayName && assignment.user.displayName !== assignment.character.name) {
+      tooltipParts.push(`— ${assignment.user.displayName}`);
+    }
+    const icon = getCharacterClassIcon(assignment.character.class);
+    const fallback = assignment.character.class?.[0] ?? assignment.character.name[0] ?? '?';
+    const entry = map.get(nextNodeId) ?? [];
+    entry.push({
+      assignmentId: assignment.id,
+      characterName: assignment.character.name,
+      classLabel,
+      icon,
+      fallback,
+      tooltip: tooltipParts.join(' ')
+    });
+    entry.sort((a, b) => a.characterName.localeCompare(b.characterName));
+    map.set(nextNodeId, entry);
+  }
+  return map;
+});
+
+const guildIconNodeIds = computed(() => {
+  const ids = new Set<string>();
+  guildNodePinsById.value.forEach((_, nodeId) => ids.add(nodeId));
+  return ids;
+});
+
+function guildPinsForNode(nodeId: string): GuildNodePin[] {
+  return guildNodePinsById.value.get(nodeId) ?? [];
 }
 
-function assignmentNodeStatus(assignment: QuestAssignment, nodeId: string): QuestNodeProgressStatus {
-  return assignment.progress.find((progress) => progress.nodeId === nodeId)?.status ?? 'NOT_STARTED';
+function findNextNodeIdForAssignment(
+  assignment: QuestAssignment,
+  nodes: QuestNodeViewModel[]
+): string | null {
+  for (const node of nodes) {
+    if (node.isOptional) {
+      continue;
+    }
+    const progressRecord = assignment.progress.find((entry) => entry.nodeId === node.id);
+    if (progressRecord?.isDisabled) {
+      continue;
+    }
+    if (!progressRecord || progressRecord.status !== 'COMPLETED') {
+      return node.id;
+    }
+  }
+  return null;
+}
+
+function handleGuildAssignmentClick(assignmentId: string) {
+  if (guildFocusAssignmentId.value === assignmentId && activeTab.value === 'overview') {
+    return;
+  }
+  guildFocusAssignmentId.value = assignmentId;
+  setTab('overview');
+}
+
+function clearGuildAssignmentFocus() {
+  guildFocusAssignmentId.value = null;
+  showGuildIntroHighlight.value = false;
 }
 
 function selectBlueprint(id: string) {
@@ -3079,7 +3207,7 @@ async function loadSummary(initial = false) {
       selectBlueprint(data.blueprints[0].id);
     }
   } catch (error) {
-    summaryError.value = extractErrorMessage(error) ?? 'Failed to load quest tracker.';
+    summaryError.value = extractErrorMessage(error, 'Failed to load quest tracker.');
     throw error;
   } finally {
     loadingSummary.value = false;
@@ -4165,16 +4293,28 @@ watch(selectedBlueprintId, (blueprintId) => {
   loadDetail(blueprintId).catch((error) => console.error('Failed to load quest detail', error));
   showCharacterModal.value = false;
   characterStartError.value = null;
+  guildFocusAssignmentId.value = null;
 });
 
 watch(
   () => activeTab.value,
-  (tab) => {
-    if (tab === 'overview') {
+  (tab, prevTab) => {
+    if (tab === 'overview' || tab === 'guild') {
       scheduleOverviewFit(true);
     }
     if (tab === 'editor') {
       scheduleEditorFit();
+    }
+    if (tab === 'guild') {
+      guildFocusAssignmentId.value = null;
+      if (prevTab !== 'guild') {
+        showGuildIntroHighlight.value = true;
+        window.setTimeout(() => {
+          showGuildIntroHighlight.value = false;
+        }, 3000);
+      }
+    } else {
+      showGuildIntroHighlight.value = false;
     }
   }
 );
@@ -4798,6 +4938,21 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.quest-detail__hint--inline {
+  text-align: left;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.quest-detail__viewing-note {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .quest-detail__stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -5059,6 +5214,14 @@ onUnmounted(() => {
   border-color: rgba(148, 163, 184, 0.45);
   background: rgba(15, 23, 42, 0.7);
   box-shadow: none;
+}
+
+.quest-node--guild-active {
+  border-color: rgba(56, 189, 248, 0.65);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 64, 175, 0.45));
+  box-shadow:
+    0 0 0 2px rgba(56, 189, 248, 0.2),
+    0 14px 36px rgba(15, 23, 42, 0.45);
 }
 
 .quest-node--group {
@@ -5461,48 +5624,161 @@ onUnmounted(() => {
   margin-top: 0.5rem;
 }
 
-.quest-guild-list {
-  list-style: none;
+.quest-node__badges {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: center;
+  position: relative;
+}
+
+.quest-node__badges--intro .quest-node-badge::after {
+  animation: questBadgeIntroFlash 0.9s ease-in-out infinite;
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow:
+    0 0 16px rgba(59, 130, 246, 0.35),
+    0 0 6px rgba(59, 130, 246, 0.55) inset;
+}
+
+
+.quest-node-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   padding: 0;
-  margin: 1rem 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  transform-origin: center;
+  animation: questBadgePulse 2.8s ease-in-out infinite;
+  position: relative;
 }
 
-.quest-guild-list__item {
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 1rem;
-  padding: 0.85rem;
+.quest-node-badge::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 8px;
+  background: radial-gradient(circle at 30% 30%, rgba(59, 130, 246, 0.35), rgba(15, 23, 42, 0.05));
+  filter: blur(1.5px);
+  z-index: -1;
+  animation: questBadgeGlow 2.8s ease-in-out infinite;
 }
 
-.quest-guild-list__nodes {
-  display: flex;
-  gap: 0.35rem;
-  margin-top: 0.5rem;
+.quest-node-badge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  box-shadow:
+    0 0 12px rgba(96, 165, 250, 0.2),
+    0 0 4px rgba(59, 130, 246, 0.4) inset;
+  opacity: 0.7;
+  animation: questBadgeHalo 3s ease-in-out infinite;
 }
 
-.quest-guild-list__node {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.4);
+.quest-node-badge::before,
+.quest-node-badge::after {
+  pointer-events: none;
 }
 
-.quest-node-dot--success {
-  background: #22c55e;
+.quest-node-badge img {
+  width: 76%;
+  height: 76%;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.2);
+  padding: 2px;
+  filter: drop-shadow(0 4px 10px rgba(15, 23, 42, 0.45));
+  transition: transform 0.2s ease;
 }
 
-.quest-node-dot--warning {
-  background: #facc15;
+.quest-node-badge:hover {
+  animation-play-state: paused;
 }
 
-.quest-node-dot--danger {
-  background: #f87171;
+.quest-node-badge:hover img {
+  transform: translateY(-1px) scale(1.05);
 }
 
-.quest-node-dot--muted {
-  background: rgba(148, 163, 184, 0.4);
+.quest-node-badge span {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+@keyframes questBadgePulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes questBadgeGlow {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes questBadgeHalo {
+  0% {
+    opacity: 0.25;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.25;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes questBadgeIntroFlash {
+  0% {
+    opacity: 0.2;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.2;
+    transform: scale(0.95);
+  }
+}
+
+.quest-guild-legend {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.quest-guild-legend__hint {
+  margin: 0;
+  text-align: center;
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.9rem;
 }
 
 .quest-loading,
