@@ -825,6 +825,7 @@ type NodeAdjacencyEntry = {
   nodeId: string;
   isNextStep: boolean;
   isOptional: boolean;
+  isGroup: boolean;
 };
 const NODE_FACES: NodeFace[] = ['top', 'right', 'bottom', 'left'];
 const FACE_NORMALS: Record<NodeFace, Point> = {
@@ -1521,7 +1522,8 @@ const childNodeMap = computed(() => {
     list.push({
       nodeId: link.childNodeId,
       isNextStep: isNextStepLink(link),
-      isOptional: renderedNodeIndex.value.get(link.childNodeId)?.isOptional ?? false
+      isOptional: renderedNodeIndex.value.get(link.childNodeId)?.isOptional ?? false,
+      isGroup: renderedNodeIndex.value.get(link.childNodeId)?.isGroup ?? false
     });
     map.set(link.parentNodeId, list);
   }
@@ -1535,25 +1537,63 @@ const parentNodeMap = computed(() => {
     list.push({
       nodeId: link.parentNodeId,
       isNextStep: isNextStepLink(link),
-      isOptional: renderedNodeIndex.value.get(link.parentNodeId)?.isOptional ?? false
+      isOptional: renderedNodeIndex.value.get(link.parentNodeId)?.isOptional ?? false,
+      isGroup: renderedNodeIndex.value.get(link.parentNodeId)?.isGroup ?? false
     });
     map.set(link.childNodeId, list);
   }
   return map;
 });
 
-const groupChildNodeMap = computed(() => {
+const groupDescendantsMap = computed(() => {
   const map = new Map<string, string[]>();
-  for (const [parentId, entries] of childNodeMap.value.entries()) {
-    const filtered = entries
-      .filter((entry) => !entry.isNextStep && !entry.isOptional)
-      .map((entry) => entry.nodeId);
-    if (filtered.length) {
-      map.set(parentId, filtered);
-    }
-  }
+  renderedNodes.value.forEach((node) => {
+    const includeGroupNodes = Boolean(node.isGroup);
+    map.set(
+      node.id,
+      collectRequiredDescendants(node.id, includeGroupNodes, { blockNextStepOnlyAtRoot: Boolean(node.isGroup) })
+    );
+  });
+
   return map;
 });
+
+function collectRequiredDescendants(
+  nodeId: string,
+  includeGroupNodes: boolean,
+  options?: { blockNextStepOnlyAtRoot?: boolean }
+): string[] {
+  const adjacency = childNodeMap.value;
+  const visited = new Set<string>();
+  const counted = new Set<string>();
+  const stack = (adjacency.get(nodeId) ?? []).map((entry) => ({
+    entry,
+    parentId: nodeId
+  }));
+  while (stack.length) {
+    const { entry, parentId } = stack.pop()!;
+    const blockNextStep =
+      entry.isNextStep && (!options?.blockNextStepOnlyAtRoot || parentId === nodeId);
+    if (blockNextStep || entry.isOptional) {
+      continue;
+    }
+    if (visited.has(entry.nodeId)) {
+      continue;
+    }
+    visited.add(entry.nodeId);
+    if (includeGroupNodes || !entry.isGroup) {
+      counted.add(entry.nodeId);
+    }
+    const nextEntries = adjacency.get(entry.nodeId) ?? [];
+    nextEntries.forEach((child) =>
+      stack.push({
+        entry: child,
+        parentId: entry.nodeId
+      })
+    );
+  }
+  return Array.from(counted);
+}
 
 function getUpstreamNodeIds(nodeId: string): string[] {
   const parents = parentNodeMap.value;
@@ -1575,33 +1615,6 @@ function getUpstreamNodeIds(nodeId: string): string[] {
   }
   return Array.from(visited);
 }
-
-const groupDescendantsMap = computed(() => {
-  const map = new Map<string, string[]>();
-  const children = groupChildNodeMap.value;
-  const allNodeIds = new Set(renderedNodes.value.map((node) => node.id));
-
-  for (const nodeId of allNodeIds) {
-    const visited = new Set<string>();
-    const queue = [...(children.get(nodeId) ?? [])];
-    while (queue.length) {
-      const childId = queue.shift()!;
-      if (visited.has(childId)) {
-        continue;
-      }
-      visited.add(childId);
-      const childChildren = children.get(childId) ?? [];
-      childChildren.forEach((descendantId) => {
-        if (!visited.has(descendantId)) {
-          queue.push(descendantId);
-        }
-      });
-    }
-    map.set(nodeId, Array.from(visited));
-  }
-
-  return map;
-});
 
 const nodeBranchAssignments = computed(() => {
   const assignments = new Map<string, { branchIndex: number; depth: number }>();
@@ -1681,26 +1694,13 @@ function getGroupDescendants(nodeId: string) {
 }
 
 function getDownstreamNodeIds(nodeId: string) {
-  const visited = new Set<string>();
-  const queue = [...(childNodeMap.value.get(nodeId) ?? [])];
-  while (queue.length) {
-    const entry = queue.shift()!;
-    if (visited.has(entry.nodeId)) {
-      continue;
-    }
-    visited.add(entry.nodeId);
-    const children = childNodeMap.value.get(entry.nodeId) ?? [];
-    children.forEach((child) => {
-      if (!visited.has(child.nodeId)) {
-        queue.push(child);
-      }
-    });
-  }
-  return Array.from(visited);
+  return collectRequiredDescendants(nodeId, true);
 }
 
 function isGroupChildLink(parentId: string, childId: string) {
-  return (groupChildNodeMap.value.get(parentId) ?? []).includes(childId);
+  return (childNodeMap.value.get(parentId) ?? []).some(
+    (entry) => !entry.isOptional && !entry.isNextStep && entry.nodeId === childId
+  );
 }
 
 function getNextStepGroupAncestors(nodeId: string): string[] {
@@ -1748,9 +1748,10 @@ function getGroupProgress(
   progress: QuestNodeProgress[] | undefined,
   mode: 'editor' | 'viewer' = 'viewer'
 ) {
-  const childIds = getGroupDescendants(nodeId).filter((childId) =>
+  const descendantIds = getGroupDescendants(nodeId).filter((childId) =>
     mode === 'viewer' ? !isNodeDisabled(childId) : true
   );
+  const childIds = descendantIds.filter((childId) => !isGroupNode(childId));
   if (!childIds.length) {
     return { completed: 0, total: 0 };
   }
