@@ -1074,6 +1074,12 @@ const dragOverBlueprintId = ref<string | null>(null);
 const folderListRef = ref<HTMLElement | null>(null);
 const scrollTicker = ref<number | null>(null);
 const scrollDirection = ref<'up' | 'down' | null>(null);
+const dragScrollState = reactive<{ active: boolean; baseX: number; baseY: number; resetFrame: number | null }>({
+  active: false,
+  baseX: 0,
+  baseY: 0,
+  resetFrame: null
+});
 const globalDragOverHandler = (event: DragEvent) => {
   if (!draggingBlueprintId.value) {
     return;
@@ -1759,6 +1765,33 @@ const OVERVIEW_CANVAS_PADDING = 48;
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
+
+function handleWindowScroll() {
+  if (!dragScrollState.active || !draggingBlueprintId.value) {
+    dragScrollState.baseX = window.scrollX;
+    dragScrollState.baseY = window.scrollY;
+    return;
+  }
+  const container = folderListRef.value;
+  if (!container || container.scrollHeight <= container.clientHeight) {
+    dragScrollState.baseX = window.scrollX;
+    dragScrollState.baseY = window.scrollY;
+    return;
+  }
+  const deltaY = window.scrollY - dragScrollState.baseY;
+  if (!deltaY) {
+    return;
+  }
+  const maxScroll = container.scrollHeight - container.clientHeight;
+  container.scrollTop = clamp(container.scrollTop + deltaY, 0, maxScroll);
+  if (dragScrollState.resetFrame) {
+    cancelAnimationFrame(dragScrollState.resetFrame);
+  }
+  dragScrollState.resetFrame = requestAnimationFrame(() => {
+    window.scrollTo(dragScrollState.baseX, dragScrollState.baseY);
+    dragScrollState.resetFrame = null;
+  });
+}
 const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#a855f7', '#a78bfa', '#f97316', '#a3e635'];
 const BRANCH_ANIMATION_STAGGER = 0.25;
 const DEFAULT_BRANCH_COLOR = '#38bdf8';
@@ -2397,6 +2430,7 @@ onMounted(() => {
   measureNodeDimensions();
   window.addEventListener('resize', handleWindowResize);
   window.addEventListener('dragover', globalDragOverHandler);
+  window.addEventListener('scroll', handleWindowScroll, { passive: true });
   if (typeof ResizeObserver !== 'undefined') {
     overviewResizeObserver = new ResizeObserver(() => requestOverviewFit());
     if (overviewCanvasRef.value) {
@@ -2408,6 +2442,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize);
   window.removeEventListener('dragover', globalDragOverHandler);
+  window.removeEventListener('scroll', handleWindowScroll);
   overviewResizeObserver?.disconnect();
   overviewResizeObserver = null;
 });
@@ -2623,6 +2658,9 @@ function handleBlueprintDragStart(blueprintId: string) {
   if (!scrollTicker.value) {
     scrollTicker.value = window.setInterval(applyAutoScroll, 16);
   }
+  dragScrollState.active = true;
+  dragScrollState.baseX = window.scrollX;
+  dragScrollState.baseY = window.scrollY;
 }
 
 function handleBlueprintDragEnd() {
@@ -2633,6 +2671,13 @@ function handleBlueprintDragEnd() {
   if (scrollTicker.value) {
     window.clearInterval(scrollTicker.value);
     scrollTicker.value = null;
+  }
+  dragScrollState.active = false;
+  dragScrollState.baseX = window.scrollX;
+  dragScrollState.baseY = window.scrollY;
+  if (dragScrollState.resetFrame) {
+    cancelAnimationFrame(dragScrollState.resetFrame);
+    dragScrollState.resetFrame = null;
   }
 }
 
@@ -2711,12 +2756,21 @@ function getScrollDirection(event: DragEvent): 'up' | 'down' | null {
   if (!container) {
     return null;
   }
+  if (container.scrollHeight <= container.clientHeight) {
+    return null;
+  }
   const rect = container.getBoundingClientRect();
-  const threshold = 80;
-  if (event.clientY < rect.top + threshold) {
+  const viewportTop = Math.max(rect.top, 0);
+  const viewportBottom = Math.min(rect.bottom, window.innerHeight);
+  const visibleHeight = viewportBottom - viewportTop;
+  if (visibleHeight <= 0) {
+    return null;
+  }
+  const threshold = Math.min(80, visibleHeight / 2);
+  if (event.clientY < viewportTop + threshold) {
     return 'up';
   }
-  if (event.clientY > rect.bottom - threshold) {
+  if (event.clientY > viewportBottom - threshold) {
     return 'down';
   }
   return null;
