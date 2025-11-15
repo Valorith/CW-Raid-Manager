@@ -49,7 +49,13 @@
           New folder
         </button>
       </div>
-      <div class="quest-folder-list">
+      <div
+        class="quest-folder-list"
+        ref="folderListRef"
+        @dragover="handleFolderListDragOver"
+        @dragleave="scrollDirection = null"
+        @dragenter="handleFolderListDragEnter"
+      >
         <section
           v-for="section in blueprintSections"
           :key="section.id ?? 'root'"
@@ -1044,6 +1050,16 @@ const folderReorderLoading = ref(false);
 const draggingBlueprintId = ref<string | null>(null);
 const dragOverFolderId = ref<string | null>(null);
 const dragOverBlueprintId = ref<string | null>(null);
+const folderListRef = ref<HTMLElement | null>(null);
+const scrollTicker = ref<number | null>(null);
+const scrollDirection = ref<'up' | 'down' | null>(null);
+const globalDragOverHandler = (event: DragEvent) => {
+  if (!draggingBlueprintId.value) {
+    return;
+  }
+  event.preventDefault();
+  scrollDirection.value = getScrollDirection(event);
+};
 const canDragBlueprints = computed(() => canManageBlueprints.value && !blueprintReorderLoading.value);
 const blueprintContextMenuBlueprint = computed(() => {
   if (!blueprintContextMenu.blueprintId) {
@@ -1927,11 +1943,15 @@ function applyGroupHierarchyStatus(
   groupId: string,
   status: 'COMPLETED' | 'NOT_STARTED',
   updates: Map<string, QuestNodeProgressStatus>,
-  newlyCompleted?: Set<string>
+  newlyCompleted?: Set<string>,
+  includeOptional = false
 ) {
   const targets = [groupId, ...getGroupDescendants(groupId)];
   for (const targetId of targets) {
     if (isNodeDisabled(targetId)) {
+      continue;
+    }
+    if (!includeOptional && renderedNodeIndex.value.get(targetId)?.isOptional && targetId !== groupId) {
       continue;
     }
     updates.set(targetId, status);
@@ -1943,8 +1963,16 @@ function applyGroupHierarchyStatus(
   }
 }
 
-function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>) {
-  const descendants = getGroupDescendants(nodeId).filter((childId) => !isNodeDisabled(childId));
+function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>, includeOptional = false) {
+  const descendants = getGroupDescendants(nodeId).filter((childId) => {
+    if (isNodeDisabled(childId)) {
+      return false;
+    }
+    if (!includeOptional && renderedNodeIndex.value.get(childId)?.isOptional) {
+      return false;
+    }
+    return true;
+  });
   if (!descendants.length) {
     return true;
   }
@@ -2172,12 +2200,15 @@ function beginLinkDrag(node: EditableNode, face: NodeFace, event: PointerEvent) 
   linkDragMoveListener = moveHandler;
   document.addEventListener(
     'pointerup',
-    () => {
+    (upEvent) => {
+      const releasePoint = pointerEventToCanvasPoint(upEvent);
       if (hoveredHandle.value && hoveredHandle.value.nodeId && hoveredHandle.value.nodeId !== node.id) {
         createCanvasLink(node.id, hoveredHandle.value.nodeId, {
           parentFace: linkDrag.startFace,
           childFace: hoveredHandle.value.face
         });
+      } else if (releasePoint && editorCanvasRef.value?.contains(upEvent.target as Node) && linkDrag.startNodeId) {
+        createNodeAtPoint(linkDrag.startNodeId, releasePoint);
       }
       endLinkDrag();
     },
@@ -2279,10 +2310,10 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const isCompletedPath = !linkDisabled && (baseCompleted || parentGroupChildCompleted);
     const branchColor = linkDisabled
       ? DISABLED_BRANCH_COLOR
-      : childIsOptional
-        ? OPTIONAL_BRANCH_COLOR
-        : isCompletedPath
-          ? COMPLETED_ACCENT_COLOR
+      : isCompletedPath
+        ? COMPLETED_ACCENT_COLOR
+        : childIsOptional
+          ? OPTIONAL_BRANCH_COLOR
           : BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
     const animationDelay = (branchInfo?.depth ?? 0) * BRANCH_ANIMATION_STAGGER;
 
@@ -2344,6 +2375,7 @@ const handleWindowResize = () => {
 onMounted(() => {
   measureNodeDimensions();
   window.addEventListener('resize', handleWindowResize);
+  window.addEventListener('dragover', globalDragOverHandler);
   if (typeof ResizeObserver !== 'undefined') {
     overviewResizeObserver = new ResizeObserver(() => requestOverviewFit());
     if (overviewCanvasRef.value) {
@@ -2354,6 +2386,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleWindowResize);
+  window.removeEventListener('dragover', globalDragOverHandler);
   overviewResizeObserver?.disconnect();
   overviewResizeObserver = null;
 });
@@ -2565,12 +2598,21 @@ function handleBlueprintDragStart(blueprintId: string) {
   draggingBlueprintId.value = blueprintId;
   dragOverFolderId.value = null;
   dragOverBlueprintId.value = null;
+  scrollDirection.value = null;
+  if (!scrollTicker.value) {
+    scrollTicker.value = window.setInterval(applyAutoScroll, 16);
+  }
 }
 
 function handleBlueprintDragEnd() {
   draggingBlueprintId.value = null;
   dragOverFolderId.value = null;
   dragOverBlueprintId.value = null;
+  scrollDirection.value = null;
+  if (scrollTicker.value) {
+    window.clearInterval(scrollTicker.value);
+    scrollTicker.value = null;
+  }
 }
 
 function handleFolderDragOver(folderId: string | null, event: DragEvent) {
@@ -2583,6 +2625,7 @@ function handleFolderDragOver(folderId: string | null, event: DragEvent) {
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move';
   }
+  scrollDirection.value = getScrollDirection(event);
 }
 
 function handleBlueprintDragOver(folderId: string | null, blueprintId: string, event: DragEvent) {
@@ -2595,6 +2638,7 @@ function handleBlueprintDragOver(folderId: string | null, blueprintId: string, e
   if (event.dataTransfer) {
     event.dataTransfer.dropEffect = 'move';
   }
+  scrollDirection.value = getScrollDirection(event);
 }
 
 async function handleFolderDrop(folderId: string | null, event?: DragEvent) {
@@ -2623,6 +2667,54 @@ async function handleBlueprintDrop(folderId: string | null, beforeBlueprintId: s
   const blueprintId = draggingBlueprintId.value;
   handleBlueprintDragEnd();
   await moveBlueprintToFolder(blueprintId, folderId, beforeBlueprintId);
+}
+
+function handleFolderListDragOver(event: DragEvent) {
+  if (!draggingBlueprintId.value) {
+    return;
+  }
+  event.preventDefault();
+  scrollDirection.value = getScrollDirection(event);
+}
+
+function handleFolderListDragEnter(event: DragEvent) {
+  if (!draggingBlueprintId.value) {
+    return;
+  }
+  event.preventDefault();
+  scrollDirection.value = getScrollDirection(event);
+}
+
+function getScrollDirection(event: DragEvent): 'up' | 'down' | null {
+  const container = folderListRef.value;
+  if (!container) {
+    return null;
+  }
+  const rect = container.getBoundingClientRect();
+  const threshold = 80;
+  if (event.clientY < rect.top + threshold) {
+    return 'up';
+  }
+  if (event.clientY > rect.bottom - threshold) {
+    return 'down';
+  }
+  return null;
+}
+
+function applyAutoScroll() {
+  if (!scrollDirection.value || !folderListRef.value) {
+    return;
+  }
+  const container = folderListRef.value;
+  const speed = 12;
+  if (scrollDirection.value === 'up') {
+    container.scrollTop = Math.max(container.scrollTop - speed, 0);
+  } else if (scrollDirection.value === 'down') {
+    container.scrollTop = Math.min(
+      container.scrollTop + speed,
+      container.scrollHeight - container.clientHeight
+    );
+  }
 }
 
 async function moveBlueprintToFolder(
@@ -3336,6 +3428,54 @@ function addNode(parentId?: string | null) {
   return id;
 }
 
+function createNodeAtPoint(parentId: string, point: Point) {
+  const id = addNode(null);
+  const node = editableNodes.value.find((entry) => entry.id === id);
+  if (!node) {
+    return;
+  }
+  let x = point.x - NODE_WIDTH / 2;
+  let y = point.y - NODE_HEIGHT / 2;
+  node.position = {
+    x: Math.round(x),
+    y: Math.round(y)
+  };
+  const parent = editableNodes.value.find((entry) => entry.id === parentId);
+  if (parent) {
+    const parentFace = determineConnectorFace(parent, point);
+    const childFace = determineChildConnectorFace(parentFace);
+    createCanvasLink(parent.id, id, { parentFace, childFace });
+  }
+  markDirty();
+}
+
+function determineConnectorFace(parent: EditableNode, dropPoint: Point): NodeFace {
+  const parentCenterX = parent.position.x + NODE_WIDTH / 2;
+  const parentCenterY = parent.position.y + NODE_HEIGHT / 2;
+  const offsetX = dropPoint.x - parentCenterX;
+  const offsetY = dropPoint.y - parentCenterY;
+  const absX = Math.abs(offsetX);
+  const absY = Math.abs(offsetY);
+  if (absX >= absY) {
+    return offsetX >= 0 ? 'right' : 'left';
+  }
+  return offsetY >= 0 ? 'bottom' : 'top';
+}
+
+function determineChildConnectorFace(parentFace: NodeFace): NodeFace {
+  switch (parentFace) {
+    case 'left':
+      return 'right';
+    case 'right':
+      return 'left';
+    case 'top':
+      return 'bottom';
+    case 'bottom':
+    default:
+      return 'top';
+  }
+}
+
 function removeNodes(nodeIds: string[]) {
   if (!nodeIds.length) {
     return;
@@ -3843,7 +3983,7 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
       if (nextStepGroups.length) {
         if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
           nextStepGroups.forEach((groupId) =>
-            applyGroupHierarchyStatus(groupId, 'COMPLETED', updates, newlyCompleted)
+            applyGroupHierarchyStatus(groupId, 'COMPLETED', updates, newlyCompleted, true)
           );
         } else if (status === 'NOT_STARTED' || status === 'BLOCKED') {
           nextStepGroups.forEach((groupId) =>
@@ -3872,13 +4012,13 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
           if (renderedNodeIndex.value.get(ancestorId)?.isOptional) {
             continue;
           }
-          if (isGroupNode(ancestorId)) {
-            if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
-              updates.set(ancestorId, 'COMPLETED');
-              newlyCompleted.add(ancestorId);
-            }
-            continue;
-          }
+      if (isGroupNode(ancestorId)) {
+        if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
+          updates.set(ancestorId, 'COMPLETED');
+          newlyCompleted.add(ancestorId);
+        }
+        continue;
+      }
           updates.set(ancestorId, 'COMPLETED');
           newlyCompleted.add(ancestorId);
         }

@@ -465,9 +465,13 @@ async function syncGroupProgressForAssignment(
     }
 
     const descendantIds = collectDescendantNodeIds(groupNodeId, childMap, descendantCache);
-    const targetIds = descendantIds.filter(
-      (childId) => !(progressMap.get(childId)?.isDisabled)
-    );
+    const targetIds = descendantIds.filter((childId) => {
+      const childMeta = nodeMeta.get(childId);
+      if (childMeta?.isOptional) {
+        return false;
+      }
+      return !(progressMap.get(childId)?.isDisabled);
+    });
     const childStatuses = targetIds.map(
       (childId) => progressMap.get(childId)?.status ?? QuestNodeProgressStatus.NOT_STARTED
     );
