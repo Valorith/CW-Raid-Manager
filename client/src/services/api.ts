@@ -191,6 +191,7 @@ export interface QuestBlueprintSummaryLite {
   nodeCount: number;
   assignmentCounts: QuestAssignmentCounts;
   viewerAssignment?: QuestAssignment | null;
+  viewerAssignments?: QuestAssignment[];
 }
 
 export interface QuestNodeViewModel {
@@ -231,6 +232,7 @@ export interface QuestBlueprintDetailPayload {
   links: QuestNodeLinkViewModel[];
   assignmentStats: QuestAssignmentCounts;
   viewerAssignment?: QuestAssignment | null;
+  viewerAssignments?: QuestAssignment[];
   guildAssignments?: QuestAssignment[];
   permissions: QuestTrackerPermissions;
   availableNodeTypes: QuestNodeType[];
@@ -1046,6 +1048,12 @@ function normalizeQuestLink(raw: any): QuestNodeLinkViewModel {
 }
 
 function normalizeQuestBlueprintSummary(raw: any): QuestBlueprintSummaryLite {
+  const viewerAssignments = Array.isArray(raw?.viewerAssignments)
+    ? raw.viewerAssignments.map((assignment: any) => normalizeQuestAssignment(assignment))
+    : [];
+  const viewerAssignmentFallback =
+    viewerAssignments[0] ??
+    (raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null);
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
     title: typeof raw?.title === 'string' ? raw.title : 'Quest Blueprint',
@@ -1074,17 +1082,25 @@ function normalizeQuestBlueprintSummary(raw: any): QuestBlueprintSummaryLite {
           : String(raw.lastEditedByName),
     nodeCount: typeof raw?.nodeCount === 'number' ? raw.nodeCount : 0,
     assignmentCounts: normalizeAssignmentCounts(raw?.assignmentCounts),
-    viewerAssignment: raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null
+    viewerAssignment: viewerAssignmentFallback,
+    viewerAssignments: viewerAssignments.length ? viewerAssignments : undefined
   };
 }
 
 function normalizeQuestBlueprintDetail(raw: any): QuestBlueprintDetailPayload {
+  const viewerAssignments = Array.isArray(raw?.viewerAssignments)
+    ? raw.viewerAssignments.map((assignment: any) => normalizeQuestAssignment(assignment))
+    : [];
+  const viewerAssignmentFallback =
+    viewerAssignments[0] ??
+    (raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null);
   return {
     blueprint: normalizeQuestBlueprintSummary(raw?.blueprint ?? raw),
     nodes: Array.isArray(raw?.nodes) ? raw.nodes.map((node: any) => normalizeQuestNode(node)) : [],
     links: Array.isArray(raw?.links) ? raw.links.map((link: any) => normalizeQuestLink(link)) : [],
     assignmentStats: normalizeAssignmentCounts(raw?.assignmentStats),
-    viewerAssignment: raw?.viewerAssignment ? normalizeQuestAssignment(raw.viewerAssignment) : null,
+    viewerAssignment: viewerAssignmentFallback,
+    viewerAssignments: viewerAssignments.length ? viewerAssignments : undefined,
     guildAssignments: Array.isArray(raw?.guildAssignments)
       ? raw.guildAssignments.map((assignment: any) => normalizeQuestAssignment(assignment))
       : undefined,

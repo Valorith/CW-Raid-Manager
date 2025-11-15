@@ -35,6 +35,9 @@ async function resolveUserDisplayName(userId, tx = prisma) {
     }
     return withPreferredDisplayName(user).displayName;
 }
+function isNextStepCondition(value) {
+    return value === true;
+}
 async function loadBlueprintGraph(blueprintId, tx = prisma) {
     const [nodes, links] = await Promise.all([
         tx.questNode.findMany({
@@ -57,16 +60,24 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
         ];
     }));
     const childMap = new Map();
+    const nextStepParentMap = new Map();
+    const nextStepChildMap = new Map();
     for (const link of links) {
         const conditions = normalizeJsonRecord(link.conditions);
-        if (conditions[NEXT_STEP_CONDITION_KEY] === true) {
+        if (isNextStepCondition(conditions[NEXT_STEP_CONDITION_KEY])) {
+            const parents = nextStepParentMap.get(link.childNodeId) ?? [];
+            parents.push(link.parentNodeId);
+            nextStepParentMap.set(link.childNodeId, parents);
+            const children = nextStepChildMap.get(link.parentNodeId) ?? [];
+            children.push(link.childNodeId);
+            nextStepChildMap.set(link.parentNodeId, children);
             continue;
         }
         const list = childMap.get(link.parentNodeId) ?? [];
         list.push(link.childNodeId);
         childMap.set(link.parentNodeId, list);
     }
-    return { nodeMeta, childMap };
+    return { nodeMeta, childMap, nextStepParentMap, nextStepChildMap };
 }
 function collectDescendantNodeIds(nodeId, childMap, cache) {
     if (cache.has(nodeId)) {
@@ -82,6 +93,33 @@ function collectDescendantNodeIds(nodeId, childMap, cache) {
         visited.add(current);
         const children = childMap.get(current) ?? [];
         for (const childId of children) {
+            if (!visited.has(childId)) {
+                queue.push(childId);
+            }
+        }
+    }
+    const result = Array.from(visited);
+    cache.set(nodeId, result);
+    return result;
+}
+function collectDownstreamNodeIds(nodeId, childMap, nextStepChildMap, cache) {
+    if (cache.has(nodeId)) {
+        return cache.get(nodeId);
+    }
+    const visited = new Set();
+    const queue = [
+        ...(childMap.get(nodeId) ?? []),
+        ...(nextStepChildMap.get(nodeId) ?? [])
+    ];
+    while (queue.length) {
+        const current = queue.shift();
+        if (visited.has(current)) {
+            continue;
+        }
+        visited.add(current);
+        const children = childMap.get(current) ?? [];
+        const nextStepChildren = nextStepChildMap.get(current) ?? [];
+        for (const childId of [...children, ...nextStepChildren]) {
             if (!visited.has(childId)) {
                 queue.push(childId);
             }
@@ -255,10 +293,11 @@ function mapAssignment(assignment, options) {
         }))
     };
 }
-function mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignment) {
+function mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignments) {
     const creatorName = blueprint.createdBy
         ? withPreferredDisplayName(blueprint.createdBy).displayName
         : null;
+    const primaryViewerAssignment = viewerAssignments?.[0] ?? null;
     return {
         id: blueprint.id,
         title: blueprint.title,
@@ -272,7 +311,8 @@ function mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssig
         lastEditedByName: blueprint.lastEditedByName ?? null,
         nodeCount,
         assignmentCounts,
-        viewerAssignment
+        viewerAssignment: primaryViewerAssignment,
+        viewerAssignments
     };
 }
 function getDefaultAssignmentCounts() {
@@ -400,19 +440,19 @@ export async function listGuildQuestTrackerSummary(options) {
     }
     const viewerAssignmentMap = new Map();
     for (const assignment of viewerAssignments) {
-        viewerAssignmentMap.set(assignment.blueprintId, assignment);
+        const list = viewerAssignmentMap.get(assignment.blueprintId) ?? [];
+        list.push(assignment);
+        viewerAssignmentMap.set(assignment.blueprintId, list);
     }
     const summaries = blueprints.map((blueprint) => {
         const nodeCount = stepCountMap.get(blueprint.id) ?? 0;
         const assignmentCounts = assignmentCountMap.get(blueprint.id) ?? getDefaultAssignmentCounts();
-        const viewerAssignmentRaw = viewerAssignmentMap.get(blueprint.id);
-        const viewerAssignment = viewerAssignmentRaw
-            ? mapAssignment(viewerAssignmentRaw, {
-                totalViewerSteps: nodeCount,
-                includeUser: true
-            })
-            : null;
-        return mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignment);
+        const viewerAssignmentRaw = viewerAssignmentMap.get(blueprint.id) ?? [];
+        const viewerAssignmentsPayload = viewerAssignmentRaw.map((assignment) => mapAssignment(assignment, {
+            totalViewerSteps: nodeCount,
+            includeUser: true
+        }));
+        return mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignmentsPayload.length ? viewerAssignmentsPayload : undefined);
     });
     return { blueprints: summaries };
 }
@@ -434,7 +474,7 @@ export async function createQuestBlueprint(options) {
             }
         }
     });
-    return mapBlueprintSummary(blueprint, 0, getDefaultAssignmentCounts(), null);
+    return mapBlueprintSummary(blueprint, 0, getDefaultAssignmentCounts(), undefined);
 }
 export async function updateQuestBlueprintMetadata(options) {
     const existing = await prisma.questBlueprint.findUnique({
@@ -492,7 +532,7 @@ export async function updateQuestBlueprintMetadata(options) {
     }
     const stepCountMap = computeShortestPathMap([updated.id], blueprintNodes, blueprintLinks);
     const nodeCount = stepCountMap.get(updated.id) ?? blueprintNodes.length;
-    return mapBlueprintSummary(updated, nodeCount, assignmentCounts, null);
+    return mapBlueprintSummary(updated, nodeCount, assignmentCounts, undefined);
 }
 export async function getQuestBlueprintDetail(options) {
     const blueprint = await prisma.questBlueprint.findUnique({
@@ -508,13 +548,13 @@ export async function getQuestBlueprintDetail(options) {
     if (!blueprint || blueprint.guildId !== options.guildId) {
         throw new Error('Quest blueprint not found.');
     }
-    const [assignmentGroups, viewerAssignment, guildAssignments] = await Promise.all([
+    const [assignmentGroups, viewerAssignments, guildAssignments] = await Promise.all([
         prisma.questAssignment.groupBy({
             by: ['status'],
             where: { blueprintId: options.blueprintId },
             _count: { _all: true }
         }),
-        prisma.questAssignment.findFirst({
+        prisma.questAssignment.findMany({
             where: {
                 blueprintId: options.blueprintId,
                 userId: options.viewerUserId,
@@ -591,19 +631,18 @@ export async function getQuestBlueprintDetail(options) {
         parentNodeId: link.parentNodeId,
         childNodeId: link.childNodeId
     }))).get(blueprint.id) ?? blueprint.nodes.length;
-    const viewerAssignmentPayload = viewerAssignment
-        ? mapAssignment(viewerAssignment, { totalViewerSteps })
-        : null;
+    const viewerAssignmentsPayload = viewerAssignments.map((assignment) => mapAssignment(assignment, { totalViewerSteps }));
     const guildAssignmentPayloads = options.includeGuildAssignments
         ? guildAssignments.map((assignment) => mapAssignment(assignment, { includeUser: true }))
         : [];
-    const blueprintSummary = mapBlueprintSummary(blueprint, nodes.length, assignmentCounts, viewerAssignmentPayload);
+    const blueprintSummary = mapBlueprintSummary(blueprint, nodes.length, assignmentCounts, viewerAssignmentsPayload);
     return {
         blueprint: blueprintSummary,
         nodes,
         links,
         assignmentStats: assignmentCounts,
-        viewerAssignment: viewerAssignmentPayload,
+        viewerAssignment: viewerAssignmentsPayload[0] ?? null,
+        viewerAssignments: viewerAssignmentsPayload,
         guildAssignments: options.includeGuildAssignments ? guildAssignmentPayloads : undefined
     };
 }
@@ -743,15 +782,15 @@ export async function upsertQuestBlueprintGraph(options) {
             }
         }
         await syncGroupProgressForBlueprint(options.blueprintId, tx);
-        await refreshSummariesForBlueprint(options.blueprintId, tx);
-        const editorName = await resolveUserDisplayName(options.actorUserId, tx);
-        await tx.questBlueprint.update({
-            where: { id: options.blueprintId },
-            data: {
-                lastEditedById: options.actorUserId,
-                lastEditedByName: editorName
-            }
-        });
+    });
+    await refreshSummariesForBlueprint(options.blueprintId);
+    const editorName = await resolveUserDisplayName(options.actorUserId);
+    await prisma.questBlueprint.update({
+        where: { id: options.blueprintId },
+        data: {
+            lastEditedById: options.actorUserId,
+            lastEditedByName: editorName
+        }
     });
 }
 export async function startQuestAssignment(options) {
@@ -922,7 +961,7 @@ export async function applyAssignmentProgressUpdates(options) {
             throw new Error('You do not have permission to update this assignment.');
         }
         const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-        const { nodeMeta } = await loadBlueprintGraph(assignment.blueprintId, tx);
+        const { nodeMeta, childMap, nextStepParentMap, nextStepChildMap } = await loadBlueprintGraph(assignment.blueprintId, tx);
         const groupNodeIds = new Set();
         const disabledNodeIds = new Set(assignment.progress.filter((record) => record.isDisabled).map((record) => record.nodeId));
         const finalNodeIds = new Set();
@@ -934,16 +973,45 @@ export async function applyAssignmentProgressUpdates(options) {
                 finalNodeIds.add(nodeId);
             }
         }
-        for (const update of options.updates) {
-            if (groupNodeIds.has(update.nodeId) || disabledNodeIds.has(update.nodeId)) {
-                if (typeof update.isDisabled !== 'boolean') {
+        const descendantCache = new Map();
+        const downstreamCache = new Map();
+        const pendingStatusOverrides = new Map();
+        const queueStatusOverride = (nodeId, status, allowGroup = false) => {
+            pendingStatusOverrides.set(nodeId, { status, allowGroup });
+        };
+        const queueHierarchyUpdate = (groupId, status) => {
+            const nodes = [groupId, ...collectDescendantNodeIds(groupId, childMap, descendantCache)];
+            for (const nodeId of nodes) {
+                const currentProgress = progressMap.get(nodeId);
+                if (currentProgress?.isDisabled) {
                     continue;
                 }
+                queueStatusOverride(nodeId, status, groupNodeIds.has(nodeId));
             }
+        };
+        const resolveHierarchyStatus = (status) => {
+            if (!status) {
+                return null;
+            }
+            if (status === QuestNodeProgressStatus.COMPLETED || status === QuestNodeProgressStatus.IN_PROGRESS) {
+                return QuestNodeProgressStatus.COMPLETED;
+            }
+            if (status === QuestNodeProgressStatus.NOT_STARTED || status === QuestNodeProgressStatus.BLOCKED) {
+                return QuestNodeProgressStatus.NOT_STARTED;
+            }
+            return null;
+        };
+        const processUpdate = async (update, optionsInternal = {}) => {
             const current = progressMap.get(update.nodeId);
             if (!current) {
                 throw new Error('Quest progress update referenced an unknown node.');
             }
+            if ((groupNodeIds.has(update.nodeId) || disabledNodeIds.has(update.nodeId)) && !optionsInternal.allowGroupStatus) {
+                if (typeof update.isDisabled !== 'boolean') {
+                    return;
+                }
+            }
+            const previousStatus = current.status;
             const data = {};
             if (update.status && update.status !== current.status) {
                 data.status = update.status;
@@ -956,16 +1024,20 @@ export async function applyAssignmentProgressUpdates(options) {
                 else if (current.completedAt) {
                     data.completedAt = null;
                 }
+                current.status = update.status;
             }
             if (typeof update.progressCount === 'number') {
                 data.progressCount = Math.max(0, Math.trunc(update.progressCount));
+                current.progressCount = data.progressCount;
             }
             if (update.notes !== undefined) {
                 const note = update.notes?.toString().slice(0, 500) ?? null;
                 data.notes = note;
+                current.notes = note;
             }
             if (typeof update.isDisabled === 'boolean') {
                 data.isDisabled = update.isDisabled;
+                current.isDisabled = update.isDisabled;
                 if (update.isDisabled) {
                     disabledNodeIds.add(update.nodeId);
                 }
@@ -974,7 +1046,14 @@ export async function applyAssignmentProgressUpdates(options) {
                 }
             }
             if (Object.keys(data).length === 0) {
-                continue;
+                if (!optionsInternal.suppressHierarchyPropagation) {
+                    const hierarchyStatus = resolveHierarchyStatus(update.status);
+                    if (hierarchyStatus) {
+                        const parents = nextStepParentMap.get(update.nodeId) ?? [];
+                        parents.forEach((parentId) => queueHierarchyUpdate(parentId, hierarchyStatus));
+                    }
+                }
+                return;
             }
             await tx.questNodeProgress.update({
                 where: {
@@ -985,6 +1064,31 @@ export async function applyAssignmentProgressUpdates(options) {
                 },
                 data
             });
+            if (!optionsInternal.suppressHierarchyPropagation) {
+                const hierarchyStatus = resolveHierarchyStatus(update.status);
+                if (hierarchyStatus) {
+                    const parents = nextStepParentMap.get(update.nodeId) ?? [];
+                    parents.forEach((parentId) => queueHierarchyUpdate(parentId, hierarchyStatus));
+                }
+            }
+            const shouldResetDownstream = previousStatus === QuestNodeProgressStatus.COMPLETED &&
+                (update.status === QuestNodeProgressStatus.NOT_STARTED || update.status === QuestNodeProgressStatus.IN_PROGRESS);
+            if (shouldResetDownstream) {
+                const downstreamNodes = collectDownstreamNodeIds(update.nodeId, childMap, nextStepChildMap, downstreamCache);
+                for (const nodeId of downstreamNodes) {
+                    const record = progressMap.get(nodeId);
+                    if (!record || record.isDisabled) {
+                        continue;
+                    }
+                    queueStatusOverride(nodeId, QuestNodeProgressStatus.NOT_STARTED, groupNodeIds.has(nodeId));
+                }
+            }
+        };
+        for (const update of options.updates) {
+            await processUpdate(update);
+        }
+        for (const [nodeId, entry] of pendingStatusOverrides) {
+            await processUpdate({ nodeId, status: entry.status }, { suppressHierarchyPropagation: true, allowGroupStatus: entry.allowGroup });
         }
         await syncGroupProgressForAssignment(assignment.id, assignment.blueprintId, tx);
         await refreshAssignmentSummary(assignment.id, tx);

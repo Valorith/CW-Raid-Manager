@@ -110,8 +110,22 @@
               </div>
               <div class="quest-character-pill__meta">
                 <span class="quest-character-pill__label">Tracking as</span>
-                <strong>{{ viewerAssignmentCharacter.name }}</strong>
-                <span class="quest-character-pill__class">
+                <template v-if="hasMultipleViewerAssignments">
+                  <select
+                    id="viewer-character-select"
+                    class="quest-character-select"
+                    v-model="selectedAssignmentId"
+                    aria-label="Select character to view progress"
+                  >
+                    <option v-for="option in viewerAssignmentOptions" :key="option.id" :value="option.id">
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </template>
+                <template v-else>
+                  <strong>{{ viewerAssignmentCharacter.name }}</strong>
+                </template>
+                <span v-if="!hasMultipleViewerAssignments" class="quest-character-pill__class">
                   {{ characterClassLabels[viewerAssignmentCharacter.class] ?? viewerAssignmentCharacter.class }}
                 </span>
               </div>
@@ -137,7 +151,7 @@
               {{ assignmentUpdating ? 'Updating…' : 'Abandon Quest' }}
             </button>
             <button
-              v-if="!viewerAssignment"
+              v-if="!charactersLoaded || hasEligibleCharacters"
               class="btn btn--start"
               type="button"
               :disabled="assignmentUpdating"
@@ -145,6 +159,13 @@
             >
               {{ assignmentUpdating ? 'Starting…' : 'Start Quest' }}
             </button>
+            <p v-else class="quest-detail__hint muted">
+              {{
+                viewerAssignments.length
+                  ? 'All of your characters are already tracking this quest.'
+                  : 'Add a guild character to start tracking this quest.'
+              }}
+            </p>
           </div>
         </header>
 
@@ -617,7 +638,7 @@
           </li>
         </ul>
         <p v-else class="quest-character-modal__empty">
-          You don't have any characters in this guild yet. Visit the Characters page to add one before starting a quest.
+          No eligible guild characters are available. Finish an existing run or add another character to start this quest.
         </p>
       </template>
       <p v-if="characterStartError" class="quest-character-modal__error">{{ characterStartError }}</p>
@@ -766,6 +787,7 @@ const characterModalLoading = ref(false);
 const characterModalError = ref<string | null>(null);
 const characterStartError = ref<string | null>(null);
 const charactersLoaded = ref(false);
+const selectedAssignmentId = ref<string | null>(null);
 
 const editableNodes = ref<EditableNode[]>([]);
 const editableLinks = ref<QuestBlueprintDetailPayload['links']>([]);
@@ -915,19 +937,75 @@ const filteredBlueprints = computed(() => {
 });
 
 const selectedDetail = computed(() => detail.value);
+const viewerAssignments = computed(() => detail.value?.viewerAssignments ?? []);
+const viewerAssignmentOptions = computed(() =>
+  viewerAssignments.value.map((assignment) => {
+    const characterName = assignment.character?.name ?? 'Character';
+    const classLabel = assignment.character?.class
+      ? characterClassLabels[assignment.character.class] ?? assignment.character.class
+      : null;
+    return {
+      id: assignment.id,
+      label: classLabel ? `${characterName} (${classLabel})` : characterName
+    };
+  })
+);
+const hasMultipleViewerAssignments = computed(() => viewerAssignments.value.length > 1);
+const activeViewerAssignment = computed(() => {
+  if (!viewerAssignments.value.length) {
+    return null;
+  }
+  if (selectedAssignmentId.value) {
+    const match = viewerAssignments.value.find((assignment) => assignment.id === selectedAssignmentId.value);
+    if (match) {
+      return match;
+    }
+  }
+  return viewerAssignments.value[0];
+});
+
+watch(
+  viewerAssignments,
+  (assignments) => {
+    if (!assignments.length) {
+      selectedAssignmentId.value = null;
+      return;
+    }
+    if (!assignments.some((assignment) => assignment.id === selectedAssignmentId.value)) {
+      selectedAssignmentId.value = assignments[0].id;
+    }
+  },
+  { immediate: true, deep: true }
+);
+
 const viewerAssignment = computed(() => {
   if (activeTab.value !== 'overview') {
     return null;
   }
-  const assignment = detail.value?.viewerAssignment ?? null;
-  if (assignment?.status === 'CANCELLED') {
+  const assignment = activeViewerAssignment.value;
+  if (!assignment || assignment.status === 'CANCELLED') {
     return null;
   }
   return assignment;
 });
 const viewerAssignmentCharacter = computed(() => viewerAssignment.value?.character ?? null);
+const blockedAssignmentCharacterIds = computed(() => {
+  const set = new Set<string>();
+  for (const assignment of viewerAssignments.value) {
+    if (assignment.status === 'CANCELLED' || assignment.status === 'COMPLETED') {
+      continue;
+    }
+    const characterId = assignment.character?.id;
+    if (characterId) {
+      set.add(characterId);
+    }
+  }
+  return set;
+});
 const eligibleCharacters = computed(() =>
-  characterOptions.value.filter((character) => character.guild?.id === guildId)
+  characterOptions.value.filter(
+    (character) => character.guild?.id === guildId && !blockedAssignmentCharacterIds.value.has(character.id)
+  )
 );
 const hasEligibleCharacters = computed(() => eligibleCharacters.value.length > 0);
 const showLoadingOverlay = computed(() => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value));
@@ -1486,25 +1564,6 @@ const groupParentNodeMap = computed(() => {
   return map;
 });
 
-const groupChildCompletion = computed(() => {
-  const map = new Map<string, boolean>();
-  if (!viewerAssignment.value) {
-    return map;
-  }
-  const children = groupChildNodeMap.value;
-  for (const node of renderedNodes.value) {
-    if (!node.isGroup) {
-      continue;
-    }
-    const childIds = children.get(node.id) ?? [];
-    map.set(
-      node.id,
-      childIds.some((childId) => viewerNodeStatus(childId) === 'COMPLETED')
-    );
-  }
-  return map;
-});
-
 function getUpstreamNodeIds(nodeId: string): string[] {
   const parents = parentNodeMap.value;
   const visited = new Set<string>();
@@ -1623,8 +1682,27 @@ function getGroupDescendants(nodeId: string) {
   return groupDescendantsMap.value.get(nodeId) ?? [];
 }
 
-function groupHasCompletedChild(nodeId: string) {
-  return groupChildCompletion.value.get(nodeId) ?? false;
+function getDownstreamNodeIds(nodeId: string) {
+  const visited = new Set<string>();
+  const queue = [...(childNodeMap.value.get(nodeId) ?? [])];
+  while (queue.length) {
+    const entry = queue.shift()!;
+    if (visited.has(entry.nodeId)) {
+      continue;
+    }
+    visited.add(entry.nodeId);
+    const children = childNodeMap.value.get(entry.nodeId) ?? [];
+    children.forEach((child) => {
+      if (!visited.has(child.nodeId)) {
+        queue.push(child);
+      }
+    });
+  }
+  return Array.from(visited);
+}
+
+function isGroupChildLink(parentId: string, childId: string) {
+  return (groupChildNodeMap.value.get(parentId) ?? []).includes(childId);
 }
 
 function getNextStepGroupAncestors(nodeId: string): string[] {
@@ -1956,6 +2034,7 @@ const renderedLinks = computed<RenderedLink[]>(() => {
   const nodes = nodePositionMap.value;
   const branchAssignmentsMap = nodeBranchAssignments.value;
   return (activeTab.value === 'editor' ? editableLinks.value : detail.value.links).map((link) => {
+    const nextStepEdge = isNextStepLink(link);
     const start = nodes.get(link.parentNodeId) ?? { x: 0, y: 0 };
     const end = nodes.get(link.childNodeId) ?? { x: 0, y: 0 };
 
@@ -1979,18 +2058,19 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const linkDisabled =
       showOverviewDisabledState.value &&
       (isNodeDisabled(link.parentNodeId) || isNodeDisabled(link.childNodeId));
-    const childGroupCompleted =
-      showOverviewDisabledState.value &&
-      isGroupNode(link.childNodeId) &&
-      groupHasCompletedChild(link.childNodeId);
+    const isInternalGroupLink =
+      !nextStepEdge && isGroupNode(link.parentNodeId) && isGroupChildLink(link.parentNodeId, link.childNodeId);
+    const childInternalCompleted =
+      isInternalGroupLink && viewerNodeStatus(link.childNodeId) === 'COMPLETED';
     const parentGroupChildCompleted =
+      !nextStepEdge &&
       showOverviewDisabledState.value &&
       isGroupNode(link.parentNodeId) &&
-      groupHasCompletedChild(link.parentNodeId);
+      isInternalGroupLink &&
+      childInternalCompleted;
     const baseCompleted =
       isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
-    const isCompletedPath =
-      !linkDisabled && (baseCompleted || childGroupCompleted || parentGroupChildCompleted);
+    const isCompletedPath = !linkDisabled && (baseCompleted || parentGroupChildCompleted);
     const branchColor = linkDisabled
       ? DISABLED_BRANCH_COLOR
       : isCompletedPath
@@ -2109,11 +2189,20 @@ function viewerProgressRatio(assignment?: QuestAssignment | null) {
   if (!assignment) {
     return 0;
   }
-  if (assignment.totalViewerSteps && assignment.totalViewerSteps > 0) {
-    const completed = assignment.progressSummary.completed ?? 0;
-    return Math.min(1, completed / assignment.totalViewerSteps);
+  const summary = assignment.progressSummary ?? {
+    totalNodes: assignment.totalViewerSteps ?? 0,
+    completed: 0,
+    inProgress: 0,
+    blocked: 0,
+    notStarted: 0,
+    percentComplete: 0
+  };
+  const totalSteps = summary.totalNodes ?? assignment.totalViewerSteps ?? 0;
+  if (totalSteps > 0) {
+    const completed = summary.completed ?? 0;
+    return Math.min(1, completed / totalSteps);
   }
-  return assignment.progressSummary.percentComplete ?? 0;
+  return summary.percentComplete ?? 0;
 }
 
 function formatDate(value?: string | null) {
@@ -2229,20 +2318,56 @@ function selectBlueprint(id: string) {
   selectedBlueprintId.value = id;
 }
 
-function syncViewerAssignmentState(blueprintId: string | null, assignment: QuestAssignment | null) {
+function syncViewerAssignmentState(blueprintId: string | null, assignment: QuestAssignment) {
+  const applyUpdate = (current: QuestAssignment[] | undefined) => {
+    const list = [...(current ?? [])];
+    const index = list.findIndex((entry) => entry.id === assignment.id);
+    if (assignment.status === 'CANCELLED') {
+      if (index !== -1) {
+        list.splice(index, 1);
+      }
+      return list;
+    }
+    if (index !== -1) {
+      list[index] = assignment;
+    } else {
+      list.unshift(assignment);
+    }
+    return list;
+  };
+
+  const maybeUpdateSelection = (assignments: QuestAssignment[]) => {
+    if (!assignments.length) {
+      selectedAssignmentId.value = null;
+      return;
+    }
+    if (assignment.status === 'CANCELLED' && selectedAssignmentId.value === assignment.id) {
+      selectedAssignmentId.value = assignments[0]?.id ?? null;
+    } else if (assignment.status !== 'CANCELLED') {
+      selectedAssignmentId.value = assignment.id;
+    }
+  };
+
   if (detail.value && (!blueprintId || detail.value.blueprint.id === blueprintId)) {
-    detail.value.viewerAssignment = assignment;
+    const updated = applyUpdate(detail.value.viewerAssignments);
+    detail.value.viewerAssignments = updated;
+    detail.value.viewerAssignment = updated[0] ?? null;
+    maybeUpdateSelection(updated);
   }
+
   if (!blueprintId) {
     return;
   }
+
   const summaryBlueprints = summary.value?.blueprints;
   if (!summaryBlueprints) {
     return;
   }
   const target = summaryBlueprints.find((entry) => entry.id === blueprintId);
   if (target) {
-    target.viewerAssignment = assignment;
+    const updated = applyUpdate(target.viewerAssignments);
+    target.viewerAssignments = updated;
+    target.viewerAssignment = updated[0] ?? null;
   }
 }
 
@@ -3072,8 +3197,7 @@ async function updateAssignmentStatus(status: QuestAssignmentStatus) {
       assignmentId,
       status
     );
-    const nextAssignment = assignment.status === 'CANCELLED' ? null : assignment;
-    syncViewerAssignmentState(blueprintId, nextAssignment);
+    syncViewerAssignmentState(blueprintId, assignment);
     await loadSummary();
   } catch (error) {
     window.alert(error instanceof Error ? error.message : 'Unable to update quest assignment.');
@@ -3165,7 +3289,9 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
       newlyCompleted.add(nodeId);
     }
 
-    const downstreamIds = getGroupDescendants(nodeId);
+    const groupDescendants = getGroupDescendants(nodeId);
+    const branchDescendants = getDownstreamNodeIds(nodeId);
+    const downstreamIds = Array.from(new Set([...groupDescendants, ...branchDescendants]));
     if (['NOT_STARTED', 'IN_PROGRESS', 'BLOCKED'].includes(status)) {
       downstreamIds.forEach((descendantId) => updates.set(descendantId, 'NOT_STARTED'));
     }
@@ -3682,8 +3808,8 @@ onUnmounted(() => {
 .quest-character-pill__meta {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
+  align-items: center;
+  gap: 0.3rem;
   font-size: 0.85rem;
 }
 
@@ -3692,11 +3818,37 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   font-size: 0.65rem;
   color: rgba(148, 163, 184, 0.9);
+  text-align: center;
+  width: 100%;
+}
+
+.quest-character-select {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e2e8f0;
+  border-radius: 999px;
+  padding: 0.2rem 1.35rem 0.2rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.quest-character-select:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
 }
 
 .quest-character-pill__class {
   font-size: 0.75rem;
   color: rgba(226, 232, 240, 0.9);
+}
+
+.quest-detail__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  text-align: center;
+  width: 100%;
 }
 
 .quest-detail__stats {
