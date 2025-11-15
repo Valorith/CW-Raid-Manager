@@ -205,6 +205,7 @@ export interface QuestNodeViewModel {
   metadata: Record<string, unknown>;
   isGroup: boolean;
   isFinal?: boolean;
+  isOptional?: boolean;
 }
 
 export interface QuestNodeLinkViewModel {
@@ -248,6 +249,7 @@ export interface QuestNodeInputPayload {
   requirements?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   isGroup?: boolean;
+  isOptional?: boolean;
 }
 
 export interface QuestLinkInputPayload {
@@ -1034,7 +1036,8 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
     requirements: isPlainObject(raw?.requirements) ? (raw.requirements as Record<string, unknown>) : {},
     metadata: isPlainObject(raw?.metadata) ? (raw.metadata as Record<string, unknown>) : {},
     isGroup: Boolean(raw?.isGroup),
-    isFinal: Boolean(raw?.isFinal)
+    isFinal: Boolean(raw?.isFinal),
+    isOptional: Boolean(raw?.isOptional)
   };
 }
 

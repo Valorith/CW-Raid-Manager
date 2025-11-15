@@ -55,8 +55,8 @@
                 <span class="quest-blueprint-card__chip-label">steps</span>
               </span>
             </div>
-            <p class="quest-blueprint-card__summary">
-              {{ blueprint.summary || 'No summary provided yet.' }}
+            <p v-if="blueprint.summary" class="quest-blueprint-card__summary">
+              {{ blueprint.summary }}
             </p>
             <div class="quest-blueprint-card__stats">
               <div class="quest-blueprint-card__stat">
@@ -241,6 +241,7 @@
                   <span class="quest-node__type" :style="typeAccent(node)">
                     {{ displayNodeType(node.nodeType, node.isGroup) }}
                   </span>
+                  <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional">Optional</span>
                   <span
                     v-if="showOverviewDisabledState && isNodeDisabled(node.id)"
                     class="quest-node__badge quest-node__badge--disabled"
@@ -380,10 +381,11 @@
                   @contextmenu.prevent.stop="openNodeMenu(node, $event)"
                   :data-node-id="node.id"
                 >
-                <header class="quest-node__header">
-                  <span class="quest-node__type" :style="typeAccent(node)">
-                    {{ displayNodeType(node.nodeType, node.isGroup) }}
-                  </span>
+                  <header class="quest-node__header">
+                    <span class="quest-node__type" :style="typeAccent(node)">
+                      {{ displayNodeType(node.nodeType, node.isGroup) }}
+                    </span>
+                    <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional">Optional</span>
                   <img
                     v-if="isNodeFinal(node.id)"
                     class="quest-node__icon quest-node__icon--final"
@@ -435,20 +437,10 @@
                 class="input"
                 @input="markDirty()"
               />
-      <label class="switch switch--inline">
-        <input
-          type="checkbox"
-          v-model="selectedNode.isGroup"
-          :disabled="nodeHasGroupParent(selectedNode.id)"
-                  @change="markDirty()"
-                />
-                <span>
-                  Group node (auto completes when child steps finish)
-                  <template v-if="nodeHasGroupParent(selectedNode.id)">
-                    — cannot enable while parent is a group
-                  </template>
-        </span>
-      </label>
+              <label class="switch switch--inline">
+                <input type="checkbox" v-model="selectedNode.isGroup" @change="markDirty()" />
+                <span>Group node (auto completes when child steps finish)</span>
+              </label>
       <label class="switch switch--inline">
         <input
           type="checkbox"
@@ -456,6 +448,10 @@
           @change="toggleFinalFlag"
         />
         <span>Final step (completing this finishes the quest)</span>
+      </label>
+      <label class="switch switch--inline">
+        <input type="checkbox" v-model="selectedNode.isOptional" @change="markDirty()" />
+        <span>Optional step (does not impact quest completion)</span>
       </label>
       <label class="form-label">Type</label>
               <template v-if="selectedNode.isGroup">
@@ -828,6 +824,7 @@ type RenderedLink = {
 type NodeAdjacencyEntry = {
   nodeId: string;
   isNextStep: boolean;
+  isOptional: boolean;
 };
 const NODE_FACES: NodeFace[] = ['top', 'right', 'bottom', 'left'];
 const FACE_NORMALS: Record<NodeFace, Point> = {
@@ -1515,6 +1512,7 @@ const BRANCH_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#a855f7', '#a78bfa', '#
 const BRANCH_ANIMATION_STAGGER = 0.25;
 const DEFAULT_BRANCH_COLOR = '#38bdf8';
 const DISABLED_BRANCH_COLOR = '#475569';
+const OPTIONAL_BRANCH_COLOR = '#f97316';
 
 const childNodeMap = computed(() => {
   const map = new Map<string, NodeAdjacencyEntry[]>();
@@ -1522,7 +1520,8 @@ const childNodeMap = computed(() => {
     const list = map.get(link.parentNodeId) ?? [];
     list.push({
       nodeId: link.childNodeId,
-      isNextStep: isNextStepLink(link)
+      isNextStep: isNextStepLink(link),
+      isOptional: renderedNodeIndex.value.get(link.childNodeId)?.isOptional ?? false
     });
     map.set(link.parentNodeId, list);
   }
@@ -1535,7 +1534,8 @@ const parentNodeMap = computed(() => {
     const list = map.get(link.childNodeId) ?? [];
     list.push({
       nodeId: link.parentNodeId,
-      isNextStep: isNextStepLink(link)
+      isNextStep: isNextStepLink(link),
+      isOptional: renderedNodeIndex.value.get(link.parentNodeId)?.isOptional ?? false
     });
     map.set(link.childNodeId, list);
   }
@@ -1545,20 +1545,11 @@ const parentNodeMap = computed(() => {
 const groupChildNodeMap = computed(() => {
   const map = new Map<string, string[]>();
   for (const [parentId, entries] of childNodeMap.value.entries()) {
-    const filtered = entries.filter((entry) => !entry.isNextStep).map((entry) => entry.nodeId);
+    const filtered = entries
+      .filter((entry) => !entry.isNextStep && !entry.isOptional)
+      .map((entry) => entry.nodeId);
     if (filtered.length) {
       map.set(parentId, filtered);
-    }
-  }
-  return map;
-});
-
-const groupParentNodeMap = computed(() => {
-  const map = new Map<string, string[]>();
-  for (const [childId, entries] of parentNodeMap.value.entries()) {
-    const filtered = entries.filter((entry) => !entry.isNextStep).map((entry) => entry.nodeId);
-    if (filtered.length) {
-      map.set(childId, filtered);
     }
   }
   return map;
@@ -1654,15 +1645,22 @@ const nodeBranchAssignments = computed(() => {
     if (!branchChildren.length) {
       continue;
     }
-    if (branchChildren.length === 1) {
-      enqueue(branchChildren[0].nodeId, branchIndex, depth + 1);
+    const optionalChildren = branchChildren.filter((entry) => entry.isOptional);
+    const requiredChildren = branchChildren.filter((entry) => !entry.isOptional);
+    if (!requiredChildren.length) {
+      optionalChildren.forEach((entry) => enqueue(entry.nodeId, branchIndex, depth + 1));
+      continue;
+    }
+    if (requiredChildren.length === 1) {
+      enqueue(requiredChildren[0].nodeId, branchIndex, depth + 1);
     } else {
-      branchChildren.forEach((entry) => {
+      requiredChildren.forEach((entry) => {
         const nextBranch = branchCounter % BRANCH_COLORS.length;
         branchCounter += 1;
         enqueue(entry.nodeId, nextBranch, depth + 1);
       });
     }
+    optionalChildren.forEach((entry) => enqueue(entry.nodeId, branchIndex, depth + 1));
   }
   return assignments;
 });
@@ -1780,14 +1778,6 @@ function groupProgressMeta(nodeId: string, mode: 'editor' | 'viewer') {
     total,
     ratio: total ? completed / total : 0
   };
-}
-
-function nodeHasGroupParent(nodeId: string): boolean {
-  const parents = groupParentNodeMap.value.get(nodeId) ?? [];
-  return parents.some((parentId) => {
-    const parent = editableNodes.value.find((node) => node.id === parentId);
-    return parent?.isGroup ?? false;
-  });
 }
 
 function getNodeSize(nodeId?: string) {
@@ -2055,13 +2045,15 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const path = buildPathFromPoints(normalizedCurve);
     const pathLength = approximateBezierLength(normalizedCurve);
     const branchInfo = branchAssignmentsMap.get(link.childNodeId);
+    const childNodeMeta = renderedNodeIndex.value.get(link.childNodeId);
+    const childIsOptional = childNodeMeta?.isOptional ?? false;
     const linkDisabled =
       showOverviewDisabledState.value &&
       (isNodeDisabled(link.parentNodeId) || isNodeDisabled(link.childNodeId));
     const isInternalGroupLink =
       !nextStepEdge && isGroupNode(link.parentNodeId) && isGroupChildLink(link.parentNodeId, link.childNodeId);
     const childInternalCompleted =
-      isInternalGroupLink && viewerNodeStatus(link.childNodeId) === 'COMPLETED';
+      isInternalGroupLink && !childIsOptional && viewerNodeStatus(link.childNodeId) === 'COMPLETED';
     const parentGroupChildCompleted =
       !nextStepEdge &&
       showOverviewDisabledState.value &&
@@ -2073,9 +2065,11 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const isCompletedPath = !linkDisabled && (baseCompleted || parentGroupChildCompleted);
     const branchColor = linkDisabled
       ? DISABLED_BRANCH_COLOR
-      : isCompletedPath
-        ? COMPLETED_ACCENT_COLOR
-        : BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
+      : childIsOptional
+        ? OPTIONAL_BRANCH_COLOR
+        : isCompletedPath
+          ? COMPLETED_ACCENT_COLOR
+          : BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
     const animationDelay = (branchInfo?.depth ?? 0) * BRANCH_ANIMATION_STAGGER;
 
     return {
@@ -2791,7 +2785,8 @@ function addNode(parentId?: string | null) {
     sortOrder: editableNodes.value.length,
     requirements: {},
     metadata: { accentColor: DEFAULT_ACCENT_COLOR },
-    isGroup: false
+    isGroup: false,
+    isOptional: false
   };
   editableNodes.value.push(newNode);
   if (parent) {
@@ -3100,7 +3095,8 @@ async function saveGraph() {
         sortOrder: index,
         requirements: node.requirements,
         metadata: node.metadata,
-        isGroup: node.isGroup
+        isGroup: node.isGroup,
+        isOptional: node.isOptional
       })) as QuestNodeInputPayload[],
       links: editableLinks.value.map((link) => {
         const start = nodePositionMap.value.get(link.parentNodeId) ?? { x: 0, y: 0 };
@@ -3289,46 +3285,64 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
       newlyCompleted.add(nodeId);
     }
 
-    const groupDescendants = getGroupDescendants(nodeId);
-    const branchDescendants = getDownstreamNodeIds(nodeId);
-    const downstreamIds = Array.from(new Set([...groupDescendants, ...branchDescendants]));
-    if (['NOT_STARTED', 'IN_PROGRESS', 'BLOCKED'].includes(status)) {
-      downstreamIds.forEach((descendantId) => updates.set(descendantId, 'NOT_STARTED'));
-    }
+    const nodeMeta = renderedNodeIndex.value.get(nodeId);
+    const nodeIsOptional = nodeMeta?.isOptional ?? false;
 
-    const nextStepGroups = getNextStepGroupAncestors(nodeId);
-    if (nextStepGroups.length) {
-      if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
-        nextStepGroups.forEach((groupId) => applyGroupHierarchyStatus(groupId, 'COMPLETED', updates, newlyCompleted));
-      } else if (status === 'NOT_STARTED' || status === 'BLOCKED') {
-        nextStepGroups.forEach((groupId) => applyGroupHierarchyStatus(groupId, 'NOT_STARTED', updates, newlyCompleted));
-      }
-    }
-
-    if (isGroupNode(nodeId) && status === 'COMPLETED') {
-      downstreamIds.forEach((descendantId) => {
-        updates.set(descendantId, 'COMPLETED');
-        newlyCompleted.add(descendantId);
-      });
-      if (!areAllDescendantsComplete(nodeId, newlyCompleted)) {
-        window.alert('Complete all child steps before marking this group as complete.');
-        progressUpdating.value = false;
-        return;
-      }
-    }
-
-    if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
-      const upstreamIds = getUpstreamNodeIds(nodeId);
-      for (const ancestorId of upstreamIds) {
-        if (isGroupNode(ancestorId)) {
-          if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
-            updates.set(ancestorId, 'COMPLETED');
-            newlyCompleted.add(ancestorId);
+    if (!nodeIsOptional) {
+      const groupDescendants = getGroupDescendants(nodeId);
+      const branchDescendants = getDownstreamNodeIds(nodeId);
+      const downstreamIds = Array.from(new Set([...groupDescendants, ...branchDescendants]));
+      if (['NOT_STARTED', 'IN_PROGRESS', 'BLOCKED'].includes(status)) {
+        downstreamIds.forEach((descendantId) => {
+          if (!renderedNodeIndex.value.get(descendantId)?.isOptional) {
+            updates.set(descendantId, 'NOT_STARTED');
           }
-          continue;
+        });
+      }
+
+      const nextStepGroups = getNextStepGroupAncestors(nodeId);
+      if (nextStepGroups.length) {
+        if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
+          nextStepGroups.forEach((groupId) =>
+            applyGroupHierarchyStatus(groupId, 'COMPLETED', updates, newlyCompleted)
+          );
+        } else if (status === 'NOT_STARTED' || status === 'BLOCKED') {
+          nextStepGroups.forEach((groupId) =>
+            applyGroupHierarchyStatus(groupId, 'NOT_STARTED', updates, newlyCompleted)
+          );
         }
-        updates.set(ancestorId, 'COMPLETED');
-        newlyCompleted.add(ancestorId);
+      }
+
+      if (isGroupNode(nodeId) && status === 'COMPLETED') {
+        groupDescendants.forEach((descendantId) => {
+          if (!renderedNodeIndex.value.get(descendantId)?.isOptional) {
+            updates.set(descendantId, 'COMPLETED');
+            newlyCompleted.add(descendantId);
+          }
+        });
+        if (!areAllDescendantsComplete(nodeId, newlyCompleted)) {
+          window.alert('Complete all child steps before marking this group as complete.');
+          progressUpdating.value = false;
+          return;
+        }
+      }
+
+      if (status === 'COMPLETED' || status === 'IN_PROGRESS') {
+        const upstreamIds = getUpstreamNodeIds(nodeId);
+        for (const ancestorId of upstreamIds) {
+          if (renderedNodeIndex.value.get(ancestorId)?.isOptional) {
+            continue;
+          }
+          if (isGroupNode(ancestorId)) {
+            if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
+              updates.set(ancestorId, 'COMPLETED');
+              newlyCompleted.add(ancestorId);
+            }
+            continue;
+          }
+          updates.set(ancestorId, 'COMPLETED');
+          newlyCompleted.add(ancestorId);
+        }
       }
     }
     const assignment = await api.updateQuestAssignmentProgress(
@@ -4343,6 +4357,10 @@ onUnmounted(() => {
 .quest-node__badge--disabled {
   background: rgba(100, 116, 139, 0.35);
   color: #e2e8f0;
+}
+.quest-node__badge--optional {
+  background: rgba(249, 115, 22, 0.25);
+  color: #fed7aa;
 }
 
 .quest-node__icon {

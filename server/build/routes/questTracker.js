@@ -134,7 +134,8 @@ export async function questTrackerRoutes(server) {
             sortOrder: z.number().int(),
             requirements: z.record(z.any()).optional(),
             metadata: z.record(z.any()).optional(),
-            isGroup: z.boolean().optional()
+            isGroup: z.boolean().optional(),
+            isOptional: z.boolean().optional()
         });
         const linkSchema = z.object({
             id: z.string().min(1),

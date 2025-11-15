@@ -55,7 +55,8 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
             node.id,
             {
                 isGroup: Boolean(normalized.isGroup),
-                isFinal: Boolean(normalized.isFinal)
+                isFinal: Boolean(normalized.isFinal),
+                isOptional: Boolean(normalized.isOptional)
             }
         ];
     }));
@@ -232,8 +233,16 @@ function coerceQuestProgressSummary(value) {
         percentComplete: 0
     };
 }
-function buildProgressSummary(records) {
-    const filtered = records.filter((record) => !record.isDisabled);
+function buildProgressSummary(records, options) {
+    const filtered = records.filter((record) => {
+        if (record.isDisabled) {
+            return false;
+        }
+        if (options?.nodeMeta && options.nodeMeta.get(record.nodeId)?.isOptional) {
+            return false;
+        }
+        return true;
+    });
     const summary = {
         totalNodes: filtered.length,
         completed: 0,
@@ -323,12 +332,13 @@ function getDefaultAssignmentCounts() {
         [QuestAssignmentStatus.CANCELLED]: 0
     };
 }
-async function refreshAssignmentSummary(assignmentId, tx = prisma) {
+async function refreshAssignmentSummary(assignmentId, blueprintId, tx = prisma) {
     const progressRecords = await tx.questNodeProgress.findMany({
         where: { assignmentId },
-        select: { status: true, isDisabled: true }
+        select: { nodeId: true, status: true, isDisabled: true }
     });
-    const summary = buildProgressSummary(progressRecords);
+    const { nodeMeta } = await loadBlueprintGraph(blueprintId, tx);
+    const summary = buildProgressSummary(progressRecords, { nodeMeta });
     await tx.questAssignment.update({
         where: { id: assignmentId },
         data: {
@@ -343,7 +353,7 @@ async function refreshSummariesForBlueprint(blueprintId, tx = prisma) {
         select: { id: true }
     });
     for (const assignment of assignments) {
-        await refreshAssignmentSummary(assignment.id, tx);
+        await refreshAssignmentSummary(assignment.id, blueprintId, tx);
     }
 }
 function sanitizeNumeric(value, min, max) {
@@ -612,7 +622,8 @@ export async function getQuestBlueprintDetail(options) {
             requirements: normalizedRequirements,
             metadata: normalizedMetadata,
             isGroup: Boolean(normalizedMetadata.isGroup),
-            isFinal: Boolean(normalizedMetadata.isFinal)
+            isFinal: Boolean(normalizedMetadata.isFinal),
+            isOptional: Boolean(normalizedMetadata.isOptional)
         };
     })
         .sort((a, b) => a.sortOrder - b.sortOrder || a.title.localeCompare(b.title));
@@ -674,12 +685,6 @@ export async function upsertQuestBlueprintGraph(options) {
         requirementSnapshot.set(node.id, node.requirements ?? {});
         nodeGroupMap.set(node.id, Boolean(node.isGroup));
     }
-    for (const link of options.links) {
-        const isNextStepLink = Boolean(link.conditions?.[NEXT_STEP_CONDITION_KEY]);
-        if (!isNextStepLink && nodeGroupMap.get(link.parentNodeId) && nodeGroupMap.get(link.childNodeId)) {
-            throw new Error('Group nodes cannot have group node children.');
-        }
-    }
     await prisma.$transaction(async (tx) => {
         const blueprint = await tx.questBlueprint.findUnique({
             where: { id: options.blueprintId },
@@ -709,6 +714,12 @@ export async function upsertQuestBlueprintGraph(options) {
             }
             else if (metadataInput.isGroup) {
                 delete metadataInput.isGroup;
+            }
+            if (node.isOptional) {
+                metadataInput.isOptional = true;
+            }
+            else if (metadataInput.isOptional) {
+                delete metadataInput.isOptional;
             }
             const baseData = {
                 title: node.title,
@@ -851,7 +862,7 @@ export async function startQuestAssignment(options) {
             await tx.questNodeProgress.createMany({ data: progressRows });
         }
         await syncGroupProgressForAssignment(assignment.id, options.blueprintId, tx);
-        await refreshAssignmentSummary(assignment.id, tx);
+        await refreshAssignmentSummary(assignment.id, options.blueprintId, tx);
         const hydrated = await tx.questAssignment.findUnique({
             where: { id: assignment.id },
             include: {
@@ -977,6 +988,10 @@ export async function applyAssignmentProgressUpdates(options) {
         const downstreamCache = new Map();
         const pendingStatusOverrides = new Map();
         const queueStatusOverride = (nodeId, status, allowGroup = false) => {
+            const meta = nodeMeta.get(nodeId);
+            if (meta?.isOptional) {
+                return;
+            }
             pendingStatusOverrides.set(nodeId, { status, allowGroup });
         };
         const queueHierarchyUpdate = (groupId, status) => {
@@ -1006,6 +1021,8 @@ export async function applyAssignmentProgressUpdates(options) {
             if (!current) {
                 throw new Error('Quest progress update referenced an unknown node.');
             }
+            const nodeMetaEntry = nodeMeta.get(update.nodeId);
+            const nodeIsOptional = nodeMetaEntry?.isOptional ?? false;
             if ((groupNodeIds.has(update.nodeId) || disabledNodeIds.has(update.nodeId)) && !optionsInternal.allowGroupStatus) {
                 if (typeof update.isDisabled !== 'boolean') {
                     return;
@@ -1064,14 +1081,15 @@ export async function applyAssignmentProgressUpdates(options) {
                 },
                 data
             });
-            if (!optionsInternal.suppressHierarchyPropagation) {
+            if (!nodeIsOptional && !optionsInternal.suppressHierarchyPropagation) {
                 const hierarchyStatus = resolveHierarchyStatus(update.status);
                 if (hierarchyStatus) {
                     const parents = nextStepParentMap.get(update.nodeId) ?? [];
                     parents.forEach((parentId) => queueHierarchyUpdate(parentId, hierarchyStatus));
                 }
             }
-            const shouldResetDownstream = previousStatus === QuestNodeProgressStatus.COMPLETED &&
+            const shouldResetDownstream = !nodeIsOptional &&
+                previousStatus === QuestNodeProgressStatus.COMPLETED &&
                 (update.status === QuestNodeProgressStatus.NOT_STARTED || update.status === QuestNodeProgressStatus.IN_PROGRESS);
             if (shouldResetDownstream) {
                 const downstreamNodes = collectDownstreamNodeIds(update.nodeId, childMap, nextStepChildMap, downstreamCache);
@@ -1091,7 +1109,7 @@ export async function applyAssignmentProgressUpdates(options) {
             await processUpdate({ nodeId, status: entry.status }, { suppressHierarchyPropagation: true, allowGroupStatus: entry.allowGroup });
         }
         await syncGroupProgressForAssignment(assignment.id, assignment.blueprintId, tx);
-        await refreshAssignmentSummary(assignment.id, tx);
+        await refreshAssignmentSummary(assignment.id, assignment.blueprintId, tx);
         if (finalNodeIds.size) {
             const finalProgress = await tx.questNodeProgress.findMany({
                 where: {
@@ -1150,7 +1168,8 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
         bucket.push({
             id: node.id,
             isFinal: Boolean(metadata.isFinal),
-            isGroup: Boolean(metadata.isGroup)
+            isGroup: Boolean(metadata.isGroup),
+            isOptional: Boolean(metadata.isOptional)
         });
     }
     const childMap = new Map();
@@ -1179,9 +1198,9 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
         }
         const adjacency = childMap.get(blueprintId) ?? new Map();
         const parentMap = parentCounts.get(blueprintId) ?? new Map();
-        const blueprintNodeMeta = new Map();
+        const nodeMetaMap = new Map();
         blueprintNodes.forEach((node) => {
-            blueprintNodeMeta.set(node.id, { isGroup: node.isGroup });
+            nodeMetaMap.set(node.id, { isGroup: node.isGroup, isOptional: node.isOptional });
         });
         const roots = blueprintNodes
             .map((node) => node.id)
@@ -1189,6 +1208,7 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
         const queue = [];
         const visited = new Set();
         const parentsLookup = new Map();
+        const nodeWeight = (nodeId) => (nodeMetaMap.get(nodeId)?.isOptional ? 0 : 1);
         const enqueue = (nodeId, depth, parentId) => {
             if (visited.has(nodeId)) {
                 return;
@@ -1198,10 +1218,10 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
             queue.push({ nodeId, depth });
         };
         if (roots.length) {
-            roots.forEach((rootId) => enqueue(rootId, 1, null));
+            roots.forEach((rootId) => enqueue(rootId, nodeWeight(rootId), null));
         }
         else {
-            blueprintNodes.forEach((node) => enqueue(node.id, 1, null));
+            blueprintNodes.forEach((node) => enqueue(node.id, nodeWeight(node.id), null));
         }
         let shortest = blueprintNodes.length;
         let finalNodeReached = null;
@@ -1214,7 +1234,7 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
             }
             const children = adjacency.get(nodeId) ?? [];
             for (const childId of children) {
-                enqueue(childId, depth + 1, nodeId);
+                enqueue(childId, depth + nodeWeight(childId), nodeId);
             }
         }
         if (!finalNodeReached) {
@@ -1227,17 +1247,24 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
             pathNodes.add(cursor);
             cursor = parentsLookup.get(cursor) ?? null;
         }
-        const countedNodes = new Set(pathNodes);
+        const countedNodes = new Set();
         const descendantCacheLocal = new Map();
         for (const nodeId of pathNodes) {
-            const meta = blueprintNodeMeta.get(nodeId);
-            if (!meta?.isGroup) {
-                continue;
+            const meta = nodeMetaMap.get(nodeId);
+            if (!meta?.isOptional) {
+                countedNodes.add(nodeId);
             }
-            const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
-            descendants.forEach((descendantId) => countedNodes.add(descendantId));
+            if (meta?.isGroup) {
+                const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
+                for (const descendantId of descendants) {
+                    const descendantMeta = nodeMetaMap.get(descendantId);
+                    if (!descendantMeta?.isOptional) {
+                        countedNodes.add(descendantId);
+                    }
+                }
+            }
         }
-        shortest = countedNodes.size;
+        shortest = countedNodes.size || 0;
         result.set(blueprintId, shortest);
     }
     return result;
