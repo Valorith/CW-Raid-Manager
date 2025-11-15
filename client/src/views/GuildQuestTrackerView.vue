@@ -76,13 +76,13 @@
               <div class="quest-blueprint-card__progress-meta">
                 <span class="muted x-small">My progress</span>
                 <span class="quest-blueprint-card__progress-value">
-                  {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment)) }}
+                  {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }}
                 </span>
               </div>
               <div class="quest-progress-bar">
                 <div
                   class="quest-progress-bar__value"
-                    :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment)) }"
+                    :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }"
                   ></div>
               </div>
             </div>
@@ -2180,7 +2180,7 @@ function formatPercent(value: number) {
   return `${Math.round(percent * 100)}%`;
 }
 
-function viewerProgressRatio(assignment?: QuestAssignment | null) {
+function viewerProgressRatio(assignment?: QuestAssignment | null, totalStepOverride?: number) {
   if (!assignment) {
     return 0;
   }
@@ -2192,7 +2192,7 @@ function viewerProgressRatio(assignment?: QuestAssignment | null) {
     notStarted: 0,
     percentComplete: 0
   };
-  const totalSteps = summary.totalNodes ?? assignment.totalViewerSteps ?? 0;
+  const totalSteps = totalStepOverride ?? summary.totalNodes ?? assignment.totalViewerSteps ?? 0;
   if (totalSteps > 0) {
     const completed = summary.completed ?? 0;
     return Math.min(1, completed / totalSteps);

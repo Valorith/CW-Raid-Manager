@@ -1701,14 +1701,14 @@ function computeShortestPathMap(
     const descendantCacheLocal = new Map<string, string[]>();
     for (const nodeId of pathNodes) {
       const meta = nodeMetaMap.get(nodeId);
-      if (!meta?.isOptional) {
+      if (!meta?.isOptional && !meta?.isGroup) {
         countedNodes.add(nodeId);
       }
       if (meta?.isGroup) {
         const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
         for (const descendantId of descendants) {
           const descendantMeta = nodeMetaMap.get(descendantId);
-          if (!descendantMeta?.isOptional) {
+          if (!descendantMeta?.isOptional && !descendantMeta?.isGroup) {
             countedNodes.add(descendantId);
           }
         }
