@@ -413,7 +413,7 @@
                   :class="{ 'quest-node__badges--intro': showGuildIntroHighlight }"
                 >
                   <button
-                    v-for="pin in guildPinsForNode(node.id)"
+                    v-for="pin in visibleGuildPins(node.id)"
                     :key="`${pin.assignmentId}-${pin.characterName}`"
                     type="button"
                     class="quest-node-badge"
@@ -424,6 +424,18 @@
                     <img v-if="pin.icon" :src="pin.icon || undefined" :alt="pin.classLabel" />
                     <span v-else>{{ pin.fallback }}</span>
                   </button>
+                  <span
+                    v-if="guildPinOverflowCount(node.id) > 0"
+                    class="quest-node-badge quest-node-badge--more"
+                    :title="`${guildPinOverflowCount(node.id)} more characters`"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="openGuildPinModal(node.id)"
+                    @keydown.enter.stop.prevent="openGuildPinModal(node.id)"
+                    @keydown.space.stop.prevent="openGuildPinModal(node.id)"
+                  >
+                    +
+                  </span>
                 </div>
               </div>
             </div>
@@ -702,8 +714,8 @@
     </div>
   </div>
 
-  <div v-if="showCreateModal" class="quest-modal">
-    <div class="quest-modal__content">
+<div v-if="showCreateModal" class="quest-modal">
+  <div class="quest-modal__content">
       <header>
         <h3>New Quest Blueprint</h3>
         <button class="btn btn--icon" type="button" @click="closeCreateModal">×</button>
@@ -718,9 +730,59 @@
           {{ creatingBlueprint ? 'Creating…' : 'Create Blueprint' }}
         </button>
       </div>
+  </div>
+</div>
+
+<div v-if="showGuildPinModal" class="quest-modal">
+  <div class="quest-modal__content quest-character-modal">
+    <header>
+      <h3>Characters on {{ guildPinModalNode?.title ?? 'Step' }}</h3>
+      <button class="btn btn--icon" type="button" @click="closeGuildPinModal">×</button>
+    </header>
+    <div class="quest-character-list">
+      <button
+        v-for="pin in guildPinModalVisiblePins"
+        :key="pin.assignmentId"
+        type="button"
+        class="quest-character-button quest-character-button--link"
+        @click="handleGuildAssignmentClick(pin.assignmentId)"
+      >
+        <span class="quest-character-button__icon">
+          <img v-if="pin.icon" :src="pin.icon || undefined" :alt="pin.classLabel" />
+          <span v-else>{{ pin.fallback }}</span>
+        </span>
+        <div class="quest-character-button__details">
+          <span class="quest-character-button__title">{{ pin.characterName }}</span>
+          <span class="quest-character-button__meta">{{ pin.classLabel }}</span>
+        </div>
+      </button>
+      <div v-if="guildPinModalTotalPages > 1" class="quest-character-modal__pagination">
+        <button
+          class="btn btn--tiny"
+          type="button"
+          :disabled="guildPinModalPage === 1"
+          @click="prevGuildPinPage"
+        >
+          Previous
+        </button>
+        <span class="quest-character-modal__pagination-info">
+          Page {{ guildPinModalPage }} of {{ guildPinModalTotalPages }}
+        </span>
+        <button
+          class="btn btn--tiny"
+          type="button"
+          :disabled="guildPinModalPage === guildPinModalTotalPages"
+          @click="nextGuildPinPage"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+    <div class="quest-modal__actions">
+      <button class="btn btn--secondary" type="button" @click="closeGuildPinModal">Close</button>
     </div>
   </div>
-
+</div>
   <div v-if="showBlueprintSettings" class="quest-modal">
     <div class="quest-modal__content">
       <header>
@@ -942,6 +1004,10 @@ const characterModalError = ref<string | null>(null);
 const characterStartError = ref<string | null>(null);
 const charactersLoaded = ref(false);
 const selectedAssignmentId = ref<string | null>(null);
+const showGuildPinModal = ref(false);
+const guildPinModalNodeId = ref<string | null>(null);
+const guildPinModalPage = ref(1);
+const GUILD_PIN_MODAL_PAGE_SIZE = 10;
 
 const editableNodes = ref<EditableNode[]>([]);
 const editableLinks = ref<QuestBlueprintDetailPayload['links']>([]);
@@ -2655,6 +2721,8 @@ type GuildNodePin = {
   tooltip: string;
 };
 
+const MAX_DISPLAYED_GUILD_PINS = 6;
+
 const guildNodePinsById = computed(() => {
   const map = new Map<string, GuildNodePin[]>();
   const nodes = detail.value?.nodes ?? [];
@@ -2704,6 +2772,45 @@ function guildPinsForNode(nodeId: string): GuildNodePin[] {
   return guildNodePinsById.value.get(nodeId) ?? [];
 }
 
+function visibleGuildPins(nodeId: string): GuildNodePin[] {
+  return guildPinsForNode(nodeId).slice(0, MAX_DISPLAYED_GUILD_PINS);
+}
+
+function guildPinOverflowCount(nodeId: string): number {
+  const total = guildPinsForNode(nodeId).length;
+  return total > MAX_DISPLAYED_GUILD_PINS ? total - MAX_DISPLAYED_GUILD_PINS : 0;
+}
+
+const guildPinModalNode = computed(() =>
+  detail.value?.nodes?.find((node) => node.id === guildPinModalNodeId.value) ?? null
+);
+
+const guildPinModalPins = computed(() =>
+  guildPinModalNodeId.value ? guildPinsForNode(guildPinModalNodeId.value) : []
+);
+
+const guildPinModalTotalPages = computed(() => {
+  const total = guildPinModalPins.value.length;
+  return total ? Math.ceil(total / GUILD_PIN_MODAL_PAGE_SIZE) : 1;
+});
+
+const guildPinModalVisiblePins = computed(() => {
+  const start = (guildPinModalPage.value - 1) * GUILD_PIN_MODAL_PAGE_SIZE;
+  return guildPinModalPins.value.slice(start, start + GUILD_PIN_MODAL_PAGE_SIZE);
+});
+
+function nextGuildPinPage() {
+  if (guildPinModalPage.value < guildPinModalTotalPages.value) {
+    guildPinModalPage.value += 1;
+  }
+}
+
+function prevGuildPinPage() {
+  if (guildPinModalPage.value > 1) {
+    guildPinModalPage.value -= 1;
+  }
+}
+
 function findNextNodeIdForAssignment(
   assignment: QuestAssignment,
   nodes: QuestNodeViewModel[]
@@ -2729,11 +2836,22 @@ function handleGuildAssignmentClick(assignmentId: string) {
   }
   guildFocusAssignmentId.value = assignmentId;
   setTab('overview');
+  closeGuildPinModal();
 }
 
 function clearGuildAssignmentFocus() {
   guildFocusAssignmentId.value = null;
   showGuildIntroHighlight.value = false;
+}
+
+function openGuildPinModal(nodeId: string) {
+  guildPinModalNodeId.value = nodeId;
+  showGuildPinModal.value = true;
+}
+
+function closeGuildPinModal() {
+  showGuildPinModal.value = false;
+  guildPinModalNodeId.value = null;
 }
 
 function selectBlueprint(id: string) {
@@ -5712,6 +5830,18 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.quest-node-badge--more {
+  width: auto;
+  min-width: 32px;
+  padding: 0 0.6rem;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1px dashed rgba(148, 163, 184, 0.6);
+  color: rgba(248, 250, 252, 0.9);
+  font-size: 0.75rem;
+  border-radius: 8px;
+  animation: none;
+}
+
 @keyframes questBadgePulse {
   0% {
     transform: scale(1);
@@ -5888,6 +6018,19 @@ onUnmounted(() => {
   text-align: left;
 }
 
+.quest-character-modal__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.quest-character-modal__pagination-info {
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
 .quest-character-list {
   list-style: none;
   margin: 0.5rem 0 0;
@@ -5908,6 +6051,18 @@ onUnmounted(() => {
   background: rgba(15, 23, 42, 0.65);
   text-align: left;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.quest-character-button--link {
+  border: none;
+  background: rgba(15, 23, 42, 0.7);
+  color: inherit;
+  cursor: pointer;
+}
+
+.quest-character-button--link:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
 }
 
 .quest-character-button:disabled {
