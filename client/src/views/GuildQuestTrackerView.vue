@@ -211,88 +211,94 @@
         <header class="quest-detail__header">
           <div class="quest-detail__title">
             <h2>{{ selectedDetail.blueprint.title }}</h2>
-            <div v-if="viewerAssignmentCharacter" class="quest-character-pill">
-              <div class="quest-character-pill__icon">
-                <img
-                  v-if="getCharacterClassIcon(viewerAssignmentCharacter.class)"
-                  :src="getCharacterClassIcon(viewerAssignmentCharacter.class) || undefined"
-                  :alt="characterClassLabels[viewerAssignmentCharacter.class] || 'Class icon'"
-                />
-                <span v-else>{{ viewerAssignmentCharacter.class?.[0] ?? '?' }}</span>
-              </div>
-              <div class="quest-character-pill__meta">
-                <span class="quest-character-pill__label">Tracking as</span>
-                <template v-if="hasMultipleViewerAssignments">
-                  <select
-                    id="viewer-character-select"
-                    class="quest-character-select"
-                    v-model="selectedAssignmentId"
-                    aria-label="Select character to view progress"
-                  >
-                    <option v-for="option in viewerAssignmentOptions" :key="option.id" :value="option.id">
-                      {{ option.label }}
-                    </option>
-                  </select>
-                </template>
-                <template v-else>
-                  <strong>{{ viewerAssignmentCharacter.name }}</strong>
-                </template>
-                <span v-if="!hasMultipleViewerAssignments" class="quest-character-pill__class">
-                  {{ characterClassLabels[viewerAssignmentCharacter.class] ?? viewerAssignmentCharacter.class }}
-                </span>
+          </div>
+          <div class="quest-detail__toolbar">
+            <div class="quest-detail__tracking">
+              <div v-if="viewerAssignmentCharacter" class="quest-character-pill">
+                <div class="quest-character-pill__icon">
+                  <img
+                    v-if="getCharacterClassIcon(viewerAssignmentCharacter.class)"
+                    :src="getCharacterClassIcon(viewerAssignmentCharacter.class) || undefined"
+                    :alt="characterClassLabels[viewerAssignmentCharacter.class] || 'Class icon'"
+                  />
+                  <span v-else>{{ viewerAssignmentCharacter.class?.[0] ?? '?' }}</span>
+                </div>
+                <div class="quest-character-pill__meta">
+                  <span class="quest-character-pill__label">Tracking as</span>
+                  <template v-if="hasMultipleViewerAssignments">
+                    <select
+                      id="viewer-character-select"
+                      class="quest-character-select"
+                      v-model="selectedAssignmentId"
+                      aria-label="Select character to view progress"
+                    >
+                      <option v-for="option in viewerAssignmentOptions" :key="option.id" :value="option.id">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </template>
+                  <template v-else>
+                    <strong>{{ viewerAssignmentCharacter.name }}</strong>
+                  </template>
+                  <span v-if="!hasMultipleViewerAssignments" class="quest-character-pill__class">
+                    {{ characterClassLabels[viewerAssignmentCharacter.class] ?? viewerAssignmentCharacter.class }}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="quest-detail__actions">
-            <button
-              v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
-              class="btn btn--outline btn--small"
-              type="button"
-              :disabled="assignmentUpdating"
-              @click="completeAssignment"
-            >
-              {{ assignmentUpdating ? 'Saving…' : 'Mark Complete' }}
-            </button>
-            <button
-              v-if="viewerAssignment && viewerAssignment.status !== 'CANCELLED'"
-              class="btn btn--danger btn--small"
-              type="button"
-              :disabled="assignmentUpdating"
-              @click="cancelAssignment"
-            >
-              {{ assignmentUpdating ? 'Updating…' : 'Abandon Quest' }}
-            </button>
-            <button
-              v-if="!charactersLoaded || hasEligibleCharacters"
-              class="btn btn--start"
-              type="button"
-              :disabled="assignmentUpdating"
-              @click="startAssignment"
-            >
-              {{ assignmentUpdating ? 'Starting…' : 'Start Quest' }}
-            </button>
-            <p v-else class="quest-detail__hint muted">
-              {{
-                viewerAssignments.length
-                  ? 'All of your characters are already tracking this quest.'
-                  : 'Add a guild character to start tracking this quest.'
-              }}
-            </p>
+            <div class="quest-tabs quest-detail__tabs">
+              <button
+                v-for="tab in availableTabs"
+                :key="tab.key"
+                :class="[
+                  'quest-tabs__button',
+                  { 'quest-tabs__button--active': activeTab === tab.key, 'quest-tabs__button--disabled': tab.disabled }
+                ]"
+                type="button"
+                :disabled="tab.disabled"
+                @click="setTab(tab.key)"
+              >
+                {{ tab.label }}
+              </button>
+            </div>
+            <div class="quest-detail__actions">
+              <button
+                v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
+                class="btn btn--outline btn--small"
+                type="button"
+                :disabled="assignmentUpdating"
+                @click="completeAssignment"
+              >
+                {{ assignmentUpdating ? 'Saving…' : 'Mark Complete' }}
+              </button>
+              <button
+                v-if="viewerAssignment && viewerAssignment.status !== 'CANCELLED'"
+                class="btn btn--danger btn--small"
+                type="button"
+                :disabled="assignmentUpdating"
+                @click="cancelAssignment"
+              >
+                {{ assignmentUpdating ? 'Updating…' : 'Abandon Quest' }}
+              </button>
+              <button
+                v-if="!charactersLoaded || hasEligibleCharacters"
+                class="btn btn--start"
+                type="button"
+                :disabled="assignmentUpdating"
+                @click="startAssignment"
+              >
+                {{ assignmentUpdating ? 'Starting…' : 'Start Quest' }}
+              </button>
+              <p v-else class="quest-detail__hint muted">
+                {{
+                  viewerAssignments.length
+                    ? 'All of your characters are already tracking this quest.'
+                    : 'Add a guild character to start tracking this quest.'
+                }}
+              </p>
+            </div>
           </div>
         </header>
-
-        <div class="quest-tabs">
-          <button
-            v-for="tab in availableTabs"
-            :key="tab.key"
-            :class="['quest-tabs__button', { 'quest-tabs__button--active': activeTab === tab.key, 'quest-tabs__button--disabled': tab.disabled }]"
-            type="button"
-            :disabled="tab.disabled"
-            @click="setTab(tab.key)"
-          >
-            {{ tab.label }}
-          </button>
-        </div>
 
         <section v-if="activeTab === 'overview'" class="quest-panel quest-panel--canvas">
           <div
@@ -4612,7 +4618,7 @@ onUnmounted(() => {
 .quest-detail {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
   flex: 1;
   min-height: 0;
 }
@@ -4620,26 +4626,50 @@ onUnmounted(() => {
 .quest-detail__header {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 0.75rem;
   width: 100%;
+  align-items: stretch;
 }
 
 .quest-detail__title {
   text-align: center;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.quest-detail__title h2 {
+  margin: 0;
+}
+
+.quest-detail__toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+}
+
+.quest-detail__tracking {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  justify-self: start;
+  width: 100%;
 }
 
 .quest-character-pill {
-  margin: 0.5rem auto 0;
+  margin: 0;
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
-  padding: 0.5rem 0.85rem;
+  padding: 0;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.45);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .quest-character-pill__icon {
@@ -4661,7 +4691,7 @@ onUnmounted(() => {
 .quest-character-pill__meta {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.3rem;
   font-size: 0.85rem;
 }
@@ -4671,7 +4701,7 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   font-size: 0.65rem;
   color: rgba(148, 163, 184, 0.9);
-  text-align: center;
+  text-align: left;
   width: 100%;
 }
 
@@ -4684,7 +4714,7 @@ onUnmounted(() => {
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
-  text-align: center;
+  text-align: left;
 }
 
 .quest-character-select:focus-visible {
@@ -4695,6 +4725,16 @@ onUnmounted(() => {
 .quest-character-pill__class {
   font-size: 0.75rem;
   color: rgba(226, 232, 240, 0.9);
+}
+
+.quest-detail__tabs {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-self: center;
+  max-width: 100%;
 }
 
 .quest-detail__hint {
@@ -4717,7 +4757,7 @@ onUnmounted(() => {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .quest-tabs__button {
@@ -5875,18 +5915,23 @@ onUnmounted(() => {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
-  align-self: flex-end;
   flex-wrap: wrap;
+  align-items: center;
+  justify-self: end;
+  width: 100%;
 }
 
 @media (max-width: 720px) {
-  .quest-detail__header {
-    justify-content: center;
+  .quest-detail__toolbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
   }
+  .quest-detail__tracking,
+  .quest-detail__tabs,
   .quest-detail__actions {
     width: 100%;
     justify-content: center;
-    align-self: center;
   }
 }
 
