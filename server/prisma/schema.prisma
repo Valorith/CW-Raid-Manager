@@ -392,19 +392,15 @@ model QuestBlueprintFolder {
   type         QuestBlueprintFolderType   @default(CUSTOM)
   systemKey    String?                    @db.VarChar(191)
   sortOrder    Int                        @default(0)
-  parentId     String?
   createdById  String?
   createdAt    DateTime                   @default(now())
   updatedAt    DateTime                   @updatedAt
   guild        Guild                      @relation(fields: [guildId], references: [id], onDelete: Cascade)
   createdBy    User?                      @relation("QuestBlueprintFolderCreator", fields: [createdById], references: [id], onDelete: SetNull)
   blueprints   QuestBlueprint[]
-  parent       QuestBlueprintFolder?      @relation("QuestFolderChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  children     QuestBlueprintFolder[]     @relation("QuestFolderChildren")
 
   @@index([guildId], map: "QuestBlueprintFolder_guildId_idx")
   @@unique([guildId, systemKey], map: "QuestBlueprintFolder_system_key_unique")
-  @@index([parentId], map: "QuestBlueprintFolder_parent_idx")
 }
 
 model QuestNode {
