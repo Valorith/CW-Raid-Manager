@@ -1566,7 +1566,10 @@ function computeShortestPathMap(
   nodes: Array<{ blueprintId: string; id: string; metadata: Prisma.JsonValue | null }>,
   links: Array<{ blueprintId: string; parentNodeId: string; childNodeId: string }>
 ) {
-  const nodesByBlueprint = new Map<string, Array<{ id: string; isFinal: boolean }>>();
+  const nodesByBlueprint = new Map<
+    string,
+    Array<{ id: string; isFinal: boolean; isGroup: boolean }>
+  >();
   for (const blueprintId of blueprintIds) {
     nodesByBlueprint.set(blueprintId, []);
   }
@@ -1576,7 +1579,11 @@ function computeShortestPathMap(
     if (!bucket) {
       continue;
     }
-    bucket.push({ id: node.id, isFinal: Boolean(metadata.isFinal) });
+    bucket.push({
+      id: node.id,
+      isFinal: Boolean(metadata.isFinal),
+      isGroup: Boolean(metadata.isGroup)
+    });
   }
 
   const childMap = new Map<string, Map<string, string[]>>();
@@ -1610,6 +1617,10 @@ function computeShortestPathMap(
 
     const adjacency = childMap.get(blueprintId) ?? new Map<string, string[]>();
     const parentMap = parentCounts.get(blueprintId) ?? new Map<string, number>();
+    const blueprintNodeMeta = new Map<string, { isGroup: boolean }>();
+    blueprintNodes.forEach((node) => {
+      blueprintNodeMeta.set(node.id, { isGroup: node.isGroup });
+    });
 
     const roots = blueprintNodes
       .map((node) => node.id)
@@ -1617,34 +1628,62 @@ function computeShortestPathMap(
 
     const queue: Array<{ nodeId: string; depth: number }> = [];
     const visited = new Set<string>();
+    const parentsLookup = new Map<string, string | null>();
 
-    const enqueue = (nodeId: string, depth: number) => {
+    const enqueue = (nodeId: string, depth: number, parentId: string | null) => {
       if (visited.has(nodeId)) {
         return;
       }
       visited.add(nodeId);
+      parentsLookup.set(nodeId, parentId);
       queue.push({ nodeId, depth });
     };
 
     if (roots.length) {
-      roots.forEach((rootId) => enqueue(rootId, 1));
+      roots.forEach((rootId) => enqueue(rootId, 1, null));
     } else {
-      blueprintNodes.forEach((node) => enqueue(node.id, 1));
+      blueprintNodes.forEach((node) => enqueue(node.id, 1, null));
     }
 
     let shortest = blueprintNodes.length;
+    let finalNodeReached: string | null = null;
     while (queue.length) {
       const { nodeId, depth } = queue.shift()!;
       if (finals.has(nodeId)) {
         shortest = depth;
+        finalNodeReached = nodeId;
         break;
       }
       const children = adjacency.get(nodeId) ?? [];
       for (const childId of children) {
-        enqueue(childId, depth + 1);
+        enqueue(childId, depth + 1, nodeId);
       }
     }
 
+    if (!finalNodeReached) {
+      result.set(blueprintId, blueprintNodes.length);
+      continue;
+    }
+
+    const pathNodes = new Set<string>();
+    let cursor: string | null = finalNodeReached;
+    while (cursor) {
+      pathNodes.add(cursor);
+      cursor = parentsLookup.get(cursor) ?? null;
+    }
+
+    const countedNodes = new Set<string>(pathNodes);
+    const descendantCacheLocal = new Map<string, string[]>();
+    for (const nodeId of pathNodes) {
+      const meta = blueprintNodeMeta.get(nodeId);
+      if (!meta?.isGroup) {
+        continue;
+      }
+      const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
+      descendants.forEach((descendantId) => countedNodes.add(descendantId));
+    }
+
+    shortest = countedNodes.size;
     result.set(blueprintId, shortest);
   }
 

@@ -1147,7 +1147,11 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
         if (!bucket) {
             continue;
         }
-        bucket.push({ id: node.id, isFinal: Boolean(metadata.isFinal) });
+        bucket.push({
+            id: node.id,
+            isFinal: Boolean(metadata.isFinal),
+            isGroup: Boolean(metadata.isGroup)
+        });
     }
     const childMap = new Map();
     const parentCounts = new Map();
@@ -1175,36 +1179,65 @@ function computeShortestPathMap(blueprintIds, nodes, links) {
         }
         const adjacency = childMap.get(blueprintId) ?? new Map();
         const parentMap = parentCounts.get(blueprintId) ?? new Map();
+        const blueprintNodeMeta = new Map();
+        blueprintNodes.forEach((node) => {
+            blueprintNodeMeta.set(node.id, { isGroup: node.isGroup });
+        });
         const roots = blueprintNodes
             .map((node) => node.id)
             .filter((nodeId) => !parentMap.has(nodeId));
         const queue = [];
         const visited = new Set();
-        const enqueue = (nodeId, depth) => {
+        const parentsLookup = new Map();
+        const enqueue = (nodeId, depth, parentId) => {
             if (visited.has(nodeId)) {
                 return;
             }
             visited.add(nodeId);
+            parentsLookup.set(nodeId, parentId);
             queue.push({ nodeId, depth });
         };
         if (roots.length) {
-            roots.forEach((rootId) => enqueue(rootId, 1));
+            roots.forEach((rootId) => enqueue(rootId, 1, null));
         }
         else {
-            blueprintNodes.forEach((node) => enqueue(node.id, 1));
+            blueprintNodes.forEach((node) => enqueue(node.id, 1, null));
         }
         let shortest = blueprintNodes.length;
+        let finalNodeReached = null;
         while (queue.length) {
             const { nodeId, depth } = queue.shift();
             if (finals.has(nodeId)) {
                 shortest = depth;
+                finalNodeReached = nodeId;
                 break;
             }
             const children = adjacency.get(nodeId) ?? [];
             for (const childId of children) {
-                enqueue(childId, depth + 1);
+                enqueue(childId, depth + 1, nodeId);
             }
         }
+        if (!finalNodeReached) {
+            result.set(blueprintId, blueprintNodes.length);
+            continue;
+        }
+        const pathNodes = new Set();
+        let cursor = finalNodeReached;
+        while (cursor) {
+            pathNodes.add(cursor);
+            cursor = parentsLookup.get(cursor) ?? null;
+        }
+        const countedNodes = new Set(pathNodes);
+        const descendantCacheLocal = new Map();
+        for (const nodeId of pathNodes) {
+            const meta = blueprintNodeMeta.get(nodeId);
+            if (!meta?.isGroup) {
+                continue;
+            }
+            const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
+            descendants.forEach((descendantId) => countedNodes.add(descendantId));
+        }
+        shortest = countedNodes.size;
         result.set(blueprintId, shortest);
     }
     return result;
