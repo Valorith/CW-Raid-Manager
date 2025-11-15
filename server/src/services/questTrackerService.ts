@@ -8,7 +8,9 @@ import {
   QuestNodeProgressStatus,
   QuestNodeType,
   QuestBlueprintVisibility as PrismaQuestBlueprintVisibility,
-  QuestBlueprint
+  QuestBlueprint,
+  QuestBlueprintFolder,
+  QuestBlueprintFolderType
 } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
@@ -30,6 +32,9 @@ const CHARACTER_SUMMARY_FIELDS = {
 } as const;
 
 export const QUEST_BLUEPRINT_PERMISSION_ERROR = 'QUEST_BLUEPRINT_PERMISSION_DENIED';
+export const QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR = 'QUEST_BLUEPRINT_FOLDER_NOT_EMPTY';
+export const QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR = 'QUEST_BLUEPRINT_FOLDER_LOCKED';
+export const QUEST_BLUEPRINT_FOLDER_REORDER_ERROR = 'QUEST_BLUEPRINT_FOLDER_REORDER_ERROR';
 
 
 export interface QuestProgressSummary {
@@ -39,6 +44,115 @@ export interface QuestProgressSummary {
   blocked: number;
   notStarted: number;
   percentComplete: number;
+}
+
+export interface QuestBlueprintFolderSummary {
+  id: string;
+  title: string;
+  iconKey: string | null;
+  type: QuestBlueprintFolderType;
+  systemKey: string | null;
+  sortOrder: number;
+}
+
+type ClassFolderDefinition = {
+  className: CharacterClass;
+  abbreviation: string;
+  iconKey: string;
+};
+
+const CLASS_FOLDER_DEFINITIONS: ClassFolderDefinition[] = [
+  { className: CharacterClass.WARRIOR, abbreviation: 'WAR', iconKey: 'Warrioricon.PNG.webp' },
+  { className: CharacterClass.SHADOWKNIGHT, abbreviation: 'SHD', iconKey: 'Skicon.PNG.webp' },
+  { className: CharacterClass.PALADIN, abbreviation: 'PAL', iconKey: 'Paladinicon.PNG.webp' },
+  { className: CharacterClass.RANGER, abbreviation: 'RNG', iconKey: 'Rangericon.PNG.webp' },
+  { className: CharacterClass.MONK, abbreviation: 'MNK', iconKey: 'Monkicon.PNG.webp' },
+  { className: CharacterClass.ROGUE, abbreviation: 'ROG', iconKey: 'Rogueicon.PNG.webp' },
+  { className: CharacterClass.BERSERKER, abbreviation: 'BER', iconKey: 'Berserkericon.PNG.webp' },
+  { className: CharacterClass.BARD, abbreviation: 'BRD', iconKey: 'Bardicon.PNG.webp' },
+  { className: CharacterClass.BEASTLORD, abbreviation: 'BST', iconKey: 'Beastlordicon.PNG.webp' },
+  { className: CharacterClass.CLERIC, abbreviation: 'CLR', iconKey: 'Clericicon.PNG.webp' },
+  { className: CharacterClass.DRUID, abbreviation: 'DRU', iconKey: 'Druidicon.PNG.webp' },
+  { className: CharacterClass.SHAMAN, abbreviation: 'SHM', iconKey: 'Shamanicon.PNG.webp' },
+  { className: CharacterClass.NECROMANCER, abbreviation: 'NEC', iconKey: 'Necromancericon.PNG.webp' },
+  { className: CharacterClass.WIZARD, abbreviation: 'WIZ', iconKey: 'Wizardicon.PNG.webp' },
+  { className: CharacterClass.MAGICIAN, abbreviation: 'MAG', iconKey: 'Magicianicon.PNG.webp' },
+  { className: CharacterClass.ENCHANTER, abbreviation: 'ENC', iconKey: 'Enchantericon.PNG.webp' }
+];
+
+async function ensureSystemBlueprintFolders(
+  guildId: string,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const systemKeys = CLASS_FOLDER_DEFINITIONS.map((entry) => entry.abbreviation);
+  const existing = await tx.questBlueprintFolder.findMany({
+    where: {
+      guildId,
+      systemKey: { in: systemKeys }
+    },
+    select: { systemKey: true }
+  });
+  const existingKeys = new Set((existing ?? []).map((folder) => folder.systemKey).filter(Boolean) as string[]);
+  const createData = CLASS_FOLDER_DEFINITIONS.filter((entry) => !existingKeys.has(entry.abbreviation)).map(
+    (entry) => ({
+      guildId,
+      title: entry.abbreviation,
+      iconKey: entry.iconKey,
+      type: QuestBlueprintFolderType.CLASS,
+      systemKey: entry.abbreviation,
+      sortOrder: CLASS_FOLDER_DEFINITIONS.findIndex((def) => def.abbreviation === entry.abbreviation) + 1
+    })
+  );
+  if (!createData.length) {
+    return;
+  }
+  await tx.questBlueprintFolder.createMany({
+    data: createData,
+    skipDuplicates: true
+  });
+}
+
+function mapBlueprintFolder(folder: QuestBlueprintFolder): QuestBlueprintFolderSummary {
+  return {
+    id: folder.id,
+    title: folder.title,
+    iconKey: folder.iconKey ?? null,
+    type: folder.type,
+    systemKey: folder.systemKey ?? null,
+    sortOrder: folder.sortOrder
+  };
+}
+
+async function getNextBlueprintSortOrder(
+  guildId: string,
+  folderId: string | null,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const aggregate = await tx.questBlueprint.aggregate({
+    _max: {
+      folderSortOrder: true
+    },
+    where: {
+      guildId,
+      folderId: folderId ?? null
+    }
+  });
+  return (aggregate._max.folderSortOrder ?? 0) + 1;
+}
+
+async function getNextFolderSortOrder(
+  guildId: string,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const aggregate = await tx.questBlueprintFolder.aggregate({
+    _max: {
+      sortOrder: true
+    },
+    where: {
+      guildId
+    }
+  });
+  return (aggregate._max.sortOrder ?? 0) + 1;
 }
 
 type QuestBlueprintWithCreator = QuestBlueprint & {
@@ -59,6 +173,8 @@ export interface QuestBlueprintSummary {
   createdAt: Date;
   updatedAt: Date;
   lastEditedByName?: string | null;
+  folderId: string | null;
+  folderSortOrder: number;
   nodeCount: number;
   assignmentCounts: Record<QuestAssignmentStatus, number>;
   viewerAssignment?: QuestAssignmentWithProgress | null;
@@ -126,6 +242,7 @@ export interface QuestBlueprintDetailResponse {
 
 export interface QuestTrackerSummaryResponse {
   blueprints: QuestBlueprintSummary[];
+  folders?: QuestBlueprintFolderSummary[];
 }
 
 export type QuestBlueprintVisibility = PrismaQuestBlueprintVisibility;
@@ -516,6 +633,8 @@ function mapBlueprintSummary(
     createdAt: blueprint.createdAt,
     updatedAt: blueprint.updatedAt,
     lastEditedByName: blueprint.lastEditedByName ?? null,
+    folderId: blueprint.folderId ?? null,
+    folderSortOrder: blueprint.folderSortOrder ?? 0,
     nodeCount,
     assignmentCounts,
     viewerAssignment: primaryViewerAssignment,
@@ -605,6 +724,17 @@ export async function listGuildQuestTrackerSummary(options: {
   guildId: string;
   viewerUserId: string;
 }): Promise<QuestTrackerSummaryResponse> {
+  await ensureSystemBlueprintFolders(options.guildId);
+
+  const folders = await prisma.questBlueprintFolder.findMany({
+    where: { guildId: options.guildId },
+    orderBy: [
+      { type: 'asc' },
+      { sortOrder: 'asc' },
+      { title: 'asc' }
+    ]
+  });
+
   const blueprints = await prisma.questBlueprint.findMany({
     where: { guildId: options.guildId },
     include: {
@@ -619,7 +749,7 @@ export async function listGuildQuestTrackerSummary(options: {
   });
 
   if (blueprints.length === 0) {
-    return { blueprints: [] };
+    return { blueprints: [], folders: folders.map(mapBlueprintFolder) };
   }
 
   const blueprintIds = blueprints.map((bp) => bp.id);
@@ -690,7 +820,7 @@ export async function listGuildQuestTrackerSummary(options: {
     return mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignmentsPayload.length ? viewerAssignmentsPayload : undefined);
   });
 
-  return { blueprints: summaries };
+  return { blueprints: summaries, folders: folders.map(mapBlueprintFolder) };
 }
 
 export async function createQuestBlueprint(options: {
@@ -701,6 +831,7 @@ export async function createQuestBlueprint(options: {
   visibility?: QuestBlueprintVisibility;
 }): Promise<QuestBlueprintSummary> {
   const creatorName = await resolveUserDisplayName(options.creatorUserId);
+  const folderSortOrder = await getNextBlueprintSortOrder(options.guildId, null);
   const blueprint = await prisma.questBlueprint.create({
     data: {
       guildId: options.guildId,
@@ -709,7 +840,8 @@ export async function createQuestBlueprint(options: {
       summary: options.summary ?? null,
       visibility: options.visibility ?? 'GUILD',
       lastEditedById: options.creatorUserId,
-      lastEditedByName: creatorName
+      lastEditedByName: creatorName,
+      folderSortOrder
     },
     include: {
       createdBy: {
@@ -719,6 +851,160 @@ export async function createQuestBlueprint(options: {
   });
 
   return mapBlueprintSummary(blueprint, 0, getDefaultAssignmentCounts(), undefined);
+}
+
+export async function createQuestBlueprintFolder(options: {
+  guildId: string;
+  actorUserId: string;
+  title: string;
+}): Promise<QuestBlueprintFolderSummary> {
+  const title = options.title.trim();
+  if (!title) {
+    throw new Error('Folder title is required.');
+  }
+  const sortOrder = await getNextFolderSortOrder(options.guildId);
+  const folder = await prisma.questBlueprintFolder.create({
+    data: {
+      guildId: options.guildId,
+      title,
+      type: QuestBlueprintFolderType.CUSTOM,
+      createdById: options.actorUserId,
+      sortOrder
+    }
+  });
+  return mapBlueprintFolder(folder);
+}
+
+export async function updateQuestBlueprintFolder(options: {
+  guildId: string;
+  folderId: string;
+  actorRole: GuildRole | null | undefined;
+  actorUserId: string;
+  title: string;
+}): Promise<QuestBlueprintFolderSummary> {
+  if (!canManageQuestBlueprints(options.actorRole)) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+  }
+  const folder = await prisma.questBlueprintFolder.findUnique({ where: { id: options.folderId } });
+  if (!folder || folder.guildId !== options.guildId) {
+    throw new Error('Quest folder not found.');
+  }
+  if (folder.type === QuestBlueprintFolderType.CLASS) {
+    throw new Error(QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR);
+  }
+  const title = options.title.trim();
+  if (!title) {
+    throw new Error('Folder title is required.');
+  }
+  const updated = await prisma.questBlueprintFolder.update({
+    where: { id: options.folderId },
+    data: { title }
+  });
+  return mapBlueprintFolder(updated);
+}
+
+export async function deleteQuestBlueprintFolder(options: {
+  guildId: string;
+  folderId: string;
+  actorRole: GuildRole | null | undefined;
+  actorUserId: string;
+}): Promise<void> {
+  if (!canManageQuestBlueprints(options.actorRole)) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+  }
+  const folder = await prisma.questBlueprintFolder.findUnique({ where: { id: options.folderId } });
+  if (!folder || folder.guildId !== options.guildId) {
+    throw new Error('Quest folder not found.');
+  }
+  if (folder.type === QuestBlueprintFolderType.CLASS) {
+    throw new Error(QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR);
+  }
+  const blueprintCount = await prisma.questBlueprint.count({
+    where: {
+      folderId: folder.id
+    }
+  });
+  if (blueprintCount > 0) {
+    throw new Error(QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR);
+  }
+  await prisma.questBlueprintFolder.delete({
+    where: { id: folder.id }
+  });
+}
+
+export async function updateBlueprintFolderAssignments(options: {
+  guildId: string;
+  actorRole: GuildRole | null | undefined;
+  actorUserId: string;
+  updates: Array<{ blueprintId: string; folderId?: string | null; sortOrder: number }>;
+}): Promise<void> {
+  if (!canManageQuestBlueprints(options.actorRole)) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+  }
+  if (!options.updates.length) {
+    return;
+  }
+  const blueprintIds = options.updates.map((entry) => entry.blueprintId);
+  const blueprints = await prisma.questBlueprint.findMany({
+    where: { id: { in: blueprintIds } },
+    select: { id: true, guildId: true }
+  });
+  if (blueprints.length !== blueprintIds.length || blueprints.some((entry) => entry.guildId !== options.guildId)) {
+    throw new Error('Quest blueprint not found.');
+  }
+  const folderIds = options.updates.map((entry) => entry.folderId).filter((value): value is string => Boolean(value));
+  if (folderIds.length) {
+    const uniqueFolderIds = Array.from(new Set(folderIds));
+    const folders = await prisma.questBlueprintFolder.findMany({
+      where: { id: { in: uniqueFolderIds } },
+      select: { id: true, guildId: true }
+    });
+    if (folders.length !== uniqueFolderIds.length || folders.some((folder) => folder.guildId !== options.guildId)) {
+      throw new Error('Quest folder not found.');
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const update of options.updates) {
+      await tx.questBlueprint.update({
+        where: { id: update.blueprintId },
+        data: {
+          folderId: update.folderId ?? null,
+          folderSortOrder: update.sortOrder
+        }
+      });
+    }
+  });
+}
+
+export async function updateQuestFolderOrder(options: {
+  guildId: string;
+  actorRole: GuildRole | null | undefined;
+  updates: Array<{ folderId: string; sortOrder: number }>;
+}) {
+  if (!canManageQuestBlueprints(options.actorRole)) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+  }
+  if (!options.updates.length) {
+    return;
+  }
+  const folderIds = Array.from(new Set(options.updates.map((entry) => entry.folderId)));
+  const folders = await prisma.questBlueprintFolder.findMany({
+    where: { id: { in: folderIds } },
+    select: { id: true, guildId: true, type: true }
+  });
+  if (folders.length !== folderIds.length || folders.some((folder) => folder.guildId !== options.guildId)) {
+    throw new Error('Quest folder not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const update of options.updates) {
+      await tx.questBlueprintFolder.update({
+        where: { id: update.folderId },
+        data: { sortOrder: update.sortOrder }
+      });
+    }
+  });
 }
 
 export async function updateQuestBlueprintMetadata(options: {

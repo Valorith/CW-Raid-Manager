@@ -38,60 +38,166 @@
           />
         </div>
       </div>
-      <ul class="quest-blueprint-list">
-        <li
-          v-for="blueprint in filteredBlueprints"
-          :key="blueprint.id"
-          :class="['quest-blueprint-card', { 'quest-blueprint-card--active': blueprint.id === selectedBlueprintId }]"
+      <div class="quest-folder-toolbar">
+        <button
+          v-if="canCreateFolders"
+          class="btn btn--outline btn--small"
+          type="button"
+          @click="handleCreateFolder"
         >
-          <button type="button" class="quest-blueprint-card__button" @click="selectBlueprint(blueprint.id)">
-            <div class="quest-blueprint-card__header">
-              <div class="quest-blueprint-card__title">
-                <strong>{{ blueprint.title }}</strong>
-                <span v-if="blueprint.isArchived" class="badge badge--archived">Archived</span>
-              </div>
-              <span class="quest-blueprint-card__chip">
-                <span class="quest-blueprint-card__chip-count">{{ blueprint.nodeCount }}</span>
-                <span class="quest-blueprint-card__chip-label">steps</span>
+          <span aria-hidden="true">＋</span>
+          New folder
+        </button>
+      </div>
+      <div class="quest-folder-list">
+        <section
+          v-for="section in blueprintSections"
+          :key="section.id ?? 'root'"
+          :class="['quest-folder', { 'quest-folder--drag-over': dragOverFolderId === section.id && !dragOverBlueprintId }]"
+          @dragover.prevent="handleFolderDragOver(section.id, $event)"
+          @drop.prevent="handleFolderDrop(section.id, $event)"
+        >
+          <div class="quest-folder__header">
+            <div class="quest-folder__title">
+              <span class="quest-folder__icon">
+                <img
+                  v-if="section.iconKey"
+                  :src="resolveFolderIcon(section.iconKey) || undefined"
+                  :alt="section.title"
+                />
+                <svg v-else viewBox="0 0 20 20" focusable="false">
+                  <path
+                    d="M3 5.5A1.5 1.5 0 014.5 4h3.672a1.5 1.5 0 011.06.44l1.166 1.166a1.5 1.5 0 001.06.44H15.5A1.5 1.5 0 0117 7.546V14.5A1.5 1.5 0 0115.5 16h-11A1.5 1.5 0 013 14.5z"
+                    fill="currentColor"
+                    fill-opacity="0.85"
+                  />
+                </svg>
               </span>
+              <strong>{{ section.title }}</strong>
+              <span class="quest-folder__count">{{ section.blueprints.length }}</span>
             </div>
-            <p v-if="blueprint.summary" class="quest-blueprint-card__summary">
-              {{ blueprint.summary }}
-            </p>
-            <div class="quest-blueprint-card__stats">
-              <div class="quest-blueprint-card__stat">
-                <span class="label">Active</span>
-                <span class="value">{{ blueprint.assignmentCounts.ACTIVE }}</span>
-              </div>
-              <div class="quest-blueprint-card__stat">
-                <span class="label">Completed</span>
-                <span class="value">{{ blueprint.assignmentCounts.COMPLETED }}</span>
-              </div>
-              <div class="quest-blueprint-card__stat">
-                <span class="label">Paused</span>
-                <span class="value">{{ blueprint.assignmentCounts.PAUSED }}</span>
-              </div>
+            <div class="quest-folder__actions" v-if="canManageBlueprints && section.id">
+              <button
+                class="btn btn--icon"
+                type="button"
+                :disabled="!canMoveFolder(section.id, 'up')"
+                @click.stop="handleMoveFolder(section.id, 'up')"
+                title="Move folder up"
+              >
+                ↑
+              </button>
+              <button
+                class="btn btn--icon"
+                type="button"
+                :disabled="!canMoveFolder(section.id, 'down')"
+                @click.stop="handleMoveFolder(section.id, 'down')"
+                title="Move folder down"
+              >
+                ↓
+              </button>
+              <button
+                v-if="!section.isSystem"
+                class="btn btn--icon"
+                type="button"
+                @click.stop="handleRenameFolder(section.id)"
+              >
+                ✎
+              </button>
+              <button
+                v-if="!section.isSystem"
+                class="btn btn--icon"
+                type="button"
+                @click.stop="handleDeleteFolder(section.id)"
+              >
+                🗑
+              </button>
             </div>
-            <div class="quest-blueprint-card__progress" v-if="blueprint.viewerAssignment">
-              <div class="quest-blueprint-card__progress-meta">
-                <span class="muted x-small">My progress</span>
-                <span class="quest-blueprint-card__progress-value">
-                  {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }}
-                </span>
-              </div>
-              <div class="quest-progress-bar">
-                <div
-                  class="quest-progress-bar__value"
-                    :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }"
-                  ></div>
-              </div>
-            </div>
-            <div class="quest-blueprint-card__footer" v-if="blueprint.createdByName">
-              <span class="quest-blueprint-card__author">By {{ blueprint.createdByName }}</span>
-            </div>
-          </button>
-        </li>
-      </ul>
+          </div>
+          <ul
+            class="quest-blueprint-list"
+            :class="{ 'quest-blueprint-list--drag-target': dragOverFolderId === section.id && !dragOverBlueprintId }"
+            @dragover.stop="handleFolderDragOver(section.id, $event)"
+            @drop.stop="handleFolderDrop(section.id, $event)"
+          >
+            <li
+              v-for="blueprint in section.blueprints"
+              :key="blueprint.id"
+              :class="[
+                'quest-blueprint-card',
+                {
+                  'quest-blueprint-card--active': blueprint.id === selectedBlueprintId,
+                  'quest-blueprint-card--dragging': draggingBlueprintId === blueprint.id,
+                  'quest-blueprint-card--drop-target': dragOverBlueprintId === blueprint.id
+                }
+              ]"
+              :draggable="canDragBlueprints"
+              @dragstart="handleBlueprintDragStart(blueprint.id)"
+              @dragend="handleBlueprintDragEnd"
+              @dragover.stop="handleBlueprintDragOver(section.id, blueprint.id, $event)"
+              @drop.stop="handleBlueprintDrop(section.id, blueprint.id, $event)"
+            >
+              <button
+                type="button"
+                class="quest-blueprint-card__button"
+                @click="selectBlueprint(blueprint.id)"
+                @contextmenu.prevent="handleBlueprintContextMenu($event, blueprint.id)"
+              >
+                <div class="quest-blueprint-card__header">
+                  <div class="quest-blueprint-card__title">
+                    <strong>{{ blueprint.title }}</strong>
+                    <span v-if="blueprint.isArchived" class="badge badge--archived">Archived</span>
+                  </div>
+                  <span class="quest-blueprint-card__chip">
+                    <span class="quest-blueprint-card__chip-count">{{ blueprint.nodeCount }}</span>
+                    <span class="quest-blueprint-card__chip-label">steps</span>
+                  </span>
+                </div>
+                <p v-if="blueprint.summary" class="quest-blueprint-card__summary">
+                  {{ blueprint.summary }}
+                </p>
+                <div class="quest-blueprint-card__stats">
+                  <div class="quest-blueprint-card__stat">
+                    <span class="label">Active</span>
+                    <span class="value">{{ blueprint.assignmentCounts.ACTIVE }}</span>
+                  </div>
+                  <div class="quest-blueprint-card__stat">
+                    <span class="label">Completed</span>
+                    <span class="value">{{ blueprint.assignmentCounts.COMPLETED }}</span>
+                  </div>
+                  <div class="quest-blueprint-card__stat">
+                    <span class="label">Paused</span>
+                    <span class="value">{{ blueprint.assignmentCounts.PAUSED }}</span>
+                  </div>
+                </div>
+                <div class="quest-blueprint-card__progress" v-if="blueprint.viewerAssignment">
+                  <div class="quest-blueprint-card__progress-meta">
+                    <span class="muted x-small">My progress</span>
+                    <span class="quest-blueprint-card__progress-value">
+                      {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }}
+                    </span>
+                  </div>
+                  <div class="quest-progress-bar">
+                    <div
+                      class="quest-progress-bar__value"
+                      :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }"
+                    ></div>
+                  </div>
+                </div>
+                <div class="quest-blueprint-card__footer" v-if="blueprint.createdByName">
+                  <span class="quest-blueprint-card__author">By {{ blueprint.createdByName }}</span>
+                </div>
+              </button>
+            </li>
+          </ul>
+          <p
+            v-if="!section.blueprints.length && !sidebarSearch.trim()"
+            class="quest-blueprint-empty"
+          >
+            No blueprints in this folder yet.
+          </p>
+        </section>
+        <p v-if="!hasBlueprintMatches" class="quest-blueprint-empty">No blueprints found.</p>
+      </div>
     </aside>
 
     <main class="quest-tracker__main">
@@ -720,6 +826,14 @@
       <li v-else class="disabled">Link unavailable</li>
     </template>
   </ul>
+  <ul
+    v-if="blueprintContextMenu.visible"
+    class="quest-context-menu"
+    :style="{ top: `${blueprintContextMenu.y}px`, left: `${blueprintContextMenu.x}px` }"
+    @click.stop
+  >
+    <li @click="handleRemoveBlueprintFromFolder">Remove from folder</li>
+  </ul>
 </template>
 
 <script setup lang="ts">
@@ -730,6 +844,7 @@ import {
   api,
   type QuestAssignment,
   type QuestBlueprintDetailPayload,
+  type QuestBlueprintFolderType,
   type QuestBlueprintSummaryLite,
   type QuestLinkInputPayload,
   type QuestNodeInputPayload,
@@ -918,21 +1033,119 @@ const canEditBlueprint = computed(() => permissions.value?.canEditBlueprint ?? c
 const guildNameDisplay = computed(() =>
   typeof route.query.guildName === 'string' ? route.query.guildName : 'Quest Tracker'
 );
+const blueprintContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  blueprintId: null as string | null
+});
+const blueprintReorderLoading = ref(false);
+const folderReorderLoading = ref(false);
+const draggingBlueprintId = ref<string | null>(null);
+const dragOverFolderId = ref<string | null>(null);
+const dragOverBlueprintId = ref<string | null>(null);
+const canDragBlueprints = computed(() => canManageBlueprints.value && !blueprintReorderLoading.value);
+const blueprintContextMenuBlueprint = computed(() => {
+  if (!blueprintContextMenu.blueprintId) {
+    return null;
+  }
+  return summary.value?.blueprints?.find((entry) => entry.id === blueprintContextMenu.blueprintId) ?? null;
+});
 
-const filteredBlueprints = computed(() => {
-  const list = summary.value?.blueprints ?? [];
+const blueprintFolders = computed(() => summary.value?.folders ?? []);
+const orderedFolders = computed(() =>
+  [...(blueprintFolders.value ?? [])].sort((a, b) => {
+    if (a.sortOrder !== b.sortOrder) {
+      return a.sortOrder - b.sortOrder;
+    }
+    return a.title.localeCompare(b.title);
+  })
+);
+const canCreateFolders = computed(() => Boolean(permissions.value?.role));
+const blueprintSections = computed(() => {
+  const blueprints = summary.value?.blueprints ?? [];
+  const folders = orderedFolders.value;
   const query = sidebarSearch.value.trim().toLowerCase();
-  const sorted = [...list].sort((a, b) => {
-    if (a.isArchived !== b.isArchived) {
-      return a.isArchived ? 1 : -1;
+  const includeEmpty = !query;
+  const matches = !query
+    ? blueprints
+    : blueprints.filter((blueprint) => blueprint.title.toLowerCase().includes(query));
+  const map = new Map<string | null, QuestBlueprintSummaryLite[]>();
+  for (const blueprint of matches) {
+    const key = blueprint.folderId ?? null;
+    const bucket = map.get(key) ?? [];
+    bucket.push(blueprint);
+    map.set(key, bucket);
+  }
+
+  const sortBucket = (entries: QuestBlueprintSummaryLite[]) =>
+    entries.sort((a, b) => {
+      if (a.folderSortOrder !== b.folderSortOrder) {
+        return a.folderSortOrder - b.folderSortOrder;
+      }
+      return a.title.localeCompare(b.title);
+    });
+  map.forEach((bucket) => sortBucket(bucket));
+
+  const sections: Array<{
+    id: string | null;
+    title: string;
+    iconKey: string | null;
+    type: 'root' | QuestBlueprintFolderType;
+    isSystem: boolean;
+    blueprints: QuestBlueprintSummaryLite[];
+    sortOrder: number;
+  }> = [];
+
+  const rootBlueprints = map.get(null) ?? [];
+  if (includeEmpty || rootBlueprints.length) {
+    sections.push({
+      id: null,
+      title: 'Unassigned',
+      iconKey: null,
+      type: 'root',
+      isSystem: false,
+      blueprints: rootBlueprints,
+      sortOrder: 0
+    });
+  }
+
+  const folderSections: typeof sections = [];
+  for (const folder of folders) {
+    const bucket = map.get(folder.id) ?? [];
+    if (!includeEmpty && !bucket.length) {
+      continue;
+    }
+    folderSections.push({
+      id: folder.id,
+      title: folder.title,
+      iconKey: folder.iconKey,
+      type: folder.type,
+      isSystem: folder.type === 'CLASS',
+      blueprints: bucket,
+      sortOrder: folder.sortOrder
+    });
+  }
+
+  folderSections.sort((a, b) => {
+    const aHas = a.blueprints.length > 0;
+    const bHas = b.blueprints.length > 0;
+    if (aHas !== bHas) {
+      return aHas ? -1 : 1;
+    }
+    if (a.sortOrder !== b.sortOrder) {
+      return a.sortOrder - b.sortOrder;
     }
     return a.title.localeCompare(b.title);
   });
-  if (!query) {
-    return sorted;
-  }
-  return sorted.filter((blueprint) => blueprint.title.toLowerCase().includes(query));
+
+  return [...sections, ...folderSections];
 });
+const hasBlueprintMatches = computed(() =>
+  blueprintSections.value.some((section) => section.blueprints.length)
+);
+const folderOrderIndex = (folderId: string) => orderedFolders.value.findIndex((entry) => entry.id === folderId);
+
 
 const selectedDetail = computed(() => detail.value);
 const viewerAssignments = computed(() => detail.value?.viewerAssignments ?? []);
@@ -2313,6 +2526,329 @@ function selectBlueprint(id: string) {
   selectedBlueprintId.value = id;
 }
 
+function resolveFolderIcon(iconKey: string | null) {
+  if (!iconKey) {
+    return null;
+  }
+  return `/class-icons/${encodeURIComponent(iconKey)}`;
+}
+
+function handleBlueprintContextMenu(event: MouseEvent, blueprintId: string) {
+  if (!canManageBlueprints.value) {
+    return;
+  }
+  const target = summary.value?.blueprints?.find((entry) => entry.id === blueprintId);
+  if (!target?.folderId) {
+    return;
+  }
+  event.preventDefault();
+  blueprintContextMenu.visible = true;
+  blueprintContextMenu.x = event.clientX;
+  blueprintContextMenu.y = event.clientY;
+  blueprintContextMenu.blueprintId = blueprintId;
+}
+
+async function handleRemoveBlueprintFromFolder() {
+  const targetId = blueprintContextMenu.blueprintId;
+  blueprintContextMenu.visible = false;
+  blueprintContextMenu.blueprintId = null;
+  if (!targetId) {
+    return;
+  }
+  await moveBlueprintToFolder(targetId, null, null);
+}
+
+function handleBlueprintDragStart(blueprintId: string) {
+  if (!canDragBlueprints.value) {
+    return;
+  }
+  draggingBlueprintId.value = blueprintId;
+  dragOverFolderId.value = null;
+  dragOverBlueprintId.value = null;
+}
+
+function handleBlueprintDragEnd() {
+  draggingBlueprintId.value = null;
+  dragOverFolderId.value = null;
+  dragOverBlueprintId.value = null;
+}
+
+function handleFolderDragOver(folderId: string | null, event: DragEvent) {
+  if (!draggingBlueprintId.value || !canDragBlueprints.value) {
+    return;
+  }
+  event.preventDefault();
+  dragOverFolderId.value = folderId;
+  dragOverBlueprintId.value = null;
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+}
+
+function handleBlueprintDragOver(folderId: string | null, blueprintId: string, event: DragEvent) {
+  if (!draggingBlueprintId.value || !canDragBlueprints.value || draggingBlueprintId.value === blueprintId) {
+    return;
+  }
+  event.preventDefault();
+  dragOverFolderId.value = folderId;
+  dragOverBlueprintId.value = blueprintId;
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+}
+
+async function handleFolderDrop(folderId: string | null, event?: DragEvent) {
+  if (event) {
+    event.preventDefault();
+  }
+  if (!draggingBlueprintId.value || !canDragBlueprints.value) {
+    return;
+  }
+  const blueprintId = draggingBlueprintId.value;
+  handleBlueprintDragEnd();
+  await moveBlueprintToFolder(blueprintId, folderId, null);
+}
+
+async function handleBlueprintDrop(folderId: string | null, beforeBlueprintId: string, event?: DragEvent) {
+  if (event) {
+    event.preventDefault();
+  }
+  if (
+    !draggingBlueprintId.value ||
+    !canDragBlueprints.value ||
+    draggingBlueprintId.value === beforeBlueprintId
+  ) {
+    return;
+  }
+  const blueprintId = draggingBlueprintId.value;
+  handleBlueprintDragEnd();
+  await moveBlueprintToFolder(blueprintId, folderId, beforeBlueprintId);
+}
+
+async function moveBlueprintToFolder(
+  blueprintId: string,
+  folderId: string | null,
+  beforeBlueprintId: string | null
+) {
+  const updates = buildFolderReorderUpdates(blueprintId, folderId, beforeBlueprintId);
+  if (!updates?.length) {
+    return;
+  }
+  blueprintReorderLoading.value = true;
+  try {
+    await api.reorderQuestBlueprints(guildId, updates);
+    showSaveToast('Blueprint order updated.');
+  } catch (error) {
+    await loadSummary();
+    window.alert('Unable to update blueprint order. Please try again.');
+  } finally {
+    blueprintReorderLoading.value = false;
+  }
+}
+
+function buildFolderReorderUpdates(
+  blueprintId: string,
+  targetFolderId: string | null,
+  beforeBlueprintId: string | null
+) {
+  if (!summary.value?.blueprints?.length) {
+    return null;
+  }
+  const blueprint = summary.value.blueprints.find((entry) => entry.id === blueprintId);
+  if (!blueprint) {
+    return null;
+  }
+  const targetKey = targetFolderId ?? null;
+  const folderMap = new Map<string | null, QuestBlueprintSummaryLite[]>();
+  for (const entry of summary.value.blueprints) {
+    const key = entry.folderId ?? null;
+    const bucket = folderMap.get(key) ?? [];
+    bucket.push(entry);
+    folderMap.set(key, bucket);
+  }
+  folderMap.forEach((bucket) =>
+    bucket.sort((a, b) => {
+      if (a.folderSortOrder !== b.folderSortOrder) {
+        return a.folderSortOrder - b.folderSortOrder;
+      }
+      return a.title.localeCompare(b.title);
+    })
+  );
+  const sourceKey = blueprint.folderId ?? null;
+  const sourceBucket = folderMap.get(sourceKey) ?? [];
+  const existingIndex = sourceBucket.findIndex((entry) => entry.id === blueprintId);
+  if (existingIndex !== -1) {
+    sourceBucket.splice(existingIndex, 1);
+  }
+  const targetBucket = folderMap.get(targetKey) ?? [];
+  if (!folderMap.has(targetKey)) {
+    folderMap.set(targetKey, targetBucket);
+  }
+  if (beforeBlueprintId) {
+    const insertIndex = targetBucket.findIndex((entry) => entry.id === beforeBlueprintId);
+    if (insertIndex >= 0) {
+      targetBucket.splice(insertIndex, 0, blueprint);
+    } else {
+      targetBucket.push(blueprint);
+    }
+  } else {
+    targetBucket.push(blueprint);
+  }
+  blueprint.folderId = targetKey;
+  const affectedFolders = new Set<string | null>([sourceKey, targetKey]);
+  const updates: Array<{ blueprintId: string; folderId?: string | null; sortOrder: number }> = [];
+  for (const folderKey of affectedFolders) {
+    const bucket = folderMap.get(folderKey);
+    if (!bucket) {
+      continue;
+    }
+    bucket.forEach((entry, index) => {
+      entry.folderId = folderKey;
+      entry.folderSortOrder = index + 1;
+      updates.push({
+        blueprintId: entry.id,
+        folderId: folderKey,
+        sortOrder: entry.folderSortOrder
+      });
+    });
+  }
+  return updates;
+}
+
+async function handleCreateFolder() {
+  if (!canCreateFolders.value) {
+    return;
+  }
+  const name = window.prompt('Enter a folder name');
+  const title = name?.trim();
+  if (!title) {
+    return;
+  }
+  try {
+    const folder = await api.createQuestFolder(guildId, { title });
+    if (summary.value) {
+      const nextFolders = [...(summary.value.folders ?? []), folder].sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) {
+          return a.sortOrder - b.sortOrder;
+        }
+        return a.title.localeCompare(b.title);
+      });
+      summary.value.folders = nextFolders;
+    }
+    sidebarSearch.value = '';
+    showSaveToast('Folder created.');
+  } catch {
+    window.alert('Unable to create folder.');
+  }
+}
+
+async function handleRenameFolder(folderId: string) {
+  if (!canManageBlueprints.value) {
+    return;
+  }
+  const folders = summary.value?.folders;
+  if (!folders) {
+    return;
+  }
+  const folder = folders.find((entry) => entry.id === folderId);
+  if (!folder) {
+    return;
+  }
+  const name = window.prompt('Rename folder', folder.title);
+  const title = name?.trim();
+  if (!title || title === folder.title) {
+    return;
+  }
+  try {
+    const updated = await api.updateQuestFolder(guildId, folderId, { title });
+    folder.title = updated.title;
+    showSaveToast('Folder renamed.');
+  } catch {
+    window.alert('Unable to rename folder.');
+  }
+}
+
+async function handleDeleteFolder(folderId: string) {
+  if (!canManageBlueprints.value) {
+    return;
+  }
+  const summaryState = summary.value;
+  if (!summaryState?.folders) {
+    return;
+  }
+  const folders = summaryState.folders;
+  const folder = folders.find((entry) => entry.id === folderId);
+  if (!folder) {
+    return;
+  }
+  const confirmed = window.confirm(`Delete folder "${folder.title}"? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+  try {
+    await api.deleteQuestFolder(guildId, folderId);
+    summaryState.folders = folders.filter((entry) => entry.id !== folderId);
+    showSaveToast('Folder deleted.');
+  } catch {
+    window.alert('Unable to delete folder. Make sure it is empty.');
+  }
+}
+
+function canMoveFolder(folderId: string | null, direction: 'up' | 'down') {
+  if (!folderId || !canManageBlueprints.value) {
+    return false;
+  }
+  if (folderReorderLoading.value) {
+    return false;
+  }
+  const index = folderOrderIndex(folderId);
+  if (index === -1) {
+    return false;
+  }
+  if (direction === 'up') {
+    return index > 0;
+  }
+  return index < orderedFolders.value.length - 1;
+}
+
+async function handleMoveFolder(folderId: string, direction: 'up' | 'down') {
+  if (!canMoveFolder(folderId, direction)) {
+    return;
+  }
+  const summaryState = summary.value;
+  if (!summaryState?.folders) {
+    return;
+  }
+  const sorted = orderedFolders.value.slice();
+  const index = sorted.findIndex((entry) => entry.id === folderId);
+  if (index === -1) {
+    return;
+  }
+  const targetIndex = direction === 'up' ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= sorted.length) {
+    return;
+  }
+  const [removed] = sorted.splice(index, 1);
+  sorted.splice(targetIndex, 0, removed);
+  sorted.forEach((folder, idx) => {
+    folder.sortOrder = idx + 1;
+  });
+  summaryState.folders = sorted;
+  folderReorderLoading.value = true;
+  try {
+    await api.reorderQuestFolders(
+      guildId,
+      sorted.map((folder, idx) => ({ folderId: folder.id, sortOrder: idx + 1 }))
+    );
+    showSaveToast('Folder order updated.');
+  } catch {
+    window.alert('Unable to reorder folders.');
+    await loadSummary();
+  } finally {
+    folderReorderLoading.value = false;
+  }
+}
+
 function syncViewerAssignmentState(blueprintId: string | null, assignment: QuestAssignment) {
   const applyUpdate = (current: QuestAssignment[] | undefined) => {
     const list = [...(current ?? [])];
@@ -2501,6 +3037,8 @@ function hideContextMenu() {
   contextMenu.visible = false;
   contextMenu.nodeId = null;
   contextMenu.linkId = null;
+  blueprintContextMenu.visible = false;
+  blueprintContextMenu.blueprintId = null;
 }
 
 function positionContextMenu(event: MouseEvent, width = 200, height = 140) {
@@ -3606,6 +4144,120 @@ onUnmounted(() => {
   outline: none;
 }
 
+.quest-folder-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+}
+
+.quest-folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.quest-folder {
+  padding: 1rem 1.2rem;
+  border-radius: 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 12px 35px rgba(2, 6, 23, 0.3);
+}
+
+.quest-folder + .quest-folder {
+  margin-top: 1rem;
+}
+
+.quest-folder__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.quest-folder__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.quest-folder__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.quest-folder__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.quest-folder__icon svg {
+  width: 16px;
+  height: 16px;
+  color: rgba(248, 250, 252, 0.8);
+}
+
+.quest-folder__count {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.75);
+  background: rgba(15, 23, 42, 0.45);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.quest-folder__actions {
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.quest-folder__actions .btn--icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.quest-folder__actions .btn--icon:hover {
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #f8fafc;
+}
+
+.quest-folder__actions .btn--icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.2);
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.quest-folder--drag-over {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow:
+    0 0 0 2px rgba(56, 189, 248, 0.25),
+    0 18px 35px rgba(8, 47, 73, 0.5);
+}
+
 .quest-blueprint-list {
   list-style: none;
   margin: 0;
@@ -3615,8 +4267,30 @@ onUnmounted(() => {
   gap: 0.75rem;
 }
 
+.quest-blueprint-list--drag-target {
+  border: 1px dashed rgba(56, 189, 248, 0.4);
+  border-radius: 0.75rem;
+  padding: 0.4rem;
+}
+
 .quest-blueprint-card {
   margin: 0;
+}
+
+.quest-blueprint-card--dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.quest-blueprint-card--drop-target .quest-blueprint-card__button {
+  border-color: rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3);
+}
+
+.quest-blueprint-empty {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.85);
+  padding: 0.35rem 0.4rem 0.75rem 0.4rem;
 }
 
 .quest-blueprint-card__button {

@@ -188,6 +188,8 @@ export interface QuestBlueprintSummaryLite {
   createdAt: string;
   updatedAt: string;
   lastEditedByName?: string | null;
+  folderId: string | null;
+  folderSortOrder: number;
   nodeCount: number;
   assignmentCounts: QuestAssignmentCounts;
   viewerAssignment?: QuestAssignment | null;
@@ -222,8 +224,20 @@ export interface QuestTrackerPermissions {
   canEditBlueprint?: boolean;
 }
 
+export type QuestBlueprintFolderType = 'CLASS' | 'CUSTOM';
+
+export interface QuestBlueprintFolderView {
+  id: string;
+  title: string;
+  iconKey: string | null;
+  type: QuestBlueprintFolderType;
+  systemKey: string | null;
+  sortOrder: number;
+}
+
 export interface QuestTrackerSummary {
   blueprints: QuestBlueprintSummaryLite[];
+  folders: QuestBlueprintFolderView[];
   permissions: QuestTrackerPermissions;
 }
 
@@ -1041,6 +1055,27 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
   };
 }
 
+function normalizeQuestBlueprintFolder(raw: any): QuestBlueprintFolderView {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    title: typeof raw?.title === 'string' ? raw.title : 'Folder',
+    iconKey:
+      typeof raw?.iconKey === 'string'
+        ? raw.iconKey
+        : raw?.iconKey == null
+          ? null
+          : String(raw.iconKey),
+    type: raw?.type === 'CLASS' ? 'CLASS' : 'CUSTOM',
+    systemKey:
+      typeof raw?.systemKey === 'string'
+        ? raw.systemKey
+        : raw?.systemKey == null
+          ? null
+          : String(raw.systemKey),
+    sortOrder: typeof raw?.sortOrder === 'number' ? raw.sortOrder : 0
+  };
+}
+
 function normalizeQuestLink(raw: any): QuestNodeLinkViewModel {
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
@@ -1083,6 +1118,8 @@ function normalizeQuestBlueprintSummary(raw: any): QuestBlueprintSummaryLite {
         : raw?.lastEditedByName == null
           ? null
           : String(raw.lastEditedByName),
+    folderId: typeof raw?.folderId === 'string' ? raw.folderId : null,
+    folderSortOrder: typeof raw?.folderSortOrder === 'number' ? raw.folderSortOrder : 0,
     nodeCount: typeof raw?.nodeCount === 'number' ? raw.nodeCount : 0,
     assignmentCounts: normalizeAssignmentCounts(raw?.assignmentCounts),
     viewerAssignment: viewerAssignmentFallback,
@@ -1519,6 +1556,9 @@ export const api = {
       blueprints: Array.isArray(response.data.blueprints)
         ? response.data.blueprints.map((bp: any) => normalizeQuestBlueprintSummary(bp))
         : [],
+      folders: Array.isArray(response.data.folders)
+        ? response.data.folders.map((folder: any) => normalizeQuestBlueprintFolder(folder))
+        : [],
       permissions: normalizeQuestPermissions(response.data.permissions)
     };
   },
@@ -1537,6 +1577,44 @@ export const api = {
   ): Promise<QuestBlueprintSummaryLite> {
     const response = await axios.post(`/api/guilds/${guildId}/quest-tracker/blueprints`, payload);
     return normalizeQuestBlueprintSummary(response.data.blueprint);
+  },
+
+  async createQuestFolder(
+    guildId: string,
+    payload: { title: string }
+  ): Promise<QuestBlueprintFolderView> {
+    const response = await axios.post(`/api/guilds/${guildId}/quest-tracker/folders`, payload);
+    return normalizeQuestBlueprintFolder(response.data.folder);
+  },
+
+  async updateQuestFolder(
+    guildId: string,
+    folderId: string,
+    payload: { title: string }
+  ): Promise<QuestBlueprintFolderView> {
+    const response = await axios.patch(
+      `/api/guilds/${guildId}/quest-tracker/folders/${folderId}`,
+      payload
+    );
+    return normalizeQuestBlueprintFolder(response.data.folder);
+  },
+
+  async deleteQuestFolder(guildId: string, folderId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/quest-tracker/folders/${folderId}`);
+  },
+
+  async reorderQuestBlueprints(
+    guildId: string,
+    updates: Array<{ blueprintId: string; folderId?: string | null; sortOrder: number }>
+  ): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/quest-tracker/blueprints/reorder`, { updates });
+  },
+
+  async reorderQuestFolders(
+    guildId: string,
+    updates: Array<{ folderId: string; sortOrder: number }>
+  ): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/quest-tracker/folders/reorder`, { updates });
   },
 
   async updateQuestBlueprint(

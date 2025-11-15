@@ -29,6 +29,7 @@ model User {
   createdRaidSeries  RaidEventSeries[] @relation("RaidSeriesCreator")
   raidSignups        RaidSignup[]
   createdQuestBlueprints QuestBlueprint[] @relation("QuestBlueprintCreator")
+  createdQuestBlueprintFolders QuestBlueprintFolder[] @relation("QuestBlueprintFolderCreator")
   questAssignments   QuestAssignment[]
 }
 
@@ -61,6 +62,7 @@ model Guild {
   npcNotes            GuildNpcNote[]
   questBlueprints    QuestBlueprint[]
   questAssignments   QuestAssignment[]
+  questBlueprintFolders QuestBlueprintFolder[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -368,14 +370,41 @@ model QuestBlueprint {
   lastEditedByName String?                 @db.VarChar(191)
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
+  folderId      String?
+  folderSortOrder Int                     @default(0)
   guild         Guild                     @relation(fields: [guildId], references: [id], onDelete: Cascade)
   createdBy     User                      @relation("QuestBlueprintCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  folder        QuestBlueprintFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
   nodes         QuestNode[]
   links         QuestNodeLink[]
   assignments   QuestAssignment[]
 
   @@index([guildId])
   @@index([createdById])
+  @@index([folderId])
+}
+
+model QuestBlueprintFolder {
+  id           String                     @id @default(cuid())
+  guildId      String
+  title        String                     @db.VarChar(191)
+  iconKey      String?                    @db.VarChar(191)
+  type         QuestBlueprintFolderType   @default(CUSTOM)
+  systemKey    String?                    @db.VarChar(191)
+  sortOrder    Int                        @default(0)
+  parentId     String?
+  createdById  String?
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  guild        Guild                      @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  createdBy    User?                      @relation("QuestBlueprintFolderCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  blueprints   QuestBlueprint[]
+  parent       QuestBlueprintFolder?      @relation("QuestFolderChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children     QuestBlueprintFolder[]     @relation("QuestFolderChildren")
+
+  @@index([guildId], map: "QuestBlueprintFolder_guildId_idx")
+  @@unique([guildId, systemKey], map: "QuestBlueprintFolder_system_key_unique")
+  @@index([parentId], map: "QuestBlueprintFolder_parent_idx")
 }
 
 model QuestNode {
@@ -495,6 +524,11 @@ enum CharacterClass {
   WARRIOR
   WIZARD
   UNKNOWN
+}
+
+enum QuestBlueprintFolderType {
+  CLASS
+  CUSTOM
 }
 
 enum CharacterArchetype {
