@@ -660,7 +660,21 @@
     </transition>
   </section>
 
-  <div v-else class="quest-loading quest-loading--fullscreen">
+  <div v-else-if="summaryError" class="quest-loading quest-loading--fullscreen">
+    <div class="quest-loading__inner">
+      <p class="quest-loading__error">{{ summaryError }}</p>
+      <button
+        class="btn btn--secondary"
+        type="button"
+        :disabled="loadingSummary"
+        @click="retryLoadSummary"
+      >
+        {{ loadingSummary ? 'Retrying…' : 'Try again' }}
+      </button>
+    </div>
+  </div>
+
+  <div v-else class="quest-loading quest-loading--fullscreen" aria-live="polite">
     <div class="quest-loading__inner">
       <span class="quest-loading__spinner" role="status" aria-label="Loading quest tracker"></span>
       <p>Loading quest tracker…</p>
@@ -880,6 +894,7 @@ type EditableNode = QuestNodeViewModel & {
 };
 
 const summary = ref<QuestTrackerSummary | null>(null);
+const summaryError = ref<string | null>(null);
 const detail = ref<QuestBlueprintDetailPayload | null>(null);
 const loadingSummary = ref(true);
 const loadingDetail = ref(false);
@@ -2996,12 +3011,16 @@ function syncViewerAssignmentState(blueprintId: string | null, assignment: Quest
 
 async function loadSummary(initial = false) {
   loadingSummary.value = true;
+  summaryError.value = null;
   try {
     const data = await api.fetchQuestTracker(guildId);
     summary.value = data;
     if (initial && !selectedBlueprintId.value && data.blueprints.length) {
       selectBlueprint(data.blueprints[0].id);
     }
+  } catch (error) {
+    summaryError.value = extractErrorMessage(error) ?? 'Failed to load quest tracker.';
+    throw error;
   } finally {
     loadingSummary.value = false;
   }
@@ -3051,6 +3070,11 @@ function setTab(tab: 'overview' | 'editor' | 'guild') {
 function resetCanvasTransform() {
   requestEditorFit();
   requestOverviewFit();
+}
+
+function retryLoadSummary() {
+  const treatAsInitial = !summary.value;
+  loadSummary(treatAsInitial).catch((error) => console.error('Failed to load quest tracker', error));
 }
 
 function toggleStepSettings() {
@@ -5413,6 +5437,13 @@ onUnmounted(() => {
   border: 4px solid rgba(148, 163, 184, 0.25);
   border-top-color: #38bdf8;
   animation: questSpinner 0.9s linear infinite;
+}
+
+.quest-loading__error {
+  text-align: center;
+  color: #fca5a5;
+  line-height: 1.4;
+  max-width: 420px;
 }
 
 .quest-loading-overlay {
