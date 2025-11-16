@@ -3419,14 +3419,11 @@ function typeAccent(node: QuestNodeViewModel) {
   if (showOverviewDisabledState.value && isNodeDisabled(node.id)) {
     return { background: DISABLED_BRANCH_COLOR, color: '#e2e8f0' };
   }
+  const baseColor = node.isGroup ? '#14b8a6' : questNodeTypeColors[node.nodeType] ?? '#2563eb';
   if (isNodeCompleted(node.id)) {
-    return { background: COMPLETED_ACCENT_COLOR, color: '#022c22' };
+    return { background: baseColor, color: '#f0fdf4' };
   }
-  if (node.isGroup) {
-    return { background: '#14b8a6' };
-  }
-  const color = questNodeTypeColors[node.nodeType] ?? '#2563eb';
-  return { background: color };
+  return { background: baseColor };
 }
 
 function viewerNodeStatus(nodeId: string): QuestNodeProgressStatus {
@@ -6518,6 +6515,7 @@ onUnmounted(() => {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   border: 1px solid transparent;
   user-select: none;
+  z-index: 1;
 }
 
 .quest-tracker--alt-mode .quest-node {
@@ -6539,7 +6537,7 @@ onUnmounted(() => {
   box-shadow:
     0 0 0 2px rgba(34, 197, 94, 0.2),
     0 15px 35px rgba(5, 46, 22, 0.4);
-  background: rgba(22, 163, 74, 0.12);
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.9), rgba(6, 95, 70, 0.95));
 }
 
 .quest-panel--editor .quest-node--completed {
@@ -6802,6 +6800,18 @@ onUnmounted(() => {
 .quest-node__badge--optional {
   background: rgba(249, 115, 22, 0.25);
   color: #fed7aa;
+}
+
+.quest-node--completed .quest-node__type {
+  color: #f0fdf4 !important;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.25);
+}
+
+.quest-node--completed .quest-node__status {
+  color: #d1fae5;
+  background: rgba(15, 118, 110, 0.35);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
 }
 
 .quest-node__icon {
