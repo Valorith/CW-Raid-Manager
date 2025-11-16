@@ -551,6 +551,48 @@
                 <svg v-if="linkDrag.active" class="quest-link-preview" aria-hidden="true" :style="linkSvgStyle">
                   <path v-if="linkPreviewPath" :d="linkPreviewPath" />
                 </svg>
+                <div v-if="gridOverlayVisible" class="quest-grid-overlay" aria-hidden="true">
+                  <div
+                    v-for="x in gridLinePositions.vertical"
+                    :key="`grid-x-${x}`"
+                    :class="[
+                      'quest-grid-line',
+                      'quest-grid-line--vertical',
+                      { 'quest-grid-line--highlight': isGridLineHighlighted(x, dragGridOverlay.highlightX) }
+                    ]"
+                    :style="verticalGridLineStyle(x)"
+                  ></div>
+                  <div
+                    v-for="y in gridLinePositions.horizontal"
+                    :key="`grid-y-${y}`"
+                    :class="[
+                      'quest-grid-line',
+                      'quest-grid-line--horizontal',
+                      { 'quest-grid-line--highlight': isGridLineHighlighted(y, dragGridOverlay.highlightY) }
+                    ]"
+                    :style="horizontalGridLineStyle(y)"
+                  ></div>
+                  <div
+                    v-for="edgeX in gridEdgeLinePositions"
+                    :key="`grid-edge-${edgeX}`"
+                    class="quest-grid-line quest-grid-line--vertical quest-grid-line--edge"
+                    :style="edgeGridLineStyle(edgeX)"
+                  ></div>
+                </div>
+                <div v-if="alignmentGuidesVisible" class="quest-alignment-guides" aria-hidden="true">
+                  <div
+                    v-for="guide in alignmentGuides.horizontals"
+                    :key="`guide-h-${guide.y}-${guide.intensity}`"
+                    class="quest-alignment-line quest-alignment-line--horizontal"
+                    :style="alignmentHorizontalStyle(guide)"
+                  ></div>
+                  <div
+                    v-for="guide in alignmentGuides.verticals"
+                    :key="`guide-v-${guide.edge}-${guide.x}-${guide.intensity}`"
+                    class="quest-alignment-line quest-alignment-line--vertical"
+                    :style="alignmentVerticalStyle(guide)"
+                  ></div>
+                </div>
                 <div
                   v-if="marqueeVisible"
                   class="quest-selection-box"
@@ -997,6 +1039,42 @@
     </template>
     <template v-else-if="contextMenu.type === 'editor-node'">
       <template v-if="hasMultiSelection">
+        <li class="quest-context-menu__submenu">
+          <span>Align</span>
+          <span class="quest-context-menu__submenu-caret" aria-hidden="true">›</span>
+          <ul class="quest-context-menu__submenu-list">
+            <li @click.stop="handleAlignSelection('left')">Left</li>
+            <li @click.stop="handleAlignSelection('right')">Right</li>
+            <li @click.stop="handleAlignSelection('top')">Top</li>
+            <li @click.stop="handleAlignSelection('bottom')">Bottom</li>
+          </ul>
+        </li>
+        <li
+          :class="['quest-context-menu__submenu', { disabled: !canDistributeSelection }]"
+        >
+          <span>Distribute</span>
+          <span class="quest-context-menu__submenu-caret" aria-hidden="true">›</span>
+          <ul class="quest-context-menu__submenu-list">
+            <li
+              :class="{ disabled: !canDistributeSelection }"
+              @click.stop="handleDistributeSelection('horizontal')"
+            >
+              Horizontally
+            </li>
+            <li
+              :class="{ disabled: !canDistributeSelection }"
+              @click.stop="handleDistributeSelection('vertical')"
+            >
+              Vertically
+            </li>
+            <li
+              :class="{ disabled: !canDistributeSelection }"
+              @click.stop="handleDistributeSelection('grid')"
+            >
+              Grid
+            </li>
+          </ul>
+        </li>
         <li class="danger" @click="handleDeleteNodeFromMenu">
           Delete {{ selectedNodeCount }} selected {{ selectedNodeCount === 1 ? 'step' : 'steps' }}
         </li>
@@ -1214,6 +1292,8 @@ function isNextStepLink(link: { conditions?: Record<string, unknown> } | null | 
   return link.conditions[NEXT_STEP_CONDITION_KEY] === true;
 }
 const nodeDimensions = ref<Record<string, { width: number; height: number }>>({});
+const nodeHeightOverrides = reactive(new Map<string, number>());
+const nodeWidthOverrides = reactive(new Map<string, number>());
 const linkDrag = reactive({
   active: false,
   startNodeId: null as string | null,
@@ -1529,8 +1609,13 @@ const eligibleCharacters = computed(() =>
   )
 );
 const hasEligibleCharacters = computed(() => eligibleCharacters.value.length > 0);
-const showLoadingOverlay = computed(() => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value));
+const showLoadingOverlay = computed(
+  () => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value || savingGraph.value)
+);
 const loadingOverlayMessage = computed(() => {
+  if (savingGraph.value) {
+    return 'Saving blueprint changes…';
+  }
   if (loadingDetail.value) {
     return 'Loading quest steps…';
   }
@@ -1609,6 +1694,7 @@ const editableNodeIndex = computed(() => {
 
 const selectedNodeCount = computed(() => selectedNodeIds.value.size);
 const hasMultiSelection = computed(() => selectedNodeCount.value > 1);
+const canDistributeSelection = computed(() => selectedNodeCount.value > 2);
 const renderedNodeIndex = computed(() => {
   const map = new Map<string, QuestNodeViewModel>();
   for (const node of renderedNodes.value) {
@@ -2068,9 +2154,453 @@ const NODE_DUPLICATE_OFFSET = 32;
 const PAN_SUPPRESS_THRESHOLD = 3;
 const LINK_CANVAS_PADDING = 120;
 const OVERVIEW_CANVAS_PADDING = 48;
+const NODE_POSITION_LIMIT = 2000;
+const GRID_SNAP_SPACING = 16;
+const GRID_LINE_RADIUS = 6;
+const GRID_FADE_EXTENSION = GRID_SNAP_SPACING * 2;
+const DEFAULT_GRID_HALF_WIDTH = NODE_WIDTH / 2;
+const DEFAULT_GRID_HALF_HEIGHT = NODE_HEIGHT / 2;
+const ALIGNMENT_GUIDE_DISTANCE = 360;
+const ALIGNMENT_SNAP_THRESHOLD = 8;
+
+const dragGridOverlay = reactive({
+  active: false,
+  bypass: false,
+  centerX: 0,
+  centerY: 0,
+  highlightX: null as number | null,
+  highlightY: null as number | null,
+  halfWidth: DEFAULT_GRID_HALF_WIDTH,
+  halfHeight: DEFAULT_GRID_HALF_HEIGHT
+});
+type AlignmentHorizontalGuide = { y: number; intensity: number };
+type AlignmentVerticalGuide = { x: number; intensity: number; edge: 'left' | 'right' };
+
+const alignmentGuides = reactive({
+  horizontals: [] as AlignmentHorizontalGuide[],
+  verticals: [] as AlignmentVerticalGuide[]
+});
+
+const gridOverlayVisible = computed(() => dragGridOverlay.active && !dragGridOverlay.bypass && activeTab.value === 'editor');
+const alignmentGuidesVisible = computed(() => alignmentGuides.horizontals.length > 0 || alignmentGuides.verticals.length > 0);
+
+const gridLinePositions = computed(() => {
+  if (!gridOverlayVisible.value) {
+    return { vertical: [] as number[], horizontal: [] as number[] };
+  }
+  const focusX = dragGridOverlay.highlightX ?? dragGridOverlay.centerX;
+  const focusY = dragGridOverlay.highlightY ?? dragGridOverlay.centerY;
+  const baseX = snapToGrid(focusX);
+  const baseY = snapToGrid(focusY);
+  const vertical: number[] = [];
+  const horizontal: number[] = [];
+  for (let i = -GRID_LINE_RADIUS; i <= GRID_LINE_RADIUS; i++) {
+    vertical.push(baseX + i * GRID_SNAP_SPACING);
+    horizontal.push(baseY + i * GRID_SNAP_SPACING);
+  }
+  return { vertical, horizontal };
+});
+
+const gridEdgeLinePositions = computed(() => {
+  if (!gridOverlayVisible.value) {
+    return [];
+  }
+  const { centerX, halfWidth } = dragGridOverlay;
+  return [centerX - halfWidth, centerX + halfWidth];
+});
+
+const gridOverlayExtents = computed(() => {
+  if (!gridOverlayVisible.value) {
+    return { extentX: 0, extentY: 0 };
+  }
+  const paddingX = GRID_SNAP_SPACING * GRID_LINE_RADIUS + GRID_FADE_EXTENSION;
+  const paddingY = GRID_SNAP_SPACING * GRID_LINE_RADIUS + GRID_FADE_EXTENSION;
+  return {
+    extentX: dragGridOverlay.halfWidth + paddingX,
+    extentY: dragGridOverlay.halfHeight + paddingY
+  };
+});
+
+function gridLineFadeOpacity(value: number, axis: 'x' | 'y') {
+  const center = axis === 'x' ? dragGridOverlay.centerX : dragGridOverlay.centerY;
+  const baseExtent = axis === 'x' ? dragGridOverlay.halfWidth : dragGridOverlay.halfHeight;
+  const fadeRange = GRID_SNAP_SPACING * GRID_LINE_RADIUS;
+  const distance = Math.abs(value - center);
+  if (distance <= baseExtent) {
+    return 0.9;
+  }
+  if (!fadeRange) {
+    return 0;
+  }
+  const ratio = clamp((distance - baseExtent) / fadeRange, 0, 1);
+  return 0.9 * (1 - ratio);
+}
+
+function verticalGridLineStyle(x: number) {
+  const { extentY } = gridOverlayExtents.value;
+  const top = dragGridOverlay.centerY - extentY;
+  const height = extentY * 2;
+  return {
+    transform: `translate(${x}px, ${top}px)`,
+    height: `${height}px`,
+    '--grid-line-opacity': gridLineFadeOpacity(x, 'x').toString()
+  };
+}
+
+function horizontalGridLineStyle(y: number) {
+  const { extentX } = gridOverlayExtents.value;
+  const left = dragGridOverlay.centerX - extentX;
+  const width = extentX * 2;
+  return {
+    transform: `translate(${left}px, ${y}px)`,
+    width: `${width}px`,
+    '--grid-line-opacity': gridLineFadeOpacity(y, 'y').toString()
+  };
+}
+
+function edgeGridLineStyle(x: number) {
+  return {
+    ...verticalGridLineStyle(x),
+    '--grid-line-opacity': '1'
+  };
+}
+
+function alignmentHorizontalStyle(guide: AlignmentHorizontalGuide) {
+  return {
+    transform: `translate(0, ${guide.y}px)`,
+    '--alignment-opacity': guide.intensity.toFixed(3)
+  };
+}
+
+function alignmentVerticalStyle(guide: AlignmentVerticalGuide) {
+  return {
+    transform: `translate(${guide.x}px, 0)`,
+    '--alignment-opacity': guide.intensity.toFixed(3)
+  };
+}
+
+function isGridLineHighlighted(line: number, target: number | null) {
+  if (target == null) {
+    return false;
+  }
+  return Math.abs(line - target) < 0.5;
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function snapToGrid(value: number) {
+  return Math.round(value / GRID_SNAP_SPACING) * GRID_SNAP_SPACING;
+}
+
+function clampNodePosition(value: number) {
+  return clamp(value, -NODE_POSITION_LIMIT, NODE_POSITION_LIMIT);
+}
+
+function updateGridOverlayState(
+  centerX: number,
+  centerY: number,
+  highlightX: number | null,
+  highlightY: number | null,
+  bypass: boolean,
+  halfWidth?: number,
+  halfHeight?: number
+) {
+  dragGridOverlay.active = true;
+  dragGridOverlay.centerX = centerX;
+  dragGridOverlay.centerY = centerY;
+  dragGridOverlay.highlightX = highlightX;
+  dragGridOverlay.highlightY = highlightY;
+  dragGridOverlay.bypass = bypass;
+  if (typeof halfWidth === 'number') {
+    dragGridOverlay.halfWidth = halfWidth;
+  }
+  if (typeof halfHeight === 'number') {
+    dragGridOverlay.halfHeight = halfHeight;
+  }
+}
+
+function resetGridOverlayState() {
+  dragGridOverlay.active = false;
+  dragGridOverlay.bypass = false;
+  dragGridOverlay.highlightX = null;
+  dragGridOverlay.highlightY = null;
+  dragGridOverlay.halfWidth = DEFAULT_GRID_HALF_WIDTH;
+  dragGridOverlay.halfHeight = DEFAULT_GRID_HALF_HEIGHT;
+}
+
+function updateAlignmentGuides(centerX: number, centerY: number) {
+  const candidates = editableNodes.value.filter((node) => !selectedNodeIds.value.has(node.id));
+  if (!candidates.length) {
+    resetAlignmentGuides();
+    return;
+  }
+  type HorizontalCluster = { target: number; intensity: number };
+  type VerticalCluster = { target: number; intensity: number; edge: 'left' | 'right' };
+  const horizontalClusters: HorizontalCluster[] = [];
+  const verticalClusters: VerticalCluster[] = [];
+  const threshold = Math.max(4, GRID_SNAP_SPACING);
+
+  const mergeHorizontal = (y: number, intensity: number) => {
+    for (const cluster of horizontalClusters) {
+      if (Math.abs(cluster.target - y) <= threshold) {
+        if (intensity > cluster.intensity) {
+          cluster.target = y;
+        }
+        cluster.intensity = Math.min(1, Math.max(cluster.intensity, intensity) + intensity * 0.25);
+        return;
+      }
+    }
+    horizontalClusters.push({ target: y, intensity });
+  };
+
+  const mergeVertical = (x: number, intensity: number, edge: 'left' | 'right') => {
+    for (const cluster of verticalClusters) {
+      if (cluster.edge === edge && Math.abs(cluster.target - x) <= threshold) {
+        if (intensity > cluster.intensity) {
+          cluster.target = x;
+        }
+        cluster.intensity = Math.min(1, Math.max(cluster.intensity, intensity) + intensity * 0.25);
+        return;
+      }
+    }
+    verticalClusters.push({ target: x, intensity, edge });
+  };
+
+  for (const node of candidates) {
+    const nodeCenterPoint = nodeCenter(node.position, node.id);
+    const distance = Math.hypot(nodeCenterPoint.x - centerX, nodeCenterPoint.y - centerY);
+    if (distance > ALIGNMENT_GUIDE_DISTANCE) {
+      continue;
+    }
+    const bounds = getNodeBounds(node);
+    const intensity = clamp(1 - distance / ALIGNMENT_GUIDE_DISTANCE, 0.25, 1);
+    mergeHorizontal(bounds.top, intensity);
+    mergeVertical(bounds.left, intensity, 'left');
+    mergeVertical(bounds.right, intensity, 'right');
+  }
+  const horizontalGuides = horizontalClusters.map((cluster) => ({
+    y: cluster.target,
+    intensity: cluster.intensity
+  }));
+  const verticalGuides = verticalClusters.map((cluster) => ({
+    x: cluster.target,
+    intensity: cluster.intensity,
+    edge: cluster.edge
+  }));
+  if (!horizontalGuides.length && !verticalGuides.length) {
+    resetAlignmentGuides();
+    return;
+  }
+  alignmentGuides.horizontals = horizontalGuides;
+  alignmentGuides.verticals = verticalGuides;
+}
+
+function resetAlignmentGuides() {
+  alignmentGuides.horizontals = [];
+  alignmentGuides.verticals = [];
+}
+
+function applyAlignmentSnap(topLeftX: number, topLeftY: number, width: number, height: number) {
+  let snappedX = topLeftX;
+  let snappedY = topLeftY;
+  let snappedVertical = false;
+  let snappedHorizontal = false;
+  if (alignmentGuides.horizontals.length) {
+    for (const guide of alignmentGuides.horizontals) {
+      if (Math.abs(snappedY - guide.y) <= ALIGNMENT_SNAP_THRESHOLD) {
+        snappedY = guide.y;
+        snappedHorizontal = true;
+        break;
+      }
+    }
+  }
+  if (alignmentGuides.verticals.length) {
+    for (const guide of alignmentGuides.verticals) {
+      if (guide.edge === 'left') {
+        if (Math.abs(snappedX - guide.x) <= ALIGNMENT_SNAP_THRESHOLD) {
+          snappedX = guide.x;
+          snappedVertical = true;
+          break;
+        }
+      } else {
+        const rightEdge = snappedX + width;
+        if (Math.abs(rightEdge - guide.x) <= ALIGNMENT_SNAP_THRESHOLD) {
+          snappedX = guide.x - width;
+          snappedVertical = true;
+          break;
+        }
+      }
+    }
+  }
+  return { x: snappedX, y: snappedY, snappedX: snappedVertical, snappedY: snappedHorizontal };
+}
+
+function alignSelectedNodes(edge: 'left' | 'right' | 'top' | 'bottom'): boolean {
+  if (selectedNodeIds.value.size < 2) {
+    return false;
+  }
+  const selected = editableNodes.value
+    .filter((node) => selectedNodeIds.value.has(node.id))
+    .map((node) => ({
+      node,
+      width: getNodeSize(node.id).width,
+      height: getNodeSize(node.id).height
+    }));
+  if (selected.length < 2) {
+    return false;
+  }
+  switch (edge) {
+    case 'left': {
+      const target = Math.min(...selected.map((entry) => entry.node.position.x));
+      selected.forEach((entry) => {
+        entry.node.position.x = clampNodePosition(target);
+      });
+      break;
+    }
+    case 'right': {
+      const target = Math.max(...selected.map((entry) => entry.node.position.x + entry.width));
+      selected.forEach((entry) => {
+        entry.node.position.x = clampNodePosition(target - entry.width);
+      });
+      break;
+    }
+    case 'top': {
+      const target = Math.min(...selected.map((entry) => entry.node.position.y));
+      selected.forEach((entry) => {
+        entry.node.position.y = clampNodePosition(target);
+      });
+      break;
+    }
+    case 'bottom': {
+      const target = Math.max(...selected.map((entry) => entry.node.position.y + entry.height));
+      selected.forEach((entry) => {
+        entry.node.position.y = clampNodePosition(target - entry.height);
+      });
+      break;
+    }
+  }
+  dirtyGraph.value = true;
+  return true;
+}
+
+function snapAxisPosition(value: number, size: number, axis: 'x' | 'y') {
+  const center = value + size / 2;
+  const snappedCenter = snapToGrid(center);
+  return clampNodePosition(snappedCenter - size / 2);
+}
+
+function distributeSelectedNodes(direction: 'horizontal' | 'vertical' | 'grid'): boolean {
+  const selected = editableNodes.value
+    .filter((node) => selectedNodeIds.value.has(node.id))
+    .map((node) => ({
+      node,
+      width: getNodeSize(node.id).width,
+      height: getNodeSize(node.id).height
+    }));
+  if (selected.length < 3 && direction !== 'grid') {
+    return false;
+  }
+  const tallestHeight = Math.max(...selected.map((entry) => entry.height));
+  if (Number.isFinite(tallestHeight) && tallestHeight > 0) {
+    selected.forEach((entry) => {
+      if (entry.height < tallestHeight) {
+        nodeHeightOverrides.set(entry.node.id, tallestHeight);
+        entry.height = tallestHeight;
+      }
+    });
+  }
+  if (direction === 'horizontal') {
+    const ordered = [...selected].sort(
+      (a, b) => a.node.position.x + a.width / 2 - (b.node.position.x + b.width / 2)
+    );
+    const startCenter = ordered[0].node.position.x + ordered[0].width / 2;
+    const endCenter = ordered[ordered.length - 1].node.position.x + ordered[ordered.length - 1].width / 2;
+    const gaps = ordered.length - 1;
+    const gapSize = gaps > 0 ? (endCenter - startCenter) / gaps : 0;
+    ordered.forEach((entry, index) => {
+      let targetCenter = startCenter + gapSize * index;
+      if (!Number.isFinite(targetCenter)) {
+        targetCenter = startCenter;
+      }
+      let targetLeft = targetCenter - entry.width / 2;
+      targetLeft = snapAxisPosition(targetLeft, entry.width, 'x');
+      entry.node.position.x = targetLeft;
+    });
+  } else if (direction === 'vertical') {
+    const ordered = [...selected].sort((a, b) => a.node.position.y - b.node.position.y);
+    const minTop = Math.min(...ordered.map((entry) => entry.node.position.y));
+    const maxBottom = Math.max(...ordered.map((entry) => entry.node.position.y + entry.height));
+    const totalHeight = ordered.reduce((sum, entry) => sum + entry.height, 0);
+    const gaps = ordered.length - 1;
+    const availableSpace = Math.max(0, maxBottom - minTop - totalHeight);
+    const spacing = gaps > 0 ? Math.max(GRID_SNAP_SPACING, availableSpace / gaps) : GRID_SNAP_SPACING;
+    let cursor = snapAxisPosition(minTop, ordered[0].height, 'y');
+    ordered.forEach((entry, index) => {
+      if (index === 0) {
+        entry.node.position.y = cursor;
+      } else {
+        let targetTop = cursor;
+        targetTop = snapAxisPosition(targetTop, entry.height, 'y');
+        entry.node.position.y = targetTop;
+      }
+      cursor = entry.node.position.y + entry.height + spacing;
+    });
+  } else if (direction === 'grid') {
+    const total = selected.length;
+    if (total < 2) {
+      return false;
+    }
+    const widestWidth = Math.max(...selected.map((entry) => entry.width));
+    if (Number.isFinite(widestWidth) && widestWidth > 0) {
+      selected.forEach((entry) => {
+        if (entry.width < widestWidth) {
+          nodeWidthOverrides.set(entry.node.id, widestWidth);
+          entry.width = widestWidth;
+        }
+      });
+    }
+    const rows = Math.ceil(Math.sqrt(total));
+    const columns = Math.ceil(total / rows);
+    const ordered = [...selected].sort((a, b) => a.node.position.y - b.node.position.y || a.node.position.x - b.node.position.x);
+    const startX = Math.min(...ordered.map((entry) => entry.node.position.x));
+    const startY = Math.min(...ordered.map((entry) => entry.node.position.y));
+    const baseX = snapAxisPosition(startX, widestWidth, 'x');
+    const baseY = snapAxisPosition(startY, tallestHeight, 'y');
+    const horizontalStep = widestWidth + GRID_SNAP_SPACING;
+    const verticalStep = tallestHeight + GRID_SNAP_SPACING;
+    ordered.forEach((entry, index) => {
+      const col = Math.floor(index / rows);
+      const row = index % rows;
+      const targetLeft = clampNodePosition(baseX + col * horizontalStep);
+      const targetTop = clampNodePosition(baseY + row * verticalStep);
+      entry.node.position.x = targetLeft;
+      entry.node.position.y = targetTop;
+    });
+  }
+  dirtyGraph.value = true;
+  return true;
+}
+
+function handleDistributeSelection(direction: 'horizontal' | 'vertical' | 'grid') {
+  if (!canDistributeSelection.value && direction !== 'grid') {
+    return;
+  }
+  const success = distributeSelectedNodes(direction);
+  if (success) {
+    hideContextMenu();
+  }
+}
+
+function handleAlignSelection(edge: 'left' | 'right' | 'top' | 'bottom') {
+  if (!hasMultiSelection.value) {
+    return;
+  }
+  const success = alignSelectedNodes(edge);
+  if (success) {
+    hideContextMenu();
+  }
 }
 
 function handleWindowScroll() {
@@ -2417,7 +2947,9 @@ function getNodeBounds(node: { position: { x: number; y: number }; id?: string }
 
 function nodeWithinBounds(node: EditableNode, bounds: SelectionBounds) {
   const box = getNodeBounds(node);
-  return box.left >= bounds.left && box.right <= bounds.right && box.top >= bounds.top && box.bottom <= bounds.bottom;
+  const horizontalOverlap = box.left <= bounds.right && box.right >= bounds.left;
+  const verticalOverlap = box.top <= bounds.bottom && box.bottom >= bounds.top;
+  return horizontalOverlap && verticalOverlap;
 }
 
 function nodeCenter(position: { x: number; y: number }, nodeId?: string) {
@@ -2866,6 +3398,16 @@ function nodeStyle(node: QuestNodeViewModel, draggable: boolean, mode: 'viewer' 
     '--accent': accent,
     opacity: disabled ? 0.7 : 1
   };
+  if (mode === 'editor') {
+    const overrideHeight = nodeHeightOverrides.get(node.id);
+    const overrideWidth = nodeWidthOverrides.get(node.id);
+    if (overrideWidth) {
+      style.width = `${overrideWidth}px`;
+    }
+    if (overrideHeight) {
+      style.minHeight = `${overrideHeight}px`;
+    }
+  }
   if (node.isGroup) {
     const { ratio } = groupProgressMeta(node.id, mode);
     style['--group-progress'] = ratio.toString();
@@ -4467,6 +5009,29 @@ function handleKeydown(event: KeyboardEvent) {
     }
     return;
   }
+  if (
+    activeTab.value === 'editor' &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !isEditableElement(event.target)
+  ) {
+    const directionKey = event.key.toLowerCase();
+    let handled = false;
+    if (directionKey === 'arrowleft'.toLowerCase()) {
+      handled = alignSelectedNodes('left');
+    } else if (directionKey === 'arrowright'.toLowerCase()) {
+      handled = alignSelectedNodes('right');
+    } else if (directionKey === 'arrowup'.toLowerCase()) {
+      handled = alignSelectedNodes('top');
+    } else if (directionKey === 'arrowdown'.toLowerCase()) {
+      handled = alignSelectedNodes('bottom');
+    }
+    if (handled) {
+      event.preventDefault();
+      return;
+    }
+  }
   if (!isEditableElement(event.target)) {
     if (event.key === 'Alt') {
       isAltProgressMode.value = true;
@@ -4571,19 +5136,89 @@ function beginDrag(node: EditableNode, event: PointerEvent) {
   }));
   const startX = event.clientX;
   const startY = event.clientY;
+  const anchorEntry = originPositions.find((entry) => entry.node.id === node.id) ?? originPositions[0];
+  if (!anchorEntry) {
+    return;
+  }
+  const pointerId = event.pointerId;
+  const anchorSize = getNodeSize(node.id);
+  const anchorHalfWidth = anchorSize.width / 2;
+  const anchorHalfHeight = anchorSize.height / 2;
+  const anchorWidth = anchorHalfWidth * 2;
+  const anchorHeight = anchorHalfHeight * 2;
+  const anchorCenterX = anchorEntry.x + anchorHalfWidth;
+  const anchorCenterY = anchorEntry.y + anchorHalfHeight;
+  const resolveDragState = (rawDeltaX: number, rawDeltaY: number, bypass: boolean) => {
+    let targetCenterX = anchorCenterX + rawDeltaX;
+    let targetCenterY = anchorCenterY + rawDeltaY;
+    let targetTopLeftX = targetCenterX - anchorHalfWidth;
+    let targetTopLeftY = targetCenterY - anchorHalfHeight;
+    let snappedAxisX = false;
+    let snappedAxisY = false;
+    const guideSnap = applyAlignmentSnap(targetTopLeftX, targetTopLeftY, anchorWidth, anchorHeight);
+    targetTopLeftX = guideSnap.x;
+    targetTopLeftY = guideSnap.y;
+    snappedAxisX = guideSnap.snappedX;
+    snappedAxisY = guideSnap.snappedY;
+    targetCenterX = targetTopLeftX + anchorHalfWidth;
+    targetCenterY = targetTopLeftY + anchorHalfHeight;
+    if (!bypass) {
+      if (!snappedAxisX) {
+        targetCenterX = snapToGrid(targetCenterX);
+      }
+      if (!snappedAxisY) {
+        targetCenterY = snapToGrid(targetCenterY);
+      }
+    }
+    targetTopLeftX = clampNodePosition(targetCenterX - anchorHalfWidth);
+    targetTopLeftY = clampNodePosition(targetCenterY - anchorHalfHeight);
+    const actualCenterX = targetTopLeftX + anchorHalfWidth;
+    const actualCenterY = targetTopLeftY + anchorHalfHeight;
+    return {
+      deltaX: targetTopLeftX - anchorEntry.x,
+      deltaY: targetTopLeftY - anchorEntry.y,
+      centerX: actualCenterX,
+      centerY: actualCenterY,
+      highlightX: bypass ? null : actualCenterX,
+      highlightY: bypass ? null : actualCenterY
+    };
+  };
+  const initialState = resolveDragState(0, 0, event.shiftKey);
+  updateGridOverlayState(
+    initialState.centerX,
+    initialState.centerY,
+    initialState.highlightX,
+    initialState.highlightY,
+    event.shiftKey,
+    anchorHalfWidth,
+    anchorHalfHeight
+  );
+  updateAlignmentGuides(initialState.centerX, initialState.centerY);
   function moveHandler(moveEvent: PointerEvent) {
-    const deltaX = (moveEvent.clientX - startX) / editorScale.value;
-    const deltaY = (moveEvent.clientY - startY) / editorScale.value;
+    const bypassSnap = moveEvent.shiftKey;
+    const rawDeltaX = (moveEvent.clientX - startX) / editorScale.value;
+    const rawDeltaY = (moveEvent.clientY - startY) / editorScale.value;
+    const dragState = resolveDragState(rawDeltaX, rawDeltaY, bypassSnap);
     originPositions.forEach(({ node: current, x, y }) => {
-      current.position.x = Math.max(-2000, Math.min(2000, x + deltaX));
-      current.position.y = Math.max(-2000, Math.min(2000, y + deltaY));
+      current.position.x = clampNodePosition(x + dragState.deltaX);
+      current.position.y = clampNodePosition(y + dragState.deltaY);
     });
+    updateGridOverlayState(
+      dragState.centerX,
+      dragState.centerY,
+      dragState.highlightX,
+      dragState.highlightY,
+      bypassSnap
+    );
+    updateAlignmentGuides(dragState.centerX, dragState.centerY);
     dirtyGraph.value = true;
   }
   function upHandler(upEvent: PointerEvent) {
     document.removeEventListener('pointermove', moveHandler);
     document.removeEventListener('pointerup', upHandler);
-    (upEvent.target as HTMLElement | undefined)?.releasePointerCapture?.(event.pointerId);
+    resetGridOverlayState();
+    resetAlignmentGuides();
+    (upEvent.target as HTMLElement | undefined)?.releasePointerCapture?.(pointerId);
   }
   document.addEventListener('pointermove', moveHandler);
   document.addEventListener('pointerup', upHandler);
@@ -4603,6 +5238,8 @@ function resetEditorState() {
   editableLinks.value = detail.value.links.map((link) => ({ ...link }));
   dirtyGraph.value = false;
   setSelectedNodes(editableNodes.value[0] ? [editableNodes.value[0].id] : []);
+  nodeHeightOverrides.clear();
+  nodeWidthOverrides.clear();
 }
 
 async function saveGraph() {
@@ -5884,9 +6521,12 @@ onUnmounted(() => {
 
 .quest-node--selected {
   border-color: var(--accent, #8b5cf6);
+  border-width: 2px;
   box-shadow:
-    0 0 0 3px rgba(139, 92, 246, 0.35),
-    0 12px 35px rgba(15, 23, 42, 0.45);
+    0 0 0 3px rgba(139, 92, 246, 0.45),
+    0 0 25px rgba(139, 92, 246, 0.5),
+    0 18px 45px rgba(15, 23, 42, 0.55);
+  transform: translateZ(0) scale(1.01);
 }
 
 .quest-node--completed {
@@ -6304,6 +6944,141 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   left: 0;
+}
+
+.quest-grid-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  mix-blend-mode: screen;
+}
+
+.quest-grid-line {
+  position: absolute;
+  opacity: var(--grid-line-opacity, 0.4);
+  transition:
+    opacity 0.15s ease,
+    box-shadow 0.2s ease;
+}
+
+.quest-grid-line--vertical {
+  width: 1px;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.4)) 15%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.7)) 35%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4))) 50%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.7)) 65%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.4)) 85%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.quest-grid-line--horizontal {
+  height: 1px;
+  background-image: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.4)) 15%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.7)) 35%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4))) 50%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.7)) 65%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.4) * 0.4)) 85%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.quest-grid-line--highlight {
+  opacity: var(--grid-line-opacity, 0.95);
+  box-shadow:
+    0 0 14px rgba(255, 255, 255, 0.45),
+    0 0 30px rgba(59, 130, 246, 0.35);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.4)) 20%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.8)) 40%,
+    rgba(255, 255, 255, var(--grid-line-opacity, 0.95)) 50%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.8)) 60%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.4)) 80%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.quest-grid-line--highlight.quest-grid-line--horizontal {
+  background-image: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.4)) 20%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.8)) 40%,
+    rgba(255, 255, 255, var(--grid-line-opacity, 0.95)) 50%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.8)) 60%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.95) * 0.4)) 80%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.quest-grid-line--edge {
+  opacity: var(--grid-line-opacity, 0.9);
+  box-shadow:
+    0 0 18px rgba(255, 255, 255, 0.6),
+    0 0 30px rgba(15, 23, 42, 0.3);
+  background-image: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.9) * 0.4)) 20%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.9) * 0.8)) 40%,
+    rgba(255, 255, 255, var(--grid-line-opacity, 0.9)) 50%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.9) * 0.8)) 60%,
+    rgba(255, 255, 255, calc(var(--grid-line-opacity, 0.9) * 0.4)) 80%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.quest-alignment-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.quest-alignment-line {
+  position: absolute;
+  opacity: calc(0.15 + 0.85 * var(--alignment-opacity, 0));
+  transition: opacity 0.12s ease;
+}
+
+.quest-alignment-line--horizontal {
+  width: 100%;
+  height: 2px;
+  background-image: linear-gradient(
+    to right,
+    rgba(249, 115, 22, 0) 0%,
+    rgba(249, 115, 22, calc(var(--alignment-opacity, 0) * 0.6)) 20%,
+    rgba(249, 115, 22, var(--alignment-opacity, 0)) 50%,
+    rgba(249, 115, 22, calc(var(--alignment-opacity, 0) * 0.6)) 80%,
+    rgba(249, 115, 22, 0) 100%
+  );
+  box-shadow:
+    0 0 12px rgba(249, 115, 22, 0.4),
+    0 0 18px rgba(15, 23, 42, 0.3);
+}
+
+.quest-alignment-line--vertical {
+  height: 100%;
+  width: 2px;
+  background-image: linear-gradient(
+    to bottom,
+    rgba(249, 115, 22, 0) 0%,
+    rgba(249, 115, 22, calc(var(--alignment-opacity, 0) * 0.6)) 20%,
+    rgba(249, 115, 22, var(--alignment-opacity, 0)) 50%,
+    rgba(249, 115, 22, calc(var(--alignment-opacity, 0) * 0.6)) 80%,
+    rgba(249, 115, 22, 0) 100%
+  );
+  box-shadow:
+    0 0 12px rgba(249, 115, 22, 0.4),
+    0 0 18px rgba(15, 23, 42, 0.3);
 }
 
 .quest-editor__panel {
@@ -6781,6 +7556,7 @@ onUnmounted(() => {
   font-size: 0.9rem;
   color: rgba(248, 250, 252, 0.9);
   cursor: pointer;
+  position: relative;
 }
 
 .quest-context-menu li:hover {
@@ -6817,6 +7593,41 @@ onUnmounted(() => {
   border-radius: 999px;
   background: var(--menu-status-color);
   box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.9);
+}
+
+.quest-context-menu__submenu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.quest-context-menu__submenu-caret {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.quest-context-menu__submenu-list {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 0.35rem;
+  padding: 0.35rem 0;
+  min-width: 160px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.65rem;
+  box-shadow: 0 15px 35px rgba(2, 6, 23, 0.45);
+  display: none;
+  z-index: 1;
+}
+
+.quest-context-menu__submenu:not(.disabled):hover .quest-context-menu__submenu-list {
+  display: block;
+}
+
+.quest-context-menu__submenu-list li {
+  white-space: nowrap;
 }
 
 .quest-context-menu__status-label {
