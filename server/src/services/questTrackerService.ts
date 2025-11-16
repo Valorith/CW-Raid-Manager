@@ -446,7 +446,10 @@ async function syncGroupProgressForAssignment(
 
   for (const [groupNodeId] of groupNodeEntries) {
     const groupRecord = progressMap.get(groupNodeId);
-    if (groupRecord?.isDisabled) {
+    if (!groupRecord) {
+      continue;
+    }
+    if (groupRecord.isDisabled) {
       await tx.questNodeProgress.update({
         where: {
           assignmentId_nodeId: {
@@ -476,6 +479,19 @@ async function syncGroupProgressForAssignment(
       (childId) => progressMap.get(childId)?.status ?? QuestNodeProgressStatus.NOT_STARTED
     );
     const { status, completed } = deriveGroupNodeStatus(childStatuses);
+    const targetCount = targetIds.length;
+    if (groupRecord) {
+      const existingComplete = groupRecord.completedAt != null;
+      const needsUpdate =
+        groupRecord.status !== status ||
+        groupRecord.progressCount !== completed ||
+        groupRecord.targetCount !== targetCount ||
+        (status === QuestNodeProgressStatus.COMPLETED && !existingComplete) ||
+        (status !== QuestNodeProgressStatus.COMPLETED && existingComplete);
+      if (!needsUpdate) {
+        continue;
+      }
+    }
     await tx.questNodeProgress.update({
       where: {
         assignmentId_nodeId: {
@@ -486,8 +502,8 @@ async function syncGroupProgressForAssignment(
       data: {
         status,
         progressCount: completed,
-        targetCount: targetIds.length,
-        completedAt: status === QuestNodeProgressStatus.COMPLETED ? new Date() : null
+        targetCount,
+        completedAt: status === QuestNodeProgressStatus.COMPLETED ? groupRecord?.completedAt ?? new Date() : null
       }
     });
   }
@@ -543,8 +559,14 @@ function buildProgressSummary(
     if (record.isDisabled) {
       return false;
     }
-    if (options?.nodeMeta && options.nodeMeta.get(record.nodeId)?.isOptional) {
-      return false;
+    if (options?.nodeMeta) {
+      const meta = options.nodeMeta.get(record.nodeId);
+      if (!meta) {
+        return false;
+      }
+      if (meta.isOptional) {
+        return false;
+      }
     }
     return true;
   });
@@ -1322,6 +1344,7 @@ export async function upsertQuestBlueprintGraph(options: {
 
     if (nodesToDelete.length) {
       await tx.questNode.deleteMany({ where: { id: { in: nodesToDelete } } });
+      await tx.questNodeProgress.deleteMany({ where: { nodeId: { in: nodesToDelete } } });
     }
 
     const newNodeIds: string[] = [];
@@ -1832,17 +1855,26 @@ export async function applyAssignmentProgressUpdates(options: {
       const shouldComplete = finalProgress.some(
         (record) => record.status === QuestNodeProgressStatus.COMPLETED
       );
-      if (
-        shouldComplete &&
-        assignment.status !== QuestAssignmentStatus.COMPLETED &&
-        assignment.status !== QuestAssignmentStatus.CANCELLED
-      ) {
+      if (shouldComplete) {
+        if (
+          assignment.status !== QuestAssignmentStatus.COMPLETED &&
+          assignment.status !== QuestAssignmentStatus.CANCELLED
+        ) {
+          await tx.questAssignment.update({
+            where: { id: assignment.id },
+            data: {
+              status: QuestAssignmentStatus.COMPLETED,
+              completedAt: new Date(),
+              cancelledAt: null
+            }
+          });
+        }
+      } else if (assignment.status === QuestAssignmentStatus.COMPLETED) {
         await tx.questAssignment.update({
           where: { id: assignment.id },
           data: {
-            status: QuestAssignmentStatus.COMPLETED,
-            completedAt: new Date(),
-            cancelledAt: null
+            status: QuestAssignmentStatus.ACTIVE,
+            completedAt: null
           }
         });
       }
@@ -1876,139 +1908,20 @@ export async function applyAssignmentProgressUpdates(options: {
 function computeShortestPathMap(
   blueprintIds: string[],
   nodes: Array<{ blueprintId: string; id: string; metadata: Prisma.JsonValue | null }>,
-  links: Array<{ blueprintId: string; parentNodeId: string; childNodeId: string }>
+  _links: Array<{ blueprintId: string; parentNodeId: string; childNodeId: string }>
 ) {
-  const nodesByBlueprint = new Map<
-    string,
-    Array<{ id: string; isFinal: boolean; isGroup: boolean; isOptional: boolean }>
-  >();
+  const result = new Map<string, number>();
   for (const blueprintId of blueprintIds) {
-    nodesByBlueprint.set(blueprintId, []);
+    result.set(blueprintId, 0);
   }
   for (const node of nodes) {
     const metadata = normalizeJsonRecord(node.metadata);
-    const bucket = nodesByBlueprint.get(node.blueprintId);
-    if (!bucket) {
+    if (metadata.isOptional) {
       continue;
     }
-    bucket.push({
-      id: node.id,
-      isFinal: Boolean(metadata.isFinal),
-      isGroup: Boolean(metadata.isGroup),
-      isOptional: Boolean(metadata.isOptional)
-    });
+    const current = result.get(node.blueprintId) ?? 0;
+    result.set(node.blueprintId, current + 1);
   }
-
-  const childMap = new Map<string, Map<string, string[]>>();
-  const parentCounts = new Map<string, Map<string, number>>();
-
-  for (const link of links) {
-    const adjacency = childMap.get(link.blueprintId) ?? new Map<string, string[]>();
-    const children = adjacency.get(link.parentNodeId) ?? [];
-    children.push(link.childNodeId);
-    adjacency.set(link.parentNodeId, children);
-    childMap.set(link.blueprintId, adjacency);
-
-    const parentMap = parentCounts.get(link.blueprintId) ?? new Map<string, number>();
-    parentMap.set(link.childNodeId, (parentMap.get(link.childNodeId) ?? 0) + 1);
-    parentCounts.set(link.blueprintId, parentMap);
-  }
-
-  const result = new Map<string, number>();
-
-  for (const blueprintId of blueprintIds) {
-    const blueprintNodes = nodesByBlueprint.get(blueprintId) ?? [];
-    if (!blueprintNodes.length) {
-      result.set(blueprintId, 0);
-      continue;
-    }
-    const finals = new Set(blueprintNodes.filter((node) => node.isFinal).map((node) => node.id));
-    if (!finals.size) {
-      result.set(blueprintId, blueprintNodes.length);
-      continue;
-    }
-
-    const adjacency = childMap.get(blueprintId) ?? new Map<string, string[]>();
-    const parentMap = parentCounts.get(blueprintId) ?? new Map<string, number>();
-    const nodeMetaMap = new Map<string, { isGroup: boolean; isOptional: boolean }>();
-    blueprintNodes.forEach((node) => {
-      nodeMetaMap.set(node.id, { isGroup: node.isGroup, isOptional: node.isOptional });
-    });
-
-    const roots = blueprintNodes
-      .map((node) => node.id)
-      .filter((nodeId) => !parentMap.has(nodeId));
-
-    const queue: Array<{ nodeId: string; depth: number }> = [];
-    const visited = new Set<string>();
-    const parentsLookup = new Map<string, string | null>();
-
-    const nodeWeight = (nodeId: string) => (nodeMetaMap.get(nodeId)?.isOptional ? 0 : 1);
-
-    const enqueue = (nodeId: string, depth: number, parentId: string | null) => {
-      if (visited.has(nodeId)) {
-        return;
-      }
-      visited.add(nodeId);
-      parentsLookup.set(nodeId, parentId);
-      queue.push({ nodeId, depth });
-    };
-
-    if (roots.length) {
-      roots.forEach((rootId) => enqueue(rootId, nodeWeight(rootId), null));
-    } else {
-      blueprintNodes.forEach((node) => enqueue(node.id, nodeWeight(node.id), null));
-    }
-
-    let shortest = blueprintNodes.length;
-    let finalNodeReached: string | null = null;
-    while (queue.length) {
-      const { nodeId, depth } = queue.shift()!;
-      if (finals.has(nodeId)) {
-        shortest = depth;
-        finalNodeReached = nodeId;
-        break;
-      }
-      const children = adjacency.get(nodeId) ?? [];
-      for (const childId of children) {
-        enqueue(childId, depth + nodeWeight(childId), nodeId);
-      }
-    }
-
-    if (!finalNodeReached) {
-      result.set(blueprintId, blueprintNodes.length);
-      continue;
-    }
-
-    const pathNodes = new Set<string>();
-    let cursor: string | null = finalNodeReached;
-    while (cursor) {
-      pathNodes.add(cursor);
-      cursor = parentsLookup.get(cursor) ?? null;
-    }
-
-    const countedNodes = new Set<string>();
-    const descendantCacheLocal = new Map<string, string[]>();
-    for (const nodeId of pathNodes) {
-      const meta = nodeMetaMap.get(nodeId);
-      if (!meta?.isOptional && !meta?.isGroup) {
-        countedNodes.add(nodeId);
-      }
-      if (meta?.isGroup) {
-        const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
-        for (const descendantId of descendants) {
-          const descendantMeta = nodeMetaMap.get(descendantId);
-          if (!descendantMeta?.isOptional && !descendantMeta?.isGroup) {
-            countedNodes.add(descendantId);
-          }
-        }
-      }
-    }
-
-    shortest = countedNodes.size || 0;
-    result.set(blueprintId, shortest);
-  }
-
   return result;
 }
 

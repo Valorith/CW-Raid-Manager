@@ -1,5 +1,5 @@
 <template>
-  <section class="quest-tracker" v-if="summary">
+  <section class="quest-tracker" v-if="summary" :class="{ 'quest-tracker--alt-mode': overviewAltClickMode }">
     <aside class="quest-tracker__sidebar">
       <header class="quest-tracker__header">
         <div class="quest-tracker__header-meta">
@@ -210,7 +210,45 @@
       <div v-if="selectedDetail" class="quest-detail">
         <header class="quest-detail__header">
           <div class="quest-detail__title">
-            <h2>{{ selectedDetail.blueprint.title }}</h2>
+            <template v-if="editingBlueprintTitle">
+              <form class="quest-title-edit-form" @submit.prevent="submitBlueprintTitleEdit">
+                <input
+                  ref="blueprintTitleInputRef"
+                  v-model="blueprintTitleDraft"
+                  class="input quest-title-edit-form__input"
+                  type="text"
+                  maxlength="120"
+                  :disabled="renamingBlueprintTitle"
+                  placeholder="Quest blueprint title"
+                  @keydown.esc.prevent="cancelBlueprintTitleEdit"
+                />
+                <button class="btn btn--primary btn--tiny" type="submit" :disabled="renamingBlueprintTitle">
+                  {{ renamingBlueprintTitle ? 'Saving…' : 'Save' }}
+                </button>
+                <button
+                  class="btn btn--ghost btn--tiny"
+                  type="button"
+                  :disabled="renamingBlueprintTitle"
+                  @click="cancelBlueprintTitleEdit"
+                >
+                  Cancel
+                </button>
+              </form>
+            </template>
+            <template v-else>
+              <div class="quest-detail__title-display">
+                <h2>{{ selectedDetail.blueprint.title }}</h2>
+                <button
+                  v-if="canRenameBlueprint"
+                  class="btn btn--ghost btn--tiny quest-title__edit-btn"
+                  type="button"
+                  @click="startBlueprintTitleEdit"
+                  title="Rename blueprint"
+                >
+                  ✎
+                </button>
+              </div>
+            </template>
           </div>
           <div class="quest-detail__toolbar">
             <div class="quest-detail__tracking">
@@ -370,6 +408,7 @@
                   }
                 ]"
                 :style="nodeStyle(node, false, 'viewer')"
+                @click.stop="handleViewerCanvasNodeClick(node, $event)"
                 @contextmenu.prevent="openNodeMenu(node, $event)"
                 :data-node-id="node.id"
               >
@@ -677,6 +716,50 @@
           </div>
         </section>
 
+        <div class="quest-export-toolbar">
+          <div class="quest-export-toolbar__buttons">
+            <button class="btn btn--tiny btn--wiki-export" type="button" @click="openBlueprintWikiModal">
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  d="M4 4h12v12H8l-4 4z"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  fill="none"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M7 9l2.5 3L14 8"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
+              </svg>
+              <span>Wiki</span>
+            </button>
+            <button
+              v-if="isAdmin"
+              class="btn btn--tiny btn--json-export"
+              type="button"
+              @click="openBlueprintJsonModal"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <path
+                  d="M10 2v12m0 0l-3.5-3.5M10 14l3.5-3.5M4 18h12"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  fill="none"
+                />
+              </svg>
+              <span>JSON</span>
+            </button>
+          </div>
+        </div>
+
       </div>
 
       <div v-else class="quest-empty">
@@ -867,6 +950,40 @@
 
   <div v-if="saveToast.visible" class="quest-toast">{{ saveToast.message }}</div>
 
+  <div v-if="showBlueprintJsonModal" class="quest-modal">
+    <div class="quest-modal__content quest-modal__content--wide">
+      <header>
+        <h3>Blueprint JSON Export</h3>
+        <button class="btn btn--icon" type="button" @click="closeBlueprintJsonModal">×</button>
+      </header>
+      <p class="muted small">Copy this JSON to share or archive the current blueprint structure.</p>
+      <pre class="quest-json-export" tabindex="0">{{ blueprintJsonText }}</pre>
+      <div class="quest-modal__actions">
+        <button class="btn btn--secondary" type="button" @click="copyBlueprintJson">
+          {{ blueprintJsonCopied ? 'Copied!' : 'Copy JSON' }}
+        </button>
+        <button class="btn btn--primary" type="button" @click="closeBlueprintJsonModal">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="showBlueprintWikiModal" class="quest-modal">
+    <div class="quest-modal__content quest-modal__content--wide">
+      <header>
+        <h3>MediaWiki Export</h3>
+        <button class="btn btn--icon" type="button" @click="closeBlueprintWikiModal">×</button>
+      </header>
+      <p class="muted small">Copy this markup into MediaWiki to share the quest structure.</p>
+      <pre class="quest-json-export" tabindex="0">{{ blueprintWikiText }}</pre>
+      <div class="quest-modal__actions">
+        <button class="btn btn--secondary" type="button" @click="copyBlueprintWiki">
+          {{ blueprintWikiCopied ? 'Copied!' : 'Copy markup' }}
+        </button>
+        <button class="btn btn--primary" type="button" @click="closeBlueprintWikiModal">Close</button>
+      </div>
+    </div>
+  </div>
+
   <ul
     v-if="contextMenu.visible"
     class="quest-context-menu"
@@ -887,6 +1004,7 @@
       <template v-else>
         <li @click="handleAddChildFromMenu">Add child step</li>
         <li @click="handleEditNodeFromMenu">Edit step settings</li>
+        <li @click="handleDuplicateNodeFromMenu">Duplicate step</li>
         <li @click="handleToggleFinalFromMenu">
           {{ contextMenuNodeFinal ? 'Clear final flag' : 'Mark as final step' }}
         </li>
@@ -942,6 +1060,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 
 import {
   api,
@@ -952,6 +1071,7 @@ import {
   type QuestLinkInputPayload,
   type QuestNodeInputPayload,
   type QuestNodeViewModel,
+  type QuestNodeLinkViewModel,
   type QuestNodeProgress,
   type QuestTrackerSummary,
   type UserCharacter
@@ -968,7 +1088,10 @@ import {
 import { extractErrorMessage } from '../utils/errors';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const guildId = route.params.guildId as string;
+const currentUserId = computed(() => authStore.user?.userId ?? null);
+const isAdmin = computed(() => authStore.isAdmin);
 
 type EditableNode = QuestNodeViewModel & {
   requirements: Record<string, any>;
@@ -997,6 +1120,10 @@ const saveToast = reactive({ visible: false, message: '' });
 const saveErrorModal = reactive({ open: false, message: '' });
 const showStepSettings = ref(false);
 const showBlueprintSettings = ref(false);
+const editingBlueprintTitle = ref(false);
+const blueprintTitleDraft = ref('');
+const renamingBlueprintTitle = ref(false);
+const blueprintTitleInputRef = ref<HTMLInputElement | null>(null);
 const showCharacterModal = ref(false);
 const characterOptions = ref<UserCharacter[]>([]);
 const characterModalLoading = ref(false);
@@ -1008,6 +1135,10 @@ const showGuildPinModal = ref(false);
 const guildPinModalNodeId = ref<string | null>(null);
 const guildPinModalPage = ref(1);
 const GUILD_PIN_MODAL_PAGE_SIZE = 10;
+const showBlueprintJsonModal = ref(false);
+const showBlueprintWikiModal = ref(false);
+const blueprintJsonCopied = ref(false);
+const blueprintWikiCopied = ref(false);
 
 const editableNodes = ref<EditableNode[]>([]);
 const editableLinks = ref<QuestBlueprintDetailPayload['links']>([]);
@@ -1102,6 +1233,7 @@ const marqueeSelection = reactive({
 const isSpacePanning = ref(false);
 const panState = reactive({ button: null as number | null, moved: false });
 const suppressCanvasContextMenu = ref(false);
+const isAltProgressMode = ref(false);
 type ContextMenuType = 'canvas' | 'editor-node' | 'viewer-node' | 'editor-link';
 const contextMenu = reactive({
   visible: false,
@@ -1273,6 +1405,38 @@ const folderOrderIndex = (folderId: string) => orderedFolders.value.findIndex((e
 
 
 const selectedDetail = computed(() => detail.value);
+const membershipRole = computed(() => detail.value?.permissions?.role ?? summary.value?.permissions?.role ?? null);
+const blueprintCreatorId = computed(() => detail.value?.blueprint.createdById ?? null);
+const blueprintJsonText = computed(() => {
+  if (!detail.value) {
+    return '{}';
+  }
+  const payload = {
+    blueprint: detail.value.blueprint,
+    nodes: detail.value.nodes,
+    links: detail.value.links
+  };
+  return JSON.stringify(payload, null, 2);
+});
+const blueprintWikiText = computed(() => {
+  if (!detail.value) {
+    return '';
+  }
+  return buildWikiMarkup(detail.value);
+});
+const canRenameBlueprint = computed(() => {
+  if (!detail.value?.blueprint) {
+    return false;
+  }
+  if (membershipRole.value === 'LEADER' || membershipRole.value === 'OFFICER') {
+    return true;
+  }
+  const creatorId = blueprintCreatorId.value;
+  if (!creatorId || !currentUserId.value) {
+    return false;
+  }
+  return creatorId === currentUserId.value;
+});
 const guildAssignments = computed(() => detail.value?.guildAssignments ?? []);
 const viewerAssignments = computed(() => detail.value?.viewerAssignments ?? []);
 const viewerAssignmentOptions = computed(() =>
@@ -1453,6 +1617,9 @@ const renderedNodeIndex = computed(() => {
   return map;
 });
 const showOverviewDisabledState = computed(() => activeTab.value === 'overview');
+const overviewAltClickMode = computed(
+  () => activeTab.value === 'overview' && isAltProgressMode.value && canUpdateNodeProgress.value
+);
 
 const finalNodeIds = computed(() => {
   const set = new Set<string>();
@@ -1545,6 +1712,24 @@ function ensureAccentColor(value?: string | null): string {
     return value.toLowerCase();
   }
   return DEFAULT_ACCENT_COLOR;
+}
+
+function cloneRecord<T extends Record<string, any>>(value: T | undefined | null): T {
+  if (!value) {
+    return {} as T;
+  }
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch {
+      // Fall through to JSON clone.
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return { ...(value as Record<string, any>) } as T;
+  }
 }
 
 function buildEditableNode(node: QuestNodeViewModel): EditableNode {
@@ -1879,6 +2064,7 @@ const marqueeStyle = computed(() => {
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 140;
 const DEFAULT_NODE_SIZE = { width: NODE_WIDTH, height: NODE_HEIGHT };
+const NODE_DUPLICATE_OFFSET = 32;
 const PAN_SUPPRESS_THRESHOLD = 3;
 const LINK_CANVAS_PADDING = 120;
 const OVERVIEW_CANVAS_PADDING = 48;
@@ -2108,10 +2294,28 @@ function isGroupChildLink(parentId: string, childId: string) {
 }
 
 function getNextStepGroupAncestors(nodeId: string): string[] {
-  const parentEntries = parentNodeMap.value.get(nodeId) ?? [];
-  return parentEntries
-    .filter((entry) => entry.isNextStep && isGroupNode(entry.nodeId))
-    .map((entry) => entry.nodeId);
+  const visited = new Set<string>();
+  const upstream = new Set<string>();
+  const initialParents = parentNodeMap.value.get(nodeId) ?? [];
+  const queue = initialParents.filter((entry) => isGroupNode(entry.nodeId)).map((entry) => entry.nodeId);
+  while (queue.length) {
+    const current = queue.shift()!;
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    const parents = parentNodeMap.value.get(current) ?? [];
+    parents.forEach((entry) => {
+      if (!isGroupNode(entry.nodeId)) {
+        return;
+      }
+      queue.push(entry.nodeId);
+      if (entry.isNextStep) {
+        upstream.add(entry.nodeId);
+      }
+    });
+  }
+  return Array.from(upstream);
 }
 
 function applyGroupHierarchyStatus(
@@ -2653,9 +2857,11 @@ function formatDateTime(value?: string | null) {
 function nodeStyle(node: QuestNodeViewModel, draggable: boolean, mode: 'viewer' | 'editor') {
   const disabled = showOverviewDisabledState.value && isNodeDisabled(node.id);
   const accent = disabled ? DISABLED_BRANCH_COLOR : isNodeCompleted(node.id) ? COMPLETED_ACCENT_COLOR : nodeBranchColor(node.id);
+  const cursor =
+    mode === 'viewer' && overviewAltClickMode.value && !disabled ? 'copy' : disabled && !draggable ? 'not-allowed' : draggable ? 'move' : 'default';
   const style: Record<string, string | number> = {
     transform: `translate(${node.position.x}px, ${node.position.y}px)`,
-    cursor: disabled && !draggable ? 'not-allowed' : draggable ? 'move' : 'default',
+    cursor,
     borderColor: accent,
     '--accent': accent,
     opacity: disabled ? 0.7 : 1
@@ -2722,6 +2928,9 @@ type GuildNodePin = {
 };
 
 const MAX_DISPLAYED_GUILD_PINS = 6;
+const GROUP_NODE_PIN_LIMIT = 2;
+
+const groupNodeIds = computed(() => new Set((detail.value?.nodes ?? []).filter((node) => node.isGroup).map((node) => node.id)));
 
 const guildNodePinsById = computed(() => {
   const map = new Map<string, GuildNodePin[]>();
@@ -2729,6 +2938,8 @@ const guildNodePinsById = computed(() => {
   if (!nodes.length) {
     return map;
   }
+  const nodeIndex = new Map(nodes.map((node) => [node.id, node]));
+  const parents = parentNodeMap.value;
   for (const assignment of guildAssignments.value) {
     if (!assignment.character) {
       continue;
@@ -2736,7 +2947,7 @@ const guildNodePinsById = computed(() => {
     if (assignment.status === 'COMPLETED' || assignment.status === 'CANCELLED') {
       continue;
     }
-    const nextNodeId = findNextNodeIdForAssignment(assignment, nodes);
+    const nextNodeId = findNextNodeIdForAssignment(assignment, nodes, nodeIndex, parents);
     if (!nextNodeId) {
       continue;
     }
@@ -2772,13 +2983,19 @@ function guildPinsForNode(nodeId: string): GuildNodePin[] {
   return guildNodePinsById.value.get(nodeId) ?? [];
 }
 
+function pinDisplayLimit(nodeId: string) {
+  return groupNodeIds.value.has(nodeId) ? GROUP_NODE_PIN_LIMIT : MAX_DISPLAYED_GUILD_PINS;
+}
+
 function visibleGuildPins(nodeId: string): GuildNodePin[] {
-  return guildPinsForNode(nodeId).slice(0, MAX_DISPLAYED_GUILD_PINS);
+  const limit = pinDisplayLimit(nodeId);
+  return guildPinsForNode(nodeId).slice(0, limit);
 }
 
 function guildPinOverflowCount(nodeId: string): number {
   const total = guildPinsForNode(nodeId).length;
-  return total > MAX_DISPLAYED_GUILD_PINS ? total - MAX_DISPLAYED_GUILD_PINS : 0;
+  const limit = pinDisplayLimit(nodeId);
+  return total > limit ? total - limit : 0;
 }
 
 const guildPinModalNode = computed(() =>
@@ -2813,21 +3030,143 @@ function prevGuildPinPage() {
 
 function findNextNodeIdForAssignment(
   assignment: QuestAssignment,
-  nodes: QuestNodeViewModel[]
+  nodes: QuestNodeViewModel[],
+  nodeIndex: Map<string, QuestNodeViewModel>,
+  parents: Map<string, NodeAdjacencyEntry[]>
 ): string | null {
+  const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
   for (const node of nodes) {
     if (node.isOptional) {
       continue;
     }
-    const progressRecord = assignment.progress.find((entry) => entry.nodeId === node.id);
+    const progressRecord = progressMap.get(node.id);
     if (progressRecord?.isDisabled) {
       continue;
     }
     if (!progressRecord || progressRecord.status !== 'COMPLETED') {
-      return node.id;
+      return resolveGroupPinTarget(node.id, nodeIndex, parents);
     }
   }
   return null;
+}
+
+function resolveGroupPinTarget(
+  nodeId: string,
+  nodeIndex: Map<string, QuestNodeViewModel>,
+  parents: Map<string, NodeAdjacencyEntry[]>
+): string {
+  const node = nodeIndex.get(nodeId);
+  if (node?.isGroup) {
+    return nodeId;
+  }
+  const parentEntries = parents.get(nodeId) ?? [];
+  const groupParent = parentEntries.find((entry) => Boolean(nodeIndex.get(entry.nodeId)?.isGroup));
+  return groupParent ? groupParent.nodeId : nodeId;
+}
+
+function buildWikiMarkup(detail: QuestBlueprintDetailPayload): string {
+  const lines: string[] = [];
+  const title = detail.blueprint.title || 'Quest Blueprint';
+  lines.push(`= ${title} =`);
+  if (detail.blueprint.summary) {
+    lines.push(detail.blueprint.summary);
+  }
+  lines.push(`;Visibility: ${detail.blueprint.visibility}`);
+  const editedBy = detail.blueprint.lastEditedByName ?? detail.blueprint.createdByName ?? 'Unknown member';
+  lines.push(`;Last Edited By: ${editedBy}`);
+  lines.push(`;Steps: ${detail.nodes.length}`);
+  lines.push('');
+  lines.push('== Quest Structure ==');
+  lines.push(...renderWikiNodes(detail.nodes, detail.links));
+  return lines.join('\n');
+}
+
+function renderWikiNodes(nodes: QuestNodeViewModel[], links: QuestNodeLinkViewModel[]): string[] {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const children = new Map<string, string[]>();
+  const parentMap = new Map<string, string[]>();
+  links.forEach((link) => {
+    const list = children.get(link.parentNodeId) ?? [];
+    list.push(link.childNodeId);
+    children.set(link.parentNodeId, list);
+    const parents = parentMap.get(link.childNodeId) ?? [];
+    parents.push(link.parentNodeId);
+    parentMap.set(link.childNodeId, parents);
+  });
+  const roots = nodes.filter((node) => !(parentMap.get(node.id)?.length));
+  const sections: string[] = [];
+  const visited = new Set<string>();
+  const sortNodes = (a: QuestNodeViewModel, b: QuestNodeViewModel) =>
+    a.sortOrder - b.sortOrder || a.title.localeCompare(b.title);
+  const sortedRoots = roots.length ? [...roots].sort(sortNodes) : [...nodes].sort(sortNodes);
+
+  const renderNode = (nodeId: string, depth = 0) => {
+    if (visited.has(nodeId)) {
+      return;
+    }
+    visited.add(nodeId);
+    const node = nodeMap.get(nodeId);
+    if (!node) {
+      return;
+    }
+    const bullet = '*'.repeat(Math.max(depth + 1, 1));
+    const title = node.title || 'Quest Step';
+    const typeLabel = displayNodeType(node.nodeType, node.isGroup);
+    const description = node.description ? ` — ${node.description}` : '';
+    const flags: string[] = [];
+    if (node.isGroup) {
+      flags.push('Group');
+    }
+    if (node.isFinal) {
+      flags.push('Final step');
+    }
+    if (node.isOptional) {
+      flags.push('Optional');
+    }
+    const flagString = flags.length ? ` ''[${flags.join(', ')}]''` : '';
+    sections.push(`${bullet} '''${title}''' (${typeLabel})${description}${flagString}`);
+
+    const requirementText = formatRequirementDetails(node.requirements);
+    if (requirementText) {
+      sections.push(`${bullet}* Requirements: ${requirementText}`);
+    }
+
+    const childIds = [...(children.get(nodeId) ?? [])].sort((a, b) => {
+      const nodeA = nodeMap.get(a);
+      const nodeB = nodeMap.get(b);
+      if (!nodeA || !nodeB) {
+        return 0;
+      }
+      return sortNodes(nodeA, nodeB);
+    });
+    childIds.forEach((childId) => renderNode(childId, depth + 1));
+  };
+
+  sortedRoots.forEach((root) => renderNode(root.id));
+  return sections;
+}
+
+function formatRequirementDetails(requirements: Record<string, any> | undefined): string {
+  if (!requirements) {
+    return '';
+  }
+  const parts: string[] = [];
+  Object.entries(requirements).forEach(([key, value]) => {
+    if (value == null || value === '') {
+      return;
+    }
+    if (typeof value === 'object') {
+      parts.push(`${key}: ${JSON.stringify(value)}`);
+      return;
+    }
+    if (key === 'count') {
+      parts.push(`${value}x`);
+      return;
+    }
+    const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, (match) => match.toUpperCase());
+    parts.push(`${label}: ${value}`);
+  });
+  return parts.join('; ');
 }
 
 function handleGuildAssignmentClick(assignmentId: string) {
@@ -3390,6 +3729,104 @@ function toggleStepSettings() {
   showStepSettings.value = !showStepSettings.value;
 }
 
+function openBlueprintJsonModal() {
+  if (!detail.value) {
+    return;
+  }
+  blueprintJsonCopied.value = false;
+  showBlueprintJsonModal.value = true;
+}
+
+function closeBlueprintJsonModal() {
+  showBlueprintJsonModal.value = false;
+}
+
+function openBlueprintWikiModal() {
+  if (!detail.value) {
+    return;
+  }
+  blueprintWikiCopied.value = false;
+  showBlueprintWikiModal.value = true;
+}
+
+function closeBlueprintWikiModal() {
+  showBlueprintWikiModal.value = false;
+}
+
+async function copyBlueprintJson() {
+  try {
+    await navigator.clipboard.writeText(blueprintJsonText.value);
+    blueprintJsonCopied.value = true;
+  } catch {
+    blueprintJsonCopied.value = false;
+    window.alert('Unable to copy blueprint JSON.');
+  }
+}
+
+async function copyBlueprintWiki() {
+  try {
+    await navigator.clipboard.writeText(blueprintWikiText.value);
+    blueprintWikiCopied.value = true;
+  } catch {
+    blueprintWikiCopied.value = false;
+    window.alert('Unable to copy MediaWiki export.');
+  }
+}
+
+function startBlueprintTitleEdit() {
+  if (!detail.value?.blueprint || !canRenameBlueprint.value) {
+    return;
+  }
+  blueprintTitleDraft.value = detail.value.blueprint.title;
+  editingBlueprintTitle.value = true;
+  nextTick(() => {
+    blueprintTitleInputRef.value?.focus();
+    blueprintTitleInputRef.value?.select?.();
+  });
+}
+
+function cancelBlueprintTitleEdit() {
+  if (renamingBlueprintTitle.value) {
+    return;
+  }
+  editingBlueprintTitle.value = false;
+  blueprintTitleDraft.value = '';
+}
+
+async function submitBlueprintTitleEdit() {
+  if (!editingBlueprintTitle.value || !detail.value?.blueprint || !selectedBlueprintId.value) {
+    return;
+  }
+  const trimmed = blueprintTitleDraft.value.trim();
+  if (!trimmed) {
+    window.alert('Blueprint title is required.');
+    return;
+  }
+  if (trimmed === detail.value.blueprint.title) {
+    editingBlueprintTitle.value = false;
+    return;
+  }
+  renamingBlueprintTitle.value = true;
+  try {
+    const updated = await api.updateQuestBlueprint(guildId, selectedBlueprintId.value, {
+      title: trimmed
+    });
+    if (detail.value) {
+      detail.value.blueprint = { ...detail.value.blueprint, ...updated };
+      lastSavedAt.value = updated.updatedAt ?? lastSavedAt.value;
+      lastSavedBy.value = updated.lastEditedByName ?? lastSavedBy.value;
+    }
+    blueprintMetaForm.title = trimmed;
+    await loadSummary();
+    showSaveToast('Blueprint renamed');
+    editingBlueprintTitle.value = false;
+  } catch (error) {
+    showSaveError(extractErrorMessage(error, 'Unable to rename blueprint.'));
+  } finally {
+    renamingBlueprintTitle.value = false;
+  }
+}
+
 type SelectionMode = 'exclusive' | 'append' | 'toggle';
 
 function selectNode(nodeId: string, mode: SelectionMode = 'exclusive') {
@@ -3589,6 +4026,19 @@ function handleAddChildFromMenu() {
   hideContextMenu();
 }
 
+function handleDuplicateNodeFromMenu() {
+  if (!contextMenu.nodeId || !canEditBlueprint.value) {
+    hideContextMenu();
+    return;
+  }
+  const newId = duplicateNode(contextMenu.nodeId);
+  if (newId) {
+    selectNode(newId);
+    showStepSettings.value = true;
+  }
+  hideContextMenu();
+}
+
 function handleDeleteNodeFromMenu() {
   if (!contextMenu.nodeId) {
     return;
@@ -3689,6 +4139,27 @@ async function handleViewerStatusChange(status: QuestNodeProgressStatus) {
   await updateNodeStatus(nodeId, status);
 }
 
+async function handleOverviewQuickStatusChange(nodeId: string, status: QuestNodeProgressStatus) {
+  if (activeTab.value !== 'overview') {
+    return;
+  }
+  if (!canUpdateNodeProgress.value || progressUpdating.value || isNodeDisabled(nodeId)) {
+    return;
+  }
+  await updateNodeStatus(nodeId, status);
+}
+
+async function handleViewerCanvasNodeClick(node: QuestNodeViewModel, event: MouseEvent) {
+  if (activeTab.value !== 'overview') {
+    return;
+  }
+  if (event.altKey && !(event.ctrlKey || event.metaKey || event.shiftKey)) {
+    event.preventDefault();
+    event.stopPropagation();
+    await handleOverviewQuickStatusChange(node.id, 'COMPLETED');
+  }
+}
+
 function closeSaveError() {
   saveErrorModal.open = false;
 }
@@ -3755,6 +4226,41 @@ function addNode(parentId?: string | null) {
   }
   setSelectedNodes([id]);
   dirtyGraph.value = true;
+  return id;
+}
+
+function duplicateNode(nodeId: string) {
+  const source = editableNodes.value.find((node) => node.id === nodeId);
+  if (!source) {
+    return null;
+  }
+  const id = crypto.randomUUID?.() ?? `node_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const metadata = cloneRecord(source.metadata ?? {});
+  metadata.accentColor = ensureAccentColor(metadata.accentColor as string | undefined);
+  const requirements = cloneRecord(source.requirements ?? {});
+  const duplicate: EditableNode = {
+    ...source,
+    id,
+    position: {
+      x: clamp(source.position.x + NODE_DUPLICATE_OFFSET, -2000, 2000),
+      y: clamp(source.position.y + NODE_DUPLICATE_OFFSET, -2000, 2000)
+    },
+    requirements,
+    metadata,
+    sortOrder: editableNodes.value.length
+  };
+  editableNodes.value.push(duplicate);
+  const parentLinks = editableLinks.value.filter((link) => link.childNodeId === nodeId);
+  parentLinks.forEach((link) => {
+    editableLinks.value.push({
+      id: crypto.randomUUID?.() ?? `link_${Date.now()}_${Math.random()}`,
+      parentNodeId: link.parentNodeId,
+      childNodeId: id,
+      conditions: { ...(link.conditions ?? {}) }
+    });
+  });
+  dirtyGraph.value = true;
+  nextTick(() => measureNodeDimensions());
   return id;
 }
 
@@ -3961,6 +4467,11 @@ function handleKeydown(event: KeyboardEvent) {
     }
     return;
   }
+  if (!isEditableElement(event.target)) {
+    if (event.key === 'Alt') {
+      isAltProgressMode.value = true;
+    }
+  }
   if (event.code === 'Space' && !isEditableElement(event.target)) {
     event.preventDefault();
     isSpacePanning.value = true;
@@ -3980,6 +4491,9 @@ function handleKeydown(event: KeyboardEvent) {
 function handleKeyup(event: KeyboardEvent) {
   if (event.code === 'Space') {
     isSpacePanning.value = false;
+  }
+  if (event.key === 'Alt' || event.code === 'AltLeft' || event.code === 'AltRight') {
+    isAltProgressMode.value = false;
   }
 }
 
@@ -4014,6 +4528,9 @@ function handleNodePointerDown(node: EditableNode, event: PointerEvent) {
     return;
   }
   if (linkDrag.active) {
+    return;
+  }
+  if (event.altKey) {
     return;
   }
   const toggle = event.ctrlKey || event.metaKey;
@@ -4412,6 +4929,12 @@ watch(selectedBlueprintId, (blueprintId) => {
   showCharacterModal.value = false;
   characterStartError.value = null;
   guildFocusAssignmentId.value = null;
+  editingBlueprintTitle.value = false;
+  renamingBlueprintTitle.value = false;
+  showBlueprintJsonModal.value = false;
+  blueprintJsonCopied.value = false;
+  showBlueprintWikiModal.value = false;
+  blueprintWikiCopied.value = false;
 });
 
 watch(
@@ -4956,12 +5479,67 @@ onUnmounted(() => {
   margin: 0;
 }
 
+.quest-detail__title-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.quest-title__edit-btn {
+  padding: 0.15rem 0.4rem;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+.quest-title-edit-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  width: 100%;
+}
+
+.quest-title-edit-form__input {
+  min-width: min(280px, 100%);
+  max-width: 420px;
+}
+
 .quest-detail__toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 1rem;
   width: 100%;
+}
+
+.btn--json-export,
+.btn--wiki-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.7);
+  color: rgba(248, 250, 252, 0.9);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.btn--json-export svg,
+.btn--wiki-export svg {
+  width: 14px;
+  height: 14px;
+}
+
+.btn--json-export:hover,
+.btn--wiki-export:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.85);
 }
 
 .quest-detail__tracking {
@@ -5298,6 +5876,10 @@ onUnmounted(() => {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
   border: 1px solid transparent;
   user-select: none;
+}
+
+.quest-tracker--alt-mode .quest-node {
+  cursor: copy;
 }
 
 .quest-node--selected {
@@ -5992,6 +6574,21 @@ onUnmounted(() => {
   animation: questModalPop 0.3s ease forwards;
 }
 
+.quest-modal__content--wide {
+  width: min(720px, 95vw);
+}
+
+.quest-json-export {
+  max-height: 60vh;
+  overflow: auto;
+  background: rgba(2, 6, 23, 0.85);
+  color: #e2e8f0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
 .quest-character-modal {
   width: min(520px, 95vw);
 }
@@ -6404,6 +7001,17 @@ onUnmounted(() => {
   align-items: center;
   justify-self: end;
   width: 100%;
+}
+
+.quest-export-toolbar {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.quest-export-toolbar__buttons {
+  display: inline-flex;
+  gap: 0.5rem;
 }
 
 @media (max-width: 720px) {
