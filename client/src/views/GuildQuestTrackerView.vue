@@ -5508,8 +5508,8 @@ onUnmounted(() => {
 }
 
 .quest-detail__toolbar {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 1rem;
   width: 100%;
@@ -5661,8 +5661,8 @@ onUnmounted(() => {
 .quest-tabs {
   display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
-  justify-content: flex-start;
+  flex-wrap: nowrap;
+  justify-content: center;
 }
 
 .quest-tabs__button {
