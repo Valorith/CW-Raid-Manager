@@ -1033,8 +1033,8 @@
     @click.stop
   >
     <template v-if="contextMenu.type === 'canvas'">
-      <li @click="handleCanvasAddNode">Add step</li>
-      <li @click="handleOpenBlueprintSettings">Blueprint settings…</li>
+      <li v-if="activeTab === 'editor'" @click="handleCanvasAddNode">Add step</li>
+      <li v-if="activeTab === 'editor'" @click="handleOpenBlueprintSettings">Blueprint settings…</li>
       <li @click="handleResetViewFromMenu">Reset view</li>
     </template>
     <template v-else-if="contextMenu.type === 'editor-node'">
@@ -4450,7 +4450,10 @@ function positionContextMenu(event: MouseEvent, width = 200, height = 140) {
 }
 
 function openCanvasMenu(event: MouseEvent) {
-  if (activeTab.value !== 'editor' || !canEditBlueprint.value) {
+  const isEditorContext = activeTab.value === 'editor' && canEditBlueprint.value;
+  const isOverviewContext = activeTab.value === 'overview';
+  const isGuildContext = activeTab.value === 'guild' && isGuildView.value;
+  if (!isEditorContext && !isOverviewContext && !isGuildContext) {
     return;
   }
   if (suppressCanvasContextMenu.value) {
