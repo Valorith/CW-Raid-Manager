@@ -409,7 +409,7 @@
                 ]"
                 :style="nodeStyle(node, false, 'viewer')"
                 @click.stop="handleViewerCanvasNodeClick(node, $event)"
-                @contextmenu.prevent="openNodeMenu(node, $event)"
+                @contextmenu.prevent.stop="openNodeMenu(node, $event)"
                 :data-node-id="node.id"
               >
                 <header class="quest-node__header">
@@ -6400,6 +6400,7 @@ onUnmounted(() => {
   stroke-width: 2;
   fill: none;
   transform-origin: 0 0;
+  z-index: 0;
 }
 
 .quest-canvas__links path {
@@ -6422,6 +6423,7 @@ onUnmounted(() => {
   pointer-events: stroke;
   cursor: pointer;
   transition: stroke-width 0.15s ease;
+  z-index: 0;
 }
 
 .quest-link-hit:hover {
