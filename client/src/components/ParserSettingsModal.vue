@@ -90,7 +90,7 @@
 
                 <div v-else class="pattern-list">
                   <article
-                    v-for="(pattern, index) in editable.patterns"
+                    v-for="({ pattern, index }) in paginatedPatterns"
                     :key="pattern.id"
                     class="pattern-card"
                     :class="{
@@ -233,6 +233,27 @@
                       </div>
                     </transition>
                   </article>
+                  <div v-if="editable.patterns.length > patternsPerPage" class="pattern-pagination">
+                    <button
+                      type="button"
+                      class="btn btn--outline btn--small"
+                      :disabled="patternPage === 1"
+                      @click="goToPreviousPatternPage"
+                    >
+                      Previous
+                    </button>
+                    <p class="pattern-pagination__summary">
+                      Showing {{ paginatedRange.start }}–{{ paginatedRange.end }} of {{ editable.patterns.length }}
+                    </p>
+                    <button
+                      type="button"
+                      class="btn btn--outline btn--small"
+                      :disabled="patternPage === totalPatternPages"
+                      @click="goToNextPatternPage"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>
@@ -335,6 +356,8 @@ const editable = reactive<{ patterns: EditablePattern[]; emoji: string }>({
   emoji: '💎'
 });
 const sampleLogLine = ref('');
+const patternPage = ref(1);
+const patternsPerPage = 6;
 const activePatternIndex = ref<number | null>(null);
 const collapsedPatternIds = ref<Record<string, boolean>>({});
 const patternTextareas = ref<Record<string, HTMLTextAreaElement>>({});
@@ -343,15 +366,49 @@ const loadingSettings = ref(false);
 const updatingSettings = ref(false);
 const loadError = ref<string | null>(null);
 const formErrors = ref<string[]>([]);
+const patternSampleCache = new Map<
+  string,
+  { sample: string; signature: string; result: PatternSampleResult }
+>();
+
+const totalPatternPages = computed(() => {
+  if (editable.patterns.length === 0) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(editable.patterns.length / patternsPerPage));
+});
+
+const paginatedPatterns = computed(() => {
+  if (editable.patterns.length === 0) {
+    return [];
+  }
+  const start = (patternPage.value - 1) * patternsPerPage;
+  return editable.patterns.slice(start, start + patternsPerPage).map((pattern, index) => ({
+    pattern,
+    index: start + index
+  }));
+});
+
+const paginatedRange = computed(() => {
+  if (editable.patterns.length === 0) {
+    return { start: 0, end: 0 };
+  }
+  const start = (patternPage.value - 1) * patternsPerPage + 1;
+  const end = Math.min(start + patternsPerPage - 1, editable.patterns.length);
+  return { start, end };
+});
 
 watch(
   () => props.visible,
   (visible) => {
     if (visible) {
+      patternPage.value = 1;
+      patternSampleCache.clear();
       void loadSettings();
     } else {
       sampleLogLine.value = '';
       formErrors.value = [];
+      patternSampleCache.clear();
     }
   }
 );
@@ -363,6 +420,36 @@ watch(
       void loadSettings();
     }
   }
+);
+
+watch(
+  () => editable.patterns.length,
+  (length) => {
+    const maxPage = Math.max(1, Math.ceil(Math.max(length, 1) / patternsPerPage));
+    if (patternPage.value > maxPage) {
+      patternPage.value = maxPage;
+    }
+  }
+);
+
+watch(
+  patternPage,
+  () => {
+    if (editable.patterns.length === 0) {
+      activePatternIndex.value = null;
+      return;
+    }
+    const start = (patternPage.value - 1) * patternsPerPage;
+    const end = Math.min(start + patternsPerPage - 1, editable.patterns.length - 1);
+    if (
+      activePatternIndex.value == null ||
+      activePatternIndex.value < start ||
+      activePatternIndex.value > end
+    ) {
+      activePatternIndex.value = start;
+    }
+  },
+  { immediate: true }
 );
 
 async function loadSettings() {
@@ -387,6 +474,7 @@ function applySettings(settings: GuildLootParserSettings) {
   editable.patterns = preparedPatterns;
   activePatternIndex.value = preparedPatterns.length ? 0 : null;
   editable.emoji = settings.emoji ?? '💎';
+  patternPage.value = 1;
   collapsedPatternIds.value = preparedPatterns.reduce<Record<string, boolean>>((acc, pattern) => {
     acc[pattern.id] = false;
     return acc;
@@ -397,6 +485,7 @@ function applySettings(settings: GuildLootParserSettings) {
     return acc;
   }, {});
   formErrors.value = [];
+  patternSampleCache.clear();
 }
 
 function preparePatternsForEditing(patterns: GuildLootParserPatternSettings[]) {
@@ -506,6 +595,7 @@ function addPattern(initialPattern?: string) {
     methodInput: ''
   });
   activePatternIndex.value = editable.patterns.length - 1;
+  patternPage.value = Math.max(1, Math.ceil(editable.patterns.length / patternsPerPage));
   const newId = editable.patterns[activePatternIndex.value].id;
   collapsedPatternIds.value = {
     ...collapsedPatternIds.value,
@@ -530,16 +620,21 @@ function removePattern(id: string) {
   }
 
   // Capture state before mutating
-  const removed = editable.patterns.splice(index, 1)[0];
+  editable.patterns.splice(index, 1);
   delete collapsedPatternIds.value[id];
   delete patternCaretPositions.value[id];
   delete patternTextareas.value[id];
+  patternSampleCache.delete(id);
 
   if (editable.patterns.length === 0) {
     activePatternIndex.value = null;
   } else {
     const nextIndex = Math.min(index, editable.patterns.length - 1);
     activePatternIndex.value = nextIndex >= 0 ? nextIndex : 0;
+  }
+  const maxPage = Math.max(1, Math.ceil(Math.max(editable.patterns.length, 1) / patternsPerPage));
+  if (patternPage.value > maxPage) {
+    patternPage.value = maxPage;
   }
 }
 
@@ -648,22 +743,16 @@ function normalizeCapturedItem(itemRaw: string | undefined, itemId: number | nul
   return { itemName: trimmed, itemId };
 }
 
-const cachedPatternSampleResults = computed(() => {
-  const sample = sampleLogLine.value.trim();
-  const results = new Map<string, PatternSampleResult>();
-  editable.patterns.forEach((pattern) => {
-    const result = sample ? evaluatePatternSample(sample, pattern) : defaultSamplePromptResult();
-    results.set(pattern.id, result);
-  });
-  return results;
-});
-
 function patternSampleResult(pattern: EditablePattern): PatternSampleResult {
-  const cached = cachedPatternSampleResults.value.get(pattern.id);
-  if (cached) {
-    return cached;
+  const sample = sampleLogLine.value.trim();
+  const signature = buildPatternSignature(pattern);
+  const cached = patternSampleCache.get(pattern.id);
+  if (cached && cached.sample === sample && cached.signature === signature) {
+    return cached.result;
   }
-  return sampleLogLine.value.trim() ? noMatchResult() : defaultSamplePromptResult();
+  const result = sample ? evaluatePatternSample(sample, pattern) : defaultSamplePromptResult();
+  patternSampleCache.set(pattern.id, { sample, signature, result });
+  return result;
 }
 
 function evaluatePatternSample(sample: string, pattern: EditablePattern): PatternSampleResult {
@@ -729,6 +818,21 @@ function evaluatePatternSample(sample: string, pattern: EditablePattern): Patter
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function buildPatternSignature(pattern: EditablePattern) {
+  const ignored = Array.isArray(pattern.ignoredMethods)
+    ? pattern.ignoredMethods.map((method) => method.trim()).join('|')
+    : '';
+  return `${pattern.pattern ?? ''}__${ignored}`;
+}
+
+function goToPreviousPatternPage() {
+  patternPage.value = Math.max(1, patternPage.value - 1);
+}
+
+function goToNextPatternPage() {
+  patternPage.value = Math.min(totalPatternPages.value, patternPage.value + 1);
 }
 
 function defaultSamplePromptResult(): PatternSampleResult {
@@ -1162,6 +1266,20 @@ function updateCaretPosition(id: string) {
   flex-direction: column;
   gap: 0.25rem;
   font-size: 0.85rem;
+}
+
+.pattern-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.pattern-pagination__summary {
+  font-size: 0.85rem;
+  color: #94a3b8;
 }
 
 .modal__footer {
