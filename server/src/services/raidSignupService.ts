@@ -162,7 +162,6 @@ export async function syncRaidSignupsWithAttendance(raidId: string): Promise<voi
   });
 
   if (attendanceRecords.length === 0) {
-    await prisma.raidSignup.deleteMany({ where: { raidId } });
     return;
   }
 
@@ -219,22 +218,13 @@ export async function syncRaidSignupsWithAttendance(raidId: string): Promise<voi
   });
 
   if (characterMap.size === 0) {
-    await prisma.raidSignup.deleteMany({ where: { raidId } });
     return;
   }
 
   const characters = Array.from(characterMap.values());
 
-  await prisma.$transaction([
-    prisma.raidSignup.deleteMany({
-      where: {
-        raidId,
-        characterId: {
-          notIn: characters.map((character) => character.id)
-        }
-      }
-    }),
-    ...characters.map((character) =>
+  await prisma.$transaction(
+    characters.map((character) =>
       prisma.raidSignup.upsert({
         where: {
           raidId_characterId: {
@@ -260,7 +250,7 @@ export async function syncRaidSignupsWithAttendance(raidId: string): Promise<voi
         }
       })
     )
-  ]);
+  );
 }
 
 export async function replaceRaidSignupsForUser(
