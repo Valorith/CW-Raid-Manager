@@ -251,7 +251,7 @@
 
 <script setup lang="ts">
 import { isAxiosError } from 'axios';
-import { nextTick, reactive, ref, watch } from 'vue';
+import { computed, nextTick, reactive, ref, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 
 import type { GuildLootParserPatternSettings, GuildLootParserSettings } from '../services/api';
@@ -270,6 +270,16 @@ const emit = defineEmits<{
 
 type EditablePattern = GuildLootParserPatternSettings & { methodInput: string };
 type TemplateRefHandler = (el: Element | ComponentPublicInstance | null) => void;
+interface PatternSampleResult {
+  matches: boolean;
+  reason?: string;
+  ignored?: boolean;
+  looter?: string;
+  item?: string;
+  itemId?: number | null;
+  method?: string;
+  error?: string;
+}
 
 const placeholderOptions = [
   {
@@ -638,11 +648,25 @@ function normalizeCapturedItem(itemRaw: string | undefined, itemId: number | nul
   return { itemName: trimmed, itemId };
 }
 
-function patternSampleResult(pattern: EditablePattern) {
+const cachedPatternSampleResults = computed(() => {
   const sample = sampleLogLine.value.trim();
-  if (!sample) {
-    return { matches: false, reason: 'Enter a sample log line above.' };
+  const results = new Map<string, PatternSampleResult>();
+  editable.patterns.forEach((pattern) => {
+    const result = sample ? evaluatePatternSample(sample, pattern) : defaultSamplePromptResult();
+    results.set(pattern.id, result);
+  });
+  return results;
+});
+
+function patternSampleResult(pattern: EditablePattern): PatternSampleResult {
+  const cached = cachedPatternSampleResults.value.get(pattern.id);
+  if (cached) {
+    return cached;
   }
+  return sampleLogLine.value.trim() ? noMatchResult() : defaultSamplePromptResult();
+}
+
+function evaluatePatternSample(sample: string, pattern: EditablePattern): PatternSampleResult {
   const compiled = convertPlaceholdersToRegex(pattern.pattern);
   if (!compiled.trim()) {
     return { matches: false, reason: 'Add placeholders to build a valid phrase.' };
@@ -651,7 +675,7 @@ function patternSampleResult(pattern: EditablePattern) {
     const regex = new RegExp(compiled, 'i');
     const match = sample.match(regex);
     if (!match) {
-      return { matches: false, reason: 'No match for sample.' };
+      return noMatchResult();
     }
 
     const looter = match.groups?.looter ?? match[2];
@@ -705,6 +729,14 @@ function patternSampleResult(pattern: EditablePattern) {
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function defaultSamplePromptResult(): PatternSampleResult {
+  return { matches: false, reason: 'Enter a sample log line above.' };
+}
+
+function noMatchResult(): PatternSampleResult {
+  return { matches: false, reason: 'No match for sample.' };
 }
 
 function togglePatternCollapse(id: string) {
