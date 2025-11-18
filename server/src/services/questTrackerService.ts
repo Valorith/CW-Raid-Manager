@@ -294,16 +294,15 @@ async function loadBlueprintGraph(
   blueprintId: string,
   tx: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  const [nodes, links] = await Promise.all([
-    tx.questNode.findMany({
-      where: { blueprintId },
-      select: { id: true, metadata: true }
-    }),
-    tx.questNodeLink.findMany({
-      where: { blueprintId },
-      select: { parentNodeId: true, childNodeId: true, conditions: true }
-    })
-  ]);
+  const nodes = await tx.questNode.findMany({
+    where: { blueprintId },
+    select: { id: true, metadata: true }
+  });
+
+  const links = await tx.questNodeLink.findMany({
+    where: { blueprintId },
+    select: { parentNodeId: true, childNodeId: true, conditions: true }
+  });
 
   const nodeMeta = new Map(
     nodes.map((node) => {

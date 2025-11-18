@@ -638,13 +638,6 @@
                       {{ displayNodeType(node.nodeType, node.isGroup) }}
                     </span>
                     <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional">Optional</span>
-                  <img
-                    v-if="isNodeFinal(node.id)"
-                    class="quest-node__icon quest-node__icon--final"
-                    src="/icons/checkered-flag.svg"
-                    alt="Final step"
-                    title="End of Quest"
-                  />
                   <span class="quest-node__handle" title="Drag to move">⇲</span>
                 </header>
                   <h3>{{ node.title }}</h3>
@@ -652,6 +645,24 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
+                <p v-if="nodeLinkDisplay(node.id, 'previous').length" class="quest-node__relations">
+                  <span class="quest-node__relations-label">Requires</span>
+                  <span class="quest-node__relations-list">{{ nodeLinkDisplay(node.id, 'previous').join(', ') }}</span>
+                </p>
+                <p
+                  v-if="nodeLinkDisplay(node.id, 'next').length"
+                  class="quest-node__relations quest-node__relations--next"
+                >
+                  <span class="quest-node__relations-label">Unlocks</span>
+                  <span class="quest-node__relations-list">{{ nodeLinkDisplay(node.id, 'next').join(', ') }}</span>
+                </p>
+                <img
+                  v-if="isNodeFinal(node.id)"
+                  class="quest-node__flag-icon quest-node__flag-icon--inline"
+                  src="/icons/checkered-flag.svg"
+                  alt="Final step"
+                  title="Final objective"
+                />
                 <div v-if="node.isGroup" class="quest-node__group-tally">
                   {{ formatGroupProgress(node.id, undefined, 'editor') }}
                 </div>
@@ -705,6 +716,98 @@
         <input type="checkbox" v-model="selectedNode.isOptional" @change="markDirty()" />
         <span>Optional step (does not impact quest completion)</span>
       </label>
+      <div class="quest-link-field">
+        <div class="quest-link-field__header">
+          <label class="form-label">Previous quests</label>
+          <p class="quest-link-field__hint">
+            Link quests that must finish before this objective becomes available.
+          </p>
+        </div>
+        <div class="quest-link-selector">
+          <select v-model="blueprintLinkSelections.previous" class="input">
+            <option value="">Select blueprint…</option>
+            <option
+              v-for="option in blueprintLinkOptions"
+              :key="`previous-option-${option.id}`"
+              :value="option.id"
+              :disabled="selectedNodeLinkEntries.previous.some((entry) => entry.id === option.id)"
+            >
+              {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
+            </option>
+          </select>
+          <button
+            class="btn btn--small"
+            type="button"
+            :disabled="!canAddBlueprintLink('previous')"
+            @click="addBlueprintLink('previous')"
+          >
+            Link
+          </button>
+        </div>
+        <p v-if="!selectedNodeLinkEntries.previous.length" class="muted x-small">
+          No previous quests linked.
+        </p>
+        <ul v-else class="quest-link-chip-list">
+          <li v-for="link in selectedNodeLinkEntries.previous" :key="`prev-link-${link.id}`" class="quest-link-chip">
+            <span class="quest-link-chip__title">{{ link.title }}</span>
+            <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
+            <button
+              class="quest-link-chip__remove"
+              type="button"
+              @click="removeBlueprintLink('previous', link.id)"
+              aria-label="Remove previous quest link"
+            >
+              ×
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div v-if="readNodeFlag(selectedNode, 'isFinal')" class="quest-link-field">
+        <div class="quest-link-field__header">
+          <label class="form-label">Next quests</label>
+          <p class="quest-link-field__hint">
+            Add quests that unlock when this objective is completed.
+          </p>
+        </div>
+        <div class="quest-link-selector">
+          <select v-model="blueprintLinkSelections.next" class="input">
+            <option value="">Select blueprint…</option>
+            <option
+              v-for="option in blueprintLinkOptions"
+              :key="`next-option-${option.id}`"
+              :value="option.id"
+              :disabled="selectedNodeLinkEntries.next.some((entry) => entry.id === option.id)"
+            >
+              {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
+            </option>
+          </select>
+          <button
+            class="btn btn--small"
+            type="button"
+            :disabled="!canAddBlueprintLink('next')"
+            @click="addBlueprintLink('next')"
+          >
+            Link
+          </button>
+        </div>
+        <p v-if="!selectedNodeLinkEntries.next.length" class="muted x-small">
+          No follow-up quests linked.
+        </p>
+        <ul v-else class="quest-link-chip-list">
+          <li v-for="link in selectedNodeLinkEntries.next" :key="`next-link-${link.id}`" class="quest-link-chip">
+            <span class="quest-link-chip__title">{{ link.title }}</span>
+            <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
+            <button
+              class="quest-link-chip__remove"
+              type="button"
+              @click="removeBlueprintLink('next', link.id)"
+              aria-label="Remove next quest link"
+            >
+              ×
+            </button>
+          </li>
+        </ul>
+      </div>
       <label class="form-label">Type</label>
               <template v-if="selectedNode.isGroup">
                 <div class="quest-node__group-type">Group</div>
@@ -1228,6 +1331,11 @@ const editorOffset = reactive({ x: 0, y: 0 });
 const isPanning = ref(false);
 const panStart = reactive({ x: 0, y: 0, originX: 0, originY: 0 });
 const DEFAULT_ACCENT_COLOR = '#8b5cf6';
+const BLUEPRINT_LINK_KEYS = {
+  previous: 'previousBlueprintIds',
+  next: 'nextBlueprintIds'
+} as const;
+type BlueprintLinkDirection = keyof typeof BLUEPRINT_LINK_KEYS;
 const COMPLETED_ACCENT_COLOR = '#16a34a';
 const DEFAULT_LINK_SHADOW = 'rgba(56, 189, 248, 0.35)';
 const COMPLETED_LINK_SHADOW = 'rgba(34, 197, 94, 0.45)';
@@ -1346,6 +1454,10 @@ const blueprintMetaForm = reactive({
   title: '',
   summary: '',
   isArchived: false
+});
+const blueprintLinkSelections = reactive<{ previous: string; next: string }>({
+  previous: '',
+  next: ''
 });
 
 const permissions = computed(() => detail.value?.permissions ?? summary.value?.permissions ?? null);
@@ -1682,9 +1794,66 @@ const activeLinks = computed(() =>
   activeTab.value === 'editor' ? editableLinks.value : detail.value?.links ?? []
 );
 
+const blueprintOptionIndex = computed(() => {
+  const map = new Map<string, QuestBlueprintSummaryLite>();
+  summary.value?.blueprints.forEach((blueprint) => {
+    map.set(blueprint.id, blueprint);
+  });
+  return map;
+});
+
+const blueprintLinkOptions = computed(() => {
+  const currentId = selectedBlueprintId.value;
+  return (summary.value?.blueprints ?? [])
+    .filter((blueprint) => blueprint.id !== currentId)
+    .map((blueprint) => ({
+      id: blueprint.id,
+      title: blueprint.title,
+      isArchived: blueprint.isArchived
+    }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+});
+
 const selectedNode = computed<EditableNode | null>(() =>
   editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
 );
+
+const selectedNodeLinkEntries = computed(() => {
+  const node = selectedNode.value;
+  if (!node) {
+    return {
+      previous: [] as Array<{ id: string; title: string; isArchived: boolean }>,
+      next: [] as Array<{ id: string; title: string; isArchived: boolean }>
+    };
+  }
+  const buildEntries = (direction: BlueprintLinkDirection) => {
+    const ids = readNodeLinkIds(node, direction);
+    return ids.map((id) => ({
+      id,
+      title: blueprintOptionIndex.value.get(id)?.title ?? 'Unknown blueprint',
+      isArchived: blueprintOptionIndex.value.get(id)?.isArchived ?? false
+    }));
+  };
+  return {
+    previous: buildEntries('previous'),
+    next: buildEntries('next')
+  };
+});
+
+const nodeBlueprintLinkDisplay = computed(() => {
+  const display = new Map<string, { previous: string[]; next: string[] }>();
+  const nodes = renderedNodes.value;
+  const labelMap = blueprintOptionIndex.value;
+  nodes.forEach((node) => {
+    display.set(node.id, {
+      previous: readNodeLinkIds(node, 'previous').map(
+        (id) => labelMap.get(id)?.title ?? 'Unknown blueprint'
+      ),
+      next: readNodeLinkIds(node, 'next').map((id) => labelMap.get(id)?.title ?? 'Unknown blueprint')
+    });
+  });
+  return display;
+});
 
 const editableNodeIndex = computed(() => {
   const map = new Map<string, EditableNode>();
@@ -1818,8 +1987,104 @@ function cloneRecord<T extends Record<string, any>>(value: T | undefined | null)
   }
 }
 
+function normalizeBlueprintLinkIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function readNodeLinkIds(
+  node: QuestNodeViewModel | EditableNode | null | undefined,
+  direction: BlueprintLinkDirection
+): string[] {
+  if (!node) {
+    return [];
+  }
+  const metadata = (node.metadata ?? {}) as Record<string, unknown>;
+  const raw = metadata[BLUEPRINT_LINK_KEYS[direction]];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return normalizeBlueprintLinkIds(raw);
+}
+
+function ensureBlueprintLinkMetadata(node: EditableNode) {
+  const metadata = node.metadata ?? {};
+  metadata.previousBlueprintIds = normalizeBlueprintLinkIds(metadata.previousBlueprintIds);
+  metadata.nextBlueprintIds = normalizeBlueprintLinkIds(metadata.nextBlueprintIds);
+  node.metadata = metadata;
+}
+
+function getNodeLinkIds(node: EditableNode, direction: BlueprintLinkDirection): string[] {
+  return readNodeLinkIds(node, direction);
+}
+
+function nodeLinkDisplay(nodeId: string, direction: BlueprintLinkDirection): string[] {
+  return nodeBlueprintLinkDisplay.value.get(nodeId)?.[direction] ?? [];
+}
+
+function canAddBlueprintLink(direction: BlueprintLinkDirection) {
+  const selection = blueprintLinkSelections[direction];
+  if (!selection) {
+    return false;
+  }
+  const node = selectedNode.value;
+  if (!node) {
+    return false;
+  }
+  const ids = getNodeLinkIds(node, direction);
+  return !ids.includes(selection);
+}
+
+function addBlueprintLink(direction: BlueprintLinkDirection) {
+  const selection = blueprintLinkSelections[direction];
+  const node = selectedNode.value;
+  if (!selection || !node) {
+    return;
+  }
+  const ids = getNodeLinkIds(node, direction);
+  if (ids.includes(selection)) {
+    blueprintLinkSelections[direction] = '';
+    return;
+  }
+  node.metadata[BLUEPRINT_LINK_KEYS[direction]] = [...ids, selection];
+  blueprintLinkSelections[direction] = '';
+  markDirty();
+}
+
+function removeBlueprintLink(direction: BlueprintLinkDirection, blueprintId: string) {
+  const node = selectedNode.value;
+  if (!node) {
+    return;
+  }
+  const ids = getNodeLinkIds(node, direction);
+  const nextIds = ids.filter((id) => id !== blueprintId);
+  if (nextIds.length === ids.length) {
+    return;
+  }
+  node.metadata[BLUEPRINT_LINK_KEYS[direction]] = nextIds;
+  markDirty();
+}
+
 function buildEditableNode(node: QuestNodeViewModel): EditableNode {
-  const metadata = { ...(node.metadata ?? {}), accentColor: ensureAccentColor((node.metadata as any)?.accentColor) };
+  const metadata = { ...(node.metadata ?? {}) };
+  metadata.accentColor = ensureAccentColor((metadata.accentColor as string | undefined) ?? undefined);
+  metadata.previousBlueprintIds = normalizeBlueprintLinkIds(metadata.previousBlueprintIds);
+  metadata.nextBlueprintIds = normalizeBlueprintLinkIds(metadata.nextBlueprintIds);
   const editable = {
     ...node,
     position: { ...node.position },
@@ -4755,7 +5020,11 @@ function addNode(parentId?: string | null) {
     },
     sortOrder: editableNodes.value.length,
     requirements: {},
-    metadata: { accentColor: DEFAULT_ACCENT_COLOR },
+    metadata: {
+      accentColor: DEFAULT_ACCENT_COLOR,
+      previousBlueprintIds: [],
+      nextBlueprintIds: []
+    },
     isGroup: false,
     isOptional: false
   };
@@ -4776,6 +5045,8 @@ function duplicateNode(nodeId: string) {
   const id = crypto.randomUUID?.() ?? `node_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   const metadata = cloneRecord(source.metadata ?? {});
   metadata.accentColor = ensureAccentColor(metadata.accentColor as string | undefined);
+  metadata.previousBlueprintIds = normalizeBlueprintLinkIds(metadata.previousBlueprintIds);
+  metadata.nextBlueprintIds = normalizeBlueprintLinkIds(metadata.nextBlueprintIds);
   const requirements = cloneRecord(source.requirements ?? {});
   const duplicate: EditableNode = {
     ...source,
@@ -5226,12 +5497,7 @@ function resetEditorState() {
   if (!detail.value) {
     return;
   }
-  editableNodes.value = detail.value.nodes.map((node) => ({
-    ...node,
-    position: { ...node.position },
-    requirements: { ...node.requirements },
-    metadata: { ...node.metadata }
-  })) as EditableNode[];
+  editableNodes.value = detail.value.nodes.map((node) => buildEditableNode(node)) as EditableNode[];
   editableLinks.value = detail.value.links.map((link) => ({ ...link }));
   dirtyGraph.value = false;
   setSelectedNodes(editableNodes.value[0] ? [editableNodes.value[0].id] : []);
@@ -5595,10 +5861,22 @@ watch(
 );
 
 watch(selectedNodeId, (nodeId) => {
+  blueprintLinkSelections.previous = '';
+  blueprintLinkSelections.next = '';
   if (!nodeId) {
     showStepSettings.value = false;
   }
 });
+
+watch(
+  selectedNode,
+  (node) => {
+    if (node) {
+      ensureBlueprintLinkMetadata(node);
+    }
+  },
+  { immediate: true }
+);
 
 onMounted(() => {
   loadSummary(true).catch((error) => console.error('Failed to load quest tracker', error));
@@ -6565,10 +6843,10 @@ onUnmounted(() => {
 }
 
 .quest-node--group {
-  width: 190px;
-  height: 190px;
+  width: 260px;
+  height: 260px;
   border-radius: 50%;
-  padding: 1.25rem;
+  padding: 1.25rem 1.35rem;
   border: none;
   display: flex;
   flex-direction: column;
@@ -6587,10 +6865,10 @@ onUnmounted(() => {
   inset: -8px;
   border-radius: 50%;
   background: conic-gradient(
-      var(--accent, rgba(56, 189, 248, 0.9)) calc(var(--group-progress, 0) * 1turn),
-      rgba(51, 65, 85, 0.35) 0
+      var(--accent, rgba(56, 189, 248, 0.95)) calc(var(--group-progress, 0) * 1turn),
+      rgba(30, 41, 59, 0.45) 0
     );
-  mask: radial-gradient(farthest-side, transparent calc(100% - 12px), #000 calc(100% - 12px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 14px), #000 calc(100% - 14px));
   z-index: -2;
   transition: background 0.3s ease;
 }
@@ -6598,29 +6876,32 @@ onUnmounted(() => {
 .quest-node--group::after {
   content: '';
   position: absolute;
-  inset: 4px;
+  inset: 6px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 15px 35px rgba(2, 6, 23, 0.65);
+  background: rgba(15, 23, 42, 0.97);
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.6);
   z-index: -1;
 }
 
 .quest-node--group.quest-node--completed::before {
   background: conic-gradient(
-      var(--accent, rgba(34, 197, 94, 0.9)) calc(var(--group-progress, 0) * 1turn),
-      rgba(30, 58, 30, 0.35) 0
+      var(--accent, rgba(34, 197, 94, 0.95)) calc(var(--group-progress, 0) * 1turn),
+      rgba(15, 118, 110, 0.35) 0
     );
 }
 
 .quest-node--group .quest-node__header {
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.2rem;
+  margin-bottom: 0.25rem;
+  text-align: center;
+  width: 100%;
 }
 
 .quest-node--group .quest-node__status {
   font-size: 0.72rem;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .quest-node--group h3 {
@@ -6632,6 +6913,32 @@ onUnmounted(() => {
 .quest-node--group .quest-node__zone {
   text-align: center;
   width: 100%;
+}
+
+.quest-node--group .quest-node__relations {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.65rem;
+  background: rgba(30, 41, 59, 0.45);
+  width: 100%;
+}
+
+.quest-node--group .quest-node__relations + .quest-node__relations {
+  margin-top: 0.25rem;
+}
+
+.quest-node--group .quest-node__relations-label {
+  letter-spacing: 0.09em;
+  color: rgba(148, 163, 184, 0.95);
+  font-size: 0.65rem;
+}
+
+.quest-node--group .quest-node__relations-list {
+  color: #e2e8f0;
+  font-weight: 600;
+  font-size: 0.8rem;
 }
 
 .quest-node--group .quest-node__handles {
@@ -6647,6 +6954,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.5rem;
+  gap: 0.25rem;
 }
 
 .quest-node__handles {
@@ -6723,6 +7031,13 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
+.quest-node--group .quest-node__handle {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
 .quest-node__zone {
   font-size: 0.8rem;
   color: rgba(226, 232, 240, 0.8);
@@ -6743,6 +7058,27 @@ onUnmounted(() => {
   margin-top: 0.15rem;
 }
 
+.quest-node__relations {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.85);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.quest-node__relations-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.quest-node__relations-list {
+  flex: 1;
+}
+
 .quest-node__group-tally {
   margin-top: auto;
   font-size: 1.1rem;
@@ -6757,6 +7093,87 @@ onUnmounted(() => {
   background: rgba(20, 184, 166, 0.15);
   color: #2dd4bf;
   font-weight: 600;
+}
+
+.quest-link-field {
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border-radius: 0.85rem;
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.quest-link-field__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.quest-link-field__hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.quest-link-selector {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.quest-link-selector select {
+  flex: 1;
+  min-width: 0;
+}
+
+.quest-link-selector .btn {
+  flex: 0 0 auto;
+}
+
+.quest-link-chip-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.quest-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.65);
+}
+
+.quest-link-chip__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.quest-link-chip__meta {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+.quest-link-chip__remove {
+  border: none;
+  background: transparent;
+  color: #f87171;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.quest-link-chip__remove:hover {
+  color: #fecaca;
 }
 
 .quest-step-header {
@@ -6777,6 +7194,7 @@ onUnmounted(() => {
 .quest-node__status {
   font-size: 0.7rem;
   text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .quest-node__badge {
@@ -6799,6 +7217,28 @@ onUnmounted(() => {
   color: #fed7aa;
 }
 
+.quest-node--group .quest-node__badge {
+  margin: 0;
+}
+
+.quest-node__type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.quest-node--group .quest-node__type {
+  width: auto;
+  max-width: 80%;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.55rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quest-node--completed .quest-node__status {
   color: #d1fae5;
   background: rgba(15, 118, 110, 0.35);
@@ -6806,16 +7246,23 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 
-.quest-node__icon {
-  margin-right: auto;
-  margin-left: 0.5rem;
-  width: 48px;
-  height: 48px;
-  display: inline-block;
+.quest-node__flag-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  margin: 0.35rem 0;
+  display: block;
 }
 
-.quest-node__icon--final {
-  object-fit: contain;
+.quest-node__flag-icon--inline {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.quest-node--group .quest-node__flag-icon {
+  width: 28px;
+  height: 28px;
+  margin-top: 0.25rem;
 }
 
 .status-pill {
