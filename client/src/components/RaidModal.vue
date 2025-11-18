@@ -100,6 +100,7 @@ const props = defineProps<{
   defaultStartTime?: string | null;
   defaultEndTime?: string | null;
   defaultDiscordVoiceUrl?: string | null;
+  initialStartDateTime?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -109,7 +110,7 @@ const emit = defineEmits<{
 
 const form = reactive({
   name: '',
-  startTime: buildDateInput(props.defaultStartTime),
+  startTime: buildDateInput(props.defaultStartTime, props.initialStartDateTime),
   targetZones: '',
   targetBosses: '',
   notes: '',
@@ -218,7 +219,10 @@ function splitAndFilter(value: string) {
     .filter(Boolean);
 }
 
-function buildDateInput(defaultTime?: string | null) {
+function buildDateInput(defaultTime?: string | null, preset?: string | null) {
+  if (preset) {
+    return preset;
+  }
   const date = new Date();
   if (defaultTime && /^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultTime)) {
     const [hours, minutes] = defaultTime.split(':').map(Number);
