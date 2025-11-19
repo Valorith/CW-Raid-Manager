@@ -247,7 +247,7 @@ export interface QuestTrackerSummaryResponse {
 
 export type QuestBlueprintVisibility = PrismaQuestBlueprintVisibility;
 
-interface JsonRecord extends Record<string, Prisma.JsonValue> {}
+interface JsonRecord extends Record<string, Prisma.JsonValue> { }
 
 const QUEST_ASSIGNMENT_USER_SELECT = {
   id: true,
@@ -318,6 +318,7 @@ async function loadBlueprintGraph(
     })
   );
   const childMap = new Map<string, string[]>();
+  const parentMap = new Map<string, string[]>();
   const nextStepParentMap = new Map<string, string[]>();
   const nextStepChildMap = new Map<string, string[]>();
   for (const link of links) {
@@ -334,9 +335,13 @@ async function loadBlueprintGraph(
     const list = childMap.get(link.parentNodeId) ?? [];
     list.push(link.childNodeId);
     childMap.set(link.parentNodeId, list);
+
+    const parents = parentMap.get(link.childNodeId) ?? [];
+    parents.push(link.parentNodeId);
+    parentMap.set(link.childNodeId, parents);
   }
 
-  return { nodeMeta, childMap, nextStepParentMap, nextStepChildMap };
+  return { nodeMeta, childMap, parentMap, nextStepParentMap, nextStepChildMap };
 }
 
 function collectDescendantNodeIds(
@@ -621,10 +626,10 @@ function mapAssignment(
         : undefined,
     character: assignment.character
       ? {
-          id: assignment.character.id,
-          name: assignment.character.name,
-          class: assignment.character.class
-        }
+        id: assignment.character.id,
+        name: assignment.character.name,
+        class: assignment.character.class
+      }
       : null,
     progress: assignment.progress.map((record) => ({
       nodeId: record.nodeId,
@@ -797,11 +802,13 @@ export async function listGuildQuestTrackerSummary(options: {
       where: {
         blueprintId: { in: blueprintIds },
         userId: options.viewerUserId,
-        status: { in: [
-          QuestAssignmentStatus.ACTIVE,
-          QuestAssignmentStatus.PAUSED,
-          QuestAssignmentStatus.COMPLETED
-        ] }
+        status: {
+          in: [
+            QuestAssignmentStatus.ACTIVE,
+            QuestAssignmentStatus.PAUSED,
+            QuestAssignmentStatus.COMPLETED
+          ]
+        }
       },
       orderBy: [{ startedAt: 'desc' }],
       include: {
@@ -1147,11 +1154,13 @@ export async function getQuestBlueprintDetail(options: {
       where: {
         blueprintId: options.blueprintId,
         userId: options.viewerUserId,
-        status: { in: [
-          QuestAssignmentStatus.ACTIVE,
-          QuestAssignmentStatus.PAUSED,
-          QuestAssignmentStatus.COMPLETED
-        ] }
+        status: {
+          in: [
+            QuestAssignmentStatus.ACTIVE,
+            QuestAssignmentStatus.PAUSED,
+            QuestAssignmentStatus.COMPLETED
+          ]
+        }
       },
       orderBy: [{ startedAt: 'desc' }],
       include: {
@@ -1166,21 +1175,21 @@ export async function getQuestBlueprintDetail(options: {
     }),
     options.includeGuildAssignments
       ? prisma.questAssignment.findMany({
-          where: {
-            blueprintId: options.blueprintId,
-            status: { in: ACTIVE_ASSIGNMENT_STATUSES }
+        where: {
+          blueprintId: options.blueprintId,
+          status: { in: ACTIVE_ASSIGNMENT_STATUSES }
+        },
+        include: {
+          user: {
+            select: QUEST_ASSIGNMENT_USER_SELECT
           },
-          include: {
-            user: {
-              select: QUEST_ASSIGNMENT_USER_SELECT
-            },
-            progress: true,
-            character: {
-              select: CHARACTER_SUMMARY_FIELDS
-            }
-          },
-          orderBy: [{ startedAt: 'asc' }]
-        })
+          progress: true,
+          character: {
+            select: CHARACTER_SUMMARY_FIELDS
+          }
+        },
+        orderBy: [{ startedAt: 'asc' }]
+      })
       : Promise.resolve([])
   ]);
 
@@ -1236,8 +1245,8 @@ export async function getQuestBlueprintDetail(options: {
   );
   const guildAssignmentPayloads = options.includeGuildAssignments
     ? (guildAssignments as AssignmentWithProgress[]).map((assignment) =>
-        mapAssignment(assignment, { includeUser: true })
-      )
+      mapAssignment(assignment, { includeUser: true })
+    )
     : [];
 
   const blueprintSummary = mapBlueprintSummary(
@@ -1349,28 +1358,28 @@ export async function upsertQuestBlueprintGraph(options: {
     const newNodeIds: string[] = [];
 
     for (const node of options.nodes) {
-    const metadataInput = sanitizeJsonInput(node.metadata);
-    if (node.isGroup) {
-      metadataInput.isGroup = true;
-    } else if (metadataInput.isGroup) {
-      delete metadataInput.isGroup;
-    }
-    if (node.isOptional) {
-      metadataInput.isOptional = true;
-    } else if (metadataInput.isOptional) {
-      delete metadataInput.isOptional;
-    }
+      const metadataInput = sanitizeJsonInput(node.metadata);
+      if (node.isGroup) {
+        metadataInput.isGroup = true;
+      } else if (metadataInput.isGroup) {
+        delete metadataInput.isGroup;
+      }
+      if (node.isOptional) {
+        metadataInput.isOptional = true;
+      } else if (metadataInput.isOptional) {
+        delete metadataInput.isOptional;
+      }
 
-    const baseData = {
-      title: node.title,
-      description: node.description ?? null,
-      nodeType: node.nodeType,
-      positionX: Math.round(sanitizeNumeric(node.position.x, -10_000, 10_000)),
-      positionY: Math.round(sanitizeNumeric(node.position.y, -10_000, 10_000)),
-      sortOrder: node.sortOrder,
-      requirements: sanitizeJsonInput(node.requirements),
-      metadata: metadataInput
-    } satisfies Omit<Prisma.QuestNodeUncheckedCreateInput, 'blueprintId'>;
+      const baseData = {
+        title: node.title,
+        description: node.description ?? null,
+        nodeType: node.nodeType,
+        positionX: Math.round(sanitizeNumeric(node.position.x, -10_000, 10_000)),
+        positionY: Math.round(sanitizeNumeric(node.position.y, -10_000, 10_000)),
+        sortOrder: node.sortOrder,
+        requirements: sanitizeJsonInput(node.requirements),
+        metadata: metadataInput
+      } satisfies Omit<Prisma.QuestNodeUncheckedCreateInput, 'blueprintId'>;
 
       if (existingIds.has(node.id)) {
         const updateData: Prisma.QuestNodeUpdateInput = {
@@ -1665,7 +1674,7 @@ export async function applyAssignmentProgressUpdates(options: {
     }
 
     const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-    const { nodeMeta, childMap, nextStepParentMap, nextStepChildMap } = await loadBlueprintGraph(
+    const { nodeMeta, childMap, parentMap, nextStepParentMap, nextStepChildMap } = await loadBlueprintGraph(
       assignment.blueprintId,
       tx
     );
@@ -1802,7 +1811,8 @@ export async function applyAssignmentProgressUpdates(options: {
 
       if (!nodeIsOptional && !optionsInternal.suppressHierarchyPropagation) {
         const hierarchyStatus = resolveHierarchyStatus(update.status);
-        if (hierarchyStatus) {
+        // Only propagate COMPLETED status to parent group nodes, not NOT_STARTED
+        if (hierarchyStatus === QuestNodeProgressStatus.COMPLETED) {
           const parents = nextStepParentMap.get(update.nodeId) ?? [];
           parents.forEach((parentId) => queueHierarchyUpdate(parentId, hierarchyStatus));
         }
@@ -1827,6 +1837,22 @@ export async function applyAssignmentProgressUpdates(options: {
           queueStatusOverride(nodeId, QuestNodeProgressStatus.NOT_STARTED, groupNodeIds.has(nodeId));
         }
       }
+
+      const shouldCompleteUpstream =
+        !nodeIsOptional &&
+        update.status === QuestNodeProgressStatus.COMPLETED &&
+        previousStatus !== QuestNodeProgressStatus.COMPLETED;
+
+      if (shouldCompleteUpstream) {
+        const parents = parentMap.get(update.nodeId) ?? [];
+        for (const parentId of parents) {
+          const record = progressMap.get(parentId);
+          if (!record || record.isDisabled || record.status === QuestNodeProgressStatus.COMPLETED) {
+            continue;
+          }
+          queueStatusOverride(parentId, QuestNodeProgressStatus.COMPLETED, groupNodeIds.has(parentId));
+        }
+      }
     };
 
     for (const update of options.updates) {
@@ -1840,7 +1866,69 @@ export async function applyAssignmentProgressUpdates(options: {
       );
     }
 
+    // Track group node statuses before sync
+    const groupStatusBefore = new Map<string, QuestNodeProgressStatus>();
+    for (const groupNodeId of groupNodeIds) {
+      const record = progressMap.get(groupNodeId);
+      if (record) {
+        groupStatusBefore.set(groupNodeId, record.status);
+      }
+    }
+
     await syncGroupProgressForAssignment(assignment.id, assignment.blueprintId, tx);
+
+    // After sync, check if any group nodes changed from COMPLETED to not COMPLETED
+    // If so, reset their downstream nodes (excluding the group's own children)
+    const updatedProgress = await tx.questNodeProgress.findMany({
+      where: { assignmentId: assignment.id }
+    });
+    const updatedProgressMap = new Map(updatedProgress.map((record) => [record.nodeId, record]));
+
+    for (const groupNodeId of groupNodeIds) {
+      const beforeRecord = progressMap.get(groupNodeId);
+      const afterRecord = updatedProgressMap.get(groupNodeId);
+
+      // Only reset downstream if the group actually went from COMPLETED to not COMPLETED
+      if (beforeRecord &&
+        beforeRecord.status === QuestNodeProgressStatus.COMPLETED &&
+        afterRecord &&
+        afterRecord.status !== QuestNodeProgressStatus.COMPLETED) {
+
+        // Get all downstream nodes
+        const downstreamNodes = collectDownstreamNodeIds(
+          groupNodeId,
+          childMap,
+          nextStepChildMap,
+          downstreamCache
+        );
+
+        // Get children of this group (nodes within the group, not after it)
+        const childrenOfGroup = collectDescendantNodeIds(groupNodeId, childMap, descendantCache);
+
+        // Only reset nodes that are truly downstream (after the group), not children within the group
+        const trulyDownstream = downstreamNodes.filter(nodeId => !childrenOfGroup.includes(nodeId));
+
+        for (const nodeId of trulyDownstream) {
+          const record = updatedProgressMap.get(nodeId);
+          if (!record || record.isDisabled) {
+            continue;
+          }
+          await tx.questNodeProgress.update({
+            where: {
+              assignmentId_nodeId: {
+                assignmentId: assignment.id,
+                nodeId
+              }
+            },
+            data: {
+              status: QuestNodeProgressStatus.NOT_STARTED,
+              completedAt: null
+            }
+          });
+        }
+      }
+    }
+
     await refreshAssignmentSummary(assignment.id, assignment.blueprintId, tx);
 
     if (finalNodeIds.size) {
