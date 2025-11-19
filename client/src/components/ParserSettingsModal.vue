@@ -135,7 +135,7 @@
                             <label class="form__field">
                               <span>Loot Phrase</span>
                               <textarea
-                                :ref="setPatternTextareaRef(pattern.id)"
+                                :ref="(el) => setPatternTextareaRef(el, pattern.id)"
                                 v-model="pattern.pattern"
                                 rows="3"
                                 placeholder="{timestamp} {item} has been awarded to {looter} by the {method}."
@@ -290,7 +290,7 @@ const emit = defineEmits<{
 }>();
 
 type EditablePattern = GuildLootParserPatternSettings & { methodInput: string; _isRaw?: boolean };
-type TemplateRefHandler = (el: Element | ComponentPublicInstance | null) => void;
+
 interface PatternSampleResult {
   matches: boolean;
   reason?: string;
@@ -872,17 +872,15 @@ function togglePatternCollapse(id: string) {
   };
 }
 
-function setPatternTextareaRef(id: string): TemplateRefHandler {
-  return (el) => {
-    const textarea = el instanceof HTMLTextAreaElement ? el : null;
-    if (textarea) {
-      patternTextareas.value = { ...patternTextareas.value, [id]: textarea };
-      return;
+function setPatternTextareaRef(el: Element | ComponentPublicInstance | null, id: string) {
+  const textarea = el instanceof HTMLTextAreaElement ? el : null;
+  if (textarea) {
+    if (patternTextareas.value[id] !== textarea) {
+      patternTextareas.value[id] = textarea;
     }
-    const next = { ...patternTextareas.value };
-    delete next[id];
-    patternTextareas.value = next;
-  };
+  } else if (patternTextareas.value[id]) {
+    delete patternTextareas.value[id];
+  }
 }
 
 function handleTextareaFocus(index: number, id: string) {
