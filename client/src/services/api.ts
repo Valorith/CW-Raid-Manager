@@ -1603,6 +1603,10 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/quest-tracker/folders/${folderId}`);
   },
 
+  async deleteQuestBlueprint(guildId: string, blueprintId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`);
+  },
+
   async reorderQuestBlueprints(
     guildId: string,
     updates: Array<{ blueprintId: string; folderId?: string | null; sortOrder: number }>

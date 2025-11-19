@@ -443,6 +443,39 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
+                <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
+                  <span class="quest-node__relations-label">Requires</span>
+                  <span class="quest-node__relations-list">
+                    <button
+                      v-for="link in nodeLinkEntries(node.id, 'previous')"
+                      :key="`requires-${node.id}-${link.id}`"
+                      type="button"
+                      class="quest-node__relations-link"
+                      @click.stop="navigateToBlueprint(link.id)"
+                    >
+                      {{ link.title }}
+                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
+                    </button>
+                  </span>
+                </p>
+                <p
+                  v-if="nodeLinkEntries(node.id, 'next').length"
+                  class="quest-node__relations quest-node__relations--next"
+                >
+                  <span class="quest-node__relations-label">Unlocks</span>
+                  <span class="quest-node__relations-list">
+                    <button
+                      v-for="link in nodeLinkEntries(node.id, 'next')"
+                      :key="`unlocks-${node.id}-${link.id}`"
+                      type="button"
+                      class="quest-node__relations-link"
+                      @click.stop="navigateToBlueprint(link.id)"
+                    >
+                      {{ link.title }}
+                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
+                    </button>
+                  </span>
+                </p>
                 <div v-if="node.isGroup && canvasAssignment" class="quest-node__group-tally">
                   {{ formatGroupProgress(node.id, canvasAssignment?.progress, 'viewer') }}
                 </div>
@@ -645,16 +678,38 @@
                   Target / Item: {{ node.requirements.targetName }}
                 </p>
                 <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
-                <p v-if="nodeLinkDisplay(node.id, 'previous').length" class="quest-node__relations">
+                <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
                   <span class="quest-node__relations-label">Requires</span>
-                  <span class="quest-node__relations-list">{{ nodeLinkDisplay(node.id, 'previous').join(', ') }}</span>
+                  <span class="quest-node__relations-list">
+                    <button
+                      v-for="link in nodeLinkEntries(node.id, 'previous')"
+                      :key="`editor-requires-${node.id}-${link.id}`"
+                      type="button"
+                      class="quest-node__relations-link"
+                      @click.stop="navigateToBlueprint(link.id)"
+                    >
+                      {{ link.title }}
+                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
+                    </button>
+                  </span>
                 </p>
                 <p
-                  v-if="nodeLinkDisplay(node.id, 'next').length"
+                  v-if="nodeLinkEntries(node.id, 'next').length"
                   class="quest-node__relations quest-node__relations--next"
                 >
                   <span class="quest-node__relations-label">Unlocks</span>
-                  <span class="quest-node__relations-list">{{ nodeLinkDisplay(node.id, 'next').join(', ') }}</span>
+                  <span class="quest-node__relations-list">
+                    <button
+                      v-for="link in nodeLinkEntries(node.id, 'next')"
+                      :key="`editor-unlocks-${node.id}-${link.id}`"
+                      type="button"
+                      class="quest-node__relations-link"
+                      @click.stop="navigateToBlueprint(link.id)"
+                    >
+                      {{ link.title }}
+                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
+                    </button>
+                  </span>
                 </p>
                 <img
                   v-if="isNodeFinal(node.id)"
@@ -1234,7 +1289,16 @@
     :style="{ top: `${blueprintContextMenu.y}px`, left: `${blueprintContextMenu.x}px` }"
     @click.stop
   >
-    <li @click="handleRemoveBlueprintFromFolder">Remove from folder</li>
+    <li v-if="blueprintContextMenuBlueprint?.folderId" @click="handleRemoveBlueprintFromFolder">
+      Remove from folder
+    </li>
+    <li
+      class="danger"
+      :class="{ disabled: deletingBlueprintId === blueprintContextMenu.blueprintId }"
+      @click="handleDeleteBlueprint"
+    >
+      Delete blueprint
+    </li>
   </ul>
 </template>
 
@@ -1472,6 +1536,7 @@ const blueprintContextMenu = reactive({
   y: 0,
   blueprintId: null as string | null
 });
+const deletingBlueprintId = ref<string | null>(null);
 const blueprintReorderLoading = ref(false);
 const folderReorderLoading = ref(false);
 const draggingBlueprintId = ref<string | null>(null);
@@ -1656,6 +1721,8 @@ const activeViewerAssignment = computed(() => {
   }
   return viewerAssignments.value[0];
 });
+const pendingViewerCharacterId = ref<string | null>(null);
+const pendingViewerBlueprintId = ref<string | null>(null);
 
 watch(
   viewerAssignments,
@@ -1840,16 +1907,25 @@ const selectedNodeLinkEntries = computed(() => {
   };
 });
 
-const nodeBlueprintLinkDisplay = computed(() => {
-  const display = new Map<string, { previous: string[]; next: string[] }>();
+type BlueprintRelationEntry = { id: string; title: string; isArchived: boolean };
+
+const nodeBlueprintLinkEntries = computed(() => {
+  const display = new Map<string, { previous: BlueprintRelationEntry[]; next: BlueprintRelationEntry[] }>();
   const nodes = renderedNodes.value;
   const labelMap = blueprintOptionIndex.value;
   nodes.forEach((node) => {
+    const buildEntries = (direction: BlueprintLinkDirection): BlueprintRelationEntry[] =>
+      readNodeLinkIds(node, direction).map((id) => {
+        const target = labelMap.get(id);
+        return {
+          id,
+          title: target?.title ?? 'Unknown blueprint',
+          isArchived: target?.isArchived ?? false
+        };
+      });
     display.set(node.id, {
-      previous: readNodeLinkIds(node, 'previous').map(
-        (id) => labelMap.get(id)?.title ?? 'Unknown blueprint'
-      ),
-      next: readNodeLinkIds(node, 'next').map((id) => labelMap.get(id)?.title ?? 'Unknown blueprint')
+      previous: buildEntries('previous'),
+      next: buildEntries('next')
     });
   });
   return display;
@@ -2033,8 +2109,8 @@ function getNodeLinkIds(node: EditableNode, direction: BlueprintLinkDirection): 
   return readNodeLinkIds(node, direction);
 }
 
-function nodeLinkDisplay(nodeId: string, direction: BlueprintLinkDirection): string[] {
-  return nodeBlueprintLinkDisplay.value.get(nodeId)?.[direction] ?? [];
+function nodeLinkEntries(nodeId: string, direction: BlueprintLinkDirection): BlueprintRelationEntry[] {
+  return nodeBlueprintLinkEntries.value.get(nodeId)?.[direction] ?? [];
 }
 
 function canAddBlueprintLink(direction: BlueprintLinkDirection) {
@@ -3998,6 +4074,10 @@ function selectBlueprint(id: string) {
   if (selectedBlueprintId.value === id) {
     return;
   }
+  if (pendingViewerBlueprintId.value !== id) {
+    pendingViewerCharacterId.value = null;
+    pendingViewerBlueprintId.value = null;
+  }
   selectedBlueprintId.value = id;
 }
 
@@ -4013,7 +4093,7 @@ function handleBlueprintContextMenu(event: MouseEvent, blueprintId: string) {
     return;
   }
   const target = summary.value?.blueprints?.find((entry) => entry.id === blueprintId);
-  if (!target?.folderId) {
+  if (!target) {
     return;
   }
   event.preventDefault();
@@ -4025,12 +4105,72 @@ function handleBlueprintContextMenu(event: MouseEvent, blueprintId: string) {
 
 async function handleRemoveBlueprintFromFolder() {
   const targetId = blueprintContextMenu.blueprintId;
+  const blueprint = summary.value?.blueprints?.find((entry) => entry.id === targetId);
   blueprintContextMenu.visible = false;
   blueprintContextMenu.blueprintId = null;
-  if (!targetId) {
+  if (!targetId || !blueprint?.folderId) {
     return;
   }
   await moveBlueprintToFolder(targetId, null, null);
+}
+
+async function handleDeleteBlueprint() {
+  if (deletingBlueprintId.value) {
+    return;
+  }
+  const targetId = blueprintContextMenu.blueprintId;
+  const summaryState = summary.value;
+  blueprintContextMenu.visible = false;
+  blueprintContextMenu.blueprintId = null;
+  if (!targetId || !summaryState || !summaryState.blueprints?.length) {
+    return;
+  }
+  const blueprints = summaryState.blueprints;
+  const targetIndex = blueprints.findIndex((entry) => entry.id === targetId);
+  if (targetIndex === -1) {
+    return;
+  }
+  const fallbackCandidate =
+    blueprints[targetIndex + 1]?.id ?? blueprints[targetIndex - 1]?.id ?? null;
+  const target = blueprints[targetIndex];
+  const confirmed = window.confirm(`Delete blueprint "${target.title}"? This cannot be undone.`);
+  if (!confirmed) {
+    return;
+  }
+  deletingBlueprintId.value = targetId;
+  try {
+    await api.deleteQuestBlueprint(guildId, targetId);
+    await loadSummary();
+    if (selectedBlueprintId.value === targetId) {
+      const summaryBlueprints = summary.value?.blueprints ?? [];
+      if (fallbackCandidate && summaryBlueprints.some((entry) => entry.id === fallbackCandidate)) {
+        selectBlueprint(fallbackCandidate);
+      } else if (summaryBlueprints[0]) {
+        selectBlueprint(summaryBlueprints[0].id);
+      } else {
+        selectedBlueprintId.value = null;
+        detail.value = null;
+      }
+    }
+    showSaveToast('Blueprint deleted.');
+  } catch (error) {
+    window.alert(extractErrorMessage(error, 'Unable to delete quest blueprint.'));
+  } finally {
+    deletingBlueprintId.value = null;
+  }
+}
+
+function navigateToBlueprint(blueprintId: string) {
+  if (!blueprintId) {
+    return;
+  }
+  const exists = summary.value?.blueprints?.some((entry) => entry.id === blueprintId);
+  if (!exists) {
+    return;
+  }
+  pendingViewerCharacterId.value = activeViewerAssignment.value?.character?.id ?? null;
+  pendingViewerBlueprintId.value = blueprintId;
+  selectBlueprint(blueprintId);
 }
 
 function handleBlueprintDragStart(blueprintId: string) {
@@ -4495,6 +4635,8 @@ async function loadDetail(blueprintId: string) {
     measureNodeDimensions();
     requestOverviewFit();
     requestEditorFit();
+    await nextTick();
+    alignViewerAssignmentToPendingCharacter(response.viewerAssignments ?? [], blueprintId);
   } finally {
     loadingDetail.value = false;
   }
@@ -4506,6 +4648,20 @@ function updateTabAvailability() {
   }
   if (activeTab.value === 'guild' && !permissions.value?.canViewGuildBoard) {
     activeTab.value = 'overview';
+  }
+}
+
+function alignViewerAssignmentToPendingCharacter(assignments: QuestAssignment[], blueprintId: string) {
+  const characterId = pendingViewerCharacterId.value;
+  const targetBlueprintId = pendingViewerBlueprintId.value;
+  pendingViewerCharacterId.value = null;
+  pendingViewerBlueprintId.value = null;
+  if (!characterId || !assignments?.length || targetBlueprintId !== blueprintId) {
+    return;
+  }
+  const match = assignments.find((assignment) => assignment.character?.id === characterId);
+  if (match) {
+    selectedAssignmentId.value = match.id;
   }
 }
 
@@ -7077,6 +7233,36 @@ onUnmounted(() => {
 
 .quest-node__relations-list {
   flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.quest-node__relations-link {
+  background: rgba(148, 163, 184, 0.18);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.1rem 0.65rem;
+  color: inherit;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.quest-node__relations-link:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.quest-node__relations-tag {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #fbbf24;
 }
 
 .quest-node__group-tally {
@@ -8011,6 +8197,10 @@ onUnmounted(() => {
   color: rgba(248, 250, 252, 0.9);
   cursor: pointer;
   position: relative;
+}
+
+.quest-context-menu li.danger {
+  color: #fca5a5;
 }
 
 .quest-context-menu li:hover {

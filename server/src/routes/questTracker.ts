@@ -11,6 +11,7 @@ import {
   canViewGuildQuestBoard,
   createQuestBlueprint,
   createQuestBlueprintFolder,
+  deleteQuestBlueprint,
   deleteQuestBlueprintFolder,
   getQuestBlueprintDetail,
   listGuildQuestTrackerSummary,
@@ -322,6 +323,32 @@ export async function questTrackerRoutes(server: FastifyInstance) {
         return reply.forbidden('Only the creator or guild leaders/officers can edit this quest blueprint.');
       }
       request.log.error({ error }, 'Failed to update quest blueprint');
+      return reply.notFound('Quest blueprint not found.');
+    }
+  });
+
+  server.delete('/:guildId/quest-tracker/blueprints/:blueprintId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = guildIdParams.extend({ blueprintId: z.string() });
+    const { guildId, blueprintId } = paramsSchema.parse(request.params);
+
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership) {
+      return reply.forbidden('You must be a guild member to delete quest blueprints.');
+    }
+
+    try {
+      await deleteQuestBlueprint({
+        guildId,
+        blueprintId,
+        actorUserId: request.user.userId,
+        actorRole: membership.role
+      });
+      return reply.code(204).send();
+    } catch (error) {
+      if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+        return reply.forbidden('Only guild leaders or officers can delete this quest blueprint.');
+      }
+      request.log.error({ error }, 'Failed to delete quest blueprint');
       return reply.notFound('Quest blueprint not found.');
     }
   });

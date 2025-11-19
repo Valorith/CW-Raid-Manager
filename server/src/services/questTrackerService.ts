@@ -1123,6 +1123,29 @@ export async function updateQuestBlueprintMetadata(options: {
   return mapBlueprintSummary(updated, nodeCount, assignmentCounts, undefined);
 }
 
+export async function deleteQuestBlueprint(options: {
+  guildId: string;
+  blueprintId: string;
+  actorUserId: string;
+  actorRole: GuildRole | null | undefined;
+}): Promise<void> {
+  const blueprint = await prisma.questBlueprint.findUnique({
+    where: { id: options.blueprintId },
+    select: { id: true, guildId: true, createdById: true }
+  });
+
+  if (!blueprint || blueprint.guildId !== options.guildId) {
+    throw new Error('Quest blueprint not found.');
+  }
+
+  const canDelete = canManageQuestBlueprints(options.actorRole);
+  if (!canDelete) {
+    throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+  }
+
+  await prisma.questBlueprint.delete({ where: { id: options.blueprintId } });
+}
+
 export async function getQuestBlueprintDetail(options: {
   guildId: string;
   blueprintId: string;
