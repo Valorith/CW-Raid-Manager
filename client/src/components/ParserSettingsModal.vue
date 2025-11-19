@@ -289,7 +289,7 @@ const emit = defineEmits<{
   saved: [settings: GuildLootParserSettings];
 }>();
 
-type EditablePattern = GuildLootParserPatternSettings & { methodInput: string };
+type EditablePattern = GuildLootParserPatternSettings & { methodInput: string; _isRaw?: boolean };
 type TemplateRefHandler = (el: Element | ComponentPublicInstance | null) => void;
 interface PatternSampleResult {
   matches: boolean;
@@ -452,6 +452,20 @@ watch(
   { immediate: true }
 );
 
+watch(paginatedPatterns, () => {
+  ensureVisiblePatternsConverted();
+});
+
+function ensureVisiblePatternsConverted() {
+  paginatedPatterns.value.forEach(({ pattern }) => {
+    if (pattern._isRaw) {
+      const friendlyPattern = convertRegexToPlaceholders(pattern.pattern);
+      pattern.pattern = friendlyPattern || pattern.pattern;
+      pattern._isRaw = false;
+    }
+  });
+}
+
 async function loadSettings() {
   if (!props.guildId) {
     return;
@@ -485,21 +499,27 @@ function applySettings(settings: GuildLootParserSettings) {
     return acc;
   }, {});
   formErrors.value = [];
+  formErrors.value = [];
   patternSampleCache.clear();
+  ensureVisiblePatternsConverted();
 }
+
+
 
 function preparePatternsForEditing(patterns: GuildLootParserPatternSettings[]) {
   const merged = ensureDefaultPatterns(patterns);
   return merged.map((pattern) => {
-    const friendlyPattern = convertRegexToPlaceholders(pattern.pattern);
+    // Lazy conversion: Don't convert regex to placeholders yet.
+    // Mark as raw so we know to convert it when it becomes visible.
     const rawIgnored = Array.isArray(pattern.ignoredMethods)
       ? pattern.ignoredMethods.map((method) => method.toString())
       : [];
     return {
       ...pattern,
-      pattern: friendlyPattern || pattern.pattern,
+      pattern: pattern.pattern, // Keep raw regex initially
       ignoredMethods: sanitizeIgnoredMethods(rawIgnored),
-      methodInput: ''
+      methodInput: '',
+      _isRaw: true // Flag as raw
     };
   });
 }
@@ -529,8 +549,10 @@ async function saveSettings() {
   const preparedPatterns = editable.patterns.map((pattern, index) => {
     const label = pattern.label?.trim() || `Pattern ${index + 1}`;
     const rawPattern = typeof pattern.pattern === 'string' ? pattern.pattern.trim() : '';
-    const compiledPattern =
-      convertPlaceholdersToRegex(rawPattern || fallbackPhrase) || fallbackCompiled;
+    let compiledPattern = rawPattern;
+    if (!pattern._isRaw) {
+        compiledPattern = convertPlaceholdersToRegex(rawPattern || fallbackPhrase) || fallbackCompiled;
+    }
     const ignoredMethods = sanitizeIgnoredMethods(pattern.ignoredMethods ?? []);
     try {
       RegExp(compiledPattern);
