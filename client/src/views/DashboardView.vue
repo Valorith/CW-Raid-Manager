@@ -647,6 +647,8 @@ onMounted(() => {
   background: rgba(30, 41, 59, 0.4);
   padding: 0.75rem 1rem;
   border-radius: 0.75rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .muted {
@@ -661,22 +663,28 @@ onMounted(() => {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .character-summary {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0; /* Allow flex child to shrink */
 }
 
 .character-heading {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .character-name-link {
   font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .character-level {
@@ -696,12 +704,33 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .character-action-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .list__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .character-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+  
+  .character-action-row {
+    flex: 1;
+    justify-content: flex-end;
+  }
 }
 .character-edit-button {
   background: rgba(15, 23, 42, 0.45);

@@ -5645,85 +5645,7 @@ onMounted(() => {
 }
 
 .metrics-class-toggle--grid {
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-}
-
-.metrics-class-toggle__button {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.65rem;
-  border-radius: 0.85rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.6);
-  color: inherit;
-  cursor: pointer;
-  min-width: 72px;
-  transition:
-    transform 0.15s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
-}
-
-.metrics-class-toggle__button:hover,
-.metrics-class-toggle__button:focus-visible {
-  border-color: rgba(96, 165, 250, 0.55);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.4);
-}
-
-.metrics-class-toggle__button--active {
-  border-color: rgba(59, 130, 246, 0.85);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(14, 165, 233, 0.18));
-  box-shadow: 0 10px 22px rgba(30, 64, 175, 0.32);
-}
-
-.metrics-class-toggle__button--inactive {
-  opacity: 0.6;
-  border-color: rgba(148, 163, 184, 0.1);
-}
-
-.metrics-class-toggle__button--inactive:hover,
-.metrics-class-toggle__button--inactive:focus-visible {
-  opacity: 0.75;
-  border-color: rgba(99, 102, 241, 0.4);
-}
-
-.metrics-class-toggle__icon {
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: rgba(15, 23, 42, 0.55);
-  overflow: hidden;
-}
-
-.metrics-class-toggle__icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.metrics-class-toggle__icon span {
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.metrics-class-toggle__label {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #cbd5f5;
-}
-
-@media (max-width: 960px) {
-  .metrics-class-toggle--grid {
-    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-  }
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
 }
 
 .metrics-section {
@@ -5832,6 +5754,7 @@ onMounted(() => {
   flex: 1;
   min-height: 220px;
   position: relative;
+  overflow: hidden;
 }
 
 .metrics-card__chart canvas {

@@ -2156,4 +2156,31 @@ onUnmounted(() => {
   text-align: center;
 }
 
+@media (max-width: 920px) {
+  .list__item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .member-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.15);
+  }
+
+  .member-actions select,
+  .member-actions button {
+    width: 100%;
+    flex: none;
+  }
+
+  .character-edit-button--standalone {
+    width: 100%;
+    margin-top: 0.25rem;
+  }
+}
 </style>

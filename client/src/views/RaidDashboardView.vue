@@ -1307,6 +1307,7 @@ function formatDateKey(date: Date) {
   align-items: center;
   justify-content: space-between;
   gap: 0.4rem;
+  min-width: 0; /* Allow flex children to shrink below content size */
 }
 
 .raid-calendar-event__title {
@@ -1314,6 +1315,14 @@ function formatDateKey(date: Date) {
   align-items: center;
   gap: 0.35rem;
   font-weight: 600;
+  min-width: 0; /* Allow truncation */
+  overflow: hidden;
+}
+
+.raid-calendar-event__title > span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .raid-calendar-event__meta {
@@ -1528,6 +1537,7 @@ function formatDateKey(date: Date) {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  flex-shrink: 0;
 }
 
 .badge--neutral {
