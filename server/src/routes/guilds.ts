@@ -389,7 +389,7 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
     }
 
     const actorMembership = await getUserGuildRole(request.user.userId, params.guildId);
-    if (!actorMembership || actorMembership.role === GuildRole.MEMBER) {
+    if (!actorMembership || !canManageGuild(actorMembership.role)) {
       return reply.forbidden('Insufficient permissions to modify memberships.');
     }
 

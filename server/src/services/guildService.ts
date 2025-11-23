@@ -301,7 +301,12 @@ export async function updateGuildMemberRole({
 
   if (actorMembership.userId === targetMembership.userId && newRole !== GuildRole.LEADER) {
     // allow downgrading self when assigning new leader
-    if (newRole === GuildRole.OFFICER || newRole === GuildRole.RAID_LEADER || newRole === GuildRole.MEMBER) {
+    if (
+      newRole === GuildRole.OFFICER ||
+      newRole === GuildRole.RAID_LEADER ||
+      newRole === GuildRole.MEMBER ||
+      newRole === GuildRole.FRIENDS_FAMILY
+    ) {
       return prisma.guildMembership.update({
         where: {
           guildId_userId: {

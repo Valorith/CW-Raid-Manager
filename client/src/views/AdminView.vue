@@ -607,7 +607,8 @@ const roleLabels: Record<GuildRole, string> = {
   LEADER: 'Guild Leader',
   OFFICER: 'Officer',
   RAID_LEADER: 'Raid Leader',
-  MEMBER: 'Member'
+  MEMBER: 'Member',
+  FRIENDS_FAMILY: 'Friends/Family'
 };
 
 const filteredUsers = computed(() => {

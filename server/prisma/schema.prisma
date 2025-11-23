@@ -500,6 +500,7 @@ enum GuildRole {
   OFFICER
   RAID_LEADER
   MEMBER
+  FRIENDS_FAMILY
 }
 
 enum CharacterClass {

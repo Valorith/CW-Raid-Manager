@@ -1,4 +1,4 @@
-export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER';
+export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER' | 'FRIENDS_FAMILY';
 export type LootListType = 'WHITELIST' | 'BLACKLIST';
 
 export type QuestBlueprintVisibility = 'GUILD' | 'LINK_ONLY' | 'PRIVATE';
@@ -41,7 +41,13 @@ export type AttendanceEventType = 'LOG' | 'START' | 'END' | 'RESTART';
 
 export type DiscordWidgetTheme = 'LIGHT' | 'DARK';
 
-export const guildRoleOrder: GuildRole[] = ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER'];
+export const guildRoleOrder: GuildRole[] = [
+  'LEADER',
+  'OFFICER',
+  'RAID_LEADER',
+  'MEMBER',
+  'FRIENDS_FAMILY'
+];
 export const lootListTypeOrder: LootListType[] = ['WHITELIST', 'BLACKLIST'];
 export const lootListTypeLabels: Record<LootListType, string> = {
   WHITELIST: 'Whitelist',

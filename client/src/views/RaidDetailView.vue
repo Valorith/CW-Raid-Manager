@@ -3383,7 +3383,8 @@ const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
   OFFICER: 'Officer',
   RAID_LEADER: 'Raid Leader',
-  MEMBER: 'Member'
+  MEMBER: 'Member',
+  FRIENDS_FAMILY: 'Friends/Family'
 };
 const userGuildRoleLabel = computed(() => {
   const role = raid.value?.permissions?.role;
