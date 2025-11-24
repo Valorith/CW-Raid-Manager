@@ -71,7 +71,8 @@
                 'raid-calendar__day',
                 {
                   'raid-calendar__day--muted': !day.isCurrentMonth,
-                  'raid-calendar__day--today': day.isToday
+                  'raid-calendar__day--today': day.isToday,
+                  'raid-calendar__day--past': day.isPast && !day.isToday
                 }
               ]"
               @contextmenu.prevent.stop="handleCalendarDayContextMenu(day, $event)"
@@ -584,9 +585,11 @@ const calendarDays = computed(() => {
     date: Date;
     isCurrentMonth: boolean;
     isToday: boolean;
+    isPast: boolean;
     raids: RaidEventSummary[];
   }> = [];
   const start = startOfWeek(calendarViewDate.value);
+  const todayStart = startOfDay(new Date());
   for (let i = 0; i < 42; i += 1) {
     const current = addDays(start, i);
     const key = formatDateKey(current);
@@ -595,6 +598,7 @@ const calendarDays = computed(() => {
       date: current,
       isCurrentMonth: current.getMonth() === calendarViewDate.value.getMonth(),
       isToday: key === todayKey,
+      isPast: current < todayStart,
       raids: raidsByDate.value.get(key) ?? []
     });
   }
@@ -984,6 +988,12 @@ function startOfMonth(date: Date) {
   return result;
 }
 
+function startOfDay(date: Date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
 function startOfWeek(date: Date) {
   const result = new Date(date);
   const day = result.getDay();
@@ -1247,6 +1257,13 @@ function formatDateKey(date: Date) {
 .raid-calendar__day--muted {
   color: rgba(148, 163, 184, 0.7);
   background: rgba(15, 23, 42, 0.5);
+}
+
+.raid-calendar__day--past {
+  opacity: 0.65;
+  filter: saturate(0.65);
+  background: rgba(15, 23, 42, 0.4);
+  color: rgba(148, 163, 184, 0.6);
 }
 
 .raid-calendar__day--today {
