@@ -7,6 +7,7 @@ import {
   createCharacter,
   listCharactersForUser,
   updateCharacter,
+  deleteCharacter,
   MainCharacterLimitError
 } from '../services/characterService.js';
 import { getUserGuildRole, canManageGuild } from '../services/guildService.js';
@@ -144,6 +145,37 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
 
       request.log.warn({ error }, 'Failed to update character.');
       return reply.internalServerError('Unable to update character.');
+    }
+  });
+
+  server.delete('/:characterId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      characterId: z.string()
+    });
+    const { characterId } = paramsSchema.parse(request.params);
+
+    const characterRecord = await prisma.character.findUnique({
+      where: { id: characterId },
+      select: { userId: true }
+    });
+
+    if (!characterRecord) {
+      return reply.notFound('Character not found.');
+    }
+
+    if (characterRecord.userId !== request.user.userId) {
+      return reply.forbidden('Only the character owner can delete this record.');
+    }
+
+    try {
+      await deleteCharacter(characterId, request.user.userId);
+      return reply.code(204).send();
+    } catch (error) {
+      request.log.warn({ error }, 'Failed to delete character.');
+      if (error instanceof Error && error.message === 'Character not found.') {
+        return reply.notFound('Character not found.');
+      }
+      return reply.internalServerError('Unable to delete character.');
     }
   });
 }

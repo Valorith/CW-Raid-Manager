@@ -45,13 +45,29 @@
           You already have two main characters. Unset one before promoting another.
         </p>
         <p v-if="errorMessage" class="form__error">{{ errorMessage }}</p>
+        <p v-if="deleteError" class="form__error form__error--danger">{{ deleteError }}</p>
 
         <footer class="form__actions">
           <button class="btn btn--outline" type="button" @click="close">Cancel</button>
-          <button class="btn" type="submit" :disabled="submitting">
+          <button class="btn" type="submit" :disabled="submitting || deleting">
             {{ submitting ? 'Saving…' : 'Save Character' }}
           </button>
         </footer>
+
+        <div v-if="editing && props.character" class="danger-zone">
+          <div class="danger-zone__content">
+            <p class="danger-zone__title">Delete character</p>
+            <p class="danger-zone__hint muted">This will remove the character from your roster.</p>
+          </div>
+          <button
+            class="btn btn--danger"
+            type="button"
+            :disabled="deleting || submitting"
+            @click="removeCharacter"
+          >
+            {{ deleting ? 'Deleting…' : 'Delete Character' }}
+          </button>
+        </div>
       </form>
     </div>
   </div>
@@ -86,6 +102,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'created'): void;
   (e: 'updated'): void;
+  (e: 'deleted'): void;
 }>();
 
 const classes = [
@@ -117,6 +134,8 @@ const form = reactive({
 
 const submitting = ref(false);
 const errorMessage = ref('');
+const deleting = ref(false);
+const deleteError = ref('');
 
 watch(
   () => props.canSetMain,
@@ -152,6 +171,7 @@ function close() {
   form.guildId = props.character?.guildId ?? '';
   form.isMain = props.character?.isMain ?? props.canSetMain;
   errorMessage.value = '';
+  deleteError.value = '';
   emit('close');
 }
 
@@ -191,6 +211,32 @@ async function submit() {
     return;
   } finally {
     submitting.value = false;
+  }
+}
+
+async function removeCharacter() {
+  if (!props.character || deleting.value) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Delete ${props.character.name}? This cannot be undone and will remove the character from your roster.`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  deleting.value = true;
+  deleteError.value = '';
+
+  try {
+    await api.deleteCharacter(props.character.id);
+    emit('deleted');
+  } catch (error) {
+    deleteError.value = extractErrorMessage(error, 'Unable to delete character.');
+  } finally {
+    deleting.value = false;
   }
 }
 
@@ -289,11 +335,64 @@ function extractErrorMessage(error: unknown, fallback: string) {
   gap: 0.75rem;
 }
 
+.danger-zone {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+.danger-zone__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.danger-zone__title {
+  margin: 0;
+  color: #fecaca;
+  font-weight: 600;
+}
+
+.danger-zone__hint {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.form__error--danger {
+  color: #fca5a5;
+}
+
 .icon-button {
   background: transparent;
   border: none;
   color: #94a3b8;
   font-size: 1.15rem;
   cursor: pointer;
+}
+
+.btn--danger {
+  background: rgba(248, 113, 113, 0.2);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fecdd3;
+  box-shadow: 0 10px 18px rgba(248, 113, 113, 0.08);
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.3);
+  border-color: rgba(248, 113, 113, 0.55);
+  transform: translateY(-1px);
+  box-shadow: 0 16px 28px rgba(248, 113, 113, 0.18);
+}
+
+.btn--danger:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 </style>

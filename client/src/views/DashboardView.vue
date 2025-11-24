@@ -236,6 +236,7 @@
       @close="closeCharacterModal"
       @created="handleCharacterCreated"
       @updated="handleCharacterUpdated"
+      @deleted="handleCharacterDeleted"
     />
   </section>
 </template>
@@ -314,7 +315,13 @@ watch(
 async function loadCharacters() {
   loadingCharacters.value = true;
   try {
-    characters.value = await api.fetchUserCharacters();
+    const fetched = await api.fetchUserCharacters();
+    characters.value = [...fetched].sort((a, b) => {
+      if (a.isMain !== b.isMain) {
+        return a.isMain ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
     characterError.value = null;
   } finally {
     loadingCharacters.value = false;
@@ -413,6 +420,13 @@ function handleCharacterCreated() {
 function handleCharacterUpdated() {
   closeCharacterModal();
   loadCharacters();
+}
+
+function handleCharacterDeleted() {
+  closeCharacterModal();
+  loadCharacters();
+  loadRecentAttendance();
+  loadRecentLoot();
 }
 
 function formatDate(value: string) {

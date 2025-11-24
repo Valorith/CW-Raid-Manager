@@ -1787,6 +1787,10 @@ export const api = {
     return response.data.character;
   },
 
+  async deleteCharacter(characterId: string) {
+    await axios.delete(`/api/characters/${characterId}`);
+  },
+
   async fetchRaidsForGuild(
     guildId: string
   ): Promise<{ raids: RaidEventSummary[]; permissions: { canManage: boolean; role: GuildRole } }> {
