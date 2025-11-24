@@ -94,6 +94,10 @@
             </span>
           </button>
         </div>
+        <div v-if="monitorZoneVisible" class="nav-zone-pill" :title="monitorZoneTitle">
+          <span class="nav-zone-pill__label">Zone</span>
+          <span class="nav-zone-pill__value">{{ monitorStore.lastZone }}</span>
+        </div>
       </div>
       <div class="auth">
         <RouterLink
@@ -254,6 +258,17 @@ const monitorIndicatorLabel = computed(() => {
     return `Loot actions pending for ${raidName}. Click to return to the loot tracker.`;
   }
   return `Continuous monitoring active for ${raidName}. Click to return to the loot tracker.`;
+});
+
+const monitorZoneVisible = computed(
+  () => monitorStore.indicatorVisible && Boolean(monitorStore.activeSession?.isOwner) && !!monitorStore.lastZone
+);
+
+const monitorZoneTitle = computed(() => {
+  if (!monitorStore.lastZone) {
+    return 'Last zone detected while monitoring';
+  }
+  return `Last detected zone: ${monitorStore.lastZone}`;
 });
 
 function goToActiveMonitor() {
@@ -578,6 +593,32 @@ function hasRaidStarted(raid: RaidEventSummary) {
   animation-name: navMonitorPulseAlert;
 }
 
+.nav-zone-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  color: #ede9fe;
+  box-shadow: 0 8px 16px rgba(76, 29, 149, 0.25);
+}
+
+.nav-zone-pill__label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.8;
+}
+
+.nav-zone-pill__value {
+  font-weight: 700;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
 @keyframes navMonitorPulseAlert {
   0% {
     box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
@@ -808,6 +849,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
   .nav-monitor__button {
     width: 100%;
     justify-content: center;
+  }
+
+  .nav-zone-pill {
+    width: 100%;
+    justify-content: center;
+    margin-left: 0;
   }
 
   .auth {

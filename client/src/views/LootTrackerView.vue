@@ -4600,12 +4600,35 @@ function handleLootConsoleSuppress() {
   clearLootConsole();
 }
 
+function extractLastZoneFromLog(content: string) {
+  const lines = content.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+    if (!line || line.trim().length === 0) {
+      continue;
+    }
+    const stripped = line.replace(/^\[[^\]]*]\s*/, '').trim();
+    const match = stripped.match(/You have entered\s+(.+?)\.?$/i);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
 function processLogContent(
   content: string,
   options: { append: boolean; resetKeys?: boolean; start: Date; end?: Date }
 ) {
   if (!raid.value) {
     return;
+  }
+
+  if (monitorSession.value?.isOwner) {
+    const detectedZone = extractLastZoneFromLog(content);
+    if (detectedZone) {
+      monitorStore.setLastZone(detectedZone);
+    }
   }
 
   if (options.resetKeys) {

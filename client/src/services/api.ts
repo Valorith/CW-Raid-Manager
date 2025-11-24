@@ -428,6 +428,7 @@ export interface RaidEventSummary {
     isActive: boolean;
   } | null;
   raidSignupNotificationsEnabled?: boolean;
+  raidCreatedNotificationsEnabled?: boolean;
   logMonitor?: {
     isActive: boolean;
     userId?: string | null;
@@ -1294,6 +1295,10 @@ function normalizeRaidSummary(
     raidSignupNotificationsEnabled:
       typeof raid?.raidSignupNotificationsEnabled === 'boolean'
         ? raid.raidSignupNotificationsEnabled
+        : undefined,
+    raidCreatedNotificationsEnabled:
+      typeof raid?.raidCreatedNotificationsEnabled === 'boolean'
+        ? raid.raidCreatedNotificationsEnabled
         : undefined,
     logMonitor,
     permissions: raid?.permissions ?? undefined,
@@ -2202,6 +2207,10 @@ export const api = {
   async restartRaid(raidId: string) {
     const response = await axios.post(`/api/raids/${raidId}/restart`);
     return response.data.raid;
+  },
+
+  async announceRaid(raidId: string) {
+    await axios.post(`/api/raids/${raidId}/announce`);
   },
 
   async deleteRaid(raidId: string, options?: { scope?: 'EVENT' | 'SERIES' }) {

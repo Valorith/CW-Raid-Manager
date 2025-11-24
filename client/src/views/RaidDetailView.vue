@@ -737,6 +737,15 @@
         </div>
         <div class="actions timing-actions">
           <button
+            class="raid-action-btn raid-action-btn--announce"
+            type="button"
+            :disabled="announcingRaid || !canManageRaid"
+            @click="handleAnnounceRaid"
+            aria-label="Send raid announcement"
+          >
+            <span aria-hidden="true">📣</span>
+          </button>
+          <button
             class="raid-action-btn raid-action-btn--start"
             :disabled="startingRaid || hasEffectiveStarted || !canManageRaid"
             @click="handleStartRaid"
@@ -2617,6 +2626,7 @@ const savingTimes = ref(false);
 const startingRaid = ref(false);
 const endingRaid = ref(false);
 const restartingRaid = ref(false);
+const announcingRaid = ref(false);
 const renamingRaid = ref(false);
 type RecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 const recurrenceForm = reactive({
@@ -4763,6 +4773,67 @@ async function handleStartRaid() {
   }
 }
 
+async function handleAnnounceRaid() {
+  if (announcingRaid.value || !canManageRaid.value) {
+    return;
+  }
+
+  const action = await showConfirmation({
+    title: 'Send Raid Announcement',
+    message: 'Re-send the raid creation webhook announcement?',
+    confirmLabel: 'Send Announcement',
+    cancelLabel: 'Cancel'
+  });
+
+  if (action !== 'primary') {
+    return;
+  }
+
+  if (raid.value?.raidCreatedNotificationsEnabled === false) {
+    const actionDisabled = await showConfirmation({
+      title: 'Announcement Disabled',
+      message:
+        'Raid announcements are disabled in Discord Webhooks settings. Send anyway or dismiss this prompt.',
+      confirmLabel: 'Send Anyway',
+      cancelLabel: 'Dismiss'
+    });
+    if (actionDisabled !== 'primary') {
+      return;
+    }
+  }
+
+  announcingRaid.value = true;
+  actionError.value = null;
+  try {
+    await api.announceRaid(raidId);
+  } catch (error) {
+    const message = extractErrorMessage(error, 'Unable to send raid announcement.');
+    if (message.toLowerCase().includes('webhook is disabled')) {
+      const actionDisabled = await showConfirmation({
+        title: 'Announcement Disabled',
+        message:
+          'Raid announcements are disabled in Discord Webhooks settings. Send anyway or dismiss this prompt.',
+        confirmLabel: 'Send Anyway',
+        cancelLabel: 'Dismiss'
+      });
+      if (actionDisabled === 'primary') {
+        try {
+          await api.announceRaid(raidId);
+        } catch (secondError) {
+          actionError.value = extractErrorMessage(
+            secondError,
+            'Unable to send raid announcement.'
+          );
+        }
+      }
+      return;
+    }
+    actionError.value = message;
+  } finally {
+    announcingRaid.value = false;
+  }
+}
+
 async function handleEndRaid() {
   if (endingRaid.value || !hasEffectiveStarted.value || hasEffectiveEnded.value) {
     return;
@@ -6401,6 +6472,23 @@ th {
   color: #0f172a;
   background: linear-gradient(135deg, rgba(238, 242, 255, 0.95), rgba(203, 213, 225, 0.8));
   box-shadow: 0 12px 20px rgba(15, 23, 42, 0.18);
+}
+
+.raid-action-btn--announce {
+  padding: 0.5rem 0.75rem;
+  min-width: 0;
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.25);
+  color: #e2e8f0;
+  box-shadow: none;
+}
+
+.raid-action-btn--announce:hover:not(:disabled),
+.raid-action-btn--announce:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(148, 163, 184, 0.25);
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.18);
 }
 
 .raid-action-btn__icon {

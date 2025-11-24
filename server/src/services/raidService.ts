@@ -381,6 +381,10 @@ export async function getRaidEventById(raidId: string) {
     raid.guildId,
     'raid.signup'
   );
+  const raidCreatedNotificationsEnabled = await isDiscordWebhookEventEnabled(
+    raid.guildId,
+    'raid.created'
+  );
   const formatted = formatRaidWithRecurrence(raid);
   const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
   const npcKills = await listRaidNpcKillSummary(raidId);
@@ -388,6 +392,7 @@ export async function getRaidEventById(raidId: string) {
   return {
     ...formatted,
     raidSignupNotificationsEnabled,
+    raidCreatedNotificationsEnabled,
     createdBy: withPreferredDisplayName(raid.createdBy),
     hasUnassignedLoot,
     npcKills,
@@ -440,6 +445,48 @@ export async function startRaidEvent(raidId: string, userId: string) {
     ...formatted,
     hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
   };
+}
+
+export async function emitRaidCreatedWebhook(raidId: string, userId: string) {
+  const raid = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      createdBy: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true
+        }
+      }
+    }
+  });
+
+  if (!raid) {
+    throw new Error('Raid event not found.');
+  }
+
+  await ensureCanManageRaid(userId, raid.guildId);
+
+  const enabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.created');
+  if (!enabled) {
+    throw new Error('Raid announcement webhook is disabled in Discord Webhooks settings.');
+  }
+
+  emitDiscordWebhookEvent(raid.guildId, 'raid.created', {
+    guildName: raid.guild.name,
+    raidId,
+    raidName: raid.name,
+    startTime: raid.startTime,
+    targetZones: normalizeStringArray(raid.targetZones),
+    targetBosses: normalizeStringArray(raid.targetBosses),
+    createdByName: withPreferredDisplayName(raid.createdBy).displayName
+  });
 }
 
 export async function endRaidEvent(raidId: string, userId: string) {

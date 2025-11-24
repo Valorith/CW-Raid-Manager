@@ -9,6 +9,7 @@ import {
   listRaidEventsForGuild,
   updateRaidEvent,
   startRaidEvent,
+  emitRaidCreatedWebhook,
   endRaidEvent,
   restartRaidEvent,
   deleteRaidEvent,
@@ -449,6 +450,36 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to start raid.');
+      }
+    }
+  );
+
+  server.post(
+    '/:raidId/announce',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        await emitRaidCreatedWebhook(raidId, request.user.userId);
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to emit raid announcement.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to announce this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to announce raid.');
       }
     }
   );
