@@ -5648,6 +5648,38 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
 }
 
+.metrics-class-toggle__button {
+  width: 100%;
+  text-align: center;
+  background: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+  padding: 0.85rem 0.75rem 0.65rem;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+  cursor: pointer;
+  width: 100%;
+}
+
+.metrics-class-toggle__button:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+  transform: translateY(-1px);
+}
+
+.metrics-class-toggle__button--active {
+  border-color: #38bdf8;
+  box-shadow: 0 8px 20px rgba(56, 189, 248, 0.12);
+}
+
+.metrics-class-toggle__button--inactive {
+  opacity: 0.45;
+}
+
 .metrics-section {
   display: flex;
   flex-direction: column;
@@ -5682,6 +5714,35 @@ onMounted(() => {
 .metrics-class-card {
   min-height: auto;
   gap: 1.25rem;
+}
+
+.metrics-class-toggle__icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+}
+
+.metrics-class-toggle__icon img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.metrics-class-toggle__icon span {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.metrics-class-toggle__label {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin-top: 0.1rem;
+  text-align: center;
+  width: 100%;
 }
 
 .metrics-card__header {
