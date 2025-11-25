@@ -264,15 +264,15 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
       uniqueRaids.set(raid.id, { id: raid.id, name: raid.name });
     }
 
-    const resolvedClass = record.class ?? record.character?.class ?? resolvedByName?.class ?? null;
-    if (resolvedClass) {
-      uniqueClasses.add(resolvedClass);
-    }
-
     const resolvedByName =
       !record.characterId && record.characterName
         ? resolvedCharacterMap.get(record.characterName.trim().toLowerCase())
         : null;
+
+    const resolvedClass = record.class ?? record.character?.class ?? resolvedByName?.class ?? null;
+    if (resolvedClass) {
+      uniqueClasses.add(resolvedClass);
+    }
 
     const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
     const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
