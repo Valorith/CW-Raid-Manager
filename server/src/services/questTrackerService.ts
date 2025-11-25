@@ -1201,7 +1201,7 @@ export async function importQuestBlueprintFromTask(options: {
         title,
         summary: summary ?? null,
         visibility: 'GUILD',
-        metadata,
+        metadata: sanitizeJsonInput(metadata),
         lastEditedById: options.actorUserId,
         lastEditedByName: creatorName,
         folderSortOrder
@@ -1258,7 +1258,7 @@ export async function importQuestBlueprintFromTask(options: {
       nodes.map((node) => ({
         id: node.id,
         blueprintId: blueprint.id,
-        metadata: node.metadata ?? {}
+        metadata: sanitizeJsonInput(node.metadata ?? {})
       })),
       links.map((link) => ({
         blueprintId: blueprint.id,
