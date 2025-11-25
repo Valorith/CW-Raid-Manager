@@ -184,6 +184,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
       id: true,
       name: true,
       class: true,
+      isMain: true,
       userId: true,
       user: {
         select: {
