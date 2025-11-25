@@ -175,39 +175,67 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
   const uniqueLooters = new Map<string, { name: string; looterClass: string | null }>();
   const attendanceCharacterKeys = new Set<string>();
 
-  const userIds = Array.from(
+  const guildMains = await prisma.character.findMany({
+    where: {
+      guildId,
+      isMain: true
+    },
+    select: {
+      id: true,
+      name: true,
+      class: true,
+      userId: true,
+      user: {
+        select: {
+          displayName: true
+        }
+      }
+    }
+  });
+
+  const mainByUserId = new Map<string, typeof guildMains>();
+  for (const main of guildMains) {
+    if (!main.userId) {
+      continue;
+    }
+    const list = mainByUserId.get(main.userId) ?? [];
+    list.push(main);
+    mainByUserId.set(main.userId, list);
+  }
+
+  const missingIds = Array.from(
     new Set(
       attendanceRecordsRaw
-        .map((record) => record.character?.userId ?? record.character?.user?.id ?? null)
+        .filter((record) => !record.characterId)
+        .map((record) => record.characterName?.trim().toLowerCase())
         .filter(Boolean) as string[]
     )
   );
 
-  const userMainCharacters = userIds.length
-    ? await prisma.character.findMany({
-        where: {
-          userId: { in: userIds },
-          isMain: true,
-          guildId
-        },
-        select: {
-          id: true,
-          name: true,
-          class: true,
-          userId: true,
-          user: {
-            select: {
-              displayName: true
+  const resolvedCharactersByName =
+    missingIds.length > 0
+      ? await prisma.character.findMany({
+          where: {
+            guildId,
+            name: { in: missingIds }
+          },
+          select: {
+            id: true,
+            name: true,
+            class: true,
+            isMain: true,
+            userId: true,
+            user: {
+              select: {
+                displayName: true
+              }
             }
           }
-        }
-      })
-    : [];
-  const mainByUserId = new Map<string, typeof userMainCharacters>();
-  for (const main of userMainCharacters) {
-    const list = mainByUserId.get(main.userId) ?? [];
-    list.push(main);
-    mainByUserId.set(main.userId, list);
+        })
+      : [];
+  const resolvedCharacterMap = new Map<string, (typeof resolvedCharactersByName)[number]>();
+  for (const character of resolvedCharactersByName) {
+    resolvedCharacterMap.set(character.name.toLowerCase(), character);
   }
 
   const registerCharacter = (entry: GuildMetricsFilterOptions['characters'][number], key: string) => {
@@ -236,20 +264,29 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
       uniqueRaids.set(raid.id, { id: raid.id, name: raid.name });
     }
 
-    const resolvedClass = record.class ?? record.character?.class ?? null;
+    const resolvedClass = record.class ?? record.character?.class ?? resolvedByName?.class ?? null;
     if (resolvedClass) {
       uniqueClasses.add(resolvedClass);
     }
 
-    const characterId = record.character?.id ?? record.characterId ?? null;
-    const characterName = record.character?.name ?? record.characterName;
-    const isMainValue = Boolean(record.character?.isMain);
+    const resolvedByName =
+      !record.characterId && record.characterName
+        ? resolvedCharacterMap.get(record.characterName.trim().toLowerCase())
+        : null;
+
+    const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
+    const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
+    const isMainValue = resolvedByName?.isMain ?? Boolean(record.character?.isMain);
+    const resolvedUserId = record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
+    const resolvedDisplayName = record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
+    const resolvedClassFinal = resolvedClass ?? resolvedByName?.class ?? null;
+
     const characterEntry = {
       id: characterId,
       name: characterName,
-      class: resolvedClass,
-      userId: record.character?.userId ?? record.character?.user?.id ?? null,
-      userDisplayName: record.character?.user?.displayName ?? null,
+      class: resolvedClassFinal,
+      userId: resolvedUserId,
+      userDisplayName: resolvedDisplayName,
       isMain: isMainValue
     };
 
