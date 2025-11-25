@@ -893,6 +893,15 @@ const characterOwnerMap = ref<Map<string, { userId: string; displayName: string 
 const guildPermissions = ref<GuildPermissions | null>(null);
 const guildMemberDirectory = ref<GuildMemberDirectoryEntry[]>([]);
 const guildName = ref<string | null>(null);
+const memberDirectoryLookupByUserId = computed(() => {
+  const map = new Map<string, string>();
+  for (const entry of guildMemberDirectory.value) {
+    if (entry.userId && entry.displayName) {
+      map.set(entry.userId, entry.displayName);
+    }
+  }
+  return map;
+});
 const guildBankDisplayName = computed(() => getGuildBankDisplayName(guildName.value));
 
 const rangeForm = reactive({
@@ -1212,7 +1221,10 @@ function normalizeNameKey(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function setMemberNameHint(userId: string | null, name?: string | null) {
+function setMemberNameHint(
+  userId: string | null,
+  name?: string | null
+) {
   if (!name) {
     return;
   }
@@ -1247,6 +1259,10 @@ function resolveMemberPreferredName(
   fallbackName?: string | null
 ): string | null {
   if (userId) {
+    const directoryName = memberDirectoryLookupByUserId.value.get(userId);
+    if (directoryName && directoryName.trim().length > 0) {
+      return directoryName.trim();
+    }
     const mapped = memberDisplayMap.value.get(userId);
     if (mapped && mapped.trim().length > 0) {
       return mapped.trim();
@@ -1271,8 +1287,10 @@ function resolveMemberPreferredName(
 function resolveCharacterOwner(
   name: string,
   userId?: string | null,
-  userDisplayName?: string | null
+  userDisplayName?: string | null,
+  options?: { allowHints?: boolean }
 ): { userId: string | null; userDisplayName: string | null } {
+  const allowHints = options?.allowHints ?? true;
   let resolvedUserId = userId ?? null;
   let resolvedDisplay = userDisplayName ?? null;
   const normalizedName = normalizeNameKey(name);
@@ -1282,16 +1300,18 @@ function resolveCharacterOwner(
     resolvedDisplay = entry.displayName ?? resolvedDisplay ?? null;
   }
   if (resolvedUserId) {
-    setMemberNameHint(resolvedUserId, resolvedDisplay ?? name);
-    if (normalizedName) {
-      const existing = characterOwnerMap.value.get(normalizedName);
-      if (!existing || existing.userId !== resolvedUserId || existing.displayName !== resolvedDisplay) {
-        const cloned = new Map(characterOwnerMap.value);
-        cloned.set(normalizedName, {
-          userId: resolvedUserId,
-          displayName: resolvedDisplay ?? null
-        });
-        characterOwnerMap.value = cloned;
+    if (allowHints) {
+      setMemberNameHint(resolvedUserId, resolvedDisplay ?? name);
+      if (normalizedName) {
+        const existing = characterOwnerMap.value.get(normalizedName);
+        if (!existing || existing.userId !== resolvedUserId || existing.displayName !== resolvedDisplay) {
+          const cloned = new Map(characterOwnerMap.value);
+          cloned.set(normalizedName, {
+            userId: resolvedUserId,
+            displayName: resolvedDisplay ?? null
+          });
+          characterOwnerMap.value = cloned;
+        }
       }
     }
   }
@@ -1356,13 +1376,17 @@ function ensureMemberAggregate(
   aggregates: Map<string, MemberAggregate>,
   userId: string | null,
   userDisplayName: string | null,
-  fallbackName: string
+  fallbackName: string,
+  options?: { allowHints?: boolean }
 ) {
+  const allowHints = options?.allowHints ?? true;
   const aggregateKey = memberAggregateKeyFromParts(userId, userDisplayName, fallbackName);
   let aggregate = aggregates.get(aggregateKey);
   if (!aggregate) {
     const preferred = resolveMemberPreferredName(userId, userDisplayName, fallbackName);
-    setMemberNameHint(userId, preferred ?? userDisplayName ?? fallbackName);
+    if (allowHints) {
+      setMemberNameHint(userId, preferred ?? userDisplayName ?? fallbackName);
+    }
     aggregate = {
       key: aggregateKey,
       label: preferred ?? userDisplayName ?? fallbackName,
@@ -1383,12 +1407,14 @@ function ensureMemberAggregate(
     if (userDisplayName && !aggregate.userDisplayName) {
       aggregate.userDisplayName = userDisplayName;
     }
-    if (userDisplayName) {
+    if (userDisplayName && allowHints) {
       setMemberNameHint(aggregate.userId, userDisplayName);
     }
     const resolved = resolveMemberPreferredName(aggregate.userId, userDisplayName ?? aggregate.userDisplayName, fallbackName);
     if (resolved) {
-      setMemberNameHint(aggregate.userId, resolved);
+      if (allowHints) {
+        setMemberNameHint(aggregate.userId, resolved);
+      }
       aggregate.preferredMemberName = resolved;
       aggregate.label = resolved;
       aggregate.userDisplayName = resolved;
@@ -1401,7 +1427,9 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
   const aggregates = new Map<string, MemberAggregate>();
 
   for (const option of characterOptions.value) {
-    const owner = resolveCharacterOwner(option.name, option.userId, option.userDisplayName);
+    const owner = resolveCharacterOwner(option.name, option.userId, option.userDisplayName, {
+      allowHints: false
+    });
     const fallbackLabel = owner.userId
       ? owner.userDisplayName ?? option.userDisplayName ?? option.name
       : UNKNOWN_MEMBER_LABEL;
@@ -1409,7 +1437,8 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
       aggregates,
       owner.userId,
       owner.userDisplayName,
-      fallbackLabel
+      fallbackLabel,
+      { allowHints: false }
     );
     if (option.isMain) {
       aggregate.isMain = true;
@@ -1431,14 +1460,16 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
       const owner = resolveCharacterOwner(
         record.character.name,
         record.character.userId,
-        record.character.userDisplayName
+        record.character.userDisplayName,
+        { allowHints: false }
       );
       const fallbackLabel = owner.userId ? owner.userDisplayName ?? fallbackName : UNKNOWN_MEMBER_LABEL;
       const aggregate = ensureMemberAggregate(
         aggregates,
         owner.userId,
         owner.userDisplayName,
-        fallbackLabel
+        fallbackLabel,
+        { allowHints: false }
       );
       if (record.character.id) {
         aggregate.characterIds.add(record.character.id);
@@ -1468,22 +1499,21 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
         }
       }
       if (!aggregateMatch) {
-        const ownerInfo = resolveCharacterOwner(
-          fallbackName,
-          null,
-          null
-        );
+        const ownerInfo = resolveCharacterOwner(fallbackName, null, null, { allowHints: false });
         if (ownerInfo.userId || ownerInfo.userDisplayName) {
           aggregateMatch = ensureMemberAggregate(
             aggregates,
             ownerInfo.userId,
             ownerInfo.userDisplayName,
-            ownerInfo.userDisplayName ?? fallbackName ?? UNKNOWN_MEMBER_LABEL
+            ownerInfo.userDisplayName ?? fallbackName ?? UNKNOWN_MEMBER_LABEL,
+            { allowHints: false }
           );
         }
       }
       if (!aggregateMatch) {
-        aggregateMatch = ensureMemberAggregate(aggregates, null, null, UNKNOWN_MEMBER_LABEL);
+        aggregateMatch = ensureMemberAggregate(aggregates, null, null, UNKNOWN_MEMBER_LABEL, {
+          allowHints: false
+        });
       }
       aggregateMatch.characterNames.add(normalizedName);
       aggregateMatch.normalizedCharacterNames.add(normalizedLower);
@@ -1759,7 +1789,8 @@ function identityFromRecord(record: AttendanceMetricRecord, mode: MetricsMode): 
     const owner = resolveCharacterOwner(
       record.character.name,
       record.character.userId,
-      record.character.userDisplayName
+      record.character.userDisplayName,
+      { allowHints: false }
     );
     const isUnknownMember = !owner.userId;
     const aggregateKey = memberAggregateKeyFromParts(
@@ -4143,13 +4174,14 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
         associatedOption = memberOptionByUserId.value.get(ownerEntry.userId);
       }
     }
-    let owner = isGuildBank
-      ? { userId: null, userDisplayName: null }
-      : resolveCharacterOwner(
-          fallbackCharacterName,
-          associatedOption?.userId,
-          associatedOption?.userDisplayName
-        );
+  let owner = isGuildBank
+    ? { userId: null, userDisplayName: null }
+    : resolveCharacterOwner(
+        fallbackCharacterName,
+        associatedOption?.userId,
+        associatedOption?.userDisplayName,
+        { allowHints: false }
+      );
     if (!isGuildBank && normalizedFallback && !owner.userId) {
       const mappedOwner = characterOwnerMap.value.get(normalizedFallback);
       if (mappedOwner) {
@@ -4201,7 +4233,8 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       owner = resolveCharacterOwner(
         fallbackCharacterName,
         targetOption.userId ?? owner.userId,
-        targetOption.userDisplayName ?? owner.userDisplayName
+        targetOption.userDisplayName ?? owner.userDisplayName,
+        { allowHints: false }
       );
     }
 
