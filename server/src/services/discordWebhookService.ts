@@ -386,6 +386,7 @@ type DiscordWebhookPayloadMap = {
       itemName: string;
       looterName: string;
       emoji?: string | null;
+      itemIconId?: number | null;
       count: number;
     }>;
     recordedAt: Date | string;
@@ -739,11 +740,16 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         .map((assignment) => {
           const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
           const emoji = assignment.emoji ?? '🎁';
+          const iconUrl =
+            assignment.itemIconId != null
+              ? `${clientBaseUrl}/api/loot-icons/${assignment.itemIconId}?format=png`
+              : null;
           const itemUrl = buildAllaItemUrl(assignment.itemName);
           const itemLabel = itemUrl
             ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
             : `**${assignment.itemName}**${countLabel}`;
-          return `${emoji} ${itemLabel} → ${assignment.looterName}`;
+          const iconFragment = iconUrl ? `![icon](${iconUrl}) ` : '';
+          return `${iconFragment}${emoji} ${itemLabel} → ${assignment.looterName}`;
         })
         .join('\n');
       const lootOverflow = Math.max(

@@ -379,6 +379,7 @@ interface LootAssignmentSummary {
   itemName: string;
   looterName: string;
   emoji?: string | null;
+  itemIconId?: number | null;
   count: number;
 }
 
@@ -390,6 +391,7 @@ async function emitLootAssignedWebhook(options: {
     itemName: string;
     looterName: string;
     emoji: string | null;
+    itemIconId?: number | null;
     createdAt: Date;
   }>;
 }) {
@@ -444,18 +446,24 @@ async function emitLootAssignedWebhook(options: {
   }
 }
 
-function summarizeLootAssignments(events: Array<{ itemName: string; looterName: string; emoji: string | null }>) {
+function summarizeLootAssignments(
+  events: Array<{ itemName: string; looterName: string; emoji: string | null; itemIconId?: number | null }>
+) {
   const map = new Map<string, LootAssignmentSummary>();
   for (const event of events) {
     const key = `${event.itemName.toLowerCase()}::${event.looterName.toLowerCase()}::${event.emoji ?? ''}`;
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
+      if (!existing.itemIconId && event.itemIconId != null) {
+        existing.itemIconId = event.itemIconId;
+      }
     } else {
       map.set(key, {
         itemName: event.itemName,
         looterName: event.looterName,
         emoji: event.emoji ?? null,
+        itemIconId: event.itemIconId ?? null,
         count: 1
       });
     }
