@@ -11,6 +11,7 @@ import {
   canViewGuildQuestBoard,
   createQuestBlueprint,
   createQuestBlueprintFolder,
+  importQuestBlueprintFromTask,
   deleteQuestBlueprint,
   deleteQuestBlueprintFolder,
   getQuestBlueprintDetail,
@@ -26,6 +27,8 @@ import {
   QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR,
   updateQuestFolderOrder
 } from '../services/questTrackerService.js';
+import { searchEqTasks } from '../services/eqTaskService.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function questTrackerRoutes(server: FastifyInstance) {
   const guildIdParams = z.object({ guildId: z.string() });
@@ -79,6 +82,84 @@ export async function questTrackerRoutes(server: FastifyInstance) {
     });
 
     return reply.code(201).send({ blueprint });
+  });
+
+  server.get('/:guildId/quest-tracker/eq-tasks', { preHandler: [authenticate] }, async (request, reply) => {
+    const { guildId } = guildIdParams.parse(request.params);
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership) {
+      return reply.forbidden('You must be a guild member to view EQ tasks.');
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.userId },
+      select: { admin: true }
+    });
+    if (!user?.admin) {
+      return reply.forbidden('Only admins can search EQ tasks.');
+    }
+    const querySchema = z.object({
+      q: z.string().max(120).optional(),
+      page: z.coerce.number().int().min(1).max(500).optional(),
+      pageSize: z.coerce.number().int().min(1).max(50).optional()
+    });
+    const parsedQuery = querySchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      return reply.badRequest('Invalid EQ task search parameters.');
+    }
+    try {
+      const result = await searchEqTasks({
+        query: parsedQuery.data.q,
+        page: parsedQuery.data.page,
+        pageSize: parsedQuery.data.pageSize
+      });
+      return result;
+    } catch (error) {
+      request.log.error({ error }, 'Failed to search EQ tasks');
+      if (error instanceof Error && error.message.includes('not configured')) {
+        return reply.code(503).send({ message: 'EQ content database is not configured.' });
+      }
+      return reply.badRequest('Unable to search EQ tasks.');
+    }
+  });
+
+  server.post('/:guildId/quest-tracker/blueprints/import-task', { preHandler: [authenticate] }, async (request, reply) => {
+    const { guildId } = guildIdParams.parse(request.params);
+    const membership = await getUserGuildRole(request.user.userId, guildId);
+    if (!membership) {
+      return reply.forbidden('You must be a guild member to import quest blueprints.');
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.userId },
+      select: { admin: true }
+    });
+    if (!user?.admin) {
+      return reply.forbidden('Only admins can import EQ tasks.');
+    }
+    const bodySchema = z.object({
+      taskId: z.number().int().positive()
+    });
+    const parsedBody = bodySchema.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply.badRequest('Invalid EQ task import payload.');
+    }
+    try {
+      const blueprint = await importQuestBlueprintFromTask({
+        guildId,
+        actorUserId: request.user.userId,
+        actorRole: membership.role,
+        taskId: parsedBody.data.taskId
+      });
+      return reply.code(201).send({ blueprint });
+    } catch (error) {
+      request.log.error({ error }, 'Failed to import EQ task into quest blueprint');
+      if (error instanceof Error && error.message === 'EQ task not found.') {
+        return reply.notFound('EQ task not found.');
+      }
+      if (error instanceof Error && error.message.includes('not configured')) {
+        return reply.code(503).send({ message: 'EQ content database is not configured.' });
+      }
+      return reply.badRequest('Unable to import EQ task.');
+    }
   });
 
   server.post('/:guildId/quest-tracker/folders', { preHandler: [authenticate] }, async (request, reply) => {

@@ -253,6 +253,27 @@ export interface QuestBlueprintDetailPayload {
   availableNodeTypes: QuestNodeType[];
 }
 
+export interface EqTaskSummary {
+  id: number;
+  title: string;
+  description: string | null;
+  type: number | null;
+  duration: number | null;
+  durationCode?: number | null;
+  minLevel: number | null;
+  maxLevel: number | null;
+  repeatable: boolean;
+  reward: string | null;
+  completionEmote: string | null;
+}
+
+export interface EqTaskSearchResult {
+  tasks: EqTaskSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface QuestNodeInputPayload {
   id: string;
   title: string;
@@ -1152,6 +1173,33 @@ function normalizeQuestBlueprintDetail(raw: any): QuestBlueprintDetailPayload {
   };
 }
 
+function normalizeEqTaskSummary(raw: any): EqTaskSummary {
+  return {
+    id: Number(raw?.id) || 0,
+    title: typeof raw?.title === 'string' ? raw.title : 'Task',
+    description: typeof raw?.description === 'string' ? raw.description : null,
+    type: Number.isFinite(Number(raw?.type)) ? Number(raw.type) : null,
+    duration: Number.isFinite(Number(raw?.duration)) ? Number(raw.duration) : null,
+    durationCode: Number.isFinite(Number(raw?.durationCode ?? raw?.duration_code))
+      ? Number(raw.durationCode ?? raw.duration_code)
+      : null,
+    minLevel: Number.isFinite(Number(raw?.minLevel ?? raw?.min_level))
+      ? Number(raw.minLevel ?? raw.min_level)
+      : null,
+    maxLevel: Number.isFinite(Number(raw?.maxLevel ?? raw?.max_level))
+      ? Number(raw.maxLevel ?? raw.max_level)
+      : null,
+    repeatable: Boolean(raw?.repeatable),
+    reward: typeof raw?.reward === 'string' ? raw.reward : null,
+    completionEmote:
+      typeof raw?.completionEmote === 'string'
+        ? raw.completionEmote
+        : typeof raw?.completion_emote === 'string'
+          ? raw.completion_emote
+          : null
+  };
+}
+
 function normalizeRaidSignup(raw: any): RaidSignup {
   const fallbackCharacterName =
     typeof raw?.character?.name === 'string'
@@ -1582,6 +1630,39 @@ export const api = {
   ): Promise<QuestBlueprintSummaryLite> {
     const response = await axios.post(`/api/guilds/${guildId}/quest-tracker/blueprints`, payload);
     return normalizeQuestBlueprintSummary(response.data.blueprint);
+  },
+
+  async importQuestBlueprintFromTask(
+    guildId: string,
+    payload: { taskId: number }
+  ): Promise<QuestBlueprintSummaryLite> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/quest-tracker/blueprints/import-task`,
+      payload
+    );
+    return normalizeQuestBlueprintSummary(response.data.blueprint);
+  },
+
+  async searchEqTasks(
+    guildId: string,
+    params: { query?: string; page?: number; pageSize?: number }
+  ): Promise<EqTaskSearchResult> {
+    const response = await axios.get(`/api/guilds/${guildId}/quest-tracker/eq-tasks`, {
+      params: {
+        q: params.query,
+        page: params.page,
+        pageSize: params.pageSize
+      }
+    });
+    const tasks = Array.isArray(response.data.tasks)
+      ? response.data.tasks.map((task: any) => normalizeEqTaskSummary(task))
+      : [];
+    return {
+      tasks,
+      total: Number(response.data.total) || 0,
+      page: Number(response.data.page) || 1,
+      pageSize: Number(response.data.pageSize) || params.pageSize || 10
+    };
   },
 
   async createQuestFolder(

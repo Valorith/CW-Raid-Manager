@@ -999,8 +999,18 @@
 
 <div v-if="showCreateModal" class="quest-modal">
   <div class="quest-modal__content">
-      <header>
-        <h3>New Quest Blueprint</h3>
+      <header class="quest-modal__header">
+        <div class="quest-modal__title">
+          <h3>New Quest Blueprint</h3>
+          <button
+            v-if="isAdmin"
+            class="btn btn--ghost btn--tiny"
+            type="button"
+            @click="openTaskImportModal"
+          >
+            Import EQ Task
+          </button>
+        </div>
         <button class="btn btn--icon" type="button" @click="closeCreateModal">×</button>
       </header>
       <label class="form-label">Title</label>
@@ -1013,6 +1023,106 @@
           {{ creatingBlueprint ? 'Creating…' : 'Create Blueprint' }}
         </button>
       </div>
+  </div>
+</div>
+
+<div v-if="showTaskImportModal" class="quest-modal">
+  <div class="quest-modal__content quest-modal__content--wide">
+    <header class="quest-modal__header">
+      <h3>Import EQ Task</h3>
+      <button class="btn btn--icon" type="button" @click="closeTaskImportModal">×</button>
+    </header>
+    <p class="quest-modal__hint">
+      Search the EQEmu task table and import objectives as a quest blueprint. Requires an EQ content database connection.
+    </p>
+    <div class="task-import__controls">
+      <input
+        v-model="eqTaskSearch.query"
+        type="search"
+        class="input"
+        placeholder="Search by task title or ID"
+        @keyup.enter="loadEqTasks()"
+      />
+      <button class="btn btn--secondary" type="button" :disabled="eqTaskLoading" @click="loadEqTasks()">
+        {{ eqTaskLoading ? 'Searching…' : 'Search' }}
+      </button>
+    </div>
+    <p v-if="eqTaskError" class="quest-modal__error">{{ eqTaskError }}</p>
+    <div v-if="eqTaskLoading" class="task-import__results">
+      <p>Searching tasks…</p>
+    </div>
+    <div v-else class="task-import__results-wrapper">
+      <div v-if="eqTaskTotalPages > 1" class="task-import__pagination task-import__pagination--top">
+        <button
+          class="btn btn--tiny"
+          type="button"
+          :disabled="eqTaskSearch.page === 1 || eqTaskLoading"
+          @click="changeEqTaskPage(eqTaskSearch.page - 1)"
+        >
+          Previous
+        </button>
+        <span class="task-import__page-info">
+          Page {{ eqTaskSearch.page }} of {{ eqTaskTotalPages }}
+        </span>
+        <button
+          class="btn btn--tiny"
+          type="button"
+          :disabled="eqTaskSearch.page === eqTaskTotalPages || eqTaskLoading"
+          @click="changeEqTaskPage(eqTaskSearch.page + 1)"
+        >
+          Next
+        </button>
+      </div>
+      <div class="task-import__results">
+        <div v-if="!eqTaskResults.length" class="quest-blueprint-empty">No tasks found.</div>
+        <table v-else class="task-import__table">
+          <thead>
+            <tr>
+              <th>ID</th>
+            <th>Title</th>
+            <th>Level</th>
+            <th>Repeatable</th>
+            <th>Type</th>
+            <th>Duration</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="task in eqTaskResults" :key="task.id">
+            <td>{{ task.id }}</td>
+            <td>
+              <div class="task-import__title">
+                <strong>{{ task.title }}</strong>
+                <small v-if="task.description" class="muted">{{ task.description }}</small>
+              </div>
+            </td>
+            <td>
+              <span v-if="task.minLevel || task.maxLevel">
+                {{ task.minLevel ?? '?' }}-{{ task.maxLevel ?? '?' }}
+              </span>
+              <span v-else class="muted">Any</span>
+            </td>
+            <td>{{ task.repeatable ? 'Yes' : 'No' }}</td>
+            <td>{{ task.type ?? '—' }}</td>
+            <td>
+              <span v-if="task.duration">{{ task.duration }}s</span>
+              <span v-else class="muted">—</span>
+            </td>
+            <td class="task-import__actions">
+              <button
+                class="btn btn--primary btn--tiny"
+                type="button"
+                :disabled="importingTaskId === task.id"
+                @click="importEqTask(task.id)"
+              >
+                {{ importingTaskId === task.id ? 'Importing…' : 'Import' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+          </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1319,6 +1429,7 @@ import {
   type QuestNodeLinkViewModel,
   type QuestNodeProgress,
   type QuestTrackerSummary,
+  type EqTaskSummary,
   type UserCharacter
 } from '../services/api';
 import {
@@ -1358,6 +1469,16 @@ const activeTab = ref<'overview' | 'editor' | 'guild'>('overview');
 const isCanvasView = computed(() => activeTab.value === 'overview' || activeTab.value === 'guild');
 const isGuildView = computed(() => activeTab.value === 'guild');
 const showCreateModal = ref(false);
+const showTaskImportModal = ref(false);
+const eqTaskSearch = reactive({ query: '', page: 1, pageSize: 10 });
+const eqTaskResults = ref<EqTaskSummary[]>([]);
+const eqTaskTotal = ref(0);
+const eqTaskLoading = ref(false);
+const eqTaskError = ref<string | null>(null);
+const importingTaskId = ref<number | null>(null);
+const eqTaskTotalPages = computed(() =>
+  Math.max(1, Math.ceil((eqTaskTotal.value || 0) / (eqTaskSearch.pageSize || 1)))
+);
 const metadataSaving = ref(false);
 const lastSavedAt = ref<string | null>(null);
 const lastSavedBy = ref<string>('Unknown member');
@@ -5957,6 +6078,23 @@ function closeCreateModal() {
   showCreateModal.value = false;
 }
 
+function openTaskImportModal() {
+  if (!isAdmin.value) {
+    window.alert('Only admins can import EQ tasks.');
+    return;
+  }
+  showTaskImportModal.value = true;
+  eqTaskError.value = null;
+  if (!eqTaskResults.value.length) {
+    loadEqTasks();
+  }
+}
+
+function closeTaskImportModal() {
+  showTaskImportModal.value = false;
+  importingTaskId.value = null;
+}
+
 async function createBlueprint() {
   if (!newBlueprintForm.title.trim()) {
     window.alert('Blueprint title is required.');
@@ -5973,6 +6111,52 @@ async function createBlueprint() {
     closeCreateModal();
   } finally {
     creatingBlueprint.value = false;
+  }
+}
+
+async function loadEqTasks(page?: number) {
+  if (page) {
+    eqTaskSearch.page = page;
+  }
+  eqTaskLoading.value = true;
+  eqTaskError.value = null;
+  try {
+    const result = await api.searchEqTasks(guildId, {
+      query: eqTaskSearch.query.trim() || undefined,
+      page: eqTaskSearch.page,
+      pageSize: eqTaskSearch.pageSize
+    });
+    eqTaskResults.value = result.tasks;
+    eqTaskTotal.value = result.total;
+    eqTaskSearch.page = result.page;
+    eqTaskSearch.pageSize = result.pageSize;
+  } catch (error) {
+    eqTaskError.value = extractErrorMessage(error, 'Unable to search EQ tasks.');
+  } finally {
+    eqTaskLoading.value = false;
+  }
+}
+
+function changeEqTaskPage(page: number) {
+  if (page < 1 || page === eqTaskSearch.page || page > eqTaskTotalPages.value) {
+    return;
+  }
+  loadEqTasks(page);
+}
+
+async function importEqTask(taskId: number) {
+  importingTaskId.value = taskId;
+  eqTaskError.value = null;
+  try {
+    const blueprint = await api.importQuestBlueprintFromTask(guildId, { taskId });
+    await loadSummary();
+    selectBlueprint(blueprint.id);
+    closeTaskImportModal();
+    closeCreateModal();
+  } catch (error) {
+    eqTaskError.value = extractErrorMessage(error, 'Unable to import EQ task.');
+  } finally {
+    importingTaskId.value = null;
   }
 }
 
@@ -8467,6 +8651,114 @@ onUnmounted(() => {
 .quest-export-toolbar__buttons {
   display: inline-flex;
   gap: 0.5rem;
+}
+
+.quest-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.quest-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.quest-modal__content--wide {
+  max-width: 980px;
+  width: 90vw;
+}
+
+.quest-modal__hint {
+  margin: 0 0 0.75rem;
+  color: #6b7280;
+}
+
+.quest-modal__error {
+  color: #dc2626;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.task-import__controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.task-import__results {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.task-import__results-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.task-import__table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #1f2937;
+  background: #0f172a;
+}
+
+.task-import__table th,
+.task-import__table td {
+  padding: 0.5rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid #1f2937;
+  color: #e5e7eb;
+}
+
+.task-import__table th {
+  background: #0b1220;
+  color: #cbd5e1;
+}
+
+.task-import__table tbody tr {
+  background: #111827;
+}
+
+.task-import__table tbody tr:nth-child(odd) {
+  background: #152033;
+}
+
+.task-import__table tbody tr:hover {
+  background: #1e293b;
+}
+
+.task-import__title strong {
+  display: block;
+}
+
+.task-import__title .muted {
+  display: block;
+}
+
+.task-import__actions {
+  text-align: right;
+}
+
+.task-import__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.task-import__pagination--top {
+  margin-top: 0;
+  justify-content: space-between;
+}
+
+.task-import__page-info {
+  color: #6b7280;
 }
 
 @media (max-width: 720px) {

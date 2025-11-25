@@ -15,6 +15,11 @@ import {
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
+import {
+  EqTaskActivity,
+  EqTaskDefinition,
+  loadEqTaskWithActivities
+} from './eqTaskService.js';
 
 const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
   QuestAssignmentStatus.ACTIVE,
@@ -750,6 +755,294 @@ function extractTargetCount(requirements: Record<string, unknown>): number {
   return 0;
 }
 
+function mapActivityTypeToNodeType(activityType: number): QuestNodeType {
+  switch (activityType) {
+    case 1:
+      return QuestNodeType.DELIVER;
+    case 2:
+      return QuestNodeType.KILL;
+    case 3:
+      return QuestNodeType.LOOT;
+    case 4:
+      return QuestNodeType.SPEAK_WITH;
+    case 5:
+      return QuestNodeType.EXPLORE;
+    case 6:
+      return QuestNodeType.TRADESKILL;
+    case 7:
+      return QuestNodeType.FISH;
+    case 8:
+      return QuestNodeType.FORAGE;
+    case 9:
+    case 10:
+      return QuestNodeType.USE;
+    case 11:
+      return QuestNodeType.TOUCH;
+    case 100:
+      return QuestNodeType.GIVE_CASH;
+    default:
+      return QuestNodeType.EXPLORE;
+  }
+}
+
+function buildActivityRequirements(activity: EqTaskActivity): Record<string, unknown> {
+  const requirements: Record<string, unknown> = {};
+  if (activity.goalCount != null) {
+    requirements.count = activity.goalCount;
+  }
+  if (activity.goalId != null) {
+    requirements.goalId = activity.goalId;
+  }
+  if (activity.goalMethod != null) {
+    requirements.goalMethod = activity.goalMethod;
+  }
+  if (activity.goalMatchList) {
+    requirements.goalMatchList = activity.goalMatchList;
+  }
+  if (activity.targetName) {
+    requirements.targetName = activity.targetName;
+  }
+  if (activity.itemList) {
+    requirements.itemList = activity.itemList;
+  }
+  if (activity.skillList) {
+    requirements.skillList = activity.skillList;
+  }
+  if (activity.spellList) {
+    requirements.spellList = activity.spellList;
+  }
+  if (activity.zones) {
+    requirements.zones = activity.zones;
+  }
+  if (activity.zoneVersion != null) {
+    requirements.zoneVersion = activity.zoneVersion;
+  }
+  const hasBounds =
+    activity.minX != null ||
+    activity.minY != null ||
+    activity.minZ != null ||
+    activity.maxX != null ||
+    activity.maxY != null ||
+    activity.maxZ != null;
+  if (hasBounds) {
+    requirements.bounds = {
+      minX: activity.minX,
+      minY: activity.minY,
+      minZ: activity.minZ,
+      maxX: activity.maxX,
+      maxY: activity.maxY,
+      maxZ: activity.maxZ
+    };
+  }
+  if (activity.listGroup != null) {
+    requirements.listGroup = activity.listGroup;
+  }
+  if (activity.requiredActivityId != null) {
+    requirements.requiredActivityId = activity.requiredActivityId;
+  }
+  return requirements;
+}
+
+function buildActivityMetadata(activity: EqTaskActivity): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {
+    activityType: activity.activityType
+  };
+  if (activity.dzSwitchId != null) {
+    metadata.dzSwitchId = activity.dzSwitchId;
+  }
+  if (activity.optional) {
+    metadata.isOptional = true;
+  }
+  return metadata;
+}
+
+function describeActivity(activity: EqTaskActivity): string | null {
+  if (activity.descriptionOverride?.trim()) {
+    return activity.descriptionOverride.trim();
+  }
+  if (activity.targetName?.trim()) {
+    return activity.targetName.trim();
+  }
+  return null;
+}
+
+function summarizeZone(activity: EqTaskActivity): string | null {
+  if (activity.zones?.trim()) {
+    return `Zones: ${activity.zones.trim()}`;
+  }
+  return null;
+}
+
+function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActivity[]) {
+  const sanitizeSummary = (raw: string | null | undefined): string | null => {
+    if (!raw) {
+      return null;
+    }
+    const text = raw.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim();
+    if (!text) {
+      return null;
+    }
+    return text.length > 500 ? `${text.slice(0, 497)}...` : text;
+  };
+
+  const nodes: Array<{
+    id: string;
+    title: string;
+    description?: string | null;
+    nodeType: QuestNodeType;
+    position: { x: number; y: number };
+    sortOrder: number;
+    requirements?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+    isGroup?: boolean;
+    isOptional?: boolean;
+  }> = [];
+  const links: Array<{
+    id: string;
+    parentNodeId: string;
+    childNodeId: string;
+    conditions?: Record<string, unknown>;
+  }> = [];
+
+  const grouped = new Map<number, EqTaskActivity[]>();
+  for (const activity of activities) {
+    const step = activity.step ?? 0;
+    const list = grouped.get(step) ?? [];
+    list.push(activity);
+    grouped.set(step, list);
+  }
+  const stepValues = [...grouped.keys()].sort((a, b) => a - b);
+  const STEP_SPACING = 360;
+  const CHILD_SPACING = 180;
+  const GROUP_Y = -80;
+  const GROUP_HEIGHT = 120;
+  const GROUP_CHILD_PADDING = 200;
+
+  let previousGroupId: string | null = null;
+  let sortCursor = 0;
+
+  stepValues.forEach((stepValue, stepIndex) => {
+    const activitiesForStep = grouped.get(stepValue) ?? [];
+    const hasMultipleActivities = activitiesForStep.length > 1;
+    let anchorId: string;
+
+    if (hasMultipleActivities) {
+      const groupId = randomUUID();
+      const groupTitle = `Step ${stepIndex + 1}`;
+      nodes.push({
+        id: groupId,
+        title: groupTitle,
+        description: stepValue > 0 ? `Complete Step ${stepIndex + 1}` : 'Intro Step',
+        nodeType: QuestNodeType.EXPLORE,
+        position: { x: stepIndex * STEP_SPACING, y: GROUP_Y },
+        sortOrder: sortCursor,
+        metadata: { isGroup: true, eqTaskId: task.id, step: stepValue },
+        requirements: { step: stepValue }
+      });
+      anchorId = groupId;
+
+      const childStartY = GROUP_Y + GROUP_HEIGHT + GROUP_CHILD_PADDING;
+      activitiesForStep.forEach((activity, index) => {
+        const nodeId = randomUUID();
+        const nodeType = mapActivityTypeToNodeType(activity.activityType);
+        const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
+        const description = summarizeZone(activity);
+        nodes.push({
+          id: nodeId,
+          title,
+          description,
+          nodeType,
+          position: {
+            x: stepIndex * STEP_SPACING,
+            y: childStartY + index * CHILD_SPACING
+          },
+          sortOrder: sortCursor + index + 1,
+          requirements: { ...buildActivityRequirements(activity), step: stepValue },
+          metadata: buildActivityMetadata(activity),
+          isOptional: activity.optional
+        });
+        links.push({
+          id: randomUUID(),
+          parentNodeId: groupId,
+          childNodeId: nodeId,
+          conditions: { step: stepValue }
+        });
+      });
+
+      sortCursor += Math.max(activitiesForStep.length + 1, 2) * 10;
+    } else {
+      const activity = activitiesForStep[0];
+      const nodeId = randomUUID();
+      const nodeType = mapActivityTypeToNodeType(activity.activityType);
+      const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
+      const description = summarizeZone(activity);
+      nodes.push({
+        id: nodeId,
+        title,
+        description,
+        nodeType,
+        position: { x: stepIndex * STEP_SPACING, y: 0 },
+        sortOrder: sortCursor,
+        requirements: { ...buildActivityRequirements(activity), step: stepValue },
+        metadata: buildActivityMetadata(activity),
+        isOptional: activity.optional
+      });
+      anchorId = nodeId;
+      sortCursor += 10;
+    }
+
+    if (previousGroupId) {
+      links.push({
+        id: randomUUID(),
+        parentNodeId: previousGroupId,
+        childNodeId: anchorId,
+        conditions: { [NEXT_STEP_CONDITION_KEY]: true }
+      });
+    }
+
+    previousGroupId = anchorId;
+  });
+
+  if (nodes.length) {
+    const lastStep = stepValues[stepValues.length - 1] ?? 0;
+    const lastStepNodes = nodes.filter(
+      (node) => !node.isGroup && node.requirements?.step === lastStep
+    );
+    for (const node of lastStepNodes) {
+      node.metadata = { ...(node.metadata ?? {}), isFinal: true };
+    }
+  }
+
+  const metadata: Record<string, unknown> = {
+    source: 'eq_task',
+    taskId: task.id,
+    taskType: task.type,
+    minLevel: task.minLevel,
+    maxLevel: task.maxLevel,
+    repeatable: task.repeatable,
+    duration: task.duration,
+    durationCode: task.durationCode,
+    completionEmote: task.completionEmote,
+    reward: {
+      text: task.reward,
+      itemId: task.rewardId,
+      method: task.rewardMethod,
+      cash: task.cashReward,
+      experience: task.xpReward
+    }
+  };
+
+  const summary = sanitizeSummary(task.description) ?? sanitizeSummary(task.completionEmote);
+
+  return {
+    title: task.title || `Task ${task.id}`,
+    summary,
+    metadata,
+    nodes,
+    links
+  };
+}
+
 export async function listGuildQuestTrackerSummary(options: {
   guildId: string;
   viewerUserId: string;
@@ -883,6 +1176,100 @@ export async function createQuestBlueprint(options: {
   });
 
   return mapBlueprintSummary(blueprint, 0, getDefaultAssignmentCounts(), undefined);
+}
+
+export async function importQuestBlueprintFromTask(options: {
+  guildId: string;
+  actorUserId: string;
+  actorRole: GuildRole | null | undefined;
+  taskId: number;
+}): Promise<QuestBlueprintSummary> {
+  const eqTask = await loadEqTaskWithActivities(options.taskId);
+  if (!eqTask) {
+    throw new Error('EQ task not found.');
+  }
+
+  const creatorName = await resolveUserDisplayName(options.actorUserId);
+  const folderSortOrder = await getNextBlueprintSortOrder(options.guildId, null);
+  const { title, summary, metadata, nodes, links } = buildTaskBlueprintGraph(eqTask.task, eqTask.activities);
+
+  return prisma.$transaction(async (tx) => {
+    const blueprint = await tx.questBlueprint.create({
+      data: {
+        guildId: options.guildId,
+        createdById: options.actorUserId,
+        title,
+        summary: summary ?? null,
+        visibility: 'GUILD',
+        metadata,
+        lastEditedById: options.actorUserId,
+        lastEditedByName: creatorName,
+        folderSortOrder
+      },
+      include: {
+        createdBy: { select: USER_NAME_FIELDS }
+      }
+    });
+
+    if (nodes.length) {
+      await tx.questNode.createMany({
+        data: nodes.map((node) => {
+          const baseMetadata = sanitizeJsonInput(node.metadata);
+          if (node.isGroup) {
+            baseMetadata.isGroup = true;
+          }
+          if (baseMetadata.isOptional && !node.isOptional) {
+            delete baseMetadata.isOptional;
+          } else if (node.isOptional) {
+            baseMetadata.isOptional = true;
+          }
+          return {
+            id: node.id,
+            blueprintId: blueprint.id,
+            title: node.title,
+            description: node.description ?? null,
+            nodeType: node.nodeType,
+            positionX: Math.round(node.position.x),
+            positionY: Math.round(node.position.y),
+            sortOrder: node.sortOrder,
+            requirements: sanitizeJsonInput(node.requirements),
+            metadata: baseMetadata
+          } satisfies Prisma.QuestNodeUncheckedCreateInput;
+        })
+      });
+    }
+
+    if (links.length) {
+      await tx.questNodeLink.createMany({
+        data: links.map((link) => ({
+          id: link.id,
+          blueprintId: blueprint.id,
+          parentNodeId: link.parentNodeId,
+          childNodeId: link.childNodeId,
+          conditions: sanitizeJsonInput(link.conditions)
+        }))
+      });
+    }
+
+    await refreshSummariesForBlueprint(blueprint.id, tx);
+
+    const stepCountMap = computeShortestPathMap(
+      [blueprint.id],
+      nodes.map((node) => ({
+        id: node.id,
+        blueprintId: blueprint.id,
+        metadata: node.metadata ?? {}
+      })),
+      links.map((link) => ({
+        blueprintId: blueprint.id,
+        parentNodeId: link.parentNodeId,
+        childNodeId: link.childNodeId
+      }))
+    );
+    const nodeCount = stepCountMap.get(blueprint.id) ?? nodes.length;
+
+    return mapBlueprintSummary(blueprint, nodeCount, getDefaultAssignmentCounts(), undefined);
+  });
 }
 
 export async function createQuestBlueprintFolder(options: {
