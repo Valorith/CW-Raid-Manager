@@ -175,6 +175,61 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
   const uniqueLooters = new Map<string, { name: string; looterClass: string | null }>();
   const attendanceCharacterKeys = new Set<string>();
 
+  const userIds = Array.from(
+    new Set(
+      attendanceRecordsRaw
+        .map((record) => record.character?.userId ?? record.character?.user?.id ?? null)
+        .filter(Boolean) as string[]
+    )
+  );
+
+  const userMainCharacters = userIds.length
+    ? await prisma.character.findMany({
+        where: {
+          userId: { in: userIds },
+          isMain: true,
+          guildId
+        },
+        select: {
+          id: true,
+          name: true,
+          class: true,
+          userId: true,
+          user: {
+            select: {
+              displayName: true
+            }
+          }
+        }
+      })
+    : [];
+  const mainByUserId = new Map<string, typeof userMainCharacters>();
+  for (const main of userMainCharacters) {
+    const list = mainByUserId.get(main.userId) ?? [];
+    list.push(main);
+    mainByUserId.set(main.userId, list);
+  }
+
+  const registerCharacter = (entry: GuildMetricsFilterOptions['characters'][number], key: string) => {
+    const existing = uniqueCharacters.get(key);
+    if (existing) {
+      uniqueCharacters.set(key, {
+        ...existing,
+        class: existing.class ?? entry.class,
+        userId: existing.userId ?? entry.userId,
+        userDisplayName: existing.userDisplayName ?? entry.userDisplayName,
+        isMain: existing.isMain || entry.isMain
+      });
+    } else {
+      uniqueCharacters.set(key, entry);
+    }
+    attendanceCharacterKeys.add(key);
+  };
+
+  const pushAttendanceRecord = (record: AttendanceMetricRecord) => {
+    attendanceRecords.push(record);
+  };
+
   for (const record of attendanceRecordsRaw) {
     const raid = record.attendanceEvent.raid;
     if (raid) {
@@ -200,37 +255,13 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
 
     if (characterId) {
       const key = `id:${characterId}`;
-      const existing = uniqueCharacters.get(key);
-      if (existing) {
-        uniqueCharacters.set(key, {
-          ...existing,
-          class: existing.class ?? characterEntry.class,
-          userId: existing.userId ?? characterEntry.userId,
-          userDisplayName: existing.userDisplayName ?? characterEntry.userDisplayName,
-          isMain: existing.isMain || characterEntry.isMain
-        });
-      } else {
-        uniqueCharacters.set(key, characterEntry);
-      }
-      attendanceCharacterKeys.add(`id:${characterId}`);
+      registerCharacter(characterEntry, key);
     } else {
       const key = `name:${characterName.toLowerCase()}`;
-      const existing = uniqueCharacters.get(key);
-      if (existing) {
-        uniqueCharacters.set(key, {
-          ...existing,
-          class: existing.class ?? characterEntry.class,
-          userId: existing.userId ?? characterEntry.userId,
-          userDisplayName: existing.userDisplayName ?? characterEntry.userDisplayName,
-          isMain: existing.isMain || characterEntry.isMain
-        });
-      } else {
-        uniqueCharacters.set(key, characterEntry);
-      }
-      attendanceCharacterKeys.add(key);
+      registerCharacter(characterEntry, key);
     }
 
-    attendanceRecords.push({
+    pushAttendanceRecord({
       id: record.id,
       status: record.status,
       timestamp: record.attendanceEvent.createdAt.toISOString(),
@@ -249,6 +280,48 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
         userDisplayName: record.character?.user?.displayName ?? null
       }
     });
+
+    const userId = record.character?.userId ?? record.character?.user?.id ?? null;
+    const isMain = Boolean(record.character?.isMain);
+    if (userId && !isMain) {
+      const mains = mainByUserId.get(userId) ?? [];
+      for (const main of mains) {
+        if (main.id === characterId) {
+          continue;
+        }
+        const mainKey = main.id ? `id:${main.id}` : `name:${main.name.toLowerCase()}`;
+        registerCharacter(
+          {
+            id: main.id,
+            name: main.name,
+            class: main.class,
+            userId: main.userId,
+            userDisplayName: main.user?.displayName ?? null,
+            isMain: true
+          },
+          mainKey
+        );
+        pushAttendanceRecord({
+          id: `${record.id}:main:${main.id ?? main.name}`,
+          status: record.status,
+          timestamp: record.attendanceEvent.createdAt.toISOString(),
+          eventType: record.attendanceEvent.eventType,
+          raid: {
+            id: raid?.id ?? '',
+            name: raid?.name ?? 'Unknown Raid',
+            startTime: toIsoString(raid?.startTime)
+          },
+          character: {
+            id: main.id,
+            name: main.name,
+            class: main.class,
+            isMain: true,
+            userId: main.userId,
+            userDisplayName: main.user?.displayName ?? null
+          }
+        });
+      }
+    }
   }
 
   for (const event of lootEventsRaw) {
