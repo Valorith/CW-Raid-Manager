@@ -135,6 +135,31 @@ export interface GuildPermissions {
   userRole?: GuildRole | null;
 }
 
+export type GuildBankLocation = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
+
+export interface GuildBankCharacter {
+  id: string;
+  name: string;
+  createdAt: string;
+  foundInEq?: boolean;
+}
+
+export interface GuildBankItem {
+  characterName: string;
+  slotId: number;
+  location: GuildBankLocation;
+  itemId?: number | null;
+  itemName: string;
+  itemIconId?: number | null;
+  charges?: number | null;
+}
+
+export interface GuildBankSnapshot {
+  characters: GuildBankCharacter[];
+  items: GuildBankItem[];
+  missingCharacters: string[];
+}
+
 export interface QuestProgressSummary {
   totalNodes: number;
   completed: number;
@@ -384,7 +409,7 @@ export interface GuildMetricsQuery {
   endDate?: string;
 }
 
-export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION';
+export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK';
 
 export interface DiscordWebhookEventDefinition {
   key: string;
@@ -1447,6 +1472,78 @@ function normalizeGuildNpcNote(note: any): GuildNpcNote {
   };
 }
 
+function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
+  return {
+    id: typeof raw?.id === 'string' ? raw.id : '',
+    name: typeof raw?.name === 'string' ? raw.name : 'Unknown',
+    createdAt: normalizeDateString(raw?.createdAt) ?? '',
+    foundInEq: raw?.foundInEq === true
+  };
+}
+
+function normalizeGuildBankItem(raw: any): GuildBankItem {
+  const location =
+    raw?.location === 'WORN' ||
+    raw?.location === 'PERSONAL' ||
+    raw?.location === 'CURSOR' ||
+    raw?.location === 'BANK'
+      ? raw.location
+      : 'PERSONAL';
+
+  const itemId =
+    typeof raw?.itemId === 'number'
+      ? raw.itemId
+      : typeof raw?.itemId === 'string'
+        ? Number.parseInt(raw.itemId, 10) || null
+        : null;
+
+  const itemIconId =
+    typeof raw?.itemIconId === 'number'
+      ? raw.itemIconId
+      : typeof raw?.itemIconId === 'string'
+        ? Number.parseInt(raw.itemIconId, 10) || null
+        : null;
+
+  const charges =
+    typeof raw?.charges === 'number'
+      ? raw.charges
+      : typeof raw?.charges === 'string'
+        ? Number.parseInt(raw.charges, 10) || null
+        : null;
+
+  return {
+    characterName: typeof raw?.characterName === 'string' ? raw.characterName : 'Unknown',
+    slotId:
+      typeof raw?.slotId === 'number'
+        ? raw.slotId
+        : typeof raw?.slotId === 'string'
+          ? Number.parseInt(raw.slotId, 10) || 0
+          : 0,
+    location,
+    itemId,
+    itemName: typeof raw?.itemName === 'string' ? raw.itemName : 'Unknown Item',
+    itemIconId,
+    charges: charges ?? null
+  };
+}
+
+function normalizeGuildBankSnapshot(raw: any): GuildBankSnapshot {
+  const characters = Array.isArray(raw?.characters)
+    ? raw.characters.map((entry: any) => normalizeGuildBankCharacter(entry))
+    : [];
+  const items = Array.isArray(raw?.items)
+    ? raw.items.map((entry: any) => normalizeGuildBankItem(entry))
+    : [];
+
+  return {
+    characters,
+    items,
+    missingCharacters: Array.isArray(raw?.missingCharacters)
+      ? raw.missingCharacters.filter((entry: any) => typeof entry === 'string')
+      : []
+  };
+}
+
 function normalizeLootMetricEvent(raw: any): LootMetricEvent {
   const raid = raw?.raid ?? {};
   return {
@@ -1601,6 +1698,27 @@ export const api = {
   async fetchGuildDetail(guildId: string): Promise<GuildDetail> {
     const response = await axios.get(`/api/guilds/${guildId}`);
     return response.data.guild;
+  },
+
+  async fetchGuildBank(guildId: string): Promise<GuildBankSnapshot> {
+    const response = await axios.get(`/api/guilds/${guildId}/guild-bank`);
+    return normalizeGuildBankSnapshot(response.data);
+  },
+
+  async requestGuildBankItems(
+    guildId: string,
+    items: Array<{ itemId?: number | null; itemName: string; quantity: number }>
+  ): Promise<void> {
+    await axios.post(`/api/guilds/${guildId}/guild-bank/request-items`, { items });
+  },
+
+  async addGuildBankCharacter(guildId: string, name: string): Promise<GuildBankCharacter> {
+    const response = await axios.post(`/api/guilds/${guildId}/guild-bank/characters`, { name });
+    return normalizeGuildBankCharacter(response.data.character);
+  },
+
+  async deleteGuildBankCharacter(guildId: string, characterId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/guild-bank/characters/${characterId}`);
   },
 
   async fetchQuestTracker(guildId: string): Promise<QuestTrackerSummary> {

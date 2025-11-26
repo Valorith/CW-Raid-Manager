@@ -22,6 +22,12 @@
           Metrics
         </RouterLink>
         <RouterLink
+          class="guild-action-button guild-action-button--bank"
+          :to="{ name: 'GuildBank', params: { guildId } }"
+        >
+          Guild Bank
+        </RouterLink>
+        <RouterLink
           v-if="canViewQuestTracker"
           class="guild-action-button guild-action-button--quest"
           :to="{ name: 'GuildQuestTracker', params: { guildId }, query: { guildName: guild?.name } }"

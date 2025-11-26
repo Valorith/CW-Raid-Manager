@@ -60,11 +60,25 @@ model Guild {
   raidSeries           RaidEventSeries[]
   npcKillEvents       RaidNpcKillEvent[]
   npcNotes            GuildNpcNote[]
+  guildBankCharacters GuildBankCharacter[]
   questBlueprints    QuestBlueprint[]
   questAssignments   QuestAssignment[]
   questBlueprintFolders QuestBlueprintFolder[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
+}
+
+model GuildBankCharacter {
+  id              String   @id @default(cuid())
+  guildId         String
+  name            String
+  normalizedName  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, normalizedName])
+  @@index([guildId])
 }
 
 model GuildDiscordWebhook {

@@ -12,6 +12,7 @@ import { lootListRoutes } from './lootLists.js';
 import { guildMetricsRoutes } from './metrics.js';
 import { npcNotesRoutes } from './npcNotes.js';
 import { questTrackerRoutes } from './questTracker.js';
+import { guildBankRoutes } from './guildBank.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -20,6 +21,7 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(guildMetricsRoutes, { prefix: '/api/guilds' });
   server.register(npcNotesRoutes, { prefix: '/api/guilds' });
   server.register(questTrackerRoutes, { prefix: '/api/guilds' });
+  server.register(guildBankRoutes, { prefix: '/api/guilds' });
   server.register(charactersRoutes, { prefix: '/api/characters' });
   server.register(raidsRoutes, { prefix: '/api/raids' });
   server.register(lootRoutes, { prefix: '/api' });

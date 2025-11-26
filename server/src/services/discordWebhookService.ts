@@ -18,12 +18,13 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'attendance.updated',
   'application.submitted',
   'application.approved',
-  'application.denied'
+  'application.denied',
+  'bank.requested'
 ] as const;
 
 export type DiscordWebhookEvent = (typeof DISCORD_WEBHOOK_EVENT_KEYS)[number];
 
-export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION';
+export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK';
 
 export interface DiscordWebhookEventDefinition {
   key: DiscordWebhookEvent;
@@ -110,6 +111,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     label: 'Application Denied',
     description: 'Sent when an application is denied or withdrawn by staff.',
     category: 'APPLICATION'
+  },
+  {
+    key: 'bank.requested',
+    label: 'Guild Bank Request',
+    description: 'Triggered when a guild member requests items from the guild bank.',
+    category: 'BANK'
   }
 ];
 
@@ -126,7 +133,8 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'attendance.updated': true,
   'application.submitted': false,
   'application.approved': true,
-  'application.denied': true
+  'application.denied': true,
+  'bank.requested': false
 });
 
 export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean> = Object.freeze({
@@ -142,7 +150,8 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'attendance.updated': false,
   'application.submitted': false,
   'application.approved': false,
-  'application.denied': false
+  'application.denied': false,
+  'bank.requested': false
 });
 
 export interface GuildDiscordWebhookSettings {
@@ -429,6 +438,18 @@ type DiscordWebhookPayloadMap = {
     applicantName: string;
     actorName: string;
     resolvedAt: Date | string;
+  };
+  'bank.requested': {
+    guildId: string;
+    guildName: string;
+    requestedByName: string;
+    items: Array<{
+      itemId: number | null;
+      itemName: string;
+      itemIconId: number | null;
+      quantity: number;
+      sources: Array<{ characterName: string; location: string; quantity: number }>;
+    }>;
   };
 };
 
@@ -924,6 +945,47 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                 inline: true
               }
             ],
+            timestamp: nowIso
+          }
+        ]
+      };
+    case 'bank.requested':
+      const bankRequestPayload = payload as DiscordWebhookPayloadMap['bank.requested'];
+      if (!bankRequestPayload.items || bankRequestPayload.items.length === 0) {
+        return null;
+      }
+      const entries = bankRequestPayload.items.slice(0, 15);
+      const overflow = Math.max(bankRequestPayload.items.length - entries.length, 0);
+      const fields = entries.map((item) => {
+        const sourceLines =
+          item.sources && item.sources.length
+            ? item.sources
+                .map(
+                  (src) =>
+                    `• ${src.characterName} (${src.location ?? 'Bank'}) ×${src.quantity}`
+                )
+                .join('\n')
+            : '• Source unknown';
+        return {
+          name: `${item.itemName} ×${item.quantity}`,
+          value: sourceLines,
+          inline: false
+        };
+      });
+      if (overflow > 0) {
+        fields.push({
+          name: 'Additional items',
+          value: `${overflow} more item${overflow === 1 ? '' : 's'} requested.`,
+          inline: false
+        });
+      }
+      return {
+        embeds: [
+          {
+            title: `📦 Guild Bank Request — ${bankRequestPayload.requestedByName}`,
+            description: `Items requested for **${bankRequestPayload.guildName}**:`,
+            fields,
+            color: DISCORD_COLORS.info,
             timestamp: nowIso
           }
         ]

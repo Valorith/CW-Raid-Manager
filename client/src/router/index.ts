@@ -40,6 +40,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/guilds/:guildId/bank',
+      name: 'GuildBank',
+      component: () => import('../views/GuildBankView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/guilds/:guildId/metrics',
       name: 'GuildMetrics',
       component: () => import('../views/GuildMetricsView.vue'),

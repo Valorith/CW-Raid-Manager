@@ -248,10 +248,11 @@ const form = reactive({
 const categoryLabels: Record<DiscordWebhookEventCategory, string> = {
   RAID: 'Raid Events',
   ATTENDANCE: 'Attendance',
-  APPLICATION: 'Applications'
+  APPLICATION: 'Applications',
+  BANK: 'Guild Bank'
 };
 
-const categoryOrder: DiscordWebhookEventCategory[] = ['RAID', 'ATTENDANCE', 'APPLICATION'];
+const categoryOrder: DiscordWebhookEventCategory[] = ['RAID', 'ATTENDANCE', 'APPLICATION', 'BANK'];
 
 const mentionTargetConfigured = computed(() => {
   if (form.mentionTarget === 'ROLE') {
