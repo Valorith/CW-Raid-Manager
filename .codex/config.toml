@@ -8,3 +8,5 @@ args = [
 ]
 env = { SystemRoot = "C:\\Windows", PROGRAMFILES = "C:\\Program Files" }
 startup_timeout_ms = 20_000
+
+# Project note: use Knex for migrations; do not use Prisma for new migration work.
