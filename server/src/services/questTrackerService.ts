@@ -20,6 +20,8 @@ import {
   EqTaskDefinition,
   loadEqTaskWithActivities
 } from './eqTaskService.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { staticZoneNameMap } from '../data/zoneNames.js';
 
 const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
   QuestAssignmentStatus.ACTIVE,
@@ -866,14 +868,163 @@ function describeActivity(activity: EqTaskActivity): string | null {
   return null;
 }
 
-function summarizeZone(activity: EqTaskActivity): string | null {
-  if (activity.zones?.trim()) {
-    return `Zones: ${activity.zones.trim()}`;
+function extractZoneTokens(zones: string | null | undefined): string[] {
+  if (!zones) {
+    return [];
   }
-  return null;
+  const normalized = zones.replace(/^zones?:/i, '').trim();
+  return normalized
+    .split(/[,;|^]/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 }
 
-function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActivity[]) {
+async function buildZoneNameMap(tokens: Set<string>): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!tokens.size) {
+    return map;
+  }
+
+  tokens.forEach((token) => {
+    const hit = staticZoneNameMap[token];
+    if (hit) {
+      map.set(token, hit);
+    }
+  });
+
+  if (!isEqDbConfigured()) {
+    return map;
+  }
+
+  const numericTokens: number[] = [];
+  const shortNames: string[] = [];
+  tokens.forEach((token) => {
+    if (/^\d+$/.test(token)) {
+      numericTokens.push(Number.parseInt(token, 10));
+    } else {
+      shortNames.push(token);
+    }
+  });
+
+  if (!numericTokens.length && !shortNames.length) {
+    return map;
+  }
+
+  const clauses: string[] = [];
+  const params: Array<number[] | string[]> = [];
+  if (numericTokens.length) {
+    clauses.push('zoneidnumber IN (?)');
+    params.push(numericTokens);
+  }
+  if (shortNames.length) {
+    clauses.push('short_name IN (?)');
+    params.push(shortNames);
+  }
+  const selectColumns = 'zoneidnumber, short_name, long_name';
+  const runLookup = async (tableName: string) =>
+    queryEqDb<Array<{ zoneidnumber: number; short_name: string; long_name: string }>>(
+      `SELECT ${selectColumns} FROM ${tableName} WHERE ${clauses.join(' OR ')}`,
+      params
+    );
+
+  try {
+    let rows: Array<{ zoneidnumber: number; short_name: string; long_name: string }> = [];
+    try {
+      rows = await runLookup('zone');
+    } catch {
+      // Some schemas use "zones"; try that as a fallback.
+      rows = await runLookup('zones');
+    }
+    rows.forEach((row) => {
+      const label = row.long_name?.trim() || row.short_name?.trim();
+      if (!label) {
+        return;
+      }
+      map.set(String(row.zoneidnumber), label);
+      if (row.short_name) {
+        map.set(row.short_name, label);
+      }
+    });
+  } catch (error) {
+    // If the EQ DB lookup fails, fall back to raw values without throwing.
+    console.warn('Failed to resolve zone names from EQ DB', error);
+  }
+
+  return map;
+}
+
+function summarizeZone(
+  activity: EqTaskActivity,
+  zoneNameMap: Map<string, string> | null
+): string | null {
+  const tokens = extractZoneTokens(activity.zones);
+  if (!tokens.length) {
+    return null;
+  }
+  const labels = tokens
+    .map((token) => zoneNameMap?.get(token) ?? token)
+    .filter((entry) => entry && entry.trim().length > 0);
+  if (!labels.length) {
+    return null;
+  }
+  const unique = Array.from(new Set(labels));
+  return `Zones: ${unique.join(', ')}`;
+}
+
+async function attachZoneNamesToNodes(nodes: QuestNodeViewModel[]): Promise<void> {
+  const tokens = new Set<string>();
+  nodes.forEach((node) => {
+    const req: any = node.requirements ?? {};
+    const zonesValue = req.zones;
+    const description = node.description;
+    const collectTokens = (value: unknown) => {
+      if (typeof value === 'string') {
+        extractZoneTokens(value).forEach((token) => tokens.add(token));
+      } else if (Array.isArray(value)) {
+        value
+          .filter((entry): entry is string | number => typeof entry === 'string' || typeof entry === 'number')
+          .map((entry) => String(entry))
+          .forEach((token) => tokens.add(token.trim()));
+      }
+    };
+    collectTokens(zonesValue);
+    collectTokens(description);
+  });
+
+  if (!tokens.size) {
+    return;
+  }
+
+  const zoneNameMap = await buildZoneNameMap(tokens);
+  nodes.forEach((node) => {
+    const req: any = node.requirements ?? {};
+    const zonesValue = req.zones;
+    const zoneTokens: string[] = [];
+    const collectTokens = (value: unknown) => {
+      if (typeof value === 'string') {
+        extractZoneTokens(value).forEach((token) => zoneTokens.push(token));
+      } else if (Array.isArray(value)) {
+        value
+          .filter((entry): entry is string | number => typeof entry === 'string' || typeof entry === 'number')
+          .forEach((entry) => zoneTokens.push(String(entry).trim()));
+      }
+    };
+    collectTokens(zonesValue);
+    collectTokens(node.description);
+    if (!zoneTokens.length) {
+      return;
+    }
+    const labels = zoneTokens
+      .map((token) => zoneNameMap.get(token) ?? token)
+      .filter((label) => label && label.trim().length > 0);
+    if (!labels.length) {
+      return;
+    }
+    (node.requirements as any).zoneNames = Array.from(new Set(labels));
+  });
+}
+
+async function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActivity[]) {
   const sanitizeSummary = (raw: string | null | undefined): string | null => {
     if (!raw) {
       return null;
@@ -884,6 +1035,12 @@ function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActiv
     }
     return text.length > 500 ? `${text.slice(0, 497)}...` : text;
   };
+
+  const zoneTokens = new Set<string>();
+  activities.forEach((activity) => {
+    extractZoneTokens(activity.zones).forEach((token) => zoneTokens.add(token));
+  });
+  const zoneNameMap = await buildZoneNameMap(zoneTokens);
 
   const nodes: Array<{
     id: string;
@@ -946,7 +1103,7 @@ function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActiv
         const nodeId = randomUUID();
         const nodeType = mapActivityTypeToNodeType(activity.activityType);
         const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
-        const description = summarizeZone(activity);
+        const description = summarizeZone(activity, zoneNameMap);
         nodes.push({
           id: nodeId,
           title,
@@ -975,7 +1132,7 @@ function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTaskActiv
       const nodeId = randomUUID();
       const nodeType = mapActivityTypeToNodeType(activity.activityType);
       const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
-      const description = summarizeZone(activity);
+      const description = summarizeZone(activity, zoneNameMap);
       nodes.push({
         id: nodeId,
         title,
@@ -1191,7 +1348,10 @@ export async function importQuestBlueprintFromTask(options: {
 
   const creatorName = await resolveUserDisplayName(options.actorUserId);
   const folderSortOrder = await getNextBlueprintSortOrder(options.guildId, null);
-  const { title, summary, metadata, nodes, links } = buildTaskBlueprintGraph(eqTask.task, eqTask.activities);
+  const { title, summary, metadata, nodes, links } = await buildTaskBlueprintGraph(
+    eqTask.task,
+    eqTask.activities
+  );
 
   return prisma.$transaction(async (tx) => {
     const blueprint = await tx.questBlueprint.create({
@@ -1632,8 +1792,10 @@ export async function getQuestBlueprintDetail(options: {
     id: link.id,
     parentNodeId: link.parentNodeId,
     childNodeId: link.childNodeId,
-    conditions: normalizeJsonRecord(link.conditions)
-  }));
+      conditions: normalizeJsonRecord(link.conditions)
+    }));
+
+  await attachZoneNamesToNodes(nodes);
 
   const totalViewerSteps =
     computeShortestPathMap(

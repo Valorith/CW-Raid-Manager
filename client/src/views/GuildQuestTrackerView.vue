@@ -158,9 +158,6 @@
                     <span class="quest-blueprint-card__chip-label">steps</span>
                   </span>
                 </div>
-                <p v-if="blueprint.summary" class="quest-blueprint-card__summary">
-                  {{ blueprint.summary }}
-                </p>
                 <div class="quest-blueprint-card__stats">
                   <div class="quest-blueprint-card__stat">
                     <span class="label">Active</span>
@@ -439,10 +436,10 @@
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
-                <p v-if="node.requirements?.targetName" class="quest-node__target">
-                  Target / Item: {{ node.requirements.targetName }}
+                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
+                  Target / Item: {{ targetOrItemLabel(node) }}
                 </p>
-                <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
+                <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
                   <span class="quest-node__relations-label">Requires</span>
                   <span class="quest-node__relations-list">
@@ -674,10 +671,10 @@
                   <span class="quest-node__handle" title="Drag to move">⇲</span>
                 </header>
                   <h3>{{ node.title }}</h3>
-                <p v-if="node.requirements?.targetName" class="quest-node__target">
-                  Target / Item: {{ node.requirements.targetName }}
+                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
+                  Target / Item: {{ targetOrItemLabel(node) }}
                 </p>
-                <p v-if="node.description" class="quest-node__zone">Zone: {{ node.description }}</p>
+                <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
                   <span class="quest-node__relations-label">Requires</span>
                   <span class="quest-node__relations-list">
@@ -875,12 +872,7 @@
                 </select>
               </template>
               <label class="form-label">Target / Item</label>
-              <input
-                v-model="selectedNode.requirements.targetName"
-                type="text"
-                class="input"
-                @input="markDirty()"
-              />
+              <input v-model="selectedNodeTargetField" type="text" class="input" />
               <label class="form-label">Target Count</label>
               <input
                 v-model.number="selectedNode.requirements.count"
@@ -1090,12 +1082,11 @@
         <tbody>
           <tr v-for="task in eqTaskResults" :key="task.id">
             <td>{{ task.id }}</td>
-            <td>
-              <div class="task-import__title">
-                <strong>{{ task.title }}</strong>
-                <small v-if="task.description" class="muted">{{ task.description }}</small>
-              </div>
-            </td>
+              <td>
+                <div class="task-import__title">
+                  <strong>{{ task.title }}</strong>
+                </div>
+              </td>
             <td>
               <span v-if="task.minLevel || task.maxLevel">
                 {{ task.minLevel ?? '?' }}-{{ task.maxLevel ?? '?' }}
@@ -2006,6 +1997,35 @@ const selectedNode = computed<EditableNode | null>(() =>
   editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
 );
 
+const selectedNodeTargetField = computed<string>({
+  get() {
+    const node = selectedNode.value;
+    if (!node) {
+      return '';
+    }
+    if (node.nodeType === 'DELIVER') {
+      return resolveRequirementItemName(node.requirements) ?? targetOrItemLabel(node) ?? '';
+    }
+    return targetOrItemLabel(node) ?? '';
+  },
+  set(value: string) {
+    const node = selectedNode.value;
+    if (!node) {
+      return;
+    }
+    if (!node.requirements) {
+      node.requirements = {};
+    }
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (node.nodeType === 'DELIVER') {
+      node.requirements.itemName = trimmed;
+    } else {
+      node.requirements.targetName = trimmed;
+    }
+    markDirty();
+  }
+});
+
 const selectedNodeLinkEntries = computed(() => {
   const node = selectedNode.value;
   if (!node) {
@@ -2616,7 +2636,8 @@ const NODE_DUPLICATE_OFFSET = 32;
 const PAN_SUPPRESS_THRESHOLD = 3;
 const LINK_CANVAS_PADDING = 120;
 const OVERVIEW_CANVAS_PADDING = 48;
-const NODE_POSITION_LIMIT = 2000;
+// Allow generous drag space; keep finite to avoid overflow in SVG sizing.
+const NODE_POSITION_LIMIT = 250000;
 const GRID_SNAP_SPACING = 16;
 const GRID_LINE_RADIUS = 6;
 const GRID_FADE_EXTENSION = GRID_SNAP_SPACING * 2;
@@ -3914,6 +3935,92 @@ function displayNodeType(nodeType: QuestNodeType, isGroup?: boolean) {
     return 'Group';
   }
   return questNodeTypeLabels[nodeType] ?? nodeType;
+}
+
+function resolveRequirementItemName(requirements: Record<string, any> | undefined): string | null {
+  if (!requirements) {
+    return null;
+  }
+  const candidates = [
+    requirements.itemName,
+    requirements.item,
+    requirements.itemLabel,
+    requirements.itemDisplayName
+  ];
+  for (const entry of candidates) {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+
+  const rawItemList = requirements.itemList;
+  if (typeof rawItemList === 'string') {
+    const pieces = rawItemList.split(/[,;|^]/).map((part) => part.trim()).filter(Boolean);
+    if (pieces.length > 0) {
+      return pieces[0];
+    }
+  } else if (Array.isArray(rawItemList)) {
+    const first = rawItemList.find((entry) => typeof entry === 'string' && entry.trim().length > 0);
+    if (first) {
+      return first.trim();
+    }
+  }
+
+  return null;
+}
+
+function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
+  if (!node || !node.requirements) {
+    return null;
+  }
+  const itemName = resolveRequirementItemName(node.requirements);
+  const targetName =
+    typeof (node.requirements as any).targetName === 'string'
+      ? ((node.requirements as any).targetName as string).trim()
+      : '';
+  if (node.nodeType === 'DELIVER') {
+    const detail =
+      typeof (node.requirements as any).details === 'string'
+        ? ((node.requirements as any).details as string).split('\n').map((part) => part.trim()).find(Boolean)
+        : null;
+    const titleFallback = node.title?.trim();
+    return itemName || detail || titleFallback || targetName || null;
+  }
+  return targetName || itemName || null;
+}
+
+function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
+  if (!node) {
+    return null;
+  }
+  const req: any = node.requirements ?? {};
+  if (Array.isArray(req.zoneNames) && req.zoneNames.length > 0) {
+    return req.zoneNames.join(', ');
+  }
+  if (typeof req.zones === 'string' && req.zones.trim().length > 0) {
+    const tokens = req.zones
+      .replace(/^zones?:/i, '')
+      .split(/[,;|^]/)
+      .map((part: string) => part.trim())
+      .filter((part: string) => part.length > 0);
+    if (tokens.length) {
+      return tokens.join(', ');
+    }
+  }
+  if (node.description?.toLowerCase().startsWith('zones:')) {
+    const tokens = node.description
+      .replace(/^zones?:/i, '')
+      .split(/[,;|^]/)
+      .map((part: string) => part.trim())
+      .filter((part: string) => part.length > 0);
+    if (tokens.length) {
+      return tokens.join(', ');
+    }
+  }
+  return node.description || null;
 }
 
 type GuildNodePin = {
