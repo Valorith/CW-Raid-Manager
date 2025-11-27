@@ -9,6 +9,7 @@ export type GuildBankSlotCategory = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 export interface GuildBankCharacterEntry {
   id: string;
   name: string;
+  isPersonal: boolean;
   createdAt: Date;
   foundInEq: boolean;
 }
@@ -222,6 +223,7 @@ export async function listGuildBankCharacters(guildId: string) {
 export async function addGuildBankCharacter(options: {
   guildId: string;
   name: string;
+  isPersonal?: boolean;
   actorRole: GuildRole;
 }) {
   if (!canManageGuildBank(options.actorRole)) {
@@ -236,7 +238,8 @@ export async function addGuildBankCharacter(options: {
   const data: Prisma.GuildBankCharacterCreateInput = {
     guild: { connect: { id: options.guildId } },
     name: display,
-    normalizedName: normalized
+    normalizedName: normalized,
+    isPersonal: Boolean(options.isPersonal)
   };
 
   return prisma.guildBankCharacter.create({ data });
@@ -308,6 +311,7 @@ export async function fetchGuildBankSnapshot(guildId: string): Promise<GuildBank
     return {
       id: entry.id,
       name: entry.name,
+      isPersonal: entry.isPersonal ?? false,
       createdAt: entry.createdAt,
       foundInEq: Boolean(eqMatch)
     };

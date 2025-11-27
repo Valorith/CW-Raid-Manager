@@ -68,7 +68,8 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
     const { guildId } = paramsSchema.parse(request.params);
 
     const bodySchema = z.object({
-      name: z.string().trim().min(2).max(64)
+      name: z.string().trim().min(2).max(64),
+      isPersonal: z.boolean().optional().default(false)
     });
     const parsedBody = bodySchema.safeParse(request.body);
     if (!parsedBody.success) {
@@ -84,6 +85,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
       const character = await addGuildBankCharacter({
         guildId,
         name: parsedBody.data.name,
+        isPersonal: parsedBody.data.isPersonal,
         actorRole: membership.role
       });
       return reply.code(201).send({ character });

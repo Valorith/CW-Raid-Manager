@@ -73,6 +73,7 @@ model GuildBankCharacter {
   guildId         String
   name            String
   normalizedName  String
+  isPersonal      Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)

@@ -64,22 +64,11 @@
 
     <div class="guild-bank__body">
       <aside class="guild-bank__panel">
-        <header class="panel__header">
-          <div>
-            <p class="eyebrow">Bank characters</p>
-            <h2>Roster</h2>
-          </div>
-          <span v-if="!canManageBank" class="muted small">View only</span>
-        </header>
-        <p class="muted small">
-          Leaders and officers can add the character names that hold guild items. We never store
-          inventory data—only this roster.
-        </p>
         <div
           v-if="missingCachedNames.length && canManageBank"
           class="alert alert--warning"
         >
-          <p class="alert__title">We detected missing bank characters</p>
+          <p class="alert__title">We detected missing tracked characters</p>
           <p class="alert__body">
             {{ missingCachedNames.length }} name{{ missingCachedNames.length === 1 ? '' : 's' }} were in your local backup but are not on the server.
           </p>
@@ -93,54 +82,191 @@
           </button>
         </div>
 
-        <form v-if="canManageBank" class="add-bank-character" @submit.prevent="addCharacter">
-          <input
-            v-model="newCharacterName"
-            type="text"
-            class="input"
-            name="character"
-            placeholder="e.g. Copperkeep"
-            :disabled="addingCharacter"
-          />
-          <button class="btn btn--secondary" type="submit" :disabled="addingCharacter || !newCharacterName.trim().length">
-            {{ addingCharacter ? 'Adding…' : 'Add character' }}
-          </button>
-        </form>
-
-        <ul class="bank-character-list">
-          <li
-            v-for="character in snapshot?.characters ?? []"
-            :key="character.id"
-            class="bank-character"
+        <div class="roster-stack">
+          <section
+            :class="['roster-card', activeRoster === 'guild' ? 'roster-card--open' : 'roster-card--collapsed']"
           >
-            <label class="bank-character__meta" @click="toggleCharacterSelection(character.name)">
-              <input
-                type="checkbox"
-                :checked="isCharacterSelected(character.name)"
-                @click.stop
-                class="bank-character__checkbox"
-              />
-              <strong>{{ character.name }}</strong>
-              <span
-                :class="[
-                  'bank-character__status',
-                  character.foundInEq ? 'bank-character__status--ok' : 'bank-character__status--warn'
-                ]"
-              >
-                {{ character.foundInEq ? 'Found in EQ' : 'Not found' }}
-              </span>
-            </label>
             <button
-              v-if="canManageBank"
-              class="icon-button"
-              :disabled="removingId === character.id"
-              @click="removeCharacter(character.id)"
-              :aria-label="`Remove ${character.name}`"
+              type="button"
+              class="roster-card__header"
+              :aria-expanded="activeRoster === 'guild'"
+              @click="setActiveRoster('guild')"
             >
-              <span class="icon-button__glyph" aria-hidden="true">🗑️</span>
+              <div>
+                <p class="eyebrow">Guild bank characters</p>
+                <h2>Roster</h2>
+                <p class="muted small roster-card__hint">
+                  Leaders and officers can add the characters that hold guild items.
+                </p>
+              </div>
+              <div class="roster-card__status">
+                <span v-if="!canManageBank" class="muted small">View only</span>
+                <span class="roster-card__chevron" aria-hidden="true">
+                  {{ activeRoster === 'guild' ? '▾' : '▸' }}
+                </span>
+              </div>
             </button>
-          </li>
-        </ul>
+            <div v-show="activeRoster === 'guild'" class="roster-card__body">
+              <div class="roster-card__controls" v-if="guildRoster.length">
+                <button
+                  type="button"
+                  class="btn btn--ghost"
+                  @click="setRosterSelection('guild', !allGuildSelected)"
+                >
+                  {{ allGuildSelected ? 'Disable all' : 'Enable all' }}
+                </button>
+              </div>
+              <form
+                v-if="canManageBank"
+                class="add-bank-character"
+                @submit.prevent="addCharacter(false)"
+              >
+                <input
+                  v-model="newGuildCharacterName"
+                  type="text"
+                  class="input"
+                  name="guild-character"
+                  placeholder="e.g. Copperkeep"
+                  :disabled="addingCharacter"
+                />
+                <button
+                  class="btn btn--secondary"
+                  type="submit"
+                  :disabled="addingCharacter || !newGuildCharacterName.trim().length"
+                >
+                  {{ addingCharacter ? 'Adding…' : 'Add character' }}
+                </button>
+              </form>
+
+              <ul class="bank-character-list">
+                <li
+                  v-for="character in guildRoster"
+                  :key="character.id"
+                  class="bank-character"
+                >
+                  <label class="bank-character__meta">
+                    <input
+                      type="checkbox"
+                      :checked="isCharacterSelected(character.name, false)"
+                      @change="toggleCharacterSelection(character.name, false)"
+                      class="bank-character__checkbox"
+                    />
+                    <strong>{{ character.name }}</strong>
+                    <span
+                      :class="[
+                        'bank-character__status',
+                        character.foundInEq ? 'bank-character__status--ok' : 'bank-character__status--warn'
+                      ]"
+                    >
+                      {{ character.foundInEq ? 'Found in EQ' : 'Not found' }}
+                    </span>
+                  </label>
+                  <button
+                    v-if="canManageBank"
+                    class="icon-button"
+                    :disabled="removingId === character.id"
+                    @click="removeCharacter(character.id)"
+                    :aria-label="`Remove ${character.name}`"
+                  >
+                    <span class="icon-button__glyph" aria-hidden="true">🗑️</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </section>
+
+          <section
+            :class="['roster-card', activeRoster === 'personal' ? 'roster-card--open' : 'roster-card--collapsed']"
+          >
+            <button
+              type="button"
+              class="roster-card__header"
+              :aria-expanded="activeRoster === 'personal'"
+              @click="setActiveRoster('personal')"
+            >
+              <div>
+                <p class="eyebrow">Personal characters</p>
+                <h2>Roster</h2>
+                <p class="muted small roster-card__hint">
+                  Keep your personal characters separate. They stay disabled until you check them.
+                </p>
+              </div>
+              <div class="roster-card__status">
+                <span v-if="!canManageBank" class="muted small">View only</span>
+                <span class="roster-card__chevron" aria-hidden="true">
+                  {{ activeRoster === 'personal' ? '▾' : '▸' }}
+                </span>
+              </div>
+            </button>
+            <div v-show="activeRoster === 'personal'" class="roster-card__body">
+              <div class="roster-card__controls" v-if="personalRoster.length">
+                <button
+                  type="button"
+                  class="btn btn--ghost"
+                  @click="setRosterSelection('personal', !allPersonalSelected)"
+                >
+                  {{ allPersonalSelected ? 'Disable all' : 'Enable all' }}
+                </button>
+              </div>
+              <form
+                v-if="canManageBank"
+                class="add-bank-character"
+                @submit.prevent="addCharacter(true)"
+              >
+                <input
+                  v-model="newPersonalCharacterName"
+                  type="text"
+                  class="input"
+                  name="personal-character"
+                  placeholder="e.g. Altcollector"
+                  :disabled="addingCharacter"
+                />
+                <button
+                  class="btn btn--secondary"
+                  type="submit"
+                  :disabled="addingCharacter || !newPersonalCharacterName.trim().length"
+                >
+                  {{ addingCharacter ? 'Adding…' : 'Add character' }}
+                </button>
+              </form>
+
+              <ul class="bank-character-list">
+                <li
+                  v-for="character in personalRoster"
+                  :key="character.id"
+                  class="bank-character"
+                >
+                  <label class="bank-character__meta">
+                    <input
+                      type="checkbox"
+                      :checked="isCharacterSelected(character.name, true)"
+                      @change="toggleCharacterSelection(character.name, true)"
+                      class="bank-character__checkbox"
+                    />
+                    <strong>{{ character.name }}</strong>
+                    <span
+                      :class="[
+                        'bank-character__status',
+                        character.foundInEq ? 'bank-character__status--ok' : 'bank-character__status--warn'
+                      ]"
+                    >
+                      {{ character.foundInEq ? 'Found in EQ' : 'Not found' }}
+                    </span>
+                  </label>
+                  <button
+                    v-if="canManageBank"
+                    class="icon-button"
+                    :disabled="removingId === character.id"
+                    @click="removeCharacter(character.id)"
+                    :aria-label="`Remove ${character.name}`"
+                  >
+                    <span class="icon-button__glyph" aria-hidden="true">🗑️</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </section>
+        </div>
 
         <div v-if="missingCount > 0" class="alert alert--warning">
           <p class="alert__title">Missing characters</p>
@@ -455,14 +581,24 @@ const loadingSnapshot = ref(false);
 const snapshotError = ref<string | null>(null);
 const lastFetchedAt = ref<number | null>(null);
 
-const newCharacterName = ref('');
+type RosterType = 'guild' | 'personal';
+
+function toBooleanFlag(value: any): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
+const activeRoster = ref<RosterType>('guild');
+const newGuildCharacterName = ref('');
+const newPersonalCharacterName = ref('');
 const addingCharacter = ref(false);
 const removingId = ref<string | null>(null);
 const restoringNames = ref(false);
-const cachedNames = ref<string[]>([]);
+const cachedNames = ref<Array<{ name: string; isPersonal: boolean }>>([]);
 
 const searchQuery = ref('');
-const selectedCharacters = ref<Set<string>>(new Set());
+const selectedGuild = ref<Set<string>>(new Set());
+const selectedPersonal = ref<Set<string>>(new Set());
+const hasUserSelection = ref(false);
 
 const now = ref(Date.now());
 let timer: number | null = null;
@@ -475,9 +611,11 @@ const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);
 const autoRestoreAttempted = ref(false);
 
-function isCharacterSelected(name: string): boolean {
+function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();
-  return selectedCharacters.value.size === 0 || selectedCharacters.value.has(key);
+  return isPersonal
+    ? selectedPersonal.value.has(key)
+    : selectedGuild.value.has(key);
 }
 
 function loadCache() {
@@ -490,7 +628,19 @@ function loadCache() {
     if (!parsed || !parsed.snapshot || !parsed.fetchedAt) {
       return null;
     }
-    return parsed;
+    const normalizedCharacters = Array.isArray(parsed.snapshot?.characters)
+      ? parsed.snapshot.characters.map((entry: any) => ({
+          ...entry,
+          isPersonal: toBooleanFlag(entry?.isPersonal)
+        }))
+      : [];
+    return {
+      snapshot: {
+        ...parsed.snapshot,
+        characters: normalizedCharacters
+      },
+      fetchedAt: parsed.fetchedAt
+    };
   } catch {
     return null;
   }
@@ -515,28 +665,49 @@ function loadCachedNames() {
       return;
     }
     const parsed = JSON.parse(raw);
-    cachedNames.value = Array.isArray(parsed)
-      ? parsed.filter((entry) => typeof entry === 'string')
-      : [];
+    if (!Array.isArray(parsed)) {
+      cachedNames.value = [];
+      return;
+    }
+    cachedNames.value = parsed
+      .map((entry: any) => {
+        if (typeof entry === 'string') {
+          return { name: entry, isPersonal: false };
+        }
+        if (entry && typeof entry.name === 'string') {
+          return { name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) };
+        }
+        return null;
+      })
+      .filter((entry): entry is { name: string; isPersonal: boolean } => Boolean(entry));
   } catch {
     cachedNames.value = [];
   }
 }
 
-function saveCachedNames(names: string[]) {
-  cachedNames.value = [...names];
+function saveCachedNames(
+  names: Array<{ name: string; isPersonal: boolean }>
+) {
+  const merged = mergeNamesCaseInsensitive(names);
+  cachedNames.value = [...merged];
   try {
-    localStorage.setItem(cacheNamesKey.value, JSON.stringify(names));
+    localStorage.setItem(cacheNamesKey.value, JSON.stringify(merged));
   } catch {
     // ignore cache errors
   }
 }
 
-function mergeNamesCaseInsensitive(names: string[]): string[] {
+function characterKey(entry: { name: string; isPersonal: boolean }): string {
+  return entry.name.toLowerCase();
+}
+
+function mergeNamesCaseInsensitive(
+  names: Array<{ name: string; isPersonal: boolean }>
+): Array<{ name: string; isPersonal: boolean }> {
   const seen = new Set<string>();
-  const merged: string[] = [];
+  const merged: Array<{ name: string; isPersonal: boolean }> = [];
   for (const name of names) {
-    const key = name.toLowerCase();
+    const key = characterKey(name);
     if (!seen.has(key)) {
       seen.add(key);
       merged.push(name);
@@ -545,9 +716,12 @@ function mergeNamesCaseInsensitive(names: string[]): string[] {
   return merged;
 }
 
-function diffNamesCaseInsensitive(full: string[], subset: string[]): string[] {
-  const subsetKeys = new Set(subset.map((name) => name.toLowerCase()));
-  return full.filter((name) => !subsetKeys.has(name.toLowerCase()));
+function diffNamesCaseInsensitive(
+  full: Array<{ name: string; isPersonal: boolean }>,
+  subset: Array<{ name: string; isPersonal: boolean }>
+): Array<{ name: string; isPersonal: boolean }> {
+  const subsetKeys = new Set(subset.map((entry) => characterKey(entry)));
+  return full.filter((entry) => !subsetKeys.has(characterKey(entry)));
 }
 
 const canRefreshNow = computed(() => {
@@ -593,6 +767,24 @@ const lastRefreshLabel = computed(() => {
 });
 
 const missingCount = computed(() => snapshot.value?.missingCharacters.length ?? 0);
+const guildRoster = computed(
+  () =>
+    snapshot.value?.characters.filter((entry) => !toBooleanFlag(entry.isPersonal)) ?? []
+);
+const personalRoster = computed(
+  () =>
+    snapshot.value?.characters.filter((entry) => toBooleanFlag(entry.isPersonal)) ?? []
+);
+const allGuildSelected = computed(
+  () =>
+    guildRoster.value.length > 0 &&
+    guildRoster.value.every((entry) => selectedGuild.value.has(entry.name.toLowerCase()))
+);
+const allPersonalSelected = computed(
+  () =>
+    personalRoster.value.length > 0 &&
+    personalRoster.value.every((entry) => selectedPersonal.value.has(entry.name.toLowerCase()))
+);
 
 function buildItemKey(itemId: number | null | undefined, itemName: string): string {
   return itemId != null ? `id:${itemId}` : `name:${itemName.toLowerCase()}`;
@@ -695,13 +887,14 @@ const groupedItems = computed(() => {
     return [];
   }
 
-  const allowed =
-    selectedCharacters.value.size > 0
-      ? selectedCharacters.value
-      : new Set(snapshot.value.characters.map((c) => c.name.toLowerCase()));
-  const filteredItems = snapshot.value.items.filter((item) =>
-    allowed.has(item.characterName.toLowerCase())
-  );
+  const allowed = new Set([
+    ...selectedGuild.value,
+    ...selectedPersonal.value
+  ]);
+  const filteredItems =
+    allowed.size === 0
+      ? []
+      : snapshot.value.items.filter((item) => allowed.has(item.characterName.toLowerCase()));
 
   const aggregated = aggregateItems(filteredItems);
   const normalizedQuery = searchQuery.value.trim().toLowerCase();
@@ -751,9 +944,11 @@ const missingCachedNames = computed(() => {
     return [];
   }
   const current = new Set(
-    snapshot.value.characters.map((entry) => entry.name.toLowerCase())
+    snapshot.value.characters.map((entry) =>
+      characterKey({ name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) })
+    )
   );
-  return cachedNames.value.filter((name) => !current.has(name.toLowerCase()));
+  return cachedNames.value.filter((entry) => !current.has(characterKey(entry)));
 });
 
 async function restoreMissingCachedCharacters() {
@@ -763,8 +958,10 @@ async function restoreMissingCachedCharacters() {
   restoringNames.value = true;
   snapshotError.value = null;
   try {
-    for (const name of missingCachedNames.value) {
-      await api.addGuildBankCharacter(guildId.value, name);
+    for (const entry of missingCachedNames.value) {
+      await api.addGuildBankCharacter(guildId.value, entry.name, {
+        isPersonal: entry.isPersonal
+      });
     }
     await refreshSnapshot(true);
   } catch (error: any) {
@@ -1038,7 +1235,10 @@ watch(
 );
 
 watch(
-  () => snapshot.value?.characters?.map((c) => c.name).join('|'),
+  () =>
+    snapshot.value?.characters
+      ?.map((c) => `${c.name}:${c.isPersonal ? 1 : 0}`)
+      .join('|'),
   (names) => {
     if (!names) return;
     syncSelectionWithSnapshot();
@@ -1075,23 +1275,87 @@ async function submitCart() {
 
 function syncSelectionWithSnapshot() {
   if (!snapshot.value) {
+    selectedGuild.value = new Set();
+    selectedPersonal.value = new Set();
     return;
   }
-  const names = snapshot.value.characters.map((c) => c.name.toLowerCase());
-  const nameSet = new Set(names);
-  // Always include all current characters by default
-  selectedCharacters.value = nameSet;
+  const prevGuild = new Set(selectedGuild.value);
+  const prevPersonal = new Set(selectedPersonal.value);
+  // Default (first load or no manual changes): enable guild characters only.
+  if (!hasUserSelection.value && prevGuild.size === 0 && prevPersonal.size === 0) {
+    const defaults = snapshot.value.characters
+      .filter((entry) => !toBooleanFlag(entry.isPersonal))
+      .map((entry) => entry.name.toLowerCase());
+    selectedGuild.value = new Set(defaults);
+    selectedPersonal.value = new Set();
+    return;
+  }
+
+  const currentCharacters = new Set(
+    snapshot.value.characters.map((entry) => entry.name.toLowerCase())
+  );
+
+  const nextGuild = new Set<string>();
+  for (const key of prevGuild) {
+    if (currentCharacters.has(key)) {
+      nextGuild.add(key);
+    }
+  }
+
+  const nextPersonal = new Set<string>();
+  for (const key of prevPersonal) {
+    if (currentCharacters.has(key)) {
+      nextPersonal.add(key);
+    }
+  }
+
+  selectedGuild.value = nextGuild;
+  selectedPersonal.value = nextPersonal;
 }
 
-function toggleCharacterSelection(name: string) {
-  const key = name.toLowerCase();
-  const next = new Set(selectedCharacters.value);
-  if (next.has(key)) {
-    next.delete(key);
+function setActiveRoster(roster: RosterType) {
+  activeRoster.value = roster;
+}
+
+function setRosterSelection(roster: RosterType, enable: boolean) {
+  hasUserSelection.value = true;
+  if (roster === 'guild') {
+    if (enable) {
+      selectedGuild.value = new Set(guildRoster.value.map((entry) => entry.name.toLowerCase()));
+    } else {
+      selectedGuild.value = new Set();
+    }
   } else {
-    next.add(key);
+    if (enable) {
+      selectedPersonal.value = new Set(
+        personalRoster.value.map((entry) => entry.name.toLowerCase())
+      );
+    } else {
+      selectedPersonal.value = new Set();
+    }
   }
-  selectedCharacters.value = next;
+}
+
+function toggleCharacterSelection(name: string, isPersonal: boolean) {
+  hasUserSelection.value = true;
+  const key = name.toLowerCase();
+  if (isPersonal) {
+    const next = new Set(selectedPersonal.value);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    selectedPersonal.value = next;
+  } else {
+    const next = new Set(selectedGuild.value);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    selectedGuild.value = next;
+  }
 }
 
 async function loadGuildMeta() {
@@ -1121,7 +1385,10 @@ async function refreshSnapshot(force = false) {
   snapshotError.value = null;
   try {
     const result = await api.fetchGuildBank(guildId.value);
-    const serverNames = result.characters.map((entry) => entry.name);
+  const serverNames = result.characters.map((entry) => ({
+    name: entry.name,
+    isPersonal: toBooleanFlag(entry.isPersonal)
+  }));
     const mergedNames = mergeNamesCaseInsensitive([...serverNames, ...cachedNames.value]);
     const missingOnServer = diffNamesCaseInsensitive(mergedNames, serverNames);
 
@@ -1134,8 +1401,10 @@ async function refreshSnapshot(force = false) {
       autoRestoreAttempted.value = true;
       restoringNames.value = true;
       try {
-        for (const name of missingOnServer) {
-          await api.addGuildBankCharacter(guildId.value, name);
+        for (const entry of missingOnServer) {
+          await api.addGuildBankCharacter(guildId.value, entry.name, {
+            isPersonal: entry.isPersonal
+          });
         }
         restoringNames.value = false;
         await refreshSnapshot(true);
@@ -1164,21 +1433,36 @@ async function refreshSnapshot(force = false) {
   }
 }
 
-async function addCharacter() {
-  if (!newCharacterName.value.trim()) {
+async function addCharacter(isPersonal: boolean) {
+  const targetRef = isPersonal ? newPersonalCharacterName : newGuildCharacterName;
+  if (!targetRef.value.trim()) {
     return;
   }
   addingCharacter.value = true;
   snapshotError.value = null;
   try {
-    const created = await api.addGuildBankCharacter(guildId.value, newCharacterName.value.trim());
+    const created = await api.addGuildBankCharacter(guildId.value, targetRef.value.trim(), {
+      isPersonal
+    });
     snapshot.value = {
       characters: [...(snapshot.value?.characters ?? []), created],
       items: snapshot.value?.items ?? [],
       missingCharacters: snapshot.value?.missingCharacters ?? []
     };
-    saveCachedNames(snapshot.value.characters.map((entry) => entry.name));
-    newCharacterName.value = '';
+    const key = created.name.toLowerCase();
+    if (isPersonal) {
+      selectedPersonal.value = new Set([...selectedPersonal.value, key]);
+    } else {
+      selectedGuild.value = new Set([...selectedGuild.value, key]);
+    }
+    hasUserSelection.value = true;
+    saveCachedNames(
+      snapshot.value.characters.map((entry) => ({
+        name: entry.name,
+        isPersonal: toBooleanFlag(entry.isPersonal)
+      }))
+    );
+    targetRef.value = '';
     await refreshSnapshot(true);
   } catch (error: any) {
     snapshotError.value =
@@ -1203,7 +1487,12 @@ async function removeCharacter(id: string) {
           missingCharacters: snapshot.value.missingCharacters
         }
       : null;
-    saveCachedNames(snapshot.value?.characters?.map((entry) => entry.name) ?? []);
+    saveCachedNames(
+      snapshot.value?.characters?.map((entry) => ({
+        name: entry.name,
+        isPersonal: toBooleanFlag(entry.isPersonal)
+      })) ?? []
+    );
     await refreshSnapshot(true);
   } catch (error: any) {
     snapshotError.value = error?.response?.data?.message ?? 'Unable to remove character.';

@@ -140,6 +140,7 @@ export type GuildBankLocation = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 export interface GuildBankCharacter {
   id: string;
   name: string;
+  isPersonal: boolean;
   createdAt: string;
   foundInEq?: boolean;
 }
@@ -1473,9 +1474,12 @@ function normalizeGuildNpcNote(note: any): GuildNpcNote {
 }
 
 function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
+  const isPersonal =
+    raw?.isPersonal === true || raw?.isPersonal === 1 || raw?.isPersonal === '1';
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
     name: typeof raw?.name === 'string' ? raw.name : 'Unknown',
+    isPersonal,
     createdAt: normalizeDateString(raw?.createdAt) ?? '',
     foundInEq: raw?.foundInEq === true
   };
@@ -1712,8 +1716,15 @@ export const api = {
     await axios.post(`/api/guilds/${guildId}/guild-bank/request-items`, { items });
   },
 
-  async addGuildBankCharacter(guildId: string, name: string): Promise<GuildBankCharacter> {
-    const response = await axios.post(`/api/guilds/${guildId}/guild-bank/characters`, { name });
+  async addGuildBankCharacter(
+    guildId: string,
+    name: string,
+    options?: { isPersonal?: boolean }
+  ): Promise<GuildBankCharacter> {
+    const response = await axios.post(`/api/guilds/${guildId}/guild-bank/characters`, {
+      name,
+      isPersonal: options?.isPersonal ?? false
+    });
     return normalizeGuildBankCharacter(response.data.character);
   },
 

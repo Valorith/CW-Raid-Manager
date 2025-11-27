@@ -25,7 +25,7 @@
           class="guild-action-button guild-action-button--bank"
           :to="{ name: 'GuildBank', params: { guildId } }"
         >
-          Guild Bank
+          Bank
         </RouterLink>
         <RouterLink
           v-if="canViewQuestTracker"
