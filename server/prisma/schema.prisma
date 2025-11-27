@@ -31,6 +31,7 @@ model User {
   createdQuestBlueprints QuestBlueprint[] @relation("QuestBlueprintCreator")
   createdQuestBlueprintFolders QuestBlueprintFolder[] @relation("QuestBlueprintFolderCreator")
   questAssignments   QuestAssignment[]
+  personalBankCharacters GuildBankCharacter[]
 }
 
 model Guild {
@@ -71,15 +72,18 @@ model Guild {
 model GuildBankCharacter {
   id              String   @id @default(cuid())
   guildId         String
+  userId          String?
   name            String
   normalizedName  String
   isPersonal      Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   guild           Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([guildId, normalizedName])
+  @@unique([guildId, normalizedName, isPersonal, userId])
   @@index([guildId])
+  @@index([userId])
 }
 
 model GuildDiscordWebhook {

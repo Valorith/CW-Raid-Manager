@@ -140,6 +140,7 @@ export type GuildBankLocation = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 export interface GuildBankCharacter {
   id: string;
   name: string;
+  userId?: string | null;
   isPersonal: boolean;
   createdAt: string;
   foundInEq?: boolean;
@@ -1479,6 +1480,7 @@ function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
     name: typeof raw?.name === 'string' ? raw.name : 'Unknown',
+    userId: typeof raw?.userId === 'string' ? raw.userId : null,
     isPersonal,
     createdAt: normalizeDateString(raw?.createdAt) ?? '',
     foundInEq: raw?.foundInEq === true

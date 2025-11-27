@@ -19,6 +19,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
   server.get('/:guildId/guild-bank', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
+    const userId = request.user.userId;
 
     try {
       await ensureUserCanViewGuild(request.user.userId, guildId);
@@ -28,7 +29,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
     }
 
     try {
-      const snapshot = await fetchGuildBankSnapshot(guildId);
+      const snapshot = await fetchGuildBankSnapshot(guildId, userId);
       return {
         characters: snapshot.characters,
         items: snapshot.items,
@@ -52,6 +53,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
   server.get('/:guildId/guild-bank/characters', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
+    const userId = request.user.userId;
 
     try {
       await ensureUserCanViewGuild(request.user.userId, guildId);
@@ -59,7 +61,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
       return reply.forbidden('You must be a member of this guild to view guild bank characters.');
     }
 
-    const characters = await listGuildBankCharacters(guildId);
+    const characters = await listGuildBankCharacters(guildId, userId);
     return { characters };
   });
 
@@ -86,6 +88,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
         guildId,
         name: parsedBody.data.name,
         isPersonal: parsedBody.data.isPersonal,
+        userId: request.user.userId,
         actorRole: membership.role
       });
       return reply.code(201).send({ character });
@@ -114,6 +117,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
       await removeGuildBankCharacter({
         guildId,
         characterId,
+        userId: request.user.userId,
         actorRole: membership.role
       });
       return reply.code(204).send();
@@ -160,7 +164,7 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
       return reply.conflict('Bank request webhook is not enabled. Please enable it in Discord Webhook settings.');
     }
 
-    const snapshot = await fetchGuildBankSnapshot(guildId);
+    const snapshot = await fetchGuildBankSnapshot(guildId, request.user.userId);
 
     const availableByKey = new Map<
       string,

@@ -9,6 +9,7 @@ export type GuildBankSlotCategory = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 export interface GuildBankCharacterEntry {
   id: string;
   name: string;
+  userId: string | null;
   isPersonal: boolean;
   createdAt: Date;
   foundInEq: boolean;
@@ -211,9 +212,15 @@ function computeQuantity(charges: unknown): number | null {
   return null;
 }
 
-export async function listGuildBankCharacters(guildId: string) {
+export async function listGuildBankCharacters(guildId: string, userId: string) {
   const records = await prisma.guildBankCharacter.findMany({
-    where: { guildId },
+    where: {
+      guildId,
+      OR: [
+        { isPersonal: false },
+        { isPersonal: true, userId }
+      ]
+    },
     orderBy: { createdAt: 'asc' }
   });
 
@@ -224,6 +231,7 @@ export async function addGuildBankCharacter(options: {
   guildId: string;
   name: string;
   isPersonal?: boolean;
+  userId: string;
   actorRole: GuildRole;
 }) {
   if (!canManageGuildBank(options.actorRole)) {
@@ -239,7 +247,8 @@ export async function addGuildBankCharacter(options: {
     guild: { connect: { id: options.guildId } },
     name: display,
     normalizedName: normalized,
-    isPersonal: Boolean(options.isPersonal)
+    isPersonal: Boolean(options.isPersonal),
+    user: options.isPersonal ? { connect: { id: options.userId } } : undefined
   };
 
   return prisma.guildBankCharacter.create({ data });
@@ -248,19 +257,28 @@ export async function addGuildBankCharacter(options: {
 export async function removeGuildBankCharacter(options: {
   guildId: string;
   characterId: string;
+  userId: string;
   actorRole: GuildRole;
 }) {
   if (!canManageGuildBank(options.actorRole)) {
     throw new Error('Insufficient permissions to manage guild bank characters.');
   }
 
-  const result = await prisma.guildBankCharacter.deleteMany({
-    where: { id: options.characterId, guildId: options.guildId }
+  const existing = await prisma.guildBankCharacter.findUnique({
+    where: { id: options.characterId }
   });
-
-  if (result.count === 0) {
+  if (!existing || existing.guildId !== options.guildId) {
     throw new Error('Guild bank character not found.');
   }
+  if (existing.isPersonal) {
+    if (existing.userId !== options.userId) {
+      throw new Error('Cannot remove another user’s personal character.');
+    }
+  }
+
+  await prisma.guildBankCharacter.delete({
+    where: { id: options.characterId }
+  });
 }
 
 type EqCharacterRow = RowDataPacket & { id: number; name: string };
@@ -274,14 +292,17 @@ type EqInventoryRow = RowDataPacket & {
   iconId: number | null;
 };
 
-export async function fetchGuildBankSnapshot(guildId: string): Promise<GuildBankSnapshot> {
+export async function fetchGuildBankSnapshot(
+  guildId: string,
+  userId: string
+): Promise<GuildBankSnapshot> {
   if (!isEqDbConfigured()) {
     throw new Error(
       'EQ content database is not configured; set EQ_DB_* values to enable guild bank lookups.'
     );
   }
 
-  const tracked = await listGuildBankCharacters(guildId);
+  const tracked = await listGuildBankCharacters(guildId, userId);
   if (tracked.length === 0) {
     return { characters: [], items: [], missingCharacters: [] };
   }
@@ -311,6 +332,7 @@ export async function fetchGuildBankSnapshot(guildId: string): Promise<GuildBank
     return {
       id: entry.id,
       name: entry.name,
+      userId: entry.userId,
       isPersonal: entry.isPersonal ?? false,
       createdAt: entry.createdAt,
       foundInEq: Boolean(eqMatch)
