@@ -611,6 +611,7 @@ const canManageBank = computed(() =>
 const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);
 const autoRestoreAttempted = ref(false);
+const initialFetchDone = ref(false);
 
 function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();
@@ -1535,11 +1536,14 @@ watch(
     currentPage.value = 1;
     const cacheAge = lastFetchedAt.value ? now.value - lastFetchedAt.value : Infinity;
     const cacheIsFresh = cacheAge < ONE_HOUR_MS;
+    const needsInitialRefresh = !initialFetchDone.value;
+
     if (!snapshot.value) {
-      await refreshSnapshot();
-    } else if (canRefreshNow.value && !cacheIsFresh) {
-      await refreshSnapshot();
+      await refreshSnapshot(true);
+    } else if (needsInitialRefresh || (canRefreshNow.value && !cacheIsFresh)) {
+      await refreshSnapshot(true);
     }
+    initialFetchDone.value = true;
   },
   { immediate: true }
 );
