@@ -1187,21 +1187,68 @@ a {
 }
 
 .request-modal {
-  max-width: 480px;
+  max-width: 600px;
+  min-width: 520px;
+}
+
+.request-modal__title {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.request-modal__text {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.request-modal__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #111827;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+
+.request-modal__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.request-modal__icon--placeholder {
+  color: #94a3b8;
+  font-weight: 700;
 }
 
 .request-modal__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+  display: grid;
+  gap: 1rem;
+  background: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
 }
 
 .request-modal__quantity input[type='number'] {
-  max-width: 100px;
+  max-width: 120px;
 }
 
 .request-modal__quantity input[type='range'] {
   width: 100%;
+  accent-color: #22d3ee;
+}
+
+.request-modal__quantity label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: #e2e8f0;
 }
 
 .request-modal__sources ul {
@@ -1215,6 +1262,87 @@ a {
   font-size: 0.9rem;
 }
 
+.request-modal__sources {
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.request-modal__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.15);
+  color: #22d3ee;
+  font-size: 0.85rem;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+}
+
+.request-modal .modal__footer {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.request-modal .modal__footer .btn {
+  min-width: 120px;
+  font-weight: 700;
+  border-radius: 10px;
+}
+
+.request-modal .modal__footer .btn.btn--secondary {
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+
+.request-modal .modal__footer .btn.btn--secondary:hover {
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.confirm-modal {
+  max-width: 520px;
+  z-index: 130;
+}
+
+.confirm-modal__body {
+  background: #0b1220;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.confirm-modal__footer {
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.confirm-modal .modal__footer .btn {
+  min-width: 140px;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.confirm-modal .modal__footer .btn.btn--secondary {
+  background: rgba(148, 163, 184, 0.15);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #e2e8f0;
+}
+
+.confirm-modal .modal__footer .btn.btn--secondary:hover {
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.confirm-modal .modal__footer {
+  display: flex;
+  justify-content: center;
+}
+
 .cart-overlay {
   position: fixed;
   inset: 0;
@@ -1224,6 +1352,10 @@ a {
   justify-content: flex-end;
   padding: 1.5rem;
   z-index: 120;
+}
+
+.modal-backdrop--top {
+  z-index: 140;
 }
 
 .cart-panel {

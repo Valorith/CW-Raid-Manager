@@ -363,6 +363,7 @@
                   <span>Alla</span>
                 </a>
                 <button
+                  v-if="item.guildQuantity > 0"
                   class="icon-button icon-button--cart-floating"
                   type="button"
                   :aria-label="`Add ${item.itemName} to cart`"
@@ -439,9 +440,20 @@
     >
       <div class="modal request-modal" :key="requestModalItem?.itemKey">
         <header class="modal__header">
-          <div>
-            <p class="eyebrow">Add to Cart</p>
-            <h3>{{ requestModalItem.itemName }}</h3>
+          <div class="request-modal__title">
+            <div class="request-modal__icon" :class="{ 'request-modal__icon--placeholder': !requestModalItem.itemIconId }">
+              <img
+                v-if="requestModalItem.itemIconId"
+                :src="getLootIconSrc(requestModalItem.itemIconId)"
+                :alt="`${requestModalItem.itemName} icon`"
+                loading="lazy"
+              />
+              <span v-else>?</span>
+            </div>
+            <div class="request-modal__text">
+              <p class="eyebrow">Add to Cart</p>
+              <h3>{{ requestModalItem.itemName }}</h3>
+            </div>
           </div>
           <button class="icon-button" type="button" @click="closeRequestModal" aria-label="Close">
             ×
@@ -449,7 +461,10 @@
         </header>
         <div class="request-modal__body">
           <div class="request-modal__quantity">
-            <label>Quantity (max {{ requestModalItem.maxQuantity }})</label>
+            <label>
+              Quantity
+              <span class="request-modal__badge">Max {{ requestModalItem.maxQuantity }}</span>
+            </label>
             <input
               v-model.number="requestQuantity"
               type="number"
@@ -458,11 +473,12 @@
               class="input"
             />
             <input
-              v-model.number="requestQuantity"
               type="range"
-              min="1"
-              :max="requestModalItem.maxQuantity"
+              :min="requestModalItem.maxQuantity === 1 ? 0 : 1"
+              :max="requestModalItem.maxQuantity === 1 ? 1 : requestModalItem.maxQuantity"
               step="1"
+              :value="Math.min(requestQuantity, requestModalItem.maxQuantity)"
+              @input="onRangeChange"
             />
           </div>
           <div class="request-modal__sources">
@@ -486,6 +502,33 @@
             @click="handleRequestModalConfirm"
           >
             Add to Cart
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" @click.self="cartConfirmOpen = false">
+      <div class="modal confirm-modal">
+        <header class="modal__header">
+          <div>
+            <p class="eyebrow">Confirm request</p>
+            <h3>Submit Request?</h3>
+          </div>
+          <button class="icon-button" type="button" @click="cartConfirmOpen = false" aria-label="Close">
+            ×
+          </button>
+        </header>
+        <div class="confirm-modal__body">
+          Confirm that you want to send this request for items from the guild bank to guild Officers
+          for consideration. This request will send a notification to guild leadership with your list
+          of requested items.
+        </div>
+        <footer class="modal__footer confirm-modal__footer">
+          <button class="btn btn--secondary" type="button" @click="cartConfirmOpen = false">
+            Cancel
+          </button>
+          <button class="btn" type="button" :disabled="submittingCart" @click="submitCart(true)">
+            {{ submittingCart ? 'Requesting…' : 'Send Request' }}
           </button>
         </footer>
       </div>
@@ -545,7 +588,7 @@
             <button class="btn btn--secondary" type="button" @click="resetCart" :disabled="cartDistinct === 0">
               Clear Cart
             </button>
-            <button class="btn" type="button" :disabled="cartDistinct === 0 || submittingCart" @click="submitCart">
+            <button class="btn" type="button" :disabled="cartDistinct === 0 || submittingCart" @click="cartConfirmOpen = true">
               {{ submittingCart ? 'Requesting…' : 'Request All Items' }}
             </button>
           </div>
@@ -808,8 +851,18 @@ function aggregateItems(items: GuildBankItem[]) {
       itemName: string;
       itemIconId: number | null;
       totalQuantity: number;
-      owners: Array<{ characterName: string; quantity: number; location: GuildBankItem['location']; locationLabel: string }>;
-      ownerSummaries: Map<string, { characterName: string; locationLabel: string; totalQuantity: number }>;
+      guildQuantity: number;
+      owners: Array<{
+        characterName: string;
+        quantity: number;
+        location: GuildBankItem['location'];
+        locationLabel: string;
+        isPersonal: boolean;
+      }>;
+      ownerSummaries: Map<
+        string,
+        { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
+      >;
       locationSet: Set<string>;
     }
   >();
@@ -826,6 +879,7 @@ function aggregateItems(items: GuildBankItem[]) {
           : entry.location === 'CURSOR'
             ? 'Cursor'
             : 'Inventory';
+    const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
 
     if (!existing) {
       map.set(key, {
@@ -834,12 +888,14 @@ function aggregateItems(items: GuildBankItem[]) {
         itemName: entry.itemName,
         itemIconId: entry.itemIconId ?? null,
         totalQuantity: quantity,
+        guildQuantity: isPersonal ? 0 : quantity,
         owners: [
           {
             characterName: entry.characterName,
             quantity,
             location: entry.location,
-            locationLabel
+            locationLabel,
+            isPersonal
           }
         ],
         ownerSummaries: new Map([
@@ -848,7 +904,8 @@ function aggregateItems(items: GuildBankItem[]) {
             {
               characterName: entry.characterName,
               locationLabel,
-              totalQuantity: quantity
+              totalQuantity: quantity,
+              isPersonal
             }
           ]
         ]),
@@ -856,12 +913,16 @@ function aggregateItems(items: GuildBankItem[]) {
       });
     } else {
       existing.totalQuantity += quantity;
+      if (!isPersonal) {
+        existing.guildQuantity += quantity;
+      }
       existing.locationSet.add(locationLabel);
       existing.owners.push({
         characterName: entry.characterName,
         quantity,
         location: entry.location,
-        locationLabel
+        locationLabel,
+        isPersonal
       });
       const keyOwner = `${entry.characterName}-${locationLabel}`;
       const summary = existing.ownerSummaries.get(keyOwner);
@@ -871,7 +932,8 @@ function aggregateItems(items: GuildBankItem[]) {
         existing.ownerSummaries.set(keyOwner, {
           characterName: entry.characterName,
           locationLabel,
-          totalQuantity: quantity
+          totalQuantity: quantity,
+          isPersonal
         });
       }
     }
@@ -885,7 +947,8 @@ function aggregateItems(items: GuildBankItem[]) {
       sources: Array.from(ownerSummaries.values()).map((owner) => ({
         characterName: owner.characterName,
         location: owner.locationLabel,
-        quantity: owner.totalQuantity
+        quantity: owner.totalQuantity,
+        isPersonal: owner.isPersonal
       }))
     }))
     .sort((a, b) => a.itemName.localeCompare(b.itemName));
@@ -896,14 +959,22 @@ const groupedItems = computed(() => {
     return [];
   }
 
-  const allowed = new Set([
-    ...selectedGuild.value,
-    ...selectedPersonal.value
-  ]);
+  const characterPersonalMap = new Map<string, boolean>();
+  snapshot.value.characters.forEach((entry) => {
+    characterPersonalMap.set(entry.name.toLowerCase(), toBooleanFlag(entry.isPersonal));
+  });
+
+  const allowed = new Set([...selectedGuild.value, ...selectedPersonal.value]);
+
   const filteredItems =
     allowed.size === 0
       ? []
-      : snapshot.value.items.filter((item) => allowed.has(item.characterName.toLowerCase()));
+      : snapshot.value.items
+          .filter((item) => allowed.has(item.characterName.toLowerCase()))
+          .map((item) => ({
+            ...item,
+            isPersonal: characterPersonalMap.get(item.characterName.toLowerCase()) ?? false
+          }));
 
   const aggregated = aggregateItems(filteredItems);
   const normalizedQuery = searchQuery.value.trim().toLowerCase();
@@ -1097,19 +1168,23 @@ const cartDistinct = computed(() => cart.value.length);
 const submittingCart = ref(false);
 const cartError = ref<string | null>(null);
 const cartSuccess = ref<string | null>(null);
+const cartConfirmOpen = ref(false);
 
 function openRequestModal(item: typeof groupedItems.value[number]) {
   const existing = cart.value.find((entry) => entry.itemKey === item.key);
-  const maxQuantity = item.totalQuantity;
-  requestQuantity.value = Math.min(existing?.quantity ?? 1, maxQuantity);
+  const guildMaxQuantity = Math.max(item.guildQuantity ?? 0, 0);
+  const maxQuantity = Math.max(guildMaxQuantity, existing?.quantity ?? 0);
+  requestQuantity.value = Math.min(existing?.quantity ?? 1, maxQuantity || 1);
   const sources =
     (item as any).sources && (item as any).sources.length
-      ? (item as any).sources
-      : item.ownerSummaries.map((owner) => ({
-          characterName: owner.characterName,
-          location: owner.locationLabel,
-          quantity: owner.totalQuantity
-        })) || [];
+      ? (item as any).sources.filter((src: any) => src.isPersonal !== true)
+      : item.ownerSummaries
+          .filter((owner) => owner.isPersonal !== true)
+          .map((owner) => ({
+            characterName: owner.characterName,
+            location: owner.locationLabel,
+            quantity: owner.totalQuantity
+          })) || [];
   requestModalItem.value = {
     itemKey: item.key,
     itemId: item.itemId ?? null,
@@ -1136,6 +1211,20 @@ function updateCartEntry(entry: CartEntry) {
     cart.value.push(entry);
   }
   saveCart();
+}
+
+function onRangeChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const value = Number(target.value);
+  if (!requestModalItem.value) {
+    return;
+  }
+  if (requestModalItem.value.maxQuantity === 1) {
+    requestQuantity.value = 1;
+    return;
+  }
+  const clamped = Math.max(1, Math.min(requestModalItem.value.maxQuantity, value));
+  requestQuantity.value = clamped;
 }
 
 function handleRequestModalConfirm() {
@@ -1173,7 +1262,7 @@ const aggregatedCartSources = computed(() =>
   cart.value.map((entry) => {
     const sources =
       entry.sources && entry.sources.length
-        ? entry.sources
+        ? entry.sources.filter((src) => (src as any).isPersonal !== true)
         : [{ characterName: 'Guild Bank', location: 'Bank', quantity: entry.maxQuantity }];
     return {
       ...entry,
@@ -1255,11 +1344,16 @@ watch(
   { immediate: true }
 );
 
-async function submitCart() {
+async function submitCart(skipConfirm = false) {
   if (cartDistinct.value === 0 || submittingCart.value) {
     return;
   }
+  if (!skipConfirm) {
+    cartConfirmOpen.value = true;
+    return;
+  }
   submittingCart.value = true;
+  cartConfirmOpen.value = false;
   cartError.value = null;
   cartSuccess.value = null;
   try {
