@@ -213,7 +213,7 @@ function computeQuantity(charges: unknown): number | null {
   }
   // Some items report sentinel values like 32767; treat anything absurdly high as a single item.
   if (charges > MAX_REASONABLE_CHARGES) {
-    return null;
+    return 1;
   }
   return charges;
 }

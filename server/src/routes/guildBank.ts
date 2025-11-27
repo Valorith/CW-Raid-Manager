@@ -172,12 +172,18 @@ export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
     >();
 
     for (const item of snapshot.items) {
+      const quantity =
+        typeof item.charges === 'number' && Number.isFinite(item.charges) && item.charges > 0
+          ? item.charges > 1000
+            ? 1
+            : item.charges
+          : 1;
       const key = item.itemId != null ? `id:${item.itemId}` : `name:${item.itemName.toLowerCase()}`;
       if (!availableByKey.has(key)) {
         availableByKey.set(key, { total: 0, entries: [] as typeof snapshot.items });
       }
       const bucket = availableByKey.get(key)!;
-      bucket.total += item.charges && item.charges > 0 ? item.charges : 1;
+      bucket.total += quantity;
       bucket.entries.push(item);
     }
 

@@ -567,6 +567,7 @@ import { getLootIconSrc } from '../utils/itemIcons';
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const MAX_REASONABLE_QUANTITY = 1000;
 
 const route = useRoute();
 const router = useRouter();
@@ -790,6 +791,13 @@ function buildItemKey(itemId: number | null | undefined, itemName: string): stri
   return itemId != null ? `id:${itemId}` : `name:${itemName.toLowerCase()}`;
 }
 
+function normalizeQuantity(raw: any): number {
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return 1;
+  if (num > MAX_REASONABLE_QUANTITY) return 1;
+  return num;
+}
+
 function aggregateItems(items: GuildBankItem[]) {
   const map = new Map<
     string,
@@ -806,7 +814,7 @@ function aggregateItems(items: GuildBankItem[]) {
   >();
 
   for (const entry of items) {
-    const quantity = entry.charges && entry.charges > 0 ? entry.charges : 1;
+    const quantity = normalizeQuantity(entry.charges);
     const key = buildItemKey(entry.itemId ?? null, entry.itemName);
     const existing = map.get(key);
     const locationLabel =
