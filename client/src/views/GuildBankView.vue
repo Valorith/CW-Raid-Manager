@@ -192,7 +192,6 @@
                 </p>
               </div>
               <div class="roster-card__status">
-                <span v-if="!canManageBank" class="muted small">View only</span>
                 <span class="roster-card__chevron" aria-hidden="true">
                   {{ activeRoster === 'personal' ? '▾' : '▸' }}
                 </span>
@@ -209,7 +208,7 @@
                 </button>
               </div>
               <form
-                v-if="canManageBank"
+                v-if="canManagePersonal"
                 class="add-bank-character"
                 @submit.prevent="addCharacter(true)"
               >
@@ -254,7 +253,7 @@
                     </span>
                   </label>
                   <button
-                    v-if="canManageBank"
+                    v-if="canManagePersonal"
                     class="icon-button"
                     :disabled="removingId === character.id"
                     @click="removeCharacter(character.id)"
@@ -650,6 +649,7 @@ let timer: number | null = null;
 const canManageBank = computed(() =>
   guildRole.value ? ['LEADER', 'OFFICER'].includes(guildRole.value) : false
 );
+const canManagePersonal = computed(() => !!guildRole.value);
 
 const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);

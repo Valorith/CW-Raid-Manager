@@ -649,6 +649,7 @@
               @change="handleKillLogFileChange"
             />
             <button
+              v-if="canManageRaid"
               class="upload-btn"
               type="button"
               :disabled="uploadingKillLog"

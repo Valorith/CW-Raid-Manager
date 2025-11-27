@@ -240,7 +240,8 @@ export async function addGuildBankCharacter(options: {
   userId: string;
   actorRole: GuildRole;
 }) {
-  if (!canManageGuildBank(options.actorRole)) {
+  const isPersonal = Boolean(options.isPersonal);
+  if (!isPersonal && !canManageGuildBank(options.actorRole)) {
     throw new Error('Insufficient permissions to manage guild bank characters.');
   }
 
@@ -253,8 +254,8 @@ export async function addGuildBankCharacter(options: {
     guild: { connect: { id: options.guildId } },
     name: display,
     normalizedName: normalized,
-    isPersonal: Boolean(options.isPersonal),
-    user: options.isPersonal ? { connect: { id: options.userId } } : undefined
+    isPersonal,
+    user: isPersonal ? { connect: { id: options.userId } } : undefined
   };
 
   return prisma.guildBankCharacter.create({ data });
@@ -266,10 +267,6 @@ export async function removeGuildBankCharacter(options: {
   userId: string;
   actorRole: GuildRole;
 }) {
-  if (!canManageGuildBank(options.actorRole)) {
-    throw new Error('Insufficient permissions to manage guild bank characters.');
-  }
-
   const existing = await prisma.guildBankCharacter.findUnique({
     where: { id: options.characterId }
   });
@@ -280,6 +277,8 @@ export async function removeGuildBankCharacter(options: {
     if (existing.userId !== options.userId) {
       throw new Error('Cannot remove another user’s personal character.');
     }
+  } else if (!canManageGuildBank(options.actorRole)) {
+    throw new Error('Insufficient permissions to manage guild bank characters.');
   }
 
   await prisma.guildBankCharacter.delete({
