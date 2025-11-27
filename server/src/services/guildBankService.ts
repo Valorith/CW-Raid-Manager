@@ -202,14 +202,20 @@ function resolveSlotCategory(slotId: number): GuildBankSlotCategory | null {
   return null;
 }
 
+const MAX_REASONABLE_CHARGES = 1000;
+
 function computeQuantity(charges: unknown): number | null {
   if (typeof charges !== 'number') {
     return null;
   }
-  if (Number.isFinite(charges) && charges > 0) {
-    return charges;
+  if (!Number.isFinite(charges) || charges <= 0) {
+    return null;
   }
-  return null;
+  // Some items report sentinel values like 32767; treat anything absurdly high as a single item.
+  if (charges > MAX_REASONABLE_CHARGES) {
+    return null;
+  }
+  return charges;
 }
 
 export async function listGuildBankCharacters(guildId: string, userId: string) {
