@@ -849,8 +849,8 @@ a {
 }
 
 .guild-bank-item {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   padding: 0.85rem;
   background: #0f172a;
@@ -858,11 +858,22 @@ a {
   border-radius: 12px;
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
   position: relative;
+  height: 100%;
+  min-height: 220px;
+  max-height: 220px;
+  overflow: hidden;
+}
+
+.guild-bank-item__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .guild-bank-item__icon {
   width: 48px;
   height: 48px;
+  flex-shrink: 0;
   border-radius: 10px;
   background: #111827;
   display: grid;
@@ -892,6 +903,11 @@ a {
   color: #e2e8f0;
   font-size: 0.95rem;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .guild-bank-item__meta {
@@ -1072,6 +1088,30 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.owner-more-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 120ms ease;
+  line-height: 1;
+}
+
+.owner-more-button:hover {
+  background: rgba(148, 163, 184, 0.25);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #cbd5e1;
+  transform: translateY(-1px);
 }
 
 .request-modal {
@@ -1334,4 +1374,76 @@ a {
   border-radius: 12px;
   padding: 1rem;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  color: #e2e8f0;
+}
+
+.modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.modal__header h3 {
+  margin: 0.25rem 0 0 0;
+  font-size: 1.25rem;
+  color: #e2e8f0;
+}
+
+.modal__header .eyebrow {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.modal__header .icon-button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 6px;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.modal__header .icon-button:hover {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
+.modal__header .icon-button__glyph {
+  font-size: 1.5rem;
+  line-height: 1;
+  display: block;
+}
+
+.owner-modal {
+  max-width: 500px;
+  width: 90vw;
+}
+
+.owner-modal__body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.owner-modal__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.owner-modal__list li {
+  display: flex;
+  align-items: center;
 }

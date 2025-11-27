@@ -203,17 +203,19 @@
 
         <ul class="guild-bank__list guild-bank__list--grid">
           <li v-for="item in pagedItems" :key="item.key" class="guild-bank-item">
-            <div class="guild-bank-item__icon" :class="{ 'guild-bank-item__icon--placeholder': !item.itemIconId }">
-              <img
-                v-if="item.itemIconId"
-                :src="getLootIconSrc(item.itemIconId)"
-                :alt="`${item.itemName} icon`"
-                loading="lazy"
-              />
-              <span v-else>?</span>
+            <div class="guild-bank-item__header">
+              <div class="guild-bank-item__icon" :class="{ 'guild-bank-item__icon--placeholder': !item.itemIconId }">
+                <img
+                  v-if="item.itemIconId"
+                  :src="getLootIconSrc(item.itemIconId)"
+                  :alt="`${item.itemName} icon`"
+                  loading="lazy"
+                />
+                <span v-else>?</span>
+              </div>
+              <strong class="guild-bank-item__name">{{ item.itemName }}</strong>
             </div>
             <div class="guild-bank-item__details">
-              <strong class="guild-bank-item__name">{{ item.itemName }}</strong>
               <div class="guild-bank-item__meta">
                 <span class="pill pill--quantity">×{{ item.totalQuantity }}</span>
                 <span
@@ -249,7 +251,7 @@
               <div class="guild-bank-item__owners">
                 <span
                   v-for="owner in visibleOwners(item)"
-                  :key="`${owner.characterName}-${owner.location}`"
+                  :key="`${owner.characterName}-${owner.locationLabel}`"
                   class="owner-chip owner-chip--inline owner-chip--truncate"
                 >
                   {{ owner.characterName }} ({{ owner.locationLabel }}) · ×{{ owner.totalQuantity }}
@@ -257,10 +259,11 @@
                 <button
                   v-if="ownerOverflow(item)"
                   type="button"
-                  class="pill pill--link pill--link-button pill--inline"
+                  class="owner-more-button"
                   @click="openOwnerModal(item)"
+                  :title="`${ownerOverflowCount(item)} more source${ownerOverflowCount(item) === 1 ? '' : 's'}`"
                 >
-                  +{{ ownerOverflowCount(item) }} more
+                  +
                 </button>
               </div>
             </div>
@@ -621,7 +624,7 @@ function aggregateItems(items: GuildBankItem[]) {
           ? 'Bank'
           : entry.location === 'CURSOR'
             ? 'Cursor'
-            : 'Personal';
+            : 'Inventory';
 
     if (!existing) {
       map.set(key, {
@@ -772,7 +775,7 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-const OWNER_LIMIT = 3;
+const OWNER_LIMIT = 2;
 
 function visibleOwners(item: typeof groupedItems.value[number]) {
   return item.ownerSummaries.slice(0, OWNER_LIMIT);
