@@ -12,7 +12,9 @@ export interface GuildBankCharacterEntry {
   userId: string | null;
   isPersonal: boolean;
   createdAt: Date;
+  createdAt: Date;
   foundInEq: boolean;
+  class?: string;
 }
 
 export interface GuildBankItem {
@@ -286,7 +288,29 @@ export async function removeGuildBankCharacter(options: {
   });
 }
 
-type EqCharacterRow = RowDataPacket & { id: number; name: string };
+function mapEqClassIdToEnum(classId: number): string {
+  switch (classId) {
+    case 1: return 'WARRIOR';
+    case 2: return 'CLERIC';
+    case 3: return 'PALADIN';
+    case 4: return 'RANGER';
+    case 5: return 'SHADOWKNIGHT';
+    case 6: return 'DRUID';
+    case 7: return 'MONK';
+    case 8: return 'BARD';
+    case 9: return 'ROGUE';
+    case 10: return 'SHAMAN';
+    case 11: return 'NECROMANCER';
+    case 12: return 'WIZARD';
+    case 13: return 'MAGICIAN';
+    case 14: return 'ENCHANTER';
+    case 15: return 'BEASTLORD';
+    case 16: return 'BERSERKER';
+    default: return 'UNKNOWN';
+  }
+}
+
+type EqCharacterRow = RowDataPacket & { id: number; name: string; class: number };
 
 type EqInventoryRow = RowDataPacket & {
   charid: number;
@@ -316,7 +340,7 @@ export async function fetchGuildBankSnapshot(
   const namePlaceholders = trackedNames.map(() => '?').join(', ');
 
   const eqCharacters = await queryEqDb<EqCharacterRow[]>(
-    `SELECT id, name FROM character_data WHERE LOWER(name) IN (${namePlaceholders})`,
+    `SELECT id, name, class FROM character_data WHERE LOWER(name) IN (${namePlaceholders})`,
     trackedNames
   );
 
@@ -340,7 +364,10 @@ export async function fetchGuildBankSnapshot(
       userId: entry.userId,
       isPersonal: entry.isPersonal ?? false,
       createdAt: entry.createdAt,
-      foundInEq: Boolean(eqMatch)
+      isPersonal: entry.isPersonal ?? false,
+      createdAt: entry.createdAt,
+      foundInEq: Boolean(eqMatch),
+      class: eqMatch ? mapEqClassIdToEnum(eqMatch.class) : undefined
     };
   });
 

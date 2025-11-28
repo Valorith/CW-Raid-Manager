@@ -286,15 +286,6 @@
               class="input input--search input--hero"
               placeholder="Search every bank item by name or holder"
             />
-            <button
-              class="search-field__clear"
-              type="button"
-              v-if="searchQuery.trim().length"
-              @click="searchQuery = ''"
-              aria-label="Clear search"
-            >
-              ×
-            </button>
           </div>
         </div>
 
@@ -327,7 +318,12 @@
         </div>
 
         <ul class="guild-bank__list guild-bank__list--grid">
-          <li v-for="item in pagedItems" :key="item.key" class="guild-bank-item">
+          <li
+            v-for="item in pagedItems"
+            :key="item.key"
+            class="guild-bank-item"
+
+          >
             <div class="guild-bank-item__header">
               <div class="guild-bank-item__icon" :class="{ 'guild-bank-item__icon--placeholder': !item.itemIconId }">
                 <img
@@ -357,6 +353,7 @@
                   target="_blank"
                   rel="noreferrer"
                   title="View on Alla"
+                  @click.stop
                 >
                   <span aria-hidden="true">🔗</span>
                   <span>Alla</span>
@@ -379,6 +376,10 @@
                   v-for="owner in visibleOwners(item)"
                   :key="`${owner.characterName}-${owner.locationLabel}`"
                   class="owner-chip owner-chip--inline owner-chip--truncate"
+                  @click.stop="openInventoryModal(item, owner.characterName)"
+                  role="button"
+                  tabindex="0"
+                  style="cursor: pointer"
                 >
                   {{ owner.characterName }} ({{ owner.locationLabel }}) · ×{{ owner.totalQuantity }}
                 </span>
@@ -386,7 +387,7 @@
                   v-if="ownerOverflow(item)"
                   type="button"
                   class="owner-more-button"
-                  @click="openOwnerModal(item)"
+                  @click.stop="openOwnerModal(item)"
                   :title="`${ownerOverflowCount(item)} more source${ownerOverflowCount(item) === 1 ? '' : 's'}`"
                 >
                   +
@@ -428,6 +429,146 @@
               </span>
             </li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="inventoryModal.open && inventoryModal.item"
+      class="modal-backdrop modal-backdrop--top"
+      @click.self="closeInventoryModal"
+    >
+      <div class="modal inventory-modal">
+        <header class="modal__header">
+          <div>
+            <p class="eyebrow">Item location</p>
+            <h3>{{ inventoryPlacementGroups[0]?.characterName || inventoryModal.item.itemName }}</h3>
+          </div>
+          <button class="icon-button" type="button" @click="closeInventoryModal" aria-label="Close">
+            ×
+          </button>
+        </header>
+        <div class="inventory-modal__body">
+          <p class="muted small">
+            EQ-style layout highlights the slots where this item sits. Bag contents show the parent bag and exact pocket.
+          </p>
+          <div v-for="placement in inventoryPlacementGroups" :key="placement.characterName" class="inventory-visual">
+            <div class="eq-window">
+              <div class="eq-window__header">
+                <div class="eq-window__title">
+                  <span class="eq-window__dot"></span>
+                  <strong>{{ placement.characterName }}</strong>
+                  <span class="eq-window__subtitle">
+                    {{ placement.isPersonal ? 'Personal character' : 'Guild bank character' }}
+                  </span>
+                </div>
+                <span class="eq-window__badge">Inventory</span>
+              </div>
+              <div class="eq-window__content">
+                <div class="eq-paperdoll-layout">
+                  <div class="eq-paperdoll-grid">
+                    <div
+                      class="eq-class-icon"
+                      :style="{ backgroundImage: `url(${classIconForCharacter(placement.characterName)})` }"
+                    ></div>
+                    <div
+                      v-for="slot in wornSlotsUi"
+                      :key="slot.slotId"
+                      class="eq-slot eq-slot--worn"
+                      :class="[
+                        `eq-slot--${slot.key}`,
+                        { 'eq-slot--active': placement.highlights.worn.includes(slot.slotId) }
+                      ]"
+                      :title="slot.label"
+                    >
+                      <span class="eq-slot__label">{{ slot.shortLabel }}</span>
+                      <span class="eq-slot__id">#{{ slot.slotId }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="eq-inventory-section">
+                  <section class="inventory-visual__panel inventory-visual__panel--wide">
+                    <div class="eq-panel__header">Inventory</div>
+                    <div class="eq-general-grid eq-general-grid--double">
+                      <div
+                        v-for="slot in generalSlotsUi"
+                        :key="slot.slotId"
+                        class="eq-slot eq-slot--bag"
+                        :class="{ 'eq-slot--active': placement.highlights.general.includes(slot.slotId) }"
+                      >
+                        <div class="eq-slot__label">{{ slot.label }}</div>
+                        <div class="eq-slot__bag">
+                          <div
+                            v-for="pocket in BAG_POCKET_INDICES"
+                            :key="pocket"
+                            class="eq-pocket"
+                            :class="{
+                              'eq-pocket--filled': placement.generalBags.some(
+                                (bag) => bag.parentSlotId === slot.slotId && bag.slots.includes(pocket)
+                              )
+                            }"
+                          >
+                            <span class="sr-only">Bag slot {{ pocket + 1 }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
+
+            <div class="eq-window eq-window--bank">
+              <div class="eq-window__header">
+                <div class="eq-window__title">
+                  <span class="eq-window__dot"></span>
+                  <strong>{{ placement.characterName }}</strong>
+                  <span class="eq-window__subtitle">Bank</span>
+                </div>
+                <span class="eq-window__badge">Bank</span>
+              </div>
+              <div class="eq-window__content eq-window__content--bank">
+                <section class="inventory-visual__panel inventory-visual__panel--bank">
+                  <div class="eq-panel__header">Bank Slots</div>
+                  <div class="eq-bank-grid">
+                    <div
+                      v-for="slot in bankSlotsUi"
+                      :key="slot.slotId"
+                      class="eq-slot eq-slot--bag"
+                      :class="{ 'eq-slot--active': placement.highlights.bank.includes(slot.slotId) }"
+                    >
+                      <div class="eq-slot__label">{{ slot.label }}</div>
+                      <div class="eq-slot__bag">
+                        <div
+                          v-for="pocket in BAG_POCKET_INDICES"
+                          :key="pocket"
+                          class="eq-pocket"
+                          :class="{
+                            'eq-pocket--filled': placement.bankBags.some(
+                              (bag) => bag.parentSlotId === slot.slotId && bag.slots.includes(pocket)
+                            )
+                          }"
+                        >
+                          <span class="sr-only">Bag slot {{ pocket + 1 }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <ul class="inventory-visual__placements">
+              <li
+                v-for="placementDetail in placement.placements"
+                :key="placementDetail.label + placementDetail.locationLabel + placementDetail.quantity"
+              >
+                <strong>{{ placementDetail.label }}</strong>
+                <span class="muted small"> · {{ placementDetail.locationLabel }} · ×{{ placementDetail.quantity }}</span>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -604,7 +745,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 
 import { api, type GuildBankSnapshot, type GuildBankItem } from '../services/api';
-import type { GuildRole } from '../services/types';
+import { getCharacterClassIcon, type CharacterClass, type GuildRole } from '../services/types';
 import { getLootIconSrc } from '../utils/itemIcons';
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
@@ -858,12 +999,21 @@ function aggregateItems(items: GuildBankItem[]) {
         location: GuildBankItem['location'];
         locationLabel: string;
         isPersonal: boolean;
+        slotId: number | null;
       }>;
       ownerSummaries: Map<
         string,
         { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
       >;
       locationSet: Set<string>;
+      slotPlacements: Array<{
+        characterName: string;
+        location: GuildBankItem['location'];
+        locationLabel: string;
+        isPersonal: boolean;
+        slotId: number | null;
+        quantity: number;
+      }>;
     }
   >();
 
@@ -880,6 +1030,7 @@ function aggregateItems(items: GuildBankItem[]) {
             ? 'Cursor'
             : 'Inventory';
     const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
+    const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
 
     if (!existing) {
       map.set(key, {
@@ -895,7 +1046,8 @@ function aggregateItems(items: GuildBankItem[]) {
             quantity,
             location: entry.location,
             locationLabel,
-            isPersonal
+            isPersonal,
+            slotId
           }
         ],
         ownerSummaries: new Map([
@@ -909,7 +1061,17 @@ function aggregateItems(items: GuildBankItem[]) {
             }
           ]
         ]),
-        locationSet: new Set([locationLabel])
+        locationSet: new Set([locationLabel]),
+        slotPlacements: [
+          {
+            characterName: entry.characterName,
+            location: entry.location,
+            locationLabel,
+            isPersonal,
+            slotId,
+            quantity
+          }
+        ]
       });
     } else {
       existing.totalQuantity += quantity;
@@ -922,7 +1084,8 @@ function aggregateItems(items: GuildBankItem[]) {
         quantity,
         location: entry.location,
         locationLabel,
-        isPersonal
+        isPersonal,
+        slotId
       });
       const keyOwner = `${entry.characterName}-${locationLabel}`;
       const summary = existing.ownerSummaries.get(keyOwner);
@@ -936,6 +1099,14 @@ function aggregateItems(items: GuildBankItem[]) {
           isPersonal
         });
       }
+      existing.slotPlacements.push({
+        characterName: entry.characterName,
+        location: entry.location,
+        locationLabel,
+        isPersonal,
+        slotId,
+        quantity
+      });
     }
   }
 
@@ -1080,6 +1251,353 @@ function openOwnerModal(item: typeof groupedItems.value[number]) {
 
 function closeOwnerModal() {
   ownerModal.value = { item: null, open: false };
+}
+
+const WORN_SLOT_LABELS = [
+  'Charm', // 0
+  'Ear 1',
+  'Head',
+  'Face',
+  'Ear 2',
+  'Neck',
+  'Shoulders',
+  'Arms',
+  'Back',
+  'Wrist 1',
+  'Wrist 2',
+  'Range',
+  'Hands',
+  'Primary',
+  'Secondary',
+  'Finger 1',
+  'Finger 2',
+  'Chest',
+  'Legs',
+  'Feet',
+  'Waist',
+  'Power Source',
+  'Ammo'
+];
+
+const WORN_SLOT_KEYS = [
+  'charm',
+  'ear1',
+  'head',
+  'face',
+  'ear2',
+  'neck',
+  'shoulders',
+  'arms',
+  'back',
+  'wrist1',
+  'wrist2',
+  'range',
+  'hands',
+  'primary',
+  'secondary',
+  'finger1',
+  'finger2',
+  'chest',
+  'legs',
+  'feet',
+  'waist',
+  'powersource',
+  'ammo'
+];
+
+const WORN_SLOT_SHORT_LABELS = [
+  'Charm', 'Ear1', 'Head', 'Face', 'Ear2', 'Neck', 'Shldr', 'Arms', 'Back', 'Wrst1', 'Wrst2',
+  'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
+];
+
+const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30];
+const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
+const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);
+
+const wornSlotsUi = [
+  // Slots 1-22
+  ...WORN_SLOT_LABELS.slice(1).map((label, index) => ({
+    slotId: index + 1,
+    label,
+    shortLabel: WORN_SLOT_SHORT_LABELS[index + 1],
+    key: WORN_SLOT_KEYS[index + 1]
+  })),
+  // Slot 0 (Charm)
+  { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0] }
+];
+
+const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
+  slotId,
+  label: `General ${index + 1}`
+}));
+const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
+  slotId,
+  label: `Bank ${index + 1}`
+}));
+
+type ResolvedSlotPlacement = {
+  area: 'worn' | 'inventory' | 'inventoryBag' | 'bank' | 'bankBag' | 'unknown';
+  slotId: number | null;
+  slotLabel: string;
+  parentSlotId?: number | null;
+  parentLabel?: string;
+  bagSlotIndex?: number | null;
+};
+
+function generalSlotLabel(slotId: number) {
+  const idx = slotId - 22;
+  return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
+}
+
+function bankSlotLabel(slotId: number) {
+  return `Bank ${slotId - 1999}`;
+}
+
+function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
+  if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
+    return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
+  }
+
+  if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
+    return {
+      area: 'worn',
+      slotId,
+      slotLabel: WORN_SLOT_LABELS[slotId]
+    };
+  }
+
+  if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
+    return {
+      area: 'inventory',
+      slotId,
+      slotLabel: generalSlotLabel(slotId)
+    };
+  }
+
+  if (slotId >= 262 && slotId <= 341) {
+    const offset = slotId - 262;
+    const bagIndex = Math.floor(offset / 10);
+    const bagSlotIndex = offset % 10;
+    const parentSlotId = GENERAL_SLOT_IDS[0] + bagIndex;
+    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'inventoryBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: generalSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  if (slotId >= 2000 && slotId <= 2023) {
+    return {
+      area: 'bank',
+      slotId,
+      slotLabel: bankSlotLabel(slotId)
+    };
+  }
+
+  if (slotId >= 2032 && slotId <= 2271) {
+    const offset = slotId - 2032;
+    const bagIndex = Math.floor(offset / 10);
+    const bagSlotIndex = offset % 10;
+    const parentSlotId = 2000 + bagIndex;
+    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
+      return {
+        area: 'bankBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: bankSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  return { area: 'unknown', slotId, slotLabel: `Slot ${slotId}` };
+}
+
+function slotDisplayLabel(resolved: ResolvedSlotPlacement) {
+  if (resolved.area === 'worn') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'inventory') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'inventoryBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
+    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'bank') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'bankBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
+    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
+  }
+  return resolved.slotLabel;
+}
+
+const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
+
+const inventoryModal = ref<{
+  item: typeof groupedItems.value[number] | null;
+  open: boolean;
+  selectedCharacter: string | null;
+}>({
+  item: null,
+  open: false,
+  selectedCharacter: null
+});
+
+const characterClassMap = computed(() => {
+  const map = new Map<string, CharacterClass>();
+  for (const entry of snapshot.value?.characters ?? []) {
+    if (entry.class) {
+      map.set(entry.name.toLowerCase(), entry.class);
+    }
+  }
+  return map;
+});
+
+function openInventoryModal(
+  item: typeof groupedItems.value[number],
+  characterName?: string
+) {
+  inventoryModal.value = {
+    item,
+    open: true,
+    selectedCharacter: characterName ?? null
+  };
+}
+
+function closeInventoryModal() {
+  inventoryModal.value = { open: false, item: null, selectedCharacter: null };
+}
+
+const inventoryPlacementGroups = computed(() => {
+  const current = inventoryModal.value.item;
+  if (!current || !Array.isArray(current.slotPlacements)) {
+    return [];
+  }
+
+  const targetCharacter = inventoryModal.value.selectedCharacter?.toLowerCase();
+
+  const map = new Map<
+    string,
+    {
+      characterName: string;
+      isPersonal: boolean;
+      placements: Array<{
+        quantity: number;
+        locationLabel: string;
+        resolved: ResolvedSlotPlacement;
+        label: string;
+      }>;
+      highlights: {
+        worn: Set<number>;
+        general: Set<number>;
+        bank: Set<number>;
+        generalBags: Map<number, Set<number>>;
+        bankBags: Map<number, Set<number>>;
+      };
+    }
+  >();
+
+  for (const placement of current.slotPlacements) {
+    // Filter by selectedCharacter if one is provided
+    if (targetCharacter && placement.characterName.toLowerCase() !== targetCharacter) {
+      continue;
+    }
+
+    const resolved = resolveSlotPlacement(placement.slotId ?? null);
+    const existing = map.get(placement.characterName);
+    const container = existing ?? {
+      characterName: placement.characterName,
+      isPersonal: placement.isPersonal,
+      placements: [],
+      highlights: {
+        worn: new Set<number>(),
+        general: new Set<number>(),
+        bank: new Set<number>(),
+        generalBags: new Map<number, Set<number>>(),
+        bankBags: new Map<number, Set<number>>()
+      }
+    };
+
+    container.placements.push({
+      quantity: placement.quantity,
+      locationLabel: placement.locationLabel,
+      resolved,
+      label: slotDisplayLabel(resolved)
+    });
+
+    switch (resolved.area) {
+      case 'worn':
+        if (resolved.slotId != null) {
+          container.highlights.worn.add(resolved.slotId);
+        }
+        break;
+      case 'inventory':
+        if (resolved.slotId != null) {
+          container.highlights.general.add(resolved.slotId);
+        }
+        break;
+      case 'inventoryBag':
+        if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
+          container.highlights.general.add(resolved.parentSlotId);
+          const generalBag = container.highlights.generalBags.get(resolved.parentSlotId) ?? new Set<number>();
+          generalBag.add(resolved.bagSlotIndex);
+          container.highlights.generalBags.set(resolved.parentSlotId, generalBag);
+        }
+        break;
+      case 'bank':
+        if (resolved.slotId != null) {
+          container.highlights.bank.add(resolved.slotId);
+        }
+        break;
+      case 'bankBag':
+        if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
+          container.highlights.bank.add(resolved.parentSlotId);
+          const bankBag = container.highlights.bankBags.get(resolved.parentSlotId) ?? new Set<number>();
+          bankBag.add(resolved.bagSlotIndex);
+          container.highlights.bankBags.set(resolved.parentSlotId, bankBag);
+        }
+        break;
+      default:
+        break;
+    }
+
+    if (!existing) {
+      map.set(placement.characterName, container);
+    }
+  }
+
+  return Array.from(map.values()).map((entry) => ({
+    ...entry,
+    placements: entry.placements,
+    highlights: {
+      worn: Array.from(entry.highlights.worn),
+      general: Array.from(entry.highlights.general),
+      bank: Array.from(entry.highlights.bank)
+    },
+    generalBags: Array.from(entry.highlights.generalBags.entries()).map(([parentSlotId, slots]) => ({
+      parentSlotId,
+      slots: Array.from(slots).sort((a, b) => a - b)
+    })),
+    bankBags: Array.from(entry.highlights.bankBags.entries()).map(([parentSlotId, slots]) => ({
+      parentSlotId,
+      slots: Array.from(slots).sort((a, b) => a - b)
+    }))
+  }));
+});
+
+function classIconForCharacter(name: string) {
+  const cls = characterClassMap.value.get(name.toLowerCase()) ?? null;
+  if (!cls || cls === 'UNKNOWN') {
+    return '/assets/icons/warrior.gif'; // Default fallback
+  }
+  return `/assets/icons/${cls.toLowerCase()}.gif`;
 }
 
 // Cart state

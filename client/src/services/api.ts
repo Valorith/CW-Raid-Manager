@@ -143,7 +143,9 @@ export interface GuildBankCharacter {
   userId?: string | null;
   isPersonal: boolean;
   createdAt: string;
+  createdAt: string;
   foundInEq?: boolean;
+  class?: CharacterClass;
 }
 
 export interface GuildBankItem {
@@ -202,7 +204,7 @@ export interface QuestAssignment {
   progress: QuestNodeProgress[];
 }
 
-export interface QuestAssignmentCounts extends Record<QuestAssignmentStatus, number> {}
+export interface QuestAssignmentCounts extends Record<QuestAssignmentStatus, number> { }
 
 export interface QuestBlueprintSummaryLite {
   id: string;
@@ -453,7 +455,7 @@ export interface GuildDiscordWebhookInput {
   mentionSubscriptions?: Record<string, boolean>;
 }
 
-export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> {}
+export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> { }
 
 export interface RaidEventSummary {
   id: string;
@@ -1049,31 +1051,31 @@ function normalizeQuestAssignment(raw: any): QuestAssignment {
       typeof raw?.totalViewerSteps === 'number' ? Math.max(0, raw.totalViewerSteps) : undefined,
     user: raw?.user && typeof raw.user === 'object'
       ? {
-          id: typeof raw.user.id === 'string' ? raw.user.id : '',
-          displayName: typeof raw.user.displayName === 'string' ? raw.user.displayName : '',
-          nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
-        }
+        id: typeof raw.user.id === 'string' ? raw.user.id : '',
+        displayName: typeof raw.user.displayName === 'string' ? raw.user.displayName : '',
+        nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
+      }
       : undefined,
     character:
       raw?.character && typeof raw.character === 'object'
         ? {
-            id: typeof raw.character.id === 'string' ? raw.character.id : '',
-            name: typeof raw.character.name === 'string' ? raw.character.name : 'Character',
-            class:
-              typeof raw.character.class === 'string'
-                ? (raw.character.class as CharacterClass)
-                : 'WARRIOR'
-          }
+          id: typeof raw.character.id === 'string' ? raw.character.id : '',
+          name: typeof raw.character.name === 'string' ? raw.character.name : 'Character',
+          class:
+            typeof raw.character.class === 'string'
+              ? (raw.character.class as CharacterClass)
+              : 'WARRIOR'
+        }
         : null,
     progress: Array.isArray(raw?.progress)
       ? raw.progress.map((entry: any): QuestNodeProgress => ({
-          nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
-          status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
-          progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
-          targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
-          notes: typeof entry?.notes === 'string' ? entry.notes : null,
-          isDisabled: Boolean(entry?.isDisabled)
-        }))
+        nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
+        status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
+        progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
+        targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
+        notes: typeof entry?.notes === 'string' ? entry.notes : null,
+        isDisabled: Boolean(entry?.isDisabled)
+      }))
       : []
   };
 }
@@ -1082,9 +1084,9 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
   const position = isPlainObject(raw?.position)
     ? raw.position
     : {
-        x: typeof raw?.positionX === 'number' ? raw.positionX : 0,
-        y: typeof raw?.positionY === 'number' ? raw.positionY : 0
-      };
+      x: typeof raw?.positionX === 'number' ? raw.positionX : 0,
+      y: typeof raw?.positionY === 'number' ? raw.positionY : 0
+    };
 
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
@@ -1310,44 +1312,44 @@ function normalizeRaidSummary(
 
   const attendance = includeAttendance && Array.isArray(raid?.attendance)
     ? raid.attendance.map((event: any) => ({
-        id: event.id,
-        createdAt: event.createdAt,
-        eventType: event.eventType ?? undefined
-      }))
+      id: event.id,
+      createdAt: event.createdAt,
+      eventType: event.eventType ?? undefined
+    }))
     : [];
 
   const rawMonitor = raid?.logMonitor;
   const logMonitor = rawMonitor
     ? {
-        isActive:
-          typeof rawMonitor.isActive === 'boolean'
-            ? rawMonitor.isActive
-            : true,
-        userId: typeof rawMonitor.userId === 'string' ? rawMonitor.userId : null,
-        userDisplayName:
-          typeof rawMonitor.userDisplayName === 'string'
-            ? rawMonitor.userDisplayName
-            : null,
-        startedAt: normalizeNullableDate(rawMonitor.startedAt)
-      }
+      isActive:
+        typeof rawMonitor.isActive === 'boolean'
+          ? rawMonitor.isActive
+          : true,
+      userId: typeof rawMonitor.userId === 'string' ? rawMonitor.userId : null,
+      userDisplayName:
+        typeof rawMonitor.userDisplayName === 'string'
+          ? rawMonitor.userDisplayName
+          : null,
+      startedAt: normalizeNullableDate(rawMonitor.startedAt)
+    }
     : null;
 
   const recurrence = raid?.recurrence
     ? {
-        id: typeof raid.recurrence?.id === 'string' ? raid.recurrence.id : '',
-        frequency:
-          raid.recurrence?.frequency === 'DAILY' ||
+      id: typeof raid.recurrence?.id === 'string' ? raid.recurrence.id : '',
+      frequency:
+        raid.recurrence?.frequency === 'DAILY' ||
           raid.recurrence?.frequency === 'WEEKLY' ||
           raid.recurrence?.frequency === 'MONTHLY'
-            ? raid.recurrence.frequency
-            : 'WEEKLY',
-        interval:
-          typeof raid.recurrence?.interval === 'number' && raid.recurrence.interval > 0
-            ? raid.recurrence.interval
-            : 1,
-        endDate: normalizeNullableDate(raid.recurrence?.endDate),
-        isActive: raid.recurrence?.isActive !== false
-      }
+          ? raid.recurrence.frequency
+          : 'WEEKLY',
+      interval:
+        typeof raid.recurrence?.interval === 'number' && raid.recurrence.interval > 0
+          ? raid.recurrence.interval
+          : 1,
+      endDate: normalizeNullableDate(raid.recurrence?.endDate),
+      isActive: raid.recurrence?.isActive !== false
+    }
     : null;
 
   return {
@@ -1437,11 +1439,11 @@ function normalizeGuildNpcNote(note: any): GuildNpcNote {
     : [];
   const relatedNpcs = Array.isArray(note?.relatedNpcs)
     ? note.relatedNpcs.map((entry: any) =>
-        normalizeGuildNpcAssociation({
-          ...entry,
-          name: entry?.associatedNpcName ?? entry?.name
-        })
-      )
+      normalizeGuildNpcAssociation({
+        ...entry,
+        name: entry?.associatedNpcName ?? entry?.name
+      })
+    )
     : [];
 
   return {
@@ -1483,16 +1485,17 @@ function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
     userId: typeof raw?.userId === 'string' ? raw.userId : null,
     isPersonal,
     createdAt: normalizeDateString(raw?.createdAt) ?? '',
-    foundInEq: raw?.foundInEq === true
+    foundInEq: raw?.foundInEq === true,
+    class: typeof raw?.class === 'string' ? (raw.class as CharacterClass) : undefined
   };
 }
 
 function normalizeGuildBankItem(raw: any): GuildBankItem {
   const location =
     raw?.location === 'WORN' ||
-    raw?.location === 'PERSONAL' ||
-    raw?.location === 'CURSOR' ||
-    raw?.location === 'BANK'
+      raw?.location === 'PERSONAL' ||
+      raw?.location === 'CURSOR' ||
+      raw?.location === 'BANK'
       ? raw.location
       : 'PERSONAL';
 
@@ -1597,37 +1600,37 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
       : [],
     characters: Array.isArray(filterOptionsRaw?.characters)
       ? filterOptionsRaw.characters
-          .map((entry: any) => ({
-            id: typeof entry?.id === 'string' ? entry.id : null,
-            name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
-            class:
-              typeof entry?.class === 'string'
-                ? (entry.class as CharacterClass)
-                : null,
-            userId: typeof entry?.userId === 'string' ? entry.userId : null,
-            userDisplayName:
-              typeof entry?.userDisplayName === 'string'
-                ? entry.userDisplayName
-                : null,
-            isMain: Boolean(entry?.isMain)
-          }))
+        .map((entry: any) => ({
+          id: typeof entry?.id === 'string' ? entry.id : null,
+          name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
+          class:
+            typeof entry?.class === 'string'
+              ? (entry.class as CharacterClass)
+              : null,
+          userId: typeof entry?.userId === 'string' ? entry.userId : null,
+          userDisplayName:
+            typeof entry?.userDisplayName === 'string'
+              ? entry.userDisplayName
+              : null,
+          isMain: Boolean(entry?.isMain)
+        }))
       : [],
     raids: Array.isArray(filterOptionsRaw?.raids)
       ? filterOptionsRaw.raids
-          .map((entry: any) => ({
-            id: typeof entry?.id === 'string' ? entry.id : '',
-            name: typeof entry?.name === 'string' ? entry.name : 'Unknown Raid'
-          }))
+        .map((entry: any) => ({
+          id: typeof entry?.id === 'string' ? entry.id : '',
+          name: typeof entry?.name === 'string' ? entry.name : 'Unknown Raid'
+        }))
       : [],
     lootParticipants: Array.isArray(filterOptionsRaw?.lootParticipants)
       ? filterOptionsRaw.lootParticipants
-          .map((entry: any) => ({
-            name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
-            looterClass:
-              typeof entry?.looterClass === 'string'
-                ? entry.looterClass
-                : null
-          }))
+        .map((entry: any) => ({
+          name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
+          looterClass:
+            typeof entry?.looterClass === 'string'
+              ? entry.looterClass
+              : null
+        }))
       : []
   };
   filterOptions.lootParticipants = filterOptions.lootParticipants.filter(
@@ -2014,8 +2017,8 @@ export const api = {
     const response = await axios.get(`/api/raids/guild/${guildId}`);
     const normalizedRaids = Array.isArray(response.data.raids)
       ? response.data.raids.map((raid: any) =>
-          normalizeRaidSummary(raid, { includeAttendance: true })
-        )
+        normalizeRaidSummary(raid, { includeAttendance: true })
+      )
       : [];
     return {
       raids: normalizedRaids,
@@ -2033,35 +2036,35 @@ export const api = {
     const npcKills =
       Array.isArray(raid?.npcKills) && raid.npcKills.length > 0
         ? raid.npcKills
-            .map(
-              (kill: any): { npcName: string; killCount: number } => ({
-                npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
-                killCount:
-                  typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
-              })
-            )
-            .filter(
-              (kill: { npcName: string; killCount: number }) =>
-                kill.killCount > 0 && kill.npcName.trim().length > 0
-            )
+          .map(
+            (kill: any): { npcName: string; killCount: number } => ({
+              npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
+              killCount:
+                typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
+            })
+          )
+          .filter(
+            (kill: { npcName: string; killCount: number }) =>
+              kill.killCount > 0 && kill.npcName.trim().length > 0
+          )
         : [];
     const npcKillEvents =
       Array.isArray(raid?.npcKillEvents) && raid.npcKillEvents.length > 0
         ? raid.npcKillEvents
-            .map(
-              (event: any): { npcName: string; killerName: string | null; occurredAt: string | null } => ({
-                npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
-                killerName:
-                  typeof event?.killerName === 'string' && event.killerName.trim().length > 0
-                    ? event.killerName
-                    : null,
-                occurredAt: normalizeDateString(event?.occurredAt)
-              })
-            )
-            .filter(
-              (event: { npcName: string; killerName: string | null; occurredAt: string | null }) =>
-                Boolean(event.occurredAt)
-            )
+          .map(
+            (event: any): { npcName: string; killerName: string | null; occurredAt: string | null } => ({
+              npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
+              killerName:
+                typeof event?.killerName === 'string' && event.killerName.trim().length > 0
+                  ? event.killerName
+                  : null,
+              occurredAt: normalizeDateString(event?.occurredAt)
+            })
+          )
+          .filter(
+            (event: { npcName: string; killerName: string | null; occurredAt: string | null }) =>
+              Boolean(event.occurredAt)
+          )
         : [];
     return {
       ...raid,
@@ -2272,13 +2275,13 @@ export const api = {
       isActive?: boolean;
       discordVoiceUrl?: string | null;
       recurrence?:
-        | {
-            frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
-            interval: number;
-            endDate?: string | null;
-            isActive?: boolean;
-          }
-        | null;
+      | {
+        frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
+        interval: number;
+        endDate?: string | null;
+        isActive?: boolean;
+      }
+      | null;
     }
   ) {
     const response = await axios.patch(`/api/raids/${raidId}`, payload);
@@ -2396,12 +2399,12 @@ export const api = {
       ...event,
       characters: Array.isArray(event.characters)
         ? event.characters.map((record: any) => {
-            const normalized = normalizeAttendanceRecord(record);
-            return {
-              ...normalized,
-              status: (record.status ?? normalized.status ?? 'PRESENT') as AttendanceStatus
-            };
-          })
+          const normalized = normalizeAttendanceRecord(record);
+          return {
+            ...normalized,
+            status: (record.status ?? normalized.status ?? 'PRESENT') as AttendanceStatus
+          };
+        })
         : []
     }));
   },
@@ -2428,8 +2431,8 @@ export const api = {
   async deleteRaid(raidId: string, options?: { scope?: 'EVENT' | 'SERIES' }) {
     const config = options?.scope
       ? {
-          data: { scope: options.scope }
-        }
+        data: { scope: options.scope }
+      }
       : undefined;
     await axios.delete(`/api/raids/${raidId}`, config);
   },
