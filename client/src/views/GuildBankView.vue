@@ -479,9 +479,16 @@
                         `eq-slot--${slot.key}`,
                         { 'eq-slot--active': placement.highlights.worn.includes(slot.slotId) }
                       ]"
-                      :title="slot.label"
+                      :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
                     >
-                      <span class="eq-slot__label">{{ slot.shortLabel }}</span>
+                      <span v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.shortLabel }}</span>
+                      <img
+                        v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
+                        :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
+                        class="eq-slot__icon"
+                        alt=""
+                      />
+                      <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
                       <span class="eq-slot__id">#{{ slot.slotId }}</span>
                     </div>
                   </div>
@@ -496,8 +503,16 @@
                         :key="slot.slotId"
                         class="eq-slot eq-slot--bag"
                         :class="{ 'eq-slot--active': placement.highlights.general.includes(slot.slotId) }"
+                        :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
                       >
-                        <div class="eq-slot__label">{{ slot.label }}</div>
+                        <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
+                        <img
+                          v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
+                          :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
+                          class="eq-slot__icon"
+                          alt=""
+                        />
+                        <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
                         <div class="eq-slot__bag">
                           <div
                             v-for="pocket in BAG_POCKET_INDICES"
@@ -537,8 +552,16 @@
                       :key="slot.slotId"
                       class="eq-slot eq-slot--bag"
                       :class="{ 'eq-slot--active': placement.highlights.bank.includes(slot.slotId) }"
+                      :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
                     >
-                      <div class="eq-slot__label">{{ slot.label }}</div>
+                      <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
+                      <img
+                        v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
+                        :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
+                        class="eq-slot__icon"
+                        alt=""
+                      />
+                      <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
                       <div class="eq-slot__bag">
                         <div
                           v-for="pocket in BAG_POCKET_INDICES"
@@ -1455,6 +1478,23 @@ const characterClassMap = computed(() => {
   for (const entry of snapshot.value?.characters ?? []) {
     if (entry.class) {
       map.set(entry.name.toLowerCase(), entry.class);
+    }
+  }
+  return map;
+});
+
+const characterItemsMap = computed(() => {
+  const map = new Map<number, typeof snapshot.value.items[number]>();
+  const targetCharacter = inventoryModal.value.selectedCharacter?.toLowerCase();
+  console.log('DEBUG: characterItemsMap computing', { targetCharacter, snapshotAvailable: !!snapshot.value });
+
+  if (!targetCharacter || !snapshot.value?.items) {
+    return map;
+  }
+
+  for (const item of snapshot.value.items) {
+    if (item.characterName.toLowerCase() === targetCharacter && item.slotId != null) {
+      map.set(item.slotId, item);
     }
   }
   return map;
