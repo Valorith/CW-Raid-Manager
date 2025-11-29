@@ -504,7 +504,8 @@
                         class="eq-slot eq-slot--bag"
                         :class="{
                           'eq-slot--active': activeBagSlotId === slot.slotId,
-                          'eq-slot--clickable': placement.generalBags.some(b => b.parentSlotId === slot.slotId)
+                          'eq-slot--clickable': placement.generalBags.some(b => b.parentSlotId === slot.slotId),
+                          'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
                         }"
                         :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
                         @click="setActiveBag(placement, slot.slotId)"
@@ -564,7 +565,10 @@
                       v-for="slot in bankSlotsUi"
                       :key="slot.slotId"
                       class="eq-slot eq-slot--bag"
-                      :class="{ 'eq-slot--active': placement.highlights.bank.includes(slot.slotId) }"
+                      :class="{
+                        'eq-slot--active': placement.highlights.bank.includes(slot.slotId),
+                        'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
+                      }"
                       :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
                     >
                       <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
