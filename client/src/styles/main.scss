@@ -2564,6 +2564,11 @@ a {
   width: 90vw;
 }
 
+.inventory-modal {
+  min-width: 800px;
+  max-width: 95vw;
+}
+
 .owner-modal__body {
   max-height: 60vh;
   overflow-y: auto;

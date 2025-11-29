@@ -441,7 +441,7 @@
       <div class="modal inventory-modal">
         <header class="modal__header">
           <div>
-            <p class="eyebrow">Item location</p>
+            <p class="eyebrow">Character Inventory</p>
             <h3>{{ inventoryPlacementGroups[0]?.characterName || inventoryModal.item.itemName }}</h3>
           </div>
           <button class="icon-button" type="button" @click="closeInventoryModal" aria-label="Close">
@@ -449,9 +449,7 @@
           </button>
         </header>
         <div class="inventory-modal__body">
-          <p class="muted small">
-            EQ-style layout highlights the slots where this item sits. Bag contents show the parent bag and exact pocket.
-          </p>
+
           <div v-for="placement in inventoryPlacementGroups" :key="placement.characterName" class="inventory-visual">
             <div class="eq-window">
               <div class="eq-window__header">
@@ -1124,7 +1122,6 @@ function aggregateItems(items: GuildBankItem[]) {
     for (const entry of items) {
         const quantity = normalizeQuantity(entry.charges);
         const key = buildItemKey(entry.itemId ?? null, entry.itemName);
-        const existing = map.get(key);
         const locationLabel =
             entry.location === 'WORN'
                 ? 'Worn'
@@ -1136,6 +1133,7 @@ function aggregateItems(items: GuildBankItem[]) {
         const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
         const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
 
+        const existing = map.get(key);
         if (!existing) {
             map.set(key, {
                 key,
