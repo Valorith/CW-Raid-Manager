@@ -503,8 +503,8 @@
                         :key="slot.slotId"
                         class="eq-slot eq-slot--bag"
                         :class="{
-                          'eq-slot--active': activeBagSlotId === slot.slotId,
-                          'eq-slot--clickable': placement.generalBags.some(b => b.parentSlotId === slot.slotId),
+                          'eq-slot--active': activeGeneralBagSlotId === slot.slotId,
+                          'eq-slot--clickable': (characterItemsMap.get(slot.slotId)?.bagSlots || 0) > 0,
                           'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
                         }"
                         :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
@@ -523,11 +523,11 @@
                     </div>
                   </section>
                   
-                  <section v-if="activeBagSlotId" class="inventory-visual__panel inventory-visual__panel--bag-contents">
-                    <div class="eq-panel__header">{{ characterItemsMap.get(activeBagSlotId)?.itemName || 'Bag' }}</div>
+                  <section v-if="activeGeneralBagSlotId && isGeneralBagSlot(activeGeneralBagSlotId)" class="inventory-visual__panel inventory-visual__panel--bag-contents">
+                    <div class="eq-panel__header">{{ characterItemsMap.get(activeGeneralBagSlotId)?.itemName || 'Bag' }}</div>
                     <div class="eq-bag-contents-grid">
                       <div
-                        v-for="slot in activeBagItems"
+                        v-for="slot in activeGeneralBagItems"
                         :key="slot.slotId"
                         class="eq-slot eq-slot--bag-item"
                         :title="slot.item?.itemName"
@@ -564,12 +564,14 @@
                     <div
                       v-for="slot in bankSlotsUi"
                       :key="slot.slotId"
-                      class="eq-slot eq-slot--bag"
+                      class="eq-slot eq-slot--bag eq-slot--bank"
                       :class="{
-                        'eq-slot--active': placement.highlights.bank.includes(slot.slotId),
+                        'eq-slot--active': activeBankBagSlotId === slot.slotId,
+                        'eq-slot--clickable': (characterItemsMap.get(slot.slotId)?.bagSlots || 0) > 0,
                         'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
                       }"
                       :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
+                      @click="setActiveBag(placement, slot.slotId)"
                     >
                       <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
                       <img
@@ -579,20 +581,27 @@
                         alt=""
                       />
                       <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                      <div class="eq-slot__bag">
-                        <div
-                          v-for="pocket in BAG_POCKET_INDICES"
-                          :key="pocket"
-                          class="eq-pocket"
-                          :class="{
-                            'eq-pocket--filled': placement.bankBags.some(
-                              (bag) => bag.parentSlotId === slot.slotId && bag.slots.includes(pocket)
-                            )
-                          }"
-                        >
-                          <span class="sr-only">Bag slot {{ pocket + 1 }}</span>
-                        </div>
-                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section v-if="activeBankBagSlotId && isBankBagSlot(activeBankBagSlotId)" class="inventory-visual__panel inventory-visual__panel--bag-contents">
+                  <div class="eq-panel__header">{{ characterItemsMap.get(activeBankBagSlotId)?.itemName || 'Bag' }}</div>
+                  <div class="eq-bag-contents-grid">
+                    <div
+                      v-for="slot in activeBankBagItems"
+                      :key="slot.slotId"
+                      class="eq-slot eq-slot--bag-item"
+                      :title="slot.item?.itemName"
+                    >
+                      <img
+                        v-if="slot.item?.itemIconId"
+                        :src="getLootIconSrc(slot.item.itemIconId)"
+                        class="eq-slot__icon"
+                        alt=""
+                      />
+                      <div v-else-if="slot.item" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
+                      <span class="eq-slot__count" v-if="(slot.item?.charges || 1) > 1">{{ slot.item?.charges }}</span>
                     </div>
                   </div>
                 </section>
@@ -919,7 +928,7 @@ const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
 }));
 const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
   slotId,
-  label: `Bank ${index + 1}`
+  label: `${index + 1}`
 }));
 
 type ResolvedSlotPlacement = {
@@ -1025,6 +1034,24 @@ function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
     const offset = slotId - 2032;
     const bagIndex = Math.floor(offset / 10);
     const bagSlotIndex = offset % 10;
+    const parentSlotId = 2000 + bagIndex;
+    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
+      return {
+        area: 'bankBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: bankSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  // Modern bank bag slots (200 slots per bag)
+  if (slotId >= 6210 && slotId <= 11009) {
+    const offset = slotId - 6210;
+    const bagIndex = Math.floor(offset / 200);
+    const bagSlotIndex = offset % 200;
     const parentSlotId = 2000 + bagIndex;
     if (parentSlotId >= 2000 && parentSlotId <= 2023) {
       return {
@@ -1358,7 +1385,7 @@ function closeOwnerModal() {
 }
 
 const characterItemsMap = computed(() => {
-  const map = new Map<number, typeof snapshot.value.items[number]>();
+  const map = new Map<number, GuildBankItem>();
   const targetCharacter = inventoryModal.value?.selectedCharacter?.toLowerCase();
 
   if (!targetCharacter || !snapshot.value?.items) {
@@ -1387,55 +1414,109 @@ const bagContentsMap = computed(() => {
   return map;
 });
 
-const activeBagSlotId = ref<number | null>(null);
+const activeGeneralBagSlotId = ref<number | null>(null);
+const activeBankBagSlotId = ref<number | null>(null);
 
 const setActiveBag = (placement: any, slotId: number) => {
-  // Toggle if clicking same bag
-  if (activeBagSlotId.value === slotId) {
-    activeBagSlotId.value = null;
-    return;
+  if (isGeneralBagSlot(slotId)) {
+    if (activeGeneralBagSlotId.value === slotId) {
+      activeGeneralBagSlotId.value = null;
+    } else {
+      activeGeneralBagSlotId.value = slotId;
+    }
+  } else if (isBankBagSlot(slotId)) {
+    if (activeBankBagSlotId.value === slotId) {
+      activeBankBagSlotId.value = null;
+    } else {
+      activeBankBagSlotId.value = slotId;
+    }
   }
-  activeBagSlotId.value = slotId;
 };
 
-  const activeBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
-  let rafId: number | null = null;
+const activeGeneralBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
+const activeBankBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
 
-  watch(
-    [activeBagSlotId, () => inventoryModal.value?.selectedCharacter],
-    ([newSlotId, newChar]) => {
-      if (rafId) cancelAnimationFrame(rafId);
+let rafIdGeneral: number | null = null;
+let rafIdBank: number | null = null;
+
+watch(
+  [activeGeneralBagSlotId, () => inventoryModal.value?.selectedCharacter],
+  ([newSlotId, newChar]) => {
+    if (rafIdGeneral) cancelAnimationFrame(rafIdGeneral);
+    
+    if (!newSlotId || !newChar) {
+      activeGeneralBagItems.value = [];
+      return;
+    }
+
+    rafIdGeneral = requestAnimationFrame(() => {
+      const bagContainerItem = characterItemsMap.value.get(newSlotId);
+      const bagSize = bagContainerItem?.bagSlots || 10;
+
+      const bagItems = bagContentsMap.value.get(newSlotId) || [];
       
-      if (!newSlotId || !newChar) {
-        activeBagItems.value = [];
-        return;
+      const bagItemsMap = new Map<number, GuildBankItem>();
+      for (const entry of bagItems) {
+        bagItemsMap.set(entry.bagSlotIndex, entry.item);
       }
 
-      // Defer rendering to next frame to allow UI (selection border) to update immediately
-      rafId = requestAnimationFrame(() => {
-        const bagContainerItem = characterItemsMap.value.get(newSlotId);
-        const bagSize = bagContainerItem?.bagSlots || 10;
+      const slots = [];
+      for (let i = 0; i < bagSize; i++) {
+        slots.push({
+          slotId: i,
+          item: bagItemsMap.get(i) || null
+        });
+      }
+      activeGeneralBagItems.value = slots;
+      rafIdGeneral = null;
+    });
+  },
+  { immediate: true }
+);
 
-        const bagItems = bagContentsMap.value.get(newSlotId) || [];
-        
-        const bagItemsMap = new Map<number, GuildBankItem>();
-        for (const entry of bagItems) {
-          bagItemsMap.set(entry.bagSlotIndex, entry.item);
-        }
+watch(
+  [activeBankBagSlotId, () => inventoryModal.value?.selectedCharacter],
+  ([newSlotId, newChar]) => {
+    if (rafIdBank) cancelAnimationFrame(rafIdBank);
+    
+    if (!newSlotId || !newChar) {
+      activeBankBagItems.value = [];
+      return;
+    }
 
-        const slots = [];
-        for (let i = 0; i < bagSize; i++) {
-          slots.push({
-            slotId: i,
-            item: bagItemsMap.get(i) || null
-          });
-        }
-        activeBagItems.value = slots;
-        rafId = null;
-      });
-    },
-    { immediate: true }
-  );
+    rafIdBank = requestAnimationFrame(() => {
+      const bagContainerItem = characterItemsMap.value.get(newSlotId);
+      const bagSize = bagContainerItem?.bagSlots || 10;
+
+      const bagItems = bagContentsMap.value.get(newSlotId) || [];
+      
+      const bagItemsMap = new Map<number, GuildBankItem>();
+      for (const entry of bagItems) {
+        bagItemsMap.set(entry.bagSlotIndex, entry.item);
+      }
+
+      const slots = [];
+      for (let i = 0; i < bagSize; i++) {
+        slots.push({
+          slotId: i,
+          item: bagItemsMap.get(i) || null
+        });
+      }
+      activeBankBagItems.value = slots;
+      rafIdBank = null;
+    });
+  },
+  { immediate: true }
+);
+
+
+function isGeneralBagSlot(slotId: number) {
+  return GENERAL_SLOT_IDS.includes(slotId);
+}
+
+function isBankBagSlot(slotId: number) {
+  return BANK_SLOT_IDS.includes(slotId);
+}
 
 function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();

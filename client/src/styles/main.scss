@@ -1107,7 +1107,9 @@ a {
 }
 
 .eq-window--bank .eq-window__content {
-  grid-template-columns: 1fr;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .eq-column {
@@ -1429,6 +1431,12 @@ a {
     }
 
     .eq-slot__label {
+      display: none;
+    }
+  }
+
+  &.eq-slot--bank {
+    &::before {
       display: none;
     }
   }
