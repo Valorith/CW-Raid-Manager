@@ -1310,6 +1310,157 @@ a {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.eq-main-container {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.eq-inventory-section {
+  display: flex;
+  gap: 0;
+  align-items: flex-start;
+}
+
+.inventory-visual__panel--vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 48px; // Align with the first row of slots (skipping the header row if any, or just aligning visually)
+  // Actually, the paperdoll grid has empty rows/cols.
+  // We want it to sit to the right.
+}
+
+.eq-general-grid--vertical {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0; // No gap between slots to match EQ style
+  width: 96px; // 2 * 48px
+}
+
+.inventory-visual__panel--bag-contents {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: 24px; // Align with general inventory (48px - 24px header)
+  margin-left: 4px; // Small gap from general inventory
+}
+
+.eq-panel__header {
+  height: 20px;
+  line-height: 20px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eq-bag-contents-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 48px);
+  gap: 0;
+  border: 1px solid #6c879c;
+  background: rgba(13, 32, 44, 0.8);
+  padding: 4px;
+  width: fit-content;
+}
+
+.eq-slot--active {
+  border-color: #fbbf24; // Amber highlight
+  box-shadow: 0 0 0 1px #fbbf24;
+  z-index: 10;
+
+  &:hover {
+    border-color: #fbbf24;
+    box-shadow: 0 0 0 1px #fbbf24, 0 10px 22px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.eq-slot--bag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0.1rem;
+  text-align: center;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  position: relative;
+
+  // Remove gap between borders if they touch
+  margin-bottom: -1px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.eq-slot--clickable {
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+
+  &:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+    z-index: 10;
+  }
+}
+
+.bag-modal {
+  width: 100%;
+  max-width: 400px;
+}
+
+.bag-modal__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr); // 5 columns for 10 slots (2 rows)
+  gap: 8px;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+}
+
+.eq-slot--bag-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0.1rem;
+  text-align: center;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  position: relative;
+
+  // Remove gap between borders if they touch
+  margin-bottom: -1px;
+  margin-right: -1px;
+
+  &:nth-child(2n) {
+    margin-right: 0;
+  }
+
+  &:nth-last-child(-n+2) {
+    margin-bottom: 0;
+  }
+}
+
 .eq-slot__icon {
   position: absolute;
   top: 0;

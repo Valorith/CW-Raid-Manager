@@ -12,7 +12,6 @@ export interface GuildBankCharacterEntry {
   userId: string | null;
   isPersonal: boolean;
   createdAt: Date;
-  createdAt: Date;
   foundInEq: boolean;
   class?: string;
 }
@@ -25,11 +24,13 @@ export interface GuildBankItem {
   itemName: string;
   itemIconId: number | null;
   charges: number | null;
+  bagSlots: number | null;
 }
 
 export interface GuildBankSnapshot {
   characters: GuildBankCharacterEntry[];
   items: GuildBankItem[];
+  debug?: any;
   missingCharacters: string[];
 }
 
@@ -42,7 +43,27 @@ const SLOT_GROUPS: Record<GuildBankSlotCategory, SlotRange[]> = {
     // Common Titanium-style bag slot ranges
     { start: 251, end: 330 },
     // SoF+ bag slot ranges
-    { start: 262, end: 341 }
+    { start: 262, end: 341 },
+    // General Slot 23
+    { start: 4010, end: 4209 },
+    // General Slot 24
+    { start: 4210, end: 4409 },
+    // General Slot 25
+    { start: 4410, end: 4609 },
+    // General Slot 26
+    { start: 4610, end: 4809 },
+    // General Slot 27
+    { start: 4810, end: 5009 },
+    // General Slot 28
+    { start: 5010, end: 5209 },
+    // General Slot 29
+    { start: 5210, end: 5409 },
+    // General Slot 30
+    { start: 5410, end: 5609 },
+    // General Slot 31
+    { start: 5610, end: 5809 },
+    // General Slot 32
+    { start: 5810, end: 6009 }
   ],
   CURSOR: [
     { start: 31, end: 31 },
@@ -79,6 +100,7 @@ let cachedInventoryCharIdColumn: string | null = null;
 let cachedInventorySlotColumn: string | null = null;
 let cachedInventoryItemIdColumn: string | null = null;
 let cachedInventoryChargesColumn: string | null = null;
+let cachedInventoryBagSlotsColumn: string | null = null;
 
 async function resolveInventoryCharacterColumn(): Promise<string> {
   if (cachedInventoryCharIdColumn) {
@@ -134,18 +156,22 @@ async function resolveInventorySlotColumn(): Promise<string> {
 async function resolveInventoryItemColumns(): Promise<{
   itemIdColumn: string;
   chargesColumn: string;
+  bagSlotsColumn: string;
 }> {
-  if (cachedInventoryItemIdColumn && cachedInventoryChargesColumn) {
+  if (cachedInventoryItemIdColumn && cachedInventoryChargesColumn && cachedInventoryBagSlotsColumn) {
     return {
       itemIdColumn: cachedInventoryItemIdColumn,
-      chargesColumn: cachedInventoryChargesColumn
+      chargesColumn: cachedInventoryChargesColumn,
+      bagSlotsColumn: cachedInventoryBagSlotsColumn
     };
   }
 
   const itemIdPreferred = ['itemid', 'item_id', 'item_id1'];
   const chargesPreferred = ['charges', 'stacksize', 'stack_size'];
+  const bagSlotsPreferred = ['bagslots', 'bag_slots', 'bagsize', 'bag_size'];
 
-  const rows = await queryEqDb<RowDataPacket[]>(
+  // 1. Resolve columns from 'inventory' table
+  const inventoryRows = await queryEqDb<RowDataPacket[]>(
     `SELECT COLUMN_NAME as columnName
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
@@ -155,23 +181,44 @@ async function resolveInventoryItemColumns(): Promise<{
     [...itemIdPreferred, ...chargesPreferred]
   );
 
-  const findColumn = (preferred: string[]) =>
+  const findInventoryColumn = (preferred: string[]) =>
     preferred.find((candidate) =>
-      rows.some((row) => (row.columnName as string)?.toLowerCase() === candidate)
+      inventoryRows.some((row) => (row.columnName as string)?.toLowerCase() === candidate)
     );
 
-  const itemIdColumn = findColumn(itemIdPreferred);
-  const chargesColumn = findColumn(chargesPreferred);
+  const itemIdColumn = findInventoryColumn(itemIdPreferred);
+  const chargesColumn = findInventoryColumn(chargesPreferred);
 
   if (!itemIdColumn) {
     throw new Error('inventory table is missing an item id column (itemid/item_id).');
   }
+
+  // 2. Resolve columns from 'items' table
+  const itemRows = await queryEqDb<RowDataPacket[]>(
+    `SELECT COLUMN_NAME as columnName
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'items'
+       AND COLUMN_NAME IN (${bagSlotsPreferred.map(() => '?').join(',')})
+    `,
+    bagSlotsPreferred
+  );
+
+  const findItemColumn = (preferred: string[]) =>
+    preferred.find((candidate) =>
+      itemRows.some((row) => (row.columnName as string)?.toLowerCase() === candidate)
+    );
+
+  const bagSlotsColumn = findItemColumn(bagSlotsPreferred);
+
   cachedInventoryItemIdColumn = itemIdColumn;
   cachedInventoryChargesColumn = chargesColumn ?? 'charges';
+  cachedInventoryBagSlotsColumn = bagSlotsColumn ?? 'bagslots';
 
   return {
     itemIdColumn,
-    chargesColumn: cachedInventoryChargesColumn
+    chargesColumn: cachedInventoryChargesColumn,
+    bagSlotsColumn: cachedInventoryBagSlotsColumn
   };
 }
 
@@ -319,6 +366,7 @@ type EqInventoryRow = RowDataPacket & {
   charges: number | null;
   itemName: string | null;
   iconId: number | null;
+  bagslots: number | null;
 };
 
 export async function fetchGuildBankSnapshot(
@@ -364,8 +412,6 @@ export async function fetchGuildBankSnapshot(
       userId: entry.userId,
       isPersonal: entry.isPersonal ?? false,
       createdAt: entry.createdAt,
-      isPersonal: entry.isPersonal ?? false,
-      createdAt: entry.createdAt,
       foundInEq: Boolean(eqMatch),
       class: eqMatch ? mapEqClassIdToEnum(eqMatch.class) : undefined
     };
@@ -383,10 +429,12 @@ export async function fetchGuildBankSnapshot(
   const idPlaceholders = characterIds.map(() => '?').join(', ');
   const charIdColumn = await resolveInventoryCharacterColumn();
   const slotColumn = await resolveInventorySlotColumn();
-  const { itemIdColumn, chargesColumn } = await resolveInventoryItemColumns();
+  const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
+  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn });
 
+  // Query inventory items
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` IN (${idPlaceholders})
@@ -395,6 +443,12 @@ export async function fetchGuildBankSnapshot(
        AND inv.\`${itemIdColumn}\` > 0`,
     characterIds
   );
+
+  // Debug logging for Clumsy's Crate
+  const crateItem = inventoryRows.find(row => row.itemName && row.itemName.includes("Clumsy's Crate"));
+  if (crateItem) {
+    console.log('Debug Crate Item Row:', crateItem);
+  }
 
   const items: GuildBankItem[] = [];
 
@@ -418,7 +472,8 @@ export async function fetchGuildBankSnapshot(
       itemId: row.itemid != null ? Number(row.itemid) : null,
       itemName: row.itemName ?? 'Unknown Item',
       itemIconId: row.iconId != null ? Number(row.iconId) : null,
-      charges: quantity
+      charges: quantity,
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
     });
   }
 

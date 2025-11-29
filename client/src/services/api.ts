@@ -143,7 +143,6 @@ export interface GuildBankCharacter {
   userId?: string | null;
   isPersonal: boolean;
   createdAt: string;
-  createdAt: string;
   foundInEq?: boolean;
   class?: CharacterClass;
 }
@@ -156,6 +155,7 @@ export interface GuildBankItem {
   itemName: string;
   itemIconId?: number | null;
   charges?: number | null;
+  bagSlots?: number | null;
 }
 
 export interface GuildBankSnapshot {
@@ -1532,7 +1532,8 @@ function normalizeGuildBankItem(raw: any): GuildBankItem {
     itemId,
     itemName: typeof raw?.itemName === 'string' ? raw.itemName : 'Unknown Item',
     itemIconId,
-    charges: charges ?? null
+    charges: charges ?? null,
+    bagSlots: typeof raw?.bagSlots === 'number' ? raw.bagSlots : null
   };
 }
 

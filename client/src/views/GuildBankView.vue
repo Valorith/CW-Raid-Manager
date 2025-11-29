@@ -465,45 +465,49 @@
                 <span class="eq-window__badge">Inventory</span>
               </div>
               <div class="eq-window__content">
-                <div class="eq-paperdoll-layout">
-                  <div class="eq-paperdoll-grid">
-                    <div
-                      class="eq-class-icon"
-                      :style="{ backgroundImage: `url(${classIconForCharacter(placement.characterName)})` }"
-                    ></div>
-                    <div
-                      v-for="slot in wornSlotsUi"
-                      :key="slot.slotId"
-                      class="eq-slot eq-slot--worn"
-                      :class="[
-                        `eq-slot--${slot.key}`,
-                        { 'eq-slot--active': placement.highlights.worn.includes(slot.slotId) }
-                      ]"
-                      :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
-                    >
-                      <span v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.shortLabel }}</span>
-                      <img
-                        v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
-                        :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
-                        class="eq-slot__icon"
-                        alt=""
-                      />
-                      <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                      <span class="eq-slot__id">#{{ slot.slotId }}</span>
+                <div class="eq-main-container">
+                  <div class="eq-paperdoll-layout">
+                    <div class="eq-paperdoll-grid">
+                      <div
+                        class="eq-class-icon"
+                        :style="{ backgroundImage: `url(${classIconForCharacter(placement.characterName)})` }"
+                      ></div>
+                      <div
+                        v-for="slot in wornSlotsUi"
+                        :key="slot.slotId"
+                        class="eq-slot eq-slot--worn"
+                        :class="[
+                          `eq-slot--${slot.key}`,
+                          { 'eq-slot--active': placement.highlights.worn.includes(slot.slotId) }
+                        ]"
+                        :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
+                      >
+                        <span v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.shortLabel }}</span>
+                        <img
+                          v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
+                          :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
+                          class="eq-slot__icon"
+                          alt=""
+                        />
+                        <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
+                        <span class="eq-slot__id">#{{ slot.slotId }}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div class="eq-inventory-section">
-                  <section class="inventory-visual__panel inventory-visual__panel--wide">
-                    <div class="eq-panel__header">Inventory</div>
-                    <div class="eq-general-grid eq-general-grid--double">
-                      <div
+                  <div class="eq-inventory-section">
+                    <section class="inventory-visual__panel inventory-visual__panel--vertical">
+                      <div class="eq-general-grid eq-general-grid--vertical">
+                        <div
                         v-for="slot in generalSlotsUi"
                         :key="slot.slotId"
                         class="eq-slot eq-slot--bag"
-                        :class="{ 'eq-slot--active': placement.highlights.general.includes(slot.slotId) }"
+                        :class="{
+                          'eq-slot--active': activeBagSlotId === slot.slotId,
+                          'eq-slot--clickable': placement.generalBags.some(b => b.parentSlotId === slot.slotId)
+                        }"
                         :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
+                        @click="setActiveBag(placement, slot.slotId)"
                       >
                         <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
                         <img
@@ -513,25 +517,34 @@
                           alt=""
                         />
                         <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                        <div class="eq-slot__bag">
-                          <div
-                            v-for="pocket in BAG_POCKET_INDICES"
-                            :key="pocket"
-                            class="eq-pocket"
-                            :class="{
-                              'eq-pocket--filled': placement.generalBags.some(
-                                (bag) => bag.parentSlotId === slot.slotId && bag.slots.includes(pocket)
-                              )
-                            }"
-                          >
-                            <span class="sr-only">Bag slot {{ pocket + 1 }}</span>
-                          </div>
-                        </div>
+                        <div class="eq-slot__bag"></div>
+                      </div>
+                    </div>
+                  </section>
+                  
+                  <section v-if="activeBagSlotId" class="inventory-visual__panel inventory-visual__panel--bag-contents">
+                    <div class="eq-panel__header">{{ characterItemsMap.get(activeBagSlotId)?.itemName || 'Bag' }}</div>
+                    <div class="eq-bag-contents-grid">
+                      <div
+                        v-for="slot in activeBagItems"
+                        :key="slot.slotId"
+                        class="eq-slot eq-slot--bag-item"
+                        :title="slot.item?.itemName"
+                      >
+                        <img
+                          v-if="slot.item?.itemIconId"
+                          :src="getLootIconSrc(slot.item.itemIconId)"
+                          class="eq-slot__icon"
+                          alt=""
+                        />
+                        <div v-else-if="slot.item" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
+                        <span class="eq-slot__count" v-if="(slot.item?.charges || 1) > 1">{{ slot.item?.charges }}</span>
                       </div>
                     </div>
                   </section>
                 </div>
               </div>
+            </div>
             </div>
 
             <div class="eq-window eq-window--bank">
@@ -760,11 +773,12 @@
         </footer>
       </div>
     </div>
+
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 
 import { api, type GuildBankSnapshot, type GuildBankItem } from '../services/api';
@@ -784,6 +798,8 @@ const guildName = ref<string>('');
 const guildRole = ref<GuildRole | null>(null);
 
 const snapshot = ref<GuildBankSnapshot | null>(null);
+
+
 const loadingSnapshot = ref(false);
 const snapshotError = ref<string | null>(null);
 const lastFetchedAt = ref<number | null>(null);
@@ -819,6 +835,603 @@ const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);
 const autoRestoreAttempted = ref(false);
 const initialFetchDone = ref(false);
+
+const WORN_SLOT_LABELS = [
+  'Charm', // 0
+  'Ear 1',
+  'Head',
+  'Face',
+  'Ear 2',
+  'Neck',
+  'Shoulders',
+  'Arms',
+  'Back',
+  'Wrist 1',
+  'Wrist 2',
+  'Range',
+  'Hands',
+  'Primary',
+  'Secondary',
+  'Finger 1',
+  'Finger 2',
+  'Chest',
+  'Legs',
+  'Feet',
+  'Waist',
+  'Power Source',
+  'Ammo'
+];
+
+const WORN_SLOT_KEYS = [
+  'charm',
+  'ear1',
+  'head',
+  'face',
+  'ear2',
+  'neck',
+  'shoulders',
+  'arms',
+  'back',
+  'wrist1',
+  'wrist2',
+  'range',
+  'hands',
+  'primary',
+  'secondary',
+  'finger1',
+  'finger2',
+  'chest',
+  'legs',
+  'feet',
+  'waist',
+  'powersource',
+  'ammo'
+];
+
+const WORN_SLOT_SHORT_LABELS = [
+  'Charm', 'Ear1', 'Head', 'Face', 'Ear2', 'Neck', 'Shldr', 'Arms', 'Back', 'Wrst1', 'Wrst2',
+  'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
+];
+
+const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32]; // Updated to include 31, 32
+const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
+const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);
+
+const wornSlotsUi = [
+  // Slots 1-22
+  ...WORN_SLOT_LABELS.slice(1).map((label, index) => ({
+    slotId: index + 1,
+    label,
+    shortLabel: WORN_SLOT_SHORT_LABELS[index + 1],
+    key: WORN_SLOT_KEYS[index + 1]
+  })),
+  // Slot 0 (Charm)
+  { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0] }
+];
+
+const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
+  slotId,
+  label: `General ${index + 1}`
+}));
+const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
+  slotId,
+  label: `Bank ${index + 1}`
+}));
+
+type ResolvedSlotPlacement = {
+  area: 'worn' | 'inventory' | 'inventoryBag' | 'bank' | 'bankBag' | 'unknown';
+  slotId: number | null;
+  slotLabel: string;
+  parentSlotId?: number | null;
+  parentLabel?: string;
+  bagSlotIndex?: number | null;
+};
+
+function generalSlotLabel(slotId: number) {
+  const idx = slotId - 22;
+  return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
+}
+
+function bankSlotLabel(slotId: number) {
+  return `Bank ${slotId - 1999}`;
+}
+
+function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
+  if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
+    return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
+  }
+
+  if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
+    return {
+      area: 'worn',
+      slotId,
+      slotLabel: WORN_SLOT_LABELS[slotId]
+    };
+  }
+
+  // General slots themselves (23-32)
+  if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
+    return {
+      area: 'inventory',
+      slotId,
+      slotLabel: generalSlotLabel(slotId)
+    };
+  }
+
+  // Inventory bag slots (legacy Titanium ranges)
+  if (slotId >= 251 && slotId <= 330) {
+    const offset = slotId - 251;
+    const bagIndex = Math.floor(offset / 10);
+    const bagSlotIndex = offset % 10;
+    const parentSlotId = 23 + bagIndex; // General slots start at 23
+    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'inventoryBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: generalSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+  if (slotId >= 262 && slotId <= 341) { // Another legacy range
+    const offset = slotId - 262;
+    const bagIndex = Math.floor(offset / 10);
+    const bagSlotIndex = offset % 10;
+    const parentSlotId = 23 + bagIndex;
+    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'inventoryBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: generalSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+  // Inventory bag slots (new ranges, 200 slots per bag)
+  if (slotId >= 4010 && slotId <= 6009) {
+    const offset = slotId - 4010;
+    const bagIndex = Math.floor(offset / 200);
+    const bagSlotIndex = offset % 200;
+    const parentSlotId = 23 + bagIndex; // General slots start at 23
+    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'inventoryBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: generalSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  if (slotId >= 2000 && slotId <= 2023) {
+    return {
+      area: 'bank',
+      slotId,
+      slotLabel: bankSlotLabel(slotId)
+    };
+  }
+
+  if (slotId >= 2032 && slotId <= 2271) {
+    const offset = slotId - 2032;
+    const bagIndex = Math.floor(offset / 10);
+    const bagSlotIndex = offset % 10;
+    const parentSlotId = 2000 + bagIndex;
+    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
+      return {
+        area: 'bankBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: bankSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  return { area: 'unknown', slotId, slotLabel: `Slot ${slotId}` };
+}
+
+function slotDisplayLabel(resolved: ResolvedSlotPlacement) {
+  if (resolved.area === 'worn') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'inventory') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'inventoryBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
+    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'bank') {
+    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
+  }
+  if (resolved.area === 'bankBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
+    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
+  }
+  return resolved.slotLabel;
+}
+
+function aggregateItems(items: GuildBankItem[]) {
+    const map = new Map<
+        string,
+        {
+            key: string;
+            itemId: number | null;
+            itemName: string;
+            itemIconId: number | null;
+            totalQuantity: number;
+            guildQuantity: number;
+            owners: Array<{
+                characterName: string;
+                quantity: number;
+                location: GuildBankItem['location'];
+                locationLabel: string;
+                isPersonal: boolean;
+                slotId: number | null;
+            }>;
+            ownerSummaries: Map<
+                string,
+                { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
+            >;
+            locationSet: Set<string>;
+            slotPlacements: Array<{
+                characterName: string;
+                location: GuildBankItem['location'];
+                locationLabel: string;
+                isPersonal: boolean;
+                slotId: number | null;
+                quantity: number;
+            }>;
+        }
+    >();
+
+    for (const entry of items) {
+        const quantity = normalizeQuantity(entry.charges);
+        const key = buildItemKey(entry.itemId ?? null, entry.itemName);
+        const existing = map.get(key);
+        const locationLabel =
+            entry.location === 'WORN'
+                ? 'Worn'
+                : entry.location === 'BANK'
+                    ? 'Bank'
+                    : entry.location === 'CURSOR'
+                        ? 'Cursor'
+                        : 'Inventory';
+        const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
+        const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
+
+        if (!existing) {
+            map.set(key, {
+                key,
+                itemId: entry.itemId ?? null,
+                itemName: entry.itemName,
+                itemIconId: entry.itemIconId ?? null,
+                totalQuantity: quantity,
+                guildQuantity: isPersonal ? 0 : quantity,
+                owners: [
+                    {
+                        characterName: entry.characterName,
+                        quantity,
+                        location: entry.location,
+                        locationLabel,
+                        isPersonal,
+                        slotId
+                    }
+                ],
+                ownerSummaries: new Map([
+                    [
+                        `${entry.characterName}-${locationLabel}`,
+                        {
+                            characterName: entry.characterName,
+                            locationLabel,
+                            totalQuantity: quantity,
+                            isPersonal
+                        }
+                    ]
+                ]),
+                locationSet: new Set([locationLabel]),
+                slotPlacements: [
+                    {
+                        characterName: entry.characterName,
+                        location: entry.location,
+                        locationLabel,
+                        isPersonal,
+                        slotId,
+                        quantity
+                    }
+                ]
+            });
+        } else {
+            existing.totalQuantity += quantity;
+            if (!isPersonal) {
+                existing.guildQuantity += quantity;
+            }
+            existing.locationSet.add(locationLabel);
+            existing.owners.push({
+                characterName: entry.characterName,
+                quantity,
+                location: entry.location,
+                locationLabel,
+                isPersonal,
+                slotId
+            });
+            const keyOwner = `${entry.characterName}-${locationLabel}`;
+            const summary = existing.ownerSummaries.get(keyOwner);
+            if (summary) {
+                summary.totalQuantity += quantity;
+            } else {
+                existing.ownerSummaries.set(keyOwner, {
+                    characterName: entry.characterName,
+                    locationLabel,
+                    totalQuantity: quantity,
+                    isPersonal
+                });
+            }
+            existing.slotPlacements.push({
+                characterName: entry.characterName,
+                location: entry.location,
+                locationLabel,
+                isPersonal,
+                slotId,
+                quantity
+            });
+        }
+    }
+
+    return Array.from(map.values())
+        .map(({ locationSet, ownerSummaries, ...rest }) => ({
+            ...rest,
+            locations: Array.from(locationSet),
+            ownerSummaries: Array.from(ownerSummaries.values()),
+            sources: Array.from(ownerSummaries.values()).map((owner) => ({
+                characterName: owner.characterName,
+                location: owner.locationLabel,
+                quantity: owner.totalQuantity,
+                isPersonal: owner.isPersonal
+            }))
+        }))
+        .sort((a, b) => a.itemName.localeCompare(b.itemName));
+}
+
+const groupedItems = computed(() => {
+  if (!snapshot.value) {
+    return [];
+  }
+
+  const characterPersonalMap = new Map<string, boolean>();
+  snapshot.value.characters.forEach((entry) => {
+    characterPersonalMap.set(entry.name.toLowerCase(), toBooleanFlag(entry.isPersonal));
+  });
+
+  const allowed = new Set([...selectedGuild.value, ...selectedPersonal.value]);
+
+  const filteredItems =
+    allowed.size === 0
+      ? []
+      : snapshot.value.items
+          .filter((item) => allowed.has(item.characterName.toLowerCase()))
+          .map((item) => ({
+            ...item,
+            isPersonal: characterPersonalMap.get(item.characterName.toLowerCase()) ?? false
+          }));
+
+  const aggregated = aggregateItems(filteredItems);
+  const normalizedQuery = searchQuery.value.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return aggregated;
+  }
+  return aggregated.filter(
+    (item) =>
+      item.itemName.toLowerCase().includes(normalizedQuery) ||
+      item.ownerSummaries.some((owner) =>
+        owner.characterName.toLowerCase().includes(normalizedQuery)
+      )
+  );
+});
+
+const totalItemCount = computed(() =>
+  groupedItems.value.reduce((sum, item) => sum + item.totalQuantity, 0)
+);
+
+const currentPage = ref(1);
+const pageSize = 18;
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(groupedItems.value.length / pageSize))
+);
+
+const pagedItems = computed(() => {
+  const start = (currentPage.value - 1) * pageSize;
+  return groupedItems.value.slice(start, start + pageSize);
+});
+
+watch(
+  () => groupedItems.value.length,
+  () => {
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value;
+    }
+  }
+);
+
+function setPage(page: number) {
+  currentPage.value = Math.min(Math.max(1, page), totalPages.value);
+}
+
+const missingCachedNames = computed(() => {
+  if (!snapshot.value || cachedNames.value.length === 0) {
+    return [];
+  }
+  const current = new Set(
+    snapshot.value.characters.map((entry) =>
+      characterKey({ name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) })
+    )
+  );
+  return cachedNames.value.filter((entry) => !current.has(characterKey(entry)));
+});
+
+async function restoreMissingCachedCharacters() {
+  if (!missingCachedNames.value.length || restoringNames.value) {
+    return;
+  }
+  restoringNames.value = true;
+  snapshotError.value = null;
+  try {
+    for (const entry of missingCachedNames.value) {
+      await api.addGuildBankCharacter(guildId.value, entry.name, {
+        isPersonal: entry.isPersonal
+      });
+    }
+    await refreshSnapshot(true);
+  } catch (error: any) {
+    snapshotError.value =
+      error?.response?.data?.message ?? 'Unable to restore missing bank characters.';
+  } finally {
+    restoringNames.value = false;
+  }
+}
+
+const OWNER_LIMIT = 2;
+
+function visibleOwners(item: typeof groupedItems.value[number]) {
+  return item.ownerSummaries.slice(0, OWNER_LIMIT);
+}
+
+function ownerOverflow(item: typeof groupedItems.value[number]) {
+  return item.ownerSummaries.length > OWNER_LIMIT;
+}
+
+function ownerOverflowCount(item: typeof groupedItems.value[number]) {
+  return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
+}
+
+const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
+
+const inventoryModal = ref<{
+  item: typeof groupedItems.value[number] | null;
+  open: boolean;
+  selectedCharacter: string | null;
+}>({
+  item: null,
+  open: false,
+  selectedCharacter: null
+});
+
+function openInventoryModal(
+  item: typeof groupedItems.value[number],
+  characterName?: string
+) {
+  inventoryModal.value = {
+    item,
+    open: true,
+    selectedCharacter: characterName ?? null
+  };
+}
+
+function closeInventoryModal() {
+  inventoryModal.value = { open: false, item: null, selectedCharacter: null };
+}
+
+const ownerModal = ref<{
+  item: typeof groupedItems.value[number] | null;
+  open: boolean;
+}>({
+  item: null,
+  open: false
+});
+
+function openOwnerModal(item: typeof groupedItems.value[number]) {
+  ownerModal.value = { item, open: true };
+}
+
+function closeOwnerModal() {
+  ownerModal.value = { item: null, open: false };
+}
+
+const characterItemsMap = computed(() => {
+  const map = new Map<number, typeof snapshot.value.items[number]>();
+  const targetCharacter = inventoryModal.value?.selectedCharacter?.toLowerCase();
+
+  if (!targetCharacter || !snapshot.value?.items) {
+    return map;
+  }
+
+  for (const item of snapshot.value.items) {
+    if (item.characterName.toLowerCase() === targetCharacter && item.slotId != null) {
+      map.set(item.slotId, item);
+    }
+  }
+  return map;
+});
+
+const bagContentsMap = computed(() => {
+  const map = new Map<number, Array<{ item: GuildBankItem; bagSlotIndex: number }>>();
+  for (const item of characterItemsMap.value.values()) {
+    if (item.slotId == null) continue;
+    const resolved = resolveSlotPlacement(item.slotId);
+    if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
+      const existing = map.get(resolved.parentSlotId) || [];
+      existing.push({ item, bagSlotIndex: resolved.bagSlotIndex });
+      map.set(resolved.parentSlotId, existing);
+    }
+  }
+  return map;
+});
+
+const activeBagSlotId = ref<number | null>(null);
+
+const setActiveBag = (placement: any, slotId: number) => {
+  // Toggle if clicking same bag
+  if (activeBagSlotId.value === slotId) {
+    activeBagSlotId.value = null;
+    return;
+  }
+  activeBagSlotId.value = slotId;
+};
+
+  const activeBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
+  let rafId: number | null = null;
+
+  watch(
+    [activeBagSlotId, () => inventoryModal.value?.selectedCharacter],
+    ([newSlotId, newChar]) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      
+      if (!newSlotId || !newChar) {
+        activeBagItems.value = [];
+        return;
+      }
+
+      // Defer rendering to next frame to allow UI (selection border) to update immediately
+      rafId = requestAnimationFrame(() => {
+        const bagContainerItem = characterItemsMap.value.get(newSlotId);
+        const bagSize = bagContainerItem?.bagSlots || 10;
+
+        const bagItems = bagContentsMap.value.get(newSlotId) || [];
+        
+        const bagItemsMap = new Map<number, GuildBankItem>();
+        for (const entry of bagItems) {
+          bagItemsMap.set(entry.bagSlotIndex, entry.item);
+        }
+
+        const slots = [];
+        for (let i = 0; i < bagSize; i++) {
+          slots.push({
+            slotId: i,
+            item: bagItemsMap.get(i) || null
+          });
+        }
+        activeBagItems.value = slots;
+        rafId = null;
+      });
+    },
+    { immediate: true }
+  );
 
 function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();
@@ -1006,514 +1619,6 @@ function normalizeQuantity(raw: any): number {
   return num;
 }
 
-function aggregateItems(items: GuildBankItem[]) {
-  const map = new Map<
-    string,
-    {
-      key: string;
-      itemId: number | null;
-      itemName: string;
-      itemIconId: number | null;
-      totalQuantity: number;
-      guildQuantity: number;
-      owners: Array<{
-        characterName: string;
-        quantity: number;
-        location: GuildBankItem['location'];
-        locationLabel: string;
-        isPersonal: boolean;
-        slotId: number | null;
-      }>;
-      ownerSummaries: Map<
-        string,
-        { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
-      >;
-      locationSet: Set<string>;
-      slotPlacements: Array<{
-        characterName: string;
-        location: GuildBankItem['location'];
-        locationLabel: string;
-        isPersonal: boolean;
-        slotId: number | null;
-        quantity: number;
-      }>;
-    }
-  >();
-
-  for (const entry of items) {
-    const quantity = normalizeQuantity(entry.charges);
-    const key = buildItemKey(entry.itemId ?? null, entry.itemName);
-    const existing = map.get(key);
-    const locationLabel =
-      entry.location === 'WORN'
-        ? 'Worn'
-        : entry.location === 'BANK'
-          ? 'Bank'
-          : entry.location === 'CURSOR'
-            ? 'Cursor'
-            : 'Inventory';
-    const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
-    const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
-
-    if (!existing) {
-      map.set(key, {
-        key,
-        itemId: entry.itemId ?? null,
-        itemName: entry.itemName,
-        itemIconId: entry.itemIconId ?? null,
-        totalQuantity: quantity,
-        guildQuantity: isPersonal ? 0 : quantity,
-        owners: [
-          {
-            characterName: entry.characterName,
-            quantity,
-            location: entry.location,
-            locationLabel,
-            isPersonal,
-            slotId
-          }
-        ],
-        ownerSummaries: new Map([
-          [
-            `${entry.characterName}-${locationLabel}`,
-            {
-              characterName: entry.characterName,
-              locationLabel,
-              totalQuantity: quantity,
-              isPersonal
-            }
-          ]
-        ]),
-        locationSet: new Set([locationLabel]),
-        slotPlacements: [
-          {
-            characterName: entry.characterName,
-            location: entry.location,
-            locationLabel,
-            isPersonal,
-            slotId,
-            quantity
-          }
-        ]
-      });
-    } else {
-      existing.totalQuantity += quantity;
-      if (!isPersonal) {
-        existing.guildQuantity += quantity;
-      }
-      existing.locationSet.add(locationLabel);
-      existing.owners.push({
-        characterName: entry.characterName,
-        quantity,
-        location: entry.location,
-        locationLabel,
-        isPersonal,
-        slotId
-      });
-      const keyOwner = `${entry.characterName}-${locationLabel}`;
-      const summary = existing.ownerSummaries.get(keyOwner);
-      if (summary) {
-        summary.totalQuantity += quantity;
-      } else {
-        existing.ownerSummaries.set(keyOwner, {
-          characterName: entry.characterName,
-          locationLabel,
-          totalQuantity: quantity,
-          isPersonal
-        });
-      }
-      existing.slotPlacements.push({
-        characterName: entry.characterName,
-        location: entry.location,
-        locationLabel,
-        isPersonal,
-        slotId,
-        quantity
-      });
-    }
-  }
-
-  return Array.from(map.values())
-    .map(({ locationSet, ownerSummaries, ...rest }) => ({
-      ...rest,
-      locations: Array.from(locationSet),
-      ownerSummaries: Array.from(ownerSummaries.values()),
-      sources: Array.from(ownerSummaries.values()).map((owner) => ({
-        characterName: owner.characterName,
-        location: owner.locationLabel,
-        quantity: owner.totalQuantity,
-        isPersonal: owner.isPersonal
-      }))
-    }))
-    .sort((a, b) => a.itemName.localeCompare(b.itemName));
-}
-
-const groupedItems = computed(() => {
-  if (!snapshot.value) {
-    return [];
-  }
-
-  const characterPersonalMap = new Map<string, boolean>();
-  snapshot.value.characters.forEach((entry) => {
-    characterPersonalMap.set(entry.name.toLowerCase(), toBooleanFlag(entry.isPersonal));
-  });
-
-  const allowed = new Set([...selectedGuild.value, ...selectedPersonal.value]);
-
-  const filteredItems =
-    allowed.size === 0
-      ? []
-      : snapshot.value.items
-          .filter((item) => allowed.has(item.characterName.toLowerCase()))
-          .map((item) => ({
-            ...item,
-            isPersonal: characterPersonalMap.get(item.characterName.toLowerCase()) ?? false
-          }));
-
-  const aggregated = aggregateItems(filteredItems);
-  const normalizedQuery = searchQuery.value.trim().toLowerCase();
-  if (!normalizedQuery) {
-    return aggregated;
-  }
-  return aggregated.filter(
-    (item) =>
-      item.itemName.toLowerCase().includes(normalizedQuery) ||
-      item.ownerSummaries.some((owner) =>
-        owner.characterName.toLowerCase().includes(normalizedQuery)
-      )
-  );
-});
-
-const totalItemCount = computed(() =>
-  groupedItems.value.reduce((sum, item) => sum + item.totalQuantity, 0)
-);
-
-const currentPage = ref(1);
-const pageSize = 18;
-
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(groupedItems.value.length / pageSize))
-);
-
-const pagedItems = computed(() => {
-  const start = (currentPage.value - 1) * pageSize;
-  return groupedItems.value.slice(start, start + pageSize);
-});
-
-watch(
-  () => groupedItems.value.length,
-  () => {
-    if (currentPage.value > totalPages.value) {
-      currentPage.value = totalPages.value;
-    }
-  }
-);
-
-function setPage(page: number) {
-  currentPage.value = Math.min(Math.max(1, page), totalPages.value);
-}
-
-const missingCachedNames = computed(() => {
-  if (!snapshot.value || cachedNames.value.length === 0) {
-    return [];
-  }
-  const current = new Set(
-    snapshot.value.characters.map((entry) =>
-      characterKey({ name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) })
-    )
-  );
-  return cachedNames.value.filter((entry) => !current.has(characterKey(entry)));
-});
-
-async function restoreMissingCachedCharacters() {
-  if (!missingCachedNames.value.length || restoringNames.value) {
-    return;
-  }
-  restoringNames.value = true;
-  snapshotError.value = null;
-  try {
-    for (const entry of missingCachedNames.value) {
-      await api.addGuildBankCharacter(guildId.value, entry.name, {
-        isPersonal: entry.isPersonal
-      });
-    }
-    await refreshSnapshot(true);
-  } catch (error: any) {
-    snapshotError.value =
-      error?.response?.data?.message ?? 'Unable to restore missing bank characters.';
-  } finally {
-    restoringNames.value = false;
-  }
-}
-
-const OWNER_LIMIT = 2;
-
-function visibleOwners(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.slice(0, OWNER_LIMIT);
-}
-
-function ownerOverflow(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.length > OWNER_LIMIT;
-}
-
-function ownerOverflowCount(item: typeof groupedItems.value[number]) {
-  return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
-}
-
-const ownerModal = ref<{
-  item: typeof groupedItems.value[number] | null;
-  open: boolean;
-}>({
-  item: null,
-  open: false
-});
-
-function openOwnerModal(item: typeof groupedItems.value[number]) {
-  ownerModal.value = { item, open: true };
-}
-
-function closeOwnerModal() {
-  ownerModal.value = { item: null, open: false };
-}
-
-const WORN_SLOT_LABELS = [
-  'Charm', // 0
-  'Ear 1',
-  'Head',
-  'Face',
-  'Ear 2',
-  'Neck',
-  'Shoulders',
-  'Arms',
-  'Back',
-  'Wrist 1',
-  'Wrist 2',
-  'Range',
-  'Hands',
-  'Primary',
-  'Secondary',
-  'Finger 1',
-  'Finger 2',
-  'Chest',
-  'Legs',
-  'Feet',
-  'Waist',
-  'Power Source',
-  'Ammo'
-];
-
-const WORN_SLOT_KEYS = [
-  'charm',
-  'ear1',
-  'head',
-  'face',
-  'ear2',
-  'neck',
-  'shoulders',
-  'arms',
-  'back',
-  'wrist1',
-  'wrist2',
-  'range',
-  'hands',
-  'primary',
-  'secondary',
-  'finger1',
-  'finger2',
-  'chest',
-  'legs',
-  'feet',
-  'waist',
-  'powersource',
-  'ammo'
-];
-
-const WORN_SLOT_SHORT_LABELS = [
-  'Charm', 'Ear1', 'Head', 'Face', 'Ear2', 'Neck', 'Shldr', 'Arms', 'Back', 'Wrst1', 'Wrst2',
-  'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
-];
-
-const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30];
-const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
-const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);
-
-const wornSlotsUi = [
-  // Slots 1-22
-  ...WORN_SLOT_LABELS.slice(1).map((label, index) => ({
-    slotId: index + 1,
-    label,
-    shortLabel: WORN_SLOT_SHORT_LABELS[index + 1],
-    key: WORN_SLOT_KEYS[index + 1]
-  })),
-  // Slot 0 (Charm)
-  { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0] }
-];
-
-const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
-  slotId,
-  label: `General ${index + 1}`
-}));
-const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
-  slotId,
-  label: `Bank ${index + 1}`
-}));
-
-type ResolvedSlotPlacement = {
-  area: 'worn' | 'inventory' | 'inventoryBag' | 'bank' | 'bankBag' | 'unknown';
-  slotId: number | null;
-  slotLabel: string;
-  parentSlotId?: number | null;
-  parentLabel?: string;
-  bagSlotIndex?: number | null;
-};
-
-function generalSlotLabel(slotId: number) {
-  const idx = slotId - 22;
-  return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
-}
-
-function bankSlotLabel(slotId: number) {
-  return `Bank ${slotId - 1999}`;
-}
-
-function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
-  if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
-    return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
-  }
-
-  if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
-    return {
-      area: 'worn',
-      slotId,
-      slotLabel: WORN_SLOT_LABELS[slotId]
-    };
-  }
-
-  if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
-    return {
-      area: 'inventory',
-      slotId,
-      slotLabel: generalSlotLabel(slotId)
-    };
-  }
-
-  if (slotId >= 262 && slotId <= 341) {
-    const offset = slotId - 262;
-    const bagIndex = Math.floor(offset / 10);
-    const bagSlotIndex = offset % 10;
-    const parentSlotId = GENERAL_SLOT_IDS[0] + bagIndex;
-    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
-      return {
-        area: 'inventoryBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: generalSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-
-  if (slotId >= 2000 && slotId <= 2023) {
-    return {
-      area: 'bank',
-      slotId,
-      slotLabel: bankSlotLabel(slotId)
-    };
-  }
-
-  if (slotId >= 2032 && slotId <= 2271) {
-    const offset = slotId - 2032;
-    const bagIndex = Math.floor(offset / 10);
-    const bagSlotIndex = offset % 10;
-    const parentSlotId = 2000 + bagIndex;
-    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
-      return {
-        area: 'bankBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: bankSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-
-  return { area: 'unknown', slotId, slotLabel: `Slot ${slotId}` };
-}
-
-function slotDisplayLabel(resolved: ResolvedSlotPlacement) {
-  if (resolved.area === 'worn') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'inventory') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'inventoryBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
-    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'bank') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'bankBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
-    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
-  }
-  return resolved.slotLabel;
-}
-
-const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
-
-const inventoryModal = ref<{
-  item: typeof groupedItems.value[number] | null;
-  open: boolean;
-  selectedCharacter: string | null;
-}>({
-  item: null,
-  open: false,
-  selectedCharacter: null
-});
-
-const characterClassMap = computed(() => {
-  const map = new Map<string, CharacterClass>();
-  for (const entry of snapshot.value?.characters ?? []) {
-    if (entry.class) {
-      map.set(entry.name.toLowerCase(), entry.class);
-    }
-  }
-  return map;
-});
-
-const characterItemsMap = computed(() => {
-  const map = new Map<number, typeof snapshot.value.items[number]>();
-  const targetCharacter = inventoryModal.value.selectedCharacter?.toLowerCase();
-  console.log('DEBUG: characterItemsMap computing', { targetCharacter, snapshotAvailable: !!snapshot.value });
-
-  if (!targetCharacter || !snapshot.value?.items) {
-    return map;
-  }
-
-  for (const item of snapshot.value.items) {
-    if (item.characterName.toLowerCase() === targetCharacter && item.slotId != null) {
-      map.set(item.slotId, item);
-    }
-  }
-  return map;
-});
-
-function openInventoryModal(
-  item: typeof groupedItems.value[number],
-  characterName?: string
-) {
-  inventoryModal.value = {
-    item,
-    open: true,
-    selectedCharacter: characterName ?? null
-  };
-}
-
-function closeInventoryModal() {
-  inventoryModal.value = { open: false, item: null, selectedCharacter: null };
-}
 
 const inventoryPlacementGroups = computed(() => {
   const current = inventoryModal.value.item;
@@ -1578,14 +1683,14 @@ const inventoryPlacementGroups = computed(() => {
           container.highlights.worn.add(resolved.slotId);
         }
         break;
-      case 'inventory':
+      case 'inventory': // This covers GENERAL_SLOT_IDS (23-32)
         if (resolved.slotId != null) {
           container.highlights.general.add(resolved.slotId);
         }
         break;
-      case 'inventoryBag':
+      case 'inventoryBag': // This covers items inside bags in general slots
         if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
-          container.highlights.general.add(resolved.parentSlotId);
+          container.highlights.general.add(resolved.parentSlotId); // Highlight the parent bag slot
           const generalBag = container.highlights.generalBags.get(resolved.parentSlotId) ?? new Set<number>();
           generalBag.add(resolved.bagSlotIndex);
           container.highlights.generalBags.set(resolved.parentSlotId, generalBag);
@@ -1630,6 +1735,16 @@ const inventoryPlacementGroups = computed(() => {
       slots: Array.from(slots).sort((a, b) => a - b)
     }))
   }));
+});
+
+const characterClassMap = computed(() => {
+  const map = new Map<string, CharacterClass>();
+  for (const entry of snapshot.value?.characters ?? []) {
+    if (entry.class) {
+      map.set(entry.name.toLowerCase(), entry.class);
+    }
+  }
+  return map;
 });
 
 function classIconForCharacter(name: string) {
