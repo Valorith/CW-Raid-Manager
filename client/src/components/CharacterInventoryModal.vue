@@ -49,7 +49,9 @@
                                 `eq-slot--${slot.key}`,
                                 { 'eq-slot--active': isSlotHighlighted(slot.slotId) }
                               ]"
+
                               :title="getWornItem(slot.slotId)?.itemName || slot.label"
+                              @contextmenu.stop.prevent="openContextMenu($event, getWornItem(slot.slotId))"
                             >
                               <img
                                 v-if="getWornItem(slot.slotId)?.itemIconId"
@@ -77,6 +79,7 @@
                             }"
                             @click="toggleBag(slot.slotId, 'general')"
                             :title="getGeneralItem(slot.slotId)?.itemName || slot.label"
+                            @contextmenu.stop.prevent="openContextMenu($event, getGeneralItem(slot.slotId))"
                           >
                             <div class="eq-inv-slot__inner">
                               <img
@@ -106,6 +109,7 @@
                           class="eq-bag-slot"
                           :class="{ 'eq-bag-slot--active': isBagSlotHighlighted(activeGeneralBagSlotId, bagSlot.bagSlotIndex) }"
                           :title="bagSlot.item?.itemName"
+                          @contextmenu.stop.prevent="openContextMenu($event, bagSlot.item)"
                         >
                            <div class="eq-bag-slot__inner">
                               <img
@@ -149,6 +153,7 @@
                             'eq-inv-slot--selected': activeBankBagSlotId === slot.slotId
                           }"
                           @click="toggleBag(slot.slotId, 'bank')"
+                          @contextmenu.stop.prevent="openContextMenu($event, getBankItem(slot.slotId))"
                         >
                           <div class="eq-inv-slot__inner">
                             <img
@@ -177,6 +182,7 @@
                           class="eq-bag-slot"
                           :class="{ 'eq-bag-slot--active': isBagSlotHighlighted(activeBankBagSlotId, bagSlot.bagSlotIndex) }"
                           :title="bagSlot.item?.itemName"
+                          @contextmenu.stop.prevent="openContextMenu($event, bagSlot.item)"
                         >
                            <div class="eq-bag-slot__inner">
                               <img
@@ -198,9 +204,58 @@
       <div class="modal__body" v-else>
         <p class="empty-state">Character data not found.</p>
       </div>
+
     </div>
+
+    <!-- Context Menu -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenu.visible"
+        class="loot-context-menu"
+        :style="{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }"
+      >
+        <button class="loot-context-menu__action" type="button" @click="openAlla">
+          Lookup on Alla
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
+
+
+
+<style scoped>
+/* ... (existing styles) */
+
+/* Context Menu */
+.loot-context-menu {
+  position: fixed;
+  z-index: 9999;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.loot-context-menu__action {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.1s;
+}
+
+.loot-context-menu__action:hover {
+  background-color: #334155;
+}
+</style>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
@@ -427,6 +482,46 @@ watch(() => store.modalState.highlightSlotId, (newId) => {
     }
   }
 }, { immediate: true });
+
+// Context Menu Logic
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  item: null as GuildBankItem | null
+});
+
+function openContextMenu(event: MouseEvent, item: GuildBankItem | null | undefined) {
+  if (!item || !item.itemId) return;
+  
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    item
+  };
+}
+
+function closeContextMenu() {
+  contextMenu.value.visible = false;
+}
+
+function openAlla() {
+  const item = contextMenu.value.item;
+  if (item && item.itemId) {
+    window.open(`https://alla.clumsysworld.com/?a=item&id=${item.itemId}`, '_blank');
+  }
+  closeContextMenu();
+}
+
+// Close context menu on click outside
+watch(() => contextMenu.value.visible, (visible) => {
+  if (visible) {
+    window.addEventListener('click', closeContextMenu);
+  } else {
+    window.removeEventListener('click', closeContextMenu);
+  }
+});
 
 </script>
 
