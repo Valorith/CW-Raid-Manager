@@ -156,6 +156,7 @@
         </KeepAlive>
       </RouterView>
     </main>
+    <CharacterInventoryModal />
   </div>
 </template>
 
@@ -168,6 +169,7 @@ import { api, type RaidEventSummary } from './services/api';
 import { useMonitorStore } from './stores/monitor';
 import { useAttentionStore } from './stores/attention';
 import { playLootAlertChime } from './utils/audio';
+import CharacterInventoryModal from './components/CharacterInventoryModal.vue';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);

@@ -383,15 +383,6 @@
                 >
                   {{ owner.characterName }} ({{ owner.locationLabel }}) · ×{{ owner.totalQuantity }}
                 </span>
-                <button
-                  v-if="ownerOverflow(item)"
-                  type="button"
-                  class="owner-more-button"
-                  @click.stop="openOwnerModal(item)"
-                  :title="`${ownerOverflowCount(item)} more source${ownerOverflowCount(item) === 1 ? '' : 's'}`"
-                >
-                  +
-                </button>
               </div>
             </div>
           </li>
@@ -410,215 +401,7 @@
       </main>
     </div>
 
-    <div v-if="ownerModal.open && ownerModal.item" class="modal-backdrop" @click.self="closeOwnerModal">
-      <div class="modal owner-modal">
-        <header class="modal__header">
-          <div>
-            <p class="eyebrow">Item holders</p>
-            <h3>{{ ownerModal.item.itemName }}</h3>
-          </div>
-          <button type="button" class="icon-button" @click="closeOwnerModal" aria-label="Close">
-            <span class="icon-button__glyph">×</span>
-          </button>
-        </header>
-        <div class="owner-modal__body">
-          <ul class="owner-modal__list">
-            <li v-for="owner in ownerModal.item.ownerSummaries" :key="`${owner.characterName}-${owner.locationLabel}`">
-              <span class="owner-chip owner-chip--inline">
-                {{ owner.characterName }} ({{ owner.locationLabel }}) · ×{{ owner.totalQuantity }}
-              </span>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
 
-    <div
-      v-if="inventoryModal.open && inventoryModal.item"
-      class="modal-backdrop modal-backdrop--top"
-      @click.self="closeInventoryModal"
-    >
-      <div class="modal inventory-modal">
-        <header class="modal__header">
-          <div>
-            <p class="eyebrow">Character Inventory</p>
-            <h3>{{ inventoryPlacementGroups[0]?.characterName || inventoryModal.item.itemName }}</h3>
-          </div>
-          <button class="icon-button" type="button" @click="closeInventoryModal" aria-label="Close">
-            ×
-          </button>
-        </header>
-        <div class="inventory-modal__body">
-
-          <div v-for="placement in inventoryPlacementGroups" :key="placement.characterName" class="inventory-visual">
-            <div class="eq-window">
-              <div class="eq-window__header">
-                <div class="eq-window__title">
-                  <span class="eq-window__dot"></span>
-                  <strong>{{ placement.characterName }}</strong>
-                  <span class="eq-window__subtitle">
-                    {{ placement.isPersonal ? 'Personal character' : 'Guild bank character' }}
-                  </span>
-                </div>
-                <span class="eq-window__badge">Inventory</span>
-              </div>
-              <div class="eq-window__content">
-                <div class="eq-main-container">
-                  <div class="eq-paperdoll-layout">
-                    <div class="eq-paperdoll-grid">
-                      <div
-                        class="eq-class-icon"
-                        :style="{ backgroundImage: `url(${classIconForCharacter(placement.characterName)})` }"
-                      ></div>
-                      <div
-                        v-for="slot in wornSlotsUi"
-                        :key="slot.slotId"
-                        class="eq-slot eq-slot--worn"
-                        :class="[
-                          `eq-slot--${slot.key}`,
-                          { 'eq-slot--active': placement.highlights.worn.includes(slot.slotId) }
-                        ]"
-                        :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
-                      >
-                        <span v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.shortLabel }}</span>
-                        <img
-                          v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
-                          :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
-                          class="eq-slot__icon"
-                          alt=""
-                        />
-                        <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                        <span class="eq-slot__id">#{{ slot.slotId }}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="eq-inventory-section">
-                    <section class="inventory-visual__panel inventory-visual__panel--vertical">
-                      <div class="eq-general-grid eq-general-grid--vertical">
-                        <div
-                        v-for="slot in generalSlotsUi"
-                        :key="slot.slotId"
-                        class="eq-slot eq-slot--bag"
-                        :class="{
-                          'eq-slot--active': activeGeneralBagSlotId === slot.slotId,
-                          'eq-slot--clickable': (characterItemsMap.get(slot.slotId)?.bagSlots || 0) > 0,
-                          'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
-                        }"
-                        :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
-                        @click="setActiveBag(placement, slot.slotId)"
-                      >
-                        <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
-                        <img
-                          v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
-                          :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
-                          class="eq-slot__icon"
-                          alt=""
-                        />
-                        <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                        <div class="eq-slot__bag"></div>
-                      </div>
-                    </div>
-                  </section>
-                  
-                  <section v-if="activeGeneralBagSlotId && isGeneralBagSlot(activeGeneralBagSlotId)" class="inventory-visual__panel inventory-visual__panel--bag-contents">
-                    <div class="eq-panel__header">{{ characterItemsMap.get(activeGeneralBagSlotId)?.itemName || 'Bag' }}</div>
-                    <div class="eq-bag-contents-grid">
-                      <div
-                        v-for="slot in activeGeneralBagItems"
-                        :key="slot.slotId"
-                        class="eq-slot eq-slot--bag-item"
-                        :title="slot.item?.itemName"
-                      >
-                        <img
-                          v-if="slot.item?.itemIconId"
-                          :src="getLootIconSrc(slot.item.itemIconId)"
-                          class="eq-slot__icon"
-                          alt=""
-                        />
-                        <div v-else-if="slot.item" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                        <span class="eq-slot__count" v-if="(slot.item?.charges || 1) > 1">{{ slot.item?.charges }}</span>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-              </div>
-            </div>
-            </div>
-
-            <div class="eq-window eq-window--bank">
-              <div class="eq-window__header">
-                <div class="eq-window__title">
-                  <span class="eq-window__dot"></span>
-                  <strong>{{ placement.characterName }}</strong>
-                  <span class="eq-window__subtitle">Bank</span>
-                </div>
-                <span class="eq-window__badge">Bank</span>
-              </div>
-              <div class="eq-window__content eq-window__content--bank">
-                <section class="inventory-visual__panel inventory-visual__panel--bank">
-                  <div class="eq-panel__header">Bank Slots</div>
-                  <div class="eq-bank-grid">
-                    <div
-                      v-for="slot in bankSlotsUi"
-                      :key="slot.slotId"
-                      class="eq-slot eq-slot--bag eq-slot--bank"
-                      :class="{
-                        'eq-slot--active': activeBankBagSlotId === slot.slotId,
-                        'eq-slot--clickable': (characterItemsMap.get(slot.slotId)?.bagSlots || 0) > 0,
-                        'eq-slot--has-item': !!characterItemsMap.get(slot.slotId)
-                      }"
-                      :title="characterItemsMap.get(slot.slotId)?.itemName || slot.label"
-                      @click="setActiveBag(placement, slot.slotId)"
-                    >
-                      <div v-if="!characterItemsMap.get(slot.slotId)" class="eq-slot__label">{{ slot.label }}</div>
-                      <img
-                        v-if="characterItemsMap.get(slot.slotId)?.itemIconId"
-                        :src="getLootIconSrc(characterItemsMap.get(slot.slotId)!.itemIconId!)"
-                        class="eq-slot__icon"
-                        alt=""
-                      />
-                      <div v-else-if="characterItemsMap.get(slot.slotId)" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                    </div>
-                  </div>
-                </section>
-
-                <section v-if="activeBankBagSlotId && isBankBagSlot(activeBankBagSlotId)" class="inventory-visual__panel inventory-visual__panel--bag-contents">
-                  <div class="eq-panel__header">{{ characterItemsMap.get(activeBankBagSlotId)?.itemName || 'Bag' }}</div>
-                  <div class="eq-bag-contents-grid">
-                    <div
-                      v-for="slot in activeBankBagItems"
-                      :key="slot.slotId"
-                      class="eq-slot eq-slot--bag-item"
-                      :title="slot.item?.itemName"
-                    >
-                      <img
-                        v-if="slot.item?.itemIconId"
-                        :src="getLootIconSrc(slot.item.itemIconId)"
-                        class="eq-slot__icon"
-                        alt=""
-                      />
-                      <div v-else-if="slot.item" class="eq-slot__icon eq-slot__icon--placeholder">?</div>
-                      <span class="eq-slot__count" v-if="(slot.item?.charges || 1) > 1">{{ slot.item?.charges }}</span>
-                    </div>
-                  </div>
-                </section>
-              </div>
-            </div>
-
-            <ul class="inventory-visual__placements">
-              <li
-                v-for="placementDetail in placement.placements"
-                :key="placementDetail.label + placementDetail.locationLabel + placementDetail.quantity"
-              >
-                <strong>{{ placementDetail.label }}</strong>
-                <span class="muted small"> · {{ placementDetail.locationLabel }} · ×{{ placementDetail.quantity }}</span>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <div
       v-if="showRequestModal && requestModalItem"
@@ -798,22 +581,22 @@ import { getLootIconSrc } from '../utils/itemIcons';
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
-const MAX_REASONABLE_QUANTITY = 1000;
+
+import { useGuildBankStore } from '../stores/guildBank';
 
 const route = useRoute();
 const router = useRouter();
+const store = useGuildBankStore();
 
 const guildId = computed(() => route.params.guildId as string);
 
 const guildName = ref<string>('');
 const guildRole = ref<GuildRole | null>(null);
 
-const snapshot = ref<GuildBankSnapshot | null>(null);
-
-
-const loadingSnapshot = ref(false);
-const snapshotError = ref<string | null>(null);
-const lastFetchedAt = ref<number | null>(null);
+const snapshot = computed(() => store.snapshot);
+const loadingSnapshot = computed(() => store.loading);
+const snapshotError = computed(() => store.error);
+const lastFetchedAt = computed(() => store.lastFetchedAt);
 
 type RosterType = 'guild' | 'personal';
 
@@ -846,244 +629,6 @@ const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);
 const autoRestoreAttempted = ref(false);
 const initialFetchDone = ref(false);
-
-const WORN_SLOT_LABELS = [
-  'Charm', // 0
-  'Ear 1',
-  'Head',
-  'Face',
-  'Ear 2',
-  'Neck',
-  'Shoulders',
-  'Arms',
-  'Back',
-  'Wrist 1',
-  'Wrist 2',
-  'Range',
-  'Hands',
-  'Primary',
-  'Secondary',
-  'Finger 1',
-  'Finger 2',
-  'Chest',
-  'Legs',
-  'Feet',
-  'Waist',
-  'Power Source',
-  'Ammo'
-];
-
-const WORN_SLOT_KEYS = [
-  'charm',
-  'ear1',
-  'head',
-  'face',
-  'ear2',
-  'neck',
-  'shoulders',
-  'arms',
-  'back',
-  'wrist1',
-  'wrist2',
-  'range',
-  'hands',
-  'primary',
-  'secondary',
-  'finger1',
-  'finger2',
-  'chest',
-  'legs',
-  'feet',
-  'waist',
-  'powersource',
-  'ammo'
-];
-
-const WORN_SLOT_SHORT_LABELS = [
-  'Charm', 'Ear1', 'Head', 'Face', 'Ear2', 'Neck', 'Shldr', 'Arms', 'Back', 'Wrst1', 'Wrst2',
-  'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
-];
-
-const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32]; // Updated to include 31, 32
-const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
-const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);
-
-const wornSlotsUi = [
-  // Slots 1-22
-  ...WORN_SLOT_LABELS.slice(1).map((label, index) => ({
-    slotId: index + 1,
-    label,
-    shortLabel: WORN_SLOT_SHORT_LABELS[index + 1],
-    key: WORN_SLOT_KEYS[index + 1]
-  })),
-  // Slot 0 (Charm)
-  { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0] }
-];
-
-const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
-  slotId,
-  label: `General ${index + 1}`
-}));
-const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
-  slotId,
-  label: `${index + 1}`
-}));
-
-type ResolvedSlotPlacement = {
-  area: 'worn' | 'inventory' | 'inventoryBag' | 'bank' | 'bankBag' | 'unknown';
-  slotId: number | null;
-  slotLabel: string;
-  parentSlotId?: number | null;
-  parentLabel?: string;
-  bagSlotIndex?: number | null;
-};
-
-function generalSlotLabel(slotId: number) {
-  const idx = slotId - 22;
-  return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
-}
-
-function bankSlotLabel(slotId: number) {
-  return `Bank ${slotId - 1999}`;
-}
-
-function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
-  if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
-    return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
-  }
-
-  if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
-    return {
-      area: 'worn',
-      slotId,
-      slotLabel: WORN_SLOT_LABELS[slotId]
-    };
-  }
-
-  // General slots themselves (23-32)
-  if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
-    return {
-      area: 'inventory',
-      slotId,
-      slotLabel: generalSlotLabel(slotId)
-    };
-  }
-
-  // Inventory bag slots (legacy Titanium ranges)
-  if (slotId >= 251 && slotId <= 330) {
-    const offset = slotId - 251;
-    const bagIndex = Math.floor(offset / 10);
-    const bagSlotIndex = offset % 10;
-    const parentSlotId = 23 + bagIndex; // General slots start at 23
-    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
-      return {
-        area: 'inventoryBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: generalSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-  if (slotId >= 262 && slotId <= 341) { // Another legacy range
-    const offset = slotId - 262;
-    const bagIndex = Math.floor(offset / 10);
-    const bagSlotIndex = offset % 10;
-    const parentSlotId = 23 + bagIndex;
-    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
-      return {
-        area: 'inventoryBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: generalSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-  // Inventory bag slots (new ranges, 200 slots per bag)
-  if (slotId >= 4010 && slotId <= 6009) {
-    const offset = slotId - 4010;
-    const bagIndex = Math.floor(offset / 200);
-    const bagSlotIndex = offset % 200;
-    const parentSlotId = 23 + bagIndex; // General slots start at 23
-    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
-      return {
-        area: 'inventoryBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: generalSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-
-  if (slotId >= 2000 && slotId <= 2023) {
-    return {
-      area: 'bank',
-      slotId,
-      slotLabel: bankSlotLabel(slotId)
-    };
-  }
-
-  if (slotId >= 2032 && slotId <= 2271) {
-    const offset = slotId - 2032;
-    const bagIndex = Math.floor(offset / 10);
-    const bagSlotIndex = offset % 10;
-    const parentSlotId = 2000 + bagIndex;
-    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
-      return {
-        area: 'bankBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: bankSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-
-  // Modern bank bag slots (200 slots per bag)
-  if (slotId >= 6210 && slotId <= 11009) {
-    const offset = slotId - 6210;
-    const bagIndex = Math.floor(offset / 200);
-    const bagSlotIndex = offset % 200;
-    const parentSlotId = 2000 + bagIndex;
-    if (parentSlotId >= 2000 && parentSlotId <= 2023) {
-      return {
-        area: 'bankBag',
-        slotId,
-        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-        parentSlotId,
-        parentLabel: bankSlotLabel(parentSlotId),
-        bagSlotIndex
-      };
-    }
-  }
-
-  return { area: 'unknown', slotId, slotLabel: `Slot ${slotId}` };
-}
-
-function slotDisplayLabel(resolved: ResolvedSlotPlacement) {
-  if (resolved.area === 'worn') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'inventory') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'inventoryBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
-    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'bank') {
-    return `${resolved.slotLabel} (slot ${resolved.slotId})`;
-  }
-  if (resolved.area === 'bankBag' && resolved.parentLabel != null && resolved.bagSlotIndex != null) {
-    return `${resolved.parentLabel} → Bag slot ${resolved.bagSlotIndex + 1} (slot ${resolved.slotId})`;
-  }
-  return resolved.slotLabel;
-}
 
 function aggregateItems(items: GuildBankItem[]) {
     const map = new Map<
@@ -1309,17 +854,15 @@ async function restoreMissingCachedCharacters() {
     return;
   }
   restoringNames.value = true;
-  snapshotError.value = null;
   try {
     for (const entry of missingCachedNames.value) {
       await api.addGuildBankCharacter(guildId.value, entry.name, {
         isPersonal: entry.isPersonal
       });
     }
-    await refreshSnapshot(true);
+    await store.fetchSnapshot(guildId.value, true);
   } catch (error: any) {
-    snapshotError.value =
-      error?.response?.data?.message ?? 'Unable to restore missing bank characters.';
+    console.error('Failed to restore characters', error);
   } finally {
     restoringNames.value = false;
   }
@@ -1339,182 +882,57 @@ function ownerOverflowCount(item: typeof groupedItems.value[number]) {
   return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
 }
 
-const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
+const MAX_REASONABLE_QUANTITY = 1000000;
 
-const inventoryModal = ref<{
-  item: typeof groupedItems.value[number] | null;
-  open: boolean;
-  selectedCharacter: string | null;
-}>({
-  item: null,
-  open: false,
-  selectedCharacter: null
-});
+function normalizeQuantity(raw: any): number {
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return 1;
+  if (num > MAX_REASONABLE_QUANTITY) return 1;
+  return num;
+}
+
+function buildItemKey(itemId: number | null | undefined, itemName: string): string {
+  return itemId != null ? `id:${itemId}` : `name:${itemName.toLowerCase()}`;
+}
+
+const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
 
 function openInventoryModal(
   item: typeof groupedItems.value[number],
   characterName?: string
 ) {
-  inventoryModal.value = {
-    item,
-    open: true,
-    selectedCharacter: characterName ?? null
-  };
+  const targetName = characterName ?? item.ownerSummaries[0]?.characterName;
+  if (targetName) {
+    const placement = item.slotPlacements.find(
+      (p) => p.characterName.toLowerCase() === targetName.toLowerCase()
+    );
+    store.openModal(guildId.value, targetName, placement?.slotId ?? undefined);
+  }
 }
 
-function closeInventoryModal() {
-  inventoryModal.value = { open: false, item: null, selectedCharacter: null };
-}
 
-const ownerModal = ref<{
-  item: typeof groupedItems.value[number] | null;
-  open: boolean;
-}>({
-  item: null,
-  open: false
-});
 
-function openOwnerModal(item: typeof groupedItems.value[number]) {
-  ownerModal.value = { item, open: true };
-}
+const missingCount = computed(() => snapshot.value?.missingCharacters.length ?? 0);
 
-function closeOwnerModal() {
-  ownerModal.value = { item: null, open: false };
-}
-
-const characterItemsMap = computed(() => {
-  const map = new Map<number, GuildBankItem>();
-  const targetCharacter = inventoryModal.value?.selectedCharacter?.toLowerCase();
-
-  if (!targetCharacter || !snapshot.value?.items) {
-    return map;
-  }
-
-  for (const item of snapshot.value.items) {
-    if (item.characterName.toLowerCase() === targetCharacter && item.slotId != null) {
-      map.set(item.slotId, item);
-    }
-  }
-  return map;
-});
-
-const bagContentsMap = computed(() => {
-  const map = new Map<number, Array<{ item: GuildBankItem; bagSlotIndex: number }>>();
-  for (const item of characterItemsMap.value.values()) {
-    if (item.slotId == null) continue;
-    const resolved = resolveSlotPlacement(item.slotId);
-    if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
-      const existing = map.get(resolved.parentSlotId) || [];
-      existing.push({ item, bagSlotIndex: resolved.bagSlotIndex });
-      map.set(resolved.parentSlotId, existing);
-    }
-  }
-  return map;
-});
-
-const activeGeneralBagSlotId = ref<number | null>(null);
-const activeBankBagSlotId = ref<number | null>(null);
-
-const setActiveBag = (placement: any, slotId: number) => {
-  if (isGeneralBagSlot(slotId)) {
-    if (activeGeneralBagSlotId.value === slotId) {
-      activeGeneralBagSlotId.value = null;
-    } else {
-      activeGeneralBagSlotId.value = slotId;
-    }
-  } else if (isBankBagSlot(slotId)) {
-    if (activeBankBagSlotId.value === slotId) {
-      activeBankBagSlotId.value = null;
-    } else {
-      activeBankBagSlotId.value = slotId;
-    }
-  }
-};
-
-const activeGeneralBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
-const activeBankBagItems = shallowRef<Array<{ slotId: number; item: GuildBankItem | null }>>([]);
-
-let rafIdGeneral: number | null = null;
-let rafIdBank: number | null = null;
-
-watch(
-  [activeGeneralBagSlotId, () => inventoryModal.value?.selectedCharacter],
-  ([newSlotId, newChar]) => {
-    if (rafIdGeneral) cancelAnimationFrame(rafIdGeneral);
-    
-    if (!newSlotId || !newChar) {
-      activeGeneralBagItems.value = [];
-      return;
-    }
-
-    rafIdGeneral = requestAnimationFrame(() => {
-      const bagContainerItem = characterItemsMap.value.get(newSlotId);
-      const bagSize = bagContainerItem?.bagSlots || 10;
-
-      const bagItems = bagContentsMap.value.get(newSlotId) || [];
-      
-      const bagItemsMap = new Map<number, GuildBankItem>();
-      for (const entry of bagItems) {
-        bagItemsMap.set(entry.bagSlotIndex, entry.item);
-      }
-
-      const slots = [];
-      for (let i = 0; i < bagSize; i++) {
-        slots.push({
-          slotId: i,
-          item: bagItemsMap.get(i) || null
-        });
-      }
-      activeGeneralBagItems.value = slots;
-      rafIdGeneral = null;
-    });
-  },
-  { immediate: true }
+const guildRoster = computed(
+  () =>
+    snapshot.value?.characters.filter((entry) => !toBooleanFlag(entry.isPersonal)) ?? []
+);
+const personalRoster = computed(
+  () =>
+    snapshot.value?.characters.filter((entry) => toBooleanFlag(entry.isPersonal)) ?? []
 );
 
-watch(
-  [activeBankBagSlotId, () => inventoryModal.value?.selectedCharacter],
-  ([newSlotId, newChar]) => {
-    if (rafIdBank) cancelAnimationFrame(rafIdBank);
-    
-    if (!newSlotId || !newChar) {
-      activeBankBagItems.value = [];
-      return;
-    }
-
-    rafIdBank = requestAnimationFrame(() => {
-      const bagContainerItem = characterItemsMap.value.get(newSlotId);
-      const bagSize = bagContainerItem?.bagSlots || 10;
-
-      const bagItems = bagContentsMap.value.get(newSlotId) || [];
-      
-      const bagItemsMap = new Map<number, GuildBankItem>();
-      for (const entry of bagItems) {
-        bagItemsMap.set(entry.bagSlotIndex, entry.item);
-      }
-
-      const slots = [];
-      for (let i = 0; i < bagSize; i++) {
-        slots.push({
-          slotId: i,
-          item: bagItemsMap.get(i) || null
-        });
-      }
-      activeBankBagItems.value = slots;
-      rafIdBank = null;
-    });
-  },
-  { immediate: true }
+const allGuildSelected = computed(
+  () =>
+    guildRoster.value.length > 0 &&
+    guildRoster.value.every((entry) => selectedGuild.value.has(entry.name.toLowerCase()))
 );
-
-
-function isGeneralBagSlot(slotId: number) {
-  return GENERAL_SLOT_IDS.includes(slotId);
-}
-
-function isBankBagSlot(slotId: number) {
-  return BANK_SLOT_IDS.includes(slotId);
-}
+const allPersonalSelected = computed(
+  () =>
+    personalRoster.value.length > 0 &&
+    personalRoster.value.every((entry) => selectedPersonal.value.has(entry.name.toLowerCase()))
+);
 
 function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();
@@ -1671,172 +1089,7 @@ const lastRefreshLabel = computed(() => {
   return `${hours}h ago`;
 });
 
-const missingCount = computed(() => snapshot.value?.missingCharacters.length ?? 0);
-const guildRoster = computed(
-  () =>
-    snapshot.value?.characters.filter((entry) => !toBooleanFlag(entry.isPersonal)) ?? []
-);
-const personalRoster = computed(
-  () =>
-    snapshot.value?.characters.filter((entry) => toBooleanFlag(entry.isPersonal)) ?? []
-);
-const allGuildSelected = computed(
-  () =>
-    guildRoster.value.length > 0 &&
-    guildRoster.value.every((entry) => selectedGuild.value.has(entry.name.toLowerCase()))
-);
-const allPersonalSelected = computed(
-  () =>
-    personalRoster.value.length > 0 &&
-    personalRoster.value.every((entry) => selectedPersonal.value.has(entry.name.toLowerCase()))
-);
 
-function buildItemKey(itemId: number | null | undefined, itemName: string): string {
-  return itemId != null ? `id:${itemId}` : `name:${itemName.toLowerCase()}`;
-}
-
-function normalizeQuantity(raw: any): number {
-  const num = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(num) || num <= 0) return 1;
-  if (num > MAX_REASONABLE_QUANTITY) return 1;
-  return num;
-}
-
-
-const inventoryPlacementGroups = computed(() => {
-  const current = inventoryModal.value.item;
-  if (!current || !Array.isArray(current.slotPlacements)) {
-    return [];
-  }
-
-  const targetCharacter = inventoryModal.value.selectedCharacter?.toLowerCase();
-
-  const map = new Map<
-    string,
-    {
-      characterName: string;
-      isPersonal: boolean;
-      placements: Array<{
-        quantity: number;
-        locationLabel: string;
-        resolved: ResolvedSlotPlacement;
-        label: string;
-      }>;
-      highlights: {
-        worn: Set<number>;
-        general: Set<number>;
-        bank: Set<number>;
-        generalBags: Map<number, Set<number>>;
-        bankBags: Map<number, Set<number>>;
-      };
-    }
-  >();
-
-  for (const placement of current.slotPlacements) {
-    // Filter by selectedCharacter if one is provided
-    if (targetCharacter && placement.characterName.toLowerCase() !== targetCharacter) {
-      continue;
-    }
-
-    const resolved = resolveSlotPlacement(placement.slotId ?? null);
-    const existing = map.get(placement.characterName);
-    const container = existing ?? {
-      characterName: placement.characterName,
-      isPersonal: placement.isPersonal,
-      placements: [],
-      highlights: {
-        worn: new Set<number>(),
-        general: new Set<number>(),
-        bank: new Set<number>(),
-        generalBags: new Map<number, Set<number>>(),
-        bankBags: new Map<number, Set<number>>()
-      }
-    };
-
-    container.placements.push({
-      quantity: placement.quantity,
-      locationLabel: placement.locationLabel,
-      resolved,
-      label: slotDisplayLabel(resolved)
-    });
-
-    switch (resolved.area) {
-      case 'worn':
-        if (resolved.slotId != null) {
-          container.highlights.worn.add(resolved.slotId);
-        }
-        break;
-      case 'inventory': // This covers GENERAL_SLOT_IDS (23-32)
-        if (resolved.slotId != null) {
-          container.highlights.general.add(resolved.slotId);
-        }
-        break;
-      case 'inventoryBag': // This covers items inside bags in general slots
-        if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
-          container.highlights.general.add(resolved.parentSlotId); // Highlight the parent bag slot
-          const generalBag = container.highlights.generalBags.get(resolved.parentSlotId) ?? new Set<number>();
-          generalBag.add(resolved.bagSlotIndex);
-          container.highlights.generalBags.set(resolved.parentSlotId, generalBag);
-        }
-        break;
-      case 'bank':
-        if (resolved.slotId != null) {
-          container.highlights.bank.add(resolved.slotId);
-        }
-        break;
-      case 'bankBag':
-        if (resolved.parentSlotId != null && resolved.bagSlotIndex != null) {
-          container.highlights.bank.add(resolved.parentSlotId);
-          const bankBag = container.highlights.bankBags.get(resolved.parentSlotId) ?? new Set<number>();
-          bankBag.add(resolved.bagSlotIndex);
-          container.highlights.bankBags.set(resolved.parentSlotId, bankBag);
-        }
-        break;
-      default:
-        break;
-    }
-
-    if (!existing) {
-      map.set(placement.characterName, container);
-    }
-  }
-
-  return Array.from(map.values()).map((entry) => ({
-    ...entry,
-    placements: entry.placements,
-    highlights: {
-      worn: Array.from(entry.highlights.worn),
-      general: Array.from(entry.highlights.general),
-      bank: Array.from(entry.highlights.bank)
-    },
-    generalBags: Array.from(entry.highlights.generalBags.entries()).map(([parentSlotId, slots]) => ({
-      parentSlotId,
-      slots: Array.from(slots).sort((a, b) => a - b)
-    })),
-    bankBags: Array.from(entry.highlights.bankBags.entries()).map(([parentSlotId, slots]) => ({
-      parentSlotId,
-      slots: Array.from(slots).sort((a, b) => a - b)
-    }))
-  }));
-});
-
-const characterClassMap = computed(() => {
-  const map = new Map<string, CharacterClass>();
-  for (const entry of snapshot.value?.characters ?? []) {
-    if (entry.class) {
-      map.set(entry.name.toLowerCase(), entry.class);
-    }
-  }
-  return map;
-});
-
-function classIconForCharacter(name: string) {
-  const cls = characterClassMap.value.get(name.toLowerCase()) ?? null;
-  if (!cls || cls === 'UNKNOWN') {
-    return '/assets/icons/warrior.gif'; // Default fallback
-  }
-  return `/assets/icons/${cls.toLowerCase()}.gif`;
-}
 
 // Cart state
 type CartEntry = {
@@ -2232,82 +1485,17 @@ async function loadGuildMeta() {
   }
 }
 
-async function refreshSnapshot(force = false) {
-  if (loadingSnapshot.value) {
-    return;
-  }
-  if (!force && !canRefreshNow.value) {
-    return;
-  }
-
-  loadingSnapshot.value = true;
-  snapshotError.value = null;
-  try {
-    const result = await api.fetchGuildBank(guildId.value);
-  const serverNames = result.characters.map((entry) => ({
-    name: entry.name,
-    isPersonal: toBooleanFlag(entry.isPersonal)
-  }));
-    const mergedNames = mergeNamesCaseInsensitive([...serverNames, ...cachedNames.value]);
-    const missingOnServer = diffNamesCaseInsensitive(mergedNames, serverNames);
-
-    if (
-      canManageBank.value &&
-      missingOnServer.length > 0 &&
-      !autoRestoreAttempted.value &&
-      !restoringNames.value
-    ) {
-      autoRestoreAttempted.value = true;
-      restoringNames.value = true;
-      try {
-        for (const entry of missingOnServer) {
-          await api.addGuildBankCharacter(guildId.value, entry.name, {
-            isPersonal: entry.isPersonal
-          });
-        }
-        restoringNames.value = false;
-        await refreshSnapshot(true);
-        return;
-      } catch (error: any) {
-        restoringNames.value = false;
-        snapshotError.value =
-          error?.response?.data?.message ??
-          'Some bank characters were missing and could not be restored automatically.';
-      }
-    }
-
-    snapshot.value = result;
-    lastFetchedAt.value = Date.now();
-    saveCache(result);
-    saveCachedNames(mergedNames);
-    reconcileCartWithSnapshot();
-  } catch (error: any) {
-    const message =
-      error?.response?.data?.message ??
-      error?.message ??
-      'Something went wrong while loading the guild bank.';
-    snapshotError.value = message;
-  } finally {
-    loadingSnapshot.value = false;
-  }
-}
-
 async function addCharacter(isPersonal: boolean) {
   const targetRef = isPersonal ? newPersonalCharacterName : newGuildCharacterName;
   if (!targetRef.value.trim()) {
     return;
   }
   addingCharacter.value = true;
-  snapshotError.value = null;
   try {
     const created = await api.addGuildBankCharacter(guildId.value, targetRef.value.trim(), {
       isPersonal
     });
-    snapshot.value = {
-      characters: [...(snapshot.value?.characters ?? []), created],
-      items: snapshot.value?.items ?? [],
-      missingCharacters: snapshot.value?.missingCharacters ?? []
-    };
+    
     const key = created.name.toLowerCase();
     if (isPersonal) {
       selectedPersonal.value = new Set([...selectedPersonal.value, key]);
@@ -2316,16 +1504,15 @@ async function addCharacter(isPersonal: boolean) {
     }
     hasUserSelection.value = true;
     saveCachedNames(
-      snapshot.value.characters.map((entry) => ({
+      (store.snapshot?.characters ?? []).map((entry) => ({
         name: entry.name,
         isPersonal: toBooleanFlag(entry.isPersonal)
       }))
     );
     targetRef.value = '';
-    await refreshSnapshot(true);
+    await store.fetchSnapshot(guildId.value, true);
   } catch (error: any) {
-    snapshotError.value =
-      error?.response?.data?.message ?? 'Unable to add guild bank character.';
+    console.error('Failed to add character', error);
   } finally {
     addingCharacter.value = false;
   }
@@ -2333,49 +1520,31 @@ async function addCharacter(isPersonal: boolean) {
 
 async function removeCharacter(id: string) {
   removingId.value = id;
-  snapshotError.value = null;
   try {
-    const removedName = snapshot.value?.characters.find((entry) => entry.id === id)?.name ?? null;
     await api.deleteGuildBankCharacter(guildId.value, id);
-    snapshot.value = snapshot.value
-      ? {
-          characters: snapshot.value.characters.filter((entry) => entry.id !== id),
-          items: removedName
-            ? snapshot.value.items.filter((entry) => entry.characterName !== removedName)
-            : snapshot.value.items,
-          missingCharacters: snapshot.value.missingCharacters
-        }
-      : null;
     saveCachedNames(
-      snapshot.value?.characters?.map((entry) => ({
+      store.snapshot?.characters?.map((entry) => ({
         name: entry.name,
         isPersonal: toBooleanFlag(entry.isPersonal)
       })) ?? []
     );
-    await refreshSnapshot(true);
+    await store.fetchSnapshot(guildId.value, true);
   } catch (error: any) {
-    snapshotError.value = error?.response?.data?.message ?? 'Unable to remove character.';
+    console.error('Failed to remove character', error);
   } finally {
     removingId.value = null;
   }
 }
 
-function applyCachedSnapshot() {
-  const cached = loadCache();
-  if (cached) {
-    snapshot.value = cached.snapshot;
-    lastFetchedAt.value = cached.fetchedAt;
-  } else {
-    snapshot.value = null;
-    lastFetchedAt.value = null;
-  }
-  loadCachedNames();
+
+
+async function refreshSnapshot() {
+  await store.fetchSnapshot(guildId.value, true);
 }
 
 watch(
   () => guildId.value,
   async () => {
-    applyCachedSnapshot();
     autoRestoreAttempted.value = false;
     loadCart();
     try {
@@ -2384,15 +1553,7 @@ watch(
       return;
     }
     currentPage.value = 1;
-    const cacheAge = lastFetchedAt.value ? now.value - lastFetchedAt.value : Infinity;
-    const cacheIsFresh = cacheAge < ONE_HOUR_MS;
-    const needsInitialRefresh = !initialFetchDone.value;
-
-    if (!snapshot.value) {
-      await refreshSnapshot(true);
-    } else if (needsInitialRefresh || (canRefreshNow.value && !cacheIsFresh)) {
-      await refreshSnapshot(true);
-    }
+    await store.fetchSnapshot(guildId.value);
     initialFetchDone.value = true;
   },
   { immediate: true }

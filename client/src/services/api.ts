@@ -14,6 +14,8 @@ import type {
   QuestNodeType
 } from './types';
 
+export type { CharacterClass };
+
 export interface GuildSummary {
   id: string;
   name: string;
