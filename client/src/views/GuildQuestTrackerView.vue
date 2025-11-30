@@ -4180,6 +4180,65 @@ function findNextNodeIdsForAssignment(
     return true;
   };
 
+  // Check if a group node has any non-group (actionable) children
+  const hasActionableChildren = (nodeId: string): boolean => {
+    const childEntries = children.get(nodeId) ?? [];
+    for (const entry of childEntries) {
+      if (entry.isOptional || entry.isNextStep) {
+        continue;
+      }
+      const childNode = nodeIndex.get(entry.nodeId);
+      if (childNode && !childNode.isGroup) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Get the non-optional, non-next-step child group nodes
+  const getChildGroupNodes = (nodeId: string): string[] => {
+    const childEntries = children.get(nodeId) ?? [];
+    const result: string[] = [];
+    for (const entry of childEntries) {
+      if (entry.isOptional || entry.isNextStep) {
+        continue;
+      }
+      const childNode = nodeIndex.get(entry.nodeId);
+      if (childNode?.isGroup) {
+        result.push(entry.nodeId);
+      }
+    }
+    return result;
+  };
+
+  // Resolve a group node to the appropriate display level
+  // If all children are groups, drill down to those groups instead
+  const resolveGroupDisplayNodes = (nodeId: string): string[] => {
+    const node = nodeIndex.get(nodeId);
+    if (!node?.isGroup) {
+      return [nodeId];
+    }
+
+    // If this group has actionable (non-group) children, show pin here
+    if (hasActionableChildren(nodeId)) {
+      return [nodeId];
+    }
+
+    // Otherwise, drill down to child group nodes
+    const childGroups = getChildGroupNodes(nodeId);
+    if (childGroups.length === 0) {
+      // No children at all, show on this node
+      return [nodeId];
+    }
+
+    // Recursively resolve each child group
+    const resolved: string[] = [];
+    for (const childGroupId of childGroups) {
+      resolved.push(...resolveGroupDisplayNodes(childGroupId));
+    }
+    return resolved.length > 0 ? resolved : [nodeId];
+  };
+
   const frontierNodeIds: string[] = [];
   for (const node of nodes) {
     if (!isNodeActionable(node.id)) {
@@ -4200,10 +4259,13 @@ function findNextNodeIdsForAssignment(
   for (const nodeId of frontierNodeIds) {
     const node = nodeIndex.get(nodeId);
     if (node?.isGroup) {
-      // Group nodes show pins on themselves
-      const list = groupedByParent.get(nodeId) ?? [];
-      list.push(nodeId);
-      groupedByParent.set(nodeId, list);
+      // Group nodes - resolve to appropriate display level
+      const displayNodes = resolveGroupDisplayNodes(nodeId);
+      for (const displayId of displayNodes) {
+        const list = groupedByParent.get(displayId) ?? [];
+        list.push(displayId);
+        groupedByParent.set(displayId, list);
+      }
       continue;
     }
     const parentEntries = parents.get(nodeId) ?? [];
