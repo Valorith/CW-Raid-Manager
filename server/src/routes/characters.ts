@@ -10,6 +10,7 @@ import {
   deleteCharacter,
   MainCharacterLimitError
 } from '../services/characterService.js';
+import { fetchCharacterInventory } from '../services/guildBankService.js';
 import { getUserGuildRole, canManageGuild } from '../services/guildService.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -17,6 +18,28 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', { preHandler: [authenticate] }, async (request) => {
     const characters = await listCharactersForUser(request.user.userId);
     return { characters };
+  });
+
+  server.get('/:name/inventory', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ name: z.string() });
+    const { name } = paramsSchema.parse(request.params);
+
+    try {
+      const items = await fetchCharacterInventory(name);
+      return { items };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /EQ content database is not configured/i.test(error.message ?? '')
+      ) {
+        return reply
+          .serviceUnavailable(
+            'EQ database is not configured; set EQ_DB_* environment variables to enable character lookups.'
+          );
+      }
+      request.log.error({ err: error, characterName: name }, 'Failed to load character inventory.');
+      return reply.internalServerError('Unable to load character inventory. Please try again later.');
+    }
   });
 
   server.post('/', { preHandler: [authenticate] }, async (request, reply) => {

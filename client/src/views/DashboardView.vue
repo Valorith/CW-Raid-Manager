@@ -26,7 +26,15 @@
           <li v-for="character in characters" :key="character.id" class="list__item">
             <div class="character-summary">
               <div class="character-heading">
-                <CharacterLink class="character-name-link" :name="character.name" />
+                <span 
+                  class="character-name-link clickable" 
+                  role="button" 
+                  tabindex="0" 
+                  @click="openInventory(character.name, character.guild?.id)" 
+                  @keydown.enter="openInventory(character.name, character.guild?.id)"
+                >
+                  {{ character.name }}
+                </span>
                 <span class="character-level">({{ character.level }})</span>
                 <span v-if="character.isMain" class="badge badge--main">Main</span>
               </div>
@@ -247,6 +255,7 @@ import { RouterLink } from 'vue-router';
 
 import CharacterModal from '../components/CharacterModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import { useGuildBankStore } from '../stores/guildBank';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
@@ -604,6 +613,16 @@ onMounted(() => {
   loadRecentAttendance();
   loadRecentLoot();
 });
+
+const guildBankStore = useGuildBankStore();
+
+function openInventory(characterName: string, guildId?: string | null) {
+  if (!guildId) {
+    alert('This character is not in a guild.');
+    return;
+  }
+  guildBankStore.openCharacterInventory(characterName, guildId);
+}
 </script>
 
 <style scoped>
@@ -699,6 +718,18 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #38bdf8;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.character-name-link:hover,
+.character-name-link:focus-visible {
+  color: #f8fafc;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  outline: none;
 }
 
 .character-level {

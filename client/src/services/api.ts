@@ -1713,8 +1713,18 @@ export const api = {
   },
 
   async fetchGuildBank(guildId: string): Promise<GuildBankSnapshot> {
-    const response = await axios.get(`/api/guilds/${guildId}/guild-bank`);
-    return normalizeGuildBankSnapshot(response.data);
+    const { data } = await axios.get(`/api/guilds/${guildId}/guild-bank`);
+    return data;
+  },
+
+  async fetchCharacterInventory(characterName: string): Promise<GuildBankItem[]> {
+    const { data } = await axios.get(`/api/characters/${encodeURIComponent(characterName)}/inventory`);
+    return data.items;
+  },
+
+  async fetchGuildBankCharacters(guildId: string): Promise<GuildBankCharacter[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/guild-bank/characters`);
+    return Array.isArray(response.data.characters) ? response.data.characters.map(normalizeGuildBankCharacter) : [];
   },
 
   async requestGuildBankItems(

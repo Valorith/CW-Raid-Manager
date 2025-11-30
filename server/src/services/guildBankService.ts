@@ -483,3 +483,68 @@ export async function fetchGuildBankSnapshot(
     missingCharacters
   };
 }
+
+export async function fetchCharacterInventory(characterName: string): Promise<GuildBankItem[]> {
+  if (!isEqDbConfigured()) {
+    throw new Error(
+      'EQ content database is not configured; set EQ_DB_* values to enable character lookups.'
+    );
+  }
+
+  const { normalized } = normalizeName(characterName);
+
+  // 1. Find character ID
+  const eqCharacters = await queryEqDb<EqCharacterRow[]>(
+    `SELECT id, name, class FROM character_data WHERE LOWER(name) = ?`,
+    [normalized]
+  );
+
+  if (eqCharacters.length === 0) {
+    return [];
+  }
+
+  const character = eqCharacters[0];
+  const charId = character.id;
+
+  // 2. Resolve columns
+  const charIdColumn = await resolveInventoryCharacterColumn();
+  const slotColumn = await resolveInventorySlotColumn();
+  const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
+
+  // 3. Query inventory
+  const inventoryRows = await queryEqDb<EqInventoryRow[]>(
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
+     FROM inventory AS inv
+     LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
+     WHERE inv.\`${charIdColumn}\` = ?
+       AND (${SLOT_WHERE_CLAUSE.replace(/inv\.slotid/g, `inv.\`${slotColumn}\``)})
+       AND inv.\`${itemIdColumn}\` IS NOT NULL
+       AND inv.\`${itemIdColumn}\` > 0`,
+    [charId]
+  );
+
+  // 4. Map to GuildBankItem
+  const items: GuildBankItem[] = [];
+
+  for (const row of inventoryRows) {
+    const category = resolveSlotCategory(Number(row.slotid));
+    if (!category) {
+      continue;
+    }
+
+    const quantity = computeQuantity(row.charges);
+
+    items.push({
+      characterName: character.name,
+      slotId: Number(row.slotid),
+      location: category,
+      itemId: row.itemid != null ? Number(row.itemid) : null,
+      itemName: row.itemName ?? 'Unknown Item',
+      itemIconId: row.iconId != null ? Number(row.iconId) : null,
+      charges: quantity,
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
+    });
+  }
+
+  return items;
+}

@@ -289,11 +289,16 @@
               class="metrics-spotlight__item"
             >
               <div>
-                <CharacterLink
+                <span
                   v-if="shouldLinkEntities"
-                  class="metrics-spotlight__name"
-                  :name="entry.name"
-                />
+                  class="metrics-spotlight__name clickable"
+                  role="button"
+                  tabindex="0"
+                  @click.stop="openInventory(entry.name, guildId)"
+                  @keydown.enter.stop="openInventory(entry.name, guildId)"
+                >
+                  {{ entry.name }}
+                </span>
                 <span v-else class="metrics-spotlight__name metrics-spotlight__name--plain">
                   {{ entry.name }}
                 </span>
@@ -456,11 +461,16 @@
                 class="metrics-spotlight__item"
               >
                 <div>
-                  <CharacterLink
+                  <span
                     v-if="shouldLinkEntities"
-                    class="metrics-spotlight__name"
-                    :name="entry.name"
-                  />
+                    class="metrics-spotlight__name clickable"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="openInventory(entry.name, guildId)"
+                    @keydown.enter.stop="openInventory(entry.name, guildId)"
+                  >
+                    {{ entry.name }}
+                  </span>
                   <span v-else class="metrics-spotlight__name metrics-spotlight__name--plain">
                     {{ entry.name }}
                   </span>
@@ -533,11 +543,16 @@
               <section class="metrics-recent__body">
                 <div class="metrics-recent__looter">
                   <span class="metrics-recent__looter-label">Awarded to</span>
-                  <CharacterLink
+                  <span
                     v-if="shouldLinkEntities && !lootEvent.isGuildBank && !lootEvent.isMasterLooter"
-                    class="metrics-recent__looter-name"
-                    :name="lootEvent.displayLooterName"
-                  />
+                    class="metrics-recent__looter-name clickable"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="openInventory(lootEvent.displayLooterName, guildId)"
+                    @keydown.enter.stop="openInventory(lootEvent.displayLooterName, guildId)"
+                  >
+                    {{ lootEvent.displayLooterName }}
+                  </span>
                   <span
                     v-else
                     class="metrics-recent__looter-name metrics-recent__looter-name--plain"
@@ -619,7 +634,15 @@
               <tbody>
                 <tr v-for="entry in unknownMemberCharacterDetails" :key="entry.key">
                   <td class="metrics-modal-table__character">
-                    <CharacterLink :name="entry.name">{{ entry.name }}</CharacterLink>
+                    <span
+                      class="clickable"
+                      role="button"
+                      tabindex="0"
+                      @click.stop="openInventory(entry.name, guildId)"
+                      @keydown.enter.stop="openInventory(entry.name, guildId)"
+                    >
+                      {{ entry.name }}
+                    </span>
                   </td>
                   <td>{{ resolveClassLabel(entry.class) ?? 'Unknown' }}</td>
                   <td>{{ entry.participationPercent.toFixed(1) }}%</td>
@@ -745,7 +768,15 @@
                   </td>
                   <td>
                     <template v-if="!row.isGuildBank && !row.isMasterLooter">
-                      <CharacterLink :name="row.characterName">{{ row.characterName }}</CharacterLink>
+                      <span
+                        class="clickable"
+                        role="button"
+                        tabindex="0"
+                        @click.stop="openInventory(row.characterName, guildId)"
+                        @keydown.enter.stop="openInventory(row.characterName, guildId)"
+                      >
+                        {{ row.characterName }}
+                      </span>
                     </template>
                     <span v-else>{{ row.characterName }}</span>
                   </td>
@@ -816,6 +847,7 @@ import { useRoute } from 'vue-router';
 
 import CharacterInspector from '../components/CharacterInspector.vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import { useGuildBankStore } from '../stores/guildBank';
 import {
   getGuildBankDisplayName,
   normalizeLooterName
@@ -830,7 +862,8 @@ import {
   type GuildMetricsSummary,
   type LootMetricEvent,
   type MetricsCharacterOption,
-  type GuildPermissions
+  type GuildPermissions,
+  type UserCharacter
 } from '../services/api';
 import {
   characterClassLabels,
@@ -883,6 +916,13 @@ ensureChartJsRegistered();
 
 const route = useRoute();
 const guildId = computed(() => route.params.guildId as string);
+const guildBankStore = useGuildBankStore();
+const userCharacters = ref<UserCharacter[]>([]);
+
+function openInventory(characterName: string, currentGuildId?: string) {
+  if (!guildId.value) return;
+  guildBankStore.openCharacterInventory(characterName, guildId.value);
+}
 
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -1195,7 +1235,7 @@ const characterOptions = computed(() => metrics.value?.filterOptions.characters 
 
 interface MetricsEntityOption {
   key: string;
-  type: MetricsMode;
+  type: 'character' | 'member';
   label: string;
   class: CharacterClass | null;
   classes: CharacterClass[];
@@ -4033,33 +4073,7 @@ function closeLootDetailModal() {
   lootDetailPage.value = 0;
 }
 
-function openAllaSearch(itemName: string, itemId?: number | null) {
-  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
-    window.open(`https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`, '_blank');
-    return;
-  }
-  const base =
-    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
-  const trimmed = itemName?.trim();
-  const query = trimmed && trimmed.length > 0 ? trimmed : itemName;
-  const url = `${base}&iname=${encodeURIComponent(query)}`;
-  window.open(url, '_blank');
-}
 
-function goToPreviousLootDetailPage() {
-  if (lootDetailPage.value > 0) {
-    lootDetailPage.value -= 1;
-  }
-}
-
-function goToNextLootDetailPage() {
-  if (lootDetailPageCount.value === 0) {
-    return;
-  }
-  if (lootDetailPage.value < lootDetailPageCount.value - 1) {
-    lootDetailPage.value += 1;
-  }
-}
 
 const attendanceSpotlight = computed(() => {
   if (selectedCharacterKeySet.value.size === 0) {
@@ -4376,55 +4390,119 @@ const lootByParticipantHasData = computed(
   () =>
     lootByParticipantChartData.value.datasets[0]?.data?.length &&
     lootByParticipantChartData.value.datasets[0].data.some((value) => Number(value) > 0)
-);
+  );
 
 const lootDetailRows = computed(() => {
   const target = lootDetailTarget.value;
   if (!target) {
-    return [] as Array<{
-      id: string;
-      itemName: string;
-      itemId: number | null;
-      looterName: string;
-      displayLooterName: string;
-      characterName: string;
-      isGuildBank: boolean;
-      isMasterLooter: boolean;
-      raidId: string;
-      raidName: string;
-      raidStart: string | null;
-      awardedAt: string | null;
-    }>;
+    return [];
   }
-  const { identity, entry } = target;
-  const normalizedEntryName = entry.name.toLowerCase();
-  const rows = filteredLootEvents.value
-    .filter((event) =>
-      identity
-        ? lootEventMatchesIdentity(event, identity)
-        : event.normalizedLooterName === normalizedEntryName
-    )
-    .map((event) => ({
+  const identity = target.identity;
+  if (!identity) {
+    return [];
+  }
+  return filteredLootEvents.value.filter((event) => {
+    if (identity.mode === 'character') {
+      const normalized = event.normalizedLooterName;
+      if (normalized === identity.key.replace('name:', '')) {
+        return true;
+      }
+      // Also check if this character is an alias of the target
+      const option = characterEntityOptionLookup.value.get(identity.key);
+      if (option && option.normalizedCharacterNames.includes(normalized)) {
+        return true;
+      }
+      return false;
+    } else if (identity.mode === 'member') {
+      const option = memberEntityOptionLookup.value.get(identity.key);
+      if (!option) {
+        return false;
+      }
+      const normalized = event.normalizedLooterName;
+      if (option.normalizedCharacterNames.includes(normalized)) {
+        return true;
+      }
+      // Check userId ownership
+      const owner = characterOwnerMap.value.get(normalized);
+      if (owner && owner.userId === option.userId) {
+        return true;
+      }
+      return false;
+    }
+    return false;
+  }).sort((a, b) => {
+    const ta = eventPrimaryTimestamp(a);
+    const tb = eventPrimaryTimestamp(b);
+    if (!ta && !tb) return 0;
+    if (!ta) return 1;
+    if (!tb) return -1;
+    return tb.localeCompare(ta);
+  });
+});
+
+function isMasterLooterName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === 'master looter' || lower === 'master';
+}
+
+const visibleLootDetailRows = computed(() => {
+  const page = lootDetailPage.value;
+  const start = page * LOOT_DETAIL_PAGE_SIZE;
+  const end = start + LOOT_DETAIL_PAGE_SIZE;
+  return lootDetailRows.value.slice(start, end).map(event => {
+    const isGuildBank = event.isGuildBank;
+    const isMasterLooter = isMasterLooterName(event.looterName);
+    const characterName = isGuildBank
+      ? event.displayLooterName
+      : (event.originalLooterName?.trim() || event.displayLooterName);
+
+    return {
       id: event.id,
       itemName: event.itemName,
-      itemId: event.itemId ?? null,
-      looterName: event.looterName,
-      displayLooterName: displayLooterName(event),
-      characterName: resolveLootCharacterName(event),
-      isGuildBank: event.isGuildBank,
-      isMasterLooter: event.isMasterLooter,
+      itemId: event.itemId,
+      itemIconId: event.itemIconId,
+      isGuildBank,
+      isMasterLooter,
+      characterName,
       raidId: event.raid.id,
       raidName: event.raid.name,
       raidStart: event.raid.startTime,
       awardedAt: eventPrimaryTimestamp(event)
-    }))
-    .sort((a, b) => {
-      const aStamp = a.awardedAt ?? '';
-      const bStamp = b.awardedAt ?? '';
-      return bStamp.localeCompare(aStamp);
-    });
-  return rows;
+    };
+  });
 });
+
+
+
+function openAllaSearch(itemName: string, itemId?: number | null) {
+  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
+    window.open(`https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`, '_blank');
+    return;
+  }
+  const base =
+    'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
+  const trimmed = itemName?.trim();
+  const query = trimmed && trimmed.length > 0 ? trimmed : itemName;
+  const url = `${base}&iname=${encodeURIComponent(query)}`;
+  window.open(url, '_blank');
+}
+
+function goToPreviousLootDetailPage() {
+  if (lootDetailPage.value > 0) {
+    lootDetailPage.value -= 1;
+  }
+}
+
+function goToNextLootDetailPage() {
+  if (lootDetailPageCount.value === 0) {
+    return;
+  }
+  if (lootDetailPage.value < lootDetailPageCount.value - 1) {
+    lootDetailPage.value += 1;
+  }
+}
+
+
 
 const lootDetailModalTitle = computed(() => lootDetailTarget.value?.entry.name ?? '');
 const lootDetailModalCount = computed(() => lootDetailRows.value.length);
@@ -4434,10 +4512,7 @@ const lootDetailPageCount = computed(() =>
     : Math.ceil(lootDetailModalCount.value / LOOT_DETAIL_PAGE_SIZE)
 );
 
-const visibleLootDetailRows = computed(() => {
-  const start = lootDetailPage.value * LOOT_DETAIL_PAGE_SIZE;
-  return lootDetailRows.value.slice(start, start + LOOT_DETAIL_PAGE_SIZE);
-});
+
 
 const lootDetailStartIndex = computed(() => {
   if (lootDetailModalCount.value === 0) {
@@ -4924,6 +4999,40 @@ async function ensureGuildName() {
     console.warn('Failed to load guild name for metrics view', error);
   }
 }
+
+onMounted(async () => {
+  if (!guildId.value) {
+    error.value = 'Guild ID is missing.';
+    return;
+  }
+  loading.value = true;
+  try {
+    const now = new Date();
+    const defaultEndDate = now.toISOString();
+    const defaultStartDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).toISOString();
+
+    const [metricsData, charactersData] = await Promise.all([
+      api.fetchGuildMetrics(guildId.value, {
+        startDate: defaultStartDate,
+        endDate: defaultEndDate
+      }),
+      api.fetchUserCharacters()
+    ]);
+    metrics.value = metricsData;
+    userCharacters.value = charactersData;
+
+    updateGlobalTimeline(metricsData);
+    rangeForm.start = metricsData.range.start;
+    rangeForm.end = metricsData.range.end;
+    globalSummary.value = { ...metricsData.summary };
+    lastSubmittedQuery.value = { startDate: defaultStartDate, endDate: defaultEndDate };
+    syncFiltersWithOptions();
+  } catch (err: any) {
+    error.value = err?.message ?? 'Failed to load metrics.';
+  } finally {
+    loading.value = false;
+  }
+});
 
 async function loadMetrics(params?: GuildMetricsQuery) {
   if (!guildId.value) {
@@ -6453,8 +6562,26 @@ onMounted(() => {
 
 .loot-detail__page-button:disabled {
   opacity: 0.45;
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.6);
   cursor: not-allowed;
-  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.metrics-spotlight__name.clickable,
+.metrics-recent__looter-name.clickable,
+.metrics-modal-table__character .clickable,
+.metrics-modal-table td .clickable {
+  color: #60a5fa;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.metrics-spotlight__name.clickable:hover,
+.metrics-recent__looter-name.clickable:hover,
+.metrics-modal-table__character .clickable:hover,
+.metrics-modal-table td .clickable:hover {
+  color: #93c5fd;
+  text-decoration: underline;
 }
 
 .loot-detail__page-indicator {

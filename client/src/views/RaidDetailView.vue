@@ -179,7 +179,15 @@
                     ✓
                   </span>
                 </div>
-                <CharacterLink class="raid-signups__collapsed-name" :name="entry.characterName" />
+                <span
+                  class="raid-signups__collapsed-name clickable"
+                  role="button"
+                  tabindex="0"
+                  @click.stop="openInventory(entry.characterName)"
+                  @keydown.enter.stop="openInventory(entry.characterName)"
+                >
+                  {{ entry.characterName }}
+                </span>
                 <span class="raid-signups__collapsed-class muted small">
                   {{ characterClassLabels[entry.characterClass] }}
                 </span>
@@ -342,7 +350,15 @@
                       </span>
                     </span>
                     <div class="raid-signups__role-meta">
-                      <CharacterLink class="raid-signups__role-name" :name="entry.characterName" />
+                      <span
+                        class="raid-signups__role-name clickable"
+                        role="button"
+                        tabindex="0"
+                        @click.stop="openInventory(entry.characterName)"
+                        @keydown.enter.stop="openInventory(entry.characterName)"
+                      >
+                        {{ entry.characterName }}
+                      </span>
                       <span class="raid-signups__role-sub muted small">
                         <template v-if="entry.characterLevel">Lv {{ entry.characterLevel }} • </template>
                         {{ characterClassLabels[entry.characterClass] }} · {{ entry.user.displayName }}
@@ -1821,6 +1837,7 @@ import type {
   UserCharacter
 } from '../services/api';
 import { useAuthStore } from '../stores/auth';
+import { useGuildBankStore } from '../stores/guildBank';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getLootIconSrc } from '../utils/itemIcons';
 import {
@@ -1853,6 +1870,7 @@ const route = useRoute();
 const router = useRouter();
 const raidId = route.params.raidId as string;
 const authStore = useAuthStore();
+const guildBankStore = useGuildBankStore();
 
 const raid = ref<RaidDetail | null>(null);
 const attendanceEvents = ref<AttendanceEventSummary[]>([]);
@@ -2403,6 +2421,12 @@ async function openNpcNotesFromKill() {
   const npcName = killContextMenu.npcName.trim();
   closeKillContextMenu();
   await handleOpenNpcNotes(npcName || undefined);
+}
+
+function openInventory(characterName: string) {
+  const gid = raid.value?.guildId || raid.value?.guild?.id;
+  if (!gid) return;
+  guildBankStore.openCharacterInventory(characterName, gid);
 }
 const pendingAttendanceEventId = ref<string | null>(
   typeof route.query.attendanceEventId === 'string'
@@ -8481,4 +8505,21 @@ th {
   font-weight: 600;
 }
 
+.raid-signups__collapsed-name,
+.raid-signups__role-name {
+  color: #38bdf8;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+}
+
+.raid-signups__collapsed-name:hover,
+.raid-signups__collapsed-name:focus-visible,
+.raid-signups__role-name:hover,
+.raid-signups__role-name:focus-visible {
+  color: #f8fafc;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  outline: none;
+}
 </style>

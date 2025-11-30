@@ -365,11 +365,20 @@ const characterItemsMap = computed(() => {
   if (!store.snapshot || !store.modalState.characterName) return map;
   
   const targetName = store.modalState.characterName.toLowerCase();
+  console.log('[CharacterInventoryModal] Looking up items for:', targetName);
+  
+  let matchCount = 0;
   for (const item of store.snapshot.items) {
-    if (item.characterName.toLowerCase() === targetName && item.slotId != null) {
+    // Check for exact match or first name match
+    const itemCharName = item.characterName.toLowerCase();
+    const itemFirstName = itemCharName.split(' ')[0];
+    
+    if ((itemCharName === targetName || itemFirstName === targetName) && item.slotId != null) {
       map.set(item.slotId, item);
+      matchCount++;
     }
   }
+  console.log(`[CharacterInventoryModal] Found ${matchCount} items for ${targetName}`);
   return map;
 });
 

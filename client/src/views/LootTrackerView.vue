@@ -315,7 +315,15 @@
                         :alt="characterClassLabels[interest.classHint]"
                       />
                     </span>
-                    <CharacterLink class="loot-council-interest__name" :name="interest.playerName" />
+                    <span
+                      class="loot-council-interest__name clickable"
+                      role="button"
+                      tabindex="0"
+                      @click.stop="openInventory(interest.playerName)"
+                      @keydown.enter.stop="openInventory(interest.playerName)"
+                    >
+                      {{ interest.playerName }}
+                    </span>
                     <div class="loot-council-interest__votes" aria-label="Votes received">
                       <span
                         v-for="(voter, voteIndex) in interest.voters"
@@ -554,7 +562,15 @@
                   </span>
                 </template>
                 <template v-else>
-                  <CharacterLink :name="entry.displayLooterName" />
+                  <span
+                    class="loot-card__looter-name clickable"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="openInventory(entry.displayLooterName)"
+                    @keydown.enter.stop="openInventory(entry.displayLooterName)"
+                  >
+                    {{ entry.displayLooterName }}
+                  </span>
                 </template>
               </p>
             </div>
@@ -1086,6 +1102,7 @@ import { parseNpcKills, type ParsedNpcKillEvent } from '../services/npcKillParse
 import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
 import { useAttentionStore } from '../stores/attention';
+import { useGuildBankStore } from '../stores/guildBank';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
@@ -1206,6 +1223,13 @@ const router = useRouter();
 const raidId = route.params.raidId as string;
 const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
+const guildBankStore = useGuildBankStore();
+
+function openInventory(characterName: string) {
+  const gid = raid.value?.guildId || raid.value?.guild?.id;
+  if (!gid) return;
+  guildBankStore.openCharacterInventory(characterName, gid);
+}
 
 const raid = ref<RaidDetail | null>(null);
 const GUILD_BANK_ID = '__guild_bank__';
@@ -6042,9 +6066,31 @@ onBeforeUnmount(() => {
   color: #94a3b8;
 }
 
-.loot-card__looter-name {
+.loot-council-interest__name {
   font-weight: 600;
   color: #e2e8f0;
+}
+
+.loot-council-interest__name.clickable {
+  color: #60a5fa;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.loot-council-interest__name.clickable:hover {
+  color: #93c5fd;
+  text-decoration: underline;
+}
+
+.loot-card__looter-name.clickable {
+  color: #60a5fa;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.loot-card__looter-name.clickable:hover {
+  color: #93c5fd;
+  text-decoration: underline;
 }
 
 .loot-card__looter-name--unassigned {

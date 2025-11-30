@@ -193,7 +193,15 @@
           >
             <div class="character-info">
               <div class="character-primary">
-                <CharacterLink class="character-name-link" :name="character.name" />
+                <span
+                  class="character-name-link clickable"
+                  role="button"
+                  tabindex="0"
+                  @click.stop="openInventory(character.name)"
+                  @keydown.enter.stop="openInventory(character.name)"
+                >
+                  {{ character.name }}
+                </span>
                 <span class="character-level">({{ character.level }})</span>
                 <span v-if="character.isMain" class="badge badge--main">Main</span>
               </div>
@@ -421,6 +429,7 @@ import {
 import type { GuildRole, CharacterClass } from '../services/types';
 import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../services/types';
 import { useAuthStore } from '../stores/auth';
+import { useGuildBankStore } from '../stores/guildBank';
 import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
 import CharacterLink from '../components/CharacterLink.vue';
 import {
@@ -431,6 +440,7 @@ import {
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
+const guildBankStore = useGuildBankStore();
 
 type GuildMember = GuildDetail['members'][number];
 interface ApplicantMember {
@@ -798,6 +808,11 @@ function openCharacterModal(character: GuildDetail['characters'][number]) {
   };
   modalContextGuildId.value = guild.value?.id ?? null;
   showCharacterForm.value = true;
+}
+
+function openInventory(characterName: string) {
+  if (!guild.value?.id) return;
+  guildBankStore.openCharacterInventory(characterName, guild.value.id);
 }
 
 function closeCharacterModal() {
@@ -1685,6 +1700,18 @@ onUnmounted(() => {
 
 .character-name-link {
   font-size: 1rem;
+  color: #38bdf8;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.15s ease, text-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.character-name-link:hover,
+.character-name-link:focus-visible {
+  color: #f8fafc;
+  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  outline: none;
 }
 
 .character-level {
