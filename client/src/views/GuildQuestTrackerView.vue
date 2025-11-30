@@ -437,7 +437,16 @@
                 </header>
                 <h3>{{ node.title }}</h3>
                 <p v-if="targetOrItemLabel(node)" class="quest-node__target">
-                  Target / Item: {{ targetOrItemLabel(node) }}
+                  Target / Item:
+                  <a
+                    v-if="getNodeItemId(node)"
+                    :href="buildAllaItemUrl(getNodeItemId(node)!)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="quest-node__item-link"
+                    @click.stop
+                  >{{ targetOrItemLabel(node) }}</a>
+                  <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
@@ -672,7 +681,16 @@
                 </header>
                   <h3>{{ node.title }}</h3>
                 <p v-if="targetOrItemLabel(node)" class="quest-node__target">
-                  Target / Item: {{ targetOrItemLabel(node) }}
+                  Target / Item:
+                  <a
+                    v-if="getNodeItemId(node)"
+                    :href="buildAllaItemUrl(getNodeItemId(node)!)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="quest-node__item-link"
+                    @click.stop
+                  >{{ targetOrItemLabel(node) }}</a>
+                  <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
@@ -3990,6 +4008,34 @@ function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | unde
     return itemName || detail || titleFallback || targetName || null;
   }
   return targetName || itemName || null;
+}
+
+function getNodeItemId(node: QuestNodeViewModel | EditableNode | null | undefined): number | null {
+  if (!node || !node.requirements) {
+    return null;
+  }
+  // Only show item links for DELIVER and LOOT node types
+  if (node.nodeType !== 'DELIVER' && node.nodeType !== 'LOOT') {
+    return null;
+  }
+  const req = node.requirements as Record<string, unknown>;
+  const candidates = [req.itemId, req.item_id, req.itemID];
+  for (const entry of candidates) {
+    if (typeof entry === 'number' && entry > 0) {
+      return entry;
+    }
+    if (typeof entry === 'string') {
+      const parsed = Number.parseInt(entry, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+function buildAllaItemUrl(itemId: number): string {
+  return `https://alla.clumsysworld.com/?a=item&id=${itemId}`;
 }
 
 function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
@@ -7634,6 +7680,17 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: rgba(248, 250, 252, 0.9);
   margin: 0.25rem 0 0;
+}
+
+.quest-node__item-link {
+  color: #60a5fa;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.quest-node__item-link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
 }
 
 .quest-node__target--inline {
