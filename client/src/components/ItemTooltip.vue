@@ -294,17 +294,21 @@ const weaponSkillName = computed(() => {
 });
 
 // Item flags
+// Note: In EQEmu database, nodrop/norent/notransfer use inverted logic:
+// - 0 means the item HAS the restriction (NO DROP, NO RENT, etc.)
+// - 255 (or non-zero) means the item does NOT have the restriction
 const itemFlags = computed(() => {
   if (!store.itemStats) return [];
   const flags: string[] = [];
-  if (store.itemStats.magic) flags.push('MAGIC ITEM');
-  if (store.itemStats.lore && store.itemStats.lore.length > 0 && store.itemStats.lore !== '*') {
+  if (store.itemStats.magic === 1) flags.push('MAGIC ITEM');
+  // Lore: empty string = not lore, "*" = unique lore, other string = lore group
+  if (store.itemStats.lore && store.itemStats.lore.length > 0) {
     flags.push('LORE ITEM');
   }
-  if (store.itemStats.nodrop) flags.push('NO DROP');
-  if (store.itemStats.norent) flags.push('NO RENT');
-  if (store.itemStats.notransfer) flags.push('NO TRANSFER');
-  if (store.itemStats.questitemflag) flags.push('QUEST ITEM');
+  if (store.itemStats.nodrop === 0) flags.push('NO DROP');
+  if (store.itemStats.norent === 0) flags.push('NO RENT');
+  if (store.itemStats.notransfer === 0) flags.push('NO TRANSFER');
+  if (store.itemStats.questitemflag === 1) flags.push('QUEST ITEM');
   return flags;
 });
 
