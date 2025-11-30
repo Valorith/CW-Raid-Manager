@@ -25,184 +25,147 @@
           {{ itemFlags.join(' ') }}
         </div>
 
-        <!-- Equipment Slot -->
-        <div v-if="slotText" class="item-tooltip__slot">
-          Slot: {{ slotText }}
+        <!-- Slot & AC Row -->
+        <div class="item-tooltip__row">
+          <span v-if="slotText" class="item-tooltip__slot">Slot: {{ slotText }}</span>
+          <span v-if="store.itemStats.ac > 0" class="item-tooltip__ac">AC: {{ store.itemStats.ac }}</span>
         </div>
 
         <!-- Weapon Stats -->
         <div v-if="isWeapon" class="item-tooltip__section">
-          <div v-if="store.itemStats.damage > 0">
-            Skill: {{ weaponSkillName }}
+          <div class="item-tooltip__weapon-row">
+            <span>{{ weaponSkillName }}</span>
+            <span v-if="store.itemStats.damage > 0">
+              Dmg: {{ store.itemStats.damage }} / Dly: {{ store.itemStats.delay }}
+            </span>
+            <span v-if="store.itemStats.damage > 0 && store.itemStats.delay > 0" class="item-tooltip__ratio">
+              ({{ damageRatio }})
+            </span>
           </div>
-          <div v-if="store.itemStats.damage > 0">
-            Damage: {{ store.itemStats.damage }} &nbsp; Delay: {{ store.itemStats.delay }}
-          </div>
-          <div v-if="store.itemStats.damage > 0 && store.itemStats.delay > 0">
-            Ratio: {{ damageRatio }}
-          </div>
-          <div v-if="store.itemStats.backstabdmg > 0">
-            Backstab Dmg: {{ store.itemStats.backstabdmg }}
-          </div>
-          <div v-if="store.itemStats.range > 0">
-            Range: {{ store.itemStats.range }}
+          <div v-if="store.itemStats.backstabdmg > 0 || store.itemStats.range > 0" class="item-tooltip__weapon-extras">
+            <span v-if="store.itemStats.backstabdmg > 0">Backstab: {{ store.itemStats.backstabdmg }}</span>
+            <span v-if="store.itemStats.range > 0">Range: {{ store.itemStats.range }}</span>
           </div>
         </div>
 
-        <!-- AC -->
-        <div v-if="store.itemStats.ac > 0" class="item-tooltip__stat">
-          AC: {{ store.itemStats.ac }}
+        <!-- Base Stats Grid -->
+        <div v-if="hasBaseStats" class="item-tooltip__section item-tooltip__stats-grid">
+          <span v-if="store.itemStats.astr !== 0" class="item-tooltip__stat-cell">
+            STR: {{ formatStat(store.itemStats.astr) }}<span v-if="store.itemStats.heroic_str > 0" class="heroic"> +{{ store.itemStats.heroic_str }}</span>
+          </span>
+          <span v-if="store.itemStats.asta !== 0" class="item-tooltip__stat-cell">
+            STA: {{ formatStat(store.itemStats.asta) }}<span v-if="store.itemStats.heroic_sta > 0" class="heroic"> +{{ store.itemStats.heroic_sta }}</span>
+          </span>
+          <span v-if="store.itemStats.aagi !== 0" class="item-tooltip__stat-cell">
+            AGI: {{ formatStat(store.itemStats.aagi) }}<span v-if="store.itemStats.heroic_agi > 0" class="heroic"> +{{ store.itemStats.heroic_agi }}</span>
+          </span>
+          <span v-if="store.itemStats.adex !== 0" class="item-tooltip__stat-cell">
+            DEX: {{ formatStat(store.itemStats.adex) }}<span v-if="store.itemStats.heroic_dex > 0" class="heroic"> +{{ store.itemStats.heroic_dex }}</span>
+          </span>
+          <span v-if="store.itemStats.awis !== 0" class="item-tooltip__stat-cell">
+            WIS: {{ formatStat(store.itemStats.awis) }}<span v-if="store.itemStats.heroic_wis > 0" class="heroic"> +{{ store.itemStats.heroic_wis }}</span>
+          </span>
+          <span v-if="store.itemStats.aint !== 0" class="item-tooltip__stat-cell">
+            INT: {{ formatStat(store.itemStats.aint) }}<span v-if="store.itemStats.heroic_int > 0" class="heroic"> +{{ store.itemStats.heroic_int }}</span>
+          </span>
+          <span v-if="store.itemStats.acha !== 0" class="item-tooltip__stat-cell">
+            CHA: {{ formatStat(store.itemStats.acha) }}<span v-if="store.itemStats.heroic_cha > 0" class="heroic"> +{{ store.itemStats.heroic_cha }}</span>
+          </span>
         </div>
 
-        <!-- Base Stats -->
-        <div v-if="hasBaseStats" class="item-tooltip__section">
-          <div v-if="store.itemStats.astr !== 0" class="item-tooltip__stat-line">
-            STR: {{ formatStat(store.itemStats.astr) }}
-            <span v-if="store.itemStats.heroic_str > 0" class="heroic">+{{ store.itemStats.heroic_str }}</span>
-          </div>
-          <div v-if="store.itemStats.asta !== 0" class="item-tooltip__stat-line">
-            STA: {{ formatStat(store.itemStats.asta) }}
-            <span v-if="store.itemStats.heroic_sta > 0" class="heroic">+{{ store.itemStats.heroic_sta }}</span>
-          </div>
-          <div v-if="store.itemStats.aagi !== 0" class="item-tooltip__stat-line">
-            AGI: {{ formatStat(store.itemStats.aagi) }}
-            <span v-if="store.itemStats.heroic_agi > 0" class="heroic">+{{ store.itemStats.heroic_agi }}</span>
-          </div>
-          <div v-if="store.itemStats.adex !== 0" class="item-tooltip__stat-line">
-            DEX: {{ formatStat(store.itemStats.adex) }}
-            <span v-if="store.itemStats.heroic_dex > 0" class="heroic">+{{ store.itemStats.heroic_dex }}</span>
-          </div>
-          <div v-if="store.itemStats.awis !== 0" class="item-tooltip__stat-line">
-            WIS: {{ formatStat(store.itemStats.awis) }}
-            <span v-if="store.itemStats.heroic_wis > 0" class="heroic">+{{ store.itemStats.heroic_wis }}</span>
-          </div>
-          <div v-if="store.itemStats.aint !== 0" class="item-tooltip__stat-line">
-            INT: {{ formatStat(store.itemStats.aint) }}
-            <span v-if="store.itemStats.heroic_int > 0" class="heroic">+{{ store.itemStats.heroic_int }}</span>
-          </div>
-          <div v-if="store.itemStats.acha !== 0" class="item-tooltip__stat-line">
-            CHA: {{ formatStat(store.itemStats.acha) }}
-            <span v-if="store.itemStats.heroic_cha > 0" class="heroic">+{{ store.itemStats.heroic_cha }}</span>
-          </div>
+        <!-- HP/Mana/End Row -->
+        <div v-if="hasResources" class="item-tooltip__section item-tooltip__resources">
+          <span v-if="store.itemStats.hp !== 0">HP: {{ formatNumber(store.itemStats.hp) }}</span>
+          <span v-if="store.itemStats.mana !== 0">Mana: {{ formatNumber(store.itemStats.mana) }}</span>
+          <span v-if="store.itemStats.endur !== 0">End: {{ formatNumber(store.itemStats.endur) }}</span>
         </div>
 
-        <!-- HP/Mana/End -->
-        <div v-if="hasResources" class="item-tooltip__section">
-          <div v-if="store.itemStats.hp !== 0" class="item-tooltip__stat-line">
-            HP: {{ formatNumber(store.itemStats.hp) }}
-          </div>
-          <div v-if="store.itemStats.mana !== 0" class="item-tooltip__stat-line">
-            Mana: {{ formatNumber(store.itemStats.mana) }}
-          </div>
-          <div v-if="store.itemStats.endur !== 0" class="item-tooltip__stat-line">
-            Endurance: {{ formatNumber(store.itemStats.endur) }}
-          </div>
+        <!-- Resistances Grid -->
+        <div v-if="hasResists" class="item-tooltip__section item-tooltip__resists-grid">
+          <span v-if="store.itemStats.fr !== 0" class="item-tooltip__resist-cell resist-fire">
+            SV Fire: {{ formatStat(store.itemStats.fr) }}<span v-if="store.itemStats.heroic_fr > 0" class="heroic"> +{{ store.itemStats.heroic_fr }}</span>
+          </span>
+          <span v-if="store.itemStats.cr !== 0" class="item-tooltip__resist-cell resist-cold">
+            SV Cold: {{ formatStat(store.itemStats.cr) }}<span v-if="store.itemStats.heroic_cr > 0" class="heroic"> +{{ store.itemStats.heroic_cr }}</span>
+          </span>
+          <span v-if="store.itemStats.mr !== 0" class="item-tooltip__resist-cell resist-magic">
+            SV Magic: {{ formatStat(store.itemStats.mr) }}<span v-if="store.itemStats.heroic_mr > 0" class="heroic"> +{{ store.itemStats.heroic_mr }}</span>
+          </span>
+          <span v-if="store.itemStats.dr !== 0" class="item-tooltip__resist-cell resist-disease">
+            SV Disease: {{ formatStat(store.itemStats.dr) }}<span v-if="store.itemStats.heroic_dr > 0" class="heroic"> +{{ store.itemStats.heroic_dr }}</span>
+          </span>
+          <span v-if="store.itemStats.pr !== 0" class="item-tooltip__resist-cell resist-poison">
+            SV Poison: {{ formatStat(store.itemStats.pr) }}<span v-if="store.itemStats.heroic_pr > 0" class="heroic"> +{{ store.itemStats.heroic_pr }}</span>
+          </span>
+          <span v-if="store.itemStats.svcorruption !== 0" class="item-tooltip__resist-cell resist-corruption">
+            SV Corrupt: {{ formatStat(store.itemStats.svcorruption) }}<span v-if="store.itemStats.heroic_svcorrup > 0" class="heroic"> +{{ store.itemStats.heroic_svcorrup }}</span>
+          </span>
         </div>
 
-        <!-- Resistances -->
-        <div v-if="hasResists" class="item-tooltip__section">
-          <div v-if="store.itemStats.fr !== 0" class="item-tooltip__stat-line">
-            Fire: {{ formatStat(store.itemStats.fr) }}
-            <span v-if="store.itemStats.heroic_fr > 0" class="heroic">+{{ store.itemStats.heroic_fr }}</span>
-          </div>
-          <div v-if="store.itemStats.cr !== 0" class="item-tooltip__stat-line">
-            Cold: {{ formatStat(store.itemStats.cr) }}
-            <span v-if="store.itemStats.heroic_cr > 0" class="heroic">+{{ store.itemStats.heroic_cr }}</span>
-          </div>
-          <div v-if="store.itemStats.mr !== 0" class="item-tooltip__stat-line">
-            Magic: {{ formatStat(store.itemStats.mr) }}
-            <span v-if="store.itemStats.heroic_mr > 0" class="heroic">+{{ store.itemStats.heroic_mr }}</span>
-          </div>
-          <div v-if="store.itemStats.dr !== 0" class="item-tooltip__stat-line">
-            Disease: {{ formatStat(store.itemStats.dr) }}
-            <span v-if="store.itemStats.heroic_dr > 0" class="heroic">+{{ store.itemStats.heroic_dr }}</span>
-          </div>
-          <div v-if="store.itemStats.pr !== 0" class="item-tooltip__stat-line">
-            Poison: {{ formatStat(store.itemStats.pr) }}
-            <span v-if="store.itemStats.heroic_pr > 0" class="heroic">+{{ store.itemStats.heroic_pr }}</span>
-          </div>
-          <div v-if="store.itemStats.svcorruption !== 0" class="item-tooltip__stat-line">
-            Corruption: {{ formatStat(store.itemStats.svcorruption) }}
-            <span v-if="store.itemStats.heroic_svcorrup > 0" class="heroic">+{{ store.itemStats.heroic_svcorrup }}</span>
-          </div>
+        <!-- Combat Stats Grid -->
+        <div v-if="hasCombatStats" class="item-tooltip__section item-tooltip__combat-grid">
+          <span v-if="store.itemStats.attack > 0">Attack: {{ store.itemStats.attack }}</span>
+          <span v-if="store.itemStats.haste > 0">Haste: {{ store.itemStats.haste }}%</span>
+          <span v-if="store.itemStats.accuracy > 0">Accuracy: {{ store.itemStats.accuracy }}</span>
+          <span v-if="store.itemStats.avoidance > 0">Avoidance: {{ store.itemStats.avoidance }}</span>
+          <span v-if="store.itemStats.strikethrough > 0">Strikethrough: {{ store.itemStats.strikethrough }}%</span>
+          <span v-if="store.itemStats.stunresist > 0">Stun Resist: {{ store.itemStats.stunresist }}%</span>
+          <span v-if="store.itemStats.shielding > 0">Shielding: {{ store.itemStats.shielding }}%</span>
+          <span v-if="store.itemStats.dotshielding > 0">DoT Shield: {{ store.itemStats.dotshielding }}%</span>
+          <span v-if="store.itemStats.spelldmg > 0">Spell Dmg: {{ store.itemStats.spelldmg }}</span>
+          <span v-if="store.itemStats.healamt > 0">Heal Amt: {{ store.itemStats.healamt }}</span>
+          <span v-if="store.itemStats.clairvoyance > 0">Clairvoyance: {{ store.itemStats.clairvoyance }}</span>
+          <span v-if="store.itemStats.damageshield > 0">Dmg Shield: {{ store.itemStats.damageshield }}</span>
+          <span v-if="store.itemStats.combateffects > 0">Combat FX: {{ store.itemStats.combateffects }}</span>
         </div>
 
-        <!-- Combat Stats -->
-        <div v-if="hasCombatStats" class="item-tooltip__section">
-          <div v-if="store.itemStats.attack > 0">Attack: {{ store.itemStats.attack }}</div>
-          <div v-if="store.itemStats.haste > 0">Haste: {{ store.itemStats.haste }}%</div>
-          <div v-if="store.itemStats.accuracy > 0">Accuracy: {{ store.itemStats.accuracy }}</div>
-          <div v-if="store.itemStats.avoidance > 0">Avoidance: {{ store.itemStats.avoidance }}</div>
-          <div v-if="store.itemStats.strikethrough > 0">Strikethrough: {{ store.itemStats.strikethrough }}%</div>
-          <div v-if="store.itemStats.stunresist > 0">Stun Resist: {{ store.itemStats.stunresist }}%</div>
-          <div v-if="store.itemStats.shielding > 0">Shielding: {{ store.itemStats.shielding }}%</div>
-          <div v-if="store.itemStats.dotshielding > 0">DoT Shielding: {{ store.itemStats.dotshielding }}%</div>
-          <div v-if="store.itemStats.spelldmg > 0">Spell Damage: {{ store.itemStats.spelldmg }}</div>
-          <div v-if="store.itemStats.healamt > 0">Heal Amount: {{ store.itemStats.healamt }}</div>
-          <div v-if="store.itemStats.clairvoyance > 0">Clairvoyance: {{ store.itemStats.clairvoyance }}</div>
-          <div v-if="store.itemStats.damageshield > 0">Damage Shield: {{ store.itemStats.damageshield }}</div>
-          <div v-if="store.itemStats.combateffects > 0">Combat Effects: {{ store.itemStats.combateffects }}</div>
-        </div>
-
-        <!-- Regen -->
-        <div v-if="hasRegen" class="item-tooltip__section">
-          <div v-if="store.itemStats.regen > 0">HP Regen: {{ store.itemStats.regen }}</div>
-          <div v-if="store.itemStats.manaregen > 0">Mana Regen: {{ store.itemStats.manaregen }}</div>
-          <div v-if="store.itemStats.enduranceregen > 0">End Regen: {{ store.itemStats.enduranceregen }}</div>
+        <!-- Regen Row -->
+        <div v-if="hasRegen" class="item-tooltip__section item-tooltip__regen">
+          <span v-if="store.itemStats.regen > 0">HP Regen: {{ store.itemStats.regen }}</span>
+          <span v-if="store.itemStats.manaregen > 0">Mana Regen: {{ store.itemStats.manaregen }}</span>
+          <span v-if="store.itemStats.enduranceregen > 0">End Regen: {{ store.itemStats.enduranceregen }}</span>
         </div>
 
         <!-- Effects -->
         <div v-if="hasEffects" class="item-tooltip__section item-tooltip__effects">
           <div v-if="store.itemStats.worneffect > 0" class="item-tooltip__effect">
-            Effect: {{ getSpellName(store.itemStats.worneffect) }} (Worn)
+            <span class="effect-label">Worn:</span> {{ getSpellName(store.itemStats.worneffect) }}
           </div>
           <div v-if="store.itemStats.focuseffect > 0" class="item-tooltip__effect">
-            Focus: {{ getSpellName(store.itemStats.focuseffect) }}
+            <span class="effect-label">Focus:</span> {{ getSpellName(store.itemStats.focuseffect) }}
           </div>
           <div v-if="store.itemStats.clickeffect > 0" class="item-tooltip__effect">
-            Effect: {{ getSpellName(store.itemStats.clickeffect) }} ({{ clickEffectType }})
-            <span v-if="store.itemStats.casttime > 0" class="item-tooltip__casttime">
-              ({{ (store.itemStats.casttime / 1000).toFixed(1) }}s cast)
-            </span>
+            <span class="effect-label">Click:</span> {{ getSpellName(store.itemStats.clickeffect) }}
+            <span class="item-tooltip__effect-meta">({{ clickEffectType }}<span v-if="store.itemStats.casttime > 0">, {{ (store.itemStats.casttime / 1000).toFixed(1) }}s</span>)</span>
           </div>
           <div v-if="store.itemStats.proceffect > 0" class="item-tooltip__effect">
-            Proc: {{ getSpellName(store.itemStats.proceffect) }}
-            <span v-if="store.itemStats.procrate > 0">({{ store.itemStats.procrate }}%)</span>
+            <span class="effect-label">Proc:</span> {{ getSpellName(store.itemStats.proceffect) }}
+            <span v-if="store.itemStats.procrate > 0" class="item-tooltip__effect-meta">({{ store.itemStats.procrate }}%)</span>
           </div>
           <div v-if="store.itemStats.bardeffect > 0" class="item-tooltip__effect">
-            Bard Effect: {{ getSpellName(store.itemStats.bardeffect) }}
+            <span class="effect-label">Bard:</span> {{ getSpellName(store.itemStats.bardeffect) }}
           </div>
         </div>
 
         <!-- Container Info -->
-        <div v-if="isContainer" class="item-tooltip__section">
-          <div>Container: {{ store.itemStats.bagslots }} Slot</div>
-          <div v-if="store.itemStats.bagwr > 0">Weight Reduction: {{ store.itemStats.bagwr }}%</div>
-          <div>Size Capacity: {{ containerSizeText }}</div>
+        <div v-if="isContainer" class="item-tooltip__section item-tooltip__container">
+          <span>{{ store.itemStats.bagslots }} Slot Container</span>
+          <span v-if="store.itemStats.bagwr > 0">{{ store.itemStats.bagwr }}% WR</span>
+          <span>{{ containerSizeText }} Capacity</span>
         </div>
 
-        <!-- Augmentation Slots -->
-        <div v-if="augSlotCount > 0" class="item-tooltip__section">
-          <div>Augmentation Slots: {{ augSlotCount }}</div>
+        <!-- Augmentation & Requirements Row -->
+        <div v-if="augSlotCount > 0 || hasRequirements" class="item-tooltip__section item-tooltip__meta-row">
+          <span v-if="augSlotCount > 0">Aug Slots: {{ augSlotCount }}</span>
+          <span v-if="store.itemStats.reqlevel > 0" class="item-tooltip__req">Req Lvl: {{ store.itemStats.reqlevel }}</span>
+          <span v-if="store.itemStats.reclevel > 0" class="item-tooltip__rec">Rec Lvl: {{ store.itemStats.reclevel }}</span>
         </div>
 
-        <!-- Requirements -->
-        <div v-if="hasRequirements" class="item-tooltip__section item-tooltip__requirements">
-          <div v-if="store.itemStats.reqlevel > 0">Required Level: {{ store.itemStats.reqlevel }}</div>
-          <div v-if="store.itemStats.reclevel > 0">Recommended Level: {{ store.itemStats.reclevel }}</div>
-        </div>
-
-        <!-- Class/Race -->
-        <div v-if="classText" class="item-tooltip__classes">
-          Class: {{ classText }}
-        </div>
-        <div v-if="raceText" class="item-tooltip__races">
-          Race: {{ raceText }}
-        </div>
-
-        <!-- Weight -->
-        <div v-if="store.itemStats.weight > 0" class="item-tooltip__weight">
-          WT: {{ (store.itemStats.weight / 10).toFixed(1) }}
+        <!-- Class/Race & Weight Footer -->
+        <div class="item-tooltip__footer">
+          <div v-if="classText" class="item-tooltip__classes">Class: {{ classText }}</div>
+          <div v-if="raceText" class="item-tooltip__races">Race: {{ raceText }}</div>
+          <div v-if="store.itemStats.weight > 0" class="item-tooltip__weight">WT: {{ (store.itemStats.weight / 10).toFixed(1) }}</div>
         </div>
       </template>
     </div>
@@ -230,8 +193,8 @@ function handleMouseLeave() {
 // Position the tooltip near the cursor, adjusting for screen edges
 const tooltipStyle = computed(() => {
   const padding = 15;
-  const tooltipWidth = 320;
-  const tooltipMaxHeight = 500; // Estimated max height for positioning calculation
+  const tooltipWidth = 380;
+  const tooltipMaxHeight = 450; // Estimated max height for positioning calculation
 
   let x = store.position.x + padding;
   let y = store.position.y + padding;
@@ -565,9 +528,9 @@ function getSpellName(spellId: number): string {
 .item-tooltip {
   position: fixed;
   z-index: 10000;
-  min-width: 280px;
-  max-width: 360px;
-  padding: 12px 14px;
+  min-width: 300px;
+  max-width: 380px;
+  padding: 10px 12px;
   background: linear-gradient(
     135deg,
     rgba(15, 23, 42, 0.98) 0%,
@@ -581,8 +544,8 @@ function getSpellName(spellId: number): string {
     0 0 0 1px rgba(0, 0, 0, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
   color: #e2e8f0;
   pointer-events: auto;
 }
@@ -616,77 +579,194 @@ function getSpellName(spellId: number): string {
 }
 
 .item-tooltip__name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: #f8fafc;
-  margin-bottom: 6px;
-  padding-bottom: 6px;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .item-tooltip__flags {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 10px;
+  font-weight: 600;
   color: #fbbf24;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+}
+
+/* Row for inline items */
+.item-tooltip__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 4px;
 }
 
 .item-tooltip__slot {
   color: #94a3b8;
-  margin-bottom: 6px;
+}
+
+.item-tooltip__ac {
+  color: #60a5fa;
+  font-weight: 600;
 }
 
 .item-tooltip__section {
-  margin: 8px 0;
+  margin: 6px 0;
   padding-top: 6px;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
 }
 
-.item-tooltip__stat {
-  color: #f1f5f9;
-  font-weight: 500;
-}
-
-.item-tooltip__stat-line {
+/* Weapon stats */
+.item-tooltip__weapon-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
   color: #cbd5e1;
 }
 
-.item-tooltip__stat-line .heroic {
+.item-tooltip__ratio {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.item-tooltip__weapon-extras {
+  display: flex;
+  gap: 12px;
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+/* Stats grid - 2 columns */
+.item-tooltip__stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 12px;
+}
+
+.item-tooltip__stat-cell {
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.heroic {
   color: #fbbf24;
   font-weight: 600;
 }
 
+/* Resources row */
+.item-tooltip__resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #86efac;
+  font-weight: 500;
+}
+
+/* Resistances grid - 2 columns */
+.item-tooltip__resists-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 8px;
+}
+
+.item-tooltip__resist-cell {
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.resist-fire { color: #f97316; }
+.resist-cold { color: #38bdf8; }
+.resist-magic { color: #a78bfa; }
+.resist-disease { color: #84cc16; }
+.resist-poison { color: #22c55e; }
+.resist-corruption { color: #ec4899; }
+
+/* Combat stats grid - 2 columns */
+.item-tooltip__combat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px 8px;
+  color: #cbd5e1;
+  font-size: 11px;
+}
+
+/* Regen row */
+.item-tooltip__regen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #4ade80;
+  font-size: 11px;
+}
+
+/* Effects */
 .item-tooltip__effects {
   color: #a5b4fc;
 }
 
 .item-tooltip__effect {
-  margin: 3px 0;
+  margin: 2px 0;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
-.item-tooltip__casttime {
+.effect-label {
   color: #94a3b8;
-  font-size: 12px;
+  font-weight: 500;
 }
 
-.item-tooltip__requirements {
+.item-tooltip__effect-meta {
+  color: #64748b;
+  font-size: 10px;
+}
+
+/* Container info */
+.item-tooltip__container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #94a3b8;
+}
+
+/* Meta row (aug slots, requirements) */
+.item-tooltip__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+}
+
+.item-tooltip__req {
   color: #f87171;
+}
+
+.item-tooltip__rec {
+  color: #fbbf24;
+}
+
+/* Footer */
+.item-tooltip__footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .item-tooltip__classes,
 .item-tooltip__races {
-  font-size: 12px;
+  font-size: 11px;
   color: #94a3b8;
-  margin-top: 6px;
 }
 
 .item-tooltip__weight {
-  font-size: 12px;
+  font-size: 11px;
   color: #64748b;
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
 }
 </style>
