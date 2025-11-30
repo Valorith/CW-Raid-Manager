@@ -941,7 +941,12 @@
           </span>
           <div class="raid-loot-card__count">{{ entry.count }}×</div>
           <header class="raid-loot-card__header">
-            <div class="raid-loot-card__icon">
+            <div
+              class="raid-loot-card__icon"
+              @mouseenter="showItemTooltip($event, entry)"
+              @mousemove="updateTooltipPosition($event)"
+              @mouseleave="hideItemTooltip"
+            >
               <template v-if="entry.itemIconId != null">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -1838,6 +1843,7 @@ import type {
 } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getLootIconSrc } from '../utils/itemIcons';
 import {
@@ -1871,6 +1877,7 @@ const router = useRouter();
 const raidId = route.params.raidId as string;
 const authStore = useAuthStore();
 const guildBankStore = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
 
 const raid = ref<RaidDetail | null>(null);
 const attendanceEvents = ref<AttendanceEventSummary[]>([]);
@@ -2428,6 +2435,24 @@ function openInventory(characterName: string) {
   if (!gid) return;
   guildBankStore.openCharacterInventory(characterName, gid);
 }
+
+// Tooltip handlers for item icons
+function showItemTooltip(event: MouseEvent, entry: LootEntryDisplay) {
+  if (!entry.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
+}
+
 const pendingAttendanceEventId = ref<string | null>(
   typeof route.query.attendanceEventId === 'string'
     ? (route.query.attendanceEventId as string)

@@ -540,7 +540,12 @@
         >
           <div class="loot-card__count">{{ entry.count }}×</div>
           <header class="loot-card__header">
-            <div class="loot-card__icon">
+            <div
+              class="loot-card__icon"
+              @mouseenter="showItemTooltip($event, entry)"
+              @mousemove="updateTooltipPosition($event)"
+              @mouseleave="hideItemTooltip"
+            >
               <template v-if="entry.itemIconId != null">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -1103,6 +1108,7 @@ import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
 import { useAttentionStore } from '../stores/attention';
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
@@ -1224,11 +1230,29 @@ const raidId = route.params.raidId as string;
 const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const guildBankStore = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
 
 function openInventory(characterName: string) {
   const gid = raid.value?.guildId || raid.value?.guild?.id;
   if (!gid) return;
   guildBankStore.openCharacterInventory(characterName, gid);
+}
+
+// Tooltip handlers for item icons
+function showItemTooltip(event: MouseEvent, entry: GroupedLootEntry) {
+  if (!entry.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
 }
 
 const raid = ref<RaidDetail | null>(null);
