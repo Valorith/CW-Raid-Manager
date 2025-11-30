@@ -167,6 +167,200 @@ export interface GuildBankSnapshot {
   missingCharacters: string[];
 }
 
+/**
+ * Detailed item stats for tooltip display.
+ * Matches the EverQuest items database schema.
+ */
+export interface ItemStats {
+  id: number;
+  name: string;
+  icon: number;
+
+  // Item type info
+  itemtype: number;
+  itemclass: number;
+
+  // Equipment slots (bitmask)
+  slots: number;
+
+  // Basic stats
+  ac: number;
+  damage: number;
+  delay: number;
+  range: number;
+
+  // Attributes
+  astr: number;
+  asta: number;
+  aagi: number;
+  adex: number;
+  awis: number;
+  aint: number;
+  acha: number;
+
+  // Heroic attributes
+  heroic_str: number;
+  heroic_sta: number;
+  heroic_agi: number;
+  heroic_dex: number;
+  heroic_wis: number;
+  heroic_int: number;
+  heroic_cha: number;
+
+  // Resources
+  hp: number;
+  mana: number;
+  endur: number;
+
+  // Resistances
+  fr: number;
+  cr: number;
+  dr: number;
+  mr: number;
+  pr: number;
+  svcorruption: number;
+
+  // Heroic resistances
+  heroic_fr: number;
+  heroic_cr: number;
+  heroic_dr: number;
+  heroic_mr: number;
+  heroic_pr: number;
+  heroic_svcorrup: number;
+
+  // Requirements
+  reqlevel: number;
+  reclevel: number;
+  classes: number;
+  races: number;
+  deity: number;
+
+  // Container properties
+  bagslots: number;
+  bagsize: number;
+  bagtype: number;
+  bagwr: number;
+
+  // Item flags
+  magic: number;
+  nodrop: number;
+  norent: number;
+  notransfer: number;
+  questitemflag: number;
+  lore: string;
+  lorefile: string;
+
+  // Effects
+  proceffect: number;
+  proctype: number;
+  proclevel2: number;
+  proclevel: number;
+  procrate: number;
+
+  worneffect: number;
+  worntype: number;
+  wornlevel2: number;
+  wornlevel: number;
+
+  clickeffect: number;
+  clicktype: number;
+  clicklevel2: number;
+  clicklevel: number;
+  casttime: number;
+
+  focuseffect: number;
+  focustype: number;
+  focuslevel2: number;
+  focuslevel: number;
+
+  scrolleffect: number;
+  scrolltype: number;
+  scrolllevel2: number;
+  scrolllevel: number;
+
+  bardeffect: number;
+  bardeffecttype: number;
+  bardlevel2: number;
+  bardlevel: number;
+
+  // Combat stats
+  backstabdmg: number;
+  skillmodvalue: number;
+  skillmodtype: number;
+  strikethrough: number;
+  stunresist: number;
+  spelldmg: number;
+  healamt: number;
+  clairvoyance: number;
+
+  // Weapon details
+  banedmgamt: number;
+  banedmgraceamt: number;
+  banedmgbody: number;
+  banedmgrace: number;
+
+  // Augmentation
+  augtype: number;
+  augslot1type: number;
+  augslot2type: number;
+  augslot3type: number;
+  augslot4type: number;
+  augslot5type: number;
+  augslot6type: number;
+  augslot1visible: number;
+  augslot2visible: number;
+  augslot3visible: number;
+  augslot4visible: number;
+  augslot5visible: number;
+  augslot6visible: number;
+
+  // Weight and size
+  weight: number;
+  size: number;
+
+  // Stacking
+  stackable: number;
+  stacksize: number;
+
+  // Misc
+  idfile: string;
+  ldonsold: number;
+  ldonsellbackrate: number;
+  ldonprice: number;
+  price: number;
+  sellrate: number;
+
+  // Attack/haste
+  attack: number;
+  haste: number;
+  accuracy: number;
+  avoidance: number;
+  combateffects: number;
+  shielding: number;
+  dotshielding: number;
+  damageshield: number;
+  dsmitigation: number;
+
+  // Regen
+  regen: number;
+  manaregen: number;
+  enduranceregen: number;
+
+  // Extradamage
+  extradmgamt: number;
+  extradmgskill: number;
+}
+
+export interface ItemStatsResponse {
+  item: ItemStats;
+  spellNames: Record<number, string>;
+}
+
+export interface ItemStatsBatchResponse {
+  items: Record<number, ItemStats>;
+  spellNames: Record<number, string>;
+}
+
 export interface QuestProgressSummary {
   totalNodes: number;
   completed: number;
@@ -2634,6 +2828,22 @@ export const api = {
 
   async removeAdminGuildMember(guildId: string, userId: string) {
     await axios.delete(`/api/admin/guilds/${guildId}/members/${userId}`);
+  },
+
+  /**
+   * Fetches detailed item stats for tooltip display.
+   */
+  async fetchItemStats(itemId: number): Promise<ItemStatsResponse> {
+    const response = await axios.get(`/api/items/${itemId}/stats`);
+    return response.data;
+  },
+
+  /**
+   * Fetches stats for multiple items at once (batch request).
+   */
+  async fetchItemStatsBatch(itemIds: number[]): Promise<ItemStatsBatchResponse> {
+    const response = await axios.post('/api/items/stats/batch', { itemIds });
+    return response.data;
   }
 
 };

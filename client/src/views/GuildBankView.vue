@@ -325,7 +325,13 @@
 
           >
             <div class="guild-bank-item__header">
-              <div class="guild-bank-item__icon" :class="{ 'guild-bank-item__icon--placeholder': !item.itemIconId }">
+              <div
+                class="guild-bank-item__icon"
+                :class="{ 'guild-bank-item__icon--placeholder': !item.itemIconId }"
+                @mouseenter="showItemTooltip($event, item)"
+                @mousemove="updateTooltipPosition($event)"
+                @mouseleave="hideItemTooltip"
+              >
                 <img
                   v-if="item.itemIconId"
                   :src="getLootIconSrc(item.itemIconId)"
@@ -411,7 +417,13 @@
       <div class="modal request-modal" :key="requestModalItem?.itemKey">
         <header class="modal__header">
           <div class="request-modal__title">
-            <div class="request-modal__icon" :class="{ 'request-modal__icon--placeholder': !requestModalItem.itemIconId }">
+            <div
+              class="request-modal__icon"
+              :class="{ 'request-modal__icon--placeholder': !requestModalItem.itemIconId }"
+              @mouseenter="showItemTooltip($event, requestModalItem)"
+              @mousemove="updateTooltipPosition($event)"
+              @mouseleave="hideItemTooltip"
+            >
               <img
                 v-if="requestModalItem.itemIconId"
                 :src="getLootIconSrc(requestModalItem.itemIconId)"
@@ -514,7 +526,13 @@
         <ul v-else class="cart-list">
           <li v-for="entry in aggregatedCartSources" :key="entry.itemKey" class="cart-item">
             <div class="cart-item__info">
-              <div class="guild-bank-item__icon" :class="{ 'guild-bank-item__icon--placeholder': !entry.itemIconId }">
+              <div
+                class="guild-bank-item__icon"
+                :class="{ 'guild-bank-item__icon--placeholder': !entry.itemIconId }"
+                @mouseenter="showItemTooltip($event, entry)"
+                @mousemove="updateTooltipPosition($event)"
+                @mouseleave="hideItemTooltip"
+              >
                 <img
                   v-if="entry.itemIconId"
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -583,12 +601,31 @@ const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 
 const route = useRoute();
 const router = useRouter();
 const store = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
 
 const guildId = computed(() => route.params.guildId as string);
+
+// Tooltip handlers for item icons
+function showItemTooltip(event: MouseEvent, item: { itemId?: number | null; itemName: string; itemIconId?: number | null }) {
+  if (!item.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: item.itemId, itemName: item.itemName, itemIconId: item.itemIconId ?? null },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
+}
 
 const guildName = ref<string>('');
 const guildRole = ref<GuildRole | null>(null);

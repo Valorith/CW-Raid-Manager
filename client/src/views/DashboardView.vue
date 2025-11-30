@@ -189,7 +189,12 @@
             @click="openAllaSearch(entry.itemName, entry.itemId)"
             @keyup.enter="openAllaSearch(entry.itemName, entry.itemId)"
           >
-            <div class="recent-loot__icon">
+            <div
+              class="recent-loot__icon"
+              @mouseenter="showItemTooltip($event, entry)"
+              @mousemove="updateTooltipPosition($event)"
+              @mouseleave="hideItemTooltip"
+            >
               <template v-if="entry.itemIconId != null">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -256,6 +261,7 @@ import { RouterLink } from 'vue-router';
 import CharacterModal from '../components/CharacterModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
@@ -615,6 +621,24 @@ onMounted(() => {
 });
 
 const guildBankStore = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
+
+// Tooltip handlers for item icons
+function showItemTooltip(event: MouseEvent, entry: RecentLootDisplay) {
+  if (!entry.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
+}
 
 function openInventory(characterName: string, guildId?: string | null) {
   if (!guildId) {

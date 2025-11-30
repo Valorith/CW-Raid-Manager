@@ -157,6 +157,7 @@
       </RouterView>
     </main>
     <CharacterInventoryModal />
+    <ItemTooltip />
   </div>
 </template>
 
@@ -170,6 +171,7 @@ import { useMonitorStore } from './stores/monitor';
 import { useAttentionStore } from './stores/attention';
 import { playLootAlertChime } from './utils/audio';
 import CharacterInventoryModal from './components/CharacterInventoryModal.vue';
+import ItemTooltip from './components/ItemTooltip.vue';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);

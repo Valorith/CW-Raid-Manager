@@ -522,7 +522,12 @@
               @keyup.enter.prevent="openAllaSearch(lootEvent.itemName, lootEvent.itemId)"
             >
               <header class="metrics-recent__header">
-                <div class="metrics-recent__item-icon">
+                <div
+                  class="metrics-recent__item-icon"
+                  @mouseenter="showItemTooltip($event, lootEvent)"
+                  @mousemove="updateTooltipPosition($event)"
+                  @mouseleave="hideItemTooltip"
+                >
                   <template v-if="lootEvent.itemIconId != null">
                     <img
                       :src="getLootIconSrc(lootEvent.itemIconId)"
@@ -848,6 +853,7 @@ import { useRoute } from 'vue-router';
 import CharacterInspector from '../components/CharacterInspector.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import {
   getGuildBankDisplayName,
   normalizeLooterName
@@ -917,11 +923,29 @@ ensureChartJsRegistered();
 const route = useRoute();
 const guildId = computed(() => route.params.guildId as string);
 const guildBankStore = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
 const userCharacters = ref<UserCharacter[]>([]);
 
 function openInventory(characterName: string, currentGuildId?: string) {
   if (!guildId.value) return;
   guildBankStore.openCharacterInventory(characterName, guildId.value);
+}
+
+// Tooltip handlers for item icons
+function showItemTooltip(event: MouseEvent, lootEvent: LootMetricEvent) {
+  if (!lootEvent.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: lootEvent.itemId, itemName: lootEvent.itemName, itemIconId: lootEvent.itemIconId ?? null },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
 }
 
 const loading = ref(false);
