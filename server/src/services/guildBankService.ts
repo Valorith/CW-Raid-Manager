@@ -108,6 +108,7 @@ let cachedInventorySlotColumn: string | null = null;
 let cachedInventoryItemIdColumn: string | null = null;
 let cachedInventoryChargesColumn: string | null = null;
 let cachedInventoryBagSlotsColumn: string | null = null;
+let cachedHasAugSlotColumns: boolean | null = null;
 
 async function resolveInventoryCharacterColumn(): Promise<string> {
   if (cachedInventoryCharIdColumn) {
@@ -227,6 +228,35 @@ async function resolveInventoryItemColumns(): Promise<{
     chargesColumn: cachedInventoryChargesColumn,
     bagSlotsColumn: cachedInventoryBagSlotsColumn
   };
+}
+
+/**
+ * Check if the inventory table has augslot columns (augslot1-6).
+ * Some EQ database schemas may not have these columns.
+ */
+async function hasAugSlotColumns(): Promise<boolean> {
+  if (cachedHasAugSlotColumns !== null) {
+    return cachedHasAugSlotColumns;
+  }
+
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT COLUMN_NAME as columnName
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'inventory'
+         AND COLUMN_NAME = 'augslot1'
+       LIMIT 1`
+    );
+
+    cachedHasAugSlotColumns = rows.length > 0;
+    console.log(`[guildBankService] Augslot columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
+    return cachedHasAugSlotColumns;
+  } catch (error) {
+    console.error('[guildBankService] Error checking for augslot columns:', error);
+    cachedHasAugSlotColumns = false;
+    return false;
+  }
 }
 
 function normalizeName(name: string): { display: string; normalized: string } {
@@ -443,12 +473,17 @@ export async function fetchGuildBankSnapshot(
   const charIdColumn = await resolveInventoryCharacterColumn();
   const slotColumn = await resolveInventorySlotColumn();
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
-  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn });
+  const hasAugSlots = await hasAugSlotColumns();
+  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn, hasAugSlots });
+
+  // Build augslot columns string if available
+  const augSlotColumns = hasAugSlots
+    ? ', inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6'
+    : '';
 
   // Query inventory items
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots,
-     inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots${augSlotColumns}
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` IN (${idPlaceholders})
@@ -530,11 +565,16 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
   const charIdColumn = await resolveInventoryCharacterColumn();
   const slotColumn = await resolveInventorySlotColumn();
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
+  const hasAugSlots = await hasAugSlotColumns();
+
+  // Build augslot columns string if available
+  const augSlotColumns = hasAugSlots
+    ? ', inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6'
+    : '';
 
   // 3. Query inventory
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots,
-     inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots${augSlotColumns}
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` = ?
