@@ -4166,12 +4166,12 @@ function findNextNodeIdsForAssignment(
       return true;
     }
     for (const entry of parentEntries) {
-      if (entry.isNextStep) {
-        continue;
-      }
       if (entry.isOptional) {
         continue;
       }
+      // Both regular links and "next step" links require their parent to be completed
+      // The difference is that "next step" links represent sequential progression,
+      // while regular links represent fork branches that all need completion
       const parentProgress = progressMap.get(entry.nodeId);
       if (!parentProgress || parentProgress.status !== 'COMPLETED') {
         return false;
