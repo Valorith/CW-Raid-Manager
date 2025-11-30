@@ -25,6 +25,13 @@ export interface GuildBankItem {
   itemIconId: number | null;
   charges: number | null;
   bagSlots: number | null;
+  // Augment item IDs socketed in this item
+  augSlot1: number | null;
+  augSlot2: number | null;
+  augSlot3: number | null;
+  augSlot4: number | null;
+  augSlot5: number | null;
+  augSlot6: number | null;
 }
 
 export interface GuildBankSnapshot {
@@ -367,6 +374,12 @@ type EqInventoryRow = RowDataPacket & {
   itemName: string | null;
   iconId: number | null;
   bagslots: number | null;
+  augslot1: number | null;
+  augslot2: number | null;
+  augslot3: number | null;
+  augslot4: number | null;
+  augslot5: number | null;
+  augslot6: number | null;
 };
 
 export async function fetchGuildBankSnapshot(
@@ -434,7 +447,8 @@ export async function fetchGuildBankSnapshot(
 
   // Query inventory items
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots,
+     inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` IN (${idPlaceholders})
@@ -473,7 +487,13 @@ export async function fetchGuildBankSnapshot(
       itemName: row.itemName ?? 'Unknown Item',
       itemIconId: row.iconId != null ? Number(row.iconId) : null,
       charges: quantity,
-      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null,
+      augSlot1: row.augslot1 != null && row.augslot1 > 0 ? Number(row.augslot1) : null,
+      augSlot2: row.augslot2 != null && row.augslot2 > 0 ? Number(row.augslot2) : null,
+      augSlot3: row.augslot3 != null && row.augslot3 > 0 ? Number(row.augslot3) : null,
+      augSlot4: row.augslot4 != null && row.augslot4 > 0 ? Number(row.augslot4) : null,
+      augSlot5: row.augslot5 != null && row.augslot5 > 0 ? Number(row.augslot5) : null,
+      augSlot6: row.augslot6 != null && row.augslot6 > 0 ? Number(row.augslot6) : null
     });
   }
 
@@ -513,7 +533,8 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
 
   // 3. Query inventory
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots,
+     inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` = ?
@@ -542,7 +563,13 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
       itemName: row.itemName ?? 'Unknown Item',
       itemIconId: row.iconId != null ? Number(row.iconId) : null,
       charges: quantity,
-      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null,
+      augSlot1: row.augslot1 != null && row.augslot1 > 0 ? Number(row.augslot1) : null,
+      augSlot2: row.augslot2 != null && row.augslot2 > 0 ? Number(row.augslot2) : null,
+      augSlot3: row.augslot3 != null && row.augslot3 > 0 ? Number(row.augslot3) : null,
+      augSlot4: row.augslot4 != null && row.augslot4 > 0 ? Number(row.augslot4) : null,
+      augSlot5: row.augslot5 != null && row.augslot5 > 0 ? Number(row.augslot5) : null,
+      augSlot6: row.augslot6 != null && row.augslot6 > 0 ? Number(row.augslot6) : null
     });
   }
 

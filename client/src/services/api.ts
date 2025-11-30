@@ -159,6 +159,13 @@ export interface GuildBankItem {
   itemIconId?: number | null;
   charges?: number | null;
   bagSlots?: number | null;
+  // Augment item IDs socketed in this item
+  augSlot1?: number | null;
+  augSlot2?: number | null;
+  augSlot3?: number | null;
+  augSlot4?: number | null;
+  augSlot5?: number | null;
+  augSlot6?: number | null;
 }
 
 export interface GuildBankSnapshot {
