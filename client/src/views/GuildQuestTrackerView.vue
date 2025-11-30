@@ -436,8 +436,21 @@
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
-                  Target / Item: {{ targetOrItemLabel(node) }}
+                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
+                  Target / Item:
+                  <template v-if="hasNodeItemIds(node)">
+                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
+                      <span v-if="idx > 0">, </span>
+                      <a
+                        :href="itemLink.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="quest-node__item-link"
+                        @click.stop
+                      >{{ itemLink.label }}</a>
+                    </template>
+                  </template>
+                  <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
@@ -671,8 +684,21 @@
                   <span class="quest-node__handle" title="Drag to move">⇲</span>
                 </header>
                   <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
-                  Target / Item: {{ targetOrItemLabel(node) }}
+                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
+                  Target / Item:
+                  <template v-if="hasNodeItemIds(node)">
+                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
+                      <span v-if="idx > 0">, </span>
+                      <a
+                        :href="itemLink.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="quest-node__item-link"
+                        @click.stop
+                      >{{ itemLink.label }}</a>
+                    </template>
+                  </template>
+                  <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
                 <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
@@ -1474,6 +1500,43 @@ const metadataSaving = ref(false);
 const lastSavedAt = ref<string | null>(null);
 const lastSavedBy = ref<string>('Unknown member');
 const saveToast = reactive({ visible: false, message: '' });
+
+// Item name cache for quest node item links
+const itemNameCache = reactive(new Map<number, string>());
+const itemNameLoading = reactive(new Set<number>());
+
+async function fetchItemName(itemId: number): Promise<string | null> {
+  if (itemNameCache.has(itemId)) {
+    return itemNameCache.get(itemId) ?? null;
+  }
+  if (itemNameLoading.has(itemId)) {
+    return null;
+  }
+  itemNameLoading.add(itemId);
+  try {
+    const response = await api.fetchItemStats(itemId);
+    if (response.item?.name) {
+      itemNameCache.set(itemId, response.item.name);
+      return response.item.name;
+    }
+  } catch {
+    // Item not found or error - cache empty string to avoid re-fetching
+    itemNameCache.set(itemId, '');
+  } finally {
+    itemNameLoading.delete(itemId);
+  }
+  return null;
+}
+
+function getItemNameFromCache(itemId: number): string | null {
+  const cached = itemNameCache.get(itemId);
+  if (cached !== undefined) {
+    return cached || null;
+  }
+  // Trigger fetch if not in cache
+  fetchItemName(itemId);
+  return null;
+}
 const saveErrorModal = reactive({ open: false, message: '' });
 const showStepSettings = ref(false);
 const showBlueprintSettings = ref(false);
@@ -2103,9 +2166,9 @@ const finalNodeIds = computed(() => {
   return set;
 });
 
-const viewerDisabledNodeIds = computed(() => {
+const canvasDisabledNodeIds = computed(() => {
   const set = new Set<string>();
-  viewerAssignment.value?.progress.forEach((record) => {
+  canvasAssignment.value?.progress.forEach((record) => {
     if (record.isDisabled) {
       set.add(record.nodeId);
     }
@@ -2114,7 +2177,7 @@ const viewerDisabledNodeIds = computed(() => {
 });
 
 function isNodeDisabled(nodeId: string) {
-  return viewerDisabledNodeIds.value.has(nodeId);
+  return canvasDisabledNodeIds.value.has(nodeId);
 }
 
 function isNodeFinal(nodeId: string) {
@@ -3372,7 +3435,7 @@ function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>, 
     if (newlyCompleted.has(childId)) {
       return true;
     }
-    return viewerProgressMap.value.get(childId) === 'COMPLETED';
+    return canvasProgressMap.value.get(childId) === 'COMPLETED';
   });
 }
 
@@ -3405,7 +3468,7 @@ function formatGroupProgress(nodeId: string, progress: QuestNodeProgress[] | und
 }
 
 function groupProgressMeta(nodeId: string, mode: 'editor' | 'viewer') {
-  const progress = mode === 'viewer' ? viewerAssignment.value?.progress : undefined;
+  const progress = mode === 'viewer' ? canvasAssignment.value?.progress : undefined;
   const { completed, total } = getGroupProgress(nodeId, progress, mode);
   return {
     completed,
@@ -3992,6 +4055,67 @@ function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | unde
   return targetName || itemName || null;
 }
 
+function getNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefined): number[] {
+  if (!node || !node.requirements) {
+    return [];
+  }
+  const req = node.requirements as Record<string, unknown>;
+  const itemIds: number[] = [];
+
+  // Check explicit itemId fields first, then check itemName/targetName
+  const candidates = [req.itemId, req.item_id, req.itemID, req.itemName, req.targetName];
+  for (const entry of candidates) {
+    if (typeof entry === 'number' && entry > 0) {
+      itemIds.push(entry);
+      break; // Found a numeric field, use it
+    }
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      // Check if it's a comma-separated list of IDs
+      const parts = trimmed.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0);
+      const allNumeric = parts.length > 0 && parts.every(p => /^\d+$/.test(p));
+      if (allNumeric) {
+        for (const part of parts) {
+          const parsed = Number.parseInt(part, 10);
+          if (!Number.isNaN(parsed) && parsed > 0) {
+            itemIds.push(parsed);
+          }
+        }
+        if (itemIds.length > 0) {
+          break; // Found valid IDs, stop searching
+        }
+      }
+    }
+  }
+  return itemIds;
+}
+
+function buildAllaItemUrl(itemId: number): string {
+  return `https://alla.clumsysworld.com/?a=item&id=${itemId}`;
+}
+
+interface NodeItemLink {
+  itemId: number;
+  label: string;
+  url: string;
+}
+
+function getNodeItemLinks(node: QuestNodeViewModel | EditableNode | null | undefined): NodeItemLink[] {
+  const itemIds = getNodeItemIds(node);
+  return itemIds.map(itemId => {
+    const cachedName = getItemNameFromCache(itemId);
+    return {
+      itemId,
+      label: cachedName || `Item #${itemId}`,
+      url: buildAllaItemUrl(itemId)
+    };
+  });
+}
+
+function hasNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefined): boolean {
+  return getNodeItemIds(node).length > 0;
+}
+
 function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
   if (!node) {
     return null;
@@ -4045,6 +4169,7 @@ const guildNodePinsById = computed(() => {
   }
   const nodeIndex = new Map(nodes.map((node) => [node.id, node]));
   const parents = parentNodeMap.value;
+  const children = childNodeMap.value;
   for (const assignment of guildAssignments.value) {
     if (!assignment.character) {
       continue;
@@ -4052,8 +4177,8 @@ const guildNodePinsById = computed(() => {
     if (assignment.status === 'COMPLETED' || assignment.status === 'CANCELLED') {
       continue;
     }
-    const nextNodeId = findNextNodeIdForAssignment(assignment, nodes, nodeIndex, parents);
-    if (!nextNodeId) {
+    const nextNodeIds = findNextNodeIdsForAssignment(assignment, nodes, nodeIndex, parents, children);
+    if (!nextNodeIds.length) {
       continue;
     }
     const classLabel = characterClassLabels[assignment.character.class] ?? assignment.character.class;
@@ -4063,17 +4188,19 @@ const guildNodePinsById = computed(() => {
     }
     const icon = getCharacterClassIcon(assignment.character.class);
     const fallback = assignment.character.class?.[0] ?? assignment.character.name[0] ?? '?';
-    const entry = map.get(nextNodeId) ?? [];
-    entry.push({
-      assignmentId: assignment.id,
-      characterName: assignment.character.name,
-      classLabel,
-      icon,
-      fallback,
-      tooltip: tooltipParts.join(' ')
-    });
-    entry.sort((a, b) => a.characterName.localeCompare(b.characterName));
-    map.set(nextNodeId, entry);
+    for (const nextNodeId of nextNodeIds) {
+      const entry = map.get(nextNodeId) ?? [];
+      entry.push({
+        assignmentId: assignment.id,
+        characterName: assignment.character.name,
+        classLabel,
+        icon,
+        fallback,
+        tooltip: tooltipParts.join(' ')
+      });
+      entry.sort((a, b) => a.characterName.localeCompare(b.characterName));
+      map.set(nextNodeId, entry);
+    }
   }
   return map;
 });
@@ -4133,26 +4260,162 @@ function prevGuildPinPage() {
   }
 }
 
-function findNextNodeIdForAssignment(
+function findNextNodeIdsForAssignment(
   assignment: QuestAssignment,
   nodes: QuestNodeViewModel[],
   nodeIndex: Map<string, QuestNodeViewModel>,
-  parents: Map<string, NodeAdjacencyEntry[]>
-): string | null {
+  parents: Map<string, NodeAdjacencyEntry[]>,
+  children: Map<string, NodeAdjacencyEntry[]>
+): string[] {
   const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-  for (const node of nodes) {
-    if (node.isOptional) {
-      continue;
+
+  const isNodeActionable = (nodeId: string): boolean => {
+    const node = nodeIndex.get(nodeId);
+    if (!node || node.isOptional) {
+      return false;
     }
-    const progressRecord = progressMap.get(node.id);
+    const progressRecord = progressMap.get(nodeId);
     if (progressRecord?.isDisabled) {
+      return false;
+    }
+    if (progressRecord?.status === 'COMPLETED') {
+      return false;
+    }
+    return true;
+  };
+
+  const areRequiredParentsComplete = (nodeId: string): boolean => {
+    const parentEntries = parents.get(nodeId) ?? [];
+    if (parentEntries.length === 0) {
+      return true;
+    }
+    for (const entry of parentEntries) {
+      if (entry.isOptional) {
+        continue;
+      }
+      // Both regular links and "next step" links require their parent to be completed
+      // The difference is that "next step" links represent sequential progression,
+      // while regular links represent fork branches that all need completion
+      const parentProgress = progressMap.get(entry.nodeId);
+      if (!parentProgress || parentProgress.status !== 'COMPLETED') {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Check if a group node has any non-group (actionable) children
+  const hasActionableChildren = (nodeId: string): boolean => {
+    const childEntries = children.get(nodeId) ?? [];
+    for (const entry of childEntries) {
+      if (entry.isOptional || entry.isNextStep) {
+        continue;
+      }
+      const childNode = nodeIndex.get(entry.nodeId);
+      if (childNode && !childNode.isGroup) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Get the non-optional, non-next-step child group nodes
+  const getChildGroupNodes = (nodeId: string): string[] => {
+    const childEntries = children.get(nodeId) ?? [];
+    const result: string[] = [];
+    for (const entry of childEntries) {
+      if (entry.isOptional || entry.isNextStep) {
+        continue;
+      }
+      const childNode = nodeIndex.get(entry.nodeId);
+      if (childNode?.isGroup) {
+        result.push(entry.nodeId);
+      }
+    }
+    return result;
+  };
+
+  // Resolve a group node to the appropriate display level
+  // If all children are groups, drill down to those groups instead
+  const resolveGroupDisplayNodes = (nodeId: string): string[] => {
+    const node = nodeIndex.get(nodeId);
+    if (!node?.isGroup) {
+      return [nodeId];
+    }
+
+    // If this group has actionable (non-group) children, show pin here
+    if (hasActionableChildren(nodeId)) {
+      return [nodeId];
+    }
+
+    // Otherwise, drill down to child group nodes
+    const childGroups = getChildGroupNodes(nodeId);
+    if (childGroups.length === 0) {
+      // No children at all, show on this node
+      return [nodeId];
+    }
+
+    // Recursively resolve each child group
+    const resolved: string[] = [];
+    for (const childGroupId of childGroups) {
+      resolved.push(...resolveGroupDisplayNodes(childGroupId));
+    }
+    return resolved.length > 0 ? resolved : [nodeId];
+  };
+
+  const frontierNodeIds: string[] = [];
+  for (const node of nodes) {
+    if (!isNodeActionable(node.id)) {
       continue;
     }
-    if (!progressRecord || progressRecord.status !== 'COMPLETED') {
-      return resolveGroupPinTarget(node.id, nodeIndex, parents);
+    if (!areRequiredParentsComplete(node.id)) {
+      continue;
+    }
+    frontierNodeIds.push(node.id);
+  }
+
+  if (frontierNodeIds.length === 0) {
+    return [];
+  }
+
+  // Group frontier nodes by their group parent (if any)
+  const groupedByParent = new Map<string | null, string[]>();
+  for (const nodeId of frontierNodeIds) {
+    const node = nodeIndex.get(nodeId);
+    if (node?.isGroup) {
+      // Group nodes - resolve to appropriate display level
+      const displayNodes = resolveGroupDisplayNodes(nodeId);
+      for (const displayId of displayNodes) {
+        const list = groupedByParent.get(displayId) ?? [];
+        list.push(displayId);
+        groupedByParent.set(displayId, list);
+      }
+      continue;
+    }
+    const parentEntries = parents.get(nodeId) ?? [];
+    const groupParent = parentEntries.find((entry) => Boolean(nodeIndex.get(entry.nodeId)?.isGroup));
+    const groupKey = groupParent?.nodeId ?? null;
+    const list = groupedByParent.get(groupKey) ?? [];
+    list.push(nodeId);
+    groupedByParent.set(groupKey, list);
+  }
+
+  const resolvedIds = new Set<string>();
+  for (const [groupParentId, nodeIds] of groupedByParent) {
+    if (groupParentId === null) {
+      // Nodes without a group parent - show pins on the nodes themselves
+      nodeIds.forEach((id) => resolvedIds.add(id));
+    } else if (nodeIds.length === 1 && !nodeIndex.get(nodeIds[0])?.isGroup) {
+      // Single child under a group - roll up to the group parent
+      resolvedIds.add(groupParentId);
+    } else {
+      // Multiple children under the same group (fork) OR the node is itself a group
+      // Show pins on each individual branch to indicate all branches need completion
+      nodeIds.forEach((id) => resolvedIds.add(id));
     }
   }
-  return null;
+
+  return Array.from(resolvedIds);
 }
 
 function resolveGroupPinTarget(
@@ -7495,6 +7758,17 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: rgba(248, 250, 252, 0.9);
   margin: 0.25rem 0 0;
+}
+
+.quest-node__item-link {
+  color: #60a5fa;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.quest-node__item-link:hover {
+  color: #93c5fd;
+  text-decoration: underline;
 }
 
 .quest-node__target--inline {
