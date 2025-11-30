@@ -2,11 +2,53 @@
   <section class="timeline" :class="{ 'timeline--disabled': disabled }">
     <header class="timeline__header">
       <div class="timeline__labels">
-        <span class="timeline__label">{{ formatDate(minDate) }}</span>
-        <span class="timeline__label timeline__label--end">{{ formatDate(maxDate) }}</span>
+        <span class="timeline__label">{{ formatDate(viewStartMs) }}</span>
+        <span class="timeline__label timeline__label--end">{{ formatDate(viewEndMs) }}</span>
       </div>
       <div class="timeline__summary">
         <slot />
+      </div>
+      <div class="timeline__zoom-controls">
+        <button
+          type="button"
+          class="timeline__zoom-btn"
+          :disabled="disabled || !canZoomIn"
+          @click="handleZoomIn"
+          aria-label="Zoom in"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            <line x1="11" y1="8" x2="11" y2="14" />
+            <line x1="8" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
+        <span class="timeline__zoom-level">{{ zoomLevelLabel }}</span>
+        <button
+          type="button"
+          class="timeline__zoom-btn"
+          :disabled="disabled || !canZoomOut"
+          @click="handleZoomOut"
+          aria-label="Zoom out"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            <line x1="8" y1="11" x2="14" y2="11" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="timeline__zoom-btn timeline__zoom-btn--reset"
+          :disabled="disabled || isFullyZoomedOut"
+          @click="resetZoom"
+          aria-label="Reset zoom"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -14,6 +56,7 @@
       ref="trackRef"
       class="timeline__track"
       @pointerdown="handleTrackPointerDown"
+      @wheel.prevent="handleWheel"
     >
       <div class="timeline__ticks">
         <span
@@ -122,6 +165,19 @@ type EventSegment = {
   endLabel: string;
 };
 
+// Time constants for zoom levels
+const MS_PER_HOUR = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+const MS_PER_WEEK = 7 * MS_PER_DAY;
+const MS_PER_MONTH = 30 * MS_PER_DAY;
+const MS_PER_YEAR = 365 * MS_PER_DAY;
+
+// Minimum visible range (1 hour) to prevent over-zooming
+const MIN_VISIBLE_RANGE_MS = MS_PER_HOUR;
+
+// The earliest selectable date: 26 October 2025
+const EARLIEST_DATE_MS = Date.UTC(2025, 9, 26); // Month is 0-indexed
+
 const props = defineProps<{
   minDate: string;
   maxDate: string;
@@ -139,9 +195,16 @@ const emit = defineEmits<{
 const trackRef = ref<HTMLDivElement | null>(null);
 const hoveredEvent = ref<EventSegment | null>(null);
 
-const minMs = computed(() => parseDate(props.minDate));
+// Full timeline bounds (never changes based on zoom)
+const minMs = computed(() => Math.max(parseDate(props.minDate), EARLIEST_DATE_MS));
 const maxMs = computed(() => parseDate(props.maxDate));
+const totalRangeMs = computed(() => Math.max(maxMs.value - minMs.value, 1));
 
+// Zoomed view bounds (what's currently visible)
+const viewStartMs = ref(0);
+const viewEndMs = ref(0);
+
+// Selection bounds
 const selectionStartMs = ref(parseDate(props.startDate));
 const selectionEndMs = ref(parseDate(props.endDate));
 
@@ -150,6 +213,136 @@ const dragAnchorMs = ref<number | null>(null);
 const dragStartSnapshot = ref<{ start: number; end: number } | null>(null);
 const pointerCaptureEl = ref<HTMLElement | null>(null);
 const activePointerId = ref<number | null>(null);
+
+// The currently visible range in ms
+const viewRangeMs = computed(() => Math.max(viewEndMs.value - viewStartMs.value, 1));
+
+// Zoom level computation
+const zoomRatio = computed(() => totalRangeMs.value / viewRangeMs.value);
+const canZoomIn = computed(() => viewRangeMs.value > MIN_VISIBLE_RANGE_MS);
+const canZoomOut = computed(() => zoomRatio.value > 1.01);
+const isFullyZoomedOut = computed(() => !canZoomOut.value);
+
+// Human-readable zoom level label
+const zoomLevelLabel = computed(() => {
+  const range = viewRangeMs.value;
+  if (range >= MS_PER_YEAR * 2) {
+    const years = Math.round(range / MS_PER_YEAR);
+    return `${years}y`;
+  }
+  if (range >= MS_PER_YEAR) {
+    const months = Math.round(range / MS_PER_MONTH);
+    return `${months}mo`;
+  }
+  if (range >= MS_PER_MONTH) {
+    const months = Math.round(range / MS_PER_MONTH);
+    return `${months}mo`;
+  }
+  if (range >= MS_PER_WEEK) {
+    const weeks = Math.round(range / MS_PER_WEEK);
+    return `${weeks}w`;
+  }
+  if (range >= MS_PER_DAY) {
+    const days = Math.round(range / MS_PER_DAY);
+    return `${days}d`;
+  }
+  const hours = Math.max(1, Math.round(range / MS_PER_HOUR));
+  return `${hours}h`;
+});
+
+// Initialize view bounds when props change
+function initializeViewBounds() {
+  viewStartMs.value = minMs.value;
+  viewEndMs.value = maxMs.value;
+}
+
+// Zoom in/out with optional focus point (0-1 ratio of track position)
+function zoom(factor: number, focusRatio = 0.5) {
+  const currentRange = viewRangeMs.value;
+  let newRange = currentRange / factor;
+
+  // Clamp to min/max ranges
+  newRange = Math.max(MIN_VISIBLE_RANGE_MS, Math.min(newRange, totalRangeMs.value));
+
+  // Calculate the focus point in ms
+  const focusMs = viewStartMs.value + currentRange * focusRatio;
+
+  // Calculate new bounds centered on focus point
+  let newStart = focusMs - newRange * focusRatio;
+  let newEnd = focusMs + newRange * (1 - focusRatio);
+
+  // Clamp to overall bounds
+  if (newStart < minMs.value) {
+    const shift = minMs.value - newStart;
+    newStart = minMs.value;
+    newEnd = Math.min(newEnd + shift, maxMs.value);
+  }
+  if (newEnd > maxMs.value) {
+    const shift = newEnd - maxMs.value;
+    newEnd = maxMs.value;
+    newStart = Math.max(newStart - shift, minMs.value);
+  }
+
+  viewStartMs.value = newStart;
+  viewEndMs.value = newEnd;
+}
+
+function handleZoomIn() {
+  zoom(1.5, 0.5);
+}
+
+function handleZoomOut() {
+  zoom(0.67, 0.5);
+}
+
+function resetZoom() {
+  initializeViewBounds();
+}
+
+function handleWheel(event: WheelEvent) {
+  if (props.disabled) return;
+
+  const track = trackRef.value;
+  if (!track) return;
+
+  // Calculate focus point based on mouse position
+  const rect = track.getBoundingClientRect();
+  const focusRatio = rect.width === 0 ? 0.5 : (event.clientX - rect.left) / rect.width;
+  const clampedFocus = Math.max(0, Math.min(1, focusRatio));
+
+  // Determine zoom direction and strength
+  // Normalize delta for consistent behavior across browsers/devices
+  const delta = event.deltaY || event.deltaX;
+  const zoomStrength = Math.min(Math.abs(delta) / 100, 0.5) + 0.1;
+
+  if (delta < 0) {
+    // Scroll up = zoom in
+    zoom(1 + zoomStrength, clampedFocus);
+  } else if (delta > 0) {
+    // Scroll down = zoom out
+    zoom(1 / (1 + zoomStrength), clampedFocus);
+  }
+}
+
+// Watch for prop changes and initialize/update bounds
+watch(
+  () => [props.minDate, props.maxDate],
+  () => {
+    // When overall bounds change, re-initialize view if needed
+    if (viewStartMs.value === 0 || viewEndMs.value === 0) {
+      initializeViewBounds();
+    } else {
+      // Clamp existing view to new bounds
+      viewStartMs.value = Math.max(viewStartMs.value, minMs.value);
+      viewEndMs.value = Math.min(viewEndMs.value, maxMs.value);
+      // Ensure minimum visible range
+      if (viewEndMs.value - viewStartMs.value < MIN_VISIBLE_RANGE_MS) {
+        initializeViewBounds();
+      }
+    }
+  },
+  { immediate: true }
+);
 
 watch(
   () => [props.startDate, props.endDate, minMs.value, maxMs.value],
@@ -169,46 +362,79 @@ watch(
   }
 );
 
-const rangeMs = computed(() => Math.max(maxMs.value - minMs.value, 1));
+// Use view bounds for calculations instead of full bounds
+const rangeMs = computed(() => viewRangeMs.value);
 
 const selectionStyle = computed(() => {
-  const startPercent = ((selectionStartMs.value - minMs.value) / rangeMs.value) * 100;
-  const endPercent = ((selectionEndMs.value - minMs.value) / rangeMs.value) * 100;
+  const startPercent = ((selectionStartMs.value - viewStartMs.value) / rangeMs.value) * 100;
+  const endPercent = ((selectionEndMs.value - viewStartMs.value) / rangeMs.value) * 100;
   const left = Math.min(startPercent, endPercent);
   const width = Math.max(Math.abs(endPercent - startPercent), 0.5);
+  // Clamp to visible area
+  const clampedLeft = Math.max(0, left);
+  const clampedRight = Math.min(100, left + width);
+  const clampedWidth = Math.max(0, clampedRight - clampedLeft);
   return {
-    left: `${left}%`,
-    width: `${width}%`,
+    left: `${clampedLeft}%`,
+    width: `${clampedWidth}%`,
     top: '50%',
-    transform: 'translateY(-50%)'
+    transform: 'translateY(-50%)',
+    display: clampedWidth > 0 ? 'flex' : 'none'
   };
 });
 
 const tickMarkers = computed(() => {
   const ticks: Array<{ date: string; percent: number; label: string }> = [];
-  const min = minMs.value;
-  const max = maxMs.value;
+  const min = viewStartMs.value;
+  const max = viewEndMs.value;
+  const range = viewRangeMs.value;
+
+  // Adaptive tick spacing based on visible range
+  let tickInterval: number;
+  if (range <= MS_PER_DAY) {
+    // Less than a day: show hourly ticks
+    tickInterval = MS_PER_HOUR;
+  } else if (range <= MS_PER_WEEK) {
+    // Less than a week: show 6-hour ticks
+    tickInterval = MS_PER_HOUR * 6;
+  } else if (range <= MS_PER_MONTH) {
+    // Less than a month: show daily ticks
+    tickInterval = MS_PER_DAY;
+  } else if (range <= MS_PER_MONTH * 3) {
+    // Less than 3 months: show weekly ticks
+    tickInterval = MS_PER_WEEK;
+  } else if (range <= MS_PER_YEAR) {
+    // Less than a year: show monthly ticks
+    tickInterval = MS_PER_MONTH;
+  } else {
+    // More than a year: show quarterly ticks
+    tickInterval = MS_PER_MONTH * 3;
+  }
+
+  // Minimum pixel spacing between ticks (prevents overcrowding)
+  const minTickSpacingPercent = 3;
 
   const pushTick = (targetMs: number) => {
     const clamped = clamp(targetMs, min, max);
-    const percent = ((clamped - min) / rangeMs.value) * 100;
+    const percent = ((clamped - min) / range) * 100;
     const last = ticks[ticks.length - 1];
-    if (last && Math.abs(last.percent - percent) < 0.05) {
+    if (last && Math.abs(last.percent - percent) < minTickSpacingPercent) {
       return;
     }
     ticks.push({
       date: new Date(clamped).toISOString(),
       percent,
-      label: formatTickLabel(targetMs)
+      label: formatTickLabelAdaptive(targetMs, range)
     });
   };
 
   pushTick(min);
 
-  let cursor = nextDayStartMs(min);
+  // Find first aligned tick point after min
+  let cursor = Math.ceil(min / tickInterval) * tickInterval;
   while (cursor < max) {
     pushTick(cursor);
-    cursor = nextDayStartMs(cursor);
+    cursor += tickInterval;
   }
 
   pushTick(max);
@@ -225,37 +451,70 @@ const dayBands = computed(() => {
     alt: boolean;
     label: string;
   }> = [];
-  const min = minMs.value;
-  const max = maxMs.value;
+  const min = viewStartMs.value;
+  const max = viewEndMs.value;
+  const range = viewRangeMs.value;
+
   if (max <= min) {
     return segments;
   }
 
-  let bandStart = min;
-  let bandIndex = 0;
+  // Adaptive band sizing based on visible range
+  let bandInterval: number;
+  let formatFn: (ms: number) => string;
+
+  if (range <= MS_PER_DAY * 2) {
+    // Less than 2 days: show 6-hour bands
+    bandInterval = MS_PER_HOUR * 6;
+    formatFn = (ms) => formatTimeOnly(ms);
+  } else if (range <= MS_PER_WEEK * 2) {
+    // Less than 2 weeks: show daily bands
+    bandInterval = MS_PER_DAY;
+    formatFn = formatDayLabel;
+  } else if (range <= MS_PER_MONTH * 3) {
+    // Less than 3 months: show weekly bands
+    bandInterval = MS_PER_WEEK;
+    formatFn = (ms) => formatWeekLabel(ms);
+  } else if (range <= MS_PER_YEAR * 2) {
+    // Less than 2 years: show monthly bands
+    bandInterval = MS_PER_MONTH;
+    formatFn = (ms) => formatMonthLabel(ms);
+  } else {
+    // More than 2 years: show quarterly bands
+    bandInterval = MS_PER_MONTH * 3;
+    formatFn = (ms) => formatQuarterLabel(ms);
+  }
+
+  // Align band start to interval boundary
+  let bandStart = Math.floor(min / bandInterval) * bandInterval;
+  let bandIndex = Math.floor(bandStart / bandInterval);
 
   while (bandStart < max) {
-    const bandEndCandidate = nextDayStartMs(bandStart);
-    const bandEnd = Math.min(bandEndCandidate, max);
-    const widthMs = bandEnd - bandStart;
+    const bandEndCandidate = bandStart + bandInterval;
+    const visibleStart = Math.max(bandStart, min);
+    const visibleEnd = Math.min(bandEndCandidate, max);
+    const widthMs = visibleEnd - visibleStart;
+
     if (widthMs > 0) {
-      const left = ((bandStart - min) / rangeMs.value) * 100;
-      const width = (widthMs / rangeMs.value) * 100;
+      const left = ((visibleStart - min) / range) * 100;
+      const width = (widthMs / range) * 100;
       const center = left + width / 2;
       segments.push({
         key: `band-${bandStart}`,
         left,
         width,
         center,
-        label: formatDayLabel(bandStart),
+        label: formatFn(bandStart),
         alt: bandIndex % 2 === 1
       });
-      bandIndex += 1;
     }
-    if (bandEnd <= bandStart) {
+
+    bandStart = bandEndCandidate;
+    bandIndex += 1;
+
+    if (bandStart <= min && bandEndCandidate <= min) {
       break;
     }
-    bandStart = bandEnd;
   }
 
   return segments;
@@ -264,28 +523,42 @@ const dayBands = computed(() => {
 const eventSegments = computed<EventSegment[]>(() => {
   const events = props.eventDates ?? [];
   const segments: EventSegment[] = [];
+  const min = viewStartMs.value;
+  const max = viewEndMs.value;
+  const range = viewRangeMs.value;
 
   events.forEach(({ start, end, label, startLabel, endLabel }, idx) => {
     const startMs = parseDate(start);
     const endMs = parseDate(end);
-    const clampedStart = clamp(Math.min(startMs, endMs), minMs.value, maxMs.value);
-    const clampedEnd = clamp(Math.max(startMs, endMs), minMs.value, maxMs.value);
+    const eventStart = Math.min(startMs, endMs);
+    const eventEnd = Math.max(startMs, endMs);
+
+    // Skip events entirely outside the view
+    if (eventEnd <= min || eventStart >= max) {
+      return;
+    }
+
+    // Clamp to visible range
+    const clampedStart = clamp(eventStart, min, max);
+    const clampedEnd = clamp(eventEnd, min, max);
+
     if (clampedEnd <= clampedStart) {
       return;
     }
-    const left = ((clampedStart - minMs.value) / rangeMs.value) * 100;
-    const width = ((clampedEnd - clampedStart) / rangeMs.value) * 100;
-    const finalStartIso = new Date(clampedStart).toISOString();
-    const finalEndIso = new Date(clampedEnd).toISOString();
+
+    const left = ((clampedStart - min) / range) * 100;
+    const width = ((clampedEnd - clampedStart) / range) * 100;
+    const finalStartIso = new Date(eventStart).toISOString();
+    const finalEndIso = new Date(eventEnd).toISOString();
     segments.push({
       key: `${start}-${end}-${idx}`,
       left,
       width,
-      label: label ?? `${formatDateTime(clampedStart)} — ${formatDateTime(clampedEnd)}`,
+      label: label ?? `${formatDateTime(eventStart)} — ${formatDateTime(eventEnd)}`,
       start: finalStartIso,
       end: finalEndIso,
-      startLabel: startLabel ?? formatDateTime(clampedStart),
-      endLabel: endLabel ?? formatDateTime(clampedEnd)
+      startLabel: startLabel ?? formatDateTime(eventStart),
+      endLabel: endLabel ?? formatDateTime(eventEnd)
     });
   });
 
@@ -406,7 +679,6 @@ function handlePointerMove(event: PointerEvent) {
   } else if (draggingMode.value === 'range' && dragStartSnapshot.value) {
     const anchor = dragAnchorMs.value ?? pointerMs;
     const delta = pointerMs - anchor;
-    const length = Math.max(dragStartSnapshot.value.end - dragStartSnapshot.value.start, 0);
     let newStart = dragStartSnapshot.value.start + delta;
     let newEnd = dragStartSnapshot.value.end + delta;
 
@@ -513,12 +785,14 @@ function emitSelectionCommit() {
 function positionFromEvent(event: PointerEvent): number {
   const track = trackRef.value;
   if (!track) {
-    return minMs.value;
+    return viewStartMs.value;
   }
   const rect = track.getBoundingClientRect();
   const ratio = rect.width === 0 ? 0 : (event.clientX - rect.left) / rect.width;
   const clamped = Math.max(0, Math.min(1, ratio));
-  return clamp(minMs.value + clamped * rangeMs.value, minMs.value, maxMs.value);
+  // Map position to view bounds, but clamp result to full bounds
+  const positionMs = viewStartMs.value + clamped * viewRangeMs.value;
+  return clamp(positionMs, minMs.value, maxMs.value);
 }
 
 function clampMs(ms: number): number {
@@ -537,14 +811,9 @@ function parseDate(value: string): number {
   return Number.isNaN(ms) ? Date.now() : ms;
 }
 
-function nextDayStartMs(ms: number): number {
-  const date = new Date(ms);
-  date.setHours(24, 0, 0, 0);
-  return date.getTime();
-}
-
-function formatDate(iso: string): string {
-  return formatDateReadable(parseDate(iso));
+function formatDate(msOrIso: number | string): string {
+  const ms = typeof msOrIso === 'string' ? parseDate(msOrIso) : msOrIso;
+  return formatDateReadable(ms);
 }
 
 function formatDayLabel(ms: number): string {
@@ -559,6 +828,48 @@ function formatDayLabel(ms: number): string {
   });
 }
 
+function formatTimeOnly(ms: number): string {
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatWeekLabel(ms: number): string {
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric'
+  });
+}
+
+function formatMonthLabel(ms: number): string {
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+function formatQuarterLabel(ms: number): string {
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const quarter = Math.floor(date.getMonth() / 3) + 1;
+  return `Q${quarter} ${date.getFullYear()}`;
+}
+
 function formatDateReadable(ms: number): string {
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) {
@@ -571,14 +882,38 @@ function formatDateReadable(ms: number): string {
   });
 }
 
-function formatTickLabel(ms: number): string {
+function formatTickLabelAdaptive(ms: number, range: number): string {
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) {
     return '';
   }
+
+  // Adapt format based on visible range
+  if (range <= MS_PER_DAY) {
+    // Show time for sub-day ranges
+    return date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+  if (range <= MS_PER_WEEK * 2) {
+    // Show day and month for up to 2 weeks
+    return date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric'
+    });
+  }
+  if (range <= MS_PER_MONTH * 6) {
+    // Show month and day for up to 6 months
+    return date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric'
+    });
+  }
+  // Show month and year for longer ranges
   return date.toLocaleDateString(undefined, {
     month: 'short',
-    day: 'numeric'
+    year: 'numeric'
   });
 }
 
@@ -608,7 +943,7 @@ function formatDateTime(ms: number): string {
   background: rgba(15, 23, 42, 0.68);
   border-radius: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  padding: 1rem 1.25rem;
+  padding: 1rem 1.25rem 1.75rem;
 }
 
 .timeline--disabled {
@@ -898,6 +1233,71 @@ function formatDateTime(ms: number): string {
   transform: translate(-50%, -50%);
 }
 
+.timeline__zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  padding-left: 1rem;
+}
+
+.timeline__zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(226, 232, 240, 0.85);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.timeline__zoom-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline__zoom-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: rgba(226, 232, 240, 1);
+  transform: scale(1.05);
+}
+
+.timeline__zoom-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.timeline__zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.timeline__zoom-btn--reset {
+  margin-left: 0.25rem;
+}
+
+.timeline__zoom-level {
+  font-size: 0.68rem;
+  font-weight: 500;
+  min-width: 2.5rem;
+  text-align: center;
+  color: rgba(148, 163, 184, 0.9);
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.35rem;
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
 @media (max-width: 640px) {
   .timeline {
     padding: 0.85rem 1rem;
@@ -905,6 +1305,27 @@ function formatDateTime(ms: number): string {
 
   .timeline__tick-label {
     display: none;
+  }
+
+  .timeline__zoom-controls {
+    position: absolute;
+    right: 0;
+    top: -0.25rem;
+    padding-left: 0;
+  }
+
+  .timeline__zoom-level {
+    display: none;
+  }
+
+  .timeline__zoom-btn {
+    width: 22px;
+    height: 22px;
+  }
+
+  .timeline__zoom-btn svg {
+    width: 12px;
+    height: 12px;
   }
 }
 </style>
