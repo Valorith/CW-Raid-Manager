@@ -245,12 +245,25 @@ async function hasAugSlotColumns(): Promise<boolean> {
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'inventory'
-         AND COLUMN_NAME = 'augslot1'
+         AND LOWER(COLUMN_NAME) LIKE 'augslot1%'
        LIMIT 1`
     );
 
     cachedHasAugSlotColumns = rows.length > 0;
     console.log(`[guildBankService] Augslot columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
+
+    // Log all inventory columns for debugging
+    if (!cachedHasAugSlotColumns) {
+      const allCols = await queryEqDb<RowDataPacket[]>(
+        `SELECT COLUMN_NAME as columnName
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'inventory'
+         ORDER BY ORDINAL_POSITION`
+      );
+      console.log('[guildBankService] Available inventory columns:', allCols.map(r => r.columnName).join(', '));
+    }
+
     return cachedHasAugSlotColumns;
   } catch (error) {
     console.error('[guildBankService] Error checking for augslot columns:', error);
@@ -493,10 +506,20 @@ export async function fetchGuildBankSnapshot(
     characterIds
   );
 
-  // Debug logging for Clumsy's Crate
-  const crateItem = inventoryRows.find(row => row.itemName && row.itemName.includes("Clumsy's Crate"));
-  if (crateItem) {
-    console.log('Debug Crate Item Row:', crateItem);
+  // Debug logging for augments
+  if (hasAugSlots) {
+    const itemsWithAugs = inventoryRows.filter(row =>
+      (row.augslot1 && row.augslot1 > 0) ||
+      (row.augslot2 && row.augslot2 > 0) ||
+      (row.augslot3 && row.augslot3 > 0) ||
+      (row.augslot4 && row.augslot4 > 0) ||
+      (row.augslot5 && row.augslot5 > 0) ||
+      (row.augslot6 && row.augslot6 > 0)
+    );
+    console.log(`[guildBankService] Found ${itemsWithAugs.length} items with augments out of ${inventoryRows.length} total items`);
+    if (itemsWithAugs.length > 0) {
+      console.log('[guildBankService] Sample augmented item:', JSON.stringify(itemsWithAugs[0]));
+    }
   }
 
   const items: GuildBankItem[] = [];
