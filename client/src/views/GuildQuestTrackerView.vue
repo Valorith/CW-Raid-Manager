@@ -447,6 +447,9 @@
                         rel="noopener noreferrer"
                         class="quest-node__item-link"
                         @click.stop
+                        @mouseenter="showItemTooltip($event, itemLink)"
+                        @mouseleave="hideItemTooltip"
+                        @mousemove="handleItemLinkMouseMove"
                       >{{ itemLink.label }}</a>
                     </template>
                   </template>
@@ -695,6 +698,9 @@
                         rel="noopener noreferrer"
                         class="quest-node__item-link"
                         @click.stop
+                        @mouseenter="showItemTooltip($event, itemLink)"
+                        @mouseleave="hideItemTooltip"
+                        @mousemove="handleItemLinkMouseMove"
                       >{{ itemLink.label }}</a>
                     </template>
                   </template>
@@ -1433,6 +1439,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 
 import {
   api,
@@ -1462,6 +1469,7 @@ import { extractErrorMessage } from '../utils/errors';
 
 const route = useRoute();
 const authStore = useAuthStore();
+const tooltipStore = useItemTooltipStore();
 const guildId = route.params.guildId as string;
 const currentUserId = computed(() => authStore.user?.userId ?? null);
 const isAdmin = computed(() => authStore.isAdmin);
@@ -4114,6 +4122,26 @@ function getNodeItemLinks(node: QuestNodeViewModel | EditableNode | null | undef
 
 function hasNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefined): boolean {
   return getNodeItemIds(node).length > 0;
+}
+
+// Item tooltip handlers for quest node item links
+function showItemTooltip(event: MouseEvent, itemLink: NodeItemLink) {
+  if (!itemLink.itemId) return;
+  tooltipStore.showTooltip(
+    {
+      itemId: itemLink.itemId,
+      itemName: itemLink.label
+    },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
+}
+
+function handleItemLinkMouseMove(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
 }
 
 function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
