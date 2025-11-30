@@ -225,7 +225,6 @@ const tooltipStyle = computed(() => {
 
   let x = store.position.x + padding;
   let y = store.position.y + padding;
-  let anchorBottom = false;
 
   // Adjust if tooltip would go off right edge
   if (x + tooltipWidth > window.innerWidth - padding) {
@@ -237,20 +236,17 @@ const tooltipStyle = computed(() => {
     x = padding;
   }
 
-  // Check if tooltip would extend below viewport
-  if (y + tooltipMaxHeight > window.innerHeight) {
-    // Anchor to bottom of viewport instead
-    anchorBottom = true;
+  // Calculate the maximum y that keeps tooltip bottom within viewport
+  const maxY = window.innerHeight - tooltipMaxHeight - padding;
+
+  // If tooltip would extend below viewport, shift it up just enough
+  if (y > maxY) {
+    y = maxY;
   }
 
-  // If anchoring to bottom, return bottom position instead of top
-  if (anchorBottom) {
-    return {
-      left: `${x}px`,
-      bottom: `${padding}px`,
-      top: 'auto',
-      maxHeight: `${window.innerHeight - padding * 2}px`
-    };
+  // Ensure tooltip doesn't go above viewport top
+  if (y < padding) {
+    y = padding;
   }
 
   return {
