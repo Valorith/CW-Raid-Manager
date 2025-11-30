@@ -580,6 +580,11 @@ function formatAugmentStats(stats: import('../services/api').ItemStats): string 
   if (stats.spelldmg > 0) parts.push(`Spell Dmg +${stats.spelldmg}`);
   if (stats.healamt > 0) parts.push(`Heal +${stats.healamt}`);
 
+  // Regen stats
+  if (stats.regen > 0) parts.push(`HP Regen +${stats.regen}`);
+  if (stats.manaregen > 0) parts.push(`Mana Regen +${stats.manaregen}`);
+  if (stats.enduranceregen > 0) parts.push(`End Regen +${stats.enduranceregen}`);
+
   // Resistances (only if significant)
   if (stats.fr > 0) parts.push(`FR +${stats.fr}`);
   if (stats.cr > 0) parts.push(`CR +${stats.cr}`);
