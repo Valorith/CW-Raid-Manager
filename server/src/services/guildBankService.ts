@@ -231,8 +231,8 @@ async function resolveInventoryItemColumns(): Promise<{
 }
 
 /**
- * Check if the inventory table has augslot columns (augslot1-6).
- * Some EQ database schemas may not have these columns.
+ * Check if the inventory table has augment columns (augment_one through augment_six).
+ * Standard EQEmu schema uses augment_one, augment_two, etc.
  */
 async function hasAugSlotColumns(): Promise<boolean> {
   if (cachedHasAugSlotColumns !== null) {
@@ -245,12 +245,12 @@ async function hasAugSlotColumns(): Promise<boolean> {
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'inventory'
-         AND LOWER(COLUMN_NAME) LIKE 'augslot1%'
+         AND LOWER(COLUMN_NAME) = 'augment_one'
        LIMIT 1`
     );
 
     cachedHasAugSlotColumns = rows.length > 0;
-    console.log(`[guildBankService] Augslot columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
+    console.log(`[guildBankService] Augment columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
 
     // Log all inventory columns for debugging
     if (!cachedHasAugSlotColumns) {
@@ -266,7 +266,7 @@ async function hasAugSlotColumns(): Promise<boolean> {
 
     return cachedHasAugSlotColumns;
   } catch (error) {
-    console.error('[guildBankService] Error checking for augslot columns:', error);
+    console.error('[guildBankService] Error checking for augment columns:', error);
     cachedHasAugSlotColumns = false;
     return false;
   }
@@ -489,9 +489,9 @@ export async function fetchGuildBankSnapshot(
   const hasAugSlots = await hasAugSlotColumns();
   console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn, hasAugSlots });
 
-  // Build augslot columns string if available
+  // Build augment columns string if available (EQEmu uses augment_one through augment_six)
   const augSlotColumns = hasAugSlots
-    ? ', inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6'
+    ? ', inv.augment_one AS augslot1, inv.augment_two AS augslot2, inv.augment_three AS augslot3, inv.augment_four AS augslot4, inv.augment_five AS augslot5, inv.augment_six AS augslot6'
     : '';
 
   // Query inventory items
@@ -590,9 +590,9 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
   const hasAugSlots = await hasAugSlotColumns();
 
-  // Build augslot columns string if available
+  // Build augment columns string if available (EQEmu uses augment_one through augment_six)
   const augSlotColumns = hasAugSlots
-    ? ', inv.augslot1, inv.augslot2, inv.augslot3, inv.augslot4, inv.augslot5, inv.augslot6'
+    ? ', inv.augment_one AS augslot1, inv.augment_two AS augslot2, inv.augment_three AS augslot3, inv.augment_four AS augslot4, inv.augment_five AS augslot5, inv.augment_six AS augslot6'
     : '';
 
   // 3. Query inventory
