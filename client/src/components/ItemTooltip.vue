@@ -296,9 +296,10 @@ const weaponSkillName = computed(() => {
 });
 
 // Item flags
-// Note: In EQEmu database, nodrop/norent/notransfer use inverted logic:
-// - 0 means the item HAS the restriction (NO DROP, NO RENT, etc.)
+// Note: In EQEmu database, nodrop/norent use inverted logic:
+// - 0 means the item HAS the restriction (NO DROP, NO RENT)
 // - 255 (or non-zero) means the item does NOT have the restriction
+// However, notransfer uses normal logic (1 = has restriction)
 const itemFlags = computed(() => {
   if (!store.itemStats) return [];
   const flags: string[] = [];
@@ -309,7 +310,7 @@ const itemFlags = computed(() => {
   }
   if (store.itemStats.nodrop === 0) flags.push('NO DROP');
   if (store.itemStats.norent === 0) flags.push('NO RENT');
-  if (store.itemStats.notransfer === 0) flags.push('NO TRANSFER');
+  if (store.itemStats.notransfer === 1) flags.push('NO TRADE');
   if (store.itemStats.questitemflag === 1) flags.push('QUEST ITEM');
   return flags;
 });
