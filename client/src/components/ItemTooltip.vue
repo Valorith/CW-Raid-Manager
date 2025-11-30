@@ -231,19 +231,15 @@ function handleMouseLeave() {
 const tooltipStyle = computed(() => {
   const padding = 15;
   const tooltipWidth = 320;
-  const tooltipHeight = 400; // Estimated max height
+  const tooltipMaxHeight = 500; // Estimated max height for positioning calculation
 
   let x = store.position.x + padding;
   let y = store.position.y + padding;
+  let anchorBottom = false;
 
   // Adjust if tooltip would go off right edge
   if (x + tooltipWidth > window.innerWidth - padding) {
     x = store.position.x - tooltipWidth - padding;
-  }
-
-  // Adjust if tooltip would go off bottom edge
-  if (y + tooltipHeight > window.innerHeight - padding) {
-    y = Math.max(padding, window.innerHeight - tooltipHeight - padding);
   }
 
   // Ensure tooltip doesn't go off left edge
@@ -251,9 +247,27 @@ const tooltipStyle = computed(() => {
     x = padding;
   }
 
+  // Check if tooltip would extend below viewport
+  if (y + tooltipMaxHeight > window.innerHeight) {
+    // Anchor to bottom of viewport instead
+    anchorBottom = true;
+  }
+
+  // If anchoring to bottom, return bottom position instead of top
+  if (anchorBottom) {
+    return {
+      left: `${x}px`,
+      bottom: `${padding}px`,
+      top: 'auto',
+      maxHeight: `${window.innerHeight - padding * 2}px`
+    };
+  }
+
   return {
     left: `${x}px`,
-    top: `${y}px`
+    top: `${y}px`,
+    bottom: 'auto',
+    maxHeight: `${window.innerHeight - y - padding}px`
   };
 });
 
@@ -561,6 +575,7 @@ function getSpellName(spellId: number): string {
   );
   border: 1px solid rgba(100, 116, 139, 0.4);
   border-radius: 6px;
+  overflow-y: auto;
   box-shadow:
     0 8px 32px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(0, 0, 0, 0.2),
