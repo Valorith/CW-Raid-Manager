@@ -20,7 +20,6 @@ import {
   EqTaskDefinition,
   loadEqTaskWithActivities
 } from './eqTaskService.js';
-import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { staticZoneNameMap } from '../data/zoneNames.js';
 
 const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
@@ -879,7 +878,7 @@ function extractZoneTokens(zones: string | null | undefined): string[] {
     .filter((part) => part.length > 0);
 }
 
-async function buildZoneNameMap(tokens: Set<string>): Promise<Map<string, string>> {
+function buildZoneNameMap(tokens: Set<string>): Map<string, string> {
   const map = new Map<string, string>();
   if (!tokens.size) {
     return map;
@@ -891,64 +890,6 @@ async function buildZoneNameMap(tokens: Set<string>): Promise<Map<string, string
       map.set(token, hit);
     }
   });
-
-  if (!isEqDbConfigured()) {
-    return map;
-  }
-
-  const numericTokens: number[] = [];
-  const shortNames: string[] = [];
-  tokens.forEach((token) => {
-    if (/^\d+$/.test(token)) {
-      numericTokens.push(Number.parseInt(token, 10));
-    } else {
-      shortNames.push(token);
-    }
-  });
-
-  if (!numericTokens.length && !shortNames.length) {
-    return map;
-  }
-
-  const clauses: string[] = [];
-  const params: Array<number[] | string[]> = [];
-  if (numericTokens.length) {
-    clauses.push('zoneidnumber IN (?)');
-    params.push(numericTokens);
-  }
-  if (shortNames.length) {
-    clauses.push('short_name IN (?)');
-    params.push(shortNames);
-  }
-  const selectColumns = 'zoneidnumber, short_name, long_name';
-  const runLookup = async (tableName: string) =>
-    queryEqDb<Array<{ zoneidnumber: number; short_name: string; long_name: string }>>(
-      `SELECT ${selectColumns} FROM ${tableName} WHERE ${clauses.join(' OR ')}`,
-      params
-    );
-
-  try {
-    let rows: Array<{ zoneidnumber: number; short_name: string; long_name: string }> = [];
-    try {
-      rows = await runLookup('zone');
-    } catch {
-      // Some schemas use "zones"; try that as a fallback.
-      rows = await runLookup('zones');
-    }
-    rows.forEach((row) => {
-      const label = row.long_name?.trim() || row.short_name?.trim();
-      if (!label) {
-        return;
-      }
-      map.set(String(row.zoneidnumber), label);
-      if (row.short_name) {
-        map.set(row.short_name, label);
-      }
-    });
-  } catch (error) {
-    // If the EQ DB lookup fails, fall back to raw values without throwing.
-    console.warn('Failed to resolve zone names from EQ DB', error);
-  }
 
   return map;
 }
@@ -995,7 +936,7 @@ async function attachZoneNamesToNodes(nodes: QuestNodeViewModel[]): Promise<void
     return;
   }
 
-  const zoneNameMap = await buildZoneNameMap(tokens);
+  const zoneNameMap = buildZoneNameMap(tokens);
   nodes.forEach((node) => {
     const req: any = node.requirements ?? {};
     const zonesValue = req.zones;
@@ -1040,7 +981,7 @@ async function buildTaskBlueprintGraph(task: EqTaskDefinition, activities: EqTas
   activities.forEach((activity) => {
     extractZoneTokens(activity.zones).forEach((token) => zoneTokens.add(token));
   });
-  const zoneNameMap = await buildZoneNameMap(zoneTokens);
+  const zoneNameMap = buildZoneNameMap(zoneTokens);
 
   const nodes: Array<{
     id: string;
