@@ -147,6 +147,7 @@ export interface GuildBankCharacter {
   createdAt: string;
   foundInEq?: boolean;
   class?: CharacterClass;
+  isTracked?: boolean;
 }
 
 export interface GuildBankItem {

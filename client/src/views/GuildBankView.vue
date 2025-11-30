@@ -47,7 +47,7 @@
       <div class="guild-bank__stat-row">
         <div class="stat-chip">
           <span class="stat-chip__label">Tracked characters</span>
-          <div class="stat-chip__value">{{ snapshot?.characters.length ?? 0 }}</div>
+          <div class="stat-chip__value">{{ snapshot?.characters.filter(c => c.isTracked !== false).length ?? 0 }}</div>
         </div>
         <div class="stat-chip">
           <span class="stat-chip__label">Unique items</span>
@@ -842,9 +842,11 @@ const missingCachedNames = computed(() => {
     return [];
   }
   const current = new Set(
-    snapshot.value.characters.map((entry) =>
-      characterKey({ name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) })
-    )
+    snapshot.value.characters
+      .filter((entry) => entry.isTracked !== false)
+      .map((entry) =>
+        characterKey({ name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) })
+      )
   );
   return cachedNames.value.filter((entry) => !current.has(characterKey(entry)));
 });
@@ -916,7 +918,9 @@ const missingCount = computed(() => snapshot.value?.missingCharacters.length ?? 
 
 const guildRoster = computed(
   () =>
-    snapshot.value?.characters.filter((entry) => !toBooleanFlag(entry.isPersonal)) ?? []
+    snapshot.value?.characters.filter(
+      (entry) => !toBooleanFlag(entry.isPersonal) && entry.isTracked !== false
+    ) ?? []
 );
 const personalRoster = computed(
   () =>

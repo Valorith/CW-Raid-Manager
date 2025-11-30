@@ -50,7 +50,7 @@ export const useGuildBankStore = defineStore('guildBank', () => {
             ]);
 
             // Create a map of existing bank characters for easy lookup
-            const characterMap = new Map(bankResult.characters.map(c => [c.name.toLowerCase(), c]));
+            const characterMap = new Map(bankResult.characters.map(c => [c.name.toLowerCase(), { ...c, isTracked: true }]));
 
             // Merge in any guild members that aren't in the bank snapshot
             if (guildDetail && Array.isArray(guildDetail.characters)) {
@@ -64,7 +64,8 @@ export const useGuildBankStore = defineStore('guildBank', () => {
                             isPersonal: false,
                             createdAt: '',
                             foundInEq: false,
-                            class: member.class
+                            class: member.class,
+                            isTracked: false
                         });
                     }
                 }
@@ -220,7 +221,8 @@ export const useGuildBankStore = defineStore('guildBank', () => {
                     isPersonal: false,
                     createdAt: new Date().toISOString(),
                     foundInEq: true,
-                    class: 'UNKNOWN'
+                    class: 'UNKNOWN',
+                    isTracked: false
                 });
             }
 
