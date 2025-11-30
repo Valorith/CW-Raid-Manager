@@ -22,7 +22,9 @@
 
         <!-- Item Flags -->
         <div v-if="itemFlags.length > 0" class="item-tooltip__flags">
-          {{ itemFlags.join(' ') }}
+          <span v-for="(flag, index) in itemFlags" :key="flag" class="item-tooltip__flag">
+            {{ flag }}<span v-if="index < itemFlags.length - 1" class="item-tooltip__flag-separator">•</span>
+          </span>
         </div>
 
         <!-- Slot & AC Row -->
@@ -294,17 +296,22 @@ const weaponSkillName = computed(() => {
 });
 
 // Item flags
+// Note: In EQEmu database, nodrop/norent use inverted logic:
+// - 0 means the item HAS the restriction (NO DROP, NO RENT)
+// - 255 (or non-zero) means the item does NOT have the restriction
+// However, notransfer uses normal logic (1 = has restriction)
 const itemFlags = computed(() => {
   if (!store.itemStats) return [];
   const flags: string[] = [];
-  if (store.itemStats.magic) flags.push('MAGIC ITEM');
-  if (store.itemStats.lore && store.itemStats.lore.length > 0 && store.itemStats.lore !== '*') {
+  if (store.itemStats.magic === 1) flags.push('MAGIC ITEM');
+  // Lore: empty string = not lore, "*" = unique lore, other string = lore group
+  if (store.itemStats.lore && store.itemStats.lore.length > 0) {
     flags.push('LORE ITEM');
   }
-  if (store.itemStats.nodrop) flags.push('NO DROP');
-  if (store.itemStats.norent) flags.push('NO RENT');
-  if (store.itemStats.notransfer) flags.push('NO TRANSFER');
-  if (store.itemStats.questitemflag) flags.push('QUEST ITEM');
+  if (store.itemStats.nodrop === 0) flags.push('NO DROP');
+  if (store.itemStats.norent === 0) flags.push('NO RENT');
+  if (store.itemStats.notransfer === 1) flags.push('NO TRADE');
+  if (store.itemStats.questitemflag === 1) flags.push('QUEST ITEM');
   return flags;
 });
 
@@ -681,6 +688,12 @@ function getAugmentEffect(stats: import('../services/api').ItemStats): string | 
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 4px;
+}
+
+.item-tooltip__flag-separator {
+  margin: 0 6px;
+  color: #64748b;
+  font-weight: 400;
 }
 
 /* Row for inline items */
