@@ -25,6 +25,13 @@ export interface GuildBankItem {
   itemIconId: number | null;
   charges: number | null;
   bagSlots: number | null;
+  // Augment item IDs socketed in this item
+  augSlot1: number | null;
+  augSlot2: number | null;
+  augSlot3: number | null;
+  augSlot4: number | null;
+  augSlot5: number | null;
+  augSlot6: number | null;
 }
 
 export interface GuildBankSnapshot {
@@ -101,6 +108,7 @@ let cachedInventorySlotColumn: string | null = null;
 let cachedInventoryItemIdColumn: string | null = null;
 let cachedInventoryChargesColumn: string | null = null;
 let cachedInventoryBagSlotsColumn: string | null = null;
+let cachedHasAugSlotColumns: boolean | null = null;
 
 async function resolveInventoryCharacterColumn(): Promise<string> {
   if (cachedInventoryCharIdColumn) {
@@ -220,6 +228,48 @@ async function resolveInventoryItemColumns(): Promise<{
     chargesColumn: cachedInventoryChargesColumn,
     bagSlotsColumn: cachedInventoryBagSlotsColumn
   };
+}
+
+/**
+ * Check if the inventory table has augment columns (augment_one through augment_six).
+ * Standard EQEmu schema uses augment_one, augment_two, etc.
+ */
+async function hasAugSlotColumns(): Promise<boolean> {
+  if (cachedHasAugSlotColumns !== null) {
+    return cachedHasAugSlotColumns;
+  }
+
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT COLUMN_NAME as columnName
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'inventory'
+         AND LOWER(COLUMN_NAME) = 'augment_one'
+       LIMIT 1`
+    );
+
+    cachedHasAugSlotColumns = rows.length > 0;
+    console.log(`[guildBankService] Augment columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
+
+    // Log all inventory columns for debugging
+    if (!cachedHasAugSlotColumns) {
+      const allCols = await queryEqDb<RowDataPacket[]>(
+        `SELECT COLUMN_NAME as columnName
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'inventory'
+         ORDER BY ORDINAL_POSITION`
+      );
+      console.log('[guildBankService] Available inventory columns:', allCols.map(r => r.columnName).join(', '));
+    }
+
+    return cachedHasAugSlotColumns;
+  } catch (error) {
+    console.error('[guildBankService] Error checking for augment columns:', error);
+    cachedHasAugSlotColumns = false;
+    return false;
+  }
 }
 
 function normalizeName(name: string): { display: string; normalized: string } {
@@ -367,6 +417,12 @@ type EqInventoryRow = RowDataPacket & {
   itemName: string | null;
   iconId: number | null;
   bagslots: number | null;
+  augslot1: number | null;
+  augslot2: number | null;
+  augslot3: number | null;
+  augslot4: number | null;
+  augslot5: number | null;
+  augslot6: number | null;
 };
 
 export async function fetchGuildBankSnapshot(
@@ -430,11 +486,17 @@ export async function fetchGuildBankSnapshot(
   const charIdColumn = await resolveInventoryCharacterColumn();
   const slotColumn = await resolveInventorySlotColumn();
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
-  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn });
+  const hasAugSlots = await hasAugSlotColumns();
+  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn, hasAugSlots });
+
+  // Build augment columns string if available (EQEmu uses augment_one through augment_six)
+  const augSlotColumns = hasAugSlots
+    ? ', inv.augment_one AS augslot1, inv.augment_two AS augslot2, inv.augment_three AS augslot3, inv.augment_four AS augslot4, inv.augment_five AS augslot5, inv.augment_six AS augslot6'
+    : '';
 
   // Query inventory items
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots${augSlotColumns}
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` IN (${idPlaceholders})
@@ -444,10 +506,20 @@ export async function fetchGuildBankSnapshot(
     characterIds
   );
 
-  // Debug logging for Clumsy's Crate
-  const crateItem = inventoryRows.find(row => row.itemName && row.itemName.includes("Clumsy's Crate"));
-  if (crateItem) {
-    console.log('Debug Crate Item Row:', crateItem);
+  // Debug logging for augments
+  if (hasAugSlots) {
+    const itemsWithAugs = inventoryRows.filter(row =>
+      (row.augslot1 && row.augslot1 > 0) ||
+      (row.augslot2 && row.augslot2 > 0) ||
+      (row.augslot3 && row.augslot3 > 0) ||
+      (row.augslot4 && row.augslot4 > 0) ||
+      (row.augslot5 && row.augslot5 > 0) ||
+      (row.augslot6 && row.augslot6 > 0)
+    );
+    console.log(`[guildBankService] Found ${itemsWithAugs.length} items with augments out of ${inventoryRows.length} total items`);
+    if (itemsWithAugs.length > 0) {
+      console.log('[guildBankService] Sample augmented item:', JSON.stringify(itemsWithAugs[0]));
+    }
   }
 
   const items: GuildBankItem[] = [];
@@ -473,7 +545,13 @@ export async function fetchGuildBankSnapshot(
       itemName: row.itemName ?? 'Unknown Item',
       itemIconId: row.iconId != null ? Number(row.iconId) : null,
       charges: quantity,
-      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null,
+      augSlot1: row.augslot1 != null && row.augslot1 > 0 ? Number(row.augslot1) : null,
+      augSlot2: row.augslot2 != null && row.augslot2 > 0 ? Number(row.augslot2) : null,
+      augSlot3: row.augslot3 != null && row.augslot3 > 0 ? Number(row.augslot3) : null,
+      augSlot4: row.augslot4 != null && row.augslot4 > 0 ? Number(row.augslot4) : null,
+      augSlot5: row.augslot5 != null && row.augslot5 > 0 ? Number(row.augslot5) : null,
+      augSlot6: row.augslot6 != null && row.augslot6 > 0 ? Number(row.augslot6) : null
     });
   }
 
@@ -510,10 +588,16 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
   const charIdColumn = await resolveInventoryCharacterColumn();
   const slotColumn = await resolveInventorySlotColumn();
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
+  const hasAugSlots = await hasAugSlotColumns();
+
+  // Build augment columns string if available (EQEmu uses augment_one through augment_six)
+  const augSlotColumns = hasAugSlots
+    ? ', inv.augment_one AS augslot1, inv.augment_two AS augslot2, inv.augment_three AS augslot3, inv.augment_four AS augslot4, inv.augment_five AS augslot5, inv.augment_six AS augslot6'
+    : '';
 
   // 3. Query inventory
   const inventoryRows = await queryEqDb<EqInventoryRow[]>(
-    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots
+    `SELECT inv.\`${charIdColumn}\` as charid, inv.\`${slotColumn}\` as slotid, inv.\`${itemIdColumn}\` as itemid, inv.\`${chargesColumn}\` as charges, items.Name AS itemName, items.icon AS iconId, items.\`${bagSlotsColumn}\` as bagslots${augSlotColumns}
      FROM inventory AS inv
      LEFT JOIN items ON items.id = inv.\`${itemIdColumn}\`
      WHERE inv.\`${charIdColumn}\` = ?
@@ -542,7 +626,13 @@ export async function fetchCharacterInventory(characterName: string): Promise<Gu
       itemName: row.itemName ?? 'Unknown Item',
       itemIconId: row.iconId != null ? Number(row.iconId) : null,
       charges: quantity,
-      bagSlots: row.bagslots != null ? Number(row.bagslots) : null
+      bagSlots: row.bagslots != null ? Number(row.bagslots) : null,
+      augSlot1: row.augslot1 != null && row.augslot1 > 0 ? Number(row.augslot1) : null,
+      augSlot2: row.augslot2 != null && row.augslot2 > 0 ? Number(row.augslot2) : null,
+      augSlot3: row.augslot3 != null && row.augslot3 > 0 ? Number(row.augslot3) : null,
+      augSlot4: row.augslot4 != null && row.augslot4 > 0 ? Number(row.augslot4) : null,
+      augSlot5: row.augslot5 != null && row.augslot5 > 0 ? Number(row.augslot5) : null,
+      augSlot6: row.augslot6 != null && row.augslot6 > 0 ? Number(row.augslot6) : null
     });
   }
 

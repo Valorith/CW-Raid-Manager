@@ -6,6 +6,13 @@ export interface TooltipItem {
   itemId: number;
   itemName: string;
   itemIconId?: number | null;
+  // Augment item IDs socketed in this item
+  augSlot1?: number | null;
+  augSlot2?: number | null;
+  augSlot3?: number | null;
+  augSlot4?: number | null;
+  augSlot5?: number | null;
+  augSlot6?: number | null;
 }
 
 export interface TooltipPosition {
@@ -19,6 +26,12 @@ interface CachedItemStats {
   fetchedAt: number;
 }
 
+export interface AugmentInfo {
+  slotIndex: number;
+  itemId: number;
+  stats: ItemStats;
+}
+
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export const useItemTooltipStore = defineStore('itemTooltip', () => {
@@ -30,6 +43,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
   const error = ref<string | null>(null);
   const itemStats = ref<ItemStats | null>(null);
   const spellNames = ref<Record<number, string>>({});
+  const augmentStats = ref<AugmentInfo[]>([]);
 
   // Cache
   const statsCache = new Map<number, CachedItemStats>();
@@ -56,6 +70,16 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     position.value = pos;
     visible.value = true;
     error.value = null;
+    augmentStats.value = [];
+
+    // Collect augment IDs
+    const augmentIds: { slotIndex: number; itemId: number }[] = [];
+    if (item.augSlot1 && item.augSlot1 > 0) augmentIds.push({ slotIndex: 1, itemId: item.augSlot1 });
+    if (item.augSlot2 && item.augSlot2 > 0) augmentIds.push({ slotIndex: 2, itemId: item.augSlot2 });
+    if (item.augSlot3 && item.augSlot3 > 0) augmentIds.push({ slotIndex: 3, itemId: item.augSlot3 });
+    if (item.augSlot4 && item.augSlot4 > 0) augmentIds.push({ slotIndex: 4, itemId: item.augSlot4 });
+    if (item.augSlot5 && item.augSlot5 > 0) augmentIds.push({ slotIndex: 5, itemId: item.augSlot5 });
+    if (item.augSlot6 && item.augSlot6 > 0) augmentIds.push({ slotIndex: 6, itemId: item.augSlot6 });
 
     // Check cache first
     if (isCacheValid(item.itemId)) {
@@ -63,6 +87,9 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
       itemStats.value = cached.stats;
       spellNames.value = cached.spellNames;
       loading.value = false;
+
+      // Load augment stats from cache or fetch
+      await loadAugmentStats(augmentIds);
       return;
     }
 
@@ -79,6 +106,9 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
         spellNames: response.spellNames,
         fetchedAt: Date.now()
       });
+
+      // Load augment stats
+      await loadAugmentStats(augmentIds);
     } catch (err) {
       console.error('Failed to fetch item stats:', err);
       error.value = 'Failed to load item stats';
@@ -87,6 +117,67 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     } finally {
       loading.value = false;
     }
+  }
+
+  /**
+   * Load augment stats from cache or fetch from server.
+   */
+  async function loadAugmentStats(augments: { slotIndex: number; itemId: number }[]) {
+    if (augments.length === 0) return;
+
+    const augInfos: AugmentInfo[] = [];
+    const uncachedAugments: { slotIndex: number; itemId: number }[] = [];
+
+    // Check cache for each augment
+    for (const aug of augments) {
+      if (isCacheValid(aug.itemId)) {
+        const cached = statsCache.get(aug.itemId)!;
+        augInfos.push({
+          slotIndex: aug.slotIndex,
+          itemId: aug.itemId,
+          stats: cached.stats
+        });
+        // Merge spell names
+        Object.assign(spellNames.value, cached.spellNames);
+      } else {
+        uncachedAugments.push(aug);
+      }
+    }
+
+    // Fetch uncached augments
+    if (uncachedAugments.length > 0) {
+      try {
+        const augItemIds = uncachedAugments.map(a => a.itemId);
+        const response = await api.fetchItemStatsBatch(augItemIds);
+        const now = Date.now();
+
+        // Cache and add to results
+        for (const aug of uncachedAugments) {
+          const stats = response.items[aug.itemId];
+          if (stats) {
+            statsCache.set(aug.itemId, {
+              stats,
+              spellNames: response.spellNames,
+              fetchedAt: now
+            });
+            augInfos.push({
+              slotIndex: aug.slotIndex,
+              itemId: aug.itemId,
+              stats
+            });
+          }
+        }
+
+        // Merge spell names
+        Object.assign(spellNames.value, response.spellNames);
+      } catch (err) {
+        console.error('Failed to fetch augment stats:', err);
+      }
+    }
+
+    // Sort by slot index and update state
+    augInfos.sort((a, b) => a.slotIndex - b.slotIndex);
+    augmentStats.value = augInfos;
   }
 
   /**
@@ -104,6 +195,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     currentItem.value = null;
     itemStats.value = null;
     spellNames.value = {};
+    augmentStats.value = [];
     error.value = null;
   }
 
@@ -147,6 +239,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     error,
     itemStats,
     spellNames,
+    augmentStats,
 
     // Computed
     isVisible,

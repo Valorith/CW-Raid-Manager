@@ -559,7 +559,13 @@ function showItemTooltip(event: MouseEvent, item: GuildBankItem | null | undefin
     {
       itemId: item.itemId,
       itemName: item.itemName,
-      itemIconId: item.itemIconId
+      itemIconId: item.itemIconId,
+      augSlot1: item.augSlot1,
+      augSlot2: item.augSlot2,
+      augSlot3: item.augSlot3,
+      augSlot4: item.augSlot4,
+      augSlot5: item.augSlot5,
+      augSlot6: item.augSlot6
     },
     { x: event.clientX, y: event.clientY }
   );

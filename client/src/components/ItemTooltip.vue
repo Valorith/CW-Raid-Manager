@@ -161,6 +161,32 @@
           <span v-if="store.itemStats.reclevel > 0" class="item-tooltip__rec">Rec Lvl: {{ store.itemStats.reclevel }}</span>
         </div>
 
+        <!-- Socketed Augments -->
+        <div v-if="store.augmentStats.length > 0" class="item-tooltip__section item-tooltip__augments">
+          <div class="item-tooltip__augments-header">Augments</div>
+          <div
+            v-for="aug in store.augmentStats"
+            :key="aug.slotIndex"
+            class="item-tooltip__augment"
+          >
+            <img
+              v-if="aug.stats.icon"
+              :src="getLootIconSrc(aug.stats.icon)"
+              class="item-tooltip__augment-icon"
+              alt=""
+            />
+            <div class="item-tooltip__augment-info">
+              <div class="item-tooltip__augment-name">{{ aug.stats.name }}</div>
+              <div class="item-tooltip__augment-stats">
+                {{ formatAugmentStats(aug.stats) }}
+              </div>
+              <div v-if="getAugmentEffect(aug.stats)" class="item-tooltip__augment-effect">
+                {{ getAugmentEffect(aug.stats) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Class/Race & Weight Footer -->
         <div class="item-tooltip__footer">
           <div v-if="classText" class="item-tooltip__classes">Class: {{ classText }}</div>
@@ -175,6 +201,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useItemTooltipStore } from '../stores/itemTooltip';
+import { getLootIconSrc } from '../utils/itemIcons';
 
 const store = useItemTooltipStore();
 
@@ -522,6 +549,70 @@ function formatNumber(value: number): string {
 function getSpellName(spellId: number): string {
   return store.spellNames[spellId] || `Unknown Spell (${spellId})`;
 }
+
+/**
+ * Format key stats from an augment for compact display.
+ */
+function formatAugmentStats(stats: import('../services/api').ItemStats): string {
+  const parts: string[] = [];
+
+  // Base stats
+  if (stats.astr !== 0) parts.push(`STR ${formatStat(stats.astr)}`);
+  if (stats.asta !== 0) parts.push(`STA ${formatStat(stats.asta)}`);
+  if (stats.aagi !== 0) parts.push(`AGI ${formatStat(stats.aagi)}`);
+  if (stats.adex !== 0) parts.push(`DEX ${formatStat(stats.adex)}`);
+  if (stats.awis !== 0) parts.push(`WIS ${formatStat(stats.awis)}`);
+  if (stats.aint !== 0) parts.push(`INT ${formatStat(stats.aint)}`);
+  if (stats.acha !== 0) parts.push(`CHA ${formatStat(stats.acha)}`);
+
+  // Resources
+  if (stats.hp !== 0) parts.push(`HP ${formatStat(stats.hp)}`);
+  if (stats.mana !== 0) parts.push(`Mana ${formatStat(stats.mana)}`);
+  if (stats.endur !== 0) parts.push(`End ${formatStat(stats.endur)}`);
+
+  // AC
+  if (stats.ac > 0) parts.push(`AC +${stats.ac}`);
+
+  // Combat stats
+  if (stats.attack > 0) parts.push(`Atk +${stats.attack}`);
+  if (stats.haste > 0) parts.push(`Haste ${stats.haste}%`);
+  if (stats.damage > 0) parts.push(`Dmg +${stats.damage}`);
+  if (stats.spelldmg > 0) parts.push(`Spell Dmg +${stats.spelldmg}`);
+  if (stats.healamt > 0) parts.push(`Heal +${stats.healamt}`);
+
+  // Regen stats
+  if (stats.regen > 0) parts.push(`HP Regen +${stats.regen}`);
+  if (stats.manaregen > 0) parts.push(`Mana Regen +${stats.manaregen}`);
+  if (stats.enduranceregen > 0) parts.push(`End Regen +${stats.enduranceregen}`);
+
+  // Resistances (only if significant)
+  if (stats.fr > 0) parts.push(`FR +${stats.fr}`);
+  if (stats.cr > 0) parts.push(`CR +${stats.cr}`);
+  if (stats.mr > 0) parts.push(`MR +${stats.mr}`);
+  if (stats.dr > 0) parts.push(`DR +${stats.dr}`);
+  if (stats.pr > 0) parts.push(`PR +${stats.pr}`);
+
+  return parts.join(', ');
+}
+
+/**
+ * Get the primary effect from an augment (worn, focus, etc.).
+ */
+function getAugmentEffect(stats: import('../services/api').ItemStats): string | null {
+  if (stats.worneffect > 0) {
+    return `Worn: ${getSpellName(stats.worneffect)}`;
+  }
+  if (stats.focuseffect > 0) {
+    return `Focus: ${getSpellName(stats.focuseffect)}`;
+  }
+  if (stats.clickeffect > 0) {
+    return `Click: ${getSpellName(stats.clickeffect)}`;
+  }
+  if (stats.proceffect > 0) {
+    return `Proc: ${getSpellName(stats.proceffect)}`;
+  }
+  return null;
+}
 </script>
 
 <style scoped>
@@ -768,5 +859,72 @@ function getSpellName(spellId: number): string {
 .item-tooltip__weight {
   font-size: 11px;
   color: #64748b;
+}
+
+/* Augments Section */
+.item-tooltip__augments {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding-top: 8px;
+}
+
+.item-tooltip__augments-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #a78bfa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.item-tooltip__augment {
+  display: flex;
+  gap: 8px;
+  padding: 6px;
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.item-tooltip__augment:last-child {
+  margin-bottom: 0;
+}
+
+.item-tooltip__augment-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  background: #0f172a;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.item-tooltip__augment-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-tooltip__augment-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-tooltip__augment-stats {
+  font-size: 10px;
+  color: #94a3b8;
+  line-height: 1.3;
+}
+
+.item-tooltip__augment-effect {
+  font-size: 10px;
+  color: #a5b4fc;
+  font-style: italic;
 }
 </style>

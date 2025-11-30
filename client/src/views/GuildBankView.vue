@@ -611,10 +611,30 @@ const tooltipStore = useItemTooltipStore();
 const guildId = computed(() => route.params.guildId as string);
 
 // Tooltip handlers for item icons
-function showItemTooltip(event: MouseEvent, item: { itemId?: number | null; itemName: string; itemIconId?: number | null }) {
+function showItemTooltip(event: MouseEvent, item: {
+  itemId?: number | null;
+  itemName: string;
+  itemIconId?: number | null;
+  augSlot1?: number | null;
+  augSlot2?: number | null;
+  augSlot3?: number | null;
+  augSlot4?: number | null;
+  augSlot5?: number | null;
+  augSlot6?: number | null;
+}) {
   if (!item.itemId) return;
   tooltipStore.showTooltip(
-    { itemId: item.itemId, itemName: item.itemName, itemIconId: item.itemIconId ?? null },
+    {
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemIconId: item.itemIconId ?? null,
+      augSlot1: item.augSlot1,
+      augSlot2: item.augSlot2,
+      augSlot3: item.augSlot3,
+      augSlot4: item.augSlot4,
+      augSlot5: item.augSlot5,
+      augSlot6: item.augSlot6
+    },
     { x: event.clientX, y: event.clientY }
   );
 }
