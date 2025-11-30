@@ -22,7 +22,9 @@
 
         <!-- Item Flags -->
         <div v-if="itemFlags.length > 0" class="item-tooltip__flags">
-          {{ itemFlags.join(' ') }}
+          <span v-for="(flag, index) in itemFlags" :key="flag" class="item-tooltip__flag">
+            {{ flag }}<span v-if="index < itemFlags.length - 1" class="item-tooltip__flag-separator">•</span>
+          </span>
         </div>
 
         <!-- Slot & AC Row -->
@@ -685,6 +687,12 @@ function getAugmentEffect(stats: import('../services/api').ItemStats): string | 
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 4px;
+}
+
+.item-tooltip__flag-separator {
+  margin: 0 6px;
+  color: #64748b;
+  font-weight: 400;
 }
 
 /* Row for inline items */
