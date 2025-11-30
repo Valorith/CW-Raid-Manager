@@ -4051,10 +4051,6 @@ function getNodeItemId(node: QuestNodeViewModel | EditableNode | null | undefine
   if (!node || !node.requirements) {
     return null;
   }
-  // Only show item links for DELIVER and LOOT node types
-  if (node.nodeType !== 'DELIVER' && node.nodeType !== 'LOOT') {
-    return null;
-  }
   const req = node.requirements as Record<string, unknown>;
   // Check explicit itemId fields first, then check if itemName/targetName contains a numeric ID
   const candidates = [req.itemId, req.item_id, req.itemID, req.itemName, req.targetName];
