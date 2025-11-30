@@ -43,14 +43,15 @@
                             class="eq-slot-wrapper"
                             :style="{ gridRow: slot.row, gridColumn: slot.col }"
                           >
-                            <div 
+                            <div
                               class="eq-slot eq-slot--worn"
                               :class="[
                                 `eq-slot--${slot.key}`,
                                 { 'eq-slot--active': isSlotHighlighted(slot.slotId) }
                               ]"
-
-                              :title="getWornItem(slot.slotId)?.itemName || slot.label"
+                              @mouseenter="showItemTooltip($event, getWornItem(slot.slotId))"
+                              @mousemove="updateTooltipPosition($event)"
+                              @mouseleave="hideItemTooltip"
                               @contextmenu.stop.prevent="openContextMenu($event, getWornItem(slot.slotId))"
                             >
                               <img
@@ -69,16 +70,18 @@
                       <!-- General Inventory Grid (2x5) -->
                       <div class="eq-general-container">
                         <div class="eq-general-grid">
-                          <div 
-                            v-for="slot in generalSlotsUi" 
+                          <div
+                            v-for="slot in generalSlotsUi"
                             :key="slot.slotId"
                             class="eq-inv-slot"
-                            :class="{ 
+                            :class="{
                               'eq-inv-slot--active': isSlotHighlighted(slot.slotId),
-                              'eq-inv-slot--selected': activeGeneralBagSlotId === slot.slotId 
+                              'eq-inv-slot--selected': activeGeneralBagSlotId === slot.slotId
                             }"
                             @click="toggleBag(slot.slotId, 'general')"
-                            :title="getGeneralItem(slot.slotId)?.itemName || slot.label"
+                            @mouseenter="showItemTooltip($event, getGeneralItem(slot.slotId))"
+                            @mousemove="updateTooltipPosition($event)"
+                            @mouseleave="hideItemTooltip"
                             @contextmenu.stop.prevent="openContextMenu($event, getGeneralItem(slot.slotId))"
                           >
                             <div class="eq-inv-slot__inner">
@@ -103,12 +106,14 @@
                         {{ getGeneralItem(activeGeneralBagSlotId)?.itemName || 'Bag' }}
                       </div>
                       <div class="eq-bag-grid">
-                        <div 
-                          v-for="bagSlot in getBagContents(activeGeneralBagSlotId)" 
+                        <div
+                          v-for="bagSlot in getBagContents(activeGeneralBagSlotId)"
                           :key="bagSlot.bagSlotIndex"
                           class="eq-bag-slot"
                           :class="{ 'eq-bag-slot--active': isBagSlotHighlighted(activeGeneralBagSlotId, bagSlot.bagSlotIndex) }"
-                          :title="bagSlot.item?.itemName"
+                          @mouseenter="showItemTooltip($event, bagSlot.item)"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
                           @contextmenu.stop.prevent="openContextMenu($event, bagSlot.item)"
                         >
                            <div class="eq-bag-slot__inner">
@@ -144,15 +149,18 @@
                     <section class="inventory-visual__panel inventory-visual__panel--bank">
                       <div class="eq-panel__header">Bank Slots</div>
                       <div class="eq-bank-grid">
-                        <div 
-                          v-for="slot in bankSlotsUi" 
+                        <div
+                          v-for="slot in bankSlotsUi"
                           :key="slot.slotId"
                           class="eq-inv-slot eq-inv-slot--bank"
-                          :class="{ 
+                          :class="{
                             'eq-inv-slot--active': isSlotHighlighted(slot.slotId),
                             'eq-inv-slot--selected': activeBankBagSlotId === slot.slotId
                           }"
                           @click="toggleBag(slot.slotId, 'bank')"
+                          @mouseenter="showItemTooltip($event, getBankItem(slot.slotId))"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
                           @contextmenu.stop.prevent="openContextMenu($event, getBankItem(slot.slotId))"
                         >
                           <div class="eq-inv-slot__inner">
@@ -176,12 +184,14 @@
                         {{ getBankItem(activeBankBagSlotId)?.itemName || 'Bank Bag' }}
                       </div>
                       <div class="eq-bag-grid">
-                        <div 
-                          v-for="bagSlot in getBagContents(activeBankBagSlotId)" 
+                        <div
+                          v-for="bagSlot in getBagContents(activeBankBagSlotId)"
                           :key="bagSlot.bagSlotIndex"
                           class="eq-bag-slot"
                           :class="{ 'eq-bag-slot--active': isBagSlotHighlighted(activeBankBagSlotId, bagSlot.bagSlotIndex) }"
-                          :title="bagSlot.item?.itemName"
+                          @mouseenter="showItemTooltip($event, bagSlot.item)"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
                           @contextmenu.stop.prevent="openContextMenu($event, bagSlot.item)"
                         >
                            <div class="eq-bag-slot__inner">
@@ -260,6 +270,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useGuildBankStore } from '../stores/guildBank';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import type { GuildBankItem, CharacterClass } from '../services/api';
 import { getLootIconSrc } from '../utils/itemIcons';
 import {
@@ -272,6 +283,7 @@ import {
 } from '../utils/inventory';
 
 const store = useGuildBankStore();
+const tooltipStore = useItemTooltipStore();
 
 const close = () => {
   store.closeModal();
@@ -538,6 +550,28 @@ watch(() => contextMenu.value.visible, (visible) => {
     window.removeEventListener('click', closeContextMenu);
   }
 });
+
+// Item tooltip handlers
+function showItemTooltip(event: MouseEvent, item: GuildBankItem | null | undefined) {
+  if (!item || !item.itemId) return;
+
+  tooltipStore.showTooltip(
+    {
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemIconId: item.itemIconId
+    },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
+}
 
 </script>
 
