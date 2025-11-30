@@ -436,16 +436,20 @@
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node) || getNodeItemId(node)" class="quest-node__target">
+                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
                   Target / Item:
-                  <a
-                    v-if="getNodeItemId(node)"
-                    :href="buildAllaItemUrl(getNodeItemId(node)!)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="quest-node__item-link"
-                    @click.stop
-                  >{{ getNodeItemDisplayLabel(node) }}</a>
+                  <template v-if="hasNodeItemIds(node)">
+                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
+                      <span v-if="idx > 0">, </span>
+                      <a
+                        :href="itemLink.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="quest-node__item-link"
+                        @click.stop
+                      >{{ itemLink.label }}</a>
+                    </template>
+                  </template>
                   <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
@@ -680,16 +684,20 @@
                   <span class="quest-node__handle" title="Drag to move">⇲</span>
                 </header>
                   <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node) || getNodeItemId(node)" class="quest-node__target">
+                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
                   Target / Item:
-                  <a
-                    v-if="getNodeItemId(node)"
-                    :href="buildAllaItemUrl(getNodeItemId(node)!)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="quest-node__item-link"
-                    @click.stop
-                  >{{ getNodeItemDisplayLabel(node) }}</a>
+                  <template v-if="hasNodeItemIds(node)">
+                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
+                      <span v-if="idx > 0">, </span>
+                      <a
+                        :href="itemLink.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="quest-node__item-link"
+                        @click.stop
+                      >{{ itemLink.label }}</a>
+                    </template>
+                  </template>
                   <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
@@ -4047,48 +4055,65 @@ function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | unde
   return targetName || itemName || null;
 }
 
-function getNodeItemId(node: QuestNodeViewModel | EditableNode | null | undefined): number | null {
+function getNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefined): number[] {
   if (!node || !node.requirements) {
-    return null;
+    return [];
   }
   const req = node.requirements as Record<string, unknown>;
-  // Check explicit itemId fields first, then check if itemName/targetName contains a numeric ID
+  const itemIds: number[] = [];
+
+  // Check explicit itemId fields first, then check itemName/targetName
   const candidates = [req.itemId, req.item_id, req.itemID, req.itemName, req.targetName];
   for (const entry of candidates) {
     if (typeof entry === 'number' && entry > 0) {
-      return entry;
+      itemIds.push(entry);
+      break; // Found a numeric field, use it
     }
     if (typeof entry === 'string') {
       const trimmed = entry.trim();
-      // Only treat as ID if it's purely numeric
-      if (/^\d+$/.test(trimmed)) {
-        const parsed = Number.parseInt(trimmed, 10);
-        if (!Number.isNaN(parsed) && parsed > 0) {
-          return parsed;
+      // Check if it's a comma-separated list of IDs
+      const parts = trimmed.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0);
+      const allNumeric = parts.length > 0 && parts.every(p => /^\d+$/.test(p));
+      if (allNumeric) {
+        for (const part of parts) {
+          const parsed = Number.parseInt(part, 10);
+          if (!Number.isNaN(parsed) && parsed > 0) {
+            itemIds.push(parsed);
+          }
+        }
+        if (itemIds.length > 0) {
+          break; // Found valid IDs, stop searching
         }
       }
     }
   }
-  return null;
+  return itemIds;
 }
 
 function buildAllaItemUrl(itemId: number): string {
   return `https://alla.clumsysworld.com/?a=item&id=${itemId}`;
 }
 
-function getNodeItemDisplayLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
-  const itemId = getNodeItemId(node);
-  if (itemId) {
-    // If we have an item ID, try to get the name from cache
+interface NodeItemLink {
+  itemId: number;
+  label: string;
+  url: string;
+}
+
+function getNodeItemLinks(node: QuestNodeViewModel | EditableNode | null | undefined): NodeItemLink[] {
+  const itemIds = getNodeItemIds(node);
+  return itemIds.map(itemId => {
     const cachedName = getItemNameFromCache(itemId);
-    if (cachedName) {
-      return cachedName;
-    }
-    // Fall back to showing the ID while loading
-    return `Item #${itemId}`;
-  }
-  // No item ID, use the regular label
-  return targetOrItemLabel(node);
+    return {
+      itemId,
+      label: cachedName || `Item #${itemId}`,
+      url: buildAllaItemUrl(itemId)
+    };
+  });
+}
+
+function hasNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefined): boolean {
+  return getNodeItemIds(node).length > 0;
 }
 
 function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
