@@ -436,7 +436,7 @@
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
+                <p v-if="targetOrItemLabel(node) || getNodeItemId(node)" class="quest-node__target">
                   Target / Item:
                   <a
                     v-if="getNodeItemId(node)"
@@ -445,7 +445,7 @@
                     rel="noopener noreferrer"
                     class="quest-node__item-link"
                     @click.stop
-                  >{{ targetOrItemLabel(node) }}</a>
+                  >{{ getNodeItemDisplayLabel(node) }}</a>
                   <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
@@ -680,7 +680,7 @@
                   <span class="quest-node__handle" title="Drag to move">⇲</span>
                 </header>
                   <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node)" class="quest-node__target">
+                <p v-if="targetOrItemLabel(node) || getNodeItemId(node)" class="quest-node__target">
                   Target / Item:
                   <a
                     v-if="getNodeItemId(node)"
@@ -689,7 +689,7 @@
                     rel="noopener noreferrer"
                     class="quest-node__item-link"
                     @click.stop
-                  >{{ targetOrItemLabel(node) }}</a>
+                  >{{ getNodeItemDisplayLabel(node) }}</a>
                   <template v-else>{{ targetOrItemLabel(node) }}</template>
                 </p>
                 <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
@@ -1492,6 +1492,43 @@ const metadataSaving = ref(false);
 const lastSavedAt = ref<string | null>(null);
 const lastSavedBy = ref<string>('Unknown member');
 const saveToast = reactive({ visible: false, message: '' });
+
+// Item name cache for quest node item links
+const itemNameCache = reactive(new Map<number, string>());
+const itemNameLoading = reactive(new Set<number>());
+
+async function fetchItemName(itemId: number): Promise<string | null> {
+  if (itemNameCache.has(itemId)) {
+    return itemNameCache.get(itemId) ?? null;
+  }
+  if (itemNameLoading.has(itemId)) {
+    return null;
+  }
+  itemNameLoading.add(itemId);
+  try {
+    const response = await api.fetchItemStats(itemId);
+    if (response.item?.name) {
+      itemNameCache.set(itemId, response.item.name);
+      return response.item.name;
+    }
+  } catch {
+    // Item not found or error - cache empty string to avoid re-fetching
+    itemNameCache.set(itemId, '');
+  } finally {
+    itemNameLoading.delete(itemId);
+  }
+  return null;
+}
+
+function getItemNameFromCache(itemId: number): string | null {
+  const cached = itemNameCache.get(itemId);
+  if (cached !== undefined) {
+    return cached || null;
+  }
+  // Trigger fetch if not in cache
+  fetchItemName(itemId);
+  return null;
+}
 const saveErrorModal = reactive({ open: false, message: '' });
 const showStepSettings = ref(false);
 const showBlueprintSettings = ref(false);
@@ -4019,15 +4056,20 @@ function getNodeItemId(node: QuestNodeViewModel | EditableNode | null | undefine
     return null;
   }
   const req = node.requirements as Record<string, unknown>;
-  const candidates = [req.itemId, req.item_id, req.itemID];
+  // Check explicit itemId fields first, then check if itemName/targetName contains a numeric ID
+  const candidates = [req.itemId, req.item_id, req.itemID, req.itemName, req.targetName];
   for (const entry of candidates) {
     if (typeof entry === 'number' && entry > 0) {
       return entry;
     }
     if (typeof entry === 'string') {
-      const parsed = Number.parseInt(entry, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        return parsed;
+      const trimmed = entry.trim();
+      // Only treat as ID if it's purely numeric
+      if (/^\d+$/.test(trimmed)) {
+        const parsed = Number.parseInt(trimmed, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          return parsed;
+        }
       }
     }
   }
@@ -4036,6 +4078,21 @@ function getNodeItemId(node: QuestNodeViewModel | EditableNode | null | undefine
 
 function buildAllaItemUrl(itemId: number): string {
   return `https://alla.clumsysworld.com/?a=item&id=${itemId}`;
+}
+
+function getNodeItemDisplayLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
+  const itemId = getNodeItemId(node);
+  if (itemId) {
+    // If we have an item ID, try to get the name from cache
+    const cachedName = getItemNameFromCache(itemId);
+    if (cachedName) {
+      return cachedName;
+    }
+    // Fall back to showing the ID while loading
+    return `Item #${itemId}`;
+  }
+  // No item ID, use the regular label
+  return targetOrItemLabel(node);
 }
 
 function zoneLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
