@@ -413,6 +413,13 @@ const activeGeneralBagSlotId = ref<number | null>(null);
 const activeBankBagSlotId = ref<number | null>(null);
 
 function toggleBag(slotId: number, type: 'general' | 'bank') {
+  const item = type === 'general' ? getGeneralItem(slotId) : getBankItem(slotId);
+
+  // Only allow opening if it's a bag with slots
+  if (!item || !item.bagSlots || item.bagSlots <= 0) {
+    return;
+  }
+
   if (type === 'general') {
     if (activeGeneralBagSlotId.value === slotId) {
       activeGeneralBagSlotId.value = null;
