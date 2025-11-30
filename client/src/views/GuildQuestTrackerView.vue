@@ -2103,9 +2103,9 @@ const finalNodeIds = computed(() => {
   return set;
 });
 
-const viewerDisabledNodeIds = computed(() => {
+const canvasDisabledNodeIds = computed(() => {
   const set = new Set<string>();
-  viewerAssignment.value?.progress.forEach((record) => {
+  canvasAssignment.value?.progress.forEach((record) => {
     if (record.isDisabled) {
       set.add(record.nodeId);
     }
@@ -2114,7 +2114,7 @@ const viewerDisabledNodeIds = computed(() => {
 });
 
 function isNodeDisabled(nodeId: string) {
-  return viewerDisabledNodeIds.value.has(nodeId);
+  return canvasDisabledNodeIds.value.has(nodeId);
 }
 
 function isNodeFinal(nodeId: string) {
@@ -3372,7 +3372,7 @@ function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>, 
     if (newlyCompleted.has(childId)) {
       return true;
     }
-    return viewerProgressMap.value.get(childId) === 'COMPLETED';
+    return canvasProgressMap.value.get(childId) === 'COMPLETED';
   });
 }
 
@@ -3405,7 +3405,7 @@ function formatGroupProgress(nodeId: string, progress: QuestNodeProgress[] | und
 }
 
 function groupProgressMeta(nodeId: string, mode: 'editor' | 'viewer') {
-  const progress = mode === 'viewer' ? viewerAssignment.value?.progress : undefined;
+  const progress = mode === 'viewer' ? canvasAssignment.value?.progress : undefined;
   const { completed, total } = getGroupProgress(nodeId, progress, mode);
   return {
     completed,
