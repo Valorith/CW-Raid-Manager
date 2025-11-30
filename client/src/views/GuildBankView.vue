@@ -1397,13 +1397,16 @@ function syncSelectionWithSnapshot() {
   }
   const prevGuild = new Set(selectedGuild.value);
   const prevPersonal = new Set(selectedPersonal.value);
-  // Default (first load or no manual changes): enable guild characters only.
+  // Default (first load or no manual changes): enable all characters.
   if (!hasUserSelection.value && prevGuild.size === 0 && prevPersonal.size === 0) {
-    const defaults = snapshot.value.characters
+    const guildDefaults = snapshot.value.characters
       .filter((entry) => !toBooleanFlag(entry.isPersonal))
       .map((entry) => entry.name.toLowerCase());
-    selectedGuild.value = new Set(defaults);
-    selectedPersonal.value = new Set();
+    const personalDefaults = snapshot.value.characters
+      .filter((entry) => toBooleanFlag(entry.isPersonal))
+      .map((entry) => entry.name.toLowerCase());
+    selectedGuild.value = new Set(guildDefaults);
+    selectedPersonal.value = new Set(personalDefaults);
     return;
   }
 
