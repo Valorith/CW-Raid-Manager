@@ -4045,6 +4045,7 @@ const guildNodePinsById = computed(() => {
   }
   const nodeIndex = new Map(nodes.map((node) => [node.id, node]));
   const parents = parentNodeMap.value;
+  const children = childNodeMap.value;
   for (const assignment of guildAssignments.value) {
     if (!assignment.character) {
       continue;
@@ -4052,8 +4053,8 @@ const guildNodePinsById = computed(() => {
     if (assignment.status === 'COMPLETED' || assignment.status === 'CANCELLED') {
       continue;
     }
-    const nextNodeId = findNextNodeIdForAssignment(assignment, nodes, nodeIndex, parents);
-    if (!nextNodeId) {
+    const nextNodeIds = findNextNodeIdsForAssignment(assignment, nodes, nodeIndex, parents, children);
+    if (!nextNodeIds.length) {
       continue;
     }
     const classLabel = characterClassLabels[assignment.character.class] ?? assignment.character.class;
@@ -4063,17 +4064,19 @@ const guildNodePinsById = computed(() => {
     }
     const icon = getCharacterClassIcon(assignment.character.class);
     const fallback = assignment.character.class?.[0] ?? assignment.character.name[0] ?? '?';
-    const entry = map.get(nextNodeId) ?? [];
-    entry.push({
-      assignmentId: assignment.id,
-      characterName: assignment.character.name,
-      classLabel,
-      icon,
-      fallback,
-      tooltip: tooltipParts.join(' ')
-    });
-    entry.sort((a, b) => a.characterName.localeCompare(b.characterName));
-    map.set(nextNodeId, entry);
+    for (const nextNodeId of nextNodeIds) {
+      const entry = map.get(nextNodeId) ?? [];
+      entry.push({
+        assignmentId: assignment.id,
+        characterName: assignment.character.name,
+        classLabel,
+        icon,
+        fallback,
+        tooltip: tooltipParts.join(' ')
+      });
+      entry.sort((a, b) => a.characterName.localeCompare(b.characterName));
+      map.set(nextNodeId, entry);
+    }
   }
   return map;
 });
@@ -4133,26 +4136,100 @@ function prevGuildPinPage() {
   }
 }
 
-function findNextNodeIdForAssignment(
+function findNextNodeIdsForAssignment(
   assignment: QuestAssignment,
   nodes: QuestNodeViewModel[],
   nodeIndex: Map<string, QuestNodeViewModel>,
-  parents: Map<string, NodeAdjacencyEntry[]>
-): string | null {
+  parents: Map<string, NodeAdjacencyEntry[]>,
+  children: Map<string, NodeAdjacencyEntry[]>
+): string[] {
   const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-  for (const node of nodes) {
-    if (node.isOptional) {
-      continue;
+
+  const isNodeActionable = (nodeId: string): boolean => {
+    const node = nodeIndex.get(nodeId);
+    if (!node || node.isOptional) {
+      return false;
     }
-    const progressRecord = progressMap.get(node.id);
+    const progressRecord = progressMap.get(nodeId);
     if (progressRecord?.isDisabled) {
+      return false;
+    }
+    if (progressRecord?.status === 'COMPLETED') {
+      return false;
+    }
+    return true;
+  };
+
+  const areRequiredParentsComplete = (nodeId: string): boolean => {
+    const parentEntries = parents.get(nodeId) ?? [];
+    if (parentEntries.length === 0) {
+      return true;
+    }
+    for (const entry of parentEntries) {
+      if (entry.isNextStep) {
+        continue;
+      }
+      if (entry.isOptional) {
+        continue;
+      }
+      const parentProgress = progressMap.get(entry.nodeId);
+      if (!parentProgress || parentProgress.status !== 'COMPLETED') {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const frontierNodeIds: string[] = [];
+  for (const node of nodes) {
+    if (!isNodeActionable(node.id)) {
       continue;
     }
-    if (!progressRecord || progressRecord.status !== 'COMPLETED') {
-      return resolveGroupPinTarget(node.id, nodeIndex, parents);
+    if (!areRequiredParentsComplete(node.id)) {
+      continue;
+    }
+    frontierNodeIds.push(node.id);
+  }
+
+  if (frontierNodeIds.length === 0) {
+    return [];
+  }
+
+  // Group frontier nodes by their group parent (if any)
+  const groupedByParent = new Map<string | null, string[]>();
+  for (const nodeId of frontierNodeIds) {
+    const node = nodeIndex.get(nodeId);
+    if (node?.isGroup) {
+      // Group nodes show pins on themselves
+      const list = groupedByParent.get(nodeId) ?? [];
+      list.push(nodeId);
+      groupedByParent.set(nodeId, list);
+      continue;
+    }
+    const parentEntries = parents.get(nodeId) ?? [];
+    const groupParent = parentEntries.find((entry) => Boolean(nodeIndex.get(entry.nodeId)?.isGroup));
+    const groupKey = groupParent?.nodeId ?? null;
+    const list = groupedByParent.get(groupKey) ?? [];
+    list.push(nodeId);
+    groupedByParent.set(groupKey, list);
+  }
+
+  const resolvedIds = new Set<string>();
+  for (const [groupParentId, nodeIds] of groupedByParent) {
+    if (groupParentId === null) {
+      // Nodes without a group parent - show pins on the nodes themselves
+      nodeIds.forEach((id) => resolvedIds.add(id));
+    } else if (nodeIds.length === 1 && !nodeIndex.get(nodeIds[0])?.isGroup) {
+      // Single child under a group - roll up to the group parent
+      resolvedIds.add(groupParentId);
+    } else {
+      // Multiple children under the same group (fork) OR the node is itself a group
+      // Show pins on each individual branch to indicate all branches need completion
+      nodeIds.forEach((id) => resolvedIds.add(id));
     }
   }
-  return null;
+
+  return Array.from(resolvedIds);
 }
 
 function resolveGroupPinTarget(
