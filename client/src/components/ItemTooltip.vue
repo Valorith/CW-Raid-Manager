@@ -227,43 +227,34 @@ function handleMouseLeave() {
   store.hideTooltip();
 }
 
-// Position the tooltip near the cursor, adjusting for screen edges
+// Position the tooltip with top-left anchored to cursor, never extending below viewport
 const tooltipStyle = computed(() => {
-  const padding = 15;
+  const edgePadding = 10; // Small padding from viewport edges
   const tooltipWidth = 380;
-  const tooltipMaxHeight = 450; // Estimated max height for positioning calculation
 
-  let x = store.position.x + padding;
-  let y = store.position.y + padding;
+  // Anchor top-left to cursor position
+  let x = store.position.x;
+  let y = store.position.y;
 
-  // Adjust if tooltip would go off right edge
-  if (x + tooltipWidth > window.innerWidth - padding) {
-    x = store.position.x - tooltipWidth - padding;
+  // Adjust if tooltip would go off right edge - flip to left of cursor
+  if (x + tooltipWidth > window.innerWidth - edgePadding) {
+    x = store.position.x - tooltipWidth;
   }
 
   // Ensure tooltip doesn't go off left edge
-  if (x < padding) {
-    x = padding;
+  if (x < edgePadding) {
+    x = edgePadding;
   }
 
-  // Calculate the maximum y that keeps tooltip bottom within viewport
-  const maxY = window.innerHeight - tooltipMaxHeight - padding;
-
-  // If tooltip would extend below viewport, shift it up just enough
-  if (y > maxY) {
-    y = maxY;
-  }
-
-  // Ensure tooltip doesn't go above viewport top
-  if (y < padding) {
-    y = padding;
-  }
+  // Calculate available height from cursor position to bottom of viewport
+  // This ensures the tooltip never extends below the viewport
+  const availableHeight = window.innerHeight - y - edgePadding;
 
   return {
     left: `${x}px`,
     top: `${y}px`,
     bottom: 'auto',
-    maxHeight: `${window.innerHeight - y - padding}px`
+    maxHeight: `${Math.max(availableHeight, 100)}px` // Minimum 100px to ensure some content is visible
   };
 });
 
