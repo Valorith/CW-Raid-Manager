@@ -305,6 +305,25 @@
               </button>
             </div>
             <div class="quest-detail__actions">
+              <button
+                v-if="viewerAssignment"
+                class="btn btn--outline btn--small quest-share-btn"
+                type="button"
+                @click="copyQuestShareLink"
+                title="Copy share link"
+              >
+                <svg class="quest-share-btn__icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path
+                    d="M13 7a3 3 0 11-1.146 5.77L8.91 14.243a3 3 0 11-.764-.764l2.973-1.473A3 3 0 0113 7zm-6 4a1 1 0 100 2 1 1 0 000-2zm6-6a1 1 0 100 2 1 1 0 000-2z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M11.854 12.146a.5.5 0 010 .708l-3 3a.5.5 0 01-.708-.708l3-3a.5.5 0 01.708 0z"
+                    fill="currentColor"
+                  />
+                </svg>
+                Share
+              </button>
               <template v-if="!isViewingGuildAssignment">
                 <button
                   v-if="viewerAssignment && viewerAssignment.status !== 'COMPLETED'"
@@ -527,29 +546,14 @@
           </div>
           <div v-if="!isGuildView && viewerAssignment" class="quest-overview__footer">
             <p class="quest-overview__hint">Right-click any quest step to update its status.</p>
-            <div class="quest-overview__footer-actions">
-              <button class="btn btn--outline quest-share-btn" type="button" @click="copyQuestShareLink">
-                <svg class="quest-share-btn__icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                  <path
-                    d="M13 7a3 3 0 11-1.146 5.77L8.91 14.243a3 3 0 11-.764-.764l2.973-1.473A3 3 0 0113 7zm-6 4a1 1 0 100 2 1 1 0 000-2zm6-6a1 1 0 100 2 1 1 0 000-2z"
-                    fill="currentColor"
-                  />
-                  <path
-                    d="M11.854 12.146a.5.5 0 010 .708l-3 3a.5.5 0 01-.708-.708l3-3a.5.5 0 01.708 0z"
-                    fill="currentColor"
-                  />
-                </svg>
-                Share
-              </button>
-              <div class="quest-overview__legend">
-                <img
-                  class="quest-overview__legend-icon"
-                  src="/icons/checkered-flag.svg"
-                  alt=""
-                  aria-hidden="true"
-                />
-                <span class="quest-overview__legend-label">Quest Complete</span>
-              </div>
+            <div class="quest-overview__legend">
+              <img
+                class="quest-overview__legend-icon"
+                src="/icons/checkered-flag.svg"
+                alt=""
+                aria-hidden="true"
+              />
+              <span class="quest-overview__legend-label">Quest Complete</span>
             </div>
           </div>
           <div v-else-if="isGuildView" class="quest-guild-legend">
@@ -8147,6 +8151,7 @@ onUnmounted(() => {
 }
 
 .quest-overview__legend {
+  margin-top: 0.75rem;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -8165,24 +8170,15 @@ onUnmounted(() => {
   filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.6));
 }
 
-.quest-overview__footer-actions {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-}
-
 .quest-share-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  padding: 0.5rem 0.85rem;
+  gap: 0.35rem;
 }
 
 .quest-share-btn__icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
