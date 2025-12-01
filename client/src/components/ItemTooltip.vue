@@ -2,6 +2,7 @@
   <Teleport to="body">
     <div
       v-if="store.isVisible"
+      ref="tooltipRef"
       class="item-tooltip"
       :style="tooltipStyle"
       @mouseenter="handleMouseEnter"
@@ -209,11 +210,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import { getLootIconSrc } from '../utils/itemIcons';
 
 const store = useItemTooltipStore();
+
+// Template ref for measuring tooltip height
+const tooltipRef = ref<HTMLElement | null>(null);
+
+// Track measured tooltip height for positioning calculations
+const measuredHeight = ref(0);
 
 // Track if mouse is over tooltip (to prevent hiding while reading)
 const isMouseOverTooltip = ref(false);
@@ -227,7 +234,21 @@ function handleMouseLeave() {
   store.hideTooltip();
 }
 
-// Position the tooltip with top-left anchored to cursor, never extending below viewport
+// Measure tooltip height after content changes
+watch(
+  () => [store.isVisible, store.itemStats, store.augmentStats, store.loading],
+  async () => {
+    if (store.isVisible) {
+      await nextTick();
+      if (tooltipRef.value) {
+        measuredHeight.value = tooltipRef.value.scrollHeight;
+      }
+    }
+  },
+  { deep: true }
+);
+
+// Position the tooltip with top-left anchored to cursor, shifting up if it would exceed viewport
 const tooltipStyle = computed(() => {
   const edgePadding = 10; // Small padding from viewport edges
   const tooltipWidth = 380;
@@ -246,15 +267,24 @@ const tooltipStyle = computed(() => {
     x = edgePadding;
   }
 
-  // Calculate available height from cursor position to bottom of viewport
-  // This ensures the tooltip never extends below the viewport
-  const availableHeight = window.innerHeight - y - edgePadding;
+  // If tooltip would extend below viewport, anchor bottom to viewport bottom
+  const tooltipHeight = measuredHeight.value || 400; // Use measured height or fallback estimate
+  const tooltipBottom = y + tooltipHeight;
+  const viewportBottom = window.innerHeight - edgePadding;
+
+  if (tooltipBottom > viewportBottom) {
+    // Shift tooltip up so its bottom aligns with viewport bottom
+    y = viewportBottom - tooltipHeight;
+  }
+
+  // Ensure tooltip doesn't go above viewport top
+  if (y < edgePadding) {
+    y = edgePadding;
+  }
 
   return {
     left: `${x}px`,
-    top: `${y}px`,
-    bottom: 'auto',
-    maxHeight: `${Math.max(availableHeight, 100)}px` // Minimum 100px to ensure some content is visible
+    top: `${y}px`
   };
 });
 
