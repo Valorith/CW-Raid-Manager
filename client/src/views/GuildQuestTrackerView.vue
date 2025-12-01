@@ -527,14 +527,29 @@
           </div>
           <div v-if="!isGuildView && viewerAssignment" class="quest-overview__footer">
             <p class="quest-overview__hint">Right-click any quest step to update its status.</p>
-            <div class="quest-overview__legend">
-              <img
-                class="quest-overview__legend-icon"
-                src="/icons/checkered-flag.svg"
-                alt=""
-                aria-hidden="true"
-              />
-              <span class="quest-overview__legend-label">Quest Complete</span>
+            <div class="quest-overview__footer-actions">
+              <button class="btn btn--outline quest-share-btn" type="button" @click="copyQuestShareLink">
+                <svg class="quest-share-btn__icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path
+                    d="M13 7a3 3 0 11-1.146 5.77L8.91 14.243a3 3 0 11-.764-.764l2.973-1.473A3 3 0 0113 7zm-6 4a1 1 0 100 2 1 1 0 000-2zm6-6a1 1 0 100 2 1 1 0 000-2z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M11.854 12.146a.5.5 0 010 .708l-3 3a.5.5 0 01-.708-.708l3-3a.5.5 0 01.708 0z"
+                    fill="currentColor"
+                  />
+                </svg>
+                Share
+              </button>
+              <div class="quest-overview__legend">
+                <img
+                  class="quest-overview__legend-icon"
+                  src="/icons/checkered-flag.svg"
+                  alt=""
+                  aria-hidden="true"
+                />
+                <span class="quest-overview__legend-label">Quest Complete</span>
+              </div>
             </div>
           </div>
           <div v-else-if="isGuildView" class="quest-guild-legend">
@@ -1437,7 +1452,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 
@@ -1468,6 +1483,7 @@ import {
 import { extractErrorMessage } from '../utils/errors';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const tooltipStore = useItemTooltipStore();
 const guildId = route.params.guildId as string;
@@ -5121,7 +5137,12 @@ async function loadSummary(initial = false) {
     const data = await api.fetchQuestTracker(guildId);
     summary.value = data;
     if (initial && !selectedBlueprintId.value && data.blueprints.length) {
-      selectBlueprint(data.blueprints[0].id);
+      // Check for blueprintId query parameter from share link
+      const queryBlueprintId = typeof route.query.blueprintId === 'string' ? route.query.blueprintId : null;
+      const targetBlueprintId = queryBlueprintId && data.blueprints.some((bp) => bp.id === queryBlueprintId)
+        ? queryBlueprintId
+        : data.blueprints[0].id;
+      selectBlueprint(targetBlueprintId);
     }
   } catch (error) {
     summaryError.value = extractErrorMessage(error, 'Failed to load quest tracker.');
@@ -5156,6 +5177,12 @@ async function loadDetail(blueprintId: string) {
     requestEditorFit();
     await nextTick();
     alignViewerAssignmentToPendingCharacter(response.viewerAssignments ?? [], blueprintId);
+    // Handle assignmentId query parameter from share link
+    const queryAssignmentId = typeof route.query.assignmentId === 'string' ? route.query.assignmentId : null;
+    if (queryAssignmentId && response.guildAssignments?.some((a) => a.id === queryAssignmentId)) {
+      guildFocusAssignmentId.value = queryAssignmentId;
+      setTab('overview');
+    }
   } finally {
     loadingDetail.value = false;
   }
@@ -5361,6 +5388,41 @@ function showSaveToast(message: string) {
     saveToast.visible = false;
     toastTimer = null;
   }, 3000);
+}
+
+async function copyQuestShareLink() {
+  const blueprintId = selectedBlueprintId.value;
+  const assignmentId = viewerAssignmentId.value;
+  if (!blueprintId || !assignmentId) {
+    return;
+  }
+  const resolved = router.resolve({
+    name: 'GuildQuestTracker',
+    params: { guildId },
+    query: { blueprintId, assignmentId }
+  }).href;
+  const absoluteUrl = typeof window !== 'undefined'
+    ? new URL(resolved, window.location.origin).toString()
+    : resolved;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(absoluteUrl);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = absoluteUrl;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    showSaveToast('Quest progress link copied to clipboard');
+  } catch (error) {
+    console.warn('Failed to copy quest share link', error);
+    showSaveToast('Unable to copy link');
+  }
 }
 
 function showSaveError(message: string) {
@@ -8085,7 +8147,6 @@ onUnmounted(() => {
 }
 
 .quest-overview__legend {
-  margin-top: 0.75rem;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -8102,6 +8163,27 @@ onUnmounted(() => {
   height: 24px;
   object-fit: contain;
   filter: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.6));
+}
+
+.quest-overview__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.quest-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.85rem;
+}
+
+.quest-share-btn__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .quest-editor__toolbar {
