@@ -161,7 +161,8 @@
             <div>
               <strong>{{ guild.name }}</strong>
               <p class="muted small">
-                {{ guild.memberCount }} members · {{ guild.raidCount }} raids · {{ guild.characterCount }}
+                {{ guild.memberCount }} members · {{ guild.raidCount }} raids ·
+                {{ guild.characterCount }}
                 characters
               </p>
             </div>
@@ -208,9 +209,12 @@
         <p v-else-if="filteredRaids.length === 0" class="muted">No raid events found.</p>
         <ul v-else class="raid-admin-list">
           <li
-            v-for="raid in filteredRaids"
+            v-for="raid in paginatedRaids"
             :key="raid.id"
-            :class="['raid-admin-list__item', { 'raid-admin-list__item--active': raid.id === selectedRaidId }]"
+            :class="[
+              'raid-admin-list__item',
+              { 'raid-admin-list__item--active': raid.id === selectedRaidId }
+            ]"
           >
             <div class="raid-admin-list__info">
               <strong>{{ raid.name }}</strong>
@@ -230,160 +234,213 @@
             </div>
           </li>
         </ul>
+        <div v-if="totalRaidPages > 1" class="pagination">
+          <button
+            class="pagination__button"
+            :disabled="raidPage === 1"
+            @click="setRaidPage(raidPage - 1)"
+          >
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ raidPage }} of {{ totalRaidPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="raidPage === totalRaidPages"
+            @click="setRaidPage(raidPage + 1)"
+          >
+            Next
+          </button>
+        </div>
       </article>
     </div>
 
     <div v-if="showGuildModal" class="modal-backdrop" @click.self="closeGuildModal">
       <div class="modal" role="dialog" aria-modal="true">
         <template v-if="selectedGuild">
-        <header class="modal__header">
-          <div class="modal__titles">
-            <h2>{{ selectedGuild.name }}</h2>
-            <p class="muted small">{{ selectedGuild.memberCount }} members total</p>
-          </div>
-          <button class="icon-button" @click="closeGuildModal" aria-label="Close guild editor">
-            ✕
-          </button>
-        </header>
-
-        <form class="form guild-form" @submit.prevent="saveGuildDetails">
-          <label class="form__field">
-            <span>Name</span>
-            <input v-model="guildForm.name" required maxlength="100" class="input" />
-          </label>
-          <label class="form__field">
-            <span>Description</span>
-            <textarea
-              v-model="guildForm.description"
-              maxlength="500"
-              rows="3"
-              class="textarea"
-            ></textarea>
-          </label>
-        </form>
-
-        <div class="modal__actions">
-          <button
-            class="btn btn--outline btn--small"
-            :disabled="updatingGuild"
-            @click="saveGuildDetails"
-          >
-            {{ updatingGuild ? 'Saving…' : 'Save Changes' }}
-          </button>
-          <button class="btn btn--danger btn--small" type="button" @click="deleteGuild">
-            Delete Guild
-          </button>
-        </div>
-
-        <section class="guild-members">
-          <header class="guild-members__header">
-            <h3>Members</h3>
-            <span class="muted small">{{ selectedGuild.members.length }} listed</span>
+          <header class="modal__header">
+            <div class="modal__titles">
+              <h2>{{ selectedGuild.name }}</h2>
+              <p class="muted small">{{ selectedGuild.memberCount }} members total</p>
+            </div>
+            <button class="icon-button" @click="closeGuildModal" aria-label="Close guild editor">
+              ✕
+            </button>
           </header>
-          <p v-if="loadingGuildDetail" class="muted">Loading members…</p>
-          <p v-else-if="selectedGuild.members.length === 0" class="muted">
-            No members have been added yet.
-          </p>
-          <ul v-else class="list member-list">
-            <li
-              v-for="member in selectedGuild.members"
-              :key="member.user.id"
-              class="member-list__item"
+
+          <form class="form guild-form" @submit.prevent="saveGuildDetails">
+            <label class="form__field">
+              <span>Name</span>
+              <input v-model="guildForm.name" required maxlength="100" class="input" />
+            </label>
+            <label class="form__field">
+              <span>Description</span>
+              <textarea
+                v-model="guildForm.description"
+                maxlength="500"
+                rows="3"
+                class="textarea"
+              ></textarea>
+            </label>
+          </form>
+
+          <div class="modal__actions">
+            <button
+              class="btn btn--outline btn--small"
+              :disabled="updatingGuild"
+              @click="saveGuildDetails"
             >
-              <div class="member-list__user">
-                <strong>{{ member.user.displayName }}</strong>
-                <span class="muted small">{{ member.user.email }}</span>
-              </div>
-              <div class="member-list__actions">
-                <label class="muted tiny" :for="`role-${member.user.id}`">Role</label>
-                <select
-                  :id="`role-${member.user.id}`"
-                  :value="member.role"
-                  class="select"
-                  :disabled="updatingMemberId === member.user.id"
-                  @change="
-                    updateMemberRole(
-                      member.user.id,
-                      ($event.target as HTMLSelectElement).value as GuildRole
-                    )
-                  "
-                >
+              {{ updatingGuild ? 'Saving…' : 'Save Changes' }}
+            </button>
+            <button class="btn btn--danger btn--small" type="button" @click="deleteGuild">
+              Delete Guild
+            </button>
+          </div>
+
+          <section class="guild-members">
+            <header class="guild-members__header">
+              <h3>Members</h3>
+              <span class="muted small">{{ selectedGuild.members.length }} listed</span>
+            </header>
+            <p v-if="loadingGuildDetail" class="muted">Loading members…</p>
+            <p v-else-if="selectedGuild.members.length === 0" class="muted">
+              No members have been added yet.
+            </p>
+            <ul v-else class="list member-list">
+              <li
+                v-for="member in paginatedMembers"
+                :key="member.user.id"
+                class="member-list__item"
+              >
+                <div class="member-list__user">
+                  <strong>{{ member.user.displayName }}</strong>
+                  <span class="muted small">{{ member.user.email }}</span>
+                </div>
+                <div class="member-list__actions">
+                  <label class="muted tiny" :for="`role-${member.user.id}`">Role</label>
+                  <select
+                    :id="`role-${member.user.id}`"
+                    :value="member.role"
+                    class="select"
+                    :disabled="updatingMemberId === member.user.id"
+                    @change="
+                      updateMemberRole(
+                        member.user.id,
+                        ($event.target as HTMLSelectElement).value as GuildRole
+                      )
+                    "
+                  >
+                    <option v-for="role in guildRoleOrder" :key="role" :value="role">
+                      {{ formatRole(role) }}
+                    </option>
+                  </select>
+                  <button
+                    class="btn btn--danger btn--small"
+                    :disabled="removingMemberId === member.user.id"
+                    @click="removeMember(member.user.id)"
+                  >
+                    {{ removingMemberId === member.user.id ? 'Removing…' : 'Remove' }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <div v-if="totalMemberPages > 1" class="pagination">
+              <button
+                class="pagination__button"
+                :disabled="memberPage === 1"
+                @click="setMemberPage(memberPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">Page {{ memberPage }} of {{ totalMemberPages }}</span>
+              <button
+                class="pagination__button"
+                :disabled="memberPage === totalMemberPages"
+                @click="setMemberPage(memberPage + 1)"
+              >
+                Next
+              </button>
+            </div>
+
+            <section class="member-add">
+              <h4>Add Member</h4>
+              <div class="member-add__form">
+                <select v-model="membershipForm.userId" class="select">
+                  <option value="">Select a user</option>
+                  <option v-for="user in availableUsersForGuild" :key="user.id" :value="user.id">
+                    {{ user.displayName }} · {{ user.email }}
+                  </option>
+                </select>
+                <select v-model="membershipForm.role" class="select">
                   <option v-for="role in guildRoleOrder" :key="role" :value="role">
                     {{ formatRole(role) }}
                   </option>
                 </select>
                 <button
-                  class="btn btn--danger btn--small"
-                  :disabled="removingMemberId === member.user.id"
-                  @click="removeMember(member.user.id)"
+                  class="btn btn--accent btn--small"
+                  :disabled="addingMember || !membershipForm.userId"
+                  @click="addMember"
                 >
-                  {{ removingMemberId === member.user.id ? 'Removing…' : 'Remove' }}
+                  {{ addingMember ? 'Adding…' : 'Add Member' }}
                 </button>
               </div>
-            </li>
-          </ul>
+              <p v-if="availableUsersForGuild.length === 0" class="muted tiny">
+                All users are already members of this guild.
+              </p>
+            </section>
+          </section>
 
-          <section class="member-add">
-            <h4>Add Member</h4>
-            <div class="member-add__form">
-              <select v-model="membershipForm.userId" class="select">
-                <option value="">Select a user</option>
-                <option v-for="user in availableUsersForGuild" :key="user.id" :value="user.id">
-                  {{ user.displayName }} · {{ user.email }}
-                </option>
-              </select>
-              <select v-model="membershipForm.role" class="select">
-                <option v-for="role in guildRoleOrder" :key="role" :value="role">
-                  {{ formatRole(role) }}
-                </option>
-              </select>
-              <button
-                class="btn btn--accent btn--small"
-                :disabled="addingMember || !membershipForm.userId"
-                @click="addMember"
+          <section class="guild-characters">
+            <header class="guild-members__header">
+              <h3>Characters</h3>
+              <span class="muted small">{{ selectedGuild.characters.length }} linked</span>
+            </header>
+            <p v-if="loadingGuildDetail" class="muted">Loading characters…</p>
+            <p v-else-if="selectedGuild.characters.length === 0" class="muted">
+              No characters are associated with this guild yet.
+            </p>
+            <ul v-else class="list member-list">
+              <li
+                v-for="character in paginatedCharacters"
+                :key="character.id"
+                class="member-list__item"
               >
-                {{ addingMember ? 'Adding…' : 'Add Member' }}
+                <div class="member-list__user">
+                  <CharacterLink class="member-character-name" :name="character.name" />
+                  <span class="member-character-level">({{ character.level }})</span>
+                  <span class="muted small">{{ formatCharacterClass(character.class) }}</span>
+                  <span class="muted tiny">Owner: {{ character.ownerName }}</span>
+                </div>
+                <div class="member-list__actions">
+                  <button
+                    class="btn btn--danger btn--small"
+                    :disabled="detachingCharacterId === character.id"
+                    @click="detachCharacter(character)"
+                  >
+                    {{ detachingCharacterId === character.id ? 'Detaching…' : 'Remove' }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <div v-if="totalCharacterPages > 1" class="pagination">
+              <button
+                class="pagination__button"
+                :disabled="characterPage === 1"
+                @click="setCharacterPage(characterPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label"
+                >Page {{ characterPage }} of {{ totalCharacterPages }}</span
+              >
+              <button
+                class="pagination__button"
+                :disabled="characterPage === totalCharacterPages"
+                @click="setCharacterPage(characterPage + 1)"
+              >
+                Next
               </button>
             </div>
-            <p v-if="availableUsersForGuild.length === 0" class="muted tiny">
-              All users are already members of this guild.
-            </p>
           </section>
-        </section>
-
-        <section class="guild-characters">
-          <header class="guild-members__header">
-            <h3>Characters</h3>
-            <span class="muted small">{{ selectedGuild.characters.length }} linked</span>
-          </header>
-          <p v-if="loadingGuildDetail" class="muted">Loading characters…</p>
-          <p v-else-if="selectedGuild.characters.length === 0" class="muted">
-            No characters are associated with this guild yet.
-          </p>
-          <ul v-else class="list member-list">
-            <li
-              v-for="character in selectedGuild.characters"
-              :key="character.id"
-              class="member-list__item"
-            >
-              <div class="member-list__user">
-                <CharacterLink class="member-character-name" :name="character.name" />
-                <span class="member-character-level">({{ character.level }})</span>
-                <span class="muted small">{{ formatCharacterClass(character.class) }}</span>
-                <span class="muted tiny">Owner: {{ character.ownerName }}</span>
-              </div>
-              <div class="member-list__actions">
-                <button
-                  class="btn btn--danger btn--small"
-                  :disabled="detachingCharacterId === character.id"
-                  @click="detachCharacter(character)"
-                >
-                  {{ detachingCharacterId === character.id ? 'Detaching…' : 'Remove' }}
-                </button>
-              </div>
-            </li>
-          </ul>
-        </section>
         </template>
         <template v-else>
           <div class="modal__loading">
@@ -561,6 +618,13 @@ const usersPerPage = 10;
 const updatingUserId = ref<string | null>(null);
 const deletingUserId = ref<string | null>(null);
 
+const memberPage = ref(1);
+const membersPerPage = 10;
+const characterPage = ref(1);
+const charactersPerPage = 10;
+const raidPage = ref(1);
+const raidsPerPage = 10;
+
 const updatingGuild = ref(false);
 const addingMember = ref(false);
 const updatingMemberId = ref<string | null>(null);
@@ -619,8 +683,7 @@ const filteredUsers = computed(() => {
 
   return users.value.filter((user) => {
     return (
-      user.displayName.toLowerCase().includes(query) ||
-      user.email.toLowerCase().includes(query)
+      user.displayName.toLowerCase().includes(query) || user.email.toLowerCase().includes(query)
     );
   });
 });
@@ -680,6 +743,37 @@ const filteredRaids = computed(() => {
   });
 });
 
+const totalRaidPages = computed(() =>
+  Math.max(1, Math.ceil(filteredRaids.value.length / raidsPerPage))
+);
+
+const paginatedRaids = computed(() => {
+  const start = (raidPage.value - 1) * raidsPerPage;
+  return filteredRaids.value.slice(start, start + raidsPerPage);
+});
+
+const totalMemberPages = computed(() => {
+  if (!selectedGuild.value) return 1;
+  return Math.max(1, Math.ceil(selectedGuild.value.members.length / membersPerPage));
+});
+
+const paginatedMembers = computed(() => {
+  if (!selectedGuild.value) return [];
+  const start = (memberPage.value - 1) * membersPerPage;
+  return selectedGuild.value.members.slice(start, start + membersPerPage);
+});
+
+const totalCharacterPages = computed(() => {
+  if (!selectedGuild.value) return 1;
+  return Math.max(1, Math.ceil(selectedGuild.value.characters.length / charactersPerPage));
+});
+
+const paginatedCharacters = computed(() => {
+  if (!selectedGuild.value) return [];
+  const start = (characterPage.value - 1) * charactersPerPage;
+  return selectedGuild.value.characters.slice(start, start + charactersPerPage);
+});
+
 function formatRaidDate(value?: string | null) {
   if (!value) {
     return 'Date pending';
@@ -695,7 +789,11 @@ function formatRaidDate(value?: string | null) {
   }).format(parsed);
 }
 
-function raidStatusBadge(raid: { startedAt?: string | null; endedAt?: string | null; isActive: boolean }) {
+function raidStatusBadge(raid: {
+  startedAt?: string | null;
+  endedAt?: string | null;
+  isActive: boolean;
+}) {
   if (raidHasEnded(raid)) {
     return { label: 'Ended', variant: 'badge--negative' } as const;
   }
@@ -896,9 +994,7 @@ async function toggleAdmin(user: AdminUserSummary) {
   updatingUserId.value = user.id;
   try {
     const updated = await api.updateAdminUser(user.id, { admin: !user.isAdmin });
-    users.value = users.value.map((existing) =>
-      existing.id === updated.id ? updated : existing
-    );
+    users.value = users.value.map((existing) => (existing.id === updated.id ? updated : existing));
   } catch (error) {
     console.error('Failed to update admin flag.', error);
     window.alert('Unable to update admin status. Please try again.');
@@ -919,9 +1015,7 @@ async function saveGuildDetails() {
       description: guildForm.description?.trim() || null
     });
 
-    guilds.value = guilds.value.map((guild) =>
-      guild.id === updated.id ? updated : guild
-    );
+    guilds.value = guilds.value.map((guild) => (guild.id === updated.id ? updated : guild));
     if (selectedGuild.value) {
       selectedGuild.value = {
         ...selectedGuild.value,
@@ -1158,6 +1252,18 @@ function setUserPage(page: number) {
   userPage.value = Math.min(Math.max(1, page), totalUserPages.value);
 }
 
+function setMemberPage(page: number) {
+  memberPage.value = Math.min(Math.max(1, page), totalMemberPages.value);
+}
+
+function setCharacterPage(page: number) {
+  characterPage.value = Math.min(Math.max(1, page), totalCharacterPages.value);
+}
+
+function setRaidPage(page: number) {
+  raidPage.value = Math.min(Math.max(1, page), totalRaidPages.value);
+}
+
 async function saveUserDetails() {
   if (!editingUser.value || savingUser.value) {
     return;
@@ -1189,9 +1295,7 @@ async function saveUserDetails() {
   savingUser.value = true;
   try {
     const updated = await api.updateAdminUser(editingUser.value.id, payload);
-    users.value = users.value.map((existing) =>
-      existing.id === updated.id ? updated : existing
-    );
+    users.value = users.value.map((existing) => (existing.id === updated.id ? updated : existing));
     if (selectedGuild.value) {
       selectedGuild.value = {
         ...selectedGuild.value,
@@ -1238,9 +1342,7 @@ async function deleteUser(user: AdminUserSummary) {
     if (selectedGuild.value) {
       selectedGuild.value = {
         ...selectedGuild.value,
-        members: selectedGuild.value.members.filter(
-          (member) => member.user.id !== user.id
-        )
+        members: selectedGuild.value.members.filter((member) => member.user.id !== user.id)
       };
     }
     if (showUserModal.value && editingUser.value?.id === user.id) {
@@ -1288,6 +1390,12 @@ watch(selectedGuild, (guild) => {
   guildForm.description = guild?.description ?? '';
   membershipForm.userId = '';
   membershipForm.role = 'MEMBER';
+  memberPage.value = 1;
+  characterPage.value = 1;
+});
+
+watch(raidFilter, () => {
+  raidPage.value = 1;
 });
 
 watch(raids, (list) => {
@@ -1345,7 +1453,10 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.4rem;
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
-  transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .stat-card:hover {
@@ -1464,7 +1575,10 @@ onMounted(async () => {
 
 .guild-list__item {
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.1s ease,
+    border-color 0.2s ease;
   border: 1px solid rgba(148, 163, 184, 0.15);
 }
 
@@ -1609,7 +1723,10 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease, transform 0.12s ease;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.12s ease;
 }
 
 .icon-button:hover {
@@ -1673,7 +1790,10 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.6);
   color: #f8fafc;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
 }
 
 .input:focus,
@@ -1816,7 +1936,10 @@ onMounted(async () => {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .raid-filter--active {
@@ -1877,7 +2000,11 @@ onMounted(async () => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1898,7 +2025,9 @@ onMounted(async () => {
   border: none;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
 }
 
 .btn--small {
@@ -1922,7 +2051,10 @@ onMounted(async () => {
   background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.45);
   color: #e2e8f0;
-  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease;
 }
 
 .btn--accent {
