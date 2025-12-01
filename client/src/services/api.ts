@@ -507,6 +507,16 @@ export interface EqTaskSearchResult {
   pageSize: number;
 }
 
+export interface QuestShareDetails {
+  assignmentId: string;
+  guildId: string;
+  blueprintId: string;
+  characterName: string | null;
+  characterClass: string | null;
+  blueprintTitle: string;
+  status: string;
+}
+
 export interface QuestNodeInputPayload {
   id: string;
   title: string;
@@ -2851,6 +2861,22 @@ export const api = {
   async fetchItemStatsBatch(itemIds: number[]): Promise<ItemStatsBatchResponse> {
     const response = await axios.post('/api/items/stats/batch', { itemIds });
     return response.data;
+  },
+
+  /**
+   * Fetches quest assignment share details for short URL resolution.
+   */
+  async fetchQuestShareDetails(assignmentId: string): Promise<QuestShareDetails> {
+    const response = await axios.get(`/api/quests/share/${assignmentId}`);
+    return {
+      assignmentId: response.data.assignmentId,
+      guildId: response.data.guildId,
+      blueprintId: response.data.blueprintId,
+      characterName: response.data.characterName ?? null,
+      characterClass: response.data.characterClass ?? null,
+      blueprintTitle: response.data.blueprintTitle ?? 'Quest',
+      status: response.data.status ?? 'IN_PROGRESS'
+    };
   }
 
 };

@@ -22,6 +22,12 @@ const router = createRouter({
       component: () => import('../views/AuthCallbackView.vue')
     },
     {
+      path: '/q/:assignmentId',
+      name: 'QuestShare',
+      component: () => import('../views/QuestShareRedirectView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/guilds',
       name: 'Guilds',
       component: () => import('../views/GuildListView.vue'),
