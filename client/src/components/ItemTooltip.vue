@@ -231,7 +231,8 @@ function handleMouseEnter() {
 
 function handleMouseLeave() {
   isMouseOverTooltip.value = false;
-  store.hideTooltip();
+  // Use immediate hide when leaving the tooltip itself (no transform flicker here)
+  store.hideTooltipImmediate();
 }
 
 // Measure tooltip height after content changes

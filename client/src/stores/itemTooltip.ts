@@ -33,10 +33,14 @@ export interface AugmentInfo {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const HIDE_DELAY_MS = 50; // Delay before hiding to prevent flicker from transform animations
 
 export const useItemTooltipStore = defineStore('itemTooltip', () => {
   // State
   const visible = ref(false);
+
+  // Timer for debounced hide (prevents flicker when hover transforms shift elements)
+  let hideTimeoutId: ReturnType<typeof setTimeout> | null = null;
   const position = ref<TooltipPosition>({ x: 0, y: 0 });
   const currentItem = ref<TooltipItem | null>(null);
   const loading = ref(false);
@@ -64,6 +68,12 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     // Don't show tooltip for items without an ID
     if (!item.itemId || item.itemId <= 0) {
       return;
+    }
+
+    // Cancel any pending hide to prevent flicker
+    if (hideTimeoutId !== null) {
+      clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
     }
 
     currentItem.value = item;
@@ -188,9 +198,33 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
   }
 
   /**
-   * Hide the tooltip.
+   * Hide the tooltip with a small delay to prevent flicker from hover transforms.
    */
   function hideTooltip() {
+    // Use a small delay to prevent flicker when CSS transforms shift elements
+    // If showTooltip is called before the delay expires, the hide is cancelled
+    if (hideTimeoutId !== null) {
+      clearTimeout(hideTimeoutId);
+    }
+    hideTimeoutId = setTimeout(() => {
+      hideTimeoutId = null;
+      visible.value = false;
+      currentItem.value = null;
+      itemStats.value = null;
+      spellNames.value = {};
+      augmentStats.value = [];
+      error.value = null;
+    }, HIDE_DELAY_MS);
+  }
+
+  /**
+   * Immediately hide the tooltip without delay (for cleanup scenarios).
+   */
+  function hideTooltipImmediate() {
+    if (hideTimeoutId !== null) {
+      clearTimeout(hideTimeoutId);
+      hideTimeoutId = null;
+    }
     visible.value = false;
     currentItem.value = null;
     itemStats.value = null;
@@ -248,6 +282,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     showTooltip,
     updatePosition,
     hideTooltip,
+    hideTooltipImmediate,
     clearCache,
     prefetchStats
   };
