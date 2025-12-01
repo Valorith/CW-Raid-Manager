@@ -5395,15 +5395,14 @@ function showSaveToast(message: string) {
 }
 
 async function copyQuestShareLink() {
-  const blueprintId = selectedBlueprintId.value;
   const assignmentId = viewerAssignmentId.value;
-  if (!blueprintId || !assignmentId) {
+  if (!assignmentId) {
     return;
   }
+  // Use short URL format: /q/:assignmentId
   const resolved = router.resolve({
-    name: 'GuildQuestTracker',
-    params: { guildId },
-    query: { blueprintId, assignmentId }
+    name: 'QuestShare',
+    params: { assignmentId }
   }).href;
   const absoluteUrl = typeof window !== 'undefined'
     ? new URL(resolved, window.location.origin).toString()
