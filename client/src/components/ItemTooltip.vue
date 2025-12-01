@@ -2,6 +2,7 @@
   <Teleport to="body">
     <div
       v-if="store.isVisible"
+      ref="tooltipRef"
       class="item-tooltip"
       :style="tooltipStyle"
       @mouseenter="handleMouseEnter"
@@ -209,11 +210,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import { getLootIconSrc } from '../utils/itemIcons';
 
 const store = useItemTooltipStore();
+
+// Template ref for measuring tooltip height
+const tooltipRef = ref<HTMLElement | null>(null);
+
+// Track measured tooltip height for positioning calculations
+const measuredHeight = ref(0);
 
 // Track if mouse is over tooltip (to prevent hiding while reading)
 const isMouseOverTooltip = ref(false);
@@ -227,43 +234,57 @@ function handleMouseLeave() {
   store.hideTooltip();
 }
 
-// Position the tooltip near the cursor, adjusting for screen edges
+// Measure tooltip height after content changes
+watch(
+  () => [store.isVisible, store.itemStats, store.augmentStats, store.loading],
+  async () => {
+    if (store.isVisible) {
+      await nextTick();
+      if (tooltipRef.value) {
+        measuredHeight.value = tooltipRef.value.scrollHeight;
+      }
+    }
+  },
+  { deep: true }
+);
+
+// Position the tooltip with top-left anchored to cursor, shifting up if it would exceed viewport
 const tooltipStyle = computed(() => {
-  const padding = 15;
+  const edgePadding = 10; // Small padding from viewport edges
   const tooltipWidth = 380;
-  const tooltipMaxHeight = 450; // Estimated max height for positioning calculation
 
-  let x = store.position.x + padding;
-  let y = store.position.y + padding;
+  // Anchor top-left to cursor position
+  let x = store.position.x;
+  let y = store.position.y;
 
-  // Adjust if tooltip would go off right edge
-  if (x + tooltipWidth > window.innerWidth - padding) {
-    x = store.position.x - tooltipWidth - padding;
+  // Adjust if tooltip would go off right edge - flip to left of cursor
+  if (x + tooltipWidth > window.innerWidth - edgePadding) {
+    x = store.position.x - tooltipWidth;
   }
 
   // Ensure tooltip doesn't go off left edge
-  if (x < padding) {
-    x = padding;
+  if (x < edgePadding) {
+    x = edgePadding;
   }
 
-  // Calculate the maximum y that keeps tooltip bottom within viewport
-  const maxY = window.innerHeight - tooltipMaxHeight - padding;
+  // If tooltip would extend below viewport, anchor bottom to viewport bottom
+  const tooltipHeight = measuredHeight.value || 400; // Use measured height or fallback estimate
+  const tooltipBottom = y + tooltipHeight;
+  const viewportBottom = window.innerHeight - edgePadding;
 
-  // If tooltip would extend below viewport, shift it up just enough
-  if (y > maxY) {
-    y = maxY;
+  if (tooltipBottom > viewportBottom) {
+    // Shift tooltip up so its bottom aligns with viewport bottom
+    y = viewportBottom - tooltipHeight;
   }
 
   // Ensure tooltip doesn't go above viewport top
-  if (y < padding) {
-    y = padding;
+  if (y < edgePadding) {
+    y = edgePadding;
   }
 
   return {
     left: `${x}px`,
-    top: `${y}px`,
-    bottom: 'auto',
-    maxHeight: `${window.innerHeight - y - padding}px`
+    top: `${y}px`
   };
 });
 
