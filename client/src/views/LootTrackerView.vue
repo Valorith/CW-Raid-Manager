@@ -5986,7 +5986,6 @@ onBeforeUnmount(() => {
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.35);
   position: relative;
   transition:
-    transform 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
   cursor: pointer;
@@ -6006,7 +6005,6 @@ onBeforeUnmount(() => {
 
 .loot-card:not(.loot-card--needs-assignment):hover,
 .loot-card:not(.loot-card--needs-assignment):focus-visible {
-  transform: translateY(-2px);
   border-color: rgba(34, 197, 94, 0.4);
   box-shadow: 0 14px 26px rgba(15, 23, 42, 0.45);
 }

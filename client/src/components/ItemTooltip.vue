@@ -231,7 +231,8 @@ function handleMouseEnter() {
 
 function handleMouseLeave() {
   isMouseOverTooltip.value = false;
-  store.hideTooltip();
+  // Use immediate hide when leaving the tooltip itself (no transform flicker here)
+  store.hideTooltipImmediate();
 }
 
 // Measure tooltip height after content changes
@@ -248,18 +249,19 @@ watch(
   { deep: true }
 );
 
-// Position the tooltip with top-left anchored to cursor, shifting up if it would exceed viewport
+// Position the tooltip with top-left anchored near cursor, shifting up if it would exceed viewport
 const tooltipStyle = computed(() => {
   const edgePadding = 10; // Small padding from viewport edges
   const tooltipWidth = 380;
+  const cursorOffset = 12; // Offset from cursor to prevent accidental tooltip hover
 
-  // Anchor top-left to cursor position
-  let x = store.position.x;
-  let y = store.position.y;
+  // Anchor top-left near cursor position with offset to avoid cursor overlap
+  let x = store.position.x + cursorOffset;
+  let y = store.position.y + cursorOffset;
 
   // Adjust if tooltip would go off right edge - flip to left of cursor
   if (x + tooltipWidth > window.innerWidth - edgePadding) {
-    x = store.position.x - tooltipWidth;
+    x = store.position.x - tooltipWidth - cursorOffset;
   }
 
   // Ensure tooltip doesn't go off left edge
