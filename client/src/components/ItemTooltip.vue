@@ -17,8 +17,16 @@
       </div>
 
       <template v-else-if="store.itemStats">
-        <!-- Item Name -->
-        <div class="item-tooltip__name">{{ store.itemStats.name }}</div>
+        <!-- Item Header with Icon and Name -->
+        <div class="item-tooltip__header">
+          <img
+            v-if="store.itemStats.icon"
+            :src="getLootIconSrc(store.itemStats.icon)"
+            class="item-tooltip__icon"
+            alt=""
+          />
+          <div class="item-tooltip__name">{{ store.itemStats.name }}</div>
+        </div>
 
         <!-- Item Flags -->
         <div v-if="itemFlags.length > 0" class="item-tooltip__flags">
@@ -672,13 +680,31 @@ function getAugmentEffect(stats: import('../services/api').ItemStats): string | 
   font-style: italic;
 }
 
+.item-tooltip__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.item-tooltip__icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: #0f172a;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
 .item-tooltip__name {
   font-size: 14px;
   font-weight: 600;
   color: #f8fafc;
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  flex: 1;
+  align-self: center;
 }
 
 .item-tooltip__flags {
