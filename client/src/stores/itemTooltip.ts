@@ -33,7 +33,7 @@ export interface AugmentInfo {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const HIDE_DELAY_MS = 50; // Delay before hiding to prevent flicker from transform animations
+const HIDE_DELAY_MS = 150; // Delay before hiding to prevent flicker from transform animations (matches loot-card transition duration)
 
 export const useItemTooltipStore = defineStore('itemTooltip', () => {
   // State
