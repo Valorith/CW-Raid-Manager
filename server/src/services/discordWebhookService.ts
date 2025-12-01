@@ -757,20 +757,21 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         return null;
       }
       const lootAssignments = lootAssignedPayload.assignments.slice(0, 15);
+      // Find the first assignment with an icon to use as embed thumbnail
+      const firstIconId = lootAssignments.find((a) => a.itemIconId != null)?.itemIconId;
+      const lootThumbnailUrl =
+        firstIconId != null
+          ? `${clientBaseUrl}/api/loot-icons/${firstIconId}?format=png`
+          : null;
       const lootDescription = lootAssignments
         .map((assignment) => {
           const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
           const emoji = assignment.emoji ?? '🎁';
-          const iconUrl =
-            assignment.itemIconId != null
-              ? `${clientBaseUrl}/api/loot-icons/${assignment.itemIconId}?format=png`
-              : null;
           const itemUrl = buildAllaItemUrl(assignment.itemName);
           const itemLabel = itemUrl
             ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
             : `**${assignment.itemName}**${countLabel}`;
-          const iconFragment = iconUrl ? `![icon](${iconUrl}) ` : '';
-          return `${iconFragment}${emoji} ${itemLabel} → ${assignment.looterName}`;
+          return `${emoji} ${itemLabel} → ${assignment.looterName}`;
         })
         .join('\n');
       const lootOverflow = Math.max(
@@ -790,7 +791,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
             title: `📦 Loot Assigned — ${lootAssignedPayload.raidName}`,
             description: `${lootDescription}${metaLine}${linkLine}${overflowLine}`,
             color: DISCORD_COLORS.success,
-            timestamp: nowIso
+            timestamp: nowIso,
+            ...(lootThumbnailUrl && { thumbnail: { url: lootThumbnailUrl } })
           }
         ]
       };
