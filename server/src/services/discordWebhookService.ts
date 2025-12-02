@@ -1049,11 +1049,14 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                 )
                 .join('\n')
             : '• Source unknown';
-        const itemUrl = buildAllaItemUrl(item.itemName, item.itemId);
-        const linkLine = itemUrl ? `[View on Allakhazam](${itemUrl})` : '';
+        // Only use item ID links (short URLs) in field name to stay under 256 char limit
+        const itemUrl = item.itemId != null ? buildAllaItemUrl(item.itemName, item.itemId) : null;
+        const itemLabel = itemUrl
+          ? `[${item.itemName}](${itemUrl})`
+          : item.itemName;
         return {
-          name: `${item.itemName} ×${item.quantity}`,
-          value: linkLine ? `${linkLine}\n${sourceLines}` : sourceLines,
+          name: `${itemLabel} ×${item.quantity}`,
+          value: sourceLines,
           inline: false
         };
       });
