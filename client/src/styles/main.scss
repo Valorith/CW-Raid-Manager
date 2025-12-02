@@ -2075,10 +2075,6 @@ a {
   z-index: 120;
 }
 
-.modal-backdrop--top {
-  z-index: 140;
-}
-
 .cart-panel {
   width: min(500px, 90vw);
   background: #0b1220;
@@ -2501,6 +2497,10 @@ a {
   align-items: center;
   justify-content: center;
   z-index: 120;
+}
+
+.modal-backdrop--top {
+  z-index: 140;
 }
 
 .modal {
