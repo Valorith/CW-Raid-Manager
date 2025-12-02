@@ -278,8 +278,30 @@
             :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
           >
             <header class="loot-council-column__header">
-              <div>
-                <p class="loot-council-column__name">{{ item.itemName }}</p>
+              <div
+                class="loot-council-column__icon"
+                @mouseenter="showLootCouncilItemTooltip($event, item)"
+                @mousemove="updateTooltipPosition($event)"
+                @mouseleave="hideItemTooltip"
+              >
+                <template v-if="hasValidIconId(item.itemIconId)">
+                  <img
+                    :src="getLootIconSrc(item.itemIconId)"
+                    :alt="`${item.itemName} icon`"
+                    loading="lazy"
+                  />
+                </template>
+                <span v-else class="loot-council-column__icon-placeholder">?</span>
+              </div>
+              <div class="loot-council-column__info">
+                <p
+                  class="loot-council-column__name"
+                  @mouseenter="showLootCouncilItemTooltip($event, item)"
+                  @mousemove="updateTooltipPosition($event)"
+                  @mouseleave="hideItemTooltip"
+                >
+                  {{ item.itemName }}
+                </p>
                 <p class="loot-council-column__meta">
                   Tracking since {{ formatRelativeTime(item.startedAt.toISOString()) }}
                 </p>
@@ -334,18 +356,40 @@
                       </span>
                     </div>
                   </div>
-                  <p
+                  <div
                     class="loot-council-interest__replacement"
                     :class="{
                       'loot-council-interest__replacement--none': !interest.replacing
                     }"
                   >
-                    {{
-                      interest.replacing
-                        ? `Replacing ${interest.replacing}`
-                        : 'Not replacing a current item'
-                    }}
-                  </p>
+                    <template v-if="interest.replacing">
+                      <span class="loot-council-interest__replacement-label">Replacing</span>
+                      <div
+                        v-if="hasValidIconId(interest.replacingItemIconId)"
+                        class="loot-council-interest__replacement-icon"
+                        @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
+                        @mousemove="updateTooltipPosition($event)"
+                        @mouseleave="hideItemTooltip"
+                      >
+                        <img
+                          :src="getLootIconSrc(interest.replacingItemIconId)"
+                          :alt="`${interest.replacing} icon`"
+                          loading="lazy"
+                        />
+                      </div>
+                      <span
+                        class="loot-council-interest__replacement-name"
+                        @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
+                        @mousemove="updateTooltipPosition($event)"
+                        @mouseleave="hideItemTooltip"
+                      >
+                        {{ interest.replacing }}
+                      </span>
+                    </template>
+                    <span v-else class="loot-council-interest__replacement-none">
+                      Not replacing a current item
+                    </span>
+                  </div>
                 </div>
                 <div class="loot-council-interest__meta">
                   <span class="loot-council-interest__vote-count">
@@ -1201,6 +1245,8 @@ interface LootCouncilInterestState {
   playerKey: string;
   playerName: string;
   replacing?: string | null;
+  replacingItemId?: number | null;
+  replacingItemIconId?: number | null;
   mode: LootCouncilInterestMode;
   votes?: number | null;
   lastUpdatedAt: Date;
@@ -1214,6 +1260,8 @@ interface LootCouncilItemState {
   nameKey: string;
   instanceId: number;
   itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
   ordinal?: number | null;
   startedAt: Date;
   lastUpdatedAt: Date;
@@ -1253,6 +1301,22 @@ function updateTooltipPosition(event: MouseEvent) {
 
 function hideItemTooltip() {
   tooltipStore.hideTooltip();
+}
+
+function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemState) {
+  if (!item.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: item.itemId, itemName: item.itemName, itemIconId: item.itemIconId ?? undefined },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function showLootCouncilReplacingTooltip(event: MouseEvent, interest: LootCouncilInterestState) {
+  if (!interest.replacingItemId || !interest.replacing) return;
+  tooltipStore.showTooltip(
+    { itemId: interest.replacingItemId, itemName: interest.replacing, itemIconId: interest.replacingItemIconId ?? undefined },
+    { x: event.clientX, y: event.clientY }
+  );
 }
 
 const raid = ref<RaidDetail | null>(null);
@@ -1404,6 +1468,9 @@ const lootCouncilState = reactive<{
   lastUpdatedAt: null
 });
 const resolvedLootCouncilItems = new Map<string, Date>();
+const itemNameToIdCache = new Map<string, { itemId: number; itemIconId: number } | null>();
+let itemResolutionPending = false;
+let itemResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
 const lootCouncilActiveItems = computed(() =>
   lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
 );
@@ -1626,7 +1693,8 @@ function createLootCouncilItemState(
   itemName: string,
   timestamp: Date,
   ordinal: number | null,
-  source: 'ANNOUNCE' | 'PENDING' | 'REFERENCE' | 'SUMMARY'
+  source: 'ANNOUNCE' | 'PENDING' | 'REFERENCE' | 'SUMMARY',
+  itemId?: number | null
 ) {
   const identity = nextLootCouncilItemIdentity(nameKey, timestamp);
   const item: LootCouncilItemState = {
@@ -1634,6 +1702,8 @@ function createLootCouncilItemState(
     nameKey,
     instanceId: identity.instanceId,
     itemName,
+    itemId: itemId ?? null,
+    itemIconId: null,
     ordinal: ordinal ?? null,
     startedAt: timestamp,
     lastUpdatedAt: timestamp,
@@ -1642,7 +1712,7 @@ function createLootCouncilItemState(
     interests: []
   };
   lootCouncilState.items.push(item);
-  appendDebugLog('Loot council item detected', { itemName, ordinal, source });
+  appendDebugLog('Loot council item detected', { itemName, itemId, ordinal, source });
   replicatePeerInterestsToItem(item);
   return item;
 }
@@ -1905,6 +1975,95 @@ function handleLootCouncilEvents(events: LootCouncilEvent[]) {
     if (lootCouncilActiveItems.value.length === 0) {
       lootCouncilState.suppressed = false;
     }
+    scheduleLootCouncilItemResolution();
+  }
+}
+
+function scheduleLootCouncilItemResolution() {
+  if (itemResolutionDebounceId !== null) {
+    clearTimeout(itemResolutionDebounceId);
+  }
+  itemResolutionDebounceId = setTimeout(() => {
+    itemResolutionDebounceId = null;
+    void resolveLootCouncilItemIds();
+  }, 200);
+}
+
+async function resolveLootCouncilItemIds() {
+  if (itemResolutionPending) {
+    return;
+  }
+  itemResolutionPending = true;
+  try {
+    // Collect all item names that need resolution
+    const namesToResolve = new Set<string>();
+    for (const item of lootCouncilState.items) {
+      if (item.itemId == null) {
+        const cacheKey = item.itemName.trim().toLowerCase();
+        if (!itemNameToIdCache.has(cacheKey)) {
+          namesToResolve.add(item.itemName);
+        }
+      }
+      for (const interest of item.interests) {
+        if (interest.replacing && interest.replacingItemId == null) {
+          const cacheKey = interest.replacing.trim().toLowerCase();
+          if (!itemNameToIdCache.has(cacheKey)) {
+            namesToResolve.add(interest.replacing);
+          }
+        }
+      }
+    }
+
+    if (namesToResolve.size === 0) {
+      applyItemResolutionFromCache();
+      return;
+    }
+
+    // Fetch item IDs from server
+    const response = await api.searchItemsByName(Array.from(namesToResolve));
+
+    // Update cache with results
+    for (const name of namesToResolve) {
+      const cacheKey = name.trim().toLowerCase();
+      const result = response.items[name];
+      if (result) {
+        itemNameToIdCache.set(cacheKey, {
+          itemId: result.itemId,
+          itemIconId: result.itemIconId
+        });
+      } else {
+        itemNameToIdCache.set(cacheKey, null);
+      }
+    }
+
+    applyItemResolutionFromCache();
+  } catch (error) {
+    console.error('Failed to resolve loot council item IDs:', error);
+  } finally {
+    itemResolutionPending = false;
+  }
+}
+
+function applyItemResolutionFromCache() {
+  for (const item of lootCouncilState.items) {
+    if (item.itemId == null) {
+      const cacheKey = item.itemName.trim().toLowerCase();
+      const cached = itemNameToIdCache.get(cacheKey);
+      if (cached) {
+        item.itemId = cached.itemId;
+        item.itemIconId = cached.itemIconId;
+      }
+    }
+    for (const interest of item.interests) {
+      if (interest.replacing && interest.replacingItemId == null) {
+        const cacheKey = interest.replacing.trim().toLowerCase();
+        const cached = itemNameToIdCache.get(cacheKey);
+        if (cached) {
+          interest.replacingItemId = cached.itemId;
+          interest.replacingItemIconId = cached.itemIconId;
+        }
+      }
+    }
   }
 }
 
@@ -1915,7 +2074,8 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
         event.itemName,
         event.timestamp,
         event.ordinal ?? null,
-        event.origin
+        event.origin,
+        event.itemId
       );
     case 'REQUEST':
       return registerLootCouncilRequest(event);
@@ -1945,6 +2105,8 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
         awardedTo: null,
         status: 'REMOVED'
       });
+    case 'WITHDRAWAL':
+      return removeLootCouncilInterest(event);
     default:
       return false;
   }
@@ -1954,7 +2116,8 @@ function activateLootCouncilItem(
   itemName: string,
   timestamp: Date,
   ordinal: number | null,
-  origin: LootCouncilConsideredOrigin
+  origin: LootCouncilConsideredOrigin,
+  itemId?: number | null
 ) {
   const nameKey = normalizeLootCouncilItemKey(itemName);
   const resolvedAt = resolvedLootCouncilItems.get(nameKey);
@@ -1966,36 +2129,48 @@ function activateLootCouncilItem(
     ordinal != null ? candidates.find((entry) => entry.ordinal === ordinal) : null;
   if (origin === 'ANNOUNCE') {
     if (!candidates.length) {
-      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'ANNOUNCE');
+      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'ANNOUNCE', itemId);
       return true;
     }
     if (ordinalMatch) {
+      if (itemId && !ordinalMatch.itemId) {
+        ordinalMatch.itemId = itemId;
+      }
       return refreshLootCouncilItemMetadata(ordinalMatch, itemName, timestamp, ordinal);
     }
     if (ordinal != null) {
-      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'ANNOUNCE');
+      createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'ANNOUNCE', itemId);
       return true;
     }
     const fallback =
       candidates.find((entry) => entry.ordinal == null) ??
       candidates.reduce((prev, current) => (current.startedAt < prev.startedAt ? current : prev));
+    if (itemId && !fallback.itemId) {
+      fallback.itemId = itemId;
+    }
     return refreshLootCouncilItemMetadata(fallback, itemName, timestamp, ordinal);
   }
   // origin === 'PENDING'
   if (ordinalMatch) {
+    if (itemId && !ordinalMatch.itemId) {
+      ordinalMatch.itemId = itemId;
+    }
     return refreshLootCouncilItemMetadata(ordinalMatch, itemName, timestamp, ordinal);
   }
   if (!candidates.length) {
-    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'PENDING');
+    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal ?? null, 'PENDING', itemId);
     return true;
   }
   if (ordinal != null) {
-    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'PENDING');
+    createLootCouncilItemState(nameKey, itemName, timestamp, ordinal, 'PENDING', itemId);
     return true;
   }
   const fallback =
     candidates.find((entry) => entry.ordinal == null) ??
     candidates.reduce((prev, current) => (current.startedAt < prev.startedAt ? current : prev));
+  if (itemId && !fallback.itemId) {
+    fallback.itemId = itemId;
+  }
   return refreshLootCouncilItemMetadata(fallback, itemName, timestamp, ordinal);
 }
 
@@ -2034,9 +2209,14 @@ function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'RE
   }
   let changed = activated;
   for (const item of items) {
+    // Update item's itemId if we have one from the event and item doesn't have one
+    if (event.itemId && !item.itemId) {
+      item.itemId = event.itemId;
+    }
     const itemChanged = upsertLootCouncilInterest(item, {
       playerName: event.playerName,
       replacing: event.replacing ?? null,
+      replacingItemId: event.replacingItemId ?? null,
       mode: event.mode,
       votes: null,
       voters: [],
@@ -2048,9 +2228,36 @@ function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'RE
   if (changed) {
     appendDebugLog('Loot council interest recorded', {
       itemName: event.itemName,
+      itemId: event.itemId,
       playerName: event.playerName,
       replacing: event.replacing ?? null,
+      replacingItemId: event.replacingItemId ?? null,
       mode: event.mode
+    });
+  }
+  return changed;
+}
+
+function removeLootCouncilInterest(event: Extract<LootCouncilEvent, { type: 'WITHDRAWAL' }>) {
+  const nameKey = normalizeLootCouncilItemKey(event.itemName);
+  const items = getLootCouncilCandidates(nameKey);
+  if (!items.length) {
+    return false;
+  }
+  let changed = false;
+  const playerKey = event.playerName.trim().toLowerCase();
+  for (const item of items) {
+    const interestIndex = item.interests.findIndex((interest) => interest.playerKey === playerKey);
+    if (interestIndex !== -1) {
+      item.interests.splice(interestIndex, 1);
+      item.lastUpdatedAt = event.timestamp;
+      changed = true;
+    }
+  }
+  if (changed) {
+    appendDebugLog('Loot council interest withdrawn', {
+      itemName: event.itemName,
+      playerName: event.playerName
     });
   }
   return changed;
@@ -2061,6 +2268,7 @@ function upsertLootCouncilInterest(
   options: {
     playerName: string;
     replacing?: string | null;
+    replacingItemId?: number | null;
     mode: LootCouncilInterestMode;
     votes?: number | null;
     voters?: string[];
@@ -2080,6 +2288,10 @@ function upsertLootCouncilInterest(
     if ((options.replacing ?? null) !== (existing.replacing ?? null)) {
       existing.replacing = options.replacing ?? null;
       changed = true;
+    }
+    // Update replacingItemId if provided
+    if (options.replacingItemId && !existing.replacingItemId) {
+      existing.replacingItemId = options.replacingItemId;
     }
     if (existing.mode !== options.mode) {
       existing.mode = options.mode;
@@ -2107,6 +2319,8 @@ function upsertLootCouncilInterest(
       playerKey,
       playerName: options.playerName,
       replacing: options.replacing ?? null,
+      replacingItemId: options.replacingItemId ?? null,
+      replacingItemIconId: null,
       mode: options.mode,
       votes: votesNormalized,
       lastUpdatedAt: options.timestamp,
@@ -7308,14 +7522,49 @@ onBeforeUnmount(() => {
 
 .loot-council-column__header {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.loot-council-column__icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.loot-council-column__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.loot-council-column__icon-placeholder {
+  color: #64748b;
+  font-size: 1.2rem;
+}
+
+.loot-council-column__info {
+  flex: 1;
+  min-width: 0;
 }
 
 .loot-council-column__name {
   font-size: 1rem;
   font-weight: 600;
   margin: 0;
+  cursor: pointer;
+}
+
+.loot-council-column__name:hover {
+  color: #60a5fa;
 }
 
 .loot-council-column__meta {
@@ -7414,12 +7663,52 @@ onBeforeUnmount(() => {
 }
 
 .loot-council-interest__replacement {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
   font-size: 0.8rem;
   color: #cbd5f5;
   margin: 0;
 }
 
 .loot-council-interest__replacement--none {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.loot-council-interest__replacement-label {
+  color: #94a3b8;
+}
+
+.loot-council-interest__replacement-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.loot-council-interest__replacement-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.loot-council-interest__replacement-name {
+  cursor: pointer;
+}
+
+.loot-council-interest__replacement-name:hover {
+  color: #60a5fa;
+}
+
+.loot-council-interest__replacement-none {
   color: #94a3b8;
   font-style: italic;
 }

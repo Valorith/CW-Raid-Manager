@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
-import { getItemStats, getItemStatsBatch, getSpellNamesBatch } from '../services/itemStatsService.js';
+import { getItemStats, getItemStatsBatch, getSpellNamesBatch, searchItemsByName } from '../services/itemStatsService.js';
 
 export async function itemRoutes(server: FastifyInstance) {
   /**
@@ -83,6 +83,26 @@ export async function itemRoutes(server: FastifyInstance) {
     return {
       items,
       spellNames
+    };
+  });
+
+  /**
+   * POST /items/search-by-name
+   * Searches items by exact name match (case-insensitive) and returns their IDs and icons.
+   */
+  server.post('/items/search-by-name', async (request, reply) => {
+    const bodySchema = z.object({
+      names: z.array(z.string().min(1).max(191)).max(100)
+    });
+
+    const body = bodySchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.badRequest('Invalid item names. Provide an array of up to 100 item names.');
+    }
+
+    const results = await searchItemsByName(body.data.names);
+    return {
+      items: Object.fromEntries(results)
     };
   });
 }

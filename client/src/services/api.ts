@@ -368,6 +368,16 @@ export interface ItemStatsBatchResponse {
   spellNames: Record<number, string>;
 }
 
+export interface ItemNameSearchResult {
+  itemId: number;
+  itemIconId: number;
+  itemName: string;
+}
+
+export interface ItemNameSearchResponse {
+  items: Record<string, ItemNameSearchResult>;
+}
+
 export interface QuestProgressSummary {
   totalNodes: number;
   completed: number;
@@ -2872,6 +2882,14 @@ export const api = {
    */
   async fetchItemStatsBatch(itemIds: number[]): Promise<ItemStatsBatchResponse> {
     const response = await axios.post('/api/items/stats/batch', { itemIds });
+    return response.data;
+  },
+
+  /**
+   * Searches items by name and returns their IDs and icons.
+   */
+  async searchItemsByName(names: string[]): Promise<ItemNameSearchResponse> {
+    const response = await axios.post('/api/items/search-by-name', { names });
     return response.data;
   },
 
