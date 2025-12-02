@@ -1037,42 +1037,32 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       if (!bankRequestPayload.items || bankRequestPayload.items.length === 0) {
         return null;
       }
-      const entries = bankRequestPayload.items.slice(0, 15);
-      const overflow = Math.max(bankRequestPayload.items.length - entries.length, 0);
-      const fields = entries.map((item) => {
-        const sourceLines =
-          item.sources && item.sources.length
-            ? item.sources
-                .map(
-                  (src) =>
-                    `• ${src.characterName} ×${src.quantity}`
-                )
-                .join('\n')
-            : '• Source unknown';
-        // Only use item ID links (short URLs) in field name to stay under 256 char limit
-        const itemUrl = item.itemId != null ? buildAllaItemUrl(item.itemName, item.itemId) : null;
-        const itemLabel = itemUrl
-          ? `[${item.itemName}](${itemUrl})`
-          : item.itemName;
-        return {
-          name: `${itemLabel} ×${item.quantity}`,
-          value: sourceLines,
-          inline: false
-        };
-      });
-      if (overflow > 0) {
-        fields.push({
-          name: 'Additional items',
-          value: `${overflow} more item${overflow === 1 ? '' : 's'} requested.`,
-          inline: false
-        });
-      }
+      const bankEntries = bankRequestPayload.items.slice(0, 15);
+      const bankOverflow = Math.max(bankRequestPayload.items.length - bankEntries.length, 0);
+      const bankDescription = bankEntries
+        .map((item) => {
+          const itemUrl = item.itemId != null ? buildAllaItemUrl(item.itemName, item.itemId) : null;
+          const itemLabel = itemUrl
+            ? `[**${item.itemName}**](${itemUrl})`
+            : `**${item.itemName}**`;
+          const sourceLines =
+            item.sources && item.sources.length
+              ? item.sources
+                  .map((src) => `　• ${src.characterName} ×${src.quantity}`)
+                  .join('\n')
+              : '　• Source unknown';
+          return `📦 ${itemLabel} ×${item.quantity}\n${sourceLines}`;
+        })
+        .join('\n');
+      const bankOverflowLine =
+        bankOverflow > 0
+          ? `\n_${bankOverflow} additional item${bankOverflow === 1 ? '' : 's'} not shown_`
+          : '';
       return {
         embeds: [
           {
             title: `📦 Guild Bank Request — ${bankRequestPayload.requestedByName}`,
-            description: `Items requested for **${bankRequestPayload.guildName}**:`,
-            fields,
+            description: `Items requested for **${bankRequestPayload.guildName}**:\n\n${bankDescription}${bankOverflowLine}`,
             color: DISCORD_COLORS.info,
             timestamp: nowIso
           }
