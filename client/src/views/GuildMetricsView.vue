@@ -5875,10 +5875,12 @@ onMounted(() => {
   flex-direction: column;
   gap: 1rem;
   min-height: 260px;
+  max-height: 480px;
 }
 
 .metrics-class-card {
   min-height: auto;
+  max-height: none;
   gap: 1.25rem;
 }
 
@@ -5979,6 +5981,7 @@ onMounted(() => {
 
 .metrics-card__chart {
   flex: 1;
+  height: 0;
   min-height: 220px;
   position: relative;
   overflow: hidden;
@@ -5997,12 +6000,14 @@ onMounted(() => {
   grid-column: 1 / -1;
   width: 100%;
   min-height: min(85vh, 960px);
+  max-height: none;
   display: flex;
   flex-direction: column;
 }
 
 .metrics-card--maximized .metrics-card__chart {
   flex: 1;
+  height: auto;
   min-height: unset;
 }
 
