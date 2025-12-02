@@ -6164,16 +6164,20 @@ async function copyRaidLink() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 2.5rem;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
   font-weight: 900;
-  color: #ff2020;
-  text-shadow:
-    -2px -2px 0 #000,
-    2px -2px 0 #000,
-    -2px 2px 0 #000,
-    2px 2px 0 #000,
-    0 0 8px #000,
-    0 0 16px rgba(255, 32, 32, 0.6);
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
   pointer-events: none;
   z-index: 1;
   line-height: 1;
