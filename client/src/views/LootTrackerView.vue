@@ -1860,26 +1860,35 @@ function recordLootDisposition(
   itemId?: number | null,
   itemIconId?: number | null
 ) {
-  const entry: LootDispositionEntry = {
-    id: `${timestamp.getTime()}-${itemName}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp,
-    actionType,
-    itemName,
-    itemId: itemId ?? null,
-    itemIconId: itemIconId ?? null,
-    recipientName
-  };
+  try {
+    const entry: LootDispositionEntry = {
+      id: `${timestamp?.getTime?.() ?? Date.now()}-${itemName ?? 'unknown'}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: timestamp ?? new Date(),
+      actionType,
+      itemName: itemName ?? '',
+      itemId: itemId ?? null,
+      itemIconId: itemIconId ?? null,
+      recipientName: recipientName ?? null
+    };
 
-  // Add to the front of the list (newest first)
-  lootDispositionHistory.value = [
-    entry,
-    ...lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES - 1)
-  ];
-  persistLootDispositionHistory();
+    // Add to the front of the list (newest first)
+    lootDispositionHistory.value = [
+      entry,
+      ...lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES - 1)
+    ];
+    persistLootDispositionHistory();
 
-  // If item IDs are missing, trigger resolution to fill them in
-  if (entry.itemId == null || entry.itemIconId == null) {
-    scheduleLootCouncilItemResolution();
+    // If item IDs are missing, trigger resolution to fill them in
+    if (entry.itemId == null || entry.itemIconId == null) {
+      scheduleLootCouncilItemResolution();
+    }
+  } catch (error) {
+    // Disposition recording should never interrupt monitoring
+    appendDebugLog('Error recording loot disposition', {
+      error: String(error),
+      actionType,
+      itemName
+    });
   }
 }
 
@@ -2182,11 +2191,20 @@ function handleLootCouncilEvents(events: LootCouncilEvent[]) {
       continue;
     }
     processedLootCouncilKeys.add(event.key);
-    const applied = applyLootCouncilEvent(event);
-    if (applied && event.type === 'ITEM_CONSIDERED') {
-      newItemActivated = true;
+    try {
+      const applied = applyLootCouncilEvent(event);
+      if (applied && event.type === 'ITEM_CONSIDERED') {
+        newItemActivated = true;
+      }
+      changed = changed || applied;
+    } catch (error) {
+      // Log but continue processing other events - one bad event should not stop monitoring
+      appendDebugLog('Error applying loot council event', {
+        error: String(error),
+        eventType: event.type,
+        eventKey: event.key
+      });
     }
-    changed = changed || applied;
   }
   if (changed) {
     lootCouncilState.lastUpdatedAt = new Date();
@@ -4262,6 +4280,9 @@ async function readLiveLogChunk() {
     return;
   }
   liveChunkInFlight = true;
+
+  // Phase 1: Read file content - errors here are file access failures
+  let normalizedChunk: string;
   try {
     const file = await monitorController.fileHandle.getFile();
     if (file.size < monitorController.lastSize) {
@@ -4271,28 +4292,18 @@ async function readLiveLogChunk() {
     if (file.size === monitorController.lastSize) {
       // No new content, but file access succeeded - reset failure counter
       monitorHealth.consecutiveFileReadFailures = 0;
+      liveChunkInFlight = false;
       return;
     }
     const blob = file.slice(monitorController.lastSize);
     const text = await blob.text();
     monitorController.lastSize = file.size;
     const chunk = drainMonitorChunk(text);
-    const normalizedChunk = normalizeLootCouncilSummaryChunk(chunk);
+    normalizedChunk = normalizeLootCouncilSummaryChunk(chunk);
 
     // Successfully read file - reset failure tracking
     monitorHealth.consecutiveFileReadFailures = 0;
     monitorHealth.lastSuccessfulFileRead = new Date();
-
-    if (!normalizedChunk.trim()) {
-      return;
-    }
-    const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
-    const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
-    const start = new Date(startIso);
-    const end = endIso ? new Date(endIso) : undefined;
-    activateProcessedLogSignature(monitorController.fileSignature, false);
-    processLogContent(normalizedChunk, { append: true, resetKeys: false, start, end });
-    persistActiveProcessedLogState();
   } catch (error) {
     monitorHealth.consecutiveFileReadFailures += 1;
     appendDebugLog('Failed to read live log chunk', {
@@ -4307,6 +4318,29 @@ async function readLiveLogChunk() {
       // Stop polling to avoid spam, but keep session alive for potential recovery
       stopLiveLogPolling();
     }
+    liveChunkInFlight = false;
+    return;
+  }
+
+  // Phase 2: Process content - errors here should NOT stop monitoring
+  try {
+    if (!normalizedChunk.trim()) {
+      liveChunkInFlight = false;
+      return;
+    }
+    const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
+    const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
+    const start = new Date(startIso);
+    const end = endIso ? new Date(endIso) : undefined;
+    activateProcessedLogSignature(monitorController.fileSignature, false);
+    processLogContent(normalizedChunk, { append: true, resetKeys: false, start, end });
+    persistActiveProcessedLogState();
+  } catch (error) {
+    // Log processing errors but do NOT count them as file read failures
+    // and do NOT stop monitoring - this is critical for reliability
+    appendDebugLog('Error processing log content (monitoring continues)', {
+      error: String(error)
+    });
   } finally {
     liveChunkInFlight = false;
   }
@@ -5391,13 +5425,18 @@ function processLogContent(
   const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null);
   const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
   if (shouldTrackLootCouncil) {
-    const lootCouncilEvents = parseLootCouncilEvents(
-      content,
-      options.start,
-      options.end ?? null
-    );
-    if (lootCouncilEvents.length > 0) {
-      handleLootCouncilEvents(lootCouncilEvents);
+    try {
+      const lootCouncilEvents = parseLootCouncilEvents(
+        content,
+        options.start,
+        options.end ?? null
+      );
+      if (lootCouncilEvents.length > 0) {
+        handleLootCouncilEvents(lootCouncilEvents);
+      }
+    } catch (error) {
+      // Log but do not throw - loot council errors should not interrupt monitoring
+      appendDebugLog('Error processing loot council events', { error: String(error) });
     }
   }
   const includeConsole = Boolean(monitorSession.value);
