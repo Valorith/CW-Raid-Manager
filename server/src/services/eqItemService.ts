@@ -30,7 +30,8 @@ export async function getItemIconId(itemId: number, logger?: AppLogger): Promise
       [itemId]
     );
     const iconValue = rows.length > 0 ? Number(rows[0].icon) : null;
-    const resolved = Number.isFinite(iconValue) ? iconValue : null;
+    // Icon ID 0 means "no icon" in EverQuest, treat it as null
+    const resolved = Number.isFinite(iconValue) && iconValue > 0 ? iconValue : null;
     iconCache.set(itemId, resolved);
     return resolved;
   } catch (error) {

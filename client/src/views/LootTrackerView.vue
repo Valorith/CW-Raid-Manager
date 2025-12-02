@@ -546,7 +546,7 @@
               @mousemove="updateTooltipPosition($event)"
               @mouseleave="hideItemTooltip"
             >
-              <template v-if="entry.itemIconId != null">
+              <template v-if="hasValidIconId(entry.itemIconId)">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
                   :alt="`${entry.itemName} icon`"
@@ -1112,7 +1112,7 @@ import { useItemTooltipStore } from '../stores/itemTooltip';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
 import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
-import { getLootIconSrc } from '../utils/itemIcons';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { extractErrorMessage } from '../utils/errors';
 import {
   getGuildBankDisplayName,
@@ -2799,7 +2799,7 @@ const groupedExistingLoot = computed<GroupedLootEntry[]>(() => {
     if (entry.itemId == null && event.itemId != null) {
       entry.itemId = event.itemId;
     }
-    if (entry.itemIconId == null && event.itemIconId != null) {
+    if (!hasValidIconId(entry.itemIconId) && hasValidIconId(event.itemIconId)) {
       entry.itemIconId = event.itemIconId;
     }
   }

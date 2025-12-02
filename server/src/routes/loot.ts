@@ -89,7 +89,8 @@ function serializeMonitorSession(viewerId: string, session: ReturnType<typeof ge
 export async function lootRoutes(server: FastifyInstance) {
   server.get('/loot-icons/:iconId', async (request, reply) => {
     const paramsSchema = z.object({
-      iconId: z.coerce.number().int().nonnegative()
+      // Icon ID must be positive (0 means "no icon" in EverQuest)
+      iconId: z.coerce.number().int().positive()
     });
     const querySchema = z
       .object({
