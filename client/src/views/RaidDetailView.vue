@@ -6388,11 +6388,23 @@ async function copyRaidLink() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: rgba(239, 68, 68, 0.95);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  width: 1.4rem;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
   pointer-events: none;
+  z-index: 1;
+  line-height: 1;
 }
 
 .raid-signups__not-attending-label {
@@ -6585,12 +6597,23 @@ async function copyRaidLink() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 1.4rem;
-  font-weight: 700;
-  color: rgba(239, 68, 68, 0.95);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  width: 1.6rem;
+  height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
+  line-height: 1;
 }
 
 .raid-signups__collapsed-avatar img {
