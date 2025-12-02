@@ -4415,9 +4415,24 @@ async function readLiveLogChunk() {
 
     // Check if we've exceeded max failures
     if (monitorHealth.consecutiveFileReadFailures >= MONITOR_MAX_FILE_READ_FAILURES) {
-      appendDebugLog('Max consecutive file read failures exceeded');
+      appendDebugLog('Max consecutive file read failures exceeded, attempting permission check');
+
+      // Before giving up, try to verify/restore file handle permission
+      try {
+        const hasPermission = await ensureHandlePermission(monitorController.fileHandle, false);
+        if (hasPermission) {
+          // Permission restored - reset counter and continue
+          monitorHealth.consecutiveFileReadFailures = 0;
+          appendDebugLog('File handle permission verified, resetting failure counter');
+          liveChunkInFlight = false;
+          return;
+        }
+      } catch (permError) {
+        appendDebugLog('Permission check failed', { error: String(permError) });
+      }
+
+      // Permission check failed - stop polling
       continuousMonitorError.value = 'Unable to read log file. Please check file access and restart monitoring.';
-      // Stop polling to avoid spam, but keep session alive for potential recovery
       stopLiveLogPolling();
     }
     liveChunkInFlight = false;
@@ -4597,10 +4612,13 @@ async function attemptSessionRecovery() {
     monitorHeartbeatInterval.value = result.heartbeatInterval ?? 10_000;
     monitorTimeoutMs.value = result.timeout ?? 30_000;
 
-    // Reset health and restart heartbeat
+    // Reset health and restart heartbeat + polling
     resetMonitorHealth();
     monitorHealth.lastSuccessfulHeartbeat = new Date();
+    monitorHealth.lastSuccessfulFileRead = new Date();
+    continuousMonitorError.value = null; // Clear any previous error message
     startMonitorHeartbeat();
+    startLiveLogPolling(); // Critical: restart log polling after recovery
 
     appendDebugLog('Monitor session recovered successfully', { sessionId: result.session.sessionId });
   } catch (recoveryError) {
@@ -4715,6 +4733,28 @@ function handleBeforeRouteLeave(_to: any, _from: any, next: (value?: boolean | s
   }
 
   next();
+}
+
+function handleVisibilityChange() {
+  // When tab becomes visible again, ensure monitoring is still running
+  if (document.hidden || !monitorSession.value?.isOwner || !monitorController.fileHandle) {
+    return;
+  }
+
+  // Check if polling was stopped but should be running
+  if (!monitorController.pollTimerId) {
+    appendDebugLog('Tab became visible, restarting log polling');
+    // Reset any file read failures that may have accumulated while hidden
+    monitorHealth.consecutiveFileReadFailures = 0;
+    continuousMonitorError.value = null;
+    startLiveLogPolling();
+  }
+
+  // Check if heartbeat was stopped but should be running
+  if (!monitorController.heartbeatTimerId && monitorSession.value?.sessionId) {
+    appendDebugLog('Tab became visible, restarting heartbeat');
+    startMonitorHeartbeat();
+  }
 }
 
 function dismissLeaveMonitorModal(shouldNavigate: boolean) {
@@ -6262,6 +6302,7 @@ onMounted(() => {
   window.addEventListener('click', handleGlobalPointerDown);
   window.addEventListener('contextmenu', handleGlobalPointerDown);
   window.addEventListener('keydown', handleLootContextMenuKey);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   lootDispositionHistory.value = loadLootDispositionHistory();
   // Trigger item resolution for any disposition entries with missing IDs
   if (lootDispositionHistory.value.some((entry) => entry.itemId == null || entry.itemIconId == null)) {
@@ -6279,6 +6320,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('contextmenu', handleGlobalPointerDown);
   window.removeEventListener('keydown', handleLootContextMenuKey);
   window.removeEventListener('keydown', handleDetectedModalKeydown);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopMonitorStatusPolling();
   if (monitorSession.value?.isOwner) {
     void stopActiveMonitor();
