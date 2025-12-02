@@ -94,6 +94,14 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+    }
+  | {
+      type: 'WITHDRAWAL';
+      key: string;
+      timestamp: Date;
+      rawLine: string;
+      itemName: string;
+      playerName: string;
     };
 
 interface LootCouncilSyncBlock {
@@ -371,6 +379,22 @@ export function parseLootCouncilEvents(
         playerName: requestNoReplaceMatch.groups.player.trim(),
         replacing: null,
         mode: 'NOT_REPLACING'
+      });
+      continue;
+    }
+
+    const withdrawalMatch = trimmed.match(
+      /\[Loot Council] System said, '(?<player>.+?) has withdrawn their interest in (?<item>.+?)!'\s*$/i
+    );
+    if (withdrawalMatch?.groups) {
+      finalizeSyncBlock();
+      events.push({
+        type: 'WITHDRAWAL',
+        key: buildEventKey(timestamp, `${withdrawalMatch.groups.item}::${withdrawalMatch.groups.player}::withdrawal`),
+        timestamp,
+        rawLine,
+        itemName: cleanItemName(withdrawalMatch.groups.item),
+        playerName: withdrawalMatch.groups.player.trim()
       });
       continue;
     }

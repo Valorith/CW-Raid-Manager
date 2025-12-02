@@ -1945,6 +1945,8 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
         awardedTo: null,
         status: 'REMOVED'
       });
+    case 'WITHDRAWAL':
+      return removeLootCouncilInterest(event);
     default:
       return false;
   }
@@ -2051,6 +2053,31 @@ function registerLootCouncilRequest(event: Extract<LootCouncilEvent, { type: 'RE
       playerName: event.playerName,
       replacing: event.replacing ?? null,
       mode: event.mode
+    });
+  }
+  return changed;
+}
+
+function removeLootCouncilInterest(event: Extract<LootCouncilEvent, { type: 'WITHDRAWAL' }>) {
+  const nameKey = normalizeLootCouncilItemKey(event.itemName);
+  const items = getLootCouncilCandidates(nameKey);
+  if (!items.length) {
+    return false;
+  }
+  let changed = false;
+  const playerKey = event.playerName.trim().toLowerCase();
+  for (const item of items) {
+    const interestIndex = item.interests.findIndex((interest) => interest.playerKey === playerKey);
+    if (interestIndex !== -1) {
+      item.interests.splice(interestIndex, 1);
+      item.lastUpdatedAt = event.timestamp;
+      changed = true;
+    }
+  }
+  if (changed) {
+    appendDebugLog('Loot council interest withdrawn', {
+      itemName: event.itemName,
+      playerName: event.playerName
     });
   }
   return changed;
