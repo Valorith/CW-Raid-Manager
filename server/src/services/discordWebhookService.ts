@@ -594,6 +594,13 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
     case 'raid.started':
       const raidStartedPayload = payload as DiscordWebhookPayloadMap['raid.started'];
       const raidStartedUrl = buildRaidUrl(raidStartedPayload.raidId);
+      const raidStartedLootUrl = buildRaidLootUrl(raidStartedPayload.raidId);
+      const raidStartedLinks = [
+        raidStartedUrl ? `[View Raid](${raidStartedUrl})` : null,
+        raidStartedLootUrl ? `[View Loot](${raidStartedLootUrl})` : null
+      ]
+        .filter(Boolean)
+        .join(' • ');
       return {
         embeds: [
           {
@@ -606,11 +613,11 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                 value: formatDiscordTimestamp(raidStartedPayload.startedAt),
                 inline: true
               },
-              ...(raidStartedUrl
+              ...(raidStartedLinks
                 ? [
                     {
                       name: 'Links',
-                      value: `[View Raid](${raidStartedUrl})`,
+                      value: raidStartedLinks,
                       inline: false
                     }
                   ]
@@ -1225,6 +1232,13 @@ function buildRaidUrl(raidId: string) {
     return null;
   }
   return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}`;
+}
+
+function buildRaidLootUrl(raidId: string) {
+  if (!clientBaseUrl) {
+    return null;
+  }
+  return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}/loot`;
 }
 
 function buildGuildApplicantsUrl(guildId: string) {
