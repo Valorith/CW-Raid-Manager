@@ -8026,7 +8026,34 @@ onBeforeUnmount(() => {
 
 /* Loot Disposition Table Styles */
 .loot-disposition-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.loot-disposition-card .card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.loot-disposition-card .card__header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.loot-disposition-card .card__header .muted {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: #94a3b8;
 }
 
 .loot-disposition-table-wrapper {
