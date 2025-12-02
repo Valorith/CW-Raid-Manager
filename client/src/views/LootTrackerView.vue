@@ -1609,6 +1609,7 @@ const lootCouncilState = reactive<{
 const resolvedLootCouncilItems = new Map<string, Date>();
 const itemNameToIdCache = new Map<string, { itemId: number; itemIconId: number } | null>();
 let itemResolutionPending = false;
+let itemResolutionNeeded = false; // Flag to re-run resolution after current completes
 let itemResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
 const lootCouncilActiveItems = computed(() =>
   lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
@@ -1875,6 +1876,11 @@ function recordLootDisposition(
     ...lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES - 1)
   ];
   persistLootDispositionHistory();
+
+  // If item IDs are missing, trigger resolution to fill them in
+  if (entry.itemId == null || entry.itemIconId == null) {
+    scheduleLootCouncilItemResolution();
+  }
 }
 
 function normalizeLootCouncilItemKey(itemName: string) {
@@ -2206,9 +2212,12 @@ function scheduleLootCouncilItemResolution() {
 
 async function resolveLootCouncilItemIds() {
   if (itemResolutionPending) {
+    // Mark that resolution is needed so we re-run after current completes
+    itemResolutionNeeded = true;
     return;
   }
   itemResolutionPending = true;
+  itemResolutionNeeded = false;
   try {
     // Collect all item names that need resolution
     const namesToResolve = new Set<string>();
@@ -2266,6 +2275,11 @@ async function resolveLootCouncilItemIds() {
     console.error('Failed to resolve loot council item IDs:', error);
   } finally {
     itemResolutionPending = false;
+    // If new items were added while we were resolving, schedule another resolution
+    if (itemResolutionNeeded) {
+      itemResolutionNeeded = false;
+      scheduleLootCouncilItemResolution();
+    }
   }
 }
 
