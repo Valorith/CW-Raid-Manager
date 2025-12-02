@@ -2450,13 +2450,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
     case 'VOTE':
       return applyLootCouncilVote(event);
     case 'AWARD': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Council Award',
         event.itemName,
         event.timestamp,
         event.awardedTo,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2465,13 +2466,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'DONATION': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Guild Banked',
         event.itemName,
         event.timestamp,
         null,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2480,13 +2482,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'RANDOM_AWARD': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Random',
         event.itemName,
         event.timestamp,
         event.awardedTo,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2495,13 +2498,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'MASTER_LOOTER_AWARD': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Assigned',
         event.itemName,
         event.timestamp,
         event.awardedTo,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2510,13 +2514,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'MASTER_LOOTED': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Taken',
         event.itemName,
         event.timestamp,
         'Master Looter',
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2525,13 +2530,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'LEFT_ON_CORPSE': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Abandoned',
         event.itemName,
         event.timestamp,
         null,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
@@ -2540,13 +2546,14 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       });
     }
     case 'DISCARDED': {
-      const itemInfo = getDispositionItemInfo(event.itemName);
+      // Use item ID from event if available, otherwise fall back to lookup
+      const itemInfo = event.itemId != null ? null : getDispositionItemInfo(event.itemName);
       recordLootDisposition(
         'Discarded',
         event.itemName,
         event.timestamp,
         null,
-        itemInfo?.itemId,
+        event.itemId ?? itemInfo?.itemId,
         itemInfo?.itemIconId
       );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
