@@ -6164,14 +6164,19 @@ async function copyRaidLink() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 2rem;
-  font-weight: 800;
-  color: #ef4444;
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: #ff2020;
   text-shadow:
-    0 0 8px rgba(0, 0, 0, 0.8),
-    0 2px 4px rgba(0, 0, 0, 0.6);
+    -2px -2px 0 #000,
+    2px -2px 0 #000,
+    -2px 2px 0 #000,
+    2px 2px 0 #000,
+    0 0 8px #000,
+    0 0 16px rgba(255, 32, 32, 0.6);
   pointer-events: none;
   z-index: 1;
+  line-height: 1;
 }
 
 .raid-signups__character-meta {
