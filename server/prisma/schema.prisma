@@ -309,6 +309,7 @@ model RaidSignup {
   characterClass CharacterClass
   characterLevel Int?
   isMain         Boolean        @default(false)
+  status         SignupStatus   @default(CONFIRMED)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @default(now()) @updatedAt
   raid           RaidEvent      @relation(fields: [raidId], references: [id], onDelete: Cascade)
@@ -587,6 +588,11 @@ enum RaidRecurrenceFrequency {
   DAILY
   WEEKLY
   MONTHLY
+}
+
+enum SignupStatus {
+  CONFIRMED
+  NOT_ATTENDING
 }
 
 enum QuestBlueprintVisibility {

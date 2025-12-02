@@ -12,6 +12,7 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'raid.targetKilled',
   'raid.deleted',
   'raid.signup',
+  'raid.signup.not_attending',
   'raid.withdraw',
   'loot.assigned',
   'attendance.logged',
@@ -71,6 +72,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     category: 'RAID'
   },
   {
+    key: 'raid.signup.not_attending',
+    label: 'Raid Not Attending',
+    description: 'Announces when a character marks themselves as not attending a raid.',
+    category: 'RAID'
+  },
+  {
     key: 'raid.withdraw',
     label: 'Raid Withdrawal',
     description: 'Notifies the guild when a character withdraws from a raid signup.',
@@ -127,6 +134,7 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'raid.targetKilled': true,
   'raid.deleted': false,
   'raid.signup': true,
+  'raid.signup.not_attending': true,
   'raid.withdraw': true,
   'loot.assigned': true,
   'attendance.logged': true,
@@ -144,6 +152,7 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'raid.targetKilled': true,
   'raid.deleted': false,
   'raid.signup': false,
+  'raid.signup.not_attending': false,
   'raid.withdraw': false,
   'loot.assigned': false,
   'attendance.logged': false,
@@ -363,6 +372,20 @@ type DiscordWebhookPayloadMap = {
     }>;
   };
   'raid.signup': {
+    guildId: string;
+    guildName: string;
+    raidId: string;
+    raidName: string;
+    entries: Array<{
+      characterName: string;
+      characterClass: CharacterClass;
+      characterClassLabel: string;
+    }>;
+    userDisplayName: string;
+    signedAt: Date | string;
+    raidStartTime: Date | string | null;
+  };
+  'raid.signup.not_attending': {
     guildId: string;
     guildName: string;
     raidId: string;
@@ -733,6 +756,57 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
+    case 'raid.signup.not_attending':
+      const notAttendingPayload = payload as DiscordWebhookPayloadMap['raid.signup.not_attending'];
+      const notAttendingUrl = buildRaidUrl(notAttendingPayload.raidId);
+      const notAttendingEntries = notAttendingPayload.entries ?? [];
+      if (notAttendingEntries.length === 0) {
+        return null;
+      }
+      if (notAttendingEntries.length === 1) {
+        const entry = notAttendingEntries[0];
+        return {
+          embeds: [
+            {
+              title: `❌ ${entry.characterName} (${entry.characterClassLabel}) marked as not attending`,
+              description: formatRaidSignupDescription(
+                notAttendingPayload.raidName,
+                notAttendingPayload.userDisplayName,
+                notAttendingUrl,
+                notAttendingPayload.raidStartTime
+              ),
+              color: DISCORD_COLORS.danger,
+              footer: { text: notAttendingPayload.guildName },
+              timestamp: new Date(notAttendingPayload.signedAt).toISOString()
+            }
+          ]
+        };
+      }
+
+      return {
+        embeds: [
+          {
+            title: `❌ ${notAttendingPayload.userDisplayName} marked ${notAttendingEntries.length} characters as not attending`,
+            description: formatRaidSignupDescription(
+              notAttendingPayload.raidName,
+              notAttendingPayload.userDisplayName,
+              notAttendingUrl,
+              notAttendingPayload.raidStartTime
+            ),
+            color: DISCORD_COLORS.danger,
+            fields: [
+              {
+                name: 'Characters',
+                value: notAttendingEntries
+                  .map((entry) => `• **${entry.characterName}** (${entry.characterClassLabel})`)
+                  .join('\n')
+              }
+            ],
+            footer: { text: notAttendingPayload.guildName },
+            timestamp: new Date(notAttendingPayload.signedAt).toISOString()
+          }
+        ]
+      };
     case 'raid.withdraw':
       const raidWithdrawPayload = payload as DiscordWebhookPayloadMap['raid.withdraw'];
       const raidWithdrawUrl = buildRaidUrl(raidWithdrawPayload.raidId);
@@ -1001,6 +1075,7 @@ const DISCORD_COLORS = {
   primary: 0x5865f2,
   success: 0x57f287,
   warning: 0xed4245,
+  danger: 0xdc2626,
   info: 0x00b0f4
 };
 

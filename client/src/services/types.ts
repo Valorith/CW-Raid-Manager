@@ -38,6 +38,7 @@ export type CharacterClass =
 
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'BENCHED';
 export type AttendanceEventType = 'LOG' | 'START' | 'END' | 'RESTART';
+export type SignupStatus = 'CONFIRMED' | 'NOT_ATTENDING';
 
 export type DiscordWidgetTheme = 'LIGHT' | 'DARK';
 

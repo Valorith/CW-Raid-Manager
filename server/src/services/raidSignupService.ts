@@ -1,4 +1,4 @@
-import { CharacterClass } from '@prisma/client';
+import { CharacterClass, SignupStatus } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
@@ -56,6 +56,7 @@ export interface RaidSignupSummary {
   characterClass: CharacterClass;
   characterLevel: number | null;
   isMain: boolean;
+  status: SignupStatus;
   createdAt: Date;
   updatedAt: Date;
   user: RaidSignupUser;
@@ -130,6 +131,7 @@ export async function listRaidSignups(raidId: string): Promise<RaidSignupSummary
       characterClass: signup.characterClass,
       characterLevel: signup.characterLevel,
       isMain: signup.isMain,
+      status: signup.status,
       createdAt: signup.createdAt,
       updatedAt: signup.updatedAt,
       user: {
@@ -253,23 +255,34 @@ export async function syncRaidSignupsWithAttendance(raidId: string): Promise<voi
   );
 }
 
+export interface SignupEntry {
+  characterId: string;
+  status?: SignupStatus;
+}
+
 export async function replaceRaidSignupsForUser(
   raidId: string,
   userId: string,
-  characterIds: string[]
+  signupEntries: SignupEntry[]
 ): Promise<RaidSignupSummary[]> {
-  const normalizedIds = Array.from(
-    new Set(
-      characterIds
-        .filter((id): id is string => typeof id === 'string')
-        .map((id) => id.trim())
-        .filter((id) => id.length > 0)
-    )
+  const normalizedEntries = signupEntries
+    .filter((entry): entry is SignupEntry => entry != null && typeof entry.characterId === 'string')
+    .map((entry) => ({
+      characterId: entry.characterId.trim(),
+      status: entry.status ?? 'CONFIRMED' as SignupStatus
+    }))
+    .filter((entry) => entry.characterId.length > 0);
+
+  const uniqueEntries = Array.from(
+    new Map(normalizedEntries.map((entry) => [entry.characterId, entry])).values()
   );
 
-  if (normalizedIds.length > 2) {
+  if (uniqueEntries.length > 2) {
     throw new RaidSignupLimitError();
   }
+
+  const normalizedIds = uniqueEntries.map((entry) => entry.characterId);
+  const statusMap = new Map(uniqueEntries.map((entry) => [entry.characterId, entry.status]));
 
   const raid = await prisma.raidEvent.findUnique({
     where: { id: raidId },
@@ -310,7 +323,8 @@ export async function replaceRaidSignupsForUser(
       select: {
         characterId: true,
         characterName: true,
-        characterClass: true
+        characterClass: true,
+        status: true
       }
     }),
     prisma.user.findUnique({
@@ -414,7 +428,8 @@ export async function replaceRaidSignupsForUser(
           characterName: character.name,
           characterClass: character.class,
           characterLevel: character.level,
-          isMain: character.isMain
+          isMain: character.isMain,
+          status: statusMap.get(character.id) ?? 'CONFIRMED'
         },
         create: {
           raidId,
@@ -423,7 +438,8 @@ export async function replaceRaidSignupsForUser(
           characterName: character.name,
           characterClass: character.class,
           characterLevel: character.level,
-          isMain: character.isMain
+          isMain: character.isMain,
+          status: statusMap.get(character.id) ?? 'CONFIRMED'
         }
       })
     )
@@ -435,7 +451,11 @@ export async function replaceRaidSignupsForUser(
     await emitSignupNotifications(
       eventContext,
       preferredUser.displayName,
-      additions.map((character) => ({ name: character.name, class: character.class })),
+      additions.map((character) => ({
+        name: character.name,
+        class: character.class,
+        status: statusMap.get(character.id) ?? 'CONFIRMED'
+      })),
       removals.map((signup) => ({
         characterName: signup.characterName,
         characterClass: signup.characterClass
@@ -454,20 +474,42 @@ function getCharacterClassAbbreviation(characterClass: CharacterClass | null | u
 async function emitSignupNotifications(
   context: RaidSignupWebhookContext,
   userDisplayName: string,
-  additions: Array<{ name: string; class: CharacterClass }>,
+  additions: Array<{ name: string; class: CharacterClass; status: SignupStatus }>,
   removals: Array<{ characterName: string; characterClass: CharacterClass }>
 ) {
   const tasks: Array<Promise<void>> = [];
   const now = new Date();
 
-  if (additions.length > 0) {
+  const confirmedAdditions = additions.filter((a) => a.status === 'CONFIRMED');
+  const notAttendingAdditions = additions.filter((a) => a.status === 'NOT_ATTENDING');
+
+  if (confirmedAdditions.length > 0) {
     tasks.push(
       emitDiscordWebhookEvent(context.guildId, 'raid.signup', {
         guildId: context.guildId,
         guildName: context.guildName,
         raidId: context.raidId,
         raidName: context.raidName,
-        entries: additions.map((character) => ({
+        entries: confirmedAdditions.map((character) => ({
+          characterName: character.name,
+          characterClass: character.class,
+          characterClassLabel: getCharacterClassAbbreviation(character.class)
+        })),
+        userDisplayName,
+        signedAt: now,
+        raidStartTime: context.raidStartTime
+      })
+    );
+  }
+
+  if (notAttendingAdditions.length > 0) {
+    tasks.push(
+      emitDiscordWebhookEvent(context.guildId, 'raid.signup.not_attending', {
+        guildId: context.guildId,
+        guildName: context.guildName,
+        raidId: context.raidId,
+        raidName: context.raidName,
+        entries: notAttendingAdditions.map((character) => ({
           characterName: character.name,
           characterClass: character.class,
           characterClassLabel: getCharacterClassAbbreviation(character.class)

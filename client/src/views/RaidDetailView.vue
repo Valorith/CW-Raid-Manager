@@ -156,12 +156,16 @@
                 :key="entry.id"
                 :class="[
                   'raid-signups__collapsed-item',
-                  { 'raid-signups__collapsed-item--self': isViewerSignup(entry) }
+                  { 'raid-signups__collapsed-item--self': isViewerSignup(entry) },
+                  { 'raid-signups__collapsed-item--not-attending': entry.status === 'NOT_ATTENDING' }
                 ]"
               >
                 <div
                   class="raid-signups__collapsed-avatar"
-                  :class="{ 'raid-signups__collapsed-avatar--self': isViewerSignup(entry) }"
+                  :class="{
+                    'raid-signups__collapsed-avatar--self': isViewerSignup(entry),
+                    'raid-signups__collapsed-avatar--not-attending': entry.status === 'NOT_ATTENDING'
+                  }"
                 >
                   <img
                     v-if="characterClassIcons[entry.characterClass]"
@@ -172,7 +176,14 @@
                     {{ characterClassLabels[entry.characterClass] }}
                   </span>
                   <span
-                    v-if="isViewerSignup(entry)"
+                    v-if="entry.status === 'NOT_ATTENDING'"
+                    class="raid-signups__collapsed-x"
+                    aria-label="Not attending"
+                  >
+                    ✕
+                  </span>
+                  <span
+                    v-else-if="isViewerSignup(entry)"
                     class="raid-signups__collapsed-check"
                     aria-hidden="true"
                   >
@@ -220,41 +231,80 @@
               You have not registered any characters yet.
             </div>
             <div v-else class="raid-signups__characters">
-              <button
+              <div
                 v-for="character in sortedCharacters"
                 :key="character.id"
-                type="button"
-                class="raid-signups__character"
-                :class="{
-                  'raid-signups__character--selected': selectedCharacterIds.has(character.id),
-                  'raid-signups__character--locked':
-                    (!selectedCharacterIds.has(character.id) && signupLimitReached) || signupsLocked
-                }"
-                :disabled="signupSaving || signupsLocked"
-                @click="handleSignupToggle(character.id)"
+                class="raid-signups__character-wrapper"
               >
-                <span class="raid-signups__avatar">
-                  <img
-                    v-if="characterClassIcons[character.class]"
-                    :src="characterClassIcons[character.class] ?? undefined"
-                    :alt="characterClassLabels[character.class]"
-                    class="raid-signups__avatar-icon"
-                  />
-                  <span v-else class="raid-signups__avatar-fallback">
-                    {{ characterClassLabels[character.class] }}
+                <button
+                  type="button"
+                  class="raid-signups__character"
+                  :class="{
+                    'raid-signups__character--selected': selectedCharacterIds.has(character.id) && !notAttendingDraft.has(character.id),
+                    'raid-signups__character--not-attending': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id),
+                    'raid-signups__character--locked':
+                      (!selectedCharacterIds.has(character.id) && signupLimitReached) || signupsLocked
+                  }"
+                  :disabled="signupSaving || signupsLocked"
+                  @click="handleCharacterSelect(character.id)"
+                >
+                  <span class="raid-signups__avatar" :class="{ 'raid-signups__avatar--dimmed': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id) }">
+                    <img
+                      v-if="characterClassIcons[character.class]"
+                      :src="characterClassIcons[character.class] ?? undefined"
+                      :alt="characterClassLabels[character.class]"
+                      class="raid-signups__avatar-icon"
+                    />
+                    <span v-else class="raid-signups__avatar-fallback">
+                      {{ characterClassLabels[character.class] }}
+                    </span>
+                    <span
+                      v-if="selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id)"
+                      class="raid-signups__avatar-not-attending"
+                      aria-label="Not attending"
+                    >
+                      ✕
+                    </span>
                   </span>
-                </span>
-                <div class="raid-signups__character-meta">
-                  <span class="raid-signups__character-name">
-                    {{ character.name }}
-                    <span v-if="character.isMain" class="raid-signups__tag">Main</span>
-                  </span>
-                  <span class="raid-signups__character-sub muted">
-                    Lv {{ character.level }} • {{ characterClassLabels[character.class] }}
-                  </span>
+                  <div class="raid-signups__character-meta">
+                    <span class="raid-signups__character-name" :class="{ 'raid-signups__character-name--strikethrough': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id) }">
+                      {{ character.name }}
+                      <span v-if="character.isMain" class="raid-signups__tag">Main</span>
+                    </span>
+                    <span class="raid-signups__character-sub muted">
+                      Lv {{ character.level }} • {{ characterClassLabels[character.class] }}
+                    </span>
+                  </div>
+                  <span v-if="selectedCharacterIds.has(character.id) && !notAttendingDraft.has(character.id)" class="raid-signups__character-check" aria-hidden="true">✓</span>
+                  <span v-else-if="selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id)" class="raid-signups__character-status-badge">NOT ATTENDING</span>
+                </button>
+                <!-- Status toggle buttons - appear when character is selected -->
+                <div
+                  v-if="selectedCharacterIds.has(character.id) && !signupsLocked"
+                  class="raid-signups__status-toggle"
+                >
+                  <button
+                    type="button"
+                    class="raid-signups__status-btn"
+                    :class="{ 'raid-signups__status-btn--active': !notAttendingDraft.has(character.id) }"
+                    :disabled="signupSaving"
+                    @click.stop="setCharacterStatus(character.id, 'CONFIRMED')"
+                  >
+                    <span class="raid-signups__status-icon">✓</span>
+                    Attending
+                  </button>
+                  <button
+                    type="button"
+                    class="raid-signups__status-btn raid-signups__status-btn--not-attending"
+                    :class="{ 'raid-signups__status-btn--active': notAttendingDraft.has(character.id) }"
+                    :disabled="signupSaving"
+                    @click.stop="setCharacterStatus(character.id, 'NOT_ATTENDING')"
+                  >
+                    <span class="raid-signups__status-icon">✕</span>
+                    Not Attending
+                  </button>
                 </div>
-                <span class="raid-signups__character-check" aria-hidden="true">✓</span>
-              </button>
+              </div>
             </div>
             <div class="raid-signups__messages">
               <p
@@ -275,9 +325,14 @@
               >
                 {{ signupSuccess }}
               </p>
-              <p v-else class="raid-signups__feedback raid-signups__feedback--muted">
-                Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots. Press Confirm to submit.
-              </p>
+              <template v-else>
+                <p class="raid-signups__feedback raid-signups__feedback--muted">
+                  Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots. Press Confirm to submit.
+                </p>
+                <p v-if="signupDraftCount > 0" class="raid-signups__hint">
+                  Use the buttons below each character to mark as "Attending" or "Not Attending".
+                </p>
+              </template>
             </div>
             <div class="raid-signups__actions">
               <button
@@ -336,10 +391,11 @@
                     :key="entry.id"
                     :class="[
                       'raid-signups__role-item',
-                      { 'raid-signups__role-item--self': viewerUserId && entry.userId === viewerUserId }
+                      { 'raid-signups__role-item--self': viewerUserId && entry.userId === viewerUserId },
+                      { 'raid-signups__role-item--not-attending': entry.status === 'NOT_ATTENDING' }
                     ]"
                   >
-                    <span class="raid-signups__role-icon">
+                    <span class="raid-signups__role-icon" :class="{ 'raid-signups__role-icon--not-attending': entry.status === 'NOT_ATTENDING' }">
                       <img
                         v-if="characterClassIcons[entry.characterClass]"
                         :src="characterClassIcons[entry.characterClass] ?? undefined"
@@ -348,6 +404,7 @@
                       <span v-else class="raid-signups__role-icon-fallback">
                         {{ characterClassLabels[entry.characterClass] }}
                       </span>
+                      <span v-if="entry.status === 'NOT_ATTENDING'" class="raid-signups__role-icon-x" aria-label="Not attending">✕</span>
                     </span>
                     <div class="raid-signups__role-meta">
                       <span
@@ -358,6 +415,7 @@
                         @keydown.enter.stop="openInventory(entry.characterName)"
                       >
                         {{ entry.characterName }}
+                        <span v-if="entry.status === 'NOT_ATTENDING'" class="raid-signups__not-attending-label">(Not Attending)</span>
                       </span>
                       <span class="raid-signups__role-sub muted small">
                         <template v-if="entry.characterLevel">Lv {{ entry.characterLevel }} • </template>
@@ -1839,6 +1897,8 @@ import type {
   RaidEventSummary,
   RaidLootEvent,
   RaidSignup,
+  SignupEntry,
+  SignupStatus,
   UserCharacter
 } from '../services/api';
 import { useAuthStore } from '../stores/auth';
@@ -2464,6 +2524,7 @@ const userCharacters = ref<UserCharacter[]>([]);
 const loadingUserCharacters = ref(false);
 const characterLoadError = ref<string | null>(null);
 const signupDraft = ref<string[]>([]);
+const notAttendingDraft = ref<Set<string>>(new Set());
 const signupSaving = ref(false);
 const signupError = ref<string | null>(null);
 const signupSuccess = ref<string | null>(null);
@@ -3346,6 +3407,11 @@ const viewerSignups = computed<RaidSignup[]>(() => {
   return raidSignups.value.filter((entry) => entry.userId === userId);
 });
 const savedSignupIds = computed(() => viewerSignups.value.map((entry) => entry.characterId));
+const savedNotAttendingIds = computed(() => new Set(
+  viewerSignups.value
+    .filter((entry) => entry.status === 'NOT_ATTENDING')
+    .map((entry) => entry.characterId)
+));
 const sortedCharacters = computed(() => {
   return [...userCharacters.value].sort((a, b) => {
     if (a.isMain !== b.isMain) {
@@ -3360,7 +3426,20 @@ const sortedCharacters = computed(() => {
 const selectedCharacterIds = computed(() => new Set(signupDraft.value));
 const signupDraftCount = computed(() => signupDraft.value.length);
 const signupLimitReached = computed(() => signupDraftCount.value >= maxSignupSlots);
-const signupDirty = computed(() => !areIdListsEqual(signupDraft.value, savedSignupIds.value));
+const signupDirty = computed(() => {
+  if (!areIdListsEqual(signupDraft.value, savedSignupIds.value)) {
+    return true;
+  }
+  // Check if status changed for any selected character
+  for (const id of signupDraft.value) {
+    const draftNotAttending = notAttendingDraft.value.has(id);
+    const savedNotAttending = savedNotAttendingIds.value.has(id);
+    if (draftNotAttending !== savedNotAttending) {
+      return true;
+    }
+  }
+  return false;
+});
 const viewerMains = computed(() => sortedCharacters.value.filter((character) => character.isMain));
 const mainsButtonDisabled = computed(
   () =>
@@ -3424,9 +3503,10 @@ function isViewerSignup(entry: RaidSignup) {
 }
 
 watch(
-  () => savedSignupIds.value.slice().sort().join('|'),
+  () => savedSignupIds.value.slice().sort().join('|') + '|' + Array.from(savedNotAttendingIds.value).sort().join(','),
   () => {
     applySignupDraft(savedSignupIds.value);
+    notAttendingDraft.value = new Set(savedNotAttendingIds.value);
   },
   { immediate: true }
 );
@@ -3508,22 +3588,47 @@ function showSignupSuccess(message: string) {
   }, 4000);
 }
 
-function handleSignupToggle(characterId: string) {
+function handleCharacterSelect(characterId: string) {
   if (signupsLocked.value || signupSaving.value) {
     return;
   }
   clearSignupFeedback();
   const selection = new Set(signupDraft.value);
-  if (selection.has(characterId)) {
-    selection.delete(characterId);
-  } else {
+  const notAttending = new Set(notAttendingDraft.value);
+  const isSelected = selection.has(characterId);
+
+  if (!isSelected) {
+    // Not selected -> CONFIRMED (default)
     if (selection.size >= maxSignupSlots) {
       signupError.value = `You can sign up up to ${maxSignupSlots} characters for this raid.`;
       return;
     }
     selection.add(characterId);
+    notAttending.delete(characterId);
+  } else {
+    // Selected -> deselect
+    selection.delete(characterId);
+    notAttending.delete(characterId);
   }
+
   applySignupDraft(Array.from(selection));
+  notAttendingDraft.value = notAttending;
+}
+
+function setCharacterStatus(characterId: string, status: 'CONFIRMED' | 'NOT_ATTENDING') {
+  if (signupsLocked.value || signupSaving.value) {
+    return;
+  }
+  clearSignupFeedback();
+  const notAttending = new Set(notAttendingDraft.value);
+
+  if (status === 'NOT_ATTENDING') {
+    notAttending.add(characterId);
+  } else {
+    notAttending.delete(characterId);
+  }
+
+  notAttendingDraft.value = notAttending;
 }
 
 function resetSignupSelection() {
@@ -3532,27 +3637,36 @@ function resetSignupSelection() {
   }
   clearSignupFeedback();
   applySignupDraft(savedSignupIds.value);
+  notAttendingDraft.value = new Set(savedNotAttendingIds.value);
 }
 
-async function saveSignups(options?: { characterIds?: string[]; successMessage?: string }) {
+async function saveSignups(options?: { signupEntries?: SignupEntry[]; successMessage?: string }) {
   if (signupsLocked.value) {
     return;
   }
   if (!raid.value) {
     return;
   }
-  const targetIds = orderCharacterIds(options?.characterIds ?? signupDraft.value);
-  if (areIdListsEqual(savedSignupIds.value, targetIds)) {
+  // Build signup entries from current draft state
+  const targetEntries: SignupEntry[] = options?.signupEntries ?? signupDraft.value.map((characterId) => ({
+    characterId,
+    status: notAttendingDraft.value.has(characterId) ? 'NOT_ATTENDING' as SignupStatus : 'CONFIRMED' as SignupStatus
+  }));
+  const targetIds = orderCharacterIds(targetEntries.map((e) => e.characterId));
+
+  // Check if anything actually changed
+  const hasConfirmedSignup = targetEntries.some((e) => e.status !== 'NOT_ATTENDING');
+  if (!signupDirty.value && targetEntries.length > 0) {
     applySignupDraft(targetIds);
     const message =
       options?.successMessage ??
-      (targetIds.length > 0
+      (targetEntries.length > 0
         ? 'Your signups are already up to date.'
         : 'You are not currently signed up for this raid.');
     showSignupSuccess(message);
     return;
   }
-  if (targetIds.length > 0) {
+  if (hasConfirmedSignup) {
     const confirmation = await showConfirmation({
       title: 'Confirm Raid Signup',
       message:
@@ -3571,13 +3685,18 @@ async function saveSignups(options?: { characterIds?: string[]; successMessage?:
     signupSuccessTimeout = null;
   }
   try {
-    const updated = await api.updateRaidSignups(raid.value.id, targetIds);
+    const orderedEntries = targetIds.map((id) => {
+      const entry = targetEntries.find((e) => e.characterId === id);
+      return { characterId: id, status: entry?.status ?? 'CONFIRMED' as SignupStatus };
+    });
+    const updated = await api.updateRaidSignups(raid.value.id, orderedEntries);
     raid.value.signups = updated;
     applySignupDraft(targetIds);
+    notAttendingDraft.value = new Set(orderedEntries.filter((e) => e.status === 'NOT_ATTENDING').map((e) => e.characterId));
     const message =
       options?.successMessage ??
-      (targetIds.length > 0
-        ? 'Your characters are confirmed for this raid.'
+      (targetEntries.length > 0
+        ? 'Your signup has been updated.'
         : 'You have withdrawn from this raid.');
     showSignupSuccess(message);
   } catch (error) {
@@ -3599,9 +3718,11 @@ async function handleSignupMains() {
     return;
   }
   const mainIds = viewerMains.value.slice(0, maxSignupSlots).map((character) => character.id);
+  const mainEntries: SignupEntry[] = mainIds.map((id) => ({ characterId: id, status: 'CONFIRMED' as SignupStatus }));
   clearSignupFeedback();
   applySignupDraft(mainIds);
-  if (areIdListsEqual(savedSignupIds.value, mainIds)) {
+  notAttendingDraft.value = new Set();
+  if (areIdListsEqual(savedSignupIds.value, mainIds) && savedNotAttendingIds.value.size === 0) {
     showSignupSuccess(
       mainIds.length === 0
         ? 'You are not currently signed up for this raid.'
@@ -3612,7 +3733,7 @@ async function handleSignupMains() {
     return;
   }
   await saveSignups({
-    characterIds: mainIds,
+    signupEntries: mainEntries,
     successMessage:
       mainIds.length > 0
         ? mainIds.length === 1
@@ -3631,8 +3752,9 @@ async function handleWithdrawAll() {
   }
   clearSignupFeedback();
   applySignupDraft([]);
+  notAttendingDraft.value = new Set();
   await saveSignups({
-    characterIds: [],
+    signupEntries: [],
     successMessage: 'You have withdrawn all characters from this raid.'
   });
 }
@@ -5885,7 +6007,13 @@ async function copyRaidLink() {
 
 .raid-signups__characters {
   display: grid;
-  gap: 0.9rem;
+  gap: 1rem;
+}
+
+.raid-signups__character-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .raid-signups__character {
@@ -5905,6 +6033,7 @@ async function copyRaidLink() {
     box-shadow 0.18s ease,
     opacity 0.18s ease;
   text-align: left;
+  width: 100%;
 }
 
 .raid-signups__character:hover {
@@ -5926,9 +6055,76 @@ async function copyRaidLink() {
   box-shadow: 0 14px 30px rgba(29, 78, 216, 0.28);
 }
 
-.raid-signups__character--locked:not(.raid-signups__character--selected) {
+.raid-signups__character--locked:not(.raid-signups__character--selected):not(.raid-signups__character--not-attending) {
   border-style: dashed;
   opacity: 0.8;
+}
+
+.raid-signups__character--not-attending {
+  border-color: rgba(239, 68, 68, 0.85);
+  border-width: 2px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.28));
+  box-shadow: 0 10px 24px rgba(185, 28, 28, 0.25), inset 0 0 20px rgba(239, 68, 68, 0.08);
+}
+
+.raid-signups__character--not-attending:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(185, 28, 28, 0.3), inset 0 0 20px rgba(239, 68, 68, 0.1);
+}
+
+/* Status toggle buttons */
+.raid-signups__status-toggle {
+  display: flex;
+  gap: 0.5rem;
+  padding-left: 0.25rem;
+}
+
+.raid-signups__status-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(30, 41, 59, 0.6);
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.raid-signups__status-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #bfdbfe;
+}
+
+.raid-signups__status-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.6);
+  color: #93c5fd;
+}
+
+.raid-signups__status-btn--not-attending:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.raid-signups__status-btn--not-attending.raid-signups__status-btn--active {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+}
+
+.raid-signups__status-icon {
+  font-size: 0.7rem;
+}
+
+.raid-signups__status-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .raid-signups__avatar {
@@ -5941,6 +6137,14 @@ async function copyRaidLink() {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.raid-signups__avatar--dimmed {
+  opacity: 0.6;
+  filter: grayscale(40%);
 }
 
 .raid-signups__avatar-icon {
@@ -5955,16 +6159,50 @@ async function copyRaidLink() {
   color: #cbd5f5;
 }
 
+.raid-signups__avatar-not-attending {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 1;
+  line-height: 1;
+}
+
 .raid-signups__character-meta {
   display: flex;
   align-items: flex-start;
   flex-direction: column;
   gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .raid-signups__character-name {
   font-weight: 600;
   letter-spacing: 0.02em;
+  transition: color 0.15s ease;
+}
+
+.raid-signups__character-name--strikethrough {
+  text-decoration: line-through;
+  text-decoration-color: rgba(239, 68, 68, 0.7);
+  text-decoration-thickness: 2px;
+  color: #94a3b8;
 }
 
 .raid-signups__character-sub {
@@ -5983,12 +6221,29 @@ async function copyRaidLink() {
   text-transform: uppercase;
 }
 
+/* Status badge for not attending */
+.raid-signups__character-status-badge {
+  margin-left: auto;
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .raid-signups__character-check {
   margin-left: auto;
   font-size: 1rem;
-  color: #bfdbfe;
+  color: #93c5fd;
   opacity: 0;
   transition: opacity 0.12s ease;
+  flex-shrink: 0;
 }
 
 .raid-signups__character--selected .raid-signups__character-check {
@@ -5997,11 +6252,21 @@ async function copyRaidLink() {
 
 .raid-signups__messages {
   min-height: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .raid-signups__feedback {
   margin: 0;
   font-size: 0.85rem;
+}
+
+.raid-signups__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
 }
 
 .raid-signups__feedback--error {
@@ -6091,7 +6356,12 @@ async function copyRaidLink() {
   background: rgba(34, 197, 94, 0.16);
 }
 
+.raid-signups__role-item--not-attending {
+  opacity: 0.7;
+}
+
 .raid-signups__role-icon {
+  position: relative;
   width: 2.2rem;
   height: 2.2rem;
   border-radius: 0.65rem;
@@ -6107,6 +6377,40 @@ async function copyRaidLink() {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.raid-signups__role-icon--not-attending {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.raid-signups__role-icon-x {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1.4rem;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 1;
+  line-height: 1;
+}
+
+.raid-signups__not-attending-label {
+  font-size: 0.75rem;
+  color: #fca5a5;
+  margin-left: 0.35rem;
 }
 
 .raid-signups__role-icon-fallback {
@@ -6277,6 +6581,39 @@ async function copyRaidLink() {
     0 0 0 2px rgba(250, 204, 21, 0.22),
     0 16px 32px rgba(250, 204, 21, 0.3);
   background: radial-gradient(circle at 30% 30%, rgba(253, 224, 71, 0.35), rgba(15, 23, 42, 0.85));
+}
+
+.raid-signups__collapsed-avatar--not-attending {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 10px 24px rgba(239, 68, 68, 0.15);
+}
+
+.raid-signups__collapsed-item--not-attending {
+  opacity: 0.7;
+}
+
+.raid-signups__collapsed-x {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1.6rem;
+  height: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #fff;
+  background: #dc2626;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 2;
+  line-height: 1;
 }
 
 .raid-signups__collapsed-avatar img {
