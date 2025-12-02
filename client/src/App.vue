@@ -246,6 +246,14 @@ function handleRaidShareCopied(event: CustomEvent<{ raidName?: string }>) {
   });
 }
 
+function handleShowToast(event: CustomEvent<{ title?: string; message?: string }>) {
+  const detail = event.detail ?? {};
+  addToast({
+    title: detail.title ?? 'Notice',
+    message: detail.message ?? ''
+  });
+}
+
 async function logout() {
   await authStore.logout();
 }
@@ -308,6 +316,7 @@ onMounted(async () => {
   window.addEventListener('loot-updated', handleLootUpdated as EventListener);
   window.addEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
   window.addEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
+  window.addEventListener('show-toast', handleShowToast as EventListener);
 });
 
 onBeforeUnmount(() => {
@@ -316,6 +325,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('loot-updated', handleLootUpdated as EventListener);
   window.removeEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
   window.removeEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
+  window.removeEventListener('show-toast', handleShowToast as EventListener);
 });
 
 watch(
