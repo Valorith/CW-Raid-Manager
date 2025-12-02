@@ -4349,22 +4349,26 @@ async function requestPersistentFileHandle() {
   }
 }
 
-async function ensureHandlePermission(handle: LocalFileHandle) {
+async function ensureHandlePermission(handle: LocalFileHandle, options?: { silent?: boolean }): Promise<boolean> {
+  const silent = options?.silent ?? false;
   if (typeof handle.queryPermission === 'function') {
     const current = await handle.queryPermission({ mode: 'read' });
     if (current === 'granted') {
-      return;
+      return true;
     }
     if (current === 'denied') {
+      if (silent) return false;
       throw new Error('Read permission denied for the selected log file.');
     }
   }
   if (typeof handle.requestPermission === 'function') {
     const result = await handle.requestPermission({ mode: 'read' });
     if (result !== 'granted') {
+      if (silent) return false;
       throw new Error('Continuous monitoring requires read access to the log file.');
     }
   }
+  return true;
 }
 
 function startLiveLogPolling() {
@@ -4426,7 +4430,7 @@ async function readLiveLogChunk() {
 
       // Before giving up, try to verify/restore file handle permission
       try {
-        const hasPermission = await ensureHandlePermission(monitorController.fileHandle, false);
+        const hasPermission = await ensureHandlePermission(monitorController.fileHandle, { silent: true });
         if (hasPermission) {
           // Permission restored - reset counter and continue
           monitorHealth.consecutiveFileReadFailures = 0;
@@ -4602,7 +4606,7 @@ async function attemptSessionRecovery() {
 
   try {
     // Verify we still have file handle permission
-    const hasPermission = await ensureHandlePermission(monitorController.fileHandle, false);
+    const hasPermission = await ensureHandlePermission(monitorController.fileHandle, { silent: true });
     if (!hasPermission) {
       appendDebugLog('Lost file handle permission, cannot recover');
       cleanupMonitorController();
@@ -4614,10 +4618,11 @@ async function attemptSessionRecovery() {
     }
 
     // Try to start a new session with the existing file handle
-    const result = await api.startRaidLogMonitor(raidId);
+    const fileName = monitorController.fileHandle.name ?? 'unknown.txt';
+    const result = await api.startRaidLogMonitor(raidId, { fileName });
     monitorSession.value = result.session;
-    monitorHeartbeatInterval.value = result.heartbeatInterval ?? 10_000;
-    monitorTimeoutMs.value = result.timeout ?? 30_000;
+    monitorHeartbeatInterval.value = result.heartbeatIntervalMs ?? 10_000;
+    monitorTimeoutMs.value = result.timeoutMs ?? 30_000;
 
     // Reset health and restart heartbeat + polling
     resetMonitorHealth();
@@ -4627,7 +4632,7 @@ async function attemptSessionRecovery() {
     startMonitorHeartbeat();
     startLiveLogPolling(); // Critical: restart log polling after recovery
 
-    appendDebugLog('Monitor session recovered successfully', { sessionId: result.session.sessionId });
+    appendDebugLog('Monitor session recovered successfully', { sessionId: result.session?.sessionId });
   } catch (recoveryError) {
     appendDebugLog('Monitor session recovery failed', { error: String(recoveryError) });
     cleanupMonitorController();
