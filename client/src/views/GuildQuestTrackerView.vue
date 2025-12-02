@@ -8720,6 +8720,8 @@ onUnmounted(() => {
 
 .quest-character-modal {
   width: min(520px, 95vw);
+  max-height: min(90vh, calc(100vh - 2rem));
+  overflow: hidden;
 }
 
 .quest-character-modal__loading {
@@ -8764,6 +8766,9 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .quest-character-button {
