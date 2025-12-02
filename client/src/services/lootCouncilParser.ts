@@ -60,6 +60,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
       awardedTo: string;
     }
   | {
@@ -68,6 +69,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
     }
   | {
       type: 'RANDOM_AWARD';
@@ -75,6 +77,16 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
+      awardedTo: string;
+    }
+  | {
+      type: 'MASTER_LOOTER_AWARD';
+      key: string;
+      timestamp: Date;
+      rawLine: string;
+      itemName: string;
+      itemId?: number | null;
       awardedTo: string;
     }
   | {
@@ -83,6 +95,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
     }
   | {
       type: 'LEFT_ON_CORPSE';
@@ -90,6 +103,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
     }
   | {
       type: 'DISCARDED';
@@ -97,6 +111,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
     }
   | {
       type: 'WITHDRAWAL';
@@ -163,6 +178,7 @@ export function parseLootCouncilEvents(
   let pendingPreviousSnapshot: Map<string, PendingSnapshotEntry> | null = null;
   let pendingBuildingSnapshot: Map<string, PendingSnapshotEntry> | null = null;
   let pendingBlockActive = false;
+  let lineIndex = 0;
 
   interface PendingSnapshotEntry {
     itemName: string;
@@ -261,6 +277,7 @@ export function parseLootCouncilEvents(
   let lastTimestamp: Date | null = null;
 
   for (const rawLine of lines) {
+    lineIndex += 1;
     const sanitizedLine = sanitizeLogLine(rawLine);
     const timestamp = extractTimestamp(sanitizedLine);
     if (!timestamp || !isWithinRaid(timestamp, raidStart, raidEnd)) {
@@ -449,18 +466,42 @@ export function parseLootCouncilEvents(
       continue;
     }
 
-    const awardMatch = trimmed.match(
-      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the (?:Loot Council|Master Looter)(?:\.)?/i
+    // Loot Council award - specifically by the Loot Council
+    const lootCouncilAwardMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the Loot Council(?:\.)?/i
     );
-    if (awardMatch?.groups) {
+    if (lootCouncilAwardMatch?.groups) {
       finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(lootCouncilAwardMatch.groups.item));
+      const playerName = lootCouncilAwardMatch.groups.player.trim();
       events.push({
         type: 'AWARD',
-        key: buildEventKey(timestamp, `${awardMatch.groups.item}::award`),
+        key: buildEventKey(timestamp, `${itemExtract.name}::${playerName}::award::${lineIndex}`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(awardMatch.groups.item),
-        awardedTo: awardMatch.groups.player.trim()
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
+        awardedTo: playerName
+      });
+      continue;
+    }
+
+    // Master Looter award - assigned by the Master Looter (not loot council)
+    const masterLooterAwardMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the Master Looter(?:\.)?/i
+    );
+    if (masterLooterAwardMatch?.groups) {
+      finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(masterLooterAwardMatch.groups.item));
+      const playerName = masterLooterAwardMatch.groups.player.trim();
+      events.push({
+        type: 'MASTER_LOOTER_AWARD',
+        key: buildEventKey(timestamp, `${itemExtract.name}::${playerName}::ml-award::${lineIndex}`),
+        timestamp,
+        rawLine,
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
+        awardedTo: playerName
       });
       continue;
     }
@@ -473,45 +514,78 @@ export function parseLootCouncilEvents(
     );
     if (randomAwardMatch?.groups) {
       finalizeSyncBlock();
-      const cleanedItem = cleanItemName(randomAwardMatch.groups.item);
+      const itemExtract = extractItemIdFromName(cleanItemName(randomAwardMatch.groups.item));
+      const playerName = randomAwardMatch.groups.player.trim();
       events.push({
         type: 'RANDOM_AWARD',
-        key: buildEventKey(timestamp, `${cleanedItem}::random-award`),
+        key: buildEventKey(timestamp, `${itemExtract.name}::${playerName}::random-award::${lineIndex}`),
         timestamp,
         rawLine,
-        itemName: cleanedItem,
-        awardedTo: randomAwardMatch.groups.player.trim()
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
+        awardedTo: playerName
+      });
+      continue;
+    }
+
+    // Master Looter taking an item (lotted/looted by Master Looter)
+    const masterLootedMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?)\s*has been (?:lotted|looted) by the Master Looter\./i
+    );
+    if (masterLootedMatch?.groups) {
+      finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(masterLootedMatch.groups.item));
+      events.push({
+        type: 'MASTER_LOOTED',
+        key: buildEventKey(timestamp, `${itemExtract.name}::master-looted::${lineIndex}`),
+        timestamp,
+        rawLine,
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId
       });
       continue;
     }
 
     const dispositionMatch = trimmed.match(
-      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) (?:has been donated to the Master Looter(?:'s)? guild|has been left on the '(?<target>.+?)'|has been looted by the Master Looter)\./i
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) (?:has been donated to the Master Looter(?:'s)? guild|has been left on the '(?<target>.+?)')\./i
     );
     if (dispositionMatch?.groups) {
       finalizeSyncBlock();
-      const cleanedItem = cleanItemName(dispositionMatch.groups.item);
-      const keySuffix = dispositionMatch.groups.target ? 'left-on' : 'master/dispose';
-      events.push({
-        type: 'LEFT_ON_CORPSE',
-        key: buildEventKey(timestamp, `${cleanedItem}::${keySuffix}`),
-        timestamp,
-        rawLine,
-        itemName: cleanedItem
-      });
+      const itemExtract = extractItemIdFromName(cleanItemName(dispositionMatch.groups.item));
+      const isDonation = /donated to the Master Looter/i.test(trimmed);
+      if (isDonation) {
+        events.push({
+          type: 'DONATION',
+          key: buildEventKey(timestamp, `${itemExtract.name}::donation::${lineIndex}`),
+          timestamp,
+          rawLine,
+          itemName: itemExtract.name,
+          itemId: itemExtract.itemId
+        });
+      } else {
+        events.push({
+          type: 'LEFT_ON_CORPSE',
+          key: buildEventKey(timestamp, `${itemExtract.name}::left-on::${lineIndex}`),
+          timestamp,
+          rawLine,
+          itemName: itemExtract.name,
+          itemId: itemExtract.itemId
+        });
+      }
       continue;
     }
 
     const discardedMatch = trimmed.match(/(?:.*\.\s+)?(?<item>[^.]+?)\s+discarded!$/i);
     if (discardedMatch?.groups) {
       finalizeSyncBlock();
-      const cleanedItem = cleanItemName(discardedMatch.groups.item);
+      const itemExtract = extractItemIdFromName(cleanItemName(discardedMatch.groups.item));
       events.push({
         type: 'DISCARDED',
-        key: buildEventKey(timestamp, `${cleanedItem}::discarded`),
+        key: buildEventKey(timestamp, `${itemExtract.name}::discarded::${lineIndex}`),
         timestamp,
         rawLine,
-        itemName: cleanedItem
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId
       });
       continue;
     }
