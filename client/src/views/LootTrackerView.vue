@@ -418,7 +418,15 @@
       aria-live="polite"
     >
       <div class="monitor-card__status">
-        <div class="monitor-card__pulse" aria-hidden="true"></div>
+        <div
+          class="monitor-card__pulse"
+          :class="{
+            'monitor-card__pulse--degraded': monitorHealthStatus === 'degraded',
+            'monitor-card__pulse--recovering': monitorHealthStatus === 'recovering',
+            'monitor-card__pulse--error': monitorHealthStatus === 'error'
+          }"
+          aria-hidden="true"
+        ></div>
         <div>
           <h2>Live Log Monitoring</h2>
           <p class="monitor-card__user">
@@ -430,6 +438,9 @@
           </p>
           <p class="monitor-card__file">{{ monitorSession.fileName }}</p>
           <p class="muted x-small">Started {{ formatDate(monitorSession.startedAt) }}</p>
+          <p v-if="monitorHealthMessage" class="monitor-card__health-warning">
+            {{ monitorHealthMessage }}
+          </p>
         </div>
       </div>
       <div class="monitor-card__actions">
@@ -1547,6 +1558,17 @@ const monitorController = reactive({
   heartbeatTimerId: null as number | null,
   fileSignature: null as string | null,
   pendingSummaryBlock: ''
+});
+// Monitor health tracking for resilience
+const MONITOR_MAX_HEARTBEAT_RETRIES = 3;
+const MONITOR_MAX_FILE_READ_FAILURES = 5;
+const MONITOR_HEARTBEAT_RETRY_DELAY_MS = 2000;
+const monitorHealth = reactive({
+  heartbeatRetryCount: 0,
+  consecutiveFileReadFailures: 0,
+  lastSuccessfulHeartbeat: null as Date | null,
+  lastSuccessfulFileRead: null as Date | null,
+  isRecovering: false
 });
 const processedLogKeys = new Set<string>();
 const processedNpcKillKeys = new Set<string>();
@@ -3348,6 +3370,36 @@ const parsingWindowEnd = computed(() => {
 });
 const monitorLockActive = computed(() => Boolean(monitorSession.value));
 
+type MonitorHealthStatus = 'healthy' | 'degraded' | 'recovering' | 'error';
+const monitorHealthStatus = computed<MonitorHealthStatus>(() => {
+  if (!monitorSession.value?.isOwner) {
+    return 'healthy'; // Non-owners don't have health tracking
+  }
+  if (monitorHealth.isRecovering) {
+    return 'recovering';
+  }
+  if (monitorHealth.consecutiveFileReadFailures >= MONITOR_MAX_FILE_READ_FAILURES) {
+    return 'error';
+  }
+  if (monitorHealth.heartbeatRetryCount > 0 || monitorHealth.consecutiveFileReadFailures > 0) {
+    return 'degraded';
+  }
+  return 'healthy';
+});
+
+const monitorHealthMessage = computed(() => {
+  switch (monitorHealthStatus.value) {
+    case 'recovering':
+      return 'Reconnecting to server...';
+    case 'error':
+      return 'File read errors detected. Check file access.';
+    case 'degraded':
+      return 'Experiencing connection issues. Retrying...';
+    default:
+      return null;
+  }
+});
+
 async function loadData() {
   raid.value = await api.fetchRaid(raidId);
   await refreshLootEvents();
@@ -4057,6 +4109,7 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
 
   monitorStarting.value = true;
   continuousMonitorError.value = null;
+  resetMonitorHealth();
   let sessionStarted = false;
 
   try {
@@ -4086,11 +4139,13 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
     monitorController.fileSignature = buildLogSignature(handle.name ?? initialFile.name);
 
     startMonitorHeartbeat();
+    monitorHealth.lastSuccessfulHeartbeat = new Date();
     await readLogFile(initialFile, {
       append: false,
       resetKeys: false,
       signature: monitorController.fileSignature
     });
+    monitorHealth.lastSuccessfulFileRead = new Date();
     startLiveLogPolling();
     appendDebugLog('Continuous monitoring enabled', {
       file: handle.name,
@@ -4185,6 +4240,8 @@ async function readLiveLogChunk() {
       monitorController.pendingFragment = '';
     }
     if (file.size === monitorController.lastSize) {
+      // No new content, but file access succeeded - reset failure counter
+      monitorHealth.consecutiveFileReadFailures = 0;
       return;
     }
     const blob = file.slice(monitorController.lastSize);
@@ -4192,6 +4249,11 @@ async function readLiveLogChunk() {
     monitorController.lastSize = file.size;
     const chunk = drainMonitorChunk(text);
     const normalizedChunk = normalizeLootCouncilSummaryChunk(chunk);
+
+    // Successfully read file - reset failure tracking
+    monitorHealth.consecutiveFileReadFailures = 0;
+    monitorHealth.lastSuccessfulFileRead = new Date();
+
     if (!normalizedChunk.trim()) {
       return;
     }
@@ -4203,7 +4265,19 @@ async function readLiveLogChunk() {
     processLogContent(normalizedChunk, { append: true, resetKeys: false, start, end });
     persistActiveProcessedLogState();
   } catch (error) {
-    appendDebugLog('Failed to read live log chunk', { error: String(error) });
+    monitorHealth.consecutiveFileReadFailures += 1;
+    appendDebugLog('Failed to read live log chunk', {
+      error: String(error),
+      consecutiveFailures: monitorHealth.consecutiveFileReadFailures
+    });
+
+    // Check if we've exceeded max failures
+    if (monitorHealth.consecutiveFileReadFailures >= MONITOR_MAX_FILE_READ_FAILURES) {
+      appendDebugLog('Max consecutive file read failures exceeded');
+      continuousMonitorError.value = 'Unable to read log file. Please check file access and restart monitoring.';
+      // Stop polling to avoid spam, but keep session alive for potential recovery
+      stopLiveLogPolling();
+    }
   } finally {
     liveChunkInFlight = false;
   }
@@ -4290,6 +4364,10 @@ async function sendMonitorHeartbeat() {
     const session = await api.heartbeatRaidLogMonitor(raidId, monitorSession.value.sessionId);
     if (session) {
       monitorSession.value = session;
+      // Reset health tracking on success
+      monitorHealth.heartbeatRetryCount = 0;
+      monitorHealth.lastSuccessfulHeartbeat = new Date();
+      monitorHealth.isRecovering = false;
     }
   } catch (error) {
     const status =
@@ -4298,14 +4376,84 @@ async function sendMonitorHeartbeat() {
         : undefined;
     appendDebugLog('Log monitor heartbeat failed', {
       error: String(error),
-      status
+      status,
+      retryCount: monitorHealth.heartbeatRetryCount
     });
+
+    // Handle different error types
     if (status === 404) {
-      cleanupMonitorController();
-      monitorSession.value = null;
-      await fetchMonitorStatus();
+      // Session not found on server - attempt recovery if we have a valid file handle
+      await attemptSessionRecovery();
+    } else {
+      // Network error or other transient failure - retry with backoff
+      monitorHealth.heartbeatRetryCount += 1;
+      if (monitorHealth.heartbeatRetryCount >= MONITOR_MAX_HEARTBEAT_RETRIES) {
+        appendDebugLog('Log monitor heartbeat max retries exceeded, attempting recovery');
+        await attemptSessionRecovery();
+      } else {
+        // Schedule a retry with exponential backoff
+        const delay = MONITOR_HEARTBEAT_RETRY_DELAY_MS * Math.pow(2, monitorHealth.heartbeatRetryCount - 1);
+        appendDebugLog('Scheduling heartbeat retry', { delay, retryCount: monitorHealth.heartbeatRetryCount });
+        setTimeout(() => void sendMonitorHeartbeat(), delay);
+      }
     }
   }
+}
+
+async function attemptSessionRecovery() {
+  // Don't attempt recovery if already recovering or no file handle
+  if (monitorHealth.isRecovering || !monitorController.fileHandle) {
+    cleanupMonitorController();
+    resetMonitorHealth();
+    monitorSession.value = null;
+    await fetchMonitorStatus();
+    return;
+  }
+
+  monitorHealth.isRecovering = true;
+  appendDebugLog('Attempting monitor session recovery');
+
+  try {
+    // Verify we still have file handle permission
+    const hasPermission = await ensureHandlePermission(monitorController.fileHandle, false);
+    if (!hasPermission) {
+      appendDebugLog('Lost file handle permission, cannot recover');
+      cleanupMonitorController();
+      resetMonitorHealth();
+      monitorSession.value = null;
+      continuousMonitorError.value = 'Lost access to log file. Please restart monitoring.';
+      await fetchMonitorStatus();
+      return;
+    }
+
+    // Try to start a new session with the existing file handle
+    const result = await api.startRaidLogMonitor(raidId);
+    monitorSession.value = result.session;
+    monitorHeartbeatInterval.value = result.heartbeatInterval ?? 10_000;
+    monitorTimeoutMs.value = result.timeout ?? 30_000;
+
+    // Reset health and restart heartbeat
+    resetMonitorHealth();
+    monitorHealth.lastSuccessfulHeartbeat = new Date();
+    startMonitorHeartbeat();
+
+    appendDebugLog('Monitor session recovered successfully', { sessionId: result.session.sessionId });
+  } catch (recoveryError) {
+    appendDebugLog('Monitor session recovery failed', { error: String(recoveryError) });
+    cleanupMonitorController();
+    resetMonitorHealth();
+    monitorSession.value = null;
+    continuousMonitorError.value = 'Monitoring session lost. Please restart monitoring.';
+    await fetchMonitorStatus();
+  }
+}
+
+function resetMonitorHealth() {
+  monitorHealth.heartbeatRetryCount = 0;
+  monitorHealth.consecutiveFileReadFailures = 0;
+  monitorHealth.lastSuccessfulHeartbeat = null;
+  monitorHealth.lastSuccessfulFileRead = null;
+  monitorHealth.isRecovering = false;
 }
 
 function cleanupMonitorController() {
@@ -6043,6 +6191,55 @@ onBeforeUnmount(() => {
     transform: scale(0.8);
     opacity: 1;
   }
+}
+
+/* Health status indicators for monitor pulse */
+.monitor-card__pulse--degraded {
+  background: rgba(251, 191, 36, 0.15);
+}
+
+.monitor-card__pulse--degraded::after {
+  background: #fbbf24;
+}
+
+.monitor-card__pulse--recovering {
+  background: rgba(251, 191, 36, 0.15);
+}
+
+.monitor-card__pulse--recovering::after {
+  background: #fbbf24;
+  animation: monitorPulseRecovering 0.8s ease-in-out infinite;
+}
+
+@keyframes monitorPulseRecovering {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.5;
+  }
+}
+
+.monitor-card__pulse--error {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.monitor-card__pulse--error::after {
+  background: #ef4444;
+  animation: none;
+}
+
+.monitor-card__health-warning {
+  margin: 0.4rem 0 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid #fbbf24;
 }
 
 .monitor-card__user {
