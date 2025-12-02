@@ -3096,7 +3096,8 @@ watch(
     if (endedAt) {
       clearLootDispositionHistory();
     }
-  }
+  },
+  { immediate: true }
 );
 
 // Reset disposition page when search changes
@@ -3558,6 +3559,10 @@ const monitorHealthMessage = computed(() => {
 
 async function loadData() {
   raid.value = await api.fetchRaid(raidId);
+  // Clear local loot disposition history if the raid has ended
+  if (raid.value?.endedAt) {
+    clearLootDispositionHistory();
+  }
   await refreshLootEvents();
   await refreshLootListSummary();
   const guildSettings = await api.fetchGuildLootSettings(raid.value.guild.id);
@@ -4766,6 +4771,17 @@ function handleVisibilityChange() {
   if (!monitorController.heartbeatTimerId && monitorSession.value?.sessionId) {
     appendDebugLog('Tab became visible, restarting heartbeat');
     startMonitorHeartbeat();
+  }
+}
+
+async function handleActiveRaidUpdated() {
+  // Refresh raid data when the raid is updated (e.g., ended from another view)
+  try {
+    const updatedRaid = await api.fetchRaid(raidId);
+    raid.value = updatedRaid;
+    // The watch on raid.value?.endedAt will clear loot disposition history if raid ended
+  } catch {
+    // Ignore fetch errors during refresh
   }
 }
 
@@ -6314,6 +6330,7 @@ onMounted(() => {
   window.addEventListener('click', handleGlobalPointerDown);
   window.addEventListener('contextmenu', handleGlobalPointerDown);
   window.addEventListener('keydown', handleLootContextMenuKey);
+  window.addEventListener('active-raid-updated', handleActiveRaidUpdated);
   document.addEventListener('visibilitychange', handleVisibilityChange);
   lootDispositionHistory.value = loadLootDispositionHistory();
   // Trigger item resolution for any disposition entries with missing IDs
@@ -6332,6 +6349,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('contextmenu', handleGlobalPointerDown);
   window.removeEventListener('keydown', handleLootContextMenuKey);
   window.removeEventListener('keydown', handleDetectedModalKeydown);
+  window.removeEventListener('active-raid-updated', handleActiveRaidUpdated);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopMonitorStatusPolling();
   if (monitorSession.value?.isOwner) {
