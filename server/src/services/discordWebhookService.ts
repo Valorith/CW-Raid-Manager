@@ -1050,12 +1050,10 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                 .join('\n')
             : '• Source unknown';
         const itemUrl = buildAllaItemUrl(item.itemName);
-        const itemLabel = itemUrl
-          ? `[${item.itemName}](${itemUrl})`
-          : item.itemName;
+        const linkLine = itemUrl ? `[View on Allakhazam](${itemUrl})` : '';
         return {
-          name: `${itemLabel} ×${item.quantity}`,
-          value: sourceLines,
+          name: `${item.itemName} ×${item.quantity}`,
+          value: linkLine ? `${linkLine}\n${sourceLines}` : sourceLines,
           inline: false
         };
       });
