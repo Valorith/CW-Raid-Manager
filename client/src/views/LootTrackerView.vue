@@ -637,21 +637,23 @@
           </table>
           <div v-if="lootDispositionTotalPages > 1" class="loot-disposition-pagination">
             <button
-              class="btn btn--small btn--outline"
+              class="loot-disposition-pagination__btn"
               :disabled="lootDispositionPage <= 1"
               @click="lootDispositionPage = lootDispositionPage - 1"
             >
+              <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>
               Previous
             </button>
             <span class="loot-disposition-pagination__info">
               Page {{ lootDispositionPage }} of {{ lootDispositionTotalPages }}
             </span>
             <button
-              class="btn btn--small btn--outline"
+              class="loot-disposition-pagination__btn"
               :disabled="lootDispositionPage >= lootDispositionTotalPages"
               @click="lootDispositionPage = lootDispositionPage + 1"
             >
               Next
+              <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
             </button>
           </div>
         </div>
@@ -8433,6 +8435,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .loot-disposition-card .card__header h2 {
@@ -8450,39 +8453,85 @@ onBeforeUnmount(() => {
 
 .loot-disposition-table-wrapper {
   overflow-x: auto;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
 }
 
 .loot-disposition-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  table-layout: fixed;
+  min-width: 500px;
+}
+
+/* Fixed column widths */
+.loot-disposition-table th:nth-child(1),
+.loot-disposition-table td:nth-child(1) {
+  width: 90px;
+}
+
+.loot-disposition-table th:nth-child(2),
+.loot-disposition-table td:nth-child(2) {
+  width: 110px;
+}
+
+.loot-disposition-table th:nth-child(3),
+.loot-disposition-table td:nth-child(3) {
+  width: auto;
+}
+
+.loot-disposition-table th:nth-child(4),
+.loot-disposition-table td:nth-child(4) {
+  width: 140px;
 }
 
 .loot-disposition-table th,
 .loot-disposition-table td {
-  padding: 0.5rem 0.75rem;
+  padding: 0.75rem 0.75rem;
   text-align: left;
-  border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+  border-bottom: 1px solid rgba(100, 116, 139, 0.15);
+  vertical-align: middle;
 }
 
 .loot-disposition-table th {
   font-weight: 600;
   color: #94a3b8;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: rgba(30, 41, 59, 0.5);
+  background: rgba(30, 41, 59, 0.6);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.loot-disposition-table th:first-child {
+  border-radius: 6px 0 0 0;
+}
+
+.loot-disposition-table th:last-child {
+  border-radius: 0 6px 0 0;
+}
+
+.loot-disposition-table tbody tr {
+  transition: background-color 0.15s ease;
 }
 
 .loot-disposition-table tbody tr:hover {
-  background: rgba(100, 116, 139, 0.1);
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.loot-disposition-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .loot-disposition-table__time {
   white-space: nowrap;
   color: #94a3b8;
-  font-family: monospace;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
   font-size: 0.8rem;
+  letter-spacing: -0.01em;
 }
 
 .loot-disposition-table__action {
@@ -8490,48 +8539,61 @@ onBeforeUnmount(() => {
 }
 
 .loot-disposition-badge {
-  display: inline-block;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   background: rgba(100, 116, 139, 0.3);
   color: #e2e8f0;
+  min-width: 80px;
+  text-align: center;
 }
 
 .loot-disposition-badge--council {
-  background: rgba(168, 85, 247, 0.25);
+  background: rgba(168, 85, 247, 0.2);
   color: #c4b5fd;
+  border: 1px solid rgba(168, 85, 247, 0.3);
 }
 
 .loot-disposition-badge--random {
-  background: rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.2);
   color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 .loot-disposition-badge--assigned {
-  background: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.2);
   color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
 .loot-disposition-badge--taken {
-  background: rgba(20, 184, 166, 0.25);
+  background: rgba(20, 184, 166, 0.2);
   color: #5eead4;
+  border: 1px solid rgba(20, 184, 166, 0.3);
 }
 
 .loot-disposition-badge--banked {
-  background: rgba(234, 179, 8, 0.25);
+  background: rgba(234, 179, 8, 0.2);
   color: #fde047;
+  border: 1px solid rgba(234, 179, 8, 0.3);
 }
 
 .loot-disposition-badge--abandoned {
-  background: rgba(249, 115, 22, 0.25);
+  background: rgba(249, 115, 22, 0.2);
   color: #fdba74;
+  border: 1px solid rgba(249, 115, 22, 0.3);
 }
 
 .loot-disposition-badge--discarded {
-  background: rgba(239, 68, 68, 0.25);
+  background: rgba(239, 68, 68, 0.2);
   color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .loot-disposition-item {
@@ -8539,27 +8601,33 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
+  min-width: 0;
 }
 
 .loot-disposition-item__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  background: rgba(30, 41, 59, 0.6);
+  border-radius: 4px;
+  border: 1px solid rgba(100, 116, 139, 0.25);
 }
 
 .loot-disposition-item__icon img {
-  width: 100%;
-  height: 100%;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
-  border-radius: 3px;
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 2px;
 }
 
 .loot-disposition-item__name {
   color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .loot-disposition-item:hover .loot-disposition-item__name {
@@ -8568,6 +8636,9 @@ onBeforeUnmount(() => {
 
 .loot-disposition-table__recipient {
   color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .loot-disposition-search {
@@ -8576,19 +8647,21 @@ onBeforeUnmount(() => {
 }
 
 .loot-disposition-search__input {
-  padding: 0.4rem 0.75rem;
+  padding: 0.5rem 0.875rem;
   font-size: 0.875rem;
-  border: 1px solid #475569;
-  border-radius: 6px;
-  background: #1e293b;
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.8);
   color: #e2e8f0;
-  min-width: 220px;
+  min-width: 240px;
+  transition: all 0.2s ease;
 }
 
 .loot-disposition-search__input:focus {
   outline: none;
   border-color: #60a5fa;
-  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+  background: rgba(30, 41, 59, 1);
 }
 
 .loot-disposition-search__input::placeholder {
@@ -8599,15 +8672,179 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  padding: 1rem 0 0.5rem;
-  border-top: 1px solid #334155;
-  margin-top: 0.5rem;
+  gap: 0.75rem;
+  padding: 1rem 0 0.25rem;
+  border-top: 1px solid rgba(51, 65, 85, 0.6);
+  margin-top: 0.75rem;
+}
+
+.loot-disposition-pagination__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #e2e8f0;
+  background: rgba(51, 65, 85, 0.5);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 90px;
+}
+
+.loot-disposition-pagination__btn:hover:not(:disabled) {
+  background: rgba(71, 85, 105, 0.6);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #f1f5f9;
+}
+
+.loot-disposition-pagination__btn:active:not(:disabled) {
+  background: rgba(71, 85, 105, 0.8);
+  transform: translateY(1px);
+}
+
+.loot-disposition-pagination__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.loot-disposition-pagination__btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
 }
 
 .loot-disposition-pagination__info {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: #94a3b8;
+  min-width: 100px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Responsive styles for small screens */
+@media (max-width: 768px) {
+  .loot-disposition-card {
+    padding: 1rem;
+    border-radius: 0.75rem;
+  }
+
+  .loot-disposition-card .card__header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .loot-disposition-search {
+    width: 100%;
+  }
+
+  .loot-disposition-search__input {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .loot-disposition-table {
+    font-size: 0.8rem;
+    min-width: 450px;
+  }
+
+  .loot-disposition-table th:nth-child(1),
+  .loot-disposition-table td:nth-child(1) {
+    width: 75px;
+  }
+
+  .loot-disposition-table th:nth-child(2),
+  .loot-disposition-table td:nth-child(2) {
+    width: 90px;
+  }
+
+  .loot-disposition-table th:nth-child(4),
+  .loot-disposition-table td:nth-child(4) {
+    width: 100px;
+  }
+
+  .loot-disposition-table th,
+  .loot-disposition-table td {
+    padding: 0.625rem 0.5rem;
+  }
+
+  .loot-disposition-badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.4rem;
+    min-width: 70px;
+  }
+
+  .loot-disposition-item__icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .loot-disposition-item__icon img {
+    width: 18px;
+    height: 18px;
+  }
+
+  .loot-disposition-pagination {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .loot-disposition-pagination__btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.75rem;
+    min-width: 80px;
+  }
+
+  .loot-disposition-pagination__info {
+    font-size: 0.75rem;
+    order: -1;
+    width: 100%;
+    margin-bottom: 0.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .loot-disposition-card {
+    padding: 0.75rem;
+  }
+
+  .loot-disposition-card .card__header h2 {
+    font-size: 1.1rem;
+  }
+
+  .loot-disposition-table {
+    min-width: 400px;
+  }
+
+  .loot-disposition-table th:nth-child(1),
+  .loot-disposition-table td:nth-child(1) {
+    width: 65px;
+  }
+
+  .loot-disposition-table th:nth-child(2),
+  .loot-disposition-table td:nth-child(2) {
+    width: 80px;
+  }
+
+  .loot-disposition-table th:nth-child(4),
+  .loot-disposition-table td:nth-child(4) {
+    width: 85px;
+  }
+
+  .loot-disposition-table__time {
+    font-size: 0.7rem;
+  }
+
+  .loot-disposition-badge {
+    font-size: 0.6rem;
+    min-width: 60px;
+  }
 }
 
 </style>
