@@ -1049,7 +1049,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                 )
                 .join('\n')
             : '• Source unknown';
-        const itemUrl = buildAllaItemUrl(item.itemName);
+        const itemUrl = buildAllaItemUrl(item.itemName, item.itemId);
         const linkLine = itemUrl ? `[View on Allakhazam](${itemUrl})` : '';
         return {
           name: `${item.itemName} ×${item.quantity}`,
@@ -1091,7 +1091,12 @@ const DISCORD_COLORS = {
 const ALLA_ITEM_SEARCH_BASE =
   'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
 
-function buildAllaItemUrl(itemName: string | null | undefined) {
+function buildAllaItemUrl(itemName: string | null | undefined, itemId?: number | null) {
+  // Prefer direct item ID lookup if available
+  if (itemId != null) {
+    return `https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`;
+  }
+  // Fall back to name search
   if (!itemName) {
     return null;
   }
