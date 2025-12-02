@@ -2207,6 +2207,16 @@ async function resolveLootCouncilItemIds() {
       }
     }
 
+    // Also include item names from disposition history that need resolution
+    for (const entry of lootDispositionHistory.value) {
+      if (entry.itemId == null || entry.itemIconId == null) {
+        const cacheKey = entry.itemName.trim().toLowerCase();
+        if (!itemNameToIdCache.has(cacheKey)) {
+          namesToResolve.add(entry.itemName);
+        }
+      }
+    }
+
     if (namesToResolve.size === 0) {
       applyItemResolutionFromCache();
       return;
@@ -2257,6 +2267,28 @@ function applyItemResolutionFromCache() {
         }
       }
     }
+  }
+
+  // Also update disposition history entries with missing item IDs
+  let dispositionUpdated = false;
+  for (const entry of lootDispositionHistory.value) {
+    if (entry.itemId == null || entry.itemIconId == null) {
+      const cacheKey = entry.itemName.trim().toLowerCase();
+      const cached = itemNameToIdCache.get(cacheKey);
+      if (cached) {
+        if (entry.itemId == null) {
+          entry.itemId = cached.itemId;
+          dispositionUpdated = true;
+        }
+        if (entry.itemIconId == null) {
+          entry.itemIconId = cached.itemIconId;
+          dispositionUpdated = true;
+        }
+      }
+    }
+  }
+  if (dispositionUpdated) {
+    persistLootDispositionHistory();
   }
 }
 
@@ -5913,6 +5945,10 @@ onMounted(() => {
   window.addEventListener('contextmenu', handleGlobalPointerDown);
   window.addEventListener('keydown', handleLootContextMenuKey);
   lootDispositionHistory.value = loadLootDispositionHistory();
+  // Trigger item resolution for any disposition entries with missing IDs
+  if (lootDispositionHistory.value.some((entry) => entry.itemId == null || entry.itemIconId == null)) {
+    scheduleLootCouncilItemResolution();
+  }
   loadData();
 });
 
