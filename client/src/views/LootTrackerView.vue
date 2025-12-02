@@ -1678,6 +1678,7 @@ const itemNameToIdCache = new Map<string, { itemId: number; itemIconId: number }
 let itemResolutionPending = false;
 let itemResolutionNeeded = false; // Flag to re-run resolution after current completes
 let itemResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
+let dispositionPersistDebounceId: ReturnType<typeof setTimeout> | null = null;
 const lootCouncilActiveItems = computed(() =>
   lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
 );
@@ -1906,7 +1907,7 @@ function loadLootDispositionHistory(): LootDispositionEntry[] {
   }
 }
 
-function persistLootDispositionHistory() {
+function persistLootDispositionHistoryImmediate() {
   if (typeof window === 'undefined' || !window.localStorage) {
     return;
   }
@@ -1915,6 +1916,17 @@ function persistLootDispositionHistory() {
   } catch {
     // Ignore storage errors (e.g., quota exceeded)
   }
+}
+
+function persistLootDispositionHistory() {
+  // Debounce localStorage writes to avoid performance issues when many loot events happen quickly
+  if (dispositionPersistDebounceId !== null) {
+    clearTimeout(dispositionPersistDebounceId);
+  }
+  dispositionPersistDebounceId = setTimeout(() => {
+    dispositionPersistDebounceId = null;
+    persistLootDispositionHistoryImmediate();
+  }, 250);
 }
 
 function clearLootDispositionHistory() {
@@ -8469,7 +8481,7 @@ onBeforeUnmount(() => {
 
 .loot-disposition-table th:nth-child(2),
 .loot-disposition-table td:nth-child(2) {
-  width: 110px;
+  width: 125px;
 }
 
 .loot-disposition-table th:nth-child(3),
@@ -8546,7 +8558,7 @@ onBeforeUnmount(() => {
   letter-spacing: 0.03em;
   background: rgba(100, 116, 139, 0.3);
   color: #e2e8f0;
-  min-width: 80px;
+  min-width: 95px;
   text-align: center;
 }
 
@@ -8752,7 +8764,7 @@ onBeforeUnmount(() => {
 
   .loot-disposition-table th:nth-child(2),
   .loot-disposition-table td:nth-child(2) {
-    width: 90px;
+    width: 105px;
   }
 
   .loot-disposition-table th:nth-child(4),
@@ -8768,7 +8780,7 @@ onBeforeUnmount(() => {
   .loot-disposition-badge {
     font-size: 0.65rem;
     padding: 0.2rem 0.4rem;
-    min-width: 70px;
+    min-width: 85px;
   }
 
   .loot-disposition-item__icon {
@@ -8820,7 +8832,7 @@ onBeforeUnmount(() => {
 
   .loot-disposition-table th:nth-child(2),
   .loot-disposition-table td:nth-child(2) {
-    width: 80px;
+    width: 95px;
   }
 
   .loot-disposition-table th:nth-child(4),
@@ -8834,7 +8846,7 @@ onBeforeUnmount(() => {
 
   .loot-disposition-badge {
     font-size: 0.6rem;
-    min-width: 60px;
+    min-width: 75px;
   }
 }
 
