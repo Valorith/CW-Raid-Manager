@@ -1250,7 +1250,7 @@
       <template v-else>
         <p v-if="characterModalError" class="quest-character-modal__error">{{ characterModalError }}</p>
         <ul v-if="hasEligibleCharacters" class="quest-character-list">
-          <li v-for="character in eligibleCharacters" :key="character.id">
+          <li v-for="character in visibleEligibleCharacters" :key="character.id">
             <button
               class="quest-character-button"
               type="button"
@@ -1277,7 +1277,28 @@
             </button>
           </li>
         </ul>
-        <p v-else class="quest-character-modal__empty">
+        <div v-if="characterModalTotalPages > 1" class="quest-character-modal__pagination">
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="characterModalPage === 1"
+            @click="prevCharacterModalPage"
+          >
+            Previous
+          </button>
+          <span class="quest-character-modal__pagination-info">
+            Page {{ characterModalPage }} of {{ characterModalTotalPages }}
+          </span>
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="characterModalPage === characterModalTotalPages"
+            @click="nextCharacterModalPage"
+          >
+            Next
+          </button>
+        </div>
+        <p v-else-if="!hasEligibleCharacters" class="quest-character-modal__empty">
           No eligible guild characters are available. Finish an existing run or add another character to start this quest.
         </p>
       </template>
@@ -1578,6 +1599,8 @@ const characterModalLoading = ref(false);
 const characterModalError = ref<string | null>(null);
 const characterStartError = ref<string | null>(null);
 const charactersLoaded = ref(false);
+const characterModalPage = ref(1);
+const CHARACTER_MODAL_PAGE_SIZE = 10;
 const selectedAssignmentId = ref<string | null>(null);
 const showGuildPinModal = ref(false);
 const guildPinModalNodeId = ref<string | null>(null);
@@ -1991,6 +2014,14 @@ const eligibleCharacters = computed(() =>
   )
 );
 const hasEligibleCharacters = computed(() => eligibleCharacters.value.length > 0);
+const characterModalTotalPages = computed(() => {
+  const total = eligibleCharacters.value.length;
+  return total ? Math.ceil(total / CHARACTER_MODAL_PAGE_SIZE) : 1;
+});
+const visibleEligibleCharacters = computed(() => {
+  const start = (characterModalPage.value - 1) * CHARACTER_MODAL_PAGE_SIZE;
+  return eligibleCharacters.value.slice(start, start + CHARACTER_MODAL_PAGE_SIZE);
+});
 const showLoadingOverlay = computed(
   () => Boolean(summary.value) && (loadingSummary.value || loadingDetail.value || savingGraph.value)
 );
@@ -4308,6 +4339,18 @@ function prevGuildPinPage() {
   }
 }
 
+function nextCharacterModalPage() {
+  if (characterModalPage.value < characterModalTotalPages.value) {
+    characterModalPage.value += 1;
+  }
+}
+
+function prevCharacterModalPage() {
+  if (characterModalPage.value > 1) {
+    characterModalPage.value -= 1;
+  }
+}
+
 function findNextNodeIdsForAssignment(
   assignment: QuestAssignment,
   nodes: QuestNodeViewModel[],
@@ -6382,6 +6425,7 @@ function cancelAssignment() {
 function openCharacterModal() {
   characterStartError.value = null;
   characterModalError.value = null;
+  characterModalPage.value = 1;
   showCharacterModal.value = true;
   if (!charactersLoaded.value && !characterModalLoading.value) {
     loadCharacterOptions().catch((error) => {
