@@ -1045,12 +1045,16 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
             ? item.sources
                 .map(
                   (src) =>
-                    `• ${src.characterName} (${src.location ?? 'Bank'}) ×${src.quantity}`
+                    `• ${src.characterName} ×${src.quantity}`
                 )
                 .join('\n')
             : '• Source unknown';
+        const itemUrl = buildAllaItemUrl(item.itemName);
+        const itemLabel = itemUrl
+          ? `[${item.itemName}](${itemUrl})`
+          : item.itemName;
         return {
-          name: `${item.itemName} ×${item.quantity}`,
+          name: `${itemLabel} ×${item.quantity}`,
           value: sourceLines,
           inline: false
         };
