@@ -1037,37 +1037,32 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       if (!bankRequestPayload.items || bankRequestPayload.items.length === 0) {
         return null;
       }
-      const entries = bankRequestPayload.items.slice(0, 15);
-      const overflow = Math.max(bankRequestPayload.items.length - entries.length, 0);
-      const fields = entries.map((item) => {
-        const sourceLines =
-          item.sources && item.sources.length
-            ? item.sources
-                .map(
-                  (src) =>
-                    `• ${src.characterName} (${src.location ?? 'Bank'}) ×${src.quantity}`
-                )
-                .join('\n')
-            : '• Source unknown';
-        return {
-          name: `${item.itemName} ×${item.quantity}`,
-          value: sourceLines,
-          inline: false
-        };
-      });
-      if (overflow > 0) {
-        fields.push({
-          name: 'Additional items',
-          value: `${overflow} more item${overflow === 1 ? '' : 's'} requested.`,
-          inline: false
-        });
-      }
+      const bankEntries = bankRequestPayload.items.slice(0, 15);
+      const bankOverflow = Math.max(bankRequestPayload.items.length - bankEntries.length, 0);
+      const bankDescription = bankEntries
+        .map((item) => {
+          const itemUrl = item.itemId != null ? buildAllaItemUrl(item.itemName, item.itemId) : null;
+          const itemLabel = itemUrl
+            ? `[**${item.itemName}**](${itemUrl})`
+            : `**${item.itemName}**`;
+          const sourceLines =
+            item.sources && item.sources.length
+              ? item.sources
+                  .map((src) => `　• ${src.characterName} ×${src.quantity}`)
+                  .join('\n')
+              : '　• Source unknown';
+          return `📦 ${itemLabel} ×${item.quantity}\n${sourceLines}`;
+        })
+        .join('\n');
+      const bankOverflowLine =
+        bankOverflow > 0
+          ? `\n_${bankOverflow} additional item${bankOverflow === 1 ? '' : 's'} not shown_`
+          : '';
       return {
         embeds: [
           {
             title: `📦 Guild Bank Request — ${bankRequestPayload.requestedByName}`,
-            description: `Items requested for **${bankRequestPayload.guildName}**:`,
-            fields,
+            description: `Items requested for **${bankRequestPayload.guildName}**:\n\n${bankDescription}${bankOverflowLine}`,
             color: DISCORD_COLORS.info,
             timestamp: nowIso
           }
@@ -1089,7 +1084,12 @@ const DISCORD_COLORS = {
 const ALLA_ITEM_SEARCH_BASE =
   'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
 
-function buildAllaItemUrl(itemName: string | null | undefined) {
+function buildAllaItemUrl(itemName: string | null | undefined, itemId?: number | null) {
+  // Prefer direct item ID lookup if available
+  if (itemId != null) {
+    return `https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`;
+  }
+  // Fall back to name search
   if (!itemName) {
     return null;
   }

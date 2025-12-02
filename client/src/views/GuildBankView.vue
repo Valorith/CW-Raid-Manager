@@ -489,7 +489,7 @@
       </div>
     </div>
 
-    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" @click.self="cartConfirmOpen = false">
+    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" style="z-index: 140" @click.self="cartConfirmOpen = false">
       <div class="modal confirm-modal">
         <header class="modal__header">
           <div>
@@ -1436,11 +1436,27 @@ async function submitCart(skipConfirm = false) {
     cartSuccess.value = 'Request sent!';
     resetCart();
   } catch (error: any) {
-    const message =
-      error?.response?.data?.message ??
-      error?.message ??
-      'Unable to submit guild bank request. Ensure the webhook is enabled.';
-    cartError.value = message;
+    const status = error?.response?.status;
+    const serverMessage = error?.response?.data?.message;
+
+    if (status === 409) {
+      // Webhook not enabled - show prominent toast notification
+      window.dispatchEvent(
+        new CustomEvent('show-toast', {
+          detail: {
+            title: 'Requests Temporarily Disabled',
+            message: 'Guild bank requests require the Discord webhook to be enabled. Please contact a guild officer.'
+          }
+        })
+      );
+      cartError.value = 'Bank requests are currently disabled.';
+    } else {
+      const message =
+        serverMessage ??
+        error?.message ??
+        'Unable to submit guild bank request. Please try again.';
+      cartError.value = message;
+    }
   } finally {
     submittingCart.value = false;
   }
