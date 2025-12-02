@@ -573,6 +573,11 @@
             {{ lootDispositionHistory.length }} loot actions during this raid
           </p>
         </div>
+      </header>
+      <p v-if="lootDispositionHistory.length === 0" class="muted">
+        No loot disposition events recorded yet. Events will appear here as loot is awarded, discarded, or otherwise distributed during active monitoring.
+      </p>
+      <template v-else>
         <div v-if="lootDispositionHistory.length > 0" class="loot-disposition-search">
           <input
             v-model="lootDispositionSearch"
@@ -581,12 +586,7 @@
             placeholder="Search items, recipients, or actions..."
           />
         </div>
-      </header>
-      <p v-if="lootDispositionHistory.length === 0" class="muted">
-        No loot disposition events recorded yet. Events will appear here as loot is awarded, discarded, or otherwise distributed during active monitoring.
-      </p>
-      <template v-else>
-        <p v-if="filteredLootDispositionHistory.length === 0" class="muted">
+        <p v-if="filteredLootDispositionHistory.length === 0" class="muted loot-disposition-no-results">
           No results matching "{{ lootDispositionSearch }}".
         </p>
         <div v-else class="loot-disposition-table-wrapper">
@@ -8431,11 +8431,7 @@ onBeforeUnmount(() => {
 }
 
 .loot-disposition-card .card__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  flex-wrap: wrap;
+  display: block;
 }
 
 .loot-disposition-card .card__header h2 {
@@ -8643,7 +8639,8 @@ onBeforeUnmount(() => {
 
 .loot-disposition-search {
   display: flex;
-  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
 }
 
 .loot-disposition-search__input {
@@ -8653,8 +8650,13 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   background: rgba(30, 41, 59, 0.8);
   color: #e2e8f0;
-  min-width: 240px;
+  width: 100%;
+  max-width: 320px;
   transition: all 0.2s ease;
+}
+
+.loot-disposition-no-results {
+  text-align: center;
 }
 
 .loot-disposition-search__input:focus {
@@ -8734,19 +8736,8 @@ onBeforeUnmount(() => {
     border-radius: 0.75rem;
   }
 
-  .loot-disposition-card .card__header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
-  }
-
-  .loot-disposition-search {
-    width: 100%;
-  }
-
   .loot-disposition-search__input {
-    width: 100%;
-    min-width: unset;
+    max-width: none;
   }
 
   .loot-disposition-table {
