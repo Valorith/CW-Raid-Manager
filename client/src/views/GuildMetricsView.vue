@@ -528,7 +528,7 @@
                   @mousemove="updateTooltipPosition($event)"
                   @mouseleave="hideItemTooltip"
                 >
-                  <template v-if="lootEvent.itemIconId != null">
+                  <template v-if="hasValidIconId(lootEvent.itemIconId)">
                     <img
                       :src="getLootIconSrc(lootEvent.itemIconId)"
                       :alt="`${lootEvent.itemName} icon`"
@@ -858,7 +858,7 @@ import {
   getGuildBankDisplayName,
   normalizeLooterName
 } from '../utils/lootNames';
-import { getLootIconSrc } from '../utils/itemIcons';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import TimelineRangeSelector from '../components/TimelineRangeSelector.vue';
 import {
   api,

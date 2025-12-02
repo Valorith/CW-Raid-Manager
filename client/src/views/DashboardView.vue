@@ -195,7 +195,7 @@
               @mousemove="updateTooltipPosition($event)"
               @mouseleave="hideItemTooltip"
             >
-              <template v-if="entry.itemIconId != null">
+              <template v-if="hasValidIconId(entry.itemIconId)">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
                   :alt="`${entry.itemName} icon`"
@@ -265,7 +265,7 @@ import { useItemTooltipStore } from '../stores/itemTooltip';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
 import { characterClassLabels, getCharacterClassIcon } from '../services/types';
 import type { AttendanceStatus, CharacterClass } from '../services/types';
-import { getLootIconSrc } from '../utils/itemIcons';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { getGuildBankDisplayName, normalizeLooterName } from '../utils/lootNames';
 
 type EditableCharacter = {
