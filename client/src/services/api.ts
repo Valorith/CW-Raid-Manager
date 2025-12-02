@@ -725,6 +725,8 @@ export interface RaidSignupCharacter {
   isMain: boolean;
 }
 
+export type SignupStatus = 'CONFIRMED' | 'NOT_ATTENDING';
+
 export interface RaidSignup {
   id: string;
   raidId: string;
@@ -734,10 +736,16 @@ export interface RaidSignup {
   characterClass: CharacterClass;
   characterLevel: number | null;
   isMain: boolean;
+  status: SignupStatus;
   createdAt: string;
   updatedAt: string;
   user: RaidSignupUser;
   character: RaidSignupCharacter;
+}
+
+export interface SignupEntry {
+  characterId: string;
+  status?: SignupStatus;
 }
 
 export interface AttendanceEventSummary {
@@ -1472,6 +1480,9 @@ function normalizeRaidSignup(raw: any): RaidSignup {
         ? raw.character.isMain
         : false;
 
+  const statusValue: SignupStatus =
+    raw?.status === 'NOT_ATTENDING' ? 'NOT_ATTENDING' : 'CONFIRMED';
+
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
     raidId: typeof raw?.raidId === 'string' ? raw.raidId : '',
@@ -1491,6 +1502,7 @@ function normalizeRaidSignup(raw: any): RaidSignup {
     characterClass,
     characterLevel: levelValue,
     isMain: isMainValue,
+    status: statusValue,
     createdAt: normalizeDateString(raw?.createdAt),
     updatedAt: normalizeDateString(raw?.updatedAt),
     user: {
@@ -2303,9 +2315,9 @@ export const api = {
     };
   },
 
-  async updateRaidSignups(raidId: string, characterIds: string[]): Promise<RaidSignup[]> {
+  async updateRaidSignups(raidId: string, signups: SignupEntry[]): Promise<RaidSignup[]> {
     const response = await axios.put(`/api/raids/${raidId}/signups/me`, {
-      characterIds
+      signups
     });
     return Array.isArray(response.data.signups)
       ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))

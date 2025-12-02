@@ -150,8 +150,13 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       });
       const { raidId } = paramsSchema.parse(request.params);
 
+      const signupEntrySchema = z.object({
+        characterId: z.string(),
+        status: z.enum(['CONFIRMED', 'NOT_ATTENDING']).optional()
+      });
+
       const bodySchema = z.object({
-        characterIds: z.array(z.string())
+        signups: z.array(signupEntrySchema)
       });
 
       const parsed = bodySchema.safeParse(request.body);
@@ -163,7 +168,7 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
         const signups = await replaceRaidSignupsForUser(
           raidId,
           request.user.userId,
-          parsed.data.characterIds
+          parsed.data.signups
         );
         return { signups };
       } catch (error) {
