@@ -485,20 +485,47 @@ export function parseLootCouncilEvents(
       continue;
     }
 
-    const dispositionMatch = trimmed.match(
-      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) (?:has been donated to the Master Looter(?:'s)? guild|has been left on the '(?<target>.+?)'|has been looted by the Master Looter)\./i
+    // Master Looter taking an item (lotted/looted by Master Looter)
+    const masterLootedMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?)\s*(?:\([^)]+\))?\s*has been (?:lotted|looted) by the Master Looter\./i
     );
-    if (dispositionMatch?.groups) {
+    if (masterLootedMatch?.groups) {
       finalizeSyncBlock();
-      const cleanedItem = cleanItemName(dispositionMatch.groups.item);
-      const keySuffix = dispositionMatch.groups.target ? 'left-on' : 'master/dispose';
+      const cleanedItem = cleanItemName(masterLootedMatch.groups.item);
       events.push({
-        type: 'LEFT_ON_CORPSE',
-        key: buildEventKey(timestamp, `${cleanedItem}::${keySuffix}`),
+        type: 'MASTER_LOOTED',
+        key: buildEventKey(timestamp, `${cleanedItem}::master-looted`),
         timestamp,
         rawLine,
         itemName: cleanedItem
       });
+      continue;
+    }
+
+    const dispositionMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) (?:has been donated to the Master Looter(?:'s)? guild|has been left on the '(?<target>.+?)')\./i
+    );
+    if (dispositionMatch?.groups) {
+      finalizeSyncBlock();
+      const cleanedItem = cleanItemName(dispositionMatch.groups.item);
+      const isDonation = /donated to the Master Looter/i.test(trimmed);
+      if (isDonation) {
+        events.push({
+          type: 'DONATION',
+          key: buildEventKey(timestamp, `${cleanedItem}::donation`),
+          timestamp,
+          rawLine,
+          itemName: cleanedItem
+        });
+      } else {
+        events.push({
+          type: 'LEFT_ON_CORPSE',
+          key: buildEventKey(timestamp, `${cleanedItem}::left-on`),
+          timestamp,
+          rawLine,
+          itemName: cleanedItem
+        });
+      }
       continue;
     }
 

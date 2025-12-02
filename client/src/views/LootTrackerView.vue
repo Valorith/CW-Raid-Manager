@@ -1333,6 +1333,7 @@ type LootDispositionActionType =
   | 'Council Award'
   | 'Random'
   | 'Assigned'
+  | 'Taken'
   | 'Banked'
   | 'Abandoned'
   | 'Discarded';
@@ -1403,6 +1404,8 @@ function getDispositionBadgeClass(actionType: LootDispositionActionType): string
       return 'loot-disposition-badge--random';
     case 'Assigned':
       return 'loot-disposition-badge--assigned';
+    case 'Taken':
+      return 'loot-disposition-badge--taken';
     case 'Banked':
       return 'loot-disposition-badge--banked';
     case 'Abandoned':
@@ -2321,10 +2324,10 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
     case 'MASTER_LOOTED': {
       const itemInfo = getDispositionItemInfo(event.itemName);
       recordLootDisposition(
-        'Assigned',
+        'Taken',
         event.itemName,
         event.timestamp,
-        null,
+        'Master Looter',
         itemInfo?.itemId,
         itemInfo?.itemIconId
       );
@@ -8120,6 +8123,11 @@ onBeforeUnmount(() => {
 .loot-disposition-badge--assigned {
   background: rgba(34, 197, 94, 0.25);
   color: #86efac;
+}
+
+.loot-disposition-badge--taken {
+  background: rgba(20, 184, 166, 0.25);
+  color: #5eead4;
 }
 
 .loot-disposition-badge--banked {
