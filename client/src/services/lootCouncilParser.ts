@@ -171,6 +171,7 @@ export function parseLootCouncilEvents(
   let pendingPreviousSnapshot: Map<string, PendingSnapshotEntry> | null = null;
   let pendingBuildingSnapshot: Map<string, PendingSnapshotEntry> | null = null;
   let pendingBlockActive = false;
+  let lineIndex = 0;
 
   interface PendingSnapshotEntry {
     itemName: string;
@@ -269,6 +270,7 @@ export function parseLootCouncilEvents(
   let lastTimestamp: Date | null = null;
 
   for (const rawLine of lines) {
+    lineIndex += 1;
     const sanitizedLine = sanitizeLogLine(rawLine);
     const timestamp = extractTimestamp(sanitizedLine);
     if (!timestamp || !isWithinRaid(timestamp, raidStart, raidEnd)) {
@@ -463,13 +465,15 @@ export function parseLootCouncilEvents(
     );
     if (lootCouncilAwardMatch?.groups) {
       finalizeSyncBlock();
+      const cleanedItem = cleanItemName(lootCouncilAwardMatch.groups.item);
+      const playerName = lootCouncilAwardMatch.groups.player.trim();
       events.push({
         type: 'AWARD',
-        key: buildEventKey(timestamp, `${lootCouncilAwardMatch.groups.item}::award`),
+        key: buildEventKey(timestamp, `${cleanedItem}::${playerName}::award::${lineIndex}`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(lootCouncilAwardMatch.groups.item),
-        awardedTo: lootCouncilAwardMatch.groups.player.trim()
+        itemName: cleanedItem,
+        awardedTo: playerName
       });
       continue;
     }
@@ -480,13 +484,15 @@ export function parseLootCouncilEvents(
     );
     if (masterLooterAwardMatch?.groups) {
       finalizeSyncBlock();
+      const cleanedItem = cleanItemName(masterLooterAwardMatch.groups.item);
+      const playerName = masterLooterAwardMatch.groups.player.trim();
       events.push({
         type: 'MASTER_LOOTER_AWARD',
-        key: buildEventKey(timestamp, `${masterLooterAwardMatch.groups.item}::ml-award`),
+        key: buildEventKey(timestamp, `${cleanedItem}::${playerName}::ml-award::${lineIndex}`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(masterLooterAwardMatch.groups.item),
-        awardedTo: masterLooterAwardMatch.groups.player.trim()
+        itemName: cleanedItem,
+        awardedTo: playerName
       });
       continue;
     }
@@ -500,13 +506,14 @@ export function parseLootCouncilEvents(
     if (randomAwardMatch?.groups) {
       finalizeSyncBlock();
       const cleanedItem = cleanItemName(randomAwardMatch.groups.item);
+      const playerName = randomAwardMatch.groups.player.trim();
       events.push({
         type: 'RANDOM_AWARD',
-        key: buildEventKey(timestamp, `${cleanedItem}::random-award`),
+        key: buildEventKey(timestamp, `${cleanedItem}::${playerName}::random-award::${lineIndex}`),
         timestamp,
         rawLine,
         itemName: cleanedItem,
-        awardedTo: randomAwardMatch.groups.player.trim()
+        awardedTo: playerName
       });
       continue;
     }
@@ -520,7 +527,7 @@ export function parseLootCouncilEvents(
       const cleanedItem = cleanItemName(masterLootedMatch.groups.item);
       events.push({
         type: 'MASTER_LOOTED',
-        key: buildEventKey(timestamp, `${cleanedItem}::master-looted`),
+        key: buildEventKey(timestamp, `${cleanedItem}::master-looted::${lineIndex}`),
         timestamp,
         rawLine,
         itemName: cleanedItem
@@ -538,7 +545,7 @@ export function parseLootCouncilEvents(
       if (isDonation) {
         events.push({
           type: 'DONATION',
-          key: buildEventKey(timestamp, `${cleanedItem}::donation`),
+          key: buildEventKey(timestamp, `${cleanedItem}::donation::${lineIndex}`),
           timestamp,
           rawLine,
           itemName: cleanedItem
@@ -546,7 +553,7 @@ export function parseLootCouncilEvents(
       } else {
         events.push({
           type: 'LEFT_ON_CORPSE',
-          key: buildEventKey(timestamp, `${cleanedItem}::left-on`),
+          key: buildEventKey(timestamp, `${cleanedItem}::left-on::${lineIndex}`),
           timestamp,
           rawLine,
           itemName: cleanedItem
@@ -561,7 +568,7 @@ export function parseLootCouncilEvents(
       const cleanedItem = cleanItemName(discardedMatch.groups.item);
       events.push({
         type: 'DISCARDED',
-        key: buildEventKey(timestamp, `${cleanedItem}::discarded`),
+        key: buildEventKey(timestamp, `${cleanedItem}::discarded::${lineIndex}`),
         timestamp,
         rawLine,
         itemName: cleanedItem
