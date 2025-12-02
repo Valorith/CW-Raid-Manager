@@ -2389,6 +2389,21 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
         status: 'AWARDED'
       });
     }
+    case 'MASTER_LOOTER_AWARD': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Assigned',
+        event.itemName,
+        event.timestamp,
+        event.awardedTo,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: event.awardedTo,
+        status: 'AWARDED'
+      });
+    }
     case 'MASTER_LOOTED': {
       const itemInfo = getDispositionItemInfo(event.itemName);
       recordLootDisposition(

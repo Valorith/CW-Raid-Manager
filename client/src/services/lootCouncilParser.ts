@@ -78,6 +78,14 @@ export type LootCouncilEvent =
       awardedTo: string;
     }
   | {
+      type: 'MASTER_LOOTER_AWARD';
+      key: string;
+      timestamp: Date;
+      rawLine: string;
+      itemName: string;
+      awardedTo: string;
+    }
+  | {
       type: 'MASTER_LOOTED';
       key: string;
       timestamp: Date;
@@ -449,18 +457,36 @@ export function parseLootCouncilEvents(
       continue;
     }
 
-    const awardMatch = trimmed.match(
-      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the (?:Loot Council|Master Looter)(?:\.)?/i
+    // Loot Council award - specifically by the Loot Council
+    const lootCouncilAwardMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the Loot Council(?:\.)?/i
     );
-    if (awardMatch?.groups) {
+    if (lootCouncilAwardMatch?.groups) {
       finalizeSyncBlock();
       events.push({
         type: 'AWARD',
-        key: buildEventKey(timestamp, `${awardMatch.groups.item}::award`),
+        key: buildEventKey(timestamp, `${lootCouncilAwardMatch.groups.item}::award`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(awardMatch.groups.item),
-        awardedTo: awardMatch.groups.player.trim()
+        itemName: cleanItemName(lootCouncilAwardMatch.groups.item),
+        awardedTo: lootCouncilAwardMatch.groups.player.trim()
+      });
+      continue;
+    }
+
+    // Master Looter award - assigned by the Master Looter (not loot council)
+    const masterLooterAwardMatch = trimmed.match(
+      /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by the Master Looter(?:\.)?/i
+    );
+    if (masterLooterAwardMatch?.groups) {
+      finalizeSyncBlock();
+      events.push({
+        type: 'MASTER_LOOTER_AWARD',
+        key: buildEventKey(timestamp, `${masterLooterAwardMatch.groups.item}::ml-award`),
+        timestamp,
+        rawLine,
+        itemName: cleanItemName(masterLooterAwardMatch.groups.item),
+        awardedTo: masterLooterAwardMatch.groups.player.trim()
       });
       continue;
     }
