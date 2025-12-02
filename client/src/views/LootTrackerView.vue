@@ -565,63 +565,97 @@
       </div>
     </section>
 
-    <section class="card loot-disposition-card">
+    <section v-if="isRaidActive" class="card loot-disposition-card">
       <header class="card__header">
         <div>
           <h2>Loot Disposition</h2>
-          <p class="muted">Recent loot actions (last {{ LOOT_DISPOSITION_MAX_ENTRIES }})</p>
+          <p class="muted">
+            {{ lootDispositionHistory.length }} loot actions during this raid
+          </p>
+        </div>
+        <div v-if="lootDispositionHistory.length > 0" class="loot-disposition-search">
+          <input
+            v-model="lootDispositionSearch"
+            type="text"
+            class="loot-disposition-search__input"
+            placeholder="Search items, recipients, or actions..."
+          />
         </div>
       </header>
       <p v-if="lootDispositionHistory.length === 0" class="muted">
         No loot disposition events recorded yet. Events will appear here as loot is awarded, discarded, or otherwise distributed during active monitoring.
       </p>
-      <div v-else class="loot-disposition-table-wrapper">
-        <table class="loot-disposition-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Action</th>
-              <th>Item</th>
-              <th>Recipient</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="entry in lootDispositionHistory" :key="entry.id">
-              <td class="loot-disposition-table__time">
-                {{ formatDispositionTime(entry.timestamp) }}
-              </td>
-              <td class="loot-disposition-table__action">
-                <span :class="['loot-disposition-badge', getDispositionBadgeClass(entry.actionType)]">
-                  {{ entry.actionType }}
-                </span>
-              </td>
-              <td class="loot-disposition-table__item">
-                <div
-                  class="loot-disposition-item"
-                  @mouseenter="showDispositionItemTooltip($event, entry)"
-                  @mousemove="updateTooltipPosition($event)"
-                  @mouseleave="hideItemTooltip"
-                >
-                  <span
-                    v-if="hasValidIconId(entry.itemIconId)"
-                    class="loot-disposition-item__icon"
-                  >
-                    <img
-                      :src="getLootIconSrc(entry.itemIconId)"
-                      :alt="`${entry.itemName} icon`"
-                      loading="lazy"
-                    />
+      <template v-else>
+        <p v-if="filteredLootDispositionHistory.length === 0" class="muted">
+          No results matching "{{ lootDispositionSearch }}".
+        </p>
+        <div v-else class="loot-disposition-table-wrapper">
+          <table class="loot-disposition-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Action</th>
+                <th>Item</th>
+                <th>Recipient</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="entry in paginatedLootDispositionHistory" :key="entry.id">
+                <td class="loot-disposition-table__time">
+                  {{ formatDispositionTime(entry.timestamp) }}
+                </td>
+                <td class="loot-disposition-table__action">
+                  <span :class="['loot-disposition-badge', getDispositionBadgeClass(entry.actionType)]">
+                    {{ entry.actionType }}
                   </span>
-                  <span class="loot-disposition-item__name">{{ entry.itemName }}</span>
-                </div>
-              </td>
-              <td class="loot-disposition-table__recipient">
-                {{ entry.recipientName ?? '—' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+                </td>
+                <td class="loot-disposition-table__item">
+                  <div
+                    class="loot-disposition-item"
+                    @mouseenter="showDispositionItemTooltip($event, entry)"
+                    @mousemove="updateTooltipPosition($event)"
+                    @mouseleave="hideItemTooltip"
+                  >
+                    <span
+                      v-if="hasValidIconId(entry.itemIconId)"
+                      class="loot-disposition-item__icon"
+                    >
+                      <img
+                        :src="getLootIconSrc(entry.itemIconId)"
+                        :alt="`${entry.itemName} icon`"
+                        loading="lazy"
+                      />
+                    </span>
+                    <span class="loot-disposition-item__name">{{ entry.itemName }}</span>
+                  </div>
+                </td>
+                <td class="loot-disposition-table__recipient">
+                  {{ entry.recipientName ?? '—' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="lootDispositionTotalPages > 1" class="loot-disposition-pagination">
+            <button
+              class="btn btn--small btn--outline"
+              :disabled="lootDispositionPage <= 1"
+              @click="lootDispositionPage = lootDispositionPage - 1"
+            >
+              Previous
+            </button>
+            <span class="loot-disposition-pagination__info">
+              Page {{ lootDispositionPage }} of {{ lootDispositionTotalPages }}
+            </span>
+            <button
+              class="btn btn--small btn--outline"
+              :disabled="lootDispositionPage >= lootDispositionTotalPages"
+              @click="lootDispositionPage = lootDispositionPage + 1"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      </template>
     </section>
 
     <section class="card">
@@ -1587,8 +1621,39 @@ const lootCouncilDebugEnabled = true;
 const activeLogSignature = ref<string | null>(null);
 const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
 const LOOT_DISPOSITION_STORAGE_PREFIX = 'cw-raid-loot-disposition';
-const LOOT_DISPOSITION_MAX_ENTRIES = 10;
+const LOOT_DISPOSITION_PAGE_SIZE = 10;
 const lootDispositionHistory = ref<LootDispositionEntry[]>([]);
+const lootDispositionSearch = ref('');
+const lootDispositionPage = ref(1);
+
+// Computed: Is the raid currently active (not ended)?
+const isRaidActive = computed(() => raid.value && !raid.value.endedAt);
+
+// Computed: Filter disposition history by search term
+const filteredLootDispositionHistory = computed(() => {
+  const search = lootDispositionSearch.value.trim().toLowerCase();
+  if (!search) {
+    return lootDispositionHistory.value;
+  }
+  return lootDispositionHistory.value.filter((entry) => {
+    const itemMatch = entry.itemName?.toLowerCase().includes(search);
+    const recipientMatch = entry.recipientName?.toLowerCase().includes(search);
+    const actionMatch = entry.actionType?.toLowerCase().includes(search);
+    return itemMatch || recipientMatch || actionMatch;
+  });
+});
+
+// Computed: Total pages for disposition table
+const lootDispositionTotalPages = computed(() =>
+  Math.max(1, Math.ceil(filteredLootDispositionHistory.value.length / LOOT_DISPOSITION_PAGE_SIZE))
+);
+
+// Computed: Paginated disposition entries
+const paginatedLootDispositionHistory = computed(() => {
+  const start = (lootDispositionPage.value - 1) * LOOT_DISPOSITION_PAGE_SIZE;
+  return filteredLootDispositionHistory.value.slice(start, start + LOOT_DISPOSITION_PAGE_SIZE);
+});
+
 let liveChunkInFlight = false;
 const lootConsoleQueue = ref<LootConsoleItem[]>([]);
 const lootConsoleCurrent = ref<LootConsoleItem | null>(null);
@@ -1833,8 +1898,7 @@ function loadLootDispositionHistory(): LootDispositionEntry[] {
       .map((entry) => ({
         ...entry,
         timestamp: new Date(entry.timestamp)
-      }))
-      .slice(0, LOOT_DISPOSITION_MAX_ENTRIES);
+      }));
   } catch {
     return [];
   }
@@ -1845,10 +1909,22 @@ function persistLootDispositionHistory() {
     return;
   }
   try {
-    const entries = lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES);
-    window.localStorage.setItem(getDispositionStorageKey(), JSON.stringify(entries));
+    window.localStorage.setItem(getDispositionStorageKey(), JSON.stringify(lootDispositionHistory.value));
   } catch {
     // Ignore storage errors (e.g., quota exceeded)
+  }
+}
+
+function clearLootDispositionHistory() {
+  lootDispositionHistory.value = [];
+  lootDispositionSearch.value = '';
+  lootDispositionPage.value = 1;
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(getDispositionStorageKey());
+    } catch {
+      // Ignore errors
+    }
   }
 }
 
@@ -1872,10 +1948,7 @@ function recordLootDisposition(
     };
 
     // Add to the front of the list (newest first)
-    lootDispositionHistory.value = [
-      entry,
-      ...lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES - 1)
-    ];
+    lootDispositionHistory.value = [entry, ...lootDispositionHistory.value];
     persistLootDispositionHistory();
 
     // If item IDs are missing, trigger resolution to fill them in
@@ -2994,6 +3067,21 @@ watch(
     }
   }
 );
+
+// Clear loot disposition history when raid ends
+watch(
+  () => raid.value?.endedAt,
+  (endedAt) => {
+    if (endedAt) {
+      clearLootDispositionHistory();
+    }
+  }
+);
+
+// Reset disposition page when search changes
+watch(lootDispositionSearch, () => {
+  lootDispositionPage.value = 1;
+});
 
 watch(
   () => monitorSession.value,
@@ -8480,6 +8568,46 @@ onBeforeUnmount(() => {
 
 .loot-disposition-table__recipient {
   color: #e2e8f0;
+}
+
+.loot-disposition-search {
+  display: flex;
+  align-items: center;
+}
+
+.loot-disposition-search__input {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #1e293b;
+  color: #e2e8f0;
+  min-width: 220px;
+}
+
+.loot-disposition-search__input:focus {
+  outline: none;
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+.loot-disposition-search__input::placeholder {
+  color: #64748b;
+}
+
+.loot-disposition-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem 0 0.5rem;
+  border-top: 1px solid #334155;
+  margin-top: 0.5rem;
+}
+
+.loot-disposition-pagination__info {
+  font-size: 0.875rem;
+  color: #94a3b8;
 }
 
 </style>
