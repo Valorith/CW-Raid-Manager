@@ -489,7 +489,7 @@
       </div>
     </div>
 
-    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" @click.self="cartConfirmOpen = false">
+    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" style="z-index: 140" @click.self="cartConfirmOpen = false">
       <div class="modal confirm-modal">
         <header class="modal__header">
           <div>
