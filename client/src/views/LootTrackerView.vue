@@ -1345,7 +1345,7 @@ type LootDispositionActionType =
   | 'Random'
   | 'Assigned'
   | 'Taken'
-  | 'Banked'
+  | 'Guild Banked'
   | 'Abandoned'
   | 'Discarded';
 
@@ -1417,7 +1417,7 @@ function getDispositionBadgeClass(actionType: LootDispositionActionType): string
       return 'loot-disposition-badge--assigned';
     case 'Taken':
       return 'loot-disposition-badge--taken';
-    case 'Banked':
+    case 'Guild Banked':
       return 'loot-disposition-badge--banked';
     case 'Abandoned':
       return 'loot-disposition-badge--abandoned';
@@ -2380,7 +2380,7 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
     case 'DONATION': {
       const itemInfo = getDispositionItemInfo(event.itemName);
       recordLootDisposition(
-        'Banked',
+        'Guild Banked',
         event.itemName,
         event.timestamp,
         null,
