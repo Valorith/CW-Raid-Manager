@@ -395,6 +395,94 @@ export async function getSpellName(spellId: number): Promise<string | null> {
 }
 
 /**
+ * Result of an item name search.
+ */
+export interface ItemNameSearchResult {
+  itemId: number;
+  itemIconId: number;
+  itemName: string;
+}
+
+// Cache for item name lookups (name -> result)
+const itemNameCache = new Map<string, ItemNameSearchResult | null>();
+
+/**
+ * Search items by exact name match (case-insensitive).
+ * Returns a map of original search names to their item info.
+ */
+export async function searchItemsByName(names: string[]): Promise<Map<string, ItemNameSearchResult>> {
+  const results = new Map<string, ItemNameSearchResult>();
+
+  if (!isEqDbConfigured() || names.length === 0) {
+    return results;
+  }
+
+  // Normalize names for cache lookup
+  const normalizedToOriginal = new Map<string, string>();
+  const uncachedNames: string[] = [];
+
+  for (const name of names) {
+    const normalized = name.trim().toLowerCase();
+    normalizedToOriginal.set(normalized, name);
+
+    if (itemNameCache.has(normalized)) {
+      const cached = itemNameCache.get(normalized);
+      if (cached) {
+        results.set(name, cached);
+      }
+    } else {
+      uncachedNames.push(name);
+    }
+  }
+
+  if (uncachedNames.length === 0) {
+    return results;
+  }
+
+  try {
+    // Query items by name (case-insensitive)
+    const placeholders = uncachedNames.map(() => '?').join(', ');
+    const normalizedUncached = uncachedNames.map(n => n.trim().toLowerCase());
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT id, Name as name, icon FROM items WHERE LOWER(Name) IN (${placeholders})`,
+      normalizedUncached
+    );
+
+    // Process results
+    const foundNames = new Set<string>();
+    for (const row of rows) {
+      const itemId = Number(row.id);
+      const itemName = String(row.name);
+      const itemIconId = Number(row.icon);
+      const normalizedName = itemName.toLowerCase();
+
+      const result: ItemNameSearchResult = { itemId, itemIconId, itemName };
+      itemNameCache.set(normalizedName, result);
+      foundNames.add(normalizedName);
+
+      // Find the original search term that matches this result
+      const originalName = normalizedToOriginal.get(normalizedName);
+      if (originalName) {
+        results.set(originalName, result);
+      }
+    }
+
+    // Cache nulls for names not found
+    for (const name of uncachedNames) {
+      const normalized = name.trim().toLowerCase();
+      if (!foundNames.has(normalized)) {
+        itemNameCache.set(normalized, null);
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Failed to search items by name:', error);
+    return results;
+  }
+}
+
+/**
  * Batch fetch spell names.
  */
 export async function getSpellNamesBatch(spellIds: number[]): Promise<Map<number, string>> {

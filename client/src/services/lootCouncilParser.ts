@@ -12,6 +12,7 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
       ordinal?: number | null;
       origin: LootCouncilConsideredOrigin;
     }
@@ -21,8 +22,10 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
       playerName: string;
       replacing?: string | null;
+      replacingItemId?: number | null;
       mode: LootCouncilInterestMode;
     }
   | {
@@ -101,8 +104,24 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
       playerName: string;
     };
+
+/**
+ * Extract item ID from a name string that may contain an ID in parentheses.
+ * Example: "Storm Sphere (12345)" -> { name: "Storm Sphere", itemId: 12345 }
+ */
+function extractItemIdFromName(nameWithId: string): { name: string; itemId: number | null } {
+  const match = nameWithId.match(/^(.+?)\s*\((\d+)\)\s*$/);
+  if (match) {
+    const itemId = parseInt(match[2], 10);
+    if (Number.isFinite(itemId) && itemId > 0) {
+      return { name: match[1].trim(), itemId };
+    }
+  }
+  return { name: nameWithId, itemId: null };
+}
 
 interface LootCouncilSyncBlock {
   itemName: string;
@@ -286,12 +305,14 @@ export function parseLootCouncilEvents(
     if (considerMatch?.groups?.item) {
       finalizeSyncBlock();
       const ordinalMatch = trimmed.match(/^(?<ordinal>\d+)\)/);
+      const itemExtract = extractItemIdFromName(cleanItemName(considerMatch.groups.item));
       events.push({
         type: 'ITEM_CONSIDERED',
         key: buildEventKey(timestamp, `${considerMatch.groups.item}::considered`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(considerMatch.groups.item),
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         ordinal: ordinalMatch?.groups?.ordinal ? Number(ordinalMatch.groups.ordinal) : null,
         origin: 'ANNOUNCE'
       });
@@ -352,14 +373,18 @@ export function parseLootCouncilEvents(
     );
     if (requestReplaceMatch?.groups) {
       finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(requestReplaceMatch.groups.item));
+      const replaceExtract = extractItemIdFromName(requestReplaceMatch.groups.replace.trim());
       events.push({
         type: 'REQUEST',
         key: buildEventKey(timestamp, `${requestReplaceMatch.groups.item}::${requestReplaceMatch.groups.player}::request`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(requestReplaceMatch.groups.item),
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         playerName: requestReplaceMatch.groups.player.trim(),
-        replacing: requestReplaceMatch.groups.replace.trim(),
+        replacing: replaceExtract.name,
+        replacingItemId: replaceExtract.itemId,
         mode: 'REPLACING'
       });
       continue;
@@ -370,14 +395,17 @@ export function parseLootCouncilEvents(
     );
     if (requestNoReplaceMatch?.groups) {
       finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(requestNoReplaceMatch.groups.item));
       events.push({
         type: 'REQUEST',
         key: buildEventKey(timestamp, `${requestNoReplaceMatch.groups.item}::${requestNoReplaceMatch.groups.player}::request`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(requestNoReplaceMatch.groups.item),
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         playerName: requestNoReplaceMatch.groups.player.trim(),
         replacing: null,
+        replacingItemId: null,
         mode: 'NOT_REPLACING'
       });
       continue;
@@ -388,12 +416,14 @@ export function parseLootCouncilEvents(
     );
     if (withdrawalMatch?.groups) {
       finalizeSyncBlock();
+      const itemExtract = extractItemIdFromName(cleanItemName(withdrawalMatch.groups.item));
       events.push({
         type: 'WITHDRAWAL',
         key: buildEventKey(timestamp, `${withdrawalMatch.groups.item}::${withdrawalMatch.groups.player}::withdrawal`),
         timestamp,
         rawLine,
-        itemName: cleanItemName(withdrawalMatch.groups.item),
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         playerName: withdrawalMatch.groups.player.trim()
       });
       continue;
