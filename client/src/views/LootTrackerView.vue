@@ -554,6 +554,65 @@
       </div>
     </section>
 
+    <section class="card loot-disposition-card">
+      <header class="card__header">
+        <div>
+          <h2>Loot Disposition</h2>
+          <p class="muted">Recent loot actions (last {{ LOOT_DISPOSITION_MAX_ENTRIES }})</p>
+        </div>
+      </header>
+      <p v-if="lootDispositionHistory.length === 0" class="muted">
+        No loot disposition events recorded yet. Events will appear here as loot is awarded, discarded, or otherwise distributed during active monitoring.
+      </p>
+      <div v-else class="loot-disposition-table-wrapper">
+        <table class="loot-disposition-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Action</th>
+              <th>Item</th>
+              <th>Recipient</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="entry in lootDispositionHistory" :key="entry.id">
+              <td class="loot-disposition-table__time">
+                {{ formatDispositionTime(entry.timestamp) }}
+              </td>
+              <td class="loot-disposition-table__action">
+                <span :class="['loot-disposition-badge', getDispositionBadgeClass(entry.actionType)]">
+                  {{ entry.actionType }}
+                </span>
+              </td>
+              <td class="loot-disposition-table__item">
+                <div
+                  class="loot-disposition-item"
+                  @mouseenter="showDispositionItemTooltip($event, entry)"
+                  @mousemove="updateTooltipPosition($event)"
+                  @mouseleave="hideItemTooltip"
+                >
+                  <span
+                    v-if="hasValidIconId(entry.itemIconId)"
+                    class="loot-disposition-item__icon"
+                  >
+                    <img
+                      :src="getLootIconSrc(entry.itemIconId)"
+                      :alt="`${entry.itemName} icon`"
+                      loading="lazy"
+                    />
+                  </span>
+                  <span class="loot-disposition-item__name">{{ entry.itemName }}</span>
+                </div>
+              </td>
+              <td class="loot-disposition-table__recipient">
+                {{ entry.recipientName ?? '—' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="card">
       <header class="card__header">
         <div>
@@ -1270,6 +1329,24 @@ interface LootCouncilItemState {
   interests: LootCouncilInterestState[];
 }
 
+type LootDispositionActionType =
+  | 'Council Award'
+  | 'Random'
+  | 'Assigned'
+  | 'Banked'
+  | 'Abandoned'
+  | 'Discarded';
+
+interface LootDispositionEntry {
+  id: string;
+  timestamp: Date;
+  actionType: LootDispositionActionType;
+  itemName: string;
+  itemId: number | null;
+  itemIconId: number | null;
+  recipientName: string | null;
+}
+
 defineOptions({ name: 'LootTrackerView' });
 
 const route = useRoute();
@@ -1301,6 +1378,40 @@ function updateTooltipPosition(event: MouseEvent) {
 
 function hideItemTooltip() {
   tooltipStore.hideTooltip();
+}
+
+function showDispositionItemTooltip(event: MouseEvent, entry: LootDispositionEntry) {
+  if (!entry.itemId) return;
+  tooltipStore.showTooltip(
+    { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId ?? undefined },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function formatDispositionTime(timestamp: Date): string {
+  if (!(timestamp instanceof Date) || Number.isNaN(timestamp.getTime())) {
+    return '—';
+  }
+  return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function getDispositionBadgeClass(actionType: LootDispositionActionType): string {
+  switch (actionType) {
+    case 'Council Award':
+      return 'loot-disposition-badge--council';
+    case 'Random':
+      return 'loot-disposition-badge--random';
+    case 'Assigned':
+      return 'loot-disposition-badge--assigned';
+    case 'Banked':
+      return 'loot-disposition-badge--banked';
+    case 'Abandoned':
+      return 'loot-disposition-badge--abandoned';
+    case 'Discarded':
+      return 'loot-disposition-badge--discarded';
+    default:
+      return '';
+  }
 }
 
 function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemState) {
@@ -1450,6 +1561,9 @@ const summarySessionState = {
 const lootCouncilDebugEnabled = true;
 const activeLogSignature = ref<string | null>(null);
 const PROCESSED_LOG_STORAGE_PREFIX = 'cw-raid-processed-log';
+const LOOT_DISPOSITION_STORAGE_PREFIX = 'cw-raid-loot-disposition';
+const LOOT_DISPOSITION_MAX_ENTRIES = 10;
+const lootDispositionHistory = ref<LootDispositionEntry[]>([]);
 let liveChunkInFlight = false;
 const lootConsoleQueue = ref<LootConsoleItem[]>([]);
 const lootConsoleCurrent = ref<LootConsoleItem | null>(null);
@@ -1660,6 +1774,82 @@ function resetProcessedLogState(options?: { clearStorage?: boolean; signature?: 
   } else {
     activeLogSignature.value = null;
   }
+}
+
+function getDispositionStorageKey() {
+  return `${LOOT_DISPOSITION_STORAGE_PREFIX}:${raidId}`;
+}
+
+function loadLootDispositionHistory(): LootDispositionEntry[] {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(getDispositionStorageKey());
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry: unknown): entry is LootDispositionEntry => {
+        if (!entry || typeof entry !== 'object') return false;
+        const e = entry as Record<string, unknown>;
+        return (
+          typeof e.id === 'string' &&
+          (typeof e.timestamp === 'string' || e.timestamp instanceof Date) &&
+          typeof e.actionType === 'string' &&
+          typeof e.itemName === 'string'
+        );
+      })
+      .map((entry) => ({
+        ...entry,
+        timestamp: new Date(entry.timestamp)
+      }))
+      .slice(0, LOOT_DISPOSITION_MAX_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
+function persistLootDispositionHistory() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    const entries = lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES);
+    window.localStorage.setItem(getDispositionStorageKey(), JSON.stringify(entries));
+  } catch {
+    // Ignore storage errors (e.g., quota exceeded)
+  }
+}
+
+function recordLootDisposition(
+  actionType: LootDispositionActionType,
+  itemName: string,
+  timestamp: Date,
+  recipientName: string | null,
+  itemId?: number | null,
+  itemIconId?: number | null
+) {
+  const entry: LootDispositionEntry = {
+    id: `${timestamp.getTime()}-${itemName}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp,
+    actionType,
+    itemName,
+    itemId: itemId ?? null,
+    itemIconId: itemIconId ?? null,
+    recipientName
+  };
+
+  // Add to the front of the list (newest first)
+  lootDispositionHistory.value = [
+    entry,
+    ...lootDispositionHistory.value.slice(0, LOOT_DISPOSITION_MAX_ENTRIES - 1)
+  ];
+  persistLootDispositionHistory();
 }
 
 function normalizeLootCouncilItemKey(itemName: string) {
@@ -2083,33 +2273,116 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
       return applyLootCouncilSyncSummary(event);
     case 'VOTE':
       return applyLootCouncilVote(event);
-    case 'AWARD':
+    case 'AWARD': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Council Award',
+        event.itemName,
+        event.timestamp,
+        event.awardedTo,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
         awardedTo: event.awardedTo,
         status: 'AWARDED'
       });
-    case 'DONATION':
+    }
+    case 'DONATION': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Banked',
+        event.itemName,
+        event.timestamp,
+        null,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
         awardedTo: null,
         status: 'REMOVED'
       });
-    case 'RANDOM_AWARD':
+    }
+    case 'RANDOM_AWARD': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Random',
+        event.itemName,
+        event.timestamp,
+        event.awardedTo,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
         awardedTo: event.awardedTo,
         status: 'AWARDED'
       });
-    case 'MASTER_LOOTED':
-    case 'LEFT_ON_CORPSE':
-    case 'DISCARDED':
+    }
+    case 'MASTER_LOOTED': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Assigned',
+        event.itemName,
+        event.timestamp,
+        null,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
       return finalizeLootCouncilItem(event.itemName, event.timestamp, {
         awardedTo: null,
         status: 'REMOVED'
       });
+    }
+    case 'LEFT_ON_CORPSE': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Abandoned',
+        event.itemName,
+        event.timestamp,
+        null,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: null,
+        status: 'REMOVED'
+      });
+    }
+    case 'DISCARDED': {
+      const itemInfo = getDispositionItemInfo(event.itemName);
+      recordLootDisposition(
+        'Discarded',
+        event.itemName,
+        event.timestamp,
+        null,
+        itemInfo?.itemId,
+        itemInfo?.itemIconId
+      );
+      return finalizeLootCouncilItem(event.itemName, event.timestamp, {
+        awardedTo: null,
+        status: 'REMOVED'
+      });
+    }
     case 'WITHDRAWAL':
       return removeLootCouncilInterest(event);
     default:
       return false;
   }
+}
+
+function getDispositionItemInfo(itemName: string): { itemId: number | null; itemIconId: number | null } | null {
+  const nameKey = normalizeLootCouncilItemKey(itemName);
+  const item = lootCouncilState.items.find((entry) => entry.nameKey === nameKey);
+  if (item) {
+    return { itemId: item.itemId ?? null, itemIconId: item.itemIconId ?? null };
+  }
+  // Also check the cache
+  const cacheKey = itemName.trim().toLowerCase();
+  const cached = itemNameToIdCache.get(cacheKey);
+  if (cached) {
+    return { itemId: cached.itemId, itemIconId: cached.itemIconId };
+  }
+  return null;
 }
 
 function activateLootCouncilItem(
@@ -5636,6 +5909,7 @@ onMounted(() => {
   window.addEventListener('click', handleGlobalPointerDown);
   window.addEventListener('contextmenu', handleGlobalPointerDown);
   window.addEventListener('keydown', handleLootContextMenuKey);
+  lootDispositionHistory.value = loadLootDispositionHistory();
   loadData();
 });
 
@@ -7748,6 +8022,128 @@ onBeforeUnmount(() => {
 
 .loot-council-interest__timestamp {
   font-size: 0.75rem;
+}
+
+/* Loot Disposition Table Styles */
+.loot-disposition-card {
+  margin-bottom: 1rem;
+}
+
+.loot-disposition-table-wrapper {
+  overflow-x: auto;
+}
+
+.loot-disposition-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.loot-disposition-table th,
+.loot-disposition-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+.loot-disposition-table th {
+  font-weight: 600;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(30, 41, 59, 0.5);
+}
+
+.loot-disposition-table tbody tr:hover {
+  background: rgba(100, 116, 139, 0.1);
+}
+
+.loot-disposition-table__time {
+  white-space: nowrap;
+  color: #94a3b8;
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.loot-disposition-table__action {
+  white-space: nowrap;
+}
+
+.loot-disposition-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: rgba(100, 116, 139, 0.3);
+  color: #e2e8f0;
+}
+
+.loot-disposition-badge--council {
+  background: rgba(168, 85, 247, 0.25);
+  color: #c4b5fd;
+}
+
+.loot-disposition-badge--random {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+
+.loot-disposition-badge--assigned {
+  background: rgba(34, 197, 94, 0.25);
+  color: #86efac;
+}
+
+.loot-disposition-badge--banked {
+  background: rgba(234, 179, 8, 0.25);
+  color: #fde047;
+}
+
+.loot-disposition-badge--abandoned {
+  background: rgba(249, 115, 22, 0.25);
+  color: #fdba74;
+}
+
+.loot-disposition-badge--discarded {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+}
+
+.loot-disposition-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.loot-disposition-item__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.loot-disposition-item__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
+  border: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.loot-disposition-item__name {
+  color: #cbd5e1;
+}
+
+.loot-disposition-item:hover .loot-disposition-item__name {
+  color: #60a5fa;
+}
+
+.loot-disposition-table__recipient {
+  color: #e2e8f0;
 }
 
 </style>
