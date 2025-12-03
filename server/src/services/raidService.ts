@@ -88,6 +88,39 @@ export async function ensureCanManageRaid(userId: string, guildId: string) {
   return membership.role;
 }
 
+async function getSignupCountsForRaids(raidIds: string[]): Promise<Map<string, { confirmed: number; notAttending: number }>> {
+  const map = new Map<string, { confirmed: number; notAttending: number }>();
+  if (raidIds.length === 0) {
+    return map;
+  }
+
+  const signups = await prisma.raidSignup.groupBy({
+    by: ['raidId', 'status'],
+    where: {
+      raidId: { in: raidIds }
+    },
+    _count: {
+      id: true
+    }
+  });
+
+  for (const raidId of raidIds) {
+    map.set(raidId, { confirmed: 0, notAttending: 0 });
+  }
+
+  for (const row of signups) {
+    const current = map.get(row.raidId) ?? { confirmed: 0, notAttending: 0 };
+    if (row.status === 'CONFIRMED') {
+      current.confirmed = row._count.id;
+    } else if (row.status === 'NOT_ATTENDING') {
+      current.notAttending = row._count.id;
+    }
+    map.set(row.raidId, current);
+  }
+
+  return map;
+}
+
 export async function listRaidEventsForGuild(guildId: string) {
   const raids = await prisma.raidEvent.findMany({
     where: { guildId },
@@ -122,12 +155,15 @@ export async function listRaidEventsForGuild(guildId: string) {
   });
   const raidIds = raids.map((raid) => raid.id);
   const unassignedMap = await getUnassignedLootFlags(raidIds);
+  const signupCountsMap = await getSignupCountsForRaids(raidIds);
   return raids.map((raid) => {
     const formatted = formatRaidWithRecurrence(raid);
+    const signupCounts = signupCountsMap.get(raid.id) ?? { confirmed: 0, notAttending: 0 };
     return {
       ...formatted,
       createdBy: withPreferredDisplayName(raid.createdBy),
-      hasUnassignedLoot: unassignedMap.get(raid.id) ?? false
+      hasUnassignedLoot: unassignedMap.get(raid.id) ?? false,
+      signupCounts
     };
   });
 }
