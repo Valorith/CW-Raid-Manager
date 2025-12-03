@@ -681,6 +681,11 @@ export interface GuildDiscordWebhookInput {
 
 export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> { }
 
+export interface RaidSignupCounts {
+  confirmed: number;
+  notAttending: number;
+}
+
 export interface RaidEventSummary {
   id: string;
   guildId: string;
@@ -714,6 +719,7 @@ export interface RaidEventSummary {
     role: GuildRole;
   };
   hasUnassignedLoot: boolean;
+  signupCounts?: RaidSignupCounts;
   attendance?: Array<{
     id: string;
     createdAt: string;
@@ -1588,6 +1594,13 @@ function normalizeRaidSummary(
     }
     : null;
 
+  const signupCounts = raid?.signupCounts
+    ? {
+      confirmed: typeof raid.signupCounts.confirmed === 'number' ? raid.signupCounts.confirmed : 0,
+      notAttending: typeof raid.signupCounts.notAttending === 'number' ? raid.signupCounts.notAttending : 0
+    }
+    : undefined;
+
   return {
     id: raid?.id ?? '',
     guildId: raid?.guildId ?? '',
@@ -1616,7 +1629,8 @@ function normalizeRaidSummary(
     logMonitor,
     permissions: raid?.permissions ?? undefined,
     attendance,
-    hasUnassignedLoot: Boolean(raid?.hasUnassignedLoot)
+    hasUnassignedLoot: Boolean(raid?.hasUnassignedLoot),
+    signupCounts
   };
 }
 

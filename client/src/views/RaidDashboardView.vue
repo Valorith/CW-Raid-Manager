@@ -125,6 +125,25 @@
                         • <span>{{ formatTargetZones(raid.targetZones) }}</span>
                       </template>
                     </p>
+                    <div
+                      v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                      class="raid-calendar-event__signups"
+                    >
+                      <span
+                        v-if="raid.signupCounts.confirmed > 0"
+                        class="signup-count signup-count--attending"
+                        title="Attending"
+                      >
+                        {{ raid.signupCounts.confirmed }}
+                      </span>
+                      <span
+                        v-if="raid.signupCounts.notAttending > 0"
+                        class="signup-count signup-count--not-attending"
+                        title="Not Attending"
+                      >
+                        {{ raid.signupCounts.notAttending }}
+                      </span>
+                    </div>
                     <div class="raid-calendar-event__actions">
                       <span
                         v-if="raid.logMonitor?.isActive"
@@ -228,6 +247,25 @@
                         • <span>{{ formatTargetZones(raid.targetZones) }}</span>
                       </template>
                     </p>
+                    <div
+                      v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                      class="raid-calendar-event__signups"
+                    >
+                      <span
+                        v-if="raid.signupCounts.confirmed > 0"
+                        class="signup-count signup-count--attending"
+                        title="Attending"
+                      >
+                        {{ raid.signupCounts.confirmed }}
+                      </span>
+                      <span
+                        v-if="raid.signupCounts.notAttending > 0"
+                        class="signup-count signup-count--not-attending"
+                        title="Not Attending"
+                      >
+                        {{ raid.signupCounts.notAttending }}
+                      </span>
+                    </div>
                     <div class="raid-calendar-event__actions">
                       <span
                         v-if="raid.logMonitor?.isActive"
@@ -1350,6 +1388,37 @@ function formatDateKey(date: Date) {
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
+}
+
+.raid-calendar-event__signups {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.signup-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4rem;
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.signup-count--attending {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.signup-count--not-attending {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
 .raid-calendar-event__actions {
