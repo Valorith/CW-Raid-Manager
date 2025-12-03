@@ -125,25 +125,6 @@
                         • <span>{{ formatTargetZones(raid.targetZones) }}</span>
                       </template>
                     </p>
-                    <div
-                      v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
-                      class="raid-calendar-event__signups"
-                    >
-                      <span
-                        v-if="raid.signupCounts.confirmed > 0"
-                        class="signup-count signup-count--attending"
-                        title="Attending"
-                      >
-                        {{ raid.signupCounts.confirmed }}
-                      </span>
-                      <span
-                        v-if="raid.signupCounts.notAttending > 0"
-                        class="signup-count signup-count--not-attending"
-                        title="Not Attending"
-                      >
-                        {{ raid.signupCounts.notAttending }}
-                      </span>
-                    </div>
                     <div class="raid-calendar-event__actions">
                       <span
                         v-if="raid.logMonitor?.isActive"
@@ -162,28 +143,49 @@
                           />
                         </svg>
                       </span>
-                      <div class="raid-calendar-event__buttons">
-                        <button
-                          class="copy-button"
-                          type="button"
-                          :disabled="sharingRaidId === raid.id"
-                          @click.stop="shareRaid(raid)"
-                          title="Copy share link"
+                      <div class="raid-calendar-event__right">
+                        <div
+                          v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                          class="raid-calendar-event__signups"
                         >
-                          <span aria-hidden="true">🔗</span>
-                          <span class="sr-only">Copy share link</span>
-                        </button>
-                        <button
-                          v-if="canCopyRaid(raid)"
-                          class="copy-button"
-                          type="button"
-                          :disabled="copyingRaidId === raid.id"
-                          @click.stop="copyRaid(raid)"
-                          title="Copy raid"
-                        >
-                          <span aria-hidden="true">📄</span>
-                          <span class="sr-only">Copy raid</span>
-                        </button>
+                          <span
+                            v-if="raid.signupCounts.confirmed > 0"
+                            class="signup-count signup-count--attending"
+                            title="Attending"
+                          >
+                            {{ raid.signupCounts.confirmed }}
+                          </span>
+                          <span
+                            v-if="raid.signupCounts.notAttending > 0"
+                            class="signup-count signup-count--not-attending"
+                            title="Not Attending"
+                          >
+                            {{ raid.signupCounts.notAttending }}
+                          </span>
+                        </div>
+                        <div class="raid-calendar-event__buttons">
+                          <button
+                            class="copy-button"
+                            type="button"
+                            :disabled="sharingRaidId === raid.id"
+                            @click.stop="shareRaid(raid)"
+                            title="Copy share link"
+                          >
+                            <span aria-hidden="true">🔗</span>
+                            <span class="sr-only">Copy share link</span>
+                          </button>
+                          <button
+                            v-if="canCopyRaid(raid)"
+                            class="copy-button"
+                            type="button"
+                            :disabled="copyingRaidId === raid.id"
+                            @click.stop="copyRaid(raid)"
+                            title="Copy raid"
+                          >
+                            <span aria-hidden="true">📄</span>
+                            <span class="sr-only">Copy raid</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -247,25 +249,6 @@
                         • <span>{{ formatTargetZones(raid.targetZones) }}</span>
                       </template>
                     </p>
-                    <div
-                      v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
-                      class="raid-calendar-event__signups"
-                    >
-                      <span
-                        v-if="raid.signupCounts.confirmed > 0"
-                        class="signup-count signup-count--attending"
-                        title="Attending"
-                      >
-                        {{ raid.signupCounts.confirmed }}
-                      </span>
-                      <span
-                        v-if="raid.signupCounts.notAttending > 0"
-                        class="signup-count signup-count--not-attending"
-                        title="Not Attending"
-                      >
-                        {{ raid.signupCounts.notAttending }}
-                      </span>
-                    </div>
                     <div class="raid-calendar-event__actions">
                       <span
                         v-if="raid.logMonitor?.isActive"
@@ -284,28 +267,49 @@
                           />
                         </svg>
                       </span>
-                      <div class="raid-calendar-event__buttons">
-                        <button
-                          class="copy-button"
-                          type="button"
-                          :disabled="sharingRaidId === raid.id"
-                          @click.stop="shareRaid(raid)"
-                          title="Copy share link"
+                      <div class="raid-calendar-event__right">
+                        <div
+                          v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                          class="raid-calendar-event__signups"
                         >
-                          <span aria-hidden="true">🔗</span>
-                          <span class="sr-only">Copy share link</span>
-                        </button>
-                        <button
-                          v-if="canCopyRaid(raid)"
-                          class="copy-button"
-                          type="button"
-                          :disabled="copyingRaidId === raid.id"
-                          @click.stop="copyRaid(raid)"
-                          title="Copy raid"
-                        >
-                          <span aria-hidden="true">📄</span>
-                          <span class="sr-only">Copy raid</span>
-                        </button>
+                          <span
+                            v-if="raid.signupCounts.confirmed > 0"
+                            class="signup-count signup-count--attending"
+                            title="Attending"
+                          >
+                            {{ raid.signupCounts.confirmed }}
+                          </span>
+                          <span
+                            v-if="raid.signupCounts.notAttending > 0"
+                            class="signup-count signup-count--not-attending"
+                            title="Not Attending"
+                          >
+                            {{ raid.signupCounts.notAttending }}
+                          </span>
+                        </div>
+                        <div class="raid-calendar-event__buttons">
+                          <button
+                            class="copy-button"
+                            type="button"
+                            :disabled="sharingRaidId === raid.id"
+                            @click.stop="shareRaid(raid)"
+                            title="Copy share link"
+                          >
+                            <span aria-hidden="true">🔗</span>
+                            <span class="sr-only">Copy share link</span>
+                          </button>
+                          <button
+                            v-if="canCopyRaid(raid)"
+                            class="copy-button"
+                            type="button"
+                            :disabled="copyingRaidId === raid.id"
+                            @click.stop="copyRaid(raid)"
+                            title="Copy raid"
+                          >
+                            <span aria-hidden="true">📄</span>
+                            <span class="sr-only">Copy raid</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1390,21 +1394,35 @@ function formatDateKey(date: Date) {
   flex-wrap: wrap;
 }
 
-.raid-calendar-event__signups {
+.raid-calendar-event__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.raid-calendar-event__right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  margin-left: auto;
+}
+
+.raid-calendar-event__signups {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .signup-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 1.5rem;
-  height: 1.5rem;
-  padding: 0 0.4rem;
-  border-radius: 0.4rem;
-  font-size: 0.8rem;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 0.35rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -1419,13 +1437,6 @@ function formatDateKey(date: Date) {
   background: rgba(239, 68, 68, 0.2);
   color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.4);
-}
-
-.raid-calendar-event__actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
 }
 
 .raid-calendar-event__buttons {
