@@ -782,7 +782,8 @@ function handleAvailabilityDayMouseEnter(day: { key: string; date: Date }) {
   if (!availabilityMode.value || !isSelectingDates.value || !selectionStartDate.value) return;
 
   // Get range of dates between start and current
-  const startDate = new Date(selectionStartDate.value);
+  // Use parseDateKey to avoid timezone issues with YYYY-MM-DD strings
+  const startDate = parseDateKey(selectionStartDate.value);
   const endDate = day.date;
 
   const newSelection = new Set<string>();
@@ -1348,6 +1349,12 @@ function formatDateKey(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(dateKey: string): Date {
+  // Parse YYYY-MM-DD as local time, not UTC
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(year, month - 1, day);
 }
 </script>
 
