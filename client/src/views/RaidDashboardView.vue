@@ -2233,6 +2233,20 @@ function parseDateKey(dateKey: string): Date {
   .raid-calendar__day {
     min-height: 200px;
   }
+
+  /* Ensure counters remain visible on smaller desktop */
+  .raid-calendar__availability-counters {
+    bottom: 0.3rem;
+    right: 0.3rem;
+    gap: 0.25rem;
+  }
+
+  .availability-counter {
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.3rem;
+    font-size: 0.7rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2861,6 +2875,39 @@ function parseDateKey(dateKey: string): Date {
   .availability-modal__member {
     padding: 0.65rem 0.85rem;
   }
+
+  /* Mobile agenda availability counters */
+  .raid-agenda-day__availability {
+    padding-top: 0.6rem;
+    margin-top: 0.6rem;
+  }
+
+  .raid-agenda-day__availability .availability-counter {
+    min-width: 2rem;
+    height: 2rem;
+    font-size: 0.85rem;
+    padding: 0 0.5rem;
+  }
+
+  /* Availability badges in mobile agenda */
+  .raid-agenda-day__header-right .availability-badge {
+    font-size: 0.6rem;
+    padding: 0.2rem 0.45rem;
+  }
+}
+
+/* Tablet adjustments (640px) */
+@media (max-width: 640px) {
+  .raid-agenda-day__availability .availability-counter {
+    min-width: 1.8rem;
+    height: 1.8rem;
+    font-size: 0.8rem;
+    padding: 0 0.45rem;
+  }
+
+  .raid-calendar-mobile__day {
+    font-size: 0.8rem;
+  }
 }
 
 /* Small mobile adjustments */
@@ -2882,6 +2929,52 @@ function parseDateKey(dateKey: string): Date {
   .availability-panel__buttons .btn,
   .availability-status-select {
     width: 100%;
+  }
+
+  /* Small mobile availability counters */
+  .raid-agenda-day__availability .availability-counter {
+    min-width: 1.6rem;
+    height: 1.6rem;
+    font-size: 0.75rem;
+    padding: 0 0.35rem;
+  }
+
+  .raid-agenda-day__header-right .availability-badge {
+    font-size: 0.55rem;
+    padding: 0.15rem 0.35rem;
+  }
+
+  /* Stack header elements vertically on very small screens */
+  .raid-agenda-day__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
+  .raid-agenda-day__header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Extra small mobile adjustments */
+@media (max-width: 360px) {
+  .raid-agenda-day__availability .availability-counter {
+    min-width: 1.4rem;
+    height: 1.4rem;
+    font-size: 0.7rem;
+    padding: 0 0.25rem;
+  }
+
+  .raid-calendar-mobile__day {
+    font-size: 0.7rem;
+    padding: 0.15rem;
+  }
+
+  .raid-calendar-mobile__day--has-raids::after {
+    width: 3px;
+    height: 3px;
+    bottom: 0.2rem;
   }
 }
 
