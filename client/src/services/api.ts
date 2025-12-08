@@ -787,6 +787,18 @@ export interface AvailabilitySummary {
   availableCount: number;
 }
 
+export interface AvailabilityUserDetail {
+  userId: string;
+  displayName: string;
+  status: AvailabilityStatus;
+  mainCharacter?: {
+    id: string;
+    name: string;
+    class: string;
+    level: number | null;
+  } | null;
+}
+
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
@@ -3001,6 +3013,17 @@ export const api = {
     const response = await axios.delete(`/api/availability/guild/${guildId}/me`, {
       data: { dates }
     });
+    return response.data;
+  },
+
+  /**
+   * Fetches detailed availability (with user info) for a specific date.
+   */
+  async fetchAvailabilityDetails(
+    guildId: string,
+    date: string
+  ): Promise<{ details: AvailabilityUserDetail[] }> {
+    const response = await axios.get(`/api/availability/guild/${guildId}/details?date=${encodeURIComponent(date)}`);
     return response.data;
   }
 

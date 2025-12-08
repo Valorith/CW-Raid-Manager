@@ -6,7 +6,8 @@ import {
   getUserAvailability,
   updateUserAvailability,
   deleteUserAvailability,
-  getGuildAvailabilitySummary
+  getGuildAvailabilitySummary,
+  getGuildAvailabilityDetails
 } from '../services/availabilityService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
 
@@ -103,6 +104,52 @@ export async function availabilityRoutes(server: FastifyInstance): Promise<void>
       } catch (error) {
         request.log.warn({ error }, 'Failed to fetch guild availability summary.');
         return reply.internalServerError('Unable to fetch availability summary.');
+      }
+    }
+  );
+
+  /**
+   * GET /availability/guild/:guildId/details
+   * Get detailed availability (with user info) for a specific date
+   */
+  server.get(
+    '/guild/:guildId/details',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        guildId: z.string()
+      });
+
+      const querySchema = z.object({
+        date: z.string()
+      });
+
+      const { guildId } = paramsSchema.parse(request.params);
+      const query = querySchema.safeParse(request.query);
+
+      if (!query.success) {
+        return reply.badRequest('Date parameter is required.');
+      }
+
+      try {
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+      } catch (error) {
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      try {
+        const date = new Date(query.data.date + 'T00:00:00.000Z');
+        if (Number.isNaN(date.getTime())) {
+          return reply.badRequest('Invalid date format.');
+        }
+
+        const details = await getGuildAvailabilityDetails(guildId, date);
+        return { details };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to fetch guild availability details.');
+        return reply.internalServerError('Unable to fetch availability details.');
       }
     }
   );

@@ -285,6 +285,30 @@
                     </div>
                   </div>
                 </div>
+                <!-- Availability counters -->
+                <div
+                  v-if="!availabilityMode && getDayAvailabilitySummary(day.key)"
+                  class="raid-calendar__availability-counters"
+                >
+                  <button
+                    v-if="getDayAvailabilitySummary(day.key)?.availableCount"
+                    class="availability-counter availability-counter--available"
+                    type="button"
+                    :title="`${getDayAvailabilitySummary(day.key)?.availableCount} member${getDayAvailabilitySummary(day.key)?.availableCount === 1 ? '' : 's'} available`"
+                    @click.stop="openAvailabilityModal(day.key, 'AVAILABLE')"
+                  >
+                    {{ getDayAvailabilitySummary(day.key)?.availableCount }}
+                  </button>
+                  <button
+                    v-if="getDayAvailabilitySummary(day.key)?.unavailableCount"
+                    class="availability-counter availability-counter--unavailable"
+                    type="button"
+                    :title="`${getDayAvailabilitySummary(day.key)?.unavailableCount} member${getDayAvailabilitySummary(day.key)?.unavailableCount === 1 ? '' : 's'} unavailable`"
+                    @click.stop="openAvailabilityModal(day.key, 'UNAVAILABLE')"
+                  >
+                    {{ getDayAvailabilitySummary(day.key)?.unavailableCount }}
+                  </button>
+                </div>
               </article>
             </div>
             <div class="raid-calendar--mobile">
@@ -558,6 +582,44 @@
       @close="handleRaidClose"
       @created="handleRaidCreated"
     />
+
+    <!-- Availability Details Modal -->
+    <div
+      v-if="availabilityModal.visible"
+      class="modal-backdrop"
+      @click.self="closeAvailabilityModal"
+    >
+      <div class="availability-modal">
+        <header class="availability-modal__header">
+          <div>
+            <h2 class="availability-modal__title">
+              {{ availabilityModal.status === 'AVAILABLE' ? 'Available' : 'Unavailable' }} Members
+            </h2>
+            <p class="availability-modal__date">{{ formatModalDate(availabilityModal.date) }}</p>
+          </div>
+          <button class="icon-button" @click="closeAvailabilityModal">✕</button>
+        </header>
+        <div class="availability-modal__content">
+          <p v-if="availabilityModal.loading" class="muted">Loading...</p>
+          <p v-else-if="availabilityModal.members.length === 0" class="muted">No members found.</p>
+          <ul v-else class="availability-modal__list">
+            <li
+              v-for="member in availabilityModal.members"
+              :key="member.userId"
+              class="availability-modal__member"
+            >
+              <div class="availability-modal__member-info">
+                <span class="availability-modal__member-name">{{ member.displayName }}</span>
+                <span v-if="member.mainCharacter" class="availability-modal__member-character">
+                  {{ member.mainCharacter.name }}
+                  <span class="availability-modal__member-class">({{ member.mainCharacter.class }})</span>
+                </span>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -567,7 +629,7 @@ import { useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 
-import { api, type RaidEventSummary, type CalendarAvailabilityEntry, type AvailabilityStatus, type AvailabilitySummary } from '../services/api';
+import { api, type RaidEventSummary, type CalendarAvailabilityEntry, type AvailabilityStatus, type AvailabilitySummary, type AvailabilityUserDetail } from '../services/api';
 import type { GuildRole } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 
@@ -660,6 +722,21 @@ const selectionStartDate = ref<string | null>(null);
 const pendingAvailabilityStatus = ref<AvailabilityStatus>('UNAVAILABLE');
 const savingAvailability = ref(false);
 const loadingAvailability = ref(false);
+
+// Availability details modal state
+const availabilityModal = reactive<{
+  visible: boolean;
+  date: string | null;
+  status: AvailabilityStatus | null;
+  loading: boolean;
+  members: AvailabilityUserDetail[];
+}>({
+  visible: false,
+  date: null,
+  status: null,
+  loading: false,
+  members: []
+});
 
 // Computed map for quick lookup of user availability by date
 const userAvailabilityMap = computed(() => {
@@ -874,6 +951,45 @@ function getDayAvailabilityStatus(dateKey: string): AvailabilityStatus | null {
 
 function getDayAvailabilitySummary(dateKey: string): AvailabilitySummary | null {
   return availabilitySummaryMap.value.get(dateKey) ?? null;
+}
+
+async function openAvailabilityModal(dateKey: string, status: AvailabilityStatus) {
+  if (!selectedGuildId.value) return;
+
+  availabilityModal.visible = true;
+  availabilityModal.date = dateKey;
+  availabilityModal.status = status;
+  availabilityModal.loading = true;
+  availabilityModal.members = [];
+
+  try {
+    const response = await api.fetchAvailabilityDetails(selectedGuildId.value, dateKey);
+    // Filter to only show members with the selected status
+    availabilityModal.members = response.details.filter((m) => m.status === status);
+  } catch (error) {
+    console.error('Failed to load availability details:', error);
+    availabilityModal.members = [];
+  } finally {
+    availabilityModal.loading = false;
+  }
+}
+
+function closeAvailabilityModal() {
+  availabilityModal.visible = false;
+  availabilityModal.date = null;
+  availabilityModal.status = null;
+  availabilityModal.members = [];
+}
+
+function formatModalDate(dateKey: string | null): string {
+  if (!dateKey) return '';
+  const date = parseDateKey(dateKey);
+  return date.toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
 }
 
 const canCreateRaid = computed(() => Boolean(selectedGuildPermissions.value?.canManage));
@@ -2302,6 +2418,166 @@ function parseDateKey(dateKey: string): Date {
   .availability-toggle-btn {
     padding: 0.5rem;
   }
+}
+
+/* Availability Counters on Calendar Days */
+.raid-calendar__availability-counters {
+  position: absolute;
+  bottom: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  z-index: 1;
+}
+
+.availability-counter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.4rem;
+  border-radius: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.availability-counter:hover {
+  transform: scale(1.1);
+}
+
+.availability-counter--available {
+  background: rgba(34, 197, 94, 0.25);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+}
+
+.availability-counter--available:hover {
+  background: rgba(34, 197, 94, 0.35);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+.availability-counter--unavailable {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+}
+
+.availability-counter--unavailable:hover {
+  background: rgba(239, 68, 68, 0.35);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* Availability Modal */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 120;
+}
+
+.availability-modal {
+  width: min(480px, 100%);
+  max-height: 80vh;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.availability-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.availability-modal__title {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.availability-modal__date {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.availability-modal__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.availability-modal__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.availability-modal__member {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.65rem;
+  transition: background 0.15s ease;
+}
+
+.availability-modal__member:hover {
+  background: rgba(30, 41, 59, 0.75);
+}
+
+.availability-modal__member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.availability-modal__member-name {
+  font-weight: 600;
+  color: #e2e8f0;
+}
+
+.availability-modal__member-character {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.availability-modal__member-class {
+  color: #64748b;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 0.15s ease;
+}
+
+.icon-button:hover {
+  color: #e2e8f0;
 }
 
 </style>

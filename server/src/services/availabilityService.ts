@@ -292,6 +292,61 @@ export async function getUnavailableMainCharacters(
   }));
 }
 
+export interface AvailabilityUserDetail {
+  userId: string;
+  displayName: string;
+  status: AvailabilityStatus;
+  mainCharacter?: {
+    id: string;
+    name: string;
+    class: string;
+    level: number | null;
+  } | null;
+}
+
+/**
+ * Get detailed availability (with user info) for a specific date
+ */
+export async function getGuildAvailabilityDetails(
+  guildId: string,
+  date: Date
+): Promise<AvailabilityUserDetail[]> {
+  const entries = await prisma.calendarAvailability.findMany({
+    where: {
+      guildId,
+      date
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          displayName: true,
+          characters: {
+            where: {
+              guildId,
+              isMain: true
+            },
+            select: {
+              id: true,
+              name: true,
+              class: true,
+              level: true
+            },
+            take: 1
+          }
+        }
+      }
+    }
+  });
+
+  return entries.map((entry) => ({
+    userId: entry.userId,
+    displayName: entry.user.displayName,
+    status: entry.status,
+    mainCharacter: entry.user.characters[0] ?? null
+  }));
+}
+
 /**
  * Format a Date object to ISO date string (YYYY-MM-DD)
  */
