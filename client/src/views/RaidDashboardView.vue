@@ -1262,6 +1262,7 @@ watch(
       selectedGuildId.value = newId;
       if (selectedGuildId.value) {
         loadRaids();
+        loadAvailability();
         startRaidsRefreshPolling();
       } else {
         stopRaidsRefreshPolling();
@@ -1270,6 +1271,7 @@ watch(
       }
     } else if (newId) {
       loadRaids();
+      loadAvailability();
       startRaidsRefreshPolling();
     }
   },
