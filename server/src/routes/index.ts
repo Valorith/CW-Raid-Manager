@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 
 import { authRoutes } from './auth.js';
 import { attendanceRoutes } from './attendance.js';
+import { availabilityRoutes } from './availability.js';
 import { charactersRoutes } from './characters.js';
 import { guildRoutes } from './guilds.js';
 import { raidsRoutes } from './raids.js';
@@ -29,6 +30,7 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(raidsRoutes, { prefix: '/api/raids' });
   server.register(lootRoutes, { prefix: '/api' });
   server.register(attendanceRoutes, { prefix: '/api/attendance' });
+  server.register(availabilityRoutes, { prefix: '/api/availability' });
   server.register(accountRoutes, { prefix: '/api/account' });
   server.register(adminRoutes, { prefix: '/api/admin' });
   server.register(itemRoutes, { prefix: '/api' });
