@@ -322,7 +322,32 @@
                     <p class="raid-agenda-day__date">{{ day.dateLabel }}</p>
                     <p class="raid-agenda-day__weekday">{{ day.weekday }}</p>
                   </div>
-                  <span class="raid-agenda-day__count">{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span>
+                  <div class="raid-agenda-day__right">
+                    <div
+                      v-if="!availabilityMode && getDayAvailabilitySummary(day.key)"
+                      class="raid-agenda-day__availability"
+                    >
+                      <button
+                        v-if="getDayAvailabilitySummary(day.key)?.availableCount"
+                        class="availability-counter availability-counter--available"
+                        type="button"
+                        :title="`${getDayAvailabilitySummary(day.key)?.availableCount} member${getDayAvailabilitySummary(day.key)?.availableCount === 1 ? '' : 's'} available`"
+                        @click.stop="openAvailabilityModal(day.key, 'AVAILABLE')"
+                      >
+                        {{ getDayAvailabilitySummary(day.key)?.availableCount }}
+                      </button>
+                      <button
+                        v-if="getDayAvailabilitySummary(day.key)?.unavailableCount"
+                        class="availability-counter availability-counter--unavailable"
+                        type="button"
+                        :title="`${getDayAvailabilitySummary(day.key)?.unavailableCount} member${getDayAvailabilitySummary(day.key)?.unavailableCount === 1 ? '' : 's'} unavailable`"
+                        @click.stop="openAvailabilityModal(day.key, 'UNAVAILABLE')"
+                      >
+                        {{ getDayAvailabilitySummary(day.key)?.unavailableCount }}
+                      </button>
+                    </div>
+                    <span class="raid-agenda-day__count">{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span>
+                  </div>
                 </header>
                 <div class="raid-agenda-day__events">
                   <div
@@ -1943,6 +1968,18 @@ function parseDateKey(dateKey: string): Date {
   letter-spacing: 0.08em;
   color: #94a3b8;
   text-transform: uppercase;
+}
+
+.raid-agenda-day__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.raid-agenda-day__availability {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .raid-agenda-day__events {
