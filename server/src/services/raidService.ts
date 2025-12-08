@@ -1001,31 +1001,20 @@ async function autoSignupUnavailableUsers(
     }
 
     // Create NOT_ATTENDING signups for all unavailable users' main characters
-    const signupOperations = unavailableCharacters.map((char) =>
-      prisma.raidSignup.upsert({
-        where: {
-          raidId_characterId: {
-            raidId,
-            characterId: char.characterId
-          }
-        },
-        update: {
-          // Only update if there's no existing signup (don't override manual signups)
-        },
-        create: {
-          raidId,
-          userId: char.userId,
-          characterId: char.characterId,
-          characterName: char.characterName,
-          characterClass: char.characterClass as any,
-          characterLevel: char.characterLevel,
-          isMain: true,
-          status: SignupStatus.NOT_ATTENDING
-        }
-      })
-    );
-
-    await prisma.$transaction(signupOperations);
+    // skipDuplicates ensures we don't override any existing signups
+    await prisma.raidSignup.createMany({
+      data: unavailableCharacters.map((char) => ({
+        raidId,
+        userId: char.userId,
+        characterId: char.characterId,
+        characterName: char.characterName,
+        characterClass: char.characterClass as any,
+        characterLevel: char.characterLevel,
+        isMain: true,
+        status: SignupStatus.NOT_ATTENDING
+      })),
+      skipDuplicates: true
+    });
   } catch (error) {
     // Log but don't fail raid creation if auto-signup fails
     console.error('Failed to auto-signup unavailable users:', error);
