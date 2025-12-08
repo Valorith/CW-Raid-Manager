@@ -1696,6 +1696,7 @@ function parseDateKey(dateKey: string): Date {
 .raid-calendar__day {
   position: relative;
   padding: 0.5rem;
+  padding-bottom: 2rem; /* Extra space for availability counters */
   background: rgba(15, 23, 42, 0.75);
   border-right: 1px solid rgba(148, 163, 184, 0.15);
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
@@ -1753,7 +1754,6 @@ function parseDateKey(dateKey: string): Date {
   flex: 1;
   min-height: 0;
   padding-right: 0.2rem;
-  padding-bottom: 1.75rem; /* Leave space for availability counters */
 }
 
 .raid-calendar-event {

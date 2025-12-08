@@ -321,6 +321,7 @@ export async function getGuildAvailabilityDetails(
         select: {
           id: true,
           displayName: true,
+          nickname: true,
           characters: {
             where: {
               guildId,
@@ -341,7 +342,8 @@ export async function getGuildAvailabilityDetails(
 
   return entries.map((entry) => ({
     userId: entry.userId,
-    displayName: entry.user.displayName,
+    // Prefer nickname over displayName (nickname is user-set display name)
+    displayName: entry.user.nickname?.trim() || entry.user.displayName,
     status: entry.status,
     mainCharacter: entry.user.characters[0] ?? null
   }));
