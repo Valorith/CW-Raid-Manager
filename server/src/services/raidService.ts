@@ -1,4 +1,4 @@
-import { AttendanceStatus, GuildRole, Prisma } from '@prisma/client';
+import { AttendanceStatus, GuildRole, Prisma, SignupStatus } from '@prisma/client';
 
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
@@ -6,6 +6,7 @@ import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
 import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
+import { getUnavailableMainCharacters } from './availabilityService.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
@@ -240,6 +241,9 @@ export async function createRaidEvent(input: CreateRaidInput) {
     targetBosses: normalizeStringArray(raid.targetBosses),
     createdByName: withPreferredDisplayName(raid.createdBy).displayName
   });
+
+  // Auto-signup unavailable users as NOT_ATTENDING
+  await autoSignupUnavailableUsers(raid.id, input.guildId, input.startTime);
 
   const formatted = formatRaidWithRecurrence(raid);
 
@@ -974,6 +978,58 @@ function normalizeRecurrenceInput(settings?: RecurrenceSettingsInput | null) {
     endDate: settings.endDate ?? null,
     isActive: settings.isActive ?? true
   };
+}
+
+/**
+ * Auto-signup main characters of unavailable users as NOT_ATTENDING for a raid
+ */
+async function autoSignupUnavailableUsers(
+  raidId: string,
+  guildId: string,
+  raidStartTime: Date
+): Promise<void> {
+  try {
+    // Normalize the raid date to just the date portion (no time)
+    const raidDate = new Date(raidStartTime);
+    raidDate.setUTCHours(0, 0, 0, 0);
+
+    // Get main characters of users who marked themselves unavailable on this date
+    const unavailableCharacters = await getUnavailableMainCharacters(guildId, raidDate);
+
+    if (unavailableCharacters.length === 0) {
+      return;
+    }
+
+    // Create NOT_ATTENDING signups for all unavailable users' main characters
+    const signupOperations = unavailableCharacters.map((char) =>
+      prisma.raidSignup.upsert({
+        where: {
+          raidId_characterId: {
+            raidId,
+            characterId: char.characterId
+          }
+        },
+        update: {
+          // Only update if there's no existing signup (don't override manual signups)
+        },
+        create: {
+          raidId,
+          userId: char.userId,
+          characterId: char.characterId,
+          characterName: char.characterName,
+          characterClass: char.characterClass as any,
+          characterLevel: char.characterLevel,
+          isMain: true,
+          status: SignupStatus.NOT_ATTENDING
+        }
+      })
+    );
+
+    await prisma.$transaction(signupOperations);
+  } catch (error) {
+    // Log but don't fail raid creation if auto-signup fails
+    console.error('Failed to auto-signup unavailable users:', error);
+  }
 }
 
 function normalizeStringArray(value: Prisma.JsonValue | null | undefined) {

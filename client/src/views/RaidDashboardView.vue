@@ -37,11 +37,31 @@
           <div class="calendar-toolbar">
             <div class="calendar-toolbar__main">
               <div>
-                <p class="calendar-toolbar__eyebrow">Raid Schedule</p>
+                <p class="calendar-toolbar__eyebrow">{{ availabilityMode ? 'Set Your Availability' : 'Raid Schedule' }}</p>
                 <h2>{{ calendarMonthLabel }}</h2>
               </div>
             </div>
             <div class="calendar-toolbar__actions">
+              <button
+                :class="['availability-toggle-btn', { 'availability-toggle-btn--active': availabilityMode }]"
+                type="button"
+                @click="toggleAvailabilityMode"
+                :title="availabilityMode ? 'Exit availability mode' : 'Set your availability'"
+              >
+                <span class="availability-toggle-btn__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                    <path v-if="!availabilityMode" d="M9 16l2 2 4-4"></path>
+                    <line v-else x1="9" y1="14" x2="15" y2="20"></line>
+                    <line v-else x1="15" y1="14" x2="9" y2="20"></line>
+                  </svg>
+                </span>
+                <span class="availability-toggle-btn__label">{{ availabilityMode ? 'Done' : 'Availability' }}</span>
+              </button>
+              <div class="calendar-nav-divider"></div>
               <button class="calendar-nav-btn" type="button" @click="goToPreviousMonth">
                 ‹
               </button>
@@ -54,32 +74,105 @@
             </div>
           </div>
           <p class="calendar-subtitle">
-            Showing every raid scheduled for {{ calendarMonthDescription }}
+            <template v-if="availabilityMode">
+              Click or drag to select days, then mark your availability. Raids created on days you mark unavailable will auto-sign you as "Not Attending".
+            </template>
+            <template v-else>
+              Showing every raid scheduled for {{ calendarMonthDescription }}
+            </template>
           </p>
-          <p v-if="!monthHasRaids && !loadingRaids" class="muted calendar-empty-hint">
+          <p v-if="!monthHasRaids && !loadingRaids && !availabilityMode" class="muted calendar-empty-hint">
             No raids scheduled this month yet. Right-click a day to add one.
           </p>
+
+          <!-- Availability action panel -->
+          <div v-if="availabilityMode" class="availability-panel">
+            <div class="availability-panel__legend">
+              <div class="availability-legend-item">
+                <span class="availability-indicator availability-indicator--unavailable"></span>
+                <span>Unavailable</span>
+              </div>
+              <div class="availability-legend-item">
+                <span class="availability-indicator availability-indicator--available"></span>
+                <span>Available</span>
+              </div>
+            </div>
+            <div v-if="selectedDates.size > 0" class="availability-panel__actions">
+              <span class="availability-panel__count">{{ selectedDates.size }} day{{ selectedDates.size === 1 ? '' : 's' }} selected</span>
+              <div class="availability-panel__buttons">
+                <select v-model="pendingAvailabilityStatus" class="availability-status-select">
+                  <option value="UNAVAILABLE">Mark Unavailable</option>
+                  <option value="AVAILABLE">Mark Available</option>
+                </select>
+                <button
+                  class="btn btn--small"
+                  :disabled="savingAvailability"
+                  @click="saveAvailability"
+                >
+                  {{ savingAvailability ? 'Saving...' : 'Apply' }}
+                </button>
+                <button
+                  class="btn btn--small btn--outline"
+                  :disabled="savingAvailability"
+                  @click="clearSelectedAvailability"
+                >
+                  Clear
+                </button>
+                <button
+                  class="btn btn--small btn--ghost"
+                  @click="cancelAvailabilitySelection"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <p v-else class="availability-panel__hint">
+              Click on a day or drag across multiple days to select them
+            </p>
+          </div>
           <div class="raid-calendar">
             <div class="raid-calendar__weekday-row raid-calendar--desktop">
               <span v-for="label in WEEKDAY_LABELS" :key="label">{{ label }}</span>
             </div>
-            <div class="raid-calendar__grid raid-calendar--desktop">
+            <div
+              class="raid-calendar__grid raid-calendar--desktop"
+              @mouseup="handleAvailabilityDayMouseUp"
+              @mouseleave="handleAvailabilityDayMouseUp"
+            >
               <article
                 v-for="day in calendarDays"
                 :key="day.key"
-              :class="[
-                'raid-calendar__day',
-                {
-                  'raid-calendar__day--muted': !day.isCurrentMonth,
-                  'raid-calendar__day--today': day.isToday,
-                  'raid-calendar__day--past': day.isPast && !day.isToday
-                }
-              ]"
-              @contextmenu.prevent.stop="handleCalendarDayContextMenu(day, $event)"
-            >
+                :class="[
+                  'raid-calendar__day',
+                  {
+                    'raid-calendar__day--muted': !day.isCurrentMonth,
+                    'raid-calendar__day--today': day.isToday,
+                    'raid-calendar__day--past': day.isPast && !day.isToday,
+                    'raid-calendar__day--availability-mode': availabilityMode,
+                    'raid-calendar__day--selected': availabilityMode && selectedDates.has(day.key),
+                    'raid-calendar__day--unavailable': getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
+                    'raid-calendar__day--available': getDayAvailabilityStatus(day.key) === 'AVAILABLE'
+                  }
+                ]"
+                @contextmenu.prevent.stop="!availabilityMode && handleCalendarDayContextMenu(day, $event)"
+                @mousedown.prevent="handleAvailabilityDayMouseDown(day)"
+                @mouseenter="handleAvailabilityDayMouseEnter(day)"
+              >
                 <header class="raid-calendar__day-header">
                   <span>{{ day.date.getDate() }}</span>
                   <span v-if="day.isToday" class="raid-calendar__today-pill">Today</span>
+                  <span
+                    v-if="!availabilityMode && getDayAvailabilityStatus(day.key)"
+                    :class="[
+                      'availability-badge',
+                      getDayAvailabilityStatus(day.key) === 'UNAVAILABLE'
+                        ? 'availability-badge--unavailable'
+                        : 'availability-badge--available'
+                    ]"
+                    :title="getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'You marked this day as unavailable' : 'You marked this day as available'"
+                  >
+                    {{ getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'Away' : 'Free' }}
+                  </span>
                 </header>
                 <div class="raid-calendar__events">
                   <div
@@ -472,7 +565,7 @@ import { useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 
-import { api, type RaidEventSummary } from '../services/api';
+import { api, type RaidEventSummary, type CalendarAvailabilityEntry, type AvailabilityStatus, type AvailabilitySummary } from '../services/api';
 import type { GuildRole } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 
@@ -555,6 +648,35 @@ const selectedGuildDefaults = computed(() => {
   return guildTimingDefaults.value[selectedGuildId.value] ?? null;
 });
 
+// Availability mode state
+const availabilityMode = ref(false);
+const userAvailability = ref<CalendarAvailabilityEntry[]>([]);
+const availabilitySummary = ref<AvailabilitySummary[]>([]);
+const selectedDates = ref<Set<string>>(new Set());
+const isSelectingDates = ref(false);
+const selectionStartDate = ref<string | null>(null);
+const pendingAvailabilityStatus = ref<AvailabilityStatus>('UNAVAILABLE');
+const savingAvailability = ref(false);
+const loadingAvailability = ref(false);
+
+// Computed map for quick lookup of user availability by date
+const userAvailabilityMap = computed(() => {
+  const map = new Map<string, AvailabilityStatus>();
+  for (const entry of userAvailability.value) {
+    map.set(entry.date, entry.status);
+  }
+  return map;
+});
+
+// Computed map for quick lookup of availability summary by date
+const availabilitySummaryMap = computed(() => {
+  const map = new Map<string, AvailabilitySummary>();
+  for (const entry of availabilitySummary.value) {
+    map.set(entry.date, entry);
+  }
+  return map;
+});
+
 async function loadRaids() {
   if (!selectedGuildId.value) {
     raids.value = [];
@@ -593,6 +715,162 @@ function stopRaidsRefreshPolling() {
     clearInterval(raidsRefreshTimer);
     raidsRefreshTimer = null;
   }
+}
+
+// Availability functions
+async function loadAvailability() {
+  if (!selectedGuildId.value) {
+    userAvailability.value = [];
+    availabilitySummary.value = [];
+    return;
+  }
+
+  loadingAvailability.value = true;
+  try {
+    // Get date range for current view (2 months to cover calendar overflow)
+    const viewStart = new Date(calendarViewDate.value);
+    viewStart.setDate(1);
+    const viewEnd = new Date(viewStart);
+    viewEnd.setMonth(viewEnd.getMonth() + 2);
+
+    const startDate = viewStart.toISOString().split('T')[0];
+    const endDate = viewEnd.toISOString().split('T')[0];
+
+    const [userResponse, summaryResponse] = await Promise.all([
+      api.fetchUserAvailability(selectedGuildId.value, startDate, endDate),
+      api.fetchAvailabilitySummary(selectedGuildId.value, startDate, endDate)
+    ]);
+
+    userAvailability.value = userResponse.availability;
+    availabilitySummary.value = summaryResponse.summary;
+  } catch (error) {
+    console.error('Failed to load availability:', error);
+  } finally {
+    loadingAvailability.value = false;
+  }
+}
+
+function toggleAvailabilityMode() {
+  availabilityMode.value = !availabilityMode.value;
+  if (availabilityMode.value) {
+    loadAvailability();
+  } else {
+    // Clear selection when exiting availability mode
+    selectedDates.value = new Set();
+    isSelectingDates.value = false;
+    selectionStartDate.value = null;
+  }
+}
+
+function handleAvailabilityDayMouseDown(day: { key: string; date: Date }) {
+  if (!availabilityMode.value) return;
+
+  isSelectingDates.value = true;
+  selectionStartDate.value = day.key;
+
+  // If clicking on an already selected date, we'll toggle it
+  if (selectedDates.value.has(day.key)) {
+    selectedDates.value = new Set();
+  } else {
+    selectedDates.value = new Set([day.key]);
+  }
+}
+
+function handleAvailabilityDayMouseEnter(day: { key: string; date: Date }) {
+  if (!availabilityMode.value || !isSelectingDates.value || !selectionStartDate.value) return;
+
+  // Get range of dates between start and current
+  const startDate = new Date(selectionStartDate.value);
+  const endDate = day.date;
+
+  const newSelection = new Set<string>();
+  const minDate = startDate < endDate ? startDate : endDate;
+  const maxDate = startDate < endDate ? endDate : startDate;
+
+  let current = new Date(minDate);
+  while (current <= maxDate) {
+    newSelection.add(formatDateKey(current));
+    current = addDays(current, 1);
+  }
+
+  selectedDates.value = newSelection;
+}
+
+function handleAvailabilityDayMouseUp() {
+  isSelectingDates.value = false;
+}
+
+function handleAvailabilityDayClick(day: { key: string; date: Date }) {
+  if (!availabilityMode.value) return;
+
+  // Toggle single date selection
+  const newSelection = new Set(selectedDates.value);
+  if (newSelection.has(day.key)) {
+    newSelection.delete(day.key);
+  } else {
+    newSelection.add(day.key);
+  }
+  selectedDates.value = newSelection;
+}
+
+async function saveAvailability() {
+  if (!selectedGuildId.value || selectedDates.value.size === 0) return;
+
+  savingAvailability.value = true;
+  try {
+    const updates = Array.from(selectedDates.value).map((date) => ({
+      date,
+      status: pendingAvailabilityStatus.value
+    }));
+
+    await api.updateUserAvailability(selectedGuildId.value, updates);
+
+    // Reload availability data
+    await loadAvailability();
+
+    // Clear selection
+    selectedDates.value = new Set();
+  } catch (error) {
+    console.error('Failed to save availability:', error);
+    window.alert('Failed to save availability. Please try again.');
+  } finally {
+    savingAvailability.value = false;
+  }
+}
+
+async function clearSelectedAvailability() {
+  if (!selectedGuildId.value || selectedDates.value.size === 0) return;
+
+  savingAvailability.value = true;
+  try {
+    await api.deleteUserAvailability(
+      selectedGuildId.value,
+      Array.from(selectedDates.value)
+    );
+
+    // Reload availability data
+    await loadAvailability();
+
+    // Clear selection
+    selectedDates.value = new Set();
+  } catch (error) {
+    console.error('Failed to clear availability:', error);
+    window.alert('Failed to clear availability. Please try again.');
+  } finally {
+    savingAvailability.value = false;
+  }
+}
+
+function cancelAvailabilitySelection() {
+  selectedDates.value = new Set();
+}
+
+function getDayAvailabilityStatus(dateKey: string): AvailabilityStatus | null {
+  return userAvailabilityMap.value.get(dateKey) ?? null;
+}
+
+function getDayAvailabilitySummary(dateKey: string): AvailabilitySummary | null {
+  return availabilitySummaryMap.value.get(dateKey) ?? null;
 }
 
 const canCreateRaid = computed(() => Boolean(selectedGuildPermissions.value?.canManage));
@@ -1001,8 +1279,21 @@ watch(selectedGuildId, (guildId) => {
   if (guildId) {
     ensureGuildDefaults(guildId);
     startRaidsRefreshPolling();
+    // Load availability data when guild changes
+    if (availabilityMode.value) {
+      loadAvailability();
+    }
   } else {
     stopRaidsRefreshPolling();
+    userAvailability.value = [];
+    availabilitySummary.value = [];
+  }
+});
+
+watch(calendarViewDate, () => {
+  // Reload availability when month changes
+  if (availabilityMode.value && selectedGuildId.value) {
+    loadAvailability();
   }
 });
 
@@ -1279,6 +1570,7 @@ function formatDateKey(date: Date) {
 }
 
 .raid-calendar__day {
+  position: relative;
   padding: 0.5rem;
   background: rgba(15, 23, 42, 0.75);
   border-right: 1px solid rgba(148, 163, 184, 0.15);
@@ -1736,6 +2028,270 @@ function formatDateKey(date: Date) {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+  }
+}
+
+/* Availability Mode Styles */
+.calendar-nav-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(148, 163, 184, 0.25);
+  margin: 0 0.5rem;
+}
+
+.availability-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.availability-toggle-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #bae6fd;
+}
+
+.availability-toggle-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #bae6fd;
+}
+
+.availability-toggle-btn__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.availability-toggle-btn__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.availability-toggle-btn__label {
+  white-space: nowrap;
+}
+
+/* Availability Panel */
+.availability-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1.1rem;
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.9) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 0.75rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.availability-panel__legend {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.availability-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.availability-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.availability-indicator--unavailable {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+.availability-indicator--available {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+.availability-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.availability-panel__count {
+  font-size: 0.85rem;
+  color: #bae6fd;
+  font-weight: 500;
+}
+
+.availability-panel__buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.availability-status-select {
+  padding: 0.4rem 0.65rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 0.4rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.availability-status-select:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.availability-panel__hint {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Availability Badges on Calendar Days */
+.availability-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  margin-left: auto;
+}
+
+.availability-badge--unavailable {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.availability-badge--available {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+/* Calendar Day Availability Mode States */
+.raid-calendar__day--availability-mode {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.raid-calendar__day--availability-mode:hover {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.45) !important;
+}
+
+.raid-calendar__day--selected {
+  background: rgba(59, 130, 246, 0.22) !important;
+  border-color: rgba(59, 130, 246, 0.65) !important;
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.35);
+}
+
+.raid-calendar__day--unavailable:not(.raid-calendar__day--selected) {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.raid-calendar__day--unavailable:not(.raid-calendar__day--selected)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.6) 0%, rgba(239, 68, 68, 0.3) 100%);
+  border-radius: 0.55rem 0.55rem 0 0;
+}
+
+.raid-calendar__day--available:not(.raid-calendar__day--selected) {
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.raid-calendar__day--available:not(.raid-calendar__day--selected)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.6) 0%, rgba(34, 197, 94, 0.3) 100%);
+  border-radius: 0.55rem 0.55rem 0 0;
+}
+
+/* Button variants for availability panel */
+.btn--small {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.btn--outline {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  color: #94a3b8;
+}
+
+.btn--outline:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.65);
+  color: #e2e8f0;
+}
+
+.btn--ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: #64748b;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.08);
+  color: #94a3b8;
+}
+
+/* Responsive adjustments for availability panel */
+@media (max-width: 640px) {
+  .availability-panel {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .availability-panel__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .availability-panel__buttons {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .availability-toggle-btn__label {
+    display: none;
+  }
+
+  .availability-toggle-btn {
+    padding: 0.5rem;
   }
 }
 

@@ -764,6 +764,29 @@ export interface SignupEntry {
   status?: SignupStatus;
 }
 
+export type AvailabilityStatus = 'AVAILABLE' | 'UNAVAILABLE';
+
+export interface CalendarAvailabilityEntry {
+  id: string;
+  userId: string;
+  guildId: string;
+  date: string;
+  status: AvailabilityStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityUpdate {
+  date: string;
+  status: AvailabilityStatus;
+}
+
+export interface AvailabilitySummary {
+  date: string;
+  unavailableCount: number;
+  availableCount: number;
+}
+
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
@@ -2921,6 +2944,64 @@ export const api = {
       blueprintTitle: response.data.blueprintTitle ?? 'Quest',
       status: response.data.status ?? 'IN_PROGRESS'
     };
+  },
+
+  /**
+   * Fetches the current user's availability entries for a guild within a date range.
+   */
+  async fetchUserAvailability(
+    guildId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<{ availability: CalendarAvailabilityEntry[] }> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const query = params.toString();
+    const url = `/api/availability/guild/${guildId}/me${query ? `?${query}` : ''}`;
+    const response = await axios.get(url);
+    return response.data;
+  },
+
+  /**
+   * Fetches availability summary (counts) for a guild within a date range.
+   */
+  async fetchAvailabilitySummary(
+    guildId: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<{ summary: AvailabilitySummary[] }> {
+    const params = new URLSearchParams();
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const query = params.toString();
+    const url = `/api/availability/guild/${guildId}/summary${query ? `?${query}` : ''}`;
+    const response = await axios.get(url);
+    return response.data;
+  },
+
+  /**
+   * Updates the current user's availability entries for a guild.
+   */
+  async updateUserAvailability(
+    guildId: string,
+    updates: AvailabilityUpdate[]
+  ): Promise<{ availability: CalendarAvailabilityEntry[] }> {
+    const response = await axios.put(`/api/availability/guild/${guildId}/me`, { updates });
+    return response.data;
+  },
+
+  /**
+   * Deletes the current user's availability entries for specific dates.
+   */
+  async deleteUserAvailability(
+    guildId: string,
+    dates: string[]
+  ): Promise<{ deleted: number }> {
+    const response = await axios.delete(`/api/availability/guild/${guildId}/me`, {
+      data: { dates }
+    });
+    return response.data;
   }
 
 };

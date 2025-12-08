@@ -32,6 +32,7 @@ model User {
   createdQuestBlueprintFolders QuestBlueprintFolder[] @relation("QuestBlueprintFolderCreator")
   questAssignments   QuestAssignment[]
   personalBankCharacters GuildBankCharacter[]
+  calendarAvailability CalendarAvailability[]
 }
 
 model Guild {
@@ -65,6 +66,7 @@ model Guild {
   questBlueprints    QuestBlueprint[]
   questAssignments   QuestAssignment[]
   questBlueprintFolders QuestBlueprintFolder[]
+  calendarAvailability CalendarAvailability[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -319,6 +321,23 @@ model RaidSignup {
   @@unique([raidId, characterId])
   @@index([raidId])
   @@index([userId])
+}
+
+model CalendarAvailability {
+  id          String             @id @default(cuid())
+  userId      String
+  guildId     String
+  date        DateTime           @db.Date
+  status      AvailabilityStatus @default(UNAVAILABLE)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @default(now()) @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guild       Guild              @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, guildId, date])
+  @@index([guildId])
+  @@index([userId])
+  @@index([guildId, date])
 }
 
 model GuildLootListEntry {
@@ -593,6 +612,11 @@ enum RaidRecurrenceFrequency {
 enum SignupStatus {
   CONFIRMED
   NOT_ATTENDING
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
 }
 
 enum QuestBlueprintVisibility {
