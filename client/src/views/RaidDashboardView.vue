@@ -1750,8 +1750,10 @@ function parseDateKey(dateKey: string): Date {
   flex-direction: column;
   gap: 0.5rem;
   overflow-y: auto;
-  max-height: 320px;
+  flex: 1;
+  min-height: 0;
   padding-right: 0.2rem;
+  padding-bottom: 1.75rem; /* Leave space for availability counters */
 }
 
 .raid-calendar-event {
