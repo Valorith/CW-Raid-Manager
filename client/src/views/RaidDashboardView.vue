@@ -612,7 +612,6 @@
                 <span class="availability-modal__member-name">{{ member.displayName }}</span>
                 <span v-if="member.mainCharacter" class="availability-modal__member-character">
                   {{ member.mainCharacter.name }}
-                  <span class="availability-modal__member-class">({{ member.mainCharacter.class }})</span>
                 </span>
               </div>
             </li>
@@ -2560,10 +2559,6 @@ function parseDateKey(dateKey: string): Date {
 .availability-modal__member-character {
   font-size: 0.85rem;
   color: #94a3b8;
-}
-
-.availability-modal__member-class {
-  color: #64748b;
 }
 
 .icon-button {
