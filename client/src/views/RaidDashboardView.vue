@@ -1282,10 +1282,8 @@ watch(selectedGuildId, (guildId) => {
   if (guildId) {
     ensureGuildDefaults(guildId);
     startRaidsRefreshPolling();
-    // Load availability data when guild changes
-    if (availabilityMode.value) {
-      loadAvailability();
-    }
+    // Always load availability data when guild changes
+    loadAvailability();
   } else {
     stopRaidsRefreshPolling();
     userAvailability.value = [];
@@ -1294,8 +1292,8 @@ watch(selectedGuildId, (guildId) => {
 });
 
 watch(calendarViewDate, () => {
-  // Reload availability when month changes
-  if (availabilityMode.value && selectedGuildId.value) {
+  // Always reload availability when month changes
+  if (selectedGuildId.value) {
     loadAvailability();
   }
 });
