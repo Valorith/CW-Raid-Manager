@@ -791,12 +791,12 @@ export interface AvailabilityUserDetail {
   userId: string;
   displayName: string;
   status: AvailabilityStatus;
-  mainCharacter?: {
+  mainCharacters: Array<{
     id: string;
     name: string;
     class: string;
     level: number | null;
-  } | null;
+  }>;
 }
 
 export interface AttendanceEventSummary {

@@ -610,8 +610,12 @@
             >
               <div class="availability-modal__member-info">
                 <span class="availability-modal__member-name">{{ member.displayName }}</span>
-                <span v-if="member.mainCharacter" class="availability-modal__member-character">
-                  {{ member.mainCharacter.name }}
+                <span
+                  v-for="char in member.mainCharacters"
+                  :key="char.id"
+                  class="availability-modal__member-character"
+                >
+                  {{ char.name }}
                 </span>
               </div>
             </li>

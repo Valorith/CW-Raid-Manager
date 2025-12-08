@@ -296,12 +296,12 @@ export interface AvailabilityUserDetail {
   userId: string;
   displayName: string;
   status: AvailabilityStatus;
-  mainCharacter?: {
+  mainCharacters: Array<{
     id: string;
     name: string;
     class: string;
     level: number | null;
-  } | null;
+  }>;
 }
 
 /**
@@ -332,8 +332,7 @@ export async function getGuildAvailabilityDetails(
               name: true,
               class: true,
               level: true
-            },
-            take: 1
+            }
           }
         }
       }
@@ -345,7 +344,7 @@ export async function getGuildAvailabilityDetails(
     // Prefer nickname over displayName (nickname is user-set display name)
     displayName: entry.user.nickname?.trim() || entry.user.displayName,
     status: entry.status,
-    mainCharacter: entry.user.characters[0] ?? null
+    mainCharacters: entry.user.characters
   }));
 }
 
