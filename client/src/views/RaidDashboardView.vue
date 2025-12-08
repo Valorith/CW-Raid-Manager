@@ -311,18 +311,33 @@
                 </div>
               </article>
             </div>
-            <div class="raid-calendar--mobile">
+            <!-- Mobile agenda view (non-availability mode) -->
+            <div class="raid-calendar--mobile" v-if="!availabilityMode">
               <div
                 v-for="day in calendarAgendaDays"
                 :key="day.key"
                 class="raid-agenda-day"
               >
                 <header class="raid-agenda-day__header">
-                  <div>
+                  <div class="raid-agenda-day__header-left">
                     <p class="raid-agenda-day__date">{{ day.dateLabel }}</p>
                     <p class="raid-agenda-day__weekday">{{ day.weekday }}</p>
                   </div>
-                  <span class="raid-agenda-day__count">{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span>
+                  <div class="raid-agenda-day__header-right">
+                    <span
+                      v-if="getDayAvailabilityStatus(day.key)"
+                      :class="[
+                        'availability-badge',
+                        getDayAvailabilityStatus(day.key) === 'UNAVAILABLE'
+                          ? 'availability-badge--unavailable'
+                          : 'availability-badge--available'
+                      ]"
+                      :title="getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'You marked this day as unavailable' : 'You marked this day as available'"
+                    >
+                      {{ getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'Away' : 'Free' }}
+                    </span>
+                    <span class="raid-agenda-day__count">{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span>
+                  </div>
                 </header>
                 <div class="raid-agenda-day__events">
                   <div
@@ -433,6 +448,30 @@
                     </div>
                   </div>
                 </div>
+                <!-- Availability counters for mobile agenda -->
+                <div
+                  v-if="getDayAvailabilitySummary(day.key)"
+                  class="raid-agenda-day__availability"
+                >
+                  <button
+                    v-if="getDayAvailabilitySummary(day.key)?.availableCount"
+                    class="availability-counter availability-counter--available"
+                    type="button"
+                    :title="`${getDayAvailabilitySummary(day.key)?.availableCount} member${getDayAvailabilitySummary(day.key)?.availableCount === 1 ? '' : 's'} available`"
+                    @click.stop="openAvailabilityModal(day.key, 'AVAILABLE')"
+                  >
+                    {{ getDayAvailabilitySummary(day.key)?.availableCount }}
+                  </button>
+                  <button
+                    v-if="getDayAvailabilitySummary(day.key)?.unavailableCount"
+                    class="availability-counter availability-counter--unavailable"
+                    type="button"
+                    :title="`${getDayAvailabilitySummary(day.key)?.unavailableCount} member${getDayAvailabilitySummary(day.key)?.unavailableCount === 1 ? '' : 's'} unavailable`"
+                    @click.stop="openAvailabilityModal(day.key, 'UNAVAILABLE')"
+                  >
+                    {{ getDayAvailabilitySummary(day.key)?.unavailableCount }}
+                  </button>
+                </div>
                 <div
                   v-if="dayContextMenu.visible"
                   class="raid-calendar-context"
@@ -448,6 +487,38 @@
                     Cancel
                   </button>
                 </div>
+              </div>
+            </div>
+            <!-- Mobile calendar grid for availability mode -->
+            <div class="raid-calendar--mobile raid-calendar--mobile-availability" v-if="availabilityMode">
+              <div class="raid-calendar-mobile__weekdays">
+                <span v-for="label in WEEKDAY_LABELS" :key="label">{{ label }}</span>
+              </div>
+              <div
+                class="raid-calendar-mobile__grid"
+                @touchend="handleMobileAvailabilityTouchEnd"
+              >
+                <button
+                  v-for="day in calendarDays"
+                  :key="day.key"
+                  type="button"
+                  :class="[
+                    'raid-calendar-mobile__day',
+                    {
+                      'raid-calendar-mobile__day--muted': !day.isCurrentMonth,
+                      'raid-calendar-mobile__day--today': day.isToday,
+                      'raid-calendar-mobile__day--past': day.isPast && !day.isToday,
+                      'raid-calendar-mobile__day--selected': selectedDates.has(day.key),
+                      'raid-calendar-mobile__day--unavailable': getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
+                      'raid-calendar-mobile__day--available': getDayAvailabilityStatus(day.key) === 'AVAILABLE',
+                      'raid-calendar-mobile__day--has-raids': day.raids.length > 0
+                    }
+                  ]"
+                  @click="handleMobileAvailabilityDayClick(day)"
+                >
+                  <span class="raid-calendar-mobile__day-number">{{ day.date.getDate() }}</span>
+                  <span v-if="day.raids.length > 0" class="raid-calendar-mobile__day-dot"></span>
+                </button>
               </div>
             </div>
           </div>
@@ -890,6 +961,25 @@ function handleAvailabilityDayClick(day: { key: string; date: Date }) {
     newSelection.add(day.key);
   }
   selectedDates.value = newSelection;
+}
+
+// Mobile-specific availability handlers
+function handleMobileAvailabilityDayClick(day: { key: string; date: Date }) {
+  if (!availabilityMode.value) return;
+
+  // Toggle single date selection for mobile
+  const newSelection = new Set(selectedDates.value);
+  if (newSelection.has(day.key)) {
+    newSelection.delete(day.key);
+  } else {
+    newSelection.add(day.key);
+  }
+  selectedDates.value = newSelection;
+}
+
+function handleMobileAvailabilityTouchEnd() {
+  // Reset any ongoing selection state on touch end
+  isSelectingDates.value = false;
 }
 
 async function saveAvailability() {
@@ -2575,6 +2665,224 @@ function parseDateKey(dateKey: string): Date {
 
 .icon-button:hover {
   color: #e2e8f0;
+}
+
+/* Mobile Agenda Day Header Improvements */
+.raid-agenda-day__header-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.raid-agenda-day__header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Mobile Agenda Day Availability Section */
+.raid-agenda-day__availability {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  margin-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+/* Mobile Calendar Grid for Availability Mode */
+.raid-calendar--mobile-availability {
+  display: none;
+}
+
+.raid-calendar-mobile__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: #94a3b8;
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.raid-calendar-mobile__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.raid-calendar-mobile__day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  padding: 0.25rem;
+}
+
+.raid-calendar-mobile__day:active {
+  transform: scale(0.95);
+}
+
+.raid-calendar-mobile__day--muted {
+  color: rgba(148, 163, 184, 0.5);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.raid-calendar-mobile__day--past {
+  opacity: 0.55;
+}
+
+.raid-calendar-mobile__day--today {
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+}
+
+.raid-calendar-mobile__day--selected {
+  background: rgba(59, 130, 246, 0.35) !important;
+  border-color: rgba(59, 130, 246, 0.7) !important;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+.raid-calendar-mobile__day--unavailable:not(.raid-calendar-mobile__day--selected) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.raid-calendar-mobile__day--available:not(.raid-calendar-mobile__day--selected) {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.raid-calendar-mobile__day--has-raids::after {
+  content: '';
+  position: absolute;
+  bottom: 0.3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: #38bdf8;
+  border-radius: 50%;
+}
+
+.raid-calendar-mobile__day-number {
+  line-height: 1;
+}
+
+.raid-calendar-mobile__day-dot {
+  display: none; /* Using ::after instead for cleaner implementation */
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .raid-calendar--desktop {
+    display: none;
+  }
+
+  .raid-calendar--mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .raid-calendar--mobile-availability {
+    display: flex !important;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  /* Hide non-availability mobile view when in availability mode */
+  .raid-calendar--mobile:not(.raid-calendar--mobile-availability) {
+    display: flex;
+  }
+
+  /* Availability panel mobile adjustments */
+  .availability-panel {
+    padding: 0.75rem;
+  }
+
+  .availability-panel__legend {
+    gap: 0.75rem;
+  }
+
+  .availability-legend-item {
+    font-size: 0.75rem;
+  }
+
+  .availability-panel__count {
+    font-size: 0.8rem;
+  }
+
+  .availability-panel__buttons {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .availability-panel__buttons .btn {
+    flex: 1;
+  }
+
+  .availability-status-select {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  /* Availability modal mobile adjustments */
+  .modal-backdrop {
+    padding: 1rem;
+    align-items: flex-end;
+  }
+
+  .availability-modal {
+    width: 100%;
+    max-height: 70vh;
+    border-radius: 1rem 1rem 0 0;
+  }
+
+  .availability-modal__header {
+    padding: 1rem;
+  }
+
+  .availability-modal__content {
+    padding: 0.75rem 1rem 1.25rem;
+  }
+
+  .availability-modal__member {
+    padding: 0.65rem 0.85rem;
+  }
+}
+
+/* Small mobile adjustments */
+@media (max-width: 480px) {
+  .raid-calendar-mobile__day {
+    font-size: 0.75rem;
+    border-radius: 0.35rem;
+  }
+
+  .raid-calendar-mobile__weekdays {
+    font-size: 0.6rem;
+  }
+
+  .availability-panel__buttons {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .availability-panel__buttons .btn,
+  .availability-status-select {
+    width: 100%;
+  }
 }
 
 </style>
