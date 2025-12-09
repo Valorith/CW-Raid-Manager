@@ -693,6 +693,95 @@ export async function restartRaidEvent(raidId: string, userId: string) {
   };
 }
 
+export async function cancelRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  const updated = await prisma.raidEvent.update({
+    where: { id: raidId },
+    data: {
+      canceledAt: new Date(),
+      isActive: false
+    },
+    include: {
+      recurrenceSeries: {
+        select: recurrenceSelection
+      }
+    }
+  });
+
+  emitDiscordWebhookEvent(existing.guildId, 'raid.canceled', {
+    guildName: existing.guild.name,
+    raidId,
+    raidName: existing.name,
+    canceledAt: updated.canceledAt ?? new Date()
+  });
+
+  const formatted = formatRaidWithRecurrence(updated);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
+}
+
+export async function uncancelRaidEvent(raidId: string, userId: string) {
+  const existing = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    include: {
+      guild: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  });
+
+  if (!existing) {
+    throw new Error('Raid event not found.');
+  }
+
+  if (!existing.canceledAt) {
+    throw new Error('Raid has not been canceled.');
+  }
+
+  await ensureCanManageRaid(userId, existing.guildId);
+
+  const updated = await prisma.raidEvent.update({
+    where: { id: raidId },
+    data: {
+      canceledAt: null,
+      isActive: true
+    },
+    include: {
+      recurrenceSeries: {
+        select: recurrenceSelection
+      }
+    }
+  });
+
+  const formatted = formatRaidWithRecurrence(updated);
+  return {
+    ...formatted,
+    hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+  };
+}
+
 export async function deleteRaidEvent(
   raidId: string,
   userId: string,

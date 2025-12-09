@@ -2764,6 +2764,16 @@ export const api = {
     return response.data.raid;
   },
 
+  async cancelRaid(raidId: string) {
+    const response = await axios.post(`/api/raids/${raidId}/cancel`);
+    return response.data.raid;
+  },
+
+  async uncancelRaid(raidId: string) {
+    const response = await axios.post(`/api/raids/${raidId}/uncancel`);
+    return response.data.raid;
+  },
+
   async announceRaid(raidId: string) {
     await axios.post(`/api/raids/${raidId}/announce`);
   },

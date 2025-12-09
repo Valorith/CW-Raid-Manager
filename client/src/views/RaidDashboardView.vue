@@ -160,9 +160,6 @@
                 @mousedown.prevent="handleAvailabilityDayMouseDown(day)"
                 @mouseenter="handleAvailabilityDayMouseEnter(day)"
               >
-                <div v-if="day.isToday" class="raid-calendar__today-pill-wrapper">
-                  <span class="raid-calendar__today-pill">Today</span>
-                </div>
                 <header class="raid-calendar__day-header">
                   <span>{{ day.date.getDate() }}</span>
                   <span
@@ -1828,23 +1825,6 @@ function parseDateKey(dateKey: string): Date {
   justify-content: space-between;
   font-weight: 600;
   font-size: 0.9rem;
-}
-
-.raid-calendar__today-pill-wrapper {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 0.25rem;
-}
-
-.raid-calendar__today-pill {
-  border-radius: 999px;
-  background: rgba(59, 130, 246, 0.35);
-  padding: 0.2rem 0.65rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: #bae6fd;
-  text-transform: uppercase;
 }
 
 .raid-calendar__events {
