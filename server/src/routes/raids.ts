@@ -240,7 +240,7 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const signups = await updateSignupStatus(signupId, parsed.data.status);
+        const signups = await updateSignupStatus(raidId, signupId, parsed.data.status);
         return { signups };
       } catch (error) {
         if (error instanceof RaidSignupNotFoundError) {
@@ -285,7 +285,7 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const signups = await removeSignup(signupId);
+        const signups = await removeSignup(raidId, signupId);
         return { signups };
       } catch (error) {
         if (error instanceof RaidSignupNotFoundError) {

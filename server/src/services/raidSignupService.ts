@@ -565,8 +565,12 @@ export class RaidSignupAlreadyExistsError extends Error {
 
 /**
  * Update signup status for a specific signup (admin only)
+ * @param raidId - The raid ID to verify the signup belongs to (prevents cross-raid attacks)
+ * @param signupId - The signup to update
+ * @param status - The new status
  */
 export async function updateSignupStatus(
+  raidId: string,
   signupId: string,
   status: SignupStatus
 ): Promise<RaidSignupSummary[]> {
@@ -592,6 +596,11 @@ export async function updateSignupStatus(
     throw new RaidSignupNotFoundError();
   }
 
+  // Security: Verify the signup belongs to the specified raid
+  if (signup.raidId !== raidId) {
+    throw new RaidSignupNotFoundError();
+  }
+
   if (signup.raid.startedAt) {
     throw new RaidSignupLockedError();
   }
@@ -606,8 +615,10 @@ export async function updateSignupStatus(
 
 /**
  * Remove a signup from a raid (admin only)
+ * @param raidId - The raid ID to verify the signup belongs to (prevents cross-raid attacks)
+ * @param signupId - The signup to remove
  */
-export async function removeSignup(signupId: string): Promise<RaidSignupSummary[]> {
+export async function removeSignup(raidId: string, signupId: string): Promise<RaidSignupSummary[]> {
   const signup = await prisma.raidSignup.findUnique({
     where: { id: signupId },
     select: {
@@ -622,6 +633,11 @@ export async function removeSignup(signupId: string): Promise<RaidSignupSummary[
   });
 
   if (!signup) {
+    throw new RaidSignupNotFoundError();
+  }
+
+  // Security: Verify the signup belongs to the specified raid
+  if (signup.raidId !== raidId) {
     throw new RaidSignupNotFoundError();
   }
 
