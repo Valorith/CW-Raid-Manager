@@ -847,15 +847,29 @@ async function loadRaids() {
   }
 }
 
+async function silentRefreshRaids() {
+  if (!selectedGuildId.value) {
+    return;
+  }
+
+  try {
+    const response = await api.fetchRaidsForGuild(selectedGuildId.value);
+    raids.value = response.raids;
+    selectedGuildPermissions.value = response.permissions ?? null;
+  } catch {
+    // Silently ignore errors during background refresh
+  }
+}
+
 function startRaidsRefreshPolling() {
   if (raidsRefreshTimer || !selectedGuildId.value) {
     return;
   }
   raidsRefreshTimer = window.setInterval(() => {
     if (selectedGuildId.value) {
-      loadRaids();
+      silentRefreshRaids();
     }
-  }, 30_000);
+  }, 60_000);
 }
 
 function stopRaidsRefreshPolling() {
