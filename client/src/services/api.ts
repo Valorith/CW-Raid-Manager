@@ -693,6 +693,7 @@ export interface RaidEventSummary {
   startTime: string;
   startedAt?: string | null;
   endedAt?: string | null;
+  canceledAt?: string | null;
   targetZones: string[];
   targetBosses: string[];
   notes?: string | null;
@@ -1136,6 +1137,7 @@ export interface AdminRaidSummary {
   startTime: string;
   startedAt?: string | null;
   endedAt?: string | null;
+  canceledAt?: string | null;
   isActive: boolean;
   attendanceCount: number;
   createdAt: string;
@@ -1654,6 +1656,7 @@ function normalizeRaidSummary(
     startTime: normalizeDateString(raid?.startTime),
     startedAt: normalizeNullableDate(raid?.startedAt),
     endedAt: normalizeNullableDate(raid?.endedAt),
+    canceledAt: normalizeNullableDate(raid?.canceledAt),
     targetZones: normalizeStringArray(raid?.targetZones),
     targetBosses: normalizeStringArray(raid?.targetBosses),
     notes: typeof raid?.notes === 'string' ? raid.notes : raid?.notes ?? null,
