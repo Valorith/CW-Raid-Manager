@@ -23,7 +23,7 @@
             type="button"
             @click="activeTab = 'active'"
           >
-            Active
+            Calendar
           </button>
           <button
             :class="['tab', { 'tab--active': activeTab === 'history' }]"
@@ -1816,7 +1816,8 @@ function parseDateKey(dateKey: string): Date {
 }
 
 .raid-calendar__day--today {
-  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.45);
+  box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.85);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .raid-calendar__day-header {
@@ -2759,7 +2760,8 @@ function parseDateKey(dateKey: string): Date {
 }
 
 .raid-calendar-mobile__day--today {
-  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+  box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.85);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .raid-calendar-mobile__day--selected {

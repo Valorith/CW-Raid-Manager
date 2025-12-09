@@ -366,6 +366,50 @@
               <h3>Raid Composition</h3>
               <span class="raid-signups__slot-count">{{ raidSignups.length }} signed up</span>
             </div>
+            <div v-if="canManageRaid && !signupsLocked" class="raid-signups__search">
+              <div class="raid-signups__search-wrapper">
+                <input
+                  v-model="signupSearch.query"
+                  type="text"
+                  class="raid-signups__search-input"
+                  placeholder="Search characters to add..."
+                  @input="handleSignupSearchInput"
+                  @focus="signupSearch.showDropdown = signupSearch.results.length > 0"
+                  @blur="handleSignupSearchBlur"
+                />
+                <span v-if="signupSearch.loading" class="raid-signups__search-loading">...</span>
+                <div v-if="signupSearch.showDropdown && signupSearch.results.length > 0" class="raid-signups__search-dropdown">
+                  <button
+                    v-for="character in signupSearch.results"
+                    :key="character.id"
+                    type="button"
+                    class="raid-signups__search-result"
+                    :class="{ 'raid-signups__search-result--signed-up': character.isSignedUp }"
+                    :disabled="character.isSignedUp"
+                    @mousedown.prevent="handleAddSignupFromSearch(character)"
+                  >
+                    <img
+                      v-if="characterClassIcons[character.class]"
+                      :src="characterClassIcons[character.class] ?? undefined"
+                      :alt="characterClassLabels[character.class]"
+                      class="raid-signups__search-result-icon"
+                    />
+                    <div class="raid-signups__search-result-info">
+                      <span class="raid-signups__search-result-name">{{ character.name }}</span>
+                      <span class="raid-signups__search-result-meta muted small">
+                        <template v-if="character.level">Lv {{ character.level }} • </template>
+                        {{ characterClassLabels[character.class] }} · {{ character.userDisplayName }}
+                      </span>
+                    </div>
+                    <span v-if="character.isSignedUp" class="raid-signups__search-result-badge">Signed up</span>
+                    <span v-else class="raid-signups__search-result-add">+ Add</span>
+                  </button>
+                </div>
+                <div v-if="signupSearch.showDropdown && signupSearch.query.length >= 2 && signupSearch.results.length === 0 && !signupSearch.loading" class="raid-signups__search-dropdown raid-signups__search-dropdown--empty">
+                  <span class="muted">No characters found</span>
+                </div>
+              </div>
+            </div>
             <div v-if="raidSignups.length === 0" class="raid-signups__empty muted">
               No one has signed up yet. Be the first to reserve a spot!
             </div>
@@ -392,8 +436,10 @@
                     :class="[
                       'raid-signups__role-item',
                       { 'raid-signups__role-item--self': viewerUserId && entry.userId === viewerUserId },
-                      { 'raid-signups__role-item--not-attending': entry.status === 'NOT_ATTENDING' }
+                      { 'raid-signups__role-item--not-attending': entry.status === 'NOT_ATTENDING' },
+                      { 'raid-signups__role-item--admin': canManageRaid && !signupsLocked }
                     ]"
+                    @contextmenu="openSignupContextMenu($event, entry)"
                   >
                     <span class="raid-signups__role-icon" :class="{ 'raid-signups__role-icon--not-attending': entry.status === 'NOT_ATTENDING' }">
                       <img
@@ -801,6 +847,41 @@
       </button>
       <button class="loot-context-menu__action" type="button" @click="handleAssociationContextDelete">
         Delete
+      </button>
+    </div>
+    <div
+      v-if="signupContextMenu.visible"
+      class="loot-context-menu signup-context-menu"
+      :style="{
+        top: `${signupContextMenu.y}px`,
+        left: `${signupContextMenu.x}px`
+      }"
+    >
+      <header class="loot-context-menu__header">
+        {{ signupContextMenu.signup?.characterName }}
+      </header>
+      <button
+        v-if="signupContextMenu.signup?.status !== 'CONFIRMED'"
+        class="loot-context-menu__action"
+        type="button"
+        @click="handleSignupContextMenuAction('attending')"
+      >
+        Mark as Attending
+      </button>
+      <button
+        v-if="signupContextMenu.signup?.status !== 'NOT_ATTENDING'"
+        class="loot-context-menu__action"
+        type="button"
+        @click="handleSignupContextMenuAction('not_attending')"
+      >
+        Mark as Not Attending
+      </button>
+      <button
+        class="loot-context-menu__action loot-context-menu__action--remove"
+        type="button"
+        @click="handleSignupContextMenuAction('remove')"
+      >
+        Remove from Signup
       </button>
     </div>
 
@@ -1890,6 +1971,7 @@ import {
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
+  CharacterSearchResult,
   GuildLootListEntry,
   GuildLootListSummary,
   GuildNpcNote,
@@ -2566,6 +2648,24 @@ function npcHasNote(name: string) {
   return npcNotesNameSet.value.has(name.trim().toLowerCase());
 }
 const signupsCollapsed = ref(true);
+
+// Signup context menu state
+const signupContextMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  signup: null as RaidSignup | null
+});
+
+// Signup search state
+const signupSearch = reactive({
+  query: '',
+  results: [] as CharacterSearchResult[],
+  loading: false,
+  error: null as string | null,
+  showDropdown: false
+});
+let signupSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 const signupsToggleLabel = computed(() => (signupsCollapsed.value ? 'Expand Signups' : 'Collapse Signups'));
 const collapsedGroupPreviewSize = 6;
 const whitelistLookup = computed(() =>
@@ -3759,6 +3859,117 @@ async function handleWithdrawAll() {
   });
 }
 
+// Signup context menu handlers
+function openSignupContextMenu(event: MouseEvent, signup: RaidSignup) {
+  if (!canManageRaid.value || signupsLocked.value) {
+    return;
+  }
+  event.preventDefault();
+  signupContextMenu.signup = signup;
+  signupContextMenu.x = event.clientX;
+  signupContextMenu.y = event.clientY;
+  signupContextMenu.visible = true;
+}
+
+function closeSignupContextMenu() {
+  signupContextMenu.visible = false;
+  signupContextMenu.signup = null;
+}
+
+async function handleSignupContextMenuAction(action: 'attending' | 'not_attending' | 'remove') {
+  const signup = signupContextMenu.signup;
+  if (!signup || !raid.value) {
+    closeSignupContextMenu();
+    return;
+  }
+
+  closeSignupContextMenu();
+
+  try {
+    let updatedSignups: RaidSignup[];
+    if (action === 'remove') {
+      updatedSignups = await api.removeSignup(raid.value.id, signup.id);
+    } else {
+      const status = action === 'attending' ? 'CONFIRMED' : 'NOT_ATTENDING';
+      updatedSignups = await api.updateSignupStatus(raid.value.id, signup.id, status);
+    }
+    raid.value.signups = updatedSignups;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update signup.';
+    window.alert(message);
+  }
+}
+
+// Signup search handlers
+function handleSignupSearchInput() {
+  if (signupSearchTimeout) {
+    clearTimeout(signupSearchTimeout);
+  }
+
+  const query = signupSearch.query.trim();
+  if (query.length < 2) {
+    signupSearch.results = [];
+    signupSearch.showDropdown = false;
+    signupSearch.error = null;
+    return;
+  }
+
+  signupSearch.loading = true;
+  signupSearchTimeout = setTimeout(async () => {
+    await searchCharactersForSignup(query);
+  }, 300);
+}
+
+async function searchCharactersForSignup(query: string) {
+  if (!raid.value) {
+    return;
+  }
+
+  signupSearch.loading = true;
+  signupSearch.error = null;
+
+  try {
+    const results = await api.searchCharactersForSignup(raid.value.id, query);
+    signupSearch.results = results;
+    signupSearch.showDropdown = true;
+  } catch (error) {
+    signupSearch.error = error instanceof Error ? error.message : 'Search failed.';
+    signupSearch.results = [];
+  } finally {
+    signupSearch.loading = false;
+  }
+}
+
+async function handleAddSignupFromSearch(character: CharacterSearchResult) {
+  if (!raid.value || character.isSignedUp) {
+    return;
+  }
+
+  try {
+    const updatedSignups = await api.addSignup(raid.value.id, character.id, 'CONFIRMED');
+    raid.value.signups = updatedSignups;
+    // Update search results to reflect the new signup
+    const idx = signupSearch.results.findIndex(c => c.id === character.id);
+    if (idx !== -1) {
+      signupSearch.results[idx].isSignedUp = true;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to add signup.';
+    window.alert(message);
+  }
+}
+
+function closeSignupSearch() {
+  signupSearch.showDropdown = false;
+}
+
+function handleSignupSearchBlur() {
+  // Delay to allow click on dropdown items
+  setTimeout(() => {
+    closeSignupSearch();
+  }, 200);
+}
+
 async function loadRaid() {
   const previousGuildId = raid.value?.guild?.id ?? null;
   const data = await api.fetchRaid(raidId);
@@ -3959,6 +4170,15 @@ function handleGlobalPointerDown(event: MouseEvent) {
     }
     closeAssociationContext();
   }
+  if (signupContextMenu.visible) {
+    if (target && target.closest('.signup-context-menu')) {
+      return;
+    }
+    if (event.type === 'contextmenu' && target && target.closest('.raid-signups__role-item')) {
+      return;
+    }
+    closeSignupContextMenu();
+  }
 }
 
 function handleLootContextMenuKey(event: KeyboardEvent) {
@@ -3971,6 +4191,9 @@ function handleLootContextMenuKey(event: KeyboardEvent) {
     }
     if (npcNotesState.associationMenu.visible) {
       closeAssociationContext();
+    }
+    if (signupContextMenu.visible) {
+      closeSignupContextMenu();
     }
   }
 }
@@ -5997,6 +6220,138 @@ async function copyRaidLink() {
   color: #94a3b8;
 }
 
+.raid-signups__search {
+  margin-bottom: 1rem;
+}
+
+.raid-signups__search-wrapper {
+  position: relative;
+}
+
+.raid-signups__search-input {
+  width: 100%;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.65);
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.raid-signups__search-input::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.raid-signups__search-input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.raid-signups__search-loading {
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.85rem;
+  color: #94a3b8;
+  animation: pulse 1s infinite;
+}
+
+.raid-signups__search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.85rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+}
+
+.raid-signups__search-dropdown--empty {
+  padding: 1rem;
+  text-align: center;
+}
+
+.raid-signups__search-result {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.raid-signups__search-result:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.raid-signups__search-result:not(:last-child) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.raid-signups__search-result--signed-up {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.raid-signups__search-result--signed-up:hover {
+  background: transparent;
+}
+
+.raid-signups__search-result-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  object-fit: cover;
+}
+
+.raid-signups__search-result-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.raid-signups__search-result-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.raid-signups__search-result-meta {
+  font-size: 0.78rem;
+}
+
+.raid-signups__search-result-badge {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.4rem;
+  background: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.raid-signups__search-result-add {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #3b82f6;
+}
+
 .raid-signups__empty {
   padding: 1.25rem;
   border: 1px dashed rgba(148, 163, 184, 0.3);
@@ -6358,6 +6713,15 @@ async function copyRaidLink() {
 
 .raid-signups__role-item--not-attending {
   opacity: 0.7;
+}
+
+.raid-signups__role-item--admin {
+  cursor: context-menu;
+}
+
+.raid-signups__role-item--admin:hover {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.25);
 }
 
 .raid-signups__role-icon {

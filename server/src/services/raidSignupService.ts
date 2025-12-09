@@ -541,3 +541,261 @@ async function emitSignupNotifications(
     await Promise.allSettled(tasks);
   }
 }
+
+export class RaidSignupNotFoundError extends Error {
+  constructor() {
+    super('Raid signup not found.');
+    this.name = 'RaidSignupNotFoundError';
+  }
+}
+
+export class RaidSignupCharacterNotFoundError extends Error {
+  constructor() {
+    super('Character not found or does not belong to the guild.');
+    this.name = 'RaidSignupCharacterNotFoundError';
+  }
+}
+
+export class RaidSignupAlreadyExistsError extends Error {
+  constructor() {
+    super('This character is already signed up for the raid.');
+    this.name = 'RaidSignupAlreadyExistsError';
+  }
+}
+
+/**
+ * Update signup status for a specific signup (admin only)
+ */
+export async function updateSignupStatus(
+  signupId: string,
+  status: SignupStatus
+): Promise<RaidSignupSummary[]> {
+  const signup = await prisma.raidSignup.findUnique({
+    where: { id: signupId },
+    select: {
+      id: true,
+      raidId: true,
+      userId: true,
+      characterId: true,
+      characterName: true,
+      characterClass: true,
+      status: true,
+      raid: {
+        select: {
+          startedAt: true
+        }
+      }
+    }
+  });
+
+  if (!signup) {
+    throw new RaidSignupNotFoundError();
+  }
+
+  if (signup.raid.startedAt) {
+    throw new RaidSignupLockedError();
+  }
+
+  await prisma.raidSignup.update({
+    where: { id: signupId },
+    data: { status }
+  });
+
+  return listRaidSignups(signup.raidId);
+}
+
+/**
+ * Remove a signup from a raid (admin only)
+ */
+export async function removeSignup(signupId: string): Promise<RaidSignupSummary[]> {
+  const signup = await prisma.raidSignup.findUnique({
+    where: { id: signupId },
+    select: {
+      id: true,
+      raidId: true,
+      raid: {
+        select: {
+          startedAt: true
+        }
+      }
+    }
+  });
+
+  if (!signup) {
+    throw new RaidSignupNotFoundError();
+  }
+
+  if (signup.raid.startedAt) {
+    throw new RaidSignupLockedError();
+  }
+
+  await prisma.raidSignup.delete({
+    where: { id: signupId }
+  });
+
+  return listRaidSignups(signup.raidId);
+}
+
+/**
+ * Add a character to a raid signup (admin only)
+ */
+export async function addSignupForCharacter(
+  raidId: string,
+  characterId: string,
+  status: SignupStatus = 'CONFIRMED'
+): Promise<RaidSignupSummary[]> {
+  const raid = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    select: {
+      id: true,
+      guildId: true,
+      startedAt: true
+    }
+  });
+
+  if (!raid) {
+    throw new Error('Raid event not found.');
+  }
+
+  if (raid.startedAt) {
+    throw new RaidSignupLockedError();
+  }
+
+  // Find character and ensure they belong to a guild member
+  const character = await prisma.character.findFirst({
+    where: {
+      id: characterId,
+      user: {
+        guildMemberships: {
+          some: {
+            guildId: raid.guildId
+          }
+        }
+      }
+    },
+    select: {
+      id: true,
+      name: true,
+      class: true,
+      level: true,
+      isMain: true,
+      userId: true
+    }
+  });
+
+  if (!character) {
+    throw new RaidSignupCharacterNotFoundError();
+  }
+
+  // Check if already signed up
+  const existing = await prisma.raidSignup.findUnique({
+    where: {
+      raidId_characterId: {
+        raidId,
+        characterId
+      }
+    }
+  });
+
+  if (existing) {
+    throw new RaidSignupAlreadyExistsError();
+  }
+
+  await prisma.raidSignup.create({
+    data: {
+      raidId,
+      userId: character.userId,
+      characterId: character.id,
+      characterName: character.name,
+      characterClass: character.class,
+      characterLevel: character.level,
+      isMain: character.isMain,
+      status
+    }
+  });
+
+  return listRaidSignups(raidId);
+}
+
+/**
+ * Search for characters in a guild that can be added to a raid
+ */
+export async function searchGuildCharactersForSignup(
+  guildId: string,
+  raidId: string,
+  query: string,
+  limit = 10
+): Promise<Array<{
+  id: string;
+  name: string;
+  class: CharacterClass;
+  level: number | null;
+  isMain: boolean;
+  userId: string;
+  userDisplayName: string;
+  isSignedUp: boolean;
+}>> {
+  const trimmedQuery = query.trim().toLowerCase();
+
+  if (trimmedQuery.length < 2) {
+    return [];
+  }
+
+  // Get all guild members' characters that match the query
+  const characters = await prisma.character.findMany({
+    where: {
+      name: {
+        contains: trimmedQuery,
+        mode: 'insensitive'
+      },
+      user: {
+        guildMemberships: {
+          some: {
+            guildId
+          }
+        }
+      }
+    },
+    select: {
+      id: true,
+      name: true,
+      class: true,
+      level: true,
+      isMain: true,
+      userId: true,
+      user: {
+        select: {
+          displayName: true,
+          nickname: true
+        }
+      }
+    },
+    orderBy: [
+      { isMain: 'desc' },
+      { level: 'desc' },
+      { name: 'asc' }
+    ],
+    take: limit
+  });
+
+  // Get existing signups for this raid
+  const existingSignups = await prisma.raidSignup.findMany({
+    where: { raidId },
+    select: { characterId: true }
+  });
+  const signedUpIds = new Set(existingSignups.map(s => s.characterId));
+
+  return characters.map(c => ({
+    id: c.id,
+    name: c.name,
+    class: c.class,
+    level: c.level,
+    isMain: c.isMain,
+    userId: c.userId,
+    userDisplayName: withPreferredDisplayName({
+      displayName: c.user.displayName,
+      nickname: c.user.nickname
+    }).displayName,
+    isSignedUp: signedUpIds.has(c.id)
+  }));
+}
