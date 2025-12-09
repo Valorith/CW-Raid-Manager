@@ -764,6 +764,17 @@ export interface SignupEntry {
   status?: SignupStatus;
 }
 
+export interface CharacterSearchResult {
+  id: string;
+  name: string;
+  class: CharacterClass;
+  level: number | null;
+  isMain: boolean;
+  userId: string;
+  userDisplayName: string;
+  isSignedUp: boolean;
+}
+
 export type AvailabilityStatus = 'AVAILABLE' | 'UNAVAILABLE';
 
 export interface CalendarAvailabilityEntry {
@@ -2381,6 +2392,39 @@ export const api = {
     return Array.isArray(response.data.signups)
       ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))
       : [];
+  },
+
+  async updateSignupStatus(raidId: string, signupId: string, status: SignupStatus): Promise<RaidSignup[]> {
+    const response = await axios.patch(`/api/raids/${raidId}/signups/${signupId}`, {
+      status
+    });
+    return Array.isArray(response.data.signups)
+      ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))
+      : [];
+  },
+
+  async removeSignup(raidId: string, signupId: string): Promise<RaidSignup[]> {
+    const response = await axios.delete(`/api/raids/${raidId}/signups/${signupId}`);
+    return Array.isArray(response.data.signups)
+      ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))
+      : [];
+  },
+
+  async addSignup(raidId: string, characterId: string, status: SignupStatus = 'CONFIRMED'): Promise<RaidSignup[]> {
+    const response = await axios.post(`/api/raids/${raidId}/signups`, {
+      characterId,
+      status
+    });
+    return Array.isArray(response.data.signups)
+      ? response.data.signups.map((signup: any) => normalizeRaidSignup(signup))
+      : [];
+  },
+
+  async searchCharactersForSignup(raidId: string, query: string): Promise<CharacterSearchResult[]> {
+    const response = await axios.get(`/api/raids/${raidId}/signups/search`, {
+      params: { q: query }
+    });
+    return Array.isArray(response.data.characters) ? response.data.characters : [];
   },
 
   async fetchRaidLogMonitorStatus(raidId: string): Promise<RaidLogMonitorStatus> {

@@ -23,7 +23,14 @@ import {
   RaidSignupLimitError,
   RaidSignupInvalidCharacterError,
   RaidSignupPermissionError,
-  RaidSignupLockedError
+  RaidSignupLockedError,
+  RaidSignupNotFoundError,
+  RaidSignupCharacterNotFoundError,
+  RaidSignupAlreadyExistsError,
+  updateSignupStatus,
+  removeSignup,
+  addSignupForCharacter,
+  searchGuildCharactersForSignup
 } from '../services/raidSignupService.js';
 import { recordRaidNpcKills, deleteRaidNpcKillEvents } from '../services/raidNpcKillService.js';
 import { prisma } from '../utils/prisma.js';
@@ -190,6 +197,217 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
 
         request.log.warn({ error }, 'Failed to update raid signups.');
         return reply.internalServerError('Unable to update raid signups.');
+      }
+    }
+  );
+
+  // Admin: Update a signup's status
+  server.patch(
+    '/:raidId/signups/:signupId',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string(),
+        signupId: z.string()
+      });
+      const { raidId, signupId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z.object({
+        status: z.enum(['CONFIRMED', 'NOT_ATTENDING'])
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid status. Must be CONFIRMED or NOT_ATTENDING.');
+      }
+
+      // Verify admin permissions
+      const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: { guildId: true }
+      });
+
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        return reply.forbidden('You do not have permission to manage signups for this raid.');
+      }
+
+      try {
+        const signups = await updateSignupStatus(raidId, signupId, parsed.data.status);
+        return { signups };
+      } catch (error) {
+        if (error instanceof RaidSignupNotFoundError) {
+          return reply.notFound(error.message);
+        }
+        if (error instanceof RaidSignupLockedError) {
+          return reply.badRequest(error.message);
+        }
+        request.log.warn({ error }, 'Failed to update signup status.');
+        return reply.internalServerError('Unable to update signup status.');
+      }
+    }
+  );
+
+  // Admin: Remove a signup
+  server.delete(
+    '/:raidId/signups/:signupId',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string(),
+        signupId: z.string()
+      });
+      const { raidId, signupId } = paramsSchema.parse(request.params);
+
+      // Verify admin permissions
+      const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: { guildId: true }
+      });
+
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        return reply.forbidden('You do not have permission to manage signups for this raid.');
+      }
+
+      try {
+        const signups = await removeSignup(raidId, signupId);
+        return { signups };
+      } catch (error) {
+        if (error instanceof RaidSignupNotFoundError) {
+          return reply.notFound(error.message);
+        }
+        if (error instanceof RaidSignupLockedError) {
+          return reply.badRequest(error.message);
+        }
+        request.log.warn({ error }, 'Failed to remove signup.');
+        return reply.internalServerError('Unable to remove signup.');
+      }
+    }
+  );
+
+  // Admin: Add a character to a raid signup
+  server.post(
+    '/:raidId/signups',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z.object({
+        characterId: z.string(),
+        status: z.enum(['CONFIRMED', 'NOT_ATTENDING']).optional()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid request body.');
+      }
+
+      // Verify admin permissions
+      const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: { guildId: true }
+      });
+
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        return reply.forbidden('You do not have permission to manage signups for this raid.');
+      }
+
+      try {
+        const signups = await addSignupForCharacter(
+          raidId,
+          parsed.data.characterId,
+          parsed.data.status ?? 'CONFIRMED'
+        );
+        return { signups };
+      } catch (error) {
+        if (error instanceof RaidSignupCharacterNotFoundError) {
+          return reply.notFound(error.message);
+        }
+        if (error instanceof RaidSignupAlreadyExistsError) {
+          return reply.badRequest(error.message);
+        }
+        if (error instanceof RaidSignupLockedError) {
+          return reply.badRequest(error.message);
+        }
+        request.log.warn({ error }, 'Failed to add signup.');
+        return reply.internalServerError('Unable to add signup.');
+      }
+    }
+  );
+
+  // Admin: Search characters for signup
+  server.get(
+    '/:raidId/signups/search',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      const querySchema = z.object({
+        q: z.string().min(2).max(64)
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Search query must be between 2 and 64 characters.');
+      }
+
+      // Verify admin permissions
+      const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: { guildId: true }
+      });
+
+      if (!raid) {
+        return reply.notFound('Raid event not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        return reply.forbidden('You do not have permission to search characters for this raid.');
+      }
+
+      try {
+        const characters = await searchGuildCharactersForSignup(
+          raid.guildId,
+          raidId,
+          parsed.data.q
+        );
+        return { characters };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to search characters.');
+        return reply.internalServerError('Unable to search characters.');
       }
     }
   );

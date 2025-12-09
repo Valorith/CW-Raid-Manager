@@ -23,7 +23,7 @@
             type="button"
             @click="activeTab = 'active'"
           >
-            Active
+            Calendar
           </button>
           <button
             :class="['tab', { 'tab--active': activeTab === 'history' }]"
@@ -160,9 +160,11 @@
                 @mousedown.prevent="handleAvailabilityDayMouseDown(day)"
                 @mouseenter="handleAvailabilityDayMouseEnter(day)"
               >
+                <div v-if="day.isToday" class="raid-calendar__today-pill-wrapper">
+                  <span class="raid-calendar__today-pill">Today</span>
+                </div>
                 <header class="raid-calendar__day-header">
                   <span>{{ day.date.getDate() }}</span>
-                  <span v-if="day.isToday" class="raid-calendar__today-pill">Today</span>
                   <span
                     v-if="!availabilityMode && getDayAvailabilityStatus(day.key)"
                     :class="[
@@ -1816,7 +1818,8 @@ function parseDateKey(dateKey: string): Date {
 }
 
 .raid-calendar__day--today {
-  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.45);
+  box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.85);
+  background: rgba(59, 130, 246, 0.08);
 }
 
 .raid-calendar__day-header {
@@ -1827,13 +1830,21 @@ function parseDateKey(dateKey: string): Date {
   font-size: 0.9rem;
 }
 
+.raid-calendar__today-pill-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
 .raid-calendar__today-pill {
   border-radius: 999px;
-  background: rgba(59, 130, 246, 0.2);
-  padding: 0.15rem 0.55rem;
+  background: rgba(59, 130, 246, 0.35);
+  padding: 0.2rem 0.65rem;
   font-size: 0.7rem;
+  font-weight: 600;
   letter-spacing: 0.08em;
   color: #bae6fd;
+  text-transform: uppercase;
 }
 
 .raid-calendar__events {
@@ -2759,7 +2770,8 @@ function parseDateKey(dateKey: string): Date {
 }
 
 .raid-calendar-mobile__day--today {
-  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.55);
+  box-shadow: inset 0 0 0 3px rgba(59, 130, 246, 0.85);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 .raid-calendar-mobile__day--selected {
