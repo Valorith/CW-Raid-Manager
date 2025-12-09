@@ -786,11 +786,9 @@ export async function searchGuildCharactersForSignup(
         }
       }
     },
-    orderBy: [
-      { isMain: 'desc' },
-      { level: 'desc' },
-      { name: 'asc' }
-    ],
+    orderBy: {
+      name: 'asc'
+    },
     take: limit
   });
 
