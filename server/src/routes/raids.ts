@@ -12,6 +12,8 @@ import {
   emitRaidCreatedWebhook,
   endRaidEvent,
   restartRaidEvent,
+  cancelRaidEvent,
+  uncancelRaidEvent,
   deleteRaidEvent,
   ensureCanManageRaid
 } from '../services/raidService.js';
@@ -766,6 +768,69 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to restart raid.');
+      }
+    }
+  );
+
+  server.post(
+    '/:raidId/cancel',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        const raid = await cancelRaidEvent(raidId, request.user.userId);
+        return { raid };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to cancel raid event.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to cancel this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to cancel raid.');
+      }
+    }
+  );
+
+  server.post(
+    '/:raidId/uncancel',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        raidId: z.string()
+      });
+      const { raidId } = paramsSchema.parse(request.params);
+
+      try {
+        const raid = await uncancelRaidEvent(raidId, request.user.userId);
+        return { raid };
+      } catch (error) {
+        request.log.warn({ error }, 'Failed to uncancel raid event.');
+        if (error instanceof Error) {
+          if (error.message === 'Raid event not found.') {
+            return reply.notFound(error.message);
+          }
+          if (error.message === 'Raid has not been canceled.') {
+            return reply.badRequest('Raid must be canceled before it can be restored.');
+          }
+          if (error.message.includes('Insufficient permissions')) {
+            return reply.forbidden('You do not have permission to restore this raid.');
+          }
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to restore raid.');
       }
     }
   );

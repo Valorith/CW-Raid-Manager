@@ -9,6 +9,7 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'raid.created',
   'raid.started',
   'raid.ended',
+  'raid.canceled',
   'raid.targetKilled',
   'raid.deleted',
   'raid.signup',
@@ -51,6 +52,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     key: 'raid.ended',
     label: 'Raid Ended',
     description: 'Sent when a raid is marked as completed.',
+    category: 'RAID'
+  },
+  {
+    key: 'raid.canceled',
+    label: 'Raid Canceled',
+    description: 'Sent when a raid is canceled.',
     category: 'RAID'
   },
   {
@@ -131,6 +138,7 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'raid.created': true,
   'raid.started': true,
   'raid.ended': true,
+  'raid.canceled': true,
   'raid.targetKilled': true,
   'raid.deleted': false,
   'raid.signup': true,
@@ -149,6 +157,7 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'raid.created': true,
   'raid.started': true,
   'raid.ended': true,
+  'raid.canceled': true,
   'raid.targetKilled': true,
   'raid.deleted': false,
   'raid.signup': false,
@@ -355,6 +364,12 @@ type DiscordWebhookPayloadMap = {
     startedAt?: Date | string | null;
     attendeeCount?: number | null;
     lootCount?: number | null;
+  };
+  'raid.canceled': {
+    guildName: string;
+    raidId: string;
+    raidName: string;
+    canceledAt: Date | string;
   };
   'raid.deleted': {
     guildName: string;
@@ -660,6 +675,35 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
                     {
                       name: 'Links',
                       value: `[View Raid](${raidEndedUrl})`,
+                      inline: false
+                    }
+                  ]
+                : [])
+            ],
+            timestamp: nowIso
+          }
+        ]
+      };
+    case 'raid.canceled':
+      const raidCanceledPayload = payload as DiscordWebhookPayloadMap['raid.canceled'];
+      const raidCanceledUrl = buildRaidUrl(raidCanceledPayload.raidId);
+      return {
+        embeds: [
+          {
+            title: `🚫 Raid Canceled: ${raidCanceledPayload.raidName}`,
+            description: 'This raid has been canceled.',
+            color: DISCORD_COLORS.danger,
+            fields: [
+              {
+                name: 'Canceled',
+                value: formatDiscordTimestamp(raidCanceledPayload.canceledAt),
+                inline: true
+              },
+              ...(raidCanceledUrl
+                ? [
+                    {
+                      name: 'Links',
+                      value: `[View Raid](${raidCanceledUrl})`,
                       inline: false
                     }
                   ]

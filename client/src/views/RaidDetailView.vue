@@ -925,6 +925,24 @@
             <span class="raid-action-btn__icon" aria-hidden="true">🔄</span>
             <span>{{ restartingRaid ? 'Restarting…' : 'Restart Raid' }}</span>
           </button>
+          <button
+            v-if="!hasEffectiveCanceled"
+            class="raid-action-btn raid-action-btn--cancel"
+            :disabled="cancelingRaid || !canCancelRaid"
+            @click="handleCancelRaid"
+          >
+            <span class="raid-action-btn__icon" aria-hidden="true">🚫</span>
+            <span>{{ cancelingRaid ? 'Canceling…' : 'Cancel Raid' }}</span>
+          </button>
+          <button
+            v-if="hasEffectiveCanceled"
+            class="raid-action-btn raid-action-btn--uncancel"
+            :disabled="uncancelingRaid || !canUncancelRaid"
+            @click="handleUncancelRaid"
+          >
+            <span class="raid-action-btn__icon" aria-hidden="true">✅</span>
+            <span>{{ uncancelingRaid ? 'Restoring…' : 'Restore Raid' }}</span>
+          </button>
         </div>
       </header>
 
@@ -2837,6 +2855,8 @@ const savingTimes = ref(false);
 const startingRaid = ref(false);
 const endingRaid = ref(false);
 const restartingRaid = ref(false);
+const cancelingRaid = ref(false);
+const uncancelingRaid = ref(false);
 const announcingRaid = ref(false);
 const renamingRaid = ref(false);
 type RecurrenceFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
@@ -3497,6 +3517,13 @@ const hasEffectiveEnded = computed(() => {
   }
   return new Date(endedAt).getTime() <= Date.now();
 });
+const hasEffectiveCanceled = computed(() => {
+  const canceledAt = raid.value?.canceledAt;
+  if (!canceledAt) {
+    return false;
+  }
+  return new Date(canceledAt).getTime() <= Date.now();
+});
 const viewerUserId = computed(() => authStore.user?.userId ?? null);
 const raidSignups = computed<RaidSignup[]>(() => raid.value?.signups ?? []);
 const viewerSignups = computed<RaidSignup[]>(() => {
@@ -3619,6 +3646,8 @@ watch(
 );
 
 const canRestartRaid = computed(() => canManageRaid.value && hasEffectiveEnded.value);
+const canCancelRaid = computed(() => canManageRaid.value && !hasEffectiveCanceled.value && !hasEffectiveStarted.value);
+const canUncancelRaid = computed(() => canManageRaid.value && hasEffectiveCanceled.value);
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
   OFFICER: 'Officer',
@@ -3639,6 +3668,9 @@ const userGuildRoleLabel = computed(() => {
 });
 
 const raidStatusBadge = computed(() => {
+  if (hasEffectiveCanceled.value) {
+    return { label: 'Canceled', variant: 'raid-status-badge--canceled' };
+  }
   if (hasEffectiveEnded.value) {
     return { label: 'Ended', variant: 'raid-status-badge--ended' };
   }
@@ -5291,6 +5323,42 @@ async function handleRestartRaid() {
   }
 }
 
+async function handleCancelRaid() {
+  if (cancelingRaid.value || !canCancelRaid.value) {
+    return;
+  }
+
+  cancelingRaid.value = true;
+  actionError.value = null;
+  try {
+    await api.cancelRaid(raidId);
+    await loadRaid();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to cancel raid. Please try again.');
+  } finally {
+    cancelingRaid.value = false;
+  }
+}
+
+async function handleUncancelRaid() {
+  if (uncancelingRaid.value || !canUncancelRaid.value) {
+    return;
+  }
+
+  uncancelingRaid.value = true;
+  actionError.value = null;
+  try {
+    await api.uncancelRaid(raidId);
+    await loadRaid();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
+  } catch (error) {
+    actionError.value = extractErrorMessage(error, 'Unable to restore raid. Please try again.');
+  } finally {
+    uncancelingRaid.value = false;
+  }
+}
+
 async function promptRenameRaid() {
   if (!canManageRaid.value || !raid.value || renamingRaid.value) {
     return;
@@ -5661,6 +5729,12 @@ async function copyRaidLink() {
 }
 
 .raid-status-badge--ended {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fecaca;
+}
+
+.raid-status-badge--canceled {
   border-color: rgba(239, 68, 68, 0.5);
   background: rgba(239, 68, 68, 0.15);
   color: #fecaca;
@@ -7274,6 +7348,18 @@ th {
   background: linear-gradient(135deg, rgba(14, 165, 233, 0.92), rgba(192, 132, 252, 0.88));
   color: #f8fafc;
   border-color: rgba(14, 165, 233, 0.35);
+}
+
+.raid-action-btn--cancel {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.92), rgba(249, 115, 22, 0.88));
+  color: #fff1f2;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.raid-action-btn--uncancel {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.92), rgba(52, 211, 153, 0.88));
+  color: #dcfce7;
+  border-color: rgba(34, 197, 94, 0.35);
 }
 
 .raid-action-btn:disabled {

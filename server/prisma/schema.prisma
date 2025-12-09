@@ -171,6 +171,7 @@ model RaidEvent {
   updatedAt    DateTime          @updatedAt
   endedAt      DateTime?
   startedAt    DateTime?
+  canceledAt   DateTime?
   recurrenceSeriesId String?
   attendance   AttendanceEvent[]
   createdBy    User              @relation("RaidCreator", fields: [createdById], references: [id])
