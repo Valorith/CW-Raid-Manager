@@ -742,11 +742,11 @@ export async function searchGuildCharactersForSignup(
   }
 
   // Get all guild members' characters that match the query
+  // Note: MySQL default collation is case-insensitive, so we don't need mode: 'insensitive'
   const characters = await prisma.character.findMany({
     where: {
       name: {
-        contains: trimmedQuery,
-        mode: 'insensitive'
+        contains: trimmedQuery
       },
       user: {
         guildMemberships: {
