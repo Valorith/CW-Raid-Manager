@@ -692,7 +692,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           {
             title: `🚫 Raid Canceled: ${raidCanceledPayload.raidName}`,
             description: 'This raid has been canceled.',
-            color: DISCORD_COLORS.error,
+            color: DISCORD_COLORS.danger,
             fields: [
               {
                 name: 'Canceled',
