@@ -6332,6 +6332,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .modal__footer {
@@ -6359,6 +6362,8 @@ onMounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 0.75rem;
   background: rgba(15, 23, 42, 0.8);
+  flex: 1;
+  min-height: 0;
 }
 
 .metrics-modal-table {
@@ -6563,6 +6568,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 0.75rem;
   margin-top: 0.9rem;
+  flex-shrink: 0;
 }
 
 .loot-detail__pagination-controls {
