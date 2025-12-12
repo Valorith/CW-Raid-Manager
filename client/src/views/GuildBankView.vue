@@ -392,6 +392,7 @@
                 <span
                   v-if="ownerOverflow(item)"
                   class="pill pill--muted"
+                  :title="hiddenOwnersTooltip(item)"
                 >
                   + {{ ownerOverflowCount(item) }} more
                 </span>
@@ -933,7 +934,7 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-const OWNER_LIMIT = 6;
+const OWNER_LIMIT = 2;
 
 function visibleOwners(item: typeof groupedItems.value[number]) {
   return item.ownerSummaries.slice(0, OWNER_LIMIT);
@@ -945,6 +946,13 @@ function ownerOverflow(item: typeof groupedItems.value[number]) {
 
 function ownerOverflowCount(item: typeof groupedItems.value[number]) {
   return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
+}
+
+function hiddenOwnersTooltip(item: typeof groupedItems.value[number]) {
+  return item.ownerSummaries
+    .slice(OWNER_LIMIT)
+    .map((owner) => `${owner.characterName} (${owner.locationLabel}): ×${owner.totalQuantity}`)
+    .join('\n');
 }
 
 const MAX_REASONABLE_QUANTITY = 1000000;
