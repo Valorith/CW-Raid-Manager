@@ -389,6 +389,12 @@
                 >
                   {{ owner.characterName }} ({{ owner.locationLabel }}) · ×{{ owner.totalQuantity }}
                 </span>
+                <span
+                  v-if="ownerOverflow(item)"
+                  class="pill pill--muted"
+                >
+                  + {{ ownerOverflowCount(item) }} more
+                </span>
               </div>
             </div>
           </li>
@@ -927,7 +933,7 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-const OWNER_LIMIT = 2;
+const OWNER_LIMIT = 6;
 
 function visibleOwners(item: typeof groupedItems.value[number]) {
   return item.ownerSummaries.slice(0, OWNER_LIMIT);
