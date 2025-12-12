@@ -377,7 +377,7 @@
                   <span v-if="cartHasItem(item.key)" class="cart-floating__icon cart-floating__icon--hover">🗑️</span>
                 </button>
               </div>
-              <div class="guild-bank-item__owners">
+              <div class="guild-bank-item__owners" style="max-height: 4.5rem; overflow-y: auto;">
                 <span
                   v-for="owner in visibleOwners(item)"
                   :key="`${owner.characterName}-${owner.locationLabel}`"
