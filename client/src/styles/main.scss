@@ -1769,23 +1769,23 @@ a {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
 
-  &::-webkit-scrollbar {
-    width: 4px;
-  }
+.guild-bank-item__owners::-webkit-scrollbar {
+  width: 4px;
+}
 
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
+.guild-bank-item__owners::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-  &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 2px;
-  }
+.guild-bank-item__owners::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+}
 
-  &::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.5);
-  }
+.guild-bank-item__owners::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .icon-button--cart {
