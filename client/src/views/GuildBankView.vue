@@ -377,7 +377,7 @@
                   <span v-if="cartHasItem(item.key)" class="cart-floating__icon cart-floating__icon--hover">🗑️</span>
                 </button>
               </div>
-              <div class="guild-bank-item__owners">
+              <div class="guild-bank-item__owners" style="max-height: 4.5rem; overflow-y: auto;">
                 <span
                   v-for="owner in visibleOwners(item)"
                   :key="`${owner.characterName}-${owner.locationLabel}`"
@@ -927,18 +927,8 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-const OWNER_LIMIT = 2;
-
 function visibleOwners(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.slice(0, OWNER_LIMIT);
-}
-
-function ownerOverflow(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.length > OWNER_LIMIT;
-}
-
-function ownerOverflowCount(item: typeof groupedItems.value[number]) {
-  return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
+  return item.ownerSummaries;
 }
 
 const MAX_REASONABLE_QUANTITY = 1000000;
