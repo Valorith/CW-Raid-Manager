@@ -391,10 +391,18 @@
                 </span>
                 <span
                   v-if="ownerOverflow(item)"
-                  class="pill pill--muted"
-                  :title="hiddenOwnersTooltip(item)"
+                  class="pill pill--muted owner-overflow-pill"
                 >
                   + {{ ownerOverflowCount(item) }} more
+                  <span class="owner-overflow-tooltip">
+                    <span
+                      v-for="owner in item.ownerSummaries.slice(OWNER_LIMIT)"
+                      :key="`${owner.characterName}-${owner.locationLabel}-hidden`"
+                      class="owner-overflow-tooltip__row"
+                    >
+                      {{ owner.characterName }} ({{ owner.locationLabel }}): ×{{ owner.totalQuantity }}
+                    </span>
+                  </span>
                 </span>
               </div>
             </div>
@@ -1667,3 +1675,48 @@ onBeforeUnmount(() => {
   }
 });
 </script>
+
+<style scoped>
+.owner-overflow-pill {
+  position: relative;
+  cursor: pointer;
+}
+
+.owner-overflow-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  min-width: 200px;
+  max-width: 300px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.owner-overflow-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #334155;
+}
+
+.owner-overflow-pill:hover .owner-overflow-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.owner-overflow-tooltip__row {
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+</style>
