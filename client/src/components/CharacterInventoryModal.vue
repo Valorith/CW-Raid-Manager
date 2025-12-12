@@ -93,6 +93,9 @@
                               />
                               <span v-else-if="getGeneralItem(slot.slotId)" class="eq-inv-slot__icon eq-inv-slot__icon--placeholder">?</span>
                             </div>
+                            <span v-if="getItemStackCount(getGeneralItem(slot.slotId))" class="eq-slot__stack-count">
+                              {{ getItemStackCount(getGeneralItem(slot.slotId)) }}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -124,6 +127,9 @@
                                 alt=""
                               />
                            </div>
+                           <span v-if="getItemStackCount(bagSlot.item)" class="eq-slot__stack-count">
+                             {{ getItemStackCount(bagSlot.item) }}
+                           </span>
                         </div>
                       </div>
                     </div>
@@ -172,11 +178,14 @@
                             />
                             <span v-else-if="getBankItem(slot.slotId)" class="eq-inv-slot__icon eq-inv-slot__icon--placeholder">?</span>
                           </div>
+                          <span v-if="getItemStackCount(getBankItem(slot.slotId))" class="eq-slot__stack-count">
+                            {{ getItemStackCount(getBankItem(slot.slotId)) }}
+                          </span>
                         </div>
                       </div>
                     </section>
                   </div>
-                  
+
                   <!-- Right Pane: Active Bank Bag -->
                   <div class="eq-right-pane">
                     <div v-if="activeBankBagSlotId" class="eq-bag-container">
@@ -202,6 +211,9 @@
                                 alt=""
                               />
                            </div>
+                           <span v-if="getItemStackCount(bagSlot.item)" class="eq-slot__stack-count">
+                             {{ getItemStackCount(bagSlot.item) }}
+                           </span>
                         </div>
                       </div>
                     </div>
@@ -579,6 +591,23 @@ function hideItemTooltip() {
   tooltipStore.hideTooltip();
 }
 
+// Stack count normalization
+const MAX_REASONABLE_QUANTITY = 1000000;
+
+function normalizeQuantity(raw: number | null | undefined): number {
+  if (raw == null) return 1;
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return 1;
+  if (num > MAX_REASONABLE_QUANTITY) return 1; // Treat sentinel values as 1
+  return num;
+}
+
+function getItemStackCount(item: GuildBankItem | null | undefined): number | null {
+  if (!item) return null;
+  const qty = normalizeQuantity(item.charges);
+  return qty > 1 ? qty : null;
+}
+
 </script>
 
 <style scoped>
@@ -885,6 +914,25 @@ function hideItemTooltip() {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+/* Stack Count Badge */
+.eq-slot__stack-count {
+  position: absolute;
+  bottom: 1px;
+  right: 2px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #fef3c7;
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 0 3px rgba(0, 0, 0, 0.8);
+  line-height: 1;
+  pointer-events: none;
+  z-index: 10;
 }
 
 /* Responsive */
