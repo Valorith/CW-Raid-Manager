@@ -927,18 +927,8 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-const OWNER_LIMIT = 2;
-
 function visibleOwners(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.slice(0, OWNER_LIMIT);
-}
-
-function ownerOverflow(item: typeof groupedItems.value[number]) {
-  return item.ownerSummaries.length > OWNER_LIMIT;
-}
-
-function ownerOverflowCount(item: typeof groupedItems.value[number]) {
-  return Math.max(0, item.ownerSummaries.length - OWNER_LIMIT);
+  return item.ownerSummaries;
 }
 
 const MAX_REASONABLE_QUANTITY = 1000000;
