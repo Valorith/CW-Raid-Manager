@@ -145,6 +145,48 @@ function ensureEqDbConfigured(): void {
 
 // Cache for table existence checks - tables don't change at runtime
 const tableExistsCache = new Map<string, boolean>();
+const tableColumnsCache = new Map<string, string[]>();
+
+// Get column names for a table
+async function getTableColumns(tableName: string): Promise<string[]> {
+  const cached = tableColumnsCache.get(tableName);
+  if (cached) return cached;
+
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT COLUMN_NAME as columnName FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [tableName]
+    );
+    const columns = rows.map((r) => String(r.columnName).toLowerCase());
+    tableColumnsCache.set(tableName, columns);
+    return columns;
+  } catch {
+    return [];
+  }
+}
+
+// Helper to find the first matching value from a row given possible column names
+function findValue<T>(row: RowDataPacket, possibleNames: string[], defaultVal: T): T {
+  for (const name of possibleNames) {
+    // Check exact match first
+    if (row[name] !== undefined) return row[name] as T;
+    // Check lowercase version
+    const lower = name.toLowerCase();
+    if (row[lower] !== undefined) return row[lower] as T;
+  }
+  // Check all row keys for partial matches
+  const rowKeys = Object.keys(row);
+  for (const name of possibleNames) {
+    const baseName = name.replace(/_/g, '').toLowerCase();
+    for (const key of rowKeys) {
+      if (key.toLowerCase().replace(/_/g, '') === baseName && row[key] !== undefined) {
+        return row[key] as T;
+      }
+    }
+  }
+  return defaultVal;
+}
 
 async function checkTableExists(tableName: string): Promise<boolean> {
   const cached = tableExistsCache.get(tableName);
@@ -292,12 +334,12 @@ export async function fetchLootMaster(
 
     const data: LootMasterEntry[] = rows.map((row) => ({
       id: row.id,
-      itemId: row.item_id ?? row.itemid ?? 0,
-      itemName: row.item_name ?? row.itemname ?? null,
-      npcName: row.npc_name ?? row.npcname ?? null,
-      zoneName: row.zone_name ?? row.zonename ?? row.zone ?? null,
-      dropChance: row.drop_chance ?? row.dropchance ?? row.chance ?? null,
-      createdAt: row.created_at ?? row.createdat ?? row.date ?? null
+      itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
+      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
+      npcName: findValue<string | null>(row, ['npc_name', 'npcname', 'NpcName', 'npc', 'Npc', 'mob', 'Mob'], null),
+      zoneName: findValue<string | null>(row, ['zone_name', 'zonename', 'ZoneName', 'zone', 'Zone'], null),
+      dropChance: findValue<number | null>(row, ['drop_chance', 'dropchance', 'DropChance', 'chance', 'Chance', 'rate', 'Rate'], null),
+      createdAt: findValue<string | null>(row, ['created_at', 'createdat', 'CreatedAt', 'date', 'Date', 'timestamp'], null)
     }));
 
     return {
@@ -348,11 +390,11 @@ export async function fetchLcItems(
 
     const data: LcItemEntry[] = rows.map((row) => ({
       id: row.id,
-      itemId: row.item_id ?? row.itemid ?? 0,
-      itemName: row.item_name ?? row.itemname ?? null,
-      raidName: row.raid_name ?? row.raidname ?? row.raid ?? null,
-      dateAdded: row.date_added ?? row.dateadded ?? row.created_at ?? null,
-      status: row.status ?? null
+      itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
+      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
+      raidName: findValue<string | null>(row, ['raid_name', 'raidname', 'RaidName', 'raid', 'Raid', 'event', 'Event'], null),
+      dateAdded: findValue<string | null>(row, ['date_added', 'dateadded', 'DateAdded', 'created_at', 'createdAt', 'timestamp', 'date', 'Date'], null),
+      status: findValue<string | null>(row, ['status', 'Status', 'state', 'State'], null)
     }));
 
     return {
@@ -403,14 +445,14 @@ export async function fetchLcRequests(
 
     const data: LcRequestEntry[] = rows.map((row) => ({
       id: row.id,
-      itemId: row.item_id ?? row.itemid ?? 0,
-      itemName: row.item_name ?? row.itemname ?? null,
-      characterName: row.character_name ?? row.charactername ?? row.char_name ?? null,
-      className: row.class_name ?? row.classname ?? row.class ?? null,
-      requestDate: row.request_date ?? row.requestdate ?? row.created_at ?? null,
-      priority: row.priority ?? null,
-      notes: row.notes ?? null,
-      status: row.status ?? null
+      itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
+      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
+      characterName: findValue<string | null>(row, ['character_name', 'charactername', 'CharacterName', 'char_name', 'charname', 'player', 'Player'], null),
+      className: findValue<string | null>(row, ['class_name', 'classname', 'ClassName', 'class', 'Class'], null),
+      requestDate: findValue<string | null>(row, ['request_date', 'requestdate', 'RequestDate', 'created_at', 'createdAt', 'date', 'Date', 'timestamp'], null),
+      priority: findValue<number | null>(row, ['priority', 'Priority', 'prio', 'Prio', 'rank', 'Rank'], null),
+      notes: findValue<string | null>(row, ['notes', 'Notes', 'note', 'Note', 'comment', 'Comment', 'comments', 'Comments'], null),
+      status: findValue<string | null>(row, ['status', 'Status', 'state', 'State'], null)
     }));
 
     return {
@@ -461,14 +503,14 @@ export async function fetchLcVotes(
 
     const data: LcVoteEntry[] = rows.map((row) => ({
       id: row.id,
-      requestId: row.request_id ?? row.requestid ?? 0,
-      voterId: row.voter_id ?? row.voterid ?? 0,
-      voterName: row.voter_name ?? row.votername ?? null,
-      itemName: row.item_name ?? row.itemname ?? null,
-      characterName: row.character_name ?? row.charactername ?? null,
-      vote: row.vote ?? row.vote_value ?? null,
-      voteDate: row.vote_date ?? row.votedate ?? row.created_at ?? null,
-      reason: row.reason ?? row.comment ?? null
+      requestId: findValue<number>(row, ['request_id', 'requestid', 'RequestId', 'req_id', 'reqid'], 0),
+      voterId: findValue<number>(row, ['voter_id', 'voterid', 'VoterId', 'user_id', 'userid'], 0),
+      voterName: findValue<string | null>(row, ['voter_name', 'votername', 'VoterName', 'voter', 'Voter', 'user', 'User'], null),
+      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
+      characterName: findValue<string | null>(row, ['character_name', 'charactername', 'CharacterName', 'char_name', 'charname', 'player', 'Player'], null),
+      vote: findValue<string | null>(row, ['vote', 'Vote', 'vote_value', 'voteValue', 'value', 'Value'], null),
+      voteDate: findValue<string | null>(row, ['vote_date', 'votedate', 'VoteDate', 'created_at', 'createdAt', 'date', 'Date', 'timestamp'], null),
+      reason: findValue<string | null>(row, ['reason', 'Reason', 'comment', 'Comment', 'note', 'Note', 'notes', 'Notes'], null)
     }));
 
     return {
