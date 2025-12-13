@@ -16,9 +16,11 @@ export interface LcItemEntry {
   id: number;
   itemId: number;
   itemName: string | null;
-  raidName: string | null;
-  dateAdded: string | null;
-  status: string | null;
+  raidId: number;
+  npcId: number;
+  status: number | null;
+  type: number | null;
+  awardee: number | null;
 }
 
 export interface LcRequestEntry {
@@ -397,9 +399,11 @@ export async function fetchLcItems(
       id: row.id,
       itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
       itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
-      raidName: String(findValue<number>(row, ['raidid', 'raid_id'], 0) || '-'),
-      dateAdded: null, // Table doesn't have date column
-      status: String(findValue<number | null>(row, ['status', 'Status'], null) ?? '')
+      raidId: findValue<number>(row, ['raidid', 'raid_id'], 0),
+      npcId: findValue<number>(row, ['npcid', 'npc_id'], 0),
+      status: findValue<number | null>(row, ['status', 'Status'], null),
+      type: findValue<number | null>(row, ['type', 'Type'], null),
+      awardee: findValue<number | null>(row, ['awardee', 'Awardee', 'awarded_to'], null)
     }));
 
     return {

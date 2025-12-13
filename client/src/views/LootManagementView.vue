@@ -180,22 +180,26 @@
               <tr>
                 <th>ID</th>
                 <th>Item</th>
-                <th>Raid</th>
+                <th>Raid ID</th>
+                <th>NPC ID</th>
+                <th>Type</th>
                 <th>Status</th>
-                <th>Date Added</th>
+                <th>Awardee</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="entry in lcItemsResult.data" :key="entry.id">
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
-                <td>{{ entry.raidName ?? '-' }}</td>
+                <td>{{ entry.raidId || '-' }}</td>
+                <td>{{ entry.npcId || '-' }}</td>
+                <td>{{ formatType(entry.type) }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
                     {{ formatStatus(entry.status) }}
                   </span>
                 </td>
-                <td>{{ formatDate(entry.dateAdded) }}</td>
+                <td>{{ entry.awardee || '-' }}</td>
               </tr>
             </tbody>
           </table>
@@ -669,6 +673,13 @@ function formatStatus(status: string | number | null | undefined): string {
   if (code === 1) return 'Active';
   if (code === 2) return 'Archived';
   return String(status);
+}
+
+function formatType(type: number | null | undefined): string {
+  if (type == null) return '-';
+  if (type === 1) return 'Drop';
+  if (type === 2) return 'Quest';
+  return String(type);
 }
 
 function statusBadgeClass(status: string | number | null | undefined): string {
