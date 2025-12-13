@@ -13,22 +13,22 @@
     <div class="loot-stats">
       <div class="stat-card">
         <span class="stat-card__label">Loot Master</span>
-        <strong class="stat-card__value">{{ summary.lootMasterCount }}</strong>
+        <strong class="stat-card__value">{{ displayStats.lootMaster }}</strong>
         <span class="stat-card__meta">Total entries</span>
       </div>
       <div class="stat-card stat-card--accent">
         <span class="stat-card__label">LC Items</span>
-        <strong class="stat-card__value">{{ summary.lcItemsCount }}</strong>
+        <strong class="stat-card__value">{{ displayStats.lcItems }}</strong>
         <span class="stat-card__meta">Loot council items</span>
       </div>
       <div class="stat-card">
         <span class="stat-card__label">LC Requests</span>
-        <strong class="stat-card__value">{{ summary.lcRequestsCount }}</strong>
+        <strong class="stat-card__value">{{ displayStats.lcRequests }}</strong>
         <span class="stat-card__meta">Pending requests</span>
       </div>
       <div class="stat-card">
         <span class="stat-card__label">LC Votes</span>
-        <strong class="stat-card__value">{{ summary.lcVotesCount }}</strong>
+        <strong class="stat-card__value">{{ displayStats.lcVotes }}</strong>
         <span class="stat-card__meta">Total votes cast</span>
       </div>
     </div>
@@ -339,7 +339,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import {
   api,
   type LootManagementSummary,
@@ -425,6 +425,14 @@ const lcVotesResult = ref<PaginatedLootResult<LcVoteEntry>>({
   pageSize,
   totalPages: 0
 });
+
+// Use actual paginated totals when available, fallback to summary counts
+const displayStats = computed(() => ({
+  lootMaster: loadedTabs.value.has('loot-master') ? lootMasterResult.value.total : summary.value.lootMasterCount,
+  lcItems: loadedTabs.value.has('lc-items') ? lcItemsResult.value.total : summary.value.lcItemsCount,
+  lcRequests: loadedTabs.value.has('lc-requests') ? lcRequestsResult.value.total : summary.value.lcRequestsCount,
+  lcVotes: loadedTabs.value.has('lc-votes') ? lcVotesResult.value.total : summary.value.lcVotesCount
+}));
 
 // Debounce timers - 500ms to reduce queries while typing
 let lootMasterDebounce: ReturnType<typeof setTimeout> | null = null;
