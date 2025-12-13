@@ -595,9 +595,9 @@ function formatDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
-function statusBadgeClass(status: string | null | undefined): string {
-  if (!status) return 'badge--neutral';
-  const lower = status.toLowerCase();
+function statusBadgeClass(status: string | number | null | undefined): string {
+  if (status == null) return 'badge--neutral';
+  const lower = String(status).toLowerCase();
   if (lower.includes('approved') || lower.includes('complete') || lower.includes('awarded')) {
     return 'badge--positive';
   }
@@ -610,9 +610,9 @@ function statusBadgeClass(status: string | null | undefined): string {
   return 'badge--neutral';
 }
 
-function voteBadgeClass(vote: string | null | undefined): string {
-  if (!vote) return 'badge--neutral';
-  const lower = vote.toLowerCase();
+function voteBadgeClass(vote: string | number | null | undefined): string {
+  if (vote == null) return 'badge--neutral';
+  const lower = String(vote).toLowerCase();
   if (lower.includes('yes') || lower.includes('approve') || lower === '+1' || lower === '1') {
     return 'badge--positive';
   }
