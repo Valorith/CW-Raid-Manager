@@ -388,6 +388,12 @@ export async function fetchLcItems(
     const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
     const total = Number(countRows[0]?.total ?? 0);
 
+    // Log actual columns and first row for debugging
+    if (rows.length > 0) {
+      console.log('[LC_ITEMS] Actual columns:', Object.keys(rows[0]));
+      console.log('[LC_ITEMS] First row sample:', JSON.stringify(rows[0], null, 2));
+    }
+
     const data: LcItemEntry[] = rows.map((row) => ({
       id: row.id,
       itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
