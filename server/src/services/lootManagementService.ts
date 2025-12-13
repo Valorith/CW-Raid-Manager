@@ -143,49 +143,116 @@ function ensureEqDbConfigured(): void {
   }
 }
 
-async function tableExists(tableName: string): Promise<boolean> {
+// Cache for table existence checks - tables don't change at runtime
+const tableExistsCache = new Map<string, boolean>();
+
+async function checkTableExists(tableName: string): Promise<boolean> {
+  const cached = tableExistsCache.get(tableName);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   try {
     const rows = await queryEqDb<RowDataPacket[]>(
       `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
       [tableName]
     );
-    return rows.length > 0;
+    const exists = rows.length > 0;
+    tableExistsCache.set(tableName, exists);
+    return exists;
   } catch {
+    tableExistsCache.set(tableName, false);
     return false;
   }
 }
 
-async function getTableCount(tableName: string): Promise<number> {
-  try {
-    const exists = await tableExists(tableName);
-    if (!exists) return 0;
+// Get all table existence in a single query
+async function getExistingTables(): Promise<Set<string>> {
+  const tableNames = ['loot_master', 'lc_items', 'lc_requests', 'lc_votes'];
 
+  // Check cache first
+  const allCached = tableNames.every((name) => tableExistsCache.has(name));
+  if (allCached) {
+    return new Set(tableNames.filter((name) => tableExistsCache.get(name)));
+  }
+
+  try {
+    const placeholders = tableNames.map(() => '?').join(', ');
     const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT COUNT(*) as count FROM \`${tableName}\``
+      `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (${placeholders})`,
+      tableNames
     );
-    return Number(rows[0]?.count ?? 0);
+
+    const existing = new Set<string>();
+    for (const row of rows) {
+      const name = row.tableName as string;
+      existing.add(name);
+      tableExistsCache.set(name, true);
+    }
+
+    // Cache non-existing tables too
+    for (const name of tableNames) {
+      if (!existing.has(name)) {
+        tableExistsCache.set(name, false);
+      }
+    }
+
+    return existing;
   } catch {
-    return 0;
+    return new Set();
   }
 }
 
 export async function getLootManagementSummary(): Promise<LootManagementSummary> {
   ensureEqDbConfigured();
 
-  const [lootMasterCount, lcItemsCount, lcRequestsCount, lcVotesCount] = await Promise.all([
-    getTableCount('loot_master'),
-    getTableCount('lc_items'),
-    getTableCount('lc_requests'),
-    getTableCount('lc_votes')
-  ]);
+  const existingTables = await getExistingTables();
 
-  return {
-    lootMasterCount,
-    lcItemsCount,
-    lcRequestsCount,
-    lcVotesCount
-  };
+  // Build a single query to get all counts at once
+  const countParts: string[] = [];
+
+  if (existingTables.has('loot_master')) {
+    countParts.push(`(SELECT COUNT(*) FROM loot_master) as loot_master_count`);
+  }
+  if (existingTables.has('lc_items')) {
+    countParts.push(`(SELECT COUNT(*) FROM lc_items) as lc_items_count`);
+  }
+  if (existingTables.has('lc_requests')) {
+    countParts.push(`(SELECT COUNT(*) FROM lc_requests) as lc_requests_count`);
+  }
+  if (existingTables.has('lc_votes')) {
+    countParts.push(`(SELECT COUNT(*) FROM lc_votes) as lc_votes_count`);
+  }
+
+  if (countParts.length === 0) {
+    return {
+      lootMasterCount: 0,
+      lcItemsCount: 0,
+      lcRequestsCount: 0,
+      lcVotesCount: 0
+    };
+  }
+
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(`SELECT ${countParts.join(', ')}`);
+    const row = rows[0] ?? {};
+
+    return {
+      lootMasterCount: Number(row.loot_master_count ?? 0),
+      lcItemsCount: Number(row.lc_items_count ?? 0),
+      lcRequestsCount: Number(row.lc_requests_count ?? 0),
+      lcVotesCount: Number(row.lc_votes_count ?? 0)
+    };
+  } catch {
+    return {
+      lootMasterCount: 0,
+      lcItemsCount: 0,
+      lcRequestsCount: 0,
+      lcVotesCount: 0
+    };
+  }
 }
 
 export async function fetchLootMaster(
@@ -195,7 +262,7 @@ export async function fetchLootMaster(
 ): Promise<PaginatedResult<LootMasterEntry>> {
   ensureEqDbConfigured();
 
-  const exists = await tableExists('loot_master');
+  const exists = await checkTableExists('loot_master');
   if (!exists) {
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
@@ -210,39 +277,39 @@ export async function fetchLootMaster(
     params.push(searchPattern, searchPattern, searchPattern);
   }
 
-  const countQuery = `SELECT COUNT(*) as total FROM loot_master ${whereClause}`;
-  const countRows = await queryEqDb<RowDataPacket[]>(countQuery, params);
-  const total = Number(countRows[0]?.total ?? 0);
-
-  if (total === 0) {
-    return { data: [], total: 0, page, pageSize, totalPages: 0 };
-  }
-
+  // Use SQL_CALC_FOUND_ROWS to get count and data in fewer round trips
   const dataQuery = `
-    SELECT * FROM loot_master
+    SELECT SQL_CALC_FOUND_ROWS * FROM loot_master
     ${whereClause}
     ORDER BY id DESC
     LIMIT ? OFFSET ?
   `;
-  const rows = await queryEqDb<LootMasterRow[]>(dataQuery, [...params, pageSize, offset]);
 
-  const data: LootMasterEntry[] = rows.map((row) => ({
-    id: row.id,
-    itemId: row.item_id ?? row.itemid ?? 0,
-    itemName: row.item_name ?? row.itemname ?? null,
-    npcName: row.npc_name ?? row.npcname ?? null,
-    zoneName: row.zone_name ?? row.zonename ?? row.zone ?? null,
-    dropChance: row.drop_chance ?? row.dropchance ?? row.chance ?? null,
-    createdAt: row.created_at ?? row.createdat ?? row.date ?? null
-  }));
+  try {
+    const rows = await queryEqDb<LootMasterRow[]>(dataQuery, [...params, pageSize, offset]);
+    const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
+    const total = Number(countRows[0]?.total ?? 0);
 
-  return {
-    data,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize)
-  };
+    const data: LootMasterEntry[] = rows.map((row) => ({
+      id: row.id,
+      itemId: row.item_id ?? row.itemid ?? 0,
+      itemName: row.item_name ?? row.itemname ?? null,
+      npcName: row.npc_name ?? row.npcname ?? null,
+      zoneName: row.zone_name ?? row.zonename ?? row.zone ?? null,
+      dropChance: row.drop_chance ?? row.dropchance ?? row.chance ?? null,
+      createdAt: row.created_at ?? row.createdat ?? row.date ?? null
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
+    };
+  } catch {
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
 }
 
 export async function fetchLcItems(
@@ -252,7 +319,7 @@ export async function fetchLcItems(
 ): Promise<PaginatedResult<LcItemEntry>> {
   ensureEqDbConfigured();
 
-  const exists = await tableExists('lc_items');
+  const exists = await checkTableExists('lc_items');
   if (!exists) {
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
@@ -267,38 +334,37 @@ export async function fetchLcItems(
     params.push(searchPattern, searchPattern);
   }
 
-  const countQuery = `SELECT COUNT(*) as total FROM lc_items ${whereClause}`;
-  const countRows = await queryEqDb<RowDataPacket[]>(countQuery, params);
-  const total = Number(countRows[0]?.total ?? 0);
-
-  if (total === 0) {
-    return { data: [], total: 0, page, pageSize, totalPages: 0 };
-  }
-
   const dataQuery = `
-    SELECT * FROM lc_items
+    SELECT SQL_CALC_FOUND_ROWS * FROM lc_items
     ${whereClause}
     ORDER BY id DESC
     LIMIT ? OFFSET ?
   `;
-  const rows = await queryEqDb<LcItemRow[]>(dataQuery, [...params, pageSize, offset]);
 
-  const data: LcItemEntry[] = rows.map((row) => ({
-    id: row.id,
-    itemId: row.item_id ?? row.itemid ?? 0,
-    itemName: row.item_name ?? row.itemname ?? null,
-    raidName: row.raid_name ?? row.raidname ?? row.raid ?? null,
-    dateAdded: row.date_added ?? row.dateadded ?? row.created_at ?? null,
-    status: row.status ?? null
-  }));
+  try {
+    const rows = await queryEqDb<LcItemRow[]>(dataQuery, [...params, pageSize, offset]);
+    const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
+    const total = Number(countRows[0]?.total ?? 0);
 
-  return {
-    data,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize)
-  };
+    const data: LcItemEntry[] = rows.map((row) => ({
+      id: row.id,
+      itemId: row.item_id ?? row.itemid ?? 0,
+      itemName: row.item_name ?? row.itemname ?? null,
+      raidName: row.raid_name ?? row.raidname ?? row.raid ?? null,
+      dateAdded: row.date_added ?? row.dateadded ?? row.created_at ?? null,
+      status: row.status ?? null
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
+    };
+  } catch {
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
 }
 
 export async function fetchLcRequests(
@@ -308,7 +374,7 @@ export async function fetchLcRequests(
 ): Promise<PaginatedResult<LcRequestEntry>> {
   ensureEqDbConfigured();
 
-  const exists = await tableExists('lc_requests');
+  const exists = await checkTableExists('lc_requests');
   if (!exists) {
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
@@ -323,41 +389,40 @@ export async function fetchLcRequests(
     params.push(searchPattern, searchPattern, searchPattern);
   }
 
-  const countQuery = `SELECT COUNT(*) as total FROM lc_requests ${whereClause}`;
-  const countRows = await queryEqDb<RowDataPacket[]>(countQuery, params);
-  const total = Number(countRows[0]?.total ?? 0);
-
-  if (total === 0) {
-    return { data: [], total: 0, page, pageSize, totalPages: 0 };
-  }
-
   const dataQuery = `
-    SELECT * FROM lc_requests
+    SELECT SQL_CALC_FOUND_ROWS * FROM lc_requests
     ${whereClause}
     ORDER BY id DESC
     LIMIT ? OFFSET ?
   `;
-  const rows = await queryEqDb<LcRequestRow[]>(dataQuery, [...params, pageSize, offset]);
 
-  const data: LcRequestEntry[] = rows.map((row) => ({
-    id: row.id,
-    itemId: row.item_id ?? row.itemid ?? 0,
-    itemName: row.item_name ?? row.itemname ?? null,
-    characterName: row.character_name ?? row.charactername ?? row.char_name ?? null,
-    className: row.class_name ?? row.classname ?? row.class ?? null,
-    requestDate: row.request_date ?? row.requestdate ?? row.created_at ?? null,
-    priority: row.priority ?? null,
-    notes: row.notes ?? null,
-    status: row.status ?? null
-  }));
+  try {
+    const rows = await queryEqDb<LcRequestRow[]>(dataQuery, [...params, pageSize, offset]);
+    const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
+    const total = Number(countRows[0]?.total ?? 0);
 
-  return {
-    data,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize)
-  };
+    const data: LcRequestEntry[] = rows.map((row) => ({
+      id: row.id,
+      itemId: row.item_id ?? row.itemid ?? 0,
+      itemName: row.item_name ?? row.itemname ?? null,
+      characterName: row.character_name ?? row.charactername ?? row.char_name ?? null,
+      className: row.class_name ?? row.classname ?? row.class ?? null,
+      requestDate: row.request_date ?? row.requestdate ?? row.created_at ?? null,
+      priority: row.priority ?? null,
+      notes: row.notes ?? null,
+      status: row.status ?? null
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
+    };
+  } catch {
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
 }
 
 export async function fetchLcVotes(
@@ -367,7 +432,7 @@ export async function fetchLcVotes(
 ): Promise<PaginatedResult<LcVoteEntry>> {
   ensureEqDbConfigured();
 
-  const exists = await tableExists('lc_votes');
+  const exists = await checkTableExists('lc_votes');
   if (!exists) {
     return { data: [], total: 0, page, pageSize, totalPages: 0 };
   }
@@ -382,39 +447,38 @@ export async function fetchLcVotes(
     params.push(searchPattern, searchPattern, searchPattern);
   }
 
-  const countQuery = `SELECT COUNT(*) as total FROM lc_votes ${whereClause}`;
-  const countRows = await queryEqDb<RowDataPacket[]>(countQuery, params);
-  const total = Number(countRows[0]?.total ?? 0);
-
-  if (total === 0) {
-    return { data: [], total: 0, page, pageSize, totalPages: 0 };
-  }
-
   const dataQuery = `
-    SELECT * FROM lc_votes
+    SELECT SQL_CALC_FOUND_ROWS * FROM lc_votes
     ${whereClause}
     ORDER BY id DESC
     LIMIT ? OFFSET ?
   `;
-  const rows = await queryEqDb<LcVoteRow[]>(dataQuery, [...params, pageSize, offset]);
 
-  const data: LcVoteEntry[] = rows.map((row) => ({
-    id: row.id,
-    requestId: row.request_id ?? row.requestid ?? 0,
-    voterId: row.voter_id ?? row.voterid ?? 0,
-    voterName: row.voter_name ?? row.votername ?? null,
-    itemName: row.item_name ?? row.itemname ?? null,
-    characterName: row.character_name ?? row.charactername ?? null,
-    vote: row.vote ?? row.vote_value ?? null,
-    voteDate: row.vote_date ?? row.votedate ?? row.created_at ?? null,
-    reason: row.reason ?? row.comment ?? null
-  }));
+  try {
+    const rows = await queryEqDb<LcVoteRow[]>(dataQuery, [...params, pageSize, offset]);
+    const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
+    const total = Number(countRows[0]?.total ?? 0);
 
-  return {
-    data,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize)
-  };
+    const data: LcVoteEntry[] = rows.map((row) => ({
+      id: row.id,
+      requestId: row.request_id ?? row.requestid ?? 0,
+      voterId: row.voter_id ?? row.voterid ?? 0,
+      voterName: row.voter_name ?? row.votername ?? null,
+      itemName: row.item_name ?? row.itemname ?? null,
+      characterName: row.character_name ?? row.charactername ?? null,
+      vote: row.vote ?? row.vote_value ?? null,
+      voteDate: row.vote_date ?? row.votedate ?? row.created_at ?? null,
+      reason: row.reason ?? row.comment ?? null
+    }));
+
+    return {
+      data,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize)
+    };
+  } catch {
+    return { data: [], total: 0, page, pageSize, totalPages: 0 };
+  }
 }

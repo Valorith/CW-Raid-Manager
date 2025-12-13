@@ -366,6 +366,9 @@ const tabs: Tab[] = [
 
 const activeTab = ref<TabId>('loot-master');
 
+// Track which tabs have been loaded to avoid unnecessary reloads
+const loadedTabs = ref<Set<TabId>>(new Set());
+
 const summary = ref<LootManagementSummary>({
   lootMasterCount: 0,
   lcItemsCount: 0,
@@ -423,7 +426,7 @@ const lcVotesResult = ref<PaginatedLootResult<LcVoteEntry>>({
   totalPages: 0
 });
 
-// Debounce timers
+// Debounce timers - 500ms to reduce queries while typing
 let lootMasterDebounce: ReturnType<typeof setTimeout> | null = null;
 let lcItemsDebounce: ReturnType<typeof setTimeout> | null = null;
 let lcRequestsDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -445,6 +448,7 @@ async function loadLootMasterData() {
       pageSize,
       lootMasterSearch.value || undefined
     );
+    loadedTabs.value.add('loot-master');
   } catch (error) {
     console.error('Failed to load loot master data', error);
   } finally {
@@ -460,6 +464,7 @@ async function loadLcItemsData() {
       pageSize,
       lcItemsSearch.value || undefined
     );
+    loadedTabs.value.add('lc-items');
   } catch (error) {
     console.error('Failed to load LC items data', error);
   } finally {
@@ -475,6 +480,7 @@ async function loadLcRequestsData() {
       pageSize,
       lcRequestsSearch.value || undefined
     );
+    loadedTabs.value.add('lc-requests');
   } catch (error) {
     console.error('Failed to load LC requests data', error);
   } finally {
@@ -490,6 +496,7 @@ async function loadLcVotesData() {
       pageSize,
       lcVotesSearch.value || undefined
     );
+    loadedTabs.value.add('lc-votes');
   } catch (error) {
     console.error('Failed to load LC votes data', error);
   } finally {
@@ -499,20 +506,22 @@ async function loadLcVotesData() {
 
 function setActiveTab(tabId: TabId) {
   activeTab.value = tabId;
-  // Load data for the selected tab if not already loaded
-  switch (tabId) {
-    case 'loot-master':
-      if (lootMasterResult.value.data.length === 0) loadLootMasterData();
-      break;
-    case 'lc-items':
-      if (lcItemsResult.value.data.length === 0) loadLcItemsData();
-      break;
-    case 'lc-requests':
-      if (lcRequestsResult.value.data.length === 0) loadLcRequestsData();
-      break;
-    case 'lc-votes':
-      if (lcVotesResult.value.data.length === 0) loadLcVotesData();
-      break;
+  // Load data for the selected tab only if not already loaded
+  if (!loadedTabs.value.has(tabId)) {
+    switch (tabId) {
+      case 'loot-master':
+        loadLootMasterData();
+        break;
+      case 'lc-items':
+        loadLcItemsData();
+        break;
+      case 'lc-requests':
+        loadLcRequestsData();
+        break;
+      case 'lc-votes':
+        loadLcVotesData();
+        break;
+    }
   }
 }
 
@@ -541,7 +550,7 @@ function debouncedLootMasterSearch() {
   lootMasterDebounce = setTimeout(() => {
     lootMasterPage.value = 1;
     loadLootMasterData();
-  }, 300);
+  }, 500);
 }
 
 function debouncedLcItemsSearch() {
@@ -549,7 +558,7 @@ function debouncedLcItemsSearch() {
   lcItemsDebounce = setTimeout(() => {
     lcItemsPage.value = 1;
     loadLcItemsData();
-  }, 300);
+  }, 500);
 }
 
 function debouncedLcRequestsSearch() {
@@ -557,7 +566,7 @@ function debouncedLcRequestsSearch() {
   lcRequestsDebounce = setTimeout(() => {
     lcRequestsPage.value = 1;
     loadLcRequestsData();
-  }, 300);
+  }, 500);
 }
 
 function debouncedLcVotesSearch() {
@@ -565,7 +574,7 @@ function debouncedLcVotesSearch() {
   lcVotesDebounce = setTimeout(() => {
     lcVotesPage.value = 1;
     loadLcVotesData();
-  }, 300);
+  }, 500);
 }
 
 function formatDate(value: string | null | undefined): string {
