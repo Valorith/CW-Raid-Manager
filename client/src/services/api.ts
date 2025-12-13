@@ -1156,6 +1156,65 @@ export interface AdminRaidDetail extends AdminRaidSummary {
   }>;
 }
 
+// Loot Management Types
+export interface LootManagementSummary {
+  lootMasterCount: number;
+  lcItemsCount: number;
+  lcRequestsCount: number;
+  lcVotesCount: number;
+}
+
+export interface LootMasterEntry {
+  id: number;
+  itemId: number;
+  itemName: string | null;
+  npcName: string | null;
+  zoneName: string | null;
+  dropChance: number | null;
+  createdAt: string | null;
+}
+
+export interface LcItemEntry {
+  id: number;
+  itemId: number;
+  itemName: string | null;
+  raidName: string | null;
+  dateAdded: string | null;
+  status: string | null;
+}
+
+export interface LcRequestEntry {
+  id: number;
+  itemId: number;
+  itemName: string | null;
+  characterName: string | null;
+  className: string | null;
+  requestDate: string | null;
+  priority: number | null;
+  notes: string | null;
+  status: string | null;
+}
+
+export interface LcVoteEntry {
+  id: number;
+  requestId: number;
+  voterId: number;
+  voterName: string | null;
+  itemName: string | null;
+  characterName: string | null;
+  vote: string | null;
+  voteDate: string | null;
+  reason: string | null;
+}
+
+export interface PaginatedLootResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 function normalizeAttendanceRecord(record: any): AttendanceRecordSummary {
   return {
     id: record.id,
@@ -3081,6 +3140,80 @@ export const api = {
     date: string
   ): Promise<{ details: AvailabilityUserDetail[] }> {
     const response = await axios.get(`/api/availability/guild/${guildId}/details?date=${encodeURIComponent(date)}`);
+    return response.data;
+  },
+
+  // Loot Management APIs
+
+  /**
+   * Fetches summary counts for all loot management tables.
+   */
+  async fetchLootManagementSummary(): Promise<LootManagementSummary> {
+    const response = await axios.get('/api/admin/loot-management/summary');
+    return response.data.summary;
+  },
+
+  /**
+   * Fetches paginated loot master data.
+   */
+  async fetchLootMaster(
+    page: number = 1,
+    pageSize: number = 25,
+    search?: string
+  ): Promise<PaginatedLootResult<LootMasterEntry>> {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('pageSize', String(pageSize));
+    if (search) params.append('search', search);
+    const response = await axios.get(`/api/admin/loot-management/loot-master?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Fetches paginated LC items data.
+   */
+  async fetchLcItems(
+    page: number = 1,
+    pageSize: number = 25,
+    search?: string
+  ): Promise<PaginatedLootResult<LcItemEntry>> {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('pageSize', String(pageSize));
+    if (search) params.append('search', search);
+    const response = await axios.get(`/api/admin/loot-management/lc-items?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Fetches paginated LC requests data.
+   */
+  async fetchLcRequests(
+    page: number = 1,
+    pageSize: number = 25,
+    search?: string
+  ): Promise<PaginatedLootResult<LcRequestEntry>> {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('pageSize', String(pageSize));
+    if (search) params.append('search', search);
+    const response = await axios.get(`/api/admin/loot-management/lc-requests?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Fetches paginated LC votes data.
+   */
+  async fetchLcVotes(
+    page: number = 1,
+    pageSize: number = 25,
+    search?: string
+  ): Promise<PaginatedLootResult<LcVoteEntry>> {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('pageSize', String(pageSize));
+    if (search) params.append('search', search);
+    const response = await axios.get(`/api/admin/loot-management/lc-votes?${params.toString()}`);
     return response.data;
   }
 

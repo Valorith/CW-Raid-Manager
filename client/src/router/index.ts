@@ -92,6 +92,12 @@ const router = createRouter({
       name: 'Admin',
       component: () => import('../views/AdminView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/loot-management',
+      name: 'LootManagement',
+      component: () => import('../views/LootManagementView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });
