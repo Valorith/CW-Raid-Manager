@@ -2,8 +2,8 @@
   <section class="loot-management">
     <header class="section-header">
       <div class="section-header__titles">
-        <h1>Loot Management</h1>
-        <p class="muted">View and manage loot council data from the EQEmu database.</p>
+        <h1>Loot Master Diagnostics</h1>
+        <p class="muted">View loot council data from the EQEmu database.</p>
       </div>
       <router-link to="/admin" class="btn btn--outline">
         Back to Admin
@@ -244,7 +244,7 @@
           v-model="lcRequestsSearch"
           type="search"
           class="input input--search"
-          placeholder="Search by item, character, or class..."
+          placeholder="Search by item name..."
           @input="debouncedLcRequestsSearch"
         />
         <div v-if="lcRequestsResult.totalPages > 1" class="pagination pagination--top">
@@ -271,27 +271,19 @@
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Event ID</th>
+                <th>Char ID</th>
                 <th>Item</th>
-                <th>Character</th>
-                <th>Class</th>
-                <th>Priority</th>
-                <th>Status</th>
-                <th>Request Date</th>
+                <th>Replaced Item ID</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="entry in lcRequestsResult.data" :key="entry.id">
                 <td>{{ entry.id }}</td>
+                <td>{{ entry.eventId || '-' }}</td>
+                <td>{{ entry.charId || '-' }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
-                <td>{{ entry.characterName ?? '-' }}</td>
-                <td>{{ entry.className ?? '-' }}</td>
-                <td>{{ entry.priority ?? '-' }}</td>
-                <td>
-                  <span :class="['badge', statusBadgeClass(entry.status)]">
-                    {{ formatStatus(entry.status) }}
-                  </span>
-                </td>
-                <td>{{ formatDate(entry.requestDate) }}</td>
+                <td>{{ entry.replacedItemId || '-' }}</td>
               </tr>
             </tbody>
           </table>

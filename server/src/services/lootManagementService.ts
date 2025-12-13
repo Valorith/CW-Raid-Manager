@@ -25,14 +25,11 @@ export interface LcItemEntry {
 
 export interface LcRequestEntry {
   id: number;
+  eventId: number;
+  charId: number;
   itemId: number;
   itemName: string | null;
-  characterName: string | null;
-  className: string | null;
-  requestDate: string | null;
-  priority: number | null;
-  notes: string | null;
-  status: string | null;
+  replacedItemId: number | null;
 }
 
 export interface LcVoteEntry {
@@ -465,14 +462,11 @@ export async function fetchLcRequests(
 
     const data: LcRequestEntry[] = rows.map((row) => ({
       id: row.id,
+      eventId: findValue<number>(row, ['eventid', 'event_id', 'EventId'], 0),
+      charId: findValue<number>(row, ['charid', 'char_id', 'CharId', 'character_id'], 0),
       itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
       itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
-      characterName: findValue<string | null>(row, ['character_name', 'charactername', 'CharacterName', 'char_name', 'charname', 'player', 'Player', 'charid'], null),
-      className: findValue<string | null>(row, ['class_name', 'classname', 'ClassName', 'class', 'Class'], null),
-      requestDate: findValue<string | null>(row, ['request_date', 'requestdate', 'RequestDate', 'created_at', 'createdAt', 'date', 'Date', 'timestamp'], null),
-      priority: findValue<number | null>(row, ['priority', 'Priority', 'prio', 'Prio', 'rank', 'Rank'], null),
-      notes: findValue<string | null>(row, ['notes', 'Notes', 'note', 'Note', 'comment', 'Comment', 'comments', 'Comments'], null),
-      status: findValue<string | null>(row, ['status', 'Status', 'state', 'State'], null)
+      replacedItemId: findValue<number | null>(row, ['replaceditemid', 'replaced_item_id', 'ReplacedItemId'], null)
     }));
 
     return {

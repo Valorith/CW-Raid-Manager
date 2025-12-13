@@ -1187,14 +1187,11 @@ export interface LcItemEntry {
 
 export interface LcRequestEntry {
   id: number;
+  eventId: number;
+  charId: number;
   itemId: number;
   itemName: string | null;
-  characterName: string | null;
-  className: string | null;
-  requestDate: string | null;
-  priority: number | null;
-  notes: string | null;
-  status: string | null;
+  replacedItemId: number | null;
 }
 
 export interface LcVoteEntry {
