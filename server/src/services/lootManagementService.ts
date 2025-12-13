@@ -397,7 +397,7 @@ export async function fetchLcItems(
       id: row.id,
       itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
       itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
-      raidName: `Raid #${findValue<number>(row, ['raidid', 'raid_id'], 0)}`,
+      raidName: String(findValue<number>(row, ['raidid', 'raid_id'], 0) || '-'),
       dateAdded: null, // Table doesn't have date column
       status: String(findValue<number | null>(row, ['status', 'Status'], null) ?? '')
     }));
