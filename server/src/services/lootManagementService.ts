@@ -29,9 +29,11 @@ export interface LcRequestEntry {
   id: number;
   eventId: number;
   charId: number;
+  charName: string | null;
   itemId: number;
   itemName: string | null;
   replacedItemId: number | null;
+  replacedItemName: string | null;
 }
 
 export interface LcVoteEntry {
@@ -445,13 +447,17 @@ export async function fetchLcRequests(
     params.push(searchPattern);
   }
 
-  // JOIN with items table to get item names
+  // JOIN with items and character_data tables to get names
   const dataQuery = `
     SELECT SQL_CALC_FOUND_ROWS
       lr.*,
-      i.Name as item_name
+      i.Name as item_name,
+      ch.name as char_name,
+      ri.Name as replaced_item_name
     FROM lc_requests lr
     LEFT JOIN items i ON lr.itemid = i.id
+    LEFT JOIN character_data ch ON lr.charid = ch.id
+    LEFT JOIN items ri ON lr.replaceditemid = ri.id
     ${whereClause}
     ORDER BY lr.id DESC
     LIMIT ? OFFSET ?
@@ -472,9 +478,11 @@ export async function fetchLcRequests(
       id: row.id,
       eventId: findValue<number>(row, ['eventid', 'event_id', 'EventId'], 0),
       charId: findValue<number>(row, ['charid', 'char_id', 'CharId', 'character_id'], 0),
+      charName: findValue<string | null>(row, ['char_name', 'charname', 'CharName', 'character_name'], null),
       itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
       itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
-      replacedItemId: findValue<number | null>(row, ['replaceditemid', 'replaced_item_id', 'ReplacedItemId'], null)
+      replacedItemId: findValue<number | null>(row, ['replaceditemid', 'replaced_item_id', 'ReplacedItemId'], null),
+      replacedItemName: findValue<string | null>(row, ['replaced_item_name', 'replaceditemname', 'ReplacedItemName'], null)
     }));
 
     return {

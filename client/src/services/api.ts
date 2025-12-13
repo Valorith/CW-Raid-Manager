@@ -1191,9 +1191,11 @@ export interface LcRequestEntry {
   id: number;
   eventId: number;
   charId: number;
+  charName: string | null;
   itemId: number;
   itemName: string | null;
   replacedItemId: number | null;
+  replacedItemName: string | null;
 }
 
 export interface LcVoteEntry {

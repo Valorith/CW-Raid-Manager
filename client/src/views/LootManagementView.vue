@@ -104,7 +104,7 @@
               <tr v-for="entry in lootMasterResult.data" :key="entry.id">
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
-                <td>{{ entry.npcName ?? '-' }}</td>
+                <td>{{ formatNpcName(entry.npcName) || '-' }}</td>
                 <td>{{ entry.zoneName ?? '-' }}</td>
                 <td>{{ entry.dropChance != null ? `${entry.dropChance}%` : '-' }}</td>
                 <td>{{ formatDate(entry.createdAt) }}</td>
@@ -192,7 +192,7 @@
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
                 <td>{{ entry.raidId || '-' }}</td>
-                <td>{{ entry.npcName || (entry.npcId ? `#${entry.npcId}` : '-') }}</td>
+                <td>{{ formatNpcName(entry.npcName) || (entry.npcId ? `#${entry.npcId}` : '-') }}</td>
                 <td>{{ formatType(entry.type) }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
@@ -272,18 +272,18 @@
               <tr>
                 <th>ID</th>
                 <th>Event ID</th>
-                <th>Char ID</th>
+                <th>Character</th>
                 <th>Item</th>
-                <th>Replaced Item ID</th>
+                <th>Replaced Item</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="entry in lcRequestsResult.data" :key="entry.id">
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.eventId || '-' }}</td>
-                <td>{{ entry.charId || '-' }}</td>
+                <td>{{ entry.charName || (entry.charId ? `#${entry.charId}` : '-') }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
-                <td>{{ entry.replacedItemId || '-' }}</td>
+                <td>{{ entry.replacedItemName || (entry.replacedItemId ? `#${entry.replacedItemId}` : '-') }}</td>
               </tr>
             </tbody>
           </table>
@@ -704,6 +704,11 @@ function voteBadgeClass(vote: string | number | null | undefined): string {
     return 'badge--negative';
   }
   return 'badge--neutral';
+}
+
+function formatNpcName(name: string | null | undefined): string {
+  if (!name) return '';
+  return name.replace(/_/g, ' ');
 }
 
 onMounted(async () => {
