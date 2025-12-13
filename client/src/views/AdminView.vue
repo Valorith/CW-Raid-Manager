@@ -6,7 +6,7 @@
         <p class="muted">Centralize user and guild management for the platform.</p>
       </div>
       <router-link to="/admin/loot-management" class="btn btn--accent">
-        Loot Management
+        Master Loot Diagnostics
       </router-link>
     </header>
 
