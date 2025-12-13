@@ -21,6 +21,13 @@ import {
   updateUserByAdmin,
   upsertGuildMembershipAsAdmin
 } from '../services/adminService.js';
+import {
+  fetchLcItems,
+  fetchLcRequests,
+  fetchLcVotes,
+  fetchLootMaster,
+  getLootManagementSummary
+} from '../services/lootManagementService.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
   try {
@@ -414,6 +421,146 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to delete raid event.');
+      }
+    }
+  );
+
+  // Loot Management Routes
+  server.get(
+    '/loot-management/summary',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const summary = await getLootManagementSummary();
+        return { summary };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch loot management summary.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch loot management summary.');
+      }
+    }
+  );
+
+  server.get(
+    '/loot-management/loot-master',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(25),
+        search: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        const result = await fetchLootMaster(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch loot master data.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch loot master data.');
+      }
+    }
+  );
+
+  server.get(
+    '/loot-management/lc-items',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(25),
+        search: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        const result = await fetchLcItems(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch LC items data.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch LC items data.');
+      }
+    }
+  );
+
+  server.get(
+    '/loot-management/lc-requests',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(25),
+        search: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        const result = await fetchLcRequests(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch LC requests data.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch LC requests data.');
+      }
+    }
+  );
+
+  server.get(
+    '/loot-management/lc-votes',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(25),
+        search: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        const result = await fetchLcVotes(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch LC votes data.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch LC votes data.');
       }
     }
   );
