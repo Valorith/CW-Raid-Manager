@@ -192,7 +192,7 @@
                 <td>{{ entry.raidName ?? '-' }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
-                    {{ entry.status ?? 'Unknown' }}
+                    {{ formatStatus(entry.status) }}
                   </span>
                 </td>
                 <td>{{ formatDate(entry.dateAdded) }}</td>
@@ -284,7 +284,7 @@
                 <td>{{ entry.priority ?? '-' }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
-                    {{ entry.status ?? 'Unknown' }}
+                    {{ formatStatus(entry.status) }}
                   </span>
                 </td>
                 <td>{{ formatDate(entry.requestDate) }}</td>
@@ -663,10 +663,23 @@ function formatDate(value: string | null | undefined): string {
   }).format(parsed);
 }
 
+function formatStatus(status: string | number | null | undefined): string {
+  if (status == null) return 'Unknown';
+  const code = typeof status === 'number' ? status : parseInt(String(status), 10);
+  if (code === 1) return 'Active';
+  if (code === 2) return 'Archived';
+  return String(status);
+}
+
 function statusBadgeClass(status: string | number | null | undefined): string {
   if (status == null) return 'badge--neutral';
+  // Handle numeric status codes
+  const code = typeof status === 'number' ? status : parseInt(String(status), 10);
+  if (code === 1) return 'badge--positive'; // Active
+  if (code === 2) return 'badge--neutral';  // Archived
+  // Handle string status values
   const lower = String(status).toLowerCase();
-  if (lower.includes('approved') || lower.includes('complete') || lower.includes('awarded')) {
+  if (lower.includes('approved') || lower.includes('complete') || lower.includes('awarded') || lower.includes('active')) {
     return 'badge--positive';
   }
   if (lower.includes('denied') || lower.includes('rejected') || lower.includes('cancelled')) {
