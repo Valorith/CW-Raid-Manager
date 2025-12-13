@@ -521,6 +521,12 @@ export async function fetchLcVotes(
     const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
     const total = Number(countRows[0]?.total ?? 0);
 
+    // Log actual columns for debugging
+    if (rows.length > 0) {
+      console.log('[LC_VOTES] Actual columns:', Object.keys(rows[0]));
+      console.log('[LC_VOTES] First row sample:', JSON.stringify(rows[0], null, 2));
+    }
+
     const data: LcVoteEntry[] = rows.map((row) => ({
       id: row.id,
       requestId: findValue<number>(row, ['request_id', 'requestid', 'RequestId', 'req_id', 'reqid'], 0),
