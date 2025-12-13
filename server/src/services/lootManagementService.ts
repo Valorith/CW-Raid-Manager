@@ -371,15 +371,20 @@ export async function fetchLcItems(
   const params: unknown[] = [];
 
   if (search && search.trim()) {
-    whereClause = `WHERE item_name LIKE ? OR raid_name LIKE ?`;
+    whereClause = `WHERE i.Name LIKE ?`;
     const searchPattern = `%${search.trim()}%`;
-    params.push(searchPattern, searchPattern);
+    params.push(searchPattern);
   }
 
+  // JOIN with items table to get item names
   const dataQuery = `
-    SELECT SQL_CALC_FOUND_ROWS * FROM lc_items
+    SELECT SQL_CALC_FOUND_ROWS
+      lc.id, lc.guildid, lc.raidid, lc.npcid, lc.itemid, lc.status, lc.type, lc.awardee,
+      i.Name as item_name
+    FROM lc_items lc
+    LEFT JOIN items i ON lc.itemid = i.id
     ${whereClause}
-    ORDER BY id DESC
+    ORDER BY lc.id DESC
     LIMIT ? OFFSET ?
   `;
 
@@ -388,19 +393,13 @@ export async function fetchLcItems(
     const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
     const total = Number(countRows[0]?.total ?? 0);
 
-    // Log actual columns and first row for debugging
-    if (rows.length > 0) {
-      console.log('[LC_ITEMS] Actual columns:', Object.keys(rows[0]));
-      console.log('[LC_ITEMS] First row sample:', JSON.stringify(rows[0], null, 2));
-    }
-
     const data: LcItemEntry[] = rows.map((row) => ({
       id: row.id,
-      itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
-      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
-      raidName: findValue<string | null>(row, ['raid_name', 'raidname', 'RaidName', 'raid', 'Raid', 'event', 'Event'], null),
-      dateAdded: findValue<string | null>(row, ['date_added', 'dateadded', 'DateAdded', 'created_at', 'createdAt', 'timestamp', 'date', 'Date'], null),
-      status: findValue<string | null>(row, ['status', 'Status', 'state', 'State'], null)
+      itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
+      itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
+      raidName: `Raid #${findValue<number>(row, ['raidid', 'raid_id'], 0)}`,
+      dateAdded: null, // Table doesn't have date column
+      status: String(findValue<number | null>(row, ['status', 'Status'], null) ?? '')
     }));
 
     return {
