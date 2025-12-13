@@ -69,6 +69,23 @@
           placeholder="Search by item, NPC, or zone name..."
           @input="debouncedLootMasterSearch"
         />
+        <div v-if="lootMasterResult.totalPages > 1" class="pagination pagination--top">
+          <button
+            class="pagination__button"
+            :disabled="lootMasterPage === 1"
+            @click="setLootMasterPage(lootMasterPage - 1)"
+          >
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ lootMasterPage }} of {{ lootMasterResult.totalPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="lootMasterPage === lootMasterResult.totalPages"
+            @click="setLootMasterPage(lootMasterPage + 1)"
+          >
+            Next
+          </button>
+        </div>
         <p v-if="loadingLootMaster" class="muted">Loading loot master data...</p>
         <p v-else-if="lootMasterResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
@@ -138,6 +155,23 @@
           placeholder="Search by item or raid name..."
           @input="debouncedLcItemsSearch"
         />
+        <div v-if="lcItemsResult.totalPages > 1" class="pagination pagination--top">
+          <button
+            class="pagination__button"
+            :disabled="lcItemsPage === 1"
+            @click="setLcItemsPage(lcItemsPage - 1)"
+          >
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ lcItemsPage }} of {{ lcItemsResult.totalPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="lcItemsPage === lcItemsResult.totalPages"
+            @click="setLcItemsPage(lcItemsPage + 1)"
+          >
+            Next
+          </button>
+        </div>
         <p v-if="loadingLcItems" class="muted">Loading LC items data...</p>
         <p v-else-if="lcItemsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
@@ -209,6 +243,23 @@
           placeholder="Search by item, character, or class..."
           @input="debouncedLcRequestsSearch"
         />
+        <div v-if="lcRequestsResult.totalPages > 1" class="pagination pagination--top">
+          <button
+            class="pagination__button"
+            :disabled="lcRequestsPage === 1"
+            @click="setLcRequestsPage(lcRequestsPage - 1)"
+          >
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ lcRequestsPage }} of {{ lcRequestsResult.totalPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="lcRequestsPage === lcRequestsResult.totalPages"
+            @click="setLcRequestsPage(lcRequestsPage + 1)"
+          >
+            Next
+          </button>
+        </div>
         <p v-if="loadingLcRequests" class="muted">Loading LC requests data...</p>
         <p v-else-if="lcRequestsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
@@ -284,6 +335,23 @@
           placeholder="Search by voter, item, or character..."
           @input="debouncedLcVotesSearch"
         />
+        <div v-if="lcVotesResult.totalPages > 1" class="pagination pagination--top">
+          <button
+            class="pagination__button"
+            :disabled="lcVotesPage === 1"
+            @click="setLcVotesPage(lcVotesPage - 1)"
+          >
+            Previous
+          </button>
+          <span class="pagination__label">Page {{ lcVotesPage }} of {{ lcVotesResult.totalPages }}</span>
+          <button
+            class="pagination__button"
+            :disabled="lcVotesPage === lcVotesResult.totalPages"
+            @click="setLcVotesPage(lcVotesPage + 1)"
+          >
+            Next
+          </button>
+        </div>
         <p v-if="loadingLcVotes" class="muted">Loading LC votes data...</p>
         <p v-else-if="lcVotesResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
@@ -911,6 +979,11 @@ onMounted(async () => {
   justify-content: space-between;
   margin-top: 1rem;
   gap: 0.75rem;
+}
+
+.pagination--top {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
 }
 
 .pagination__label {
