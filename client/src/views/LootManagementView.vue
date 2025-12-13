@@ -181,7 +181,7 @@
                 <th>ID</th>
                 <th>Item</th>
                 <th>Raid ID</th>
-                <th>NPC ID</th>
+                <th>NPC</th>
                 <th>Type</th>
                 <th>Status</th>
                 <th>Awardee</th>
@@ -192,14 +192,14 @@
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
                 <td>{{ entry.raidId || '-' }}</td>
-                <td>{{ entry.npcId || '-' }}</td>
+                <td>{{ entry.npcName || (entry.npcId ? `#${entry.npcId}` : '-') }}</td>
                 <td>{{ formatType(entry.type) }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
                     {{ formatStatus(entry.status) }}
                   </span>
                 </td>
-                <td>{{ entry.awardee || '-' }}</td>
+                <td>{{ entry.awardeeName || (entry.awardee ? `#${entry.awardee}` : '-') }}</td>
               </tr>
             </tbody>
           </table>

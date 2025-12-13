@@ -18,9 +18,11 @@ export interface LcItemEntry {
   itemName: string | null;
   raidId: number;
   npcId: number;
+  npcName: string | null;
   status: number | null;
   type: number | null;
   awardee: number | null;
+  awardeeName: string | null;
 }
 
 export interface LcRequestEntry {
@@ -375,13 +377,17 @@ export async function fetchLcItems(
     params.push(searchPattern);
   }
 
-  // JOIN with items table to get item names
+  // JOIN with items, npc_types, and character_data tables
   const dataQuery = `
     SELECT SQL_CALC_FOUND_ROWS
       lc.id, lc.guildid, lc.raidid, lc.npcid, lc.itemid, lc.status, lc.type, lc.awardee,
-      i.Name as item_name
+      i.Name as item_name,
+      npc.name as npc_name,
+      ch.name as awardee_name
     FROM lc_items lc
     LEFT JOIN items i ON lc.itemid = i.id
+    LEFT JOIN npc_types npc ON lc.npcid = npc.id
+    LEFT JOIN character_data ch ON lc.awardee = ch.id
     ${whereClause}
     ORDER BY lc.id DESC
     LIMIT ? OFFSET ?
@@ -398,9 +404,11 @@ export async function fetchLcItems(
       itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
       raidId: findValue<number>(row, ['raidid', 'raid_id'], 0),
       npcId: findValue<number>(row, ['npcid', 'npc_id'], 0),
+      npcName: findValue<string | null>(row, ['npc_name', 'npcname', 'NpcName'], null),
       status: findValue<number | null>(row, ['status', 'Status'], null),
       type: findValue<number | null>(row, ['type', 'Type'], null),
-      awardee: findValue<number | null>(row, ['awardee', 'Awardee', 'awarded_to'], null)
+      awardee: findValue<number | null>(row, ['awardee', 'Awardee', 'awarded_to'], null),
+      awardeeName: findValue<string | null>(row, ['awardee_name', 'awardeename', 'AwardeeName'], null)
     }));
 
     return {

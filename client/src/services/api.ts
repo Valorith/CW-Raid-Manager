@@ -1180,9 +1180,11 @@ export interface LcItemEntry {
   itemName: string | null;
   raidId: number;
   npcId: number;
+  npcName: string | null;
   status: number | null;
   type: number | null;
   awardee: number | null;
+  awardeeName: string | null;
 }
 
 export interface LcRequestEntry {
