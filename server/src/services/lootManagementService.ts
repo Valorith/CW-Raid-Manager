@@ -431,15 +431,20 @@ export async function fetchLcRequests(
   const params: unknown[] = [];
 
   if (search && search.trim()) {
-    whereClause = `WHERE item_name LIKE ? OR character_name LIKE ? OR class_name LIKE ?`;
+    whereClause = `WHERE i.Name LIKE ?`;
     const searchPattern = `%${search.trim()}%`;
-    params.push(searchPattern, searchPattern, searchPattern);
+    params.push(searchPattern);
   }
 
+  // JOIN with items table to get item names
   const dataQuery = `
-    SELECT SQL_CALC_FOUND_ROWS * FROM lc_requests
+    SELECT SQL_CALC_FOUND_ROWS
+      lr.*,
+      i.Name as item_name
+    FROM lc_requests lr
+    LEFT JOIN items i ON lr.itemid = i.id
     ${whereClause}
-    ORDER BY id DESC
+    ORDER BY lr.id DESC
     LIMIT ? OFFSET ?
   `;
 
@@ -448,11 +453,17 @@ export async function fetchLcRequests(
     const countRows = await queryEqDb<RowDataPacket[]>(`SELECT FOUND_ROWS() as total`);
     const total = Number(countRows[0]?.total ?? 0);
 
+    // Log actual columns for debugging
+    if (rows.length > 0) {
+      console.log('[LC_REQUESTS] Actual columns:', Object.keys(rows[0]));
+      console.log('[LC_REQUESTS] First row sample:', JSON.stringify(rows[0], null, 2));
+    }
+
     const data: LcRequestEntry[] = rows.map((row) => ({
       id: row.id,
-      itemId: findValue<number>(row, ['item_id', 'itemid', 'itemID', 'ItemId'], 0),
-      itemName: findValue<string | null>(row, ['item_name', 'itemname', 'ItemName', 'name', 'Name'], null),
-      characterName: findValue<string | null>(row, ['character_name', 'charactername', 'CharacterName', 'char_name', 'charname', 'player', 'Player'], null),
+      itemId: findValue<number>(row, ['itemid', 'item_id', 'itemID', 'ItemId'], 0),
+      itemName: findValue<string | null>(row, ['item_name', 'Name', 'name', 'itemname'], null),
+      characterName: findValue<string | null>(row, ['character_name', 'charactername', 'CharacterName', 'char_name', 'charname', 'player', 'Player', 'charid'], null),
       className: findValue<string | null>(row, ['class_name', 'classname', 'ClassName', 'class', 'Class'], null),
       requestDate: findValue<string | null>(row, ['request_date', 'requestdate', 'RequestDate', 'created_at', 'createdAt', 'date', 'Date', 'timestamp'], null),
       priority: findValue<number | null>(row, ['priority', 'Priority', 'prio', 'Prio', 'rank', 'Rank'], null),
