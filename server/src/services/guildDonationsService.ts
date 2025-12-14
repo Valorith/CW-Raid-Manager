@@ -94,25 +94,43 @@ async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | nu
   }
 }
 
+export interface PaginatedDonationsResult {
+  donations: EqGuildDonation[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 /**
- * Fetch all donations for a guild from EQEmu database
+ * Fetch donations for a guild from EQEmu database with pagination
  */
-export async function fetchGuildDonations(appGuildId: string): Promise<EqGuildDonation[]> {
+export async function fetchGuildDonations(
+  appGuildId: string,
+  page = 1,
+  limit = 25
+): Promise<PaginatedDonationsResult> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ content database is not configured.');
   }
 
   const exists = await checkGuildDonationsTableExists();
   if (!exists) {
-    return [];
+    return { donations: [], total: 0, page, limit, totalPages: 0 };
   }
 
   const eqGuildId = await getEqGuildIdByAppGuildId(appGuildId);
   if (eqGuildId === null) {
-    return [];
+    return { donations: [], total: 0, page, limit, totalPages: 0 };
   }
 
-  // Query all donations with item details and donator name
+  // Calculate offset
+  const offset = (page - 1) * limit;
+
+  // First get the total count
+  const countQuery = `SELECT COUNT(*) as total FROM guild_donations WHERE guildID = ?`;
+
+  // Query donations with item details and donator name, with pagination
   // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
   const query = `
     SELECT
@@ -131,13 +149,19 @@ export async function fetchGuildDonations(appGuildId: string): Promise<EqGuildDo
     LEFT JOIN character_data c ON d.donatorID = c.id
     WHERE d.guildID = ?
     ORDER BY d.status ASC, d.donationID DESC
-    LIMIT 500
+    LIMIT ? OFFSET ?
   `;
 
   try {
-    const rows = await queryEqDb<RowDataPacket[]>(query, [eqGuildId]);
+    const [countRows, donationRows] = await Promise.all([
+      queryEqDb<RowDataPacket[]>(countQuery, [eqGuildId]),
+      queryEqDb<RowDataPacket[]>(query, [eqGuildId, limit, offset])
+    ]);
 
-    return rows.map((row) => ({
+    const total = Number(countRows[0]?.total ?? 0);
+    const totalPages = Math.ceil(total / limit);
+
+    const donations = donationRows.map((row) => ({
       id: Number(row.id),
       guildId: Number(row.guildId),
       itemId: Number(row.itemId),
@@ -149,9 +173,11 @@ export async function fetchGuildDonations(appGuildId: string): Promise<EqGuildDo
       donatorName: row.donatorName ? String(row.donatorName) : null,
       status: mapEqStatusToStatus(Number(row.status))
     }));
+
+    return { donations, total, page, limit, totalPages };
   } catch (error) {
     console.error('Failed to fetch guild donations from EQEmu:', error);
-    return [];
+    return { donations: [], total: 0, page, limit, totalPages: 0 };
   }
 }
 

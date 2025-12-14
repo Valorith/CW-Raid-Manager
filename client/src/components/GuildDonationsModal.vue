@@ -34,7 +34,12 @@
 
           <template v-else>
             <div class="donations-info">
-              <span class="donations-count">{{ store.donations.length }} item{{ store.donations.length !== 1 ? 's' : '' }}</span>
+              <span class="donations-count">
+                {{ store.totalDonations }} item{{ store.totalDonations !== 1 ? 's' : '' }}
+                <template v-if="store.totalPages > 1">
+                  &middot; Page {{ store.currentPage }} of {{ store.totalPages }}
+                </template>
+              </span>
             </div>
 
             <div class="donations-table-wrapper">
@@ -81,6 +86,44 @@
                 </tbody>
               </table>
             </div>
+
+            <!-- Pagination controls -->
+            <div v-if="store.totalPages > 1" class="donations-pagination">
+              <button
+                class="pagination-btn"
+                :disabled="store.currentPage <= 1 || store.loading"
+                @click="store.previousPage"
+                aria-label="Previous page"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+
+              <div class="pagination-pages">
+                <button
+                  v-for="page in visiblePages"
+                  :key="page"
+                  class="pagination-page"
+                  :class="{ 'pagination-page--active': page === store.currentPage, 'pagination-page--ellipsis': page === '...' }"
+                  :disabled="page === '...' || page === store.currentPage || store.loading"
+                  @click="page !== '...' && store.goToPage(page as number)"
+                >
+                  {{ page }}
+                </button>
+              </div>
+
+              <button
+                class="pagination-btn"
+                :disabled="store.currentPage >= store.totalPages || store.loading"
+                @click="store.nextPage"
+                aria-label="Next page"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
           </template>
         </div>
       </div>
@@ -89,6 +132,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useGuildDonationsStore } from '../stores/guildDonations';
 import { useItemTooltipStore, type TooltipItem } from '../stores/itemTooltip';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
@@ -96,6 +140,44 @@ import type { GuildDonation, GuildDonationStatus } from '../services/api';
 
 const store = useGuildDonationsStore();
 const tooltipStore = useItemTooltipStore();
+
+// Compute visible page numbers for pagination
+const visiblePages = computed(() => {
+  const total = store.totalPages;
+  const current = store.currentPage;
+  const pages: (number | string)[] = [];
+
+  if (total <= 7) {
+    // Show all pages if 7 or less
+    for (let i = 1; i <= total; i++) {
+      pages.push(i);
+    }
+  } else {
+    // Always show first page
+    pages.push(1);
+
+    if (current > 3) {
+      pages.push('...');
+    }
+
+    // Show pages around current
+    const start = Math.max(2, current - 1);
+    const end = Math.min(total - 1, current + 1);
+
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+
+    if (current < total - 2) {
+      pages.push('...');
+    }
+
+    // Always show last page
+    pages.push(total);
+  }
+
+  return pages;
+});
 
 function getStatusLabel(status: GuildDonationStatus): string {
   return status === 'PENDING' ? 'Pending' : 'Rejected';
@@ -386,6 +468,86 @@ function handleItemLeave() {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
   border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Pagination styles */
+.donations-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.pagination-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(30, 41, 59, 0.5);
+  color: #94a3b8;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.15);
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-btn svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pagination-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-page:hover:not(:disabled):not(.pagination-page--ellipsis) {
+  background: rgba(148, 163, 184, 0.1);
+  color: #f8fafc;
+}
+
+.pagination-page--active {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+  cursor: default;
+}
+
+.pagination-page--ellipsis {
+  cursor: default;
+  color: #64748b;
 }
 
 @media (max-width: 600px) {

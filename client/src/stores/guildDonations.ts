@@ -5,6 +5,7 @@ import { useAuthStore } from './auth';
 
 const POLL_INTERVAL_MS = 60000; // Poll every 60 seconds
 const DONATIONS_STALE_MS = 10000; // Consider donations stale after 10 seconds
+const DEFAULT_PAGE_SIZE = 25;
 
 export const useGuildDonationsStore = defineStore('guildDonations', () => {
   const authStore = useAuthStore();
@@ -15,6 +16,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const modalVisible = ref(false);
+
+  // Pagination state
+  const currentPage = ref(1);
+  const totalPages = ref(0);
+  const totalDonations = ref(0);
+  const pageSize = ref(DEFAULT_PAGE_SIZE);
 
   // Timestamps to avoid redundant fetches
   let lastDonationsFetchTime = 0;
@@ -49,16 +56,19 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     }
   }
 
-  async function fetchDonations(force = false) {
+  async function fetchDonations(force = false, page?: number) {
     const guildId = currentGuildId.value;
     if (!guildId) {
       donations.value = [];
       return;
     }
 
-    // Skip if data is fresh (unless forced)
+    // Determine target page
+    const targetPage = page ?? currentPage.value;
+
+    // Skip if data is fresh and same page (unless forced)
     const now = Date.now();
-    if (!force && lastDonationsFetchTime > 0 && (now - lastDonationsFetchTime) < DONATIONS_STALE_MS) {
+    if (!force && !page && lastDonationsFetchTime > 0 && (now - lastDonationsFetchTime) < DONATIONS_STALE_MS) {
       return;
     }
 
@@ -71,8 +81,13 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     error.value = null;
 
     try {
-      donations.value = await api.fetchGuildDonations(guildId);
-      pendingCount.value = donations.value.length;
+      const result = await api.fetchGuildDonations(guildId, targetPage, pageSize.value);
+      donations.value = result.donations;
+      currentPage.value = result.page;
+      totalPages.value = result.totalPages;
+      totalDonations.value = result.total;
+      // Update pending count from total (for badge)
+      pendingCount.value = result.total;
       lastDonationsFetchTime = Date.now();
       lastCountFetchTime = Date.now();
     } catch (err) {
@@ -81,6 +96,25 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       donations.value = [];
     } finally {
       loading.value = false;
+    }
+  }
+
+  async function goToPage(page: number) {
+    if (page < 1 || page > totalPages.value || page === currentPage.value) {
+      return;
+    }
+    await fetchDonations(true, page);
+  }
+
+  async function nextPage() {
+    if (currentPage.value < totalPages.value) {
+      await goToPage(currentPage.value + 1);
+    }
+  }
+
+  async function previousPage() {
+    if (currentPage.value > 1) {
+      await goToPage(currentPage.value - 1);
     }
   }
 
@@ -131,7 +165,9 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
   function showModal() {
     modalVisible.value = true;
-    fetchDonations();
+    // Reset to first page when opening modal
+    currentPage.value = 1;
+    fetchDonations(true, 1);
   }
 
   function hideModal() {
@@ -187,6 +223,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     error,
     modalVisible,
 
+    // Pagination state
+    currentPage,
+    totalPages,
+    totalDonations,
+    pageSize,
+
     // Computed
     hasPendingDonations,
     currentGuildId,
@@ -200,6 +242,11 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     showModal,
     hideModal,
     startPolling,
-    stopPolling
+    stopPolling,
+
+    // Pagination actions
+    goToPage,
+    nextPage,
+    previousPage
   };
 });
