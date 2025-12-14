@@ -1,12 +1,8 @@
 <template>
   <button
-    v-if="store.currentGuildId && authStore.isAuthenticated"
+    v-if="store.currentGuildId && authStore.isAuthenticated && store.hasPendingDonations"
     type="button"
-    class="donation-notification"
-    :class="{
-      'donation-notification--active': store.hasPendingDonations,
-      'donation-notification--glow': store.hasPendingDonations
-    }"
+    class="donation-notification donation-notification--active donation-notification--glow"
     :aria-label="ariaLabel"
     :title="tooltipText"
     @click="store.showModal"
@@ -39,13 +35,11 @@ const displayCount = computed(() => {
 });
 
 const tooltipText = computed(() => {
-  if (!store.hasPendingDonations) return 'Guild Donations';
   const count = store.pendingCount;
   return `${count} pending guild donation${count !== 1 ? 's' : ''}`;
 });
 
 const ariaLabel = computed(() => {
-  if (!store.hasPendingDonations) return 'View guild donations';
   const count = store.pendingCount;
   return `${count} pending guild donation${count !== 1 ? 's' : ''}. Click to view.`;
 });
@@ -72,13 +66,13 @@ const ariaLabel = computed(() => {
 .donation-notification:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.45);
-  border-color: rgba(251, 191, 36, 0.5);
+  border-color: rgba(251, 191, 36, 0.6);
   outline: none;
 }
 
 .donation-notification--active {
   border-color: rgba(251, 191, 36, 0.5);
-  background: radial-gradient(circle at 30% 30%, rgba(251, 191, 36, 0.28), rgba(15, 23, 42, 0.85));
+  background: radial-gradient(circle at 30% 30%, rgba(251, 191, 36, 0.25), rgba(15, 23, 42, 0.85));
 }
 
 /* Subtle glow effect when there are pending donations */
