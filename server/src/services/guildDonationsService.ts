@@ -7,6 +7,9 @@ import { prisma } from '../utils/prisma.js';
 const EQ_DONATION_STATUS_PENDING = 1;
 const EQ_DONATION_STATUS_REJECTED = 2;
 
+// Cache TTL for guild ID mapping (5 minutes)
+const GUILD_ID_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export interface EqGuildDonation {
   id: number;
   guildId: number;
@@ -22,6 +25,9 @@ export interface EqGuildDonation {
 
 // Cache for table existence check
 let tableExists: boolean | null = null;
+
+// Cache for guild ID mapping (app guild ID -> EQ guild ID)
+const guildIdCache = new Map<string, { eqGuildId: number | null; expiresAt: number }>();
 
 /**
  * Check if the guild_donations table exists in EQEmu database
@@ -49,16 +55,27 @@ function mapEqStatusToStatus(eqStatus: number): 'PENDING' | 'REJECTED' {
 }
 
 /**
- * Get the EQEmu guild ID by matching guild name from the app database
+ * Get the EQEmu guild ID by matching guild name from the app database.
+ * Results are cached for 5 minutes to avoid repeated lookups during polling.
  */
 async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | null> {
+  // Check cache first
+  const cached = guildIdCache.get(appGuildId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.eqGuildId;
+  }
+
   // First get the guild name from the app database
   const appGuild = await prisma.guild.findUnique({
     where: { id: appGuildId },
     select: { name: true }
   });
 
-  if (!appGuild) return null;
+  if (!appGuild) {
+    // Cache the null result too to avoid repeated lookups for invalid guilds
+    guildIdCache.set(appGuildId, { eqGuildId: null, expiresAt: Date.now() + GUILD_ID_CACHE_TTL_MS });
+    return null;
+  }
 
   // Then find the matching guild in EQEmu by name
   try {
@@ -66,7 +83,12 @@ async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | nu
       `SELECT id FROM guilds WHERE name = ? LIMIT 1`,
       [appGuild.name]
     );
-    return rows.length > 0 ? Number(rows[0].id) : null;
+    const eqGuildId = rows.length > 0 ? Number(rows[0].id) : null;
+
+    // Cache the result
+    guildIdCache.set(appGuildId, { eqGuildId, expiresAt: Date.now() + GUILD_ID_CACHE_TTL_MS });
+
+    return eqGuildId;
   } catch {
     return null;
   }
