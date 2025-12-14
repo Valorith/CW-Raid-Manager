@@ -33,17 +33,8 @@
           </div>
 
           <template v-else>
-            <div class="donations-actions">
-              <span class="donations-count">{{ store.donations.length }} pending item{{ store.donations.length !== 1 ? 's' : '' }}</span>
-              <button
-                v-if="canReject"
-                class="btn btn--sm btn--outline"
-                type="button"
-                :disabled="rejecting"
-                @click="handleRejectAll"
-              >
-                {{ rejecting ? 'Rejecting...' : 'Reject All' }}
-              </button>
+            <div class="donations-info">
+              <span class="donations-count">{{ store.donations.length }} item{{ store.donations.length !== 1 ? 's' : '' }}</span>
             </div>
 
             <div class="donations-table-wrapper">
@@ -53,7 +44,7 @@
                     <th class="donations-table__col-item">Item</th>
                     <th class="donations-table__col-qty">Qty</th>
                     <th class="donations-table__col-donator">Donator</th>
-                    <th v-if="canReject" class="donations-table__col-actions">Actions</th>
+                    <th class="donations-table__col-status">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -81,29 +72,10 @@
                     <td class="donations-table__cell-donator">
                       {{ donation.donatorName ?? '—' }}
                     </td>
-                    <td v-if="canReject" class="donations-table__cell-actions">
-                      <button
-                        class="btn btn--xs btn--outline"
-                        type="button"
-                        title="Reject this donation"
-                        @click="handleReject(donation.id)"
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <line x1="18" y1="6" x2="6" y2="18"/>
-                          <line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                      </button>
-                      <button
-                        class="btn btn--xs btn--danger-outline"
-                        type="button"
-                        title="Delete this donation"
-                        @click="handleDelete(donation.id)"
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                      </button>
+                    <td class="donations-table__cell-status">
+                      <span :class="getStatusClass(donation.status)">
+                        {{ getStatusLabel(donation.status) }}
+                      </span>
                     </td>
                   </tr>
                 </tbody>
@@ -117,25 +89,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
 import { useGuildDonationsStore } from '../stores/guildDonations';
-import { useAuthStore } from '../stores/auth';
 import { useItemTooltipStore, type TooltipItem } from '../stores/itemTooltip';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
-import type { GuildDonation } from '../services/api';
+import type { GuildDonation, GuildDonationStatus } from '../services/api';
 
 const store = useGuildDonationsStore();
-const authStore = useAuthStore();
 const tooltipStore = useItemTooltipStore();
 
-const rejecting = ref(false);
+function getStatusLabel(status: GuildDonationStatus): string {
+  return status === 'PENDING' ? 'Pending' : 'Rejected';
+}
 
-// Check if user can reject donations (officer, leader, raid leader)
-const canReject = computed(() => {
-  const primaryGuild = authStore.primaryGuild;
-  if (!primaryGuild) return false;
-  return ['LEADER', 'OFFICER', 'RAID_LEADER'].includes(primaryGuild.role);
-});
+function getStatusClass(status: GuildDonationStatus): string {
+  return status === 'PENDING' ? 'status-badge status-badge--pending' : 'status-badge status-badge--rejected';
+}
 
 function handleItemHover(event: MouseEvent, donation: GuildDonation) {
   if (!donation.itemId || donation.itemId <= 0) return;
@@ -155,33 +123,6 @@ function handleItemMove(event: MouseEvent) {
 
 function handleItemLeave() {
   tooltipStore.hideTooltip();
-}
-
-async function handleReject(donationId: string) {
-  try {
-    await store.rejectDonation(donationId);
-  } catch {
-    // Error already logged in store
-  }
-}
-
-async function handleRejectAll() {
-  rejecting.value = true;
-  try {
-    await store.rejectAllDonations();
-  } catch {
-    // Error already logged in store
-  } finally {
-    rejecting.value = false;
-  }
-}
-
-async function handleDelete(donationId: string) {
-  try {
-    await store.deleteDonation(donationId);
-  } catch {
-    // Error already logged in store
-  }
 }
 </script>
 
@@ -313,10 +254,9 @@ async function handleDelete(donationId: string) {
   color: #64748b;
 }
 
-.donations-actions {
+.donations-info {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
@@ -374,9 +314,9 @@ async function handleDelete(donationId: string) {
   width: 25%;
 }
 
-.donations-table__col-actions {
+.donations-table__col-status {
   width: 15%;
-  text-align: right;
+  text-align: center;
 }
 
 .donation-item {
@@ -422,65 +362,30 @@ async function handleDelete(donationId: string) {
   font-size: 0.85rem;
 }
 
-.donations-table__cell-actions {
-  text-align: right;
+.donations-table__cell-status {
+  text-align: center;
 }
 
-.donations-table__cell-actions .btn {
-  margin-left: 0.35rem;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.btn--sm {
-  padding: 0.4rem 0.85rem;
-  font-size: 0.85rem;
-}
-
-.btn--xs {
-  padding: 0.3rem 0.5rem;
+.status-badge {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
   font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
 }
 
-.btn--xs svg {
-  width: 14px;
-  height: 14px;
+.status-badge--pending {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
-.btn--outline {
-  background: transparent;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  color: #e2e8f0;
-}
-
-.btn--outline:hover:not(:disabled) {
-  border-color: #38bdf8;
-  color: #38bdf8;
-}
-
-.btn--outline:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn--danger-outline {
-  background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+.status-badge--rejected {
+  background: rgba(239, 68, 68, 0.15);
   color: #f87171;
-}
-
-.btn--danger-outline:hover:not(:disabled) {
-  border-color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 @media (max-width: 600px) {
@@ -499,11 +404,13 @@ async function handleDelete(donationId: string) {
     padding: 1rem;
   }
 
-  .donations-table__col-donator {
+  .donations-table__col-donator,
+  .donations-table__col-status {
     display: none;
   }
 
-  .donations-table__cell-donator {
+  .donations-table__cell-donator,
+  .donations-table__cell-status {
     display: none;
   }
 }
