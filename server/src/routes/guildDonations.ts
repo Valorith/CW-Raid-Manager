@@ -31,17 +31,14 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
       const formattedDonations = donations.map((d) => ({
         id: String(d.id),
         guildId: guildId,
-        raidId: null,
         itemName: d.itemName ?? 'Unknown Item',
         itemId: d.itemId,
         itemIconId: d.itemIconId,
-        donatedAt: d.donatedAt ?? new Date().toISOString(),
-        status: d.status,
-        rejectedById: null,
-        rejectedAt: null,
-        createdAt: d.donatedAt ?? new Date().toISOString(),
-        updatedAt: d.donatedAt ?? new Date().toISOString(),
-        raid: null
+        itemType: d.itemType,
+        quantity: d.quantity,
+        donatorId: d.donatorId,
+        donatorName: d.donatorName,
+        status: d.status
       }));
 
       return { donations: formattedDonations };

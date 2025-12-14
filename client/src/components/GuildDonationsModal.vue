@@ -51,8 +51,8 @@
                 <thead>
                   <tr>
                     <th class="donations-table__col-item">Item</th>
-                    <th class="donations-table__col-raid">Raid</th>
-                    <th class="donations-table__col-date">Date</th>
+                    <th class="donations-table__col-qty">Qty</th>
+                    <th class="donations-table__col-donator">Donator</th>
                     <th v-if="canReject" class="donations-table__col-actions">Actions</th>
                   </tr>
                 </thead>
@@ -75,11 +75,11 @@
                         <span class="donation-item__name">{{ donation.itemName }}</span>
                       </div>
                     </td>
-                    <td class="donations-table__cell-raid">
-                      {{ donation.raid?.name ?? '—' }}
+                    <td class="donations-table__cell-qty">
+                      {{ donation.quantity }}
                     </td>
-                    <td class="donations-table__cell-date">
-                      {{ formatDate(donation.donatedAt) }}
+                    <td class="donations-table__cell-donator">
+                      {{ donation.donatorName ?? '—' }}
                     </td>
                     <td v-if="canReject" class="donations-table__cell-actions">
                       <button
@@ -136,16 +136,6 @@ const canReject = computed(() => {
   if (!primaryGuild) return false;
   return ['LEADER', 'OFFICER', 'RAID_LEADER'].includes(primaryGuild.role);
 });
-
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  }).format(date);
-}
 
 function handleItemHover(event: MouseEvent, donation: GuildDonation) {
   if (!donation.itemId || donation.itemId <= 0) return;
@@ -372,15 +362,16 @@ async function handleDelete(donationId: string) {
 }
 
 .donations-table__col-item {
-  width: 40%;
+  width: 50%;
 }
 
-.donations-table__col-raid {
+.donations-table__col-qty {
+  width: 10%;
+  text-align: center;
+}
+
+.donations-table__col-donator {
   width: 25%;
-}
-
-.donations-table__col-date {
-  width: 20%;
 }
 
 .donations-table__col-actions {
@@ -420,15 +411,15 @@ async function handleDelete(donationId: string) {
   text-overflow: ellipsis;
 }
 
-.donations-table__cell-raid {
+.donations-table__cell-qty {
   color: #94a3b8;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
-.donations-table__cell-date {
-  color: #64748b;
+.donations-table__cell-donator {
+  color: #94a3b8;
   font-size: 0.85rem;
-  white-space: nowrap;
 }
 
 .donations-table__cell-actions {
@@ -508,11 +499,11 @@ async function handleDelete(donationId: string) {
     padding: 1rem;
   }
 
-  .donations-table__col-raid {
+  .donations-table__col-donator {
     display: none;
   }
 
-  .donations-table__cell-raid {
+  .donations-table__cell-donator {
     display: none;
   }
 }

@@ -10,60 +10,35 @@ const EQ_DONATION_STATUS_REJECTED = 2;
 export interface EqGuildDonation {
   id: number;
   guildId: number;
-  guildName: string | null;
+  itemId: number;
   itemName: string | null;
-  itemId: number | null;
   itemIconId: number | null;
-  donatedAt: string | null;
+  itemType: number;
+  quantity: number;
+  donatorId: number;
+  donatorName: string | null;
   status: 'PENDING' | 'REJECTED';
 }
 
-// Cache for table column detection
-let donationsTableColumns: string[] | null = null;
-
-/**
- * Get the column names for the guild_donations table
- */
-async function getGuildDonationsColumns(): Promise<string[]> {
-  if (donationsTableColumns) return donationsTableColumns;
-
-  try {
-    const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT COLUMN_NAME as columnName FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'guild_donations'`
-    );
-    donationsTableColumns = rows.map((r) => String(r.columnName).toLowerCase());
-    return donationsTableColumns;
-  } catch {
-    return [];
-  }
-}
+// Cache for table existence check
+let tableExists: boolean | null = null;
 
 /**
  * Check if the guild_donations table exists in EQEmu database
  */
 async function checkGuildDonationsTableExists(): Promise<boolean> {
+  if (tableExists !== null) return tableExists;
+
   try {
     const rows = await queryEqDb<RowDataPacket[]>(
       `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'guild_donations'`
     );
-    return rows.length > 0;
+    tableExists = rows.length > 0;
+    return tableExists;
   } catch {
     return false;
   }
-}
-
-/**
- * Find a column from a list of possible names
- */
-function findColumn(columns: string[], possibleNames: string[]): string | null {
-  for (const name of possibleNames) {
-    if (columns.includes(name.toLowerCase())) {
-      return name;
-    }
-  }
-  return null;
 }
 
 /**
@@ -105,8 +80,8 @@ export async function fetchPendingDonations(appGuildId: string): Promise<EqGuild
     throw new Error('EQ content database is not configured.');
   }
 
-  const tableExists = await checkGuildDonationsTableExists();
-  if (!tableExists) {
+  const exists = await checkGuildDonationsTableExists();
+  if (!exists) {
     return [];
   }
 
@@ -115,44 +90,25 @@ export async function fetchPendingDonations(appGuildId: string): Promise<EqGuild
     return [];
   }
 
-  const columns = await getGuildDonationsColumns();
-
-  // Detect column names for flexible schema support
-  const idCol = findColumn(columns, ['id']) ?? 'id';
-  const guildIdCol = findColumn(columns, ['guild_id', 'guildid']) ?? 'guild_id';
-  const itemNameCol = findColumn(columns, ['item_name', 'itemname', 'name']) ?? 'item_name';
-  const itemIdCol = findColumn(columns, ['item_id', 'itemid']) ?? 'item_id';
-  const statusCol = findColumn(columns, ['status']) ?? 'status';
-  const donatedAtCol = findColumn(columns, ['donated_at', 'donatedat', 'date_added', 'created_at', 'timestamp']) ?? 'donated_at';
-
-  // Check if we have item icon column
-  const iconCol = findColumn(columns, ['item_icon', 'icon_id', 'icon', 'itemicon']);
-
-  // Build select columns
-  const selectCols = [
-    `d.${idCol} as id`,
-    `d.${guildIdCol} as guildId`,
-    `d.${itemNameCol} as itemName`,
-    `d.${itemIdCol} as itemId`,
-    `d.${statusCol} as status`,
-    `d.${donatedAtCol} as donatedAt`
-  ];
-
-  if (iconCol) {
-    selectCols.push(`d.${iconCol} as itemIconId`);
-  } else {
-    // Try to get icon from items table
-    selectCols.push(`i.icon as itemIconId`);
-  }
-
-  // Query with optional join to items table for icon lookup
+  // Query donations with item details and donator name
+  // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
   const query = `
-    SELECT ${selectCols.join(', ')}, g.name as guildName
+    SELECT
+      d.donationID as id,
+      d.guildID as guildId,
+      d.itemID as itemId,
+      d.itemType as itemType,
+      d.quantity as quantity,
+      d.donatorID as donatorId,
+      d.status as status,
+      i.Name as itemName,
+      i.icon as itemIconId,
+      c.name as donatorName
     FROM guild_donations d
-    LEFT JOIN guilds g ON d.${guildIdCol} = g.id
-    ${!iconCol ? `LEFT JOIN items i ON d.${itemIdCol} = i.id` : ''}
-    WHERE d.${guildIdCol} = ? AND d.${statusCol} = ?
-    ORDER BY d.${donatedAtCol} DESC
+    LEFT JOIN items i ON d.itemID = i.id
+    LEFT JOIN character_data c ON d.donatorID = c.id
+    WHERE d.guildID = ? AND d.status = ?
+    ORDER BY d.donationID DESC
     LIMIT 500
   `;
 
@@ -162,11 +118,13 @@ export async function fetchPendingDonations(appGuildId: string): Promise<EqGuild
     return rows.map((row) => ({
       id: Number(row.id),
       guildId: Number(row.guildId),
-      guildName: row.guildName ? String(row.guildName) : null,
+      itemId: Number(row.itemId),
       itemName: row.itemName ? String(row.itemName) : null,
-      itemId: row.itemId ? Number(row.itemId) : null,
       itemIconId: row.itemIconId ? Number(row.itemIconId) : null,
-      donatedAt: row.donatedAt ? String(row.donatedAt) : null,
+      itemType: Number(row.itemType ?? 0),
+      quantity: Number(row.quantity ?? 1),
+      donatorId: Number(row.donatorId ?? 0),
+      donatorName: row.donatorName ? String(row.donatorName) : null,
       status: mapEqStatusToStatus(Number(row.status))
     }));
   } catch (error) {
@@ -183,8 +141,8 @@ export async function getPendingDonationCount(appGuildId: string): Promise<numbe
     return 0;
   }
 
-  const tableExists = await checkGuildDonationsTableExists();
-  if (!tableExists) {
+  const exists = await checkGuildDonationsTableExists();
+  if (!exists) {
     return 0;
   }
 
@@ -193,13 +151,9 @@ export async function getPendingDonationCount(appGuildId: string): Promise<numbe
     return 0;
   }
 
-  const columns = await getGuildDonationsColumns();
-  const guildIdCol = findColumn(columns, ['guild_id', 'guildid']) ?? 'guild_id';
-  const statusCol = findColumn(columns, ['status']) ?? 'status';
-
   try {
     const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT COUNT(*) as cnt FROM guild_donations WHERE ${guildIdCol} = ? AND ${statusCol} = ?`,
+      `SELECT COUNT(*) as cnt FROM guild_donations WHERE guildID = ? AND status = ?`,
       [eqGuildId, EQ_DONATION_STATUS_PENDING]
     );
     return Number(rows[0]?.cnt ?? 0);
@@ -221,13 +175,9 @@ export async function rejectDonation(appGuildId: string, donationId: number): Pr
     return false;
   }
 
-  const columns = await getGuildDonationsColumns();
-  const guildIdCol = findColumn(columns, ['guild_id', 'guildid']) ?? 'guild_id';
-  const statusCol = findColumn(columns, ['status']) ?? 'status';
-
   try {
     await queryEqDb(
-      `UPDATE guild_donations SET ${statusCol} = ? WHERE id = ? AND ${guildIdCol} = ?`,
+      `UPDATE guild_donations SET status = ? WHERE donationID = ? AND guildID = ?`,
       [EQ_DONATION_STATUS_REJECTED, donationId, eqGuildId]
     );
     return true;
@@ -249,13 +199,9 @@ export async function rejectAllDonations(appGuildId: string): Promise<number> {
     return 0;
   }
 
-  const columns = await getGuildDonationsColumns();
-  const guildIdCol = findColumn(columns, ['guild_id', 'guildid']) ?? 'guild_id';
-  const statusCol = findColumn(columns, ['status']) ?? 'status';
-
   try {
     const result = await queryEqDb<RowDataPacket[]>(
-      `UPDATE guild_donations SET ${statusCol} = ? WHERE ${guildIdCol} = ? AND ${statusCol} = ?`,
+      `UPDATE guild_donations SET status = ? WHERE guildID = ? AND status = ?`,
       [EQ_DONATION_STATUS_REJECTED, eqGuildId, EQ_DONATION_STATUS_PENDING]
     );
     // MySQL returns affectedRows in the result for UPDATE
@@ -278,12 +224,9 @@ export async function deleteDonation(appGuildId: string, donationId: number): Pr
     return false;
   }
 
-  const columns = await getGuildDonationsColumns();
-  const guildIdCol = findColumn(columns, ['guild_id', 'guildid']) ?? 'guild_id';
-
   try {
     await queryEqDb(
-      `DELETE FROM guild_donations WHERE id = ? AND ${guildIdCol} = ?`,
+      `DELETE FROM guild_donations WHERE donationID = ? AND guildID = ?`,
       [donationId, eqGuildId]
     );
     return true;

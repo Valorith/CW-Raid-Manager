@@ -816,20 +816,14 @@ export type GuildDonationStatus = 'PENDING' | 'REJECTED';
 export interface GuildDonation {
   id: string;
   guildId: string;
-  raidId: string | null;
   itemName: string;
   itemId: number | null;
   itemIconId: number | null;
-  donatedAt: string;
+  itemType: number;
+  quantity: number;
+  donatorId: number;
+  donatorName: string | null;
   status: GuildDonationStatus;
-  rejectedById: string | null;
-  rejectedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  raid?: {
-    id: string;
-    name: string;
-  } | null;
 }
 
 
