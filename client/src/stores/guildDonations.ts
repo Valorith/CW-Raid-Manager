@@ -60,32 +60,32 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     }
   }
 
-  async function acknowledgeDonation(donationId: string) {
+  async function rejectDonation(donationId: string) {
     const guildId = currentGuildId.value;
     if (!guildId) return;
 
     try {
-      await api.acknowledgeGuildDonation(guildId, donationId);
+      await api.rejectGuildDonation(guildId, donationId);
       // Remove from local state
       donations.value = donations.value.filter(d => d.id !== donationId);
       pendingCount.value = Math.max(0, pendingCount.value - 1);
     } catch (err) {
-      console.error('Failed to acknowledge donation:', err);
+      console.error('Failed to reject donation:', err);
       throw err;
     }
   }
 
-  async function acknowledgeAllDonations() {
+  async function rejectAllDonations() {
     const guildId = currentGuildId.value;
     if (!guildId) return;
 
     try {
-      const count = await api.acknowledgeAllGuildDonations(guildId);
+      const count = await api.rejectAllGuildDonations(guildId);
       donations.value = [];
       pendingCount.value = 0;
       return count;
     } catch (err) {
-      console.error('Failed to acknowledge all donations:', err);
+      console.error('Failed to reject all donations:', err);
       throw err;
     }
   }
@@ -153,8 +153,8 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     // Actions
     fetchDonationCount,
     fetchDonations,
-    acknowledgeDonation,
-    acknowledgeAllDonations,
+    rejectDonation,
+    rejectAllDonations,
     deleteDonation,
     showModal,
     hideModal,

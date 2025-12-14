@@ -136,19 +136,19 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     return reply.code(201).send({ count: created.count });
   });
 
-  // Acknowledge a donation (mark as processed)
-  server.patch('/:guildId/donations/:donationId/acknowledge', { preHandler: [authenticate] }, async (request, reply) => {
+  // Reject a donation (mark as rejected)
+  server.patch('/:guildId/donations/:donationId/reject', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string(), donationId: z.string() });
     const { guildId, donationId } = paramsSchema.parse(request.params);
 
     const membership = await getUserGuildRole(request.user.userId, guildId);
     if (!membership) {
-      return reply.forbidden('You must be a member of this guild to acknowledge donations.');
+      return reply.forbidden('You must be a member of this guild to reject donations.');
     }
 
-    // Only officers and leaders can acknowledge donations
+    // Only officers and leaders can reject donations
     if (!['LEADER', 'OFFICER', 'RAID_LEADER'].includes(membership.role)) {
-      return reply.forbidden('Only officers and leaders can acknowledge donations.');
+      return reply.forbidden('Only officers and leaders can reject donations.');
     }
 
     try {
@@ -158,9 +158,9 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
           guildId
         },
         data: {
-          status: 'ACKNOWLEDGED',
-          acknowledgedById: request.user.userId,
-          acknowledgedAt: new Date()
+          status: 'REJECTED',
+          rejectedById: request.user.userId,
+          rejectedAt: new Date()
         }
       });
 
@@ -170,19 +170,19 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
   });
 
-  // Acknowledge all pending donations for a guild
-  server.patch('/:guildId/donations/acknowledge-all', { preHandler: [authenticate] }, async (request, reply) => {
+  // Reject all pending donations for a guild
+  server.patch('/:guildId/donations/reject-all', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
 
     const membership = await getUserGuildRole(request.user.userId, guildId);
     if (!membership) {
-      return reply.forbidden('You must be a member of this guild to acknowledge donations.');
+      return reply.forbidden('You must be a member of this guild to reject donations.');
     }
 
-    // Only officers and leaders can acknowledge donations
+    // Only officers and leaders can reject donations
     if (!['LEADER', 'OFFICER', 'RAID_LEADER'].includes(membership.role)) {
-      return reply.forbidden('Only officers and leaders can acknowledge donations.');
+      return reply.forbidden('Only officers and leaders can reject donations.');
     }
 
     const result = await prisma.guildDonation.updateMany({
@@ -191,13 +191,13 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
         status: 'PENDING'
       },
       data: {
-        status: 'ACKNOWLEDGED',
-        acknowledgedById: request.user.userId,
-        acknowledgedAt: new Date()
+        status: 'REJECTED',
+        rejectedById: request.user.userId,
+        rejectedAt: new Date()
       }
     });
 
-    return { acknowledged: result.count };
+    return { rejected: result.count };
   });
 
   // Delete a donation

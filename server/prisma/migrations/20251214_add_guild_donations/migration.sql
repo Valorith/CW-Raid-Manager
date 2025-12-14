@@ -10,9 +10,9 @@ CREATE TABLE `GuildDonation` (
     `itemId` INTEGER NULL,
     `itemIconId` INTEGER NULL,
     `donatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `status` ENUM('PENDING', 'ACKNOWLEDGED') NOT NULL DEFAULT 'PENDING',
-    `acknowledgedById` VARCHAR(191) NULL,
-    `acknowledgedAt` DATETIME(3) NULL,
+    `status` ENUM('PENDING', 'REJECTED') NOT NULL DEFAULT 'PENDING',
+    `rejectedById` VARCHAR(191) NULL,
+    `rejectedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
@@ -29,4 +29,4 @@ ALTER TABLE `GuildDonation` ADD CONSTRAINT `GuildDonation_guildId_fkey` FOREIGN 
 ALTER TABLE `GuildDonation` ADD CONSTRAINT `GuildDonation_raidId_fkey` FOREIGN KEY (`raidId`) REFERENCES `RaidEvent`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `GuildDonation` ADD CONSTRAINT `GuildDonation_acknowledgedById_fkey` FOREIGN KEY (`acknowledgedById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `GuildDonation` ADD CONSTRAINT `GuildDonation_rejectedById_fkey` FOREIGN KEY (`rejectedById`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;

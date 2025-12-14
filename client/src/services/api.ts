@@ -811,7 +811,7 @@ export interface AvailabilityUserDetail {
   }>;
 }
 
-export type GuildDonationStatus = 'PENDING' | 'ACKNOWLEDGED';
+export type GuildDonationStatus = 'PENDING' | 'REJECTED';
 
 export interface GuildDonation {
   id: string;
@@ -822,8 +822,8 @@ export interface GuildDonation {
   itemIconId: number | null;
   donatedAt: string;
   status: GuildDonationStatus;
-  acknowledgedById: string | null;
-  acknowledgedAt: string | null;
+  rejectedById: string | null;
+  rejectedAt: string | null;
   createdAt: string;
   updatedAt: string;
   raid?: {
@@ -3284,14 +3284,14 @@ export const api = {
     return response.data.count ?? 0;
   },
 
-  async acknowledgeGuildDonation(guildId: string, donationId: string): Promise<GuildDonation> {
-    const response = await axios.patch(`/api/guilds/${guildId}/donations/${donationId}/acknowledge`);
+  async rejectGuildDonation(guildId: string, donationId: string): Promise<GuildDonation> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/${donationId}/reject`);
     return response.data.donation;
   },
 
-  async acknowledgeAllGuildDonations(guildId: string): Promise<number> {
-    const response = await axios.patch(`/api/guilds/${guildId}/donations/acknowledge-all`);
-    return response.data.acknowledged ?? 0;
+  async rejectAllGuildDonations(guildId: string): Promise<number> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/reject-all`);
+    return response.data.rejected ?? 0;
   },
 
   async deleteGuildDonation(guildId: string, donationId: string): Promise<void> {

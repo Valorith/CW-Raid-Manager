@@ -36,13 +36,13 @@
             <div class="donations-actions">
               <span class="donations-count">{{ store.donations.length }} pending item{{ store.donations.length !== 1 ? 's' : '' }}</span>
               <button
-                v-if="canAcknowledge"
+                v-if="canReject"
                 class="btn btn--sm btn--outline"
                 type="button"
-                :disabled="acknowledging"
-                @click="handleAcknowledgeAll"
+                :disabled="rejecting"
+                @click="handleRejectAll"
               >
-                {{ acknowledging ? 'Acknowledging...' : 'Acknowledge All' }}
+                {{ rejecting ? 'Rejecting...' : 'Reject All' }}
               </button>
             </div>
 
@@ -53,7 +53,7 @@
                     <th class="donations-table__col-item">Item</th>
                     <th class="donations-table__col-raid">Raid</th>
                     <th class="donations-table__col-date">Date</th>
-                    <th v-if="canAcknowledge" class="donations-table__col-actions">Actions</th>
+                    <th v-if="canReject" class="donations-table__col-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -81,15 +81,16 @@
                     <td class="donations-table__cell-date">
                       {{ formatDate(donation.donatedAt) }}
                     </td>
-                    <td v-if="canAcknowledge" class="donations-table__cell-actions">
+                    <td v-if="canReject" class="donations-table__cell-actions">
                       <button
                         class="btn btn--xs btn--outline"
                         type="button"
-                        title="Acknowledge this donation"
-                        @click="handleAcknowledge(donation.id)"
+                        title="Reject this donation"
+                        @click="handleReject(donation.id)"
                       >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <polyline points="20 6 9 17 4 12"/>
+                          <line x1="18" y1="6" x2="6" y2="18"/>
+                          <line x1="6" y1="6" x2="18" y2="18"/>
                         </svg>
                       </button>
                       <button
@@ -127,10 +128,10 @@ const store = useGuildDonationsStore();
 const authStore = useAuthStore();
 const tooltipStore = useItemTooltipStore();
 
-const acknowledging = ref(false);
+const rejecting = ref(false);
 
-// Check if user can acknowledge donations (officer, leader, raid leader)
-const canAcknowledge = computed(() => {
+// Check if user can reject donations (officer, leader, raid leader)
+const canReject = computed(() => {
   const primaryGuild = authStore.primaryGuild;
   if (!primaryGuild) return false;
   return ['LEADER', 'OFFICER', 'RAID_LEADER'].includes(primaryGuild.role);
@@ -166,22 +167,22 @@ function handleItemLeave() {
   tooltipStore.hideTooltip();
 }
 
-async function handleAcknowledge(donationId: string) {
+async function handleReject(donationId: string) {
   try {
-    await store.acknowledgeDonation(donationId);
+    await store.rejectDonation(donationId);
   } catch {
     // Error already logged in store
   }
 }
 
-async function handleAcknowledgeAll() {
-  acknowledging.value = true;
+async function handleRejectAll() {
+  rejecting.value = true;
   try {
-    await store.acknowledgeAllDonations();
+    await store.rejectAllDonations();
   } catch {
     // Error already logged in store
   } finally {
-    acknowledging.value = false;
+    rejecting.value = false;
   }
 }
 

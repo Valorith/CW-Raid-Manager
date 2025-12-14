@@ -33,7 +33,7 @@ model User {
   questAssignments   QuestAssignment[]
   personalBankCharacters GuildBankCharacter[]
   calendarAvailability CalendarAvailability[]
-  acknowledgedDonations GuildDonation[] @relation("DonationAcknowledger")
+  rejectedDonations GuildDonation[] @relation("DonationRejecter")
 }
 
 model Guild {
@@ -353,13 +353,13 @@ model GuildDonation {
   itemIconId      Int?
   donatedAt       DateTime            @default(now())
   status          GuildDonationStatus @default(PENDING)
-  acknowledgedById String?
-  acknowledgedAt  DateTime?
+  rejectedById    String?
+  rejectedAt      DateTime?
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @default(now()) @updatedAt
   guild           Guild               @relation(fields: [guildId], references: [id], onDelete: Cascade)
   raid            RaidEvent?          @relation(fields: [raidId], references: [id], onDelete: SetNull)
-  acknowledgedBy  User?               @relation("DonationAcknowledger", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  rejectedBy      User?               @relation("DonationRejecter", fields: [rejectedById], references: [id], onDelete: SetNull)
 
   @@index([guildId])
   @@index([guildId, status])
@@ -647,7 +647,7 @@ enum AvailabilityStatus {
 
 enum GuildDonationStatus {
   PENDING
-  ACKNOWLEDGED
+  REJECTED
 }
 
 enum QuestBlueprintVisibility {
