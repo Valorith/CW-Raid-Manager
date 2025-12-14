@@ -95,9 +95,9 @@ async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | nu
 }
 
 /**
- * Fetch pending donations for a guild from EQEmu database
+ * Fetch all donations for a guild from EQEmu database
  */
-export async function fetchPendingDonations(appGuildId: string): Promise<EqGuildDonation[]> {
+export async function fetchGuildDonations(appGuildId: string): Promise<EqGuildDonation[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ content database is not configured.');
   }
@@ -112,7 +112,7 @@ export async function fetchPendingDonations(appGuildId: string): Promise<EqGuild
     return [];
   }
 
-  // Query donations with item details and donator name
+  // Query all donations with item details and donator name
   // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
   const query = `
     SELECT
@@ -129,13 +129,13 @@ export async function fetchPendingDonations(appGuildId: string): Promise<EqGuild
     FROM guild_donations d
     LEFT JOIN items i ON d.itemID = i.id
     LEFT JOIN character_data c ON d.donatorID = c.id
-    WHERE d.guildID = ? AND d.status = ?
-    ORDER BY d.donationID DESC
+    WHERE d.guildID = ?
+    ORDER BY d.status ASC, d.donationID DESC
     LIMIT 500
   `;
 
   try {
-    const rows = await queryEqDb<RowDataPacket[]>(query, [eqGuildId, EQ_DONATION_STATUS_PENDING]);
+    const rows = await queryEqDb<RowDataPacket[]>(query, [eqGuildId]);
 
     return rows.map((row) => ({
       id: Number(row.id),

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import {
   deleteDonation,
-  fetchPendingDonations,
+  fetchGuildDonations,
   getPendingDonationCount,
   rejectAllDonations,
   rejectDonation
@@ -13,7 +13,7 @@ import { getUserGuildRole } from '../services/guildService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
 
 export async function guildDonationRoutes(server: FastifyInstance): Promise<void> {
-  // Get pending donations for a guild (from EQEmu database)
+  // Get all donations for a guild (from EQEmu database)
   server.get('/:guildId/donations', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
@@ -25,7 +25,7 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      const donations = await fetchPendingDonations(guildId);
+      const donations = await fetchGuildDonations(guildId);
 
       // Map to the expected client format
       const formattedDonations = donations.map((d) => ({
