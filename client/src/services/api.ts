@@ -811,6 +811,22 @@ export interface AvailabilityUserDetail {
   }>;
 }
 
+export type GuildDonationStatus = 'PENDING' | 'REJECTED';
+
+export interface GuildDonation {
+  id: string;
+  guildId: string;
+  itemName: string;
+  itemId: number | null;
+  itemIconId: number | null;
+  itemType: number;
+  quantity: number;
+  donatorId: number;
+  donatorName: string | null;
+  status: GuildDonationStatus;
+}
+
+
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
@@ -3218,6 +3234,32 @@ export const api = {
     if (search) params.append('search', search);
     const response = await axios.get(`/api/admin/loot-management/lc-votes?${params.toString()}`);
     return response.data;
+  },
+
+  // Guild Donations
+
+  async fetchGuildDonations(guildId: string): Promise<GuildDonation[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/donations`);
+    return response.data.donations ?? [];
+  },
+
+  async fetchGuildDonationCount(guildId: string): Promise<number> {
+    const response = await axios.get(`/api/guilds/${guildId}/donations/count`);
+    return response.data.count ?? 0;
+  },
+
+  async rejectGuildDonation(guildId: string, donationId: string): Promise<GuildDonation> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/${donationId}/reject`);
+    return response.data.donation;
+  },
+
+  async rejectAllGuildDonations(guildId: string): Promise<number> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/reject-all`);
+    return response.data.rejected ?? 0;
+  },
+
+  async deleteGuildDonation(guildId: string, donationId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/donations/${donationId}`);
   }
 
 };

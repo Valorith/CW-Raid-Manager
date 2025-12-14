@@ -29,6 +29,7 @@
         <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
       </nav>
       <div class="nav-alerts">
+        <GuildDonationsNotification />
         <div
           v-if="attentionStore.hasIndicators"
           class="nav-attention"
@@ -158,6 +159,7 @@
     </main>
     <CharacterInventoryModal />
     <ItemTooltip />
+    <GuildDonationsModal />
   </div>
 </template>
 
@@ -172,6 +174,8 @@ import { useAttentionStore } from './stores/attention';
 import { playLootAlertChime } from './utils/audio';
 import CharacterInventoryModal from './components/CharacterInventoryModal.vue';
 import ItemTooltip from './components/ItemTooltip.vue';
+import GuildDonationsNotification from './components/GuildDonationsNotification.vue';
+import GuildDonationsModal from './components/GuildDonationsModal.vue';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
