@@ -811,6 +811,34 @@ export interface AvailabilityUserDetail {
   }>;
 }
 
+export type GuildDonationStatus = 'PENDING' | 'ACKNOWLEDGED';
+
+export interface GuildDonation {
+  id: string;
+  guildId: string;
+  raidId: string | null;
+  itemName: string;
+  itemId: number | null;
+  itemIconId: number | null;
+  donatedAt: string;
+  status: GuildDonationStatus;
+  acknowledgedById: string | null;
+  acknowledgedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  raid?: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+export interface GuildDonationInput {
+  itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
+  donatedAt?: string;
+}
+
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
@@ -3218,6 +3246,56 @@ export const api = {
     if (search) params.append('search', search);
     const response = await axios.get(`/api/admin/loot-management/lc-votes?${params.toString()}`);
     return response.data;
+  },
+
+  // Guild Donations
+
+  async fetchGuildDonations(guildId: string): Promise<GuildDonation[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/donations`);
+    return response.data.donations ?? [];
+  },
+
+  async fetchGuildDonationCount(guildId: string): Promise<number> {
+    const response = await axios.get(`/api/guilds/${guildId}/donations/count`);
+    return response.data.count ?? 0;
+  },
+
+  async createGuildDonation(
+    guildId: string,
+    donation: GuildDonationInput,
+    raidId?: string
+  ): Promise<GuildDonation> {
+    const response = await axios.post(`/api/guilds/${guildId}/donations`, {
+      ...donation,
+      raidId
+    });
+    return response.data.donation;
+  },
+
+  async createGuildDonationsBatch(
+    guildId: string,
+    donations: GuildDonationInput[],
+    raidId?: string
+  ): Promise<number> {
+    const response = await axios.post(`/api/guilds/${guildId}/donations/batch`, {
+      donations,
+      raidId
+    });
+    return response.data.count ?? 0;
+  },
+
+  async acknowledgeGuildDonation(guildId: string, donationId: string): Promise<GuildDonation> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/${donationId}/acknowledge`);
+    return response.data.donation;
+  },
+
+  async acknowledgeAllGuildDonations(guildId: string): Promise<number> {
+    const response = await axios.patch(`/api/guilds/${guildId}/donations/acknowledge-all`);
+    return response.data.acknowledged ?? 0;
+  },
+
+  async deleteGuildDonation(guildId: string, donationId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/donations/${donationId}`);
   }
 
 };
