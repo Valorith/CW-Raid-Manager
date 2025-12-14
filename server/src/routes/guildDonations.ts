@@ -2,12 +2,18 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
+import {
+  deleteDonation,
+  fetchPendingDonations,
+  getPendingDonationCount,
+  rejectAllDonations,
+  rejectDonation
+} from '../services/guildDonationsService.js';
 import { getUserGuildRole } from '../services/guildService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
-import { prisma } from '../utils/prisma.js';
 
 export async function guildDonationRoutes(server: FastifyInstance): Promise<void> {
-  // Get pending donations for a guild
+  // Get pending donations for a guild (from EQEmu database)
   server.get('/:guildId/donations', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
@@ -18,23 +24,31 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
       return reply.forbidden('You must be a member of this guild to view donations.');
     }
 
-    const donations = await prisma.guildDonation.findMany({
-      where: {
-        guildId,
-        status: 'PENDING'
-      },
-      orderBy: { donatedAt: 'desc' },
-      include: {
-        raid: {
-          select: {
-            id: true,
-            name: true
-          }
-        }
-      }
-    });
+    try {
+      const donations = await fetchPendingDonations(guildId);
 
-    return { donations };
+      // Map to the expected client format
+      const formattedDonations = donations.map((d) => ({
+        id: String(d.id),
+        guildId: guildId,
+        raidId: null,
+        itemName: d.itemName ?? 'Unknown Item',
+        itemId: d.itemId,
+        itemIconId: d.itemIconId,
+        donatedAt: d.donatedAt ?? new Date().toISOString(),
+        status: d.status,
+        rejectedById: null,
+        rejectedAt: null,
+        createdAt: d.donatedAt ?? new Date().toISOString(),
+        updatedAt: d.donatedAt ?? new Date().toISOString(),
+        raid: null
+      }));
+
+      return { donations: formattedDonations };
+    } catch (error) {
+      request.log.error({ err: error, guildId }, 'Failed to fetch guild donations.');
+      return { donations: [] };
+    }
   });
 
   // Get pending donation count for a guild (lightweight endpoint for badge)
@@ -48,95 +62,15 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
       return reply.forbidden('You must be a member of this guild to view donations.');
     }
 
-    const count = await prisma.guildDonation.count({
-      where: {
-        guildId,
-        status: 'PENDING'
-      }
-    });
-
-    return { count };
+    try {
+      const count = await getPendingDonationCount(guildId);
+      return { count };
+    } catch {
+      return { count: 0 };
+    }
   });
 
-  // Create a new donation (used when items are donated to guild during raids)
-  server.post('/:guildId/donations', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ guildId: z.string() });
-    const { guildId } = paramsSchema.parse(request.params);
-
-    const bodySchema = z.object({
-      raidId: z.string().optional(),
-      itemName: z.string().min(1).max(191),
-      itemId: z.number().int().positive().nullable().optional(),
-      itemIconId: z.number().int().positive().nullable().optional(),
-      donatedAt: z.string().datetime().optional()
-    });
-
-    const parsedBody = bodySchema.safeParse(request.body);
-    if (!parsedBody.success) {
-      return reply.badRequest('Invalid donation payload.');
-    }
-
-    const membership = await getUserGuildRole(request.user.userId, guildId);
-    if (!membership) {
-      return reply.forbidden('You must be a member of this guild to record donations.');
-    }
-
-    const donation = await prisma.guildDonation.create({
-      data: {
-        guildId,
-        raidId: parsedBody.data.raidId ?? null,
-        itemName: parsedBody.data.itemName,
-        itemId: parsedBody.data.itemId ?? null,
-        itemIconId: parsedBody.data.itemIconId ?? null,
-        donatedAt: parsedBody.data.donatedAt ? new Date(parsedBody.data.donatedAt) : new Date(),
-        status: 'PENDING'
-      }
-    });
-
-    return reply.code(201).send({ donation });
-  });
-
-  // Create multiple donations at once (batch endpoint)
-  server.post('/:guildId/donations/batch', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ guildId: z.string() });
-    const { guildId } = paramsSchema.parse(request.params);
-
-    const bodySchema = z.object({
-      raidId: z.string().optional(),
-      donations: z.array(z.object({
-        itemName: z.string().min(1).max(191),
-        itemId: z.number().int().positive().nullable().optional(),
-        itemIconId: z.number().int().positive().nullable().optional(),
-        donatedAt: z.string().datetime().optional()
-      })).min(1).max(100)
-    });
-
-    const parsedBody = bodySchema.safeParse(request.body);
-    if (!parsedBody.success) {
-      return reply.badRequest('Invalid donations payload.');
-    }
-
-    const membership = await getUserGuildRole(request.user.userId, guildId);
-    if (!membership) {
-      return reply.forbidden('You must be a member of this guild to record donations.');
-    }
-
-    const created = await prisma.guildDonation.createMany({
-      data: parsedBody.data.donations.map(d => ({
-        guildId,
-        raidId: parsedBody.data.raidId ?? null,
-        itemName: d.itemName,
-        itemId: d.itemId ?? null,
-        itemIconId: d.itemIconId ?? null,
-        donatedAt: d.donatedAt ? new Date(d.donatedAt) : new Date(),
-        status: 'PENDING'
-      }))
-    });
-
-    return reply.code(201).send({ count: created.count });
-  });
-
-  // Reject a donation (mark as rejected)
+  // Reject a donation (mark as rejected in EQEmu database)
   server.patch('/:guildId/donations/:donationId/reject', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string(), donationId: z.string() });
     const { guildId, donationId } = paramsSchema.parse(request.params);
@@ -152,19 +86,22 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      const donation = await prisma.guildDonation.update({
-        where: {
-          id: donationId,
-          guildId
-        },
-        data: {
-          status: 'REJECTED',
-          rejectedById: request.user.userId,
-          rejectedAt: new Date()
-        }
-      });
+      const donationIdNum = parseInt(donationId, 10);
+      if (isNaN(donationIdNum)) {
+        return reply.badRequest('Invalid donation ID.');
+      }
 
-      return { donation };
+      const success = await rejectDonation(guildId, donationIdNum);
+      if (!success) {
+        return reply.notFound('Donation not found.');
+      }
+
+      return {
+        donation: {
+          id: donationId,
+          status: 'REJECTED'
+        }
+      };
     } catch {
       return reply.notFound('Donation not found.');
     }
@@ -185,22 +122,15 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
       return reply.forbidden('Only officers and leaders can reject donations.');
     }
 
-    const result = await prisma.guildDonation.updateMany({
-      where: {
-        guildId,
-        status: 'PENDING'
-      },
-      data: {
-        status: 'REJECTED',
-        rejectedById: request.user.userId,
-        rejectedAt: new Date()
-      }
-    });
-
-    return { rejected: result.count };
+    try {
+      const count = await rejectAllDonations(guildId);
+      return { rejected: count };
+    } catch {
+      return { rejected: 0 };
+    }
   });
 
-  // Delete a donation
+  // Delete a donation from EQEmu database
   server.delete('/:guildId/donations/:donationId', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string(), donationId: z.string() });
     const { guildId, donationId } = paramsSchema.parse(request.params);
@@ -216,12 +146,15 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      await prisma.guildDonation.delete({
-        where: {
-          id: donationId,
-          guildId
-        }
-      });
+      const donationIdNum = parseInt(donationId, 10);
+      if (isNaN(donationIdNum)) {
+        return reply.badRequest('Invalid donation ID.');
+      }
+
+      const success = await deleteDonation(guildId, donationIdNum);
+      if (!success) {
+        return reply.notFound('Donation not found.');
+      }
 
       return reply.code(204).send();
     } catch {

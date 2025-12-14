@@ -832,12 +832,6 @@ export interface GuildDonation {
   } | null;
 }
 
-export interface GuildDonationInput {
-  itemName: string;
-  itemId?: number | null;
-  itemIconId?: number | null;
-  donatedAt?: string;
-}
 
 export interface AttendanceEventSummary {
   id: string;
@@ -3257,30 +3251,6 @@ export const api = {
 
   async fetchGuildDonationCount(guildId: string): Promise<number> {
     const response = await axios.get(`/api/guilds/${guildId}/donations/count`);
-    return response.data.count ?? 0;
-  },
-
-  async createGuildDonation(
-    guildId: string,
-    donation: GuildDonationInput,
-    raidId?: string
-  ): Promise<GuildDonation> {
-    const response = await axios.post(`/api/guilds/${guildId}/donations`, {
-      ...donation,
-      raidId
-    });
-    return response.data.donation;
-  },
-
-  async createGuildDonationsBatch(
-    guildId: string,
-    donations: GuildDonationInput[],
-    raidId?: string
-  ): Promise<number> {
-    const response = await axios.post(`/api/guilds/${guildId}/donations/batch`, {
-      donations,
-      raidId
-    });
     return response.data.count ?? 0;
   },
 

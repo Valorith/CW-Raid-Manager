@@ -33,7 +33,6 @@ model User {
   questAssignments   QuestAssignment[]
   personalBankCharacters GuildBankCharacter[]
   calendarAvailability CalendarAvailability[]
-  rejectedDonations GuildDonation[] @relation("DonationRejecter")
 }
 
 model Guild {
@@ -68,7 +67,6 @@ model Guild {
   questAssignments   QuestAssignment[]
   questBlueprintFolders QuestBlueprintFolder[]
   calendarAvailability CalendarAvailability[]
-  donations            GuildDonation[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -182,7 +180,6 @@ model RaidEvent {
   loot         RaidLootEvent[]
   npcKillEvents RaidNpcKillEvent[]
   recurrenceSeries   RaidEventSeries? @relation(fields: [recurrenceSeriesId], references: [id], onDelete: SetNull)
-  donations    GuildDonation[]
 
   @@index([createdById], map: "RaidEvent_createdById_fkey")
   @@index([guildId], map: "RaidEvent_guildId_fkey")
@@ -342,28 +339,6 @@ model CalendarAvailability {
   @@index([guildId])
   @@index([userId])
   @@index([guildId, date])
-}
-
-model GuildDonation {
-  id              String              @id @default(cuid())
-  guildId         String
-  raidId          String?
-  itemName        String              @db.VarChar(191)
-  itemId          Int?
-  itemIconId      Int?
-  donatedAt       DateTime            @default(now())
-  status          GuildDonationStatus @default(PENDING)
-  rejectedById    String?
-  rejectedAt      DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @default(now()) @updatedAt
-  guild           Guild               @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  raid            RaidEvent?          @relation(fields: [raidId], references: [id], onDelete: SetNull)
-  rejectedBy      User?               @relation("DonationRejecter", fields: [rejectedById], references: [id], onDelete: SetNull)
-
-  @@index([guildId])
-  @@index([guildId, status])
-  @@index([raidId])
 }
 
 model GuildLootListEntry {
@@ -643,11 +618,6 @@ enum SignupStatus {
 enum AvailabilityStatus {
   AVAILABLE
   UNAVAILABLE
-}
-
-enum GuildDonationStatus {
-  PENDING
-  REJECTED
 }
 
 enum QuestBlueprintVisibility {
