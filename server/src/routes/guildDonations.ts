@@ -50,13 +50,14 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
       return {
         donations: formattedDonations,
         total: result.total,
+        pending: result.pending,
         page: result.page,
         limit: result.limit,
         totalPages: result.totalPages
       };
     } catch (error) {
       request.log.error({ err: error, guildId }, 'Failed to fetch guild donations.');
-      return { donations: [], total: 0, page, limit, totalPages: 0 };
+      return { donations: [], total: 0, pending: 0, page, limit, totalPages: 0 };
     }
   });
 

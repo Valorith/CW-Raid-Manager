@@ -91,8 +91,9 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       currentPage.value = result.page;
       totalPages.value = result.totalPages;
       totalDonations.value = result.total;
-      // Update total count for badge visibility
+      // Update counts for badge visibility and glow effect
       totalCount.value = result.total;
+      pendingCount.value = result.pending;
       lastDonationsFetchTime = Date.now();
       lastCountFetchTime = Date.now();
     } catch (err) {

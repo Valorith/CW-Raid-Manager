@@ -829,6 +829,7 @@ export interface GuildDonation {
 export interface PaginatedDonationsResponse {
   donations: GuildDonation[];
   total: number;
+  pending: number;
   page: number;
   limit: number;
   totalPages: number;

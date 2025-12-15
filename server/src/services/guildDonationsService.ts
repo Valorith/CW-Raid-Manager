@@ -102,6 +102,7 @@ async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | nu
 export interface PaginatedDonationsResult {
   donations: EqGuildDonation[];
   total: number;
+  pending: number;
   page: number;
   limit: number;
   totalPages: number;
@@ -121,19 +122,22 @@ export async function fetchGuildDonations(
 
   const exists = await checkGuildDonationsTableExists();
   if (!exists) {
-    return { donations: [], total: 0, page, limit, totalPages: 0 };
+    return { donations: [], total: 0, pending: 0, page, limit, totalPages: 0 };
   }
 
   const eqGuildId = await getEqGuildIdByAppGuildId(appGuildId);
   if (eqGuildId === null) {
-    return { donations: [], total: 0, page, limit, totalPages: 0 };
+    return { donations: [], total: 0, pending: 0, page, limit, totalPages: 0 };
   }
 
   // Calculate offset
   const offset = (page - 1) * limit;
 
-  // First get the total count
-  const countQuery = `SELECT COUNT(*) as total FROM guild_donations WHERE guildID = ?`;
+  // Get total count and pending count in one query
+  const countQuery = `SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status = ${EQ_DONATION_STATUS_PENDING} THEN 1 ELSE 0 END) as pending
+    FROM guild_donations WHERE guildID = ?`;
 
   // Query donations with item details and donator name, with pagination
   // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
@@ -165,6 +169,7 @@ export async function fetchGuildDonations(
     ]);
 
     const total = Number(countRows[0]?.total ?? 0);
+    const pending = Number(countRows[0]?.pending ?? 0);
     const totalPages = Math.ceil(total / limit);
 
     const donations = donationRows.map((row) => {
@@ -184,10 +189,10 @@ export async function fetchGuildDonations(
       };
     });
 
-    return { donations, total, page, limit, totalPages };
+    return { donations, total, pending, page, limit, totalPages };
   } catch (error) {
     console.error('Failed to fetch guild donations from EQEmu:', error);
-    return { donations: [], total: 0, page, limit, totalPages: 0 };
+    return { donations: [], total: 0, pending: 0, page, limit, totalPages: 0 };
   }
 }
 
