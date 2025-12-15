@@ -4,8 +4,8 @@
     type="button"
     class="donation-notification"
     :class="{
-      'donation-notification--active': true,
-      'donation-notification--glow': store.hasPendingDonations
+      'donation-notification--glow': store.hasPendingDonations,
+      'donation-notification--subdued': !store.hasPendingDonations
     }"
     :aria-label="ariaLabel"
     :title="tooltipText"
@@ -78,18 +78,41 @@ const ariaLabel = computed(() => {
   outline: none;
 }
 
-.donation-notification--active {
-  border-color: rgba(251, 191, 36, 0.5);
-  background: radial-gradient(circle at 30% 30%, rgba(251, 191, 36, 0.25), rgba(15, 23, 42, 0.85));
+/* Subdued style when there are only rejected items (no pending) */
+.donation-notification--subdued {
+  border-color: rgba(100, 116, 139, 0.4);
+  background: radial-gradient(circle at 30% 30%, rgba(100, 116, 139, 0.15), rgba(15, 23, 42, 0.85));
+  opacity: 0.7;
 }
 
-/* Subtle glow effect when there are pending donations */
+.donation-notification--subdued:hover,
+.donation-notification--subdued:focus-visible {
+  opacity: 0.9;
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.donation-notification--subdued .donation-notification__icon {
+  color: #94a3b8;
+}
+
+.donation-notification--subdued .donation-notification__count {
+  background: linear-gradient(135deg, #64748b, #475569);
+  box-shadow: 0 2px 6px rgba(100, 116, 139, 0.3);
+}
+
+/* Active gold style with glow when there are pending donations */
 .donation-notification--glow {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: radial-gradient(circle at 30% 30%, rgba(251, 191, 36, 0.25), rgba(15, 23, 42, 0.85));
   box-shadow:
     0 6px 14px rgba(15, 23, 42, 0.35),
     0 0 20px rgba(251, 191, 36, 0.25),
     0 0 40px rgba(251, 191, 36, 0.1);
   animation: donationGlow 3s ease-in-out infinite;
+}
+
+.donation-notification--glow .donation-notification__icon {
+  color: #fbbf24;
 }
 
 .donation-notification--glow::before {
@@ -139,10 +162,6 @@ const ariaLabel = computed(() => {
   width: 20px;
   height: 20px;
   transition: color 0.2s ease;
-}
-
-.donation-notification--active .donation-notification__icon {
-  color: #fbbf24;
 }
 
 .donation-notification__count {
