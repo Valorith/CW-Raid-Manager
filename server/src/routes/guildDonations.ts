@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import {
   deleteDonation,
   fetchGuildDonations,
-  getPendingDonationCount,
+  getDonationCounts,
   rejectAllDonations,
   rejectDonation
 } from '../services/guildDonationsService.js';
@@ -60,7 +60,7 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
   });
 
-  // Get pending donation count for a guild (lightweight endpoint for badge)
+  // Get donation counts for a guild (lightweight endpoint for badge)
   server.get('/:guildId/donations/count', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
@@ -72,10 +72,10 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      const count = await getPendingDonationCount(guildId);
-      return { count };
+      const counts = await getDonationCounts(guildId);
+      return { pending: counts.pending, total: counts.total };
     } catch {
-      return { count: 0 };
+      return { pending: 0, total: 0 };
     }
   });
 

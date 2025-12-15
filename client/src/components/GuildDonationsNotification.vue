@@ -1,8 +1,12 @@
 <template>
   <button
-    v-if="store.currentGuildId && authStore.isAuthenticated && store.hasPendingDonations"
+    v-if="store.currentGuildId && authStore.isAuthenticated && store.hasDonations"
     type="button"
-    class="donation-notification donation-notification--active donation-notification--glow"
+    class="donation-notification"
+    :class="{
+      'donation-notification--active': true,
+      'donation-notification--glow': store.hasPendingDonations
+    }"
     :aria-label="ariaLabel"
     :title="tooltipText"
     @click="store.showModal"
@@ -15,7 +19,7 @@
         <circle cx="12" cy="14" r="1.5" fill="currentColor"/>
       </svg>
     </span>
-    <span v-if="store.hasPendingDonations" class="donation-notification__count">
+    <span v-if="store.totalCount > 0" class="donation-notification__count">
       {{ displayCount }}
     </span>
   </button>
@@ -30,18 +34,22 @@ const store = useGuildDonationsStore();
 const authStore = useAuthStore();
 
 const displayCount = computed(() => {
-  if (store.pendingCount > 99) return '99+';
-  return store.pendingCount.toString();
+  if (store.totalCount > 99) return '99+';
+  return store.totalCount.toString();
 });
 
 const tooltipText = computed(() => {
-  const count = store.pendingCount;
-  return `${count} pending guild donation${count !== 1 ? 's' : ''}`;
+  const total = store.totalCount;
+  const pending = store.pendingCount;
+  if (pending > 0) {
+    return `${pending} pending guild donation${pending !== 1 ? 's' : ''} (${total} total)`;
+  }
+  return `${total} guild donation${total !== 1 ? 's' : ''} (all processed)`;
 });
 
 const ariaLabel = computed(() => {
-  const count = store.pendingCount;
-  return `${count} pending guild donation${count !== 1 ? 's' : ''}. Click to view.`;
+  const total = store.totalCount;
+  return `${total} guild donation${total !== 1 ? 's' : ''}. Click to view.`;
 });
 </script>
 

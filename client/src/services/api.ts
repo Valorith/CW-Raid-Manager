@@ -834,6 +834,11 @@ export interface PaginatedDonationsResponse {
   totalPages: number;
 }
 
+export interface DonationCounts {
+  pending: number;
+  total: number;
+}
+
 
 export interface AttendanceEventSummary {
   id: string;
@@ -3259,9 +3264,12 @@ export const api = {
     };
   },
 
-  async fetchGuildDonationCount(guildId: string): Promise<number> {
+  async fetchGuildDonationCounts(guildId: string): Promise<DonationCounts> {
     const response = await axios.get(`/api/guilds/${guildId}/donations/count`);
-    return response.data.count ?? 0;
+    return {
+      pending: response.data.pending ?? 0,
+      total: response.data.total ?? 0
+    };
   },
 
   async rejectGuildDonation(guildId: string, donationId: string): Promise<GuildDonation> {

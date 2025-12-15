@@ -13,6 +13,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
   // State
   const donations = ref<GuildDonation[]>([]);
   const pendingCount = ref(0);
+  const totalCount = ref(0); // Total donations count (for badge visibility)
   const loading = ref(false);
   const error = ref<string | null>(null);
   const modalVisible = ref(false);
@@ -32,6 +33,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
   // Computed
   const hasPendingDonations = computed(() => pendingCount.value > 0);
+  const hasDonations = computed(() => totalCount.value > 0);
 
   const currentGuildId = computed(() => authStore.primaryGuild?.id ?? null);
 
@@ -40,6 +42,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     const guildId = currentGuildId.value;
     if (!guildId) {
       pendingCount.value = 0;
+      totalCount.value = 0;
       return;
     }
 
@@ -49,7 +52,9 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     }
 
     try {
-      pendingCount.value = await api.fetchGuildDonationCount(guildId);
+      const counts = await api.fetchGuildDonationCounts(guildId);
+      pendingCount.value = counts.pending;
+      totalCount.value = counts.total;
       lastCountFetchTime = Date.now();
     } catch (err) {
       console.warn('Failed to fetch donation count:', err);
@@ -86,8 +91,8 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       currentPage.value = result.page;
       totalPages.value = result.totalPages;
       totalDonations.value = result.total;
-      // Update pending count from total (for badge)
-      pendingCount.value = result.total;
+      // Update total count for badge visibility
+      totalCount.value = result.total;
       lastDonationsFetchTime = Date.now();
       lastCountFetchTime = Date.now();
     } catch (err) {
@@ -199,6 +204,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       stopPolling();
       donations.value = [];
       pendingCount.value = 0;
+      totalCount.value = 0;
     }
   }, { immediate: true });
 
@@ -219,6 +225,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     // State
     donations,
     pendingCount,
+    totalCount,
     loading,
     error,
     modalVisible,
@@ -231,6 +238,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     // Computed
     hasPendingDonations,
+    hasDonations,
     currentGuildId,
 
     // Actions

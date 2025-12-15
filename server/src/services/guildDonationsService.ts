@@ -181,32 +181,43 @@ export async function fetchGuildDonations(
   }
 }
 
+export interface DonationCounts {
+  pending: number;
+  total: number;
+}
+
 /**
- * Get the count of pending donations for a guild
+ * Get the count of donations for a guild (both pending and total)
  */
-export async function getPendingDonationCount(appGuildId: string): Promise<number> {
+export async function getDonationCounts(appGuildId: string): Promise<DonationCounts> {
   if (!isEqDbConfigured()) {
-    return 0;
+    return { pending: 0, total: 0 };
   }
 
   const exists = await checkGuildDonationsTableExists();
   if (!exists) {
-    return 0;
+    return { pending: 0, total: 0 };
   }
 
   const eqGuildId = await getEqGuildIdByAppGuildId(appGuildId);
   if (eqGuildId === null) {
-    return 0;
+    return { pending: 0, total: 0 };
   }
 
   try {
     const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT COUNT(*) as cnt FROM guild_donations WHERE guildID = ? AND status = ?`,
-      [eqGuildId, EQ_DONATION_STATUS_PENDING]
+      `SELECT
+        COUNT(*) as total,
+        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as pending
+       FROM guild_donations WHERE guildID = ?`,
+      [EQ_DONATION_STATUS_PENDING, eqGuildId]
     );
-    return Number(rows[0]?.cnt ?? 0);
+    return {
+      pending: Number(rows[0]?.pending ?? 0),
+      total: Number(rows[0]?.total ?? 0)
+    };
   } catch {
-    return 0;
+    return { pending: 0, total: 0 };
   }
 }
 
