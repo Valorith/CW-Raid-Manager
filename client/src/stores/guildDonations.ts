@@ -53,8 +53,8 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     try {
       const counts = await api.fetchGuildDonationCounts(guildId);
-      pendingCount.value = counts.pending;
-      totalCount.value = counts.total;
+      pendingCount.value = counts.pending ?? 0;
+      totalCount.value = counts.total ?? 0;
       lastCountFetchTime = Date.now();
     } catch (err) {
       console.warn('Failed to fetch donation count:', err);
@@ -93,7 +93,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       totalDonations.value = result.total;
       // Update counts for badge visibility and glow effect
       totalCount.value = result.total;
-      pendingCount.value = result.pending;
+      pendingCount.value = result.pending ?? 0;
       lastDonationsFetchTime = Date.now();
       lastCountFetchTime = Date.now();
     } catch (err) {
