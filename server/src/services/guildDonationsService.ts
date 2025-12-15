@@ -132,6 +132,7 @@ export async function fetchGuildDonations(
 
   // Query donations with item details and donator name, with pagination
   // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
+  // Use unique alias 'donationStatus' to avoid conflict with items table's status column
   const query = `
     SELECT
       d.donationID as id,
@@ -140,7 +141,7 @@ export async function fetchGuildDonations(
       d.itemType as itemType,
       d.quantity as quantity,
       d.donatorID as donatorId,
-      d.status as status,
+      d.status as donationStatus,
       i.Name as itemName,
       i.icon as itemIconId,
       c.name as donatorName
@@ -171,7 +172,7 @@ export async function fetchGuildDonations(
       quantity: Number(row.quantity ?? 1),
       donatorId: Number(row.donatorId ?? 0),
       donatorName: row.donatorName ? String(row.donatorName) : null,
-      status: mapEqStatusToStatus(Number(row.status))
+      status: mapEqStatusToStatus(Number(row.donationStatus))
     }));
 
     return { donations, total, page, limit, totalPages };
