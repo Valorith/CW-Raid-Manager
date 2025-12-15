@@ -49,9 +49,14 @@ async function checkGuildDonationsTableExists(): Promise<boolean> {
 
 /**
  * Map EQEmu status number to our status string
+ * EQEmu uses: 1 = PENDING, 2 = REJECTED
  */
-function mapEqStatusToStatus(eqStatus: number): 'PENDING' | 'REJECTED' {
-  return eqStatus === EQ_DONATION_STATUS_REJECTED ? 'REJECTED' : 'PENDING';
+function mapEqStatusToStatus(eqStatus: unknown): 'PENDING' | 'REJECTED' {
+  const numStatus = Number(eqStatus);
+  if (numStatus === EQ_DONATION_STATUS_REJECTED) {
+    return 'REJECTED';
+  }
+  return 'PENDING';
 }
 
 /**
@@ -132,7 +137,7 @@ export async function fetchGuildDonations(
 
   // Query donations with item details and donator name, with pagination
   // Table schema: donationID, status, guildID, itemID, itemType, quantity, donatorID
-  // Use unique alias 'donationStatus' to avoid conflict with items table's status column
+  // Use unique alias 'donation_status' to avoid any potential column conflicts
   const query = `
     SELECT
       d.donationID as id,
@@ -141,7 +146,7 @@ export async function fetchGuildDonations(
       d.itemType as itemType,
       d.quantity as quantity,
       d.donatorID as donatorId,
-      d.status as donationStatus,
+      d.status as donation_status,
       i.Name as itemName,
       i.icon as itemIconId,
       c.name as donatorName
@@ -162,18 +167,22 @@ export async function fetchGuildDonations(
     const total = Number(countRows[0]?.total ?? 0);
     const totalPages = Math.ceil(total / limit);
 
-    const donations = donationRows.map((row) => ({
-      id: Number(row.id),
-      guildId: Number(row.guildId),
-      itemId: Number(row.itemId),
-      itemName: row.itemName ? String(row.itemName) : null,
-      itemIconId: row.itemIconId ? Number(row.itemIconId) : null,
-      itemType: Number(row.itemType ?? 0),
-      quantity: Number(row.quantity ?? 1),
-      donatorId: Number(row.donatorId ?? 0),
-      donatorName: row.donatorName ? String(row.donatorName) : null,
-      status: mapEqStatusToStatus(Number(row.donationStatus))
-    }));
+    const donations = donationRows.map((row) => {
+      // Try multiple possible column names for status due to MySQL driver variations
+      const statusValue = row.donation_status ?? row.donationStatus ?? row.status;
+      return {
+        id: Number(row.id),
+        guildId: Number(row.guildId),
+        itemId: Number(row.itemId),
+        itemName: row.itemName ? String(row.itemName) : null,
+        itemIconId: row.itemIconId ? Number(row.itemIconId) : null,
+        itemType: Number(row.itemType ?? 0),
+        quantity: Number(row.quantity ?? 1),
+        donatorId: Number(row.donatorId ?? 0),
+        donatorName: row.donatorName ? String(row.donatorName) : null,
+        status: mapEqStatusToStatus(statusValue)
+      };
+    });
 
     return { donations, total, page, limit, totalPages };
   } catch (error) {
