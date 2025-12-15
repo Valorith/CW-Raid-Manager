@@ -4,8 +4,8 @@ import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
 
 // EQEmu donation status values
+const EQ_DONATION_STATUS_REJECTED = 0;
 const EQ_DONATION_STATUS_PENDING = 1;
-const EQ_DONATION_STATUS_REJECTED = 2;
 
 // Cache TTL for guild ID mapping (5 minutes)
 const GUILD_ID_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -49,7 +49,7 @@ async function checkGuildDonationsTableExists(): Promise<boolean> {
 
 /**
  * Map EQEmu status number to our status string
- * EQEmu uses: 1 = PENDING, 2 = REJECTED
+ * EQEmu uses: 0 = REJECTED, 1 = PENDING
  */
 function mapEqStatusToStatus(eqStatus: unknown): 'PENDING' | 'REJECTED' {
   const numStatus = Number(eqStatus);
