@@ -130,9 +130,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     try {
       await api.rejectGuildDonation(guildId, donationId);
-      // Remove from local state
-      donations.value = donations.value.filter(d => d.id !== donationId);
-      pendingCount.value = Math.max(0, pendingCount.value - 1);
+      // Update the donation status in local state
+      const donation = donations.value.find(d => d.id === donationId);
+      if (donation && donation.status === 'PENDING') {
+        donation.status = 'REJECTED';
+        pendingCount.value = Math.max(0, pendingCount.value - 1);
+      }
     } catch (err) {
       console.error('Failed to reject donation:', err);
       throw err;
@@ -145,7 +148,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     try {
       const count = await api.rejectAllGuildDonations(guildId);
-      donations.value = [];
+      // Update all pending donations to rejected status
+      donations.value.forEach(d => {
+        if (d.status === 'PENDING') {
+          d.status = 'REJECTED';
+        }
+      });
       pendingCount.value = 0;
       return count;
     } catch (err) {
@@ -159,10 +167,17 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     if (!guildId) return;
 
     try {
+      // Find donation before deleting to check its status
+      const donation = donations.value.find(d => d.id === donationId);
+      const wasPending = donation?.status === 'PENDING';
+
       await api.deleteGuildDonation(guildId, donationId);
       // Remove from local state
       donations.value = donations.value.filter(d => d.id !== donationId);
-      pendingCount.value = Math.max(0, pendingCount.value - 1);
+      totalCount.value = Math.max(0, totalCount.value - 1);
+      if (wasPending) {
+        pendingCount.value = Math.max(0, pendingCount.value - 1);
+      }
     } catch (err) {
       console.error('Failed to delete donation:', err);
       throw err;
