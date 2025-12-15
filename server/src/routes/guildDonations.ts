@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/authenticate.js';
 import {
   deleteDonation,
   fetchGuildDonations,
-  getPendingDonationCount,
+  getDonationCounts,
   rejectAllDonations,
   rejectDonation
 } from '../services/guildDonationsService.js';
@@ -13,10 +13,16 @@ import { getUserGuildRole } from '../services/guildService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
 
 export async function guildDonationRoutes(server: FastifyInstance): Promise<void> {
-  // Get all donations for a guild (from EQEmu database)
+  // Get donations for a guild with pagination (from EQEmu database)
   server.get('/:guildId/donations', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
+    const querySchema = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(25)
+    });
+
     const { guildId } = paramsSchema.parse(request.params);
+    const { page, limit } = querySchema.parse(request.query);
 
     try {
       await ensureUserCanViewGuild(request.user.userId, guildId);
@@ -25,10 +31,10 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      const donations = await fetchGuildDonations(guildId);
+      const result = await fetchGuildDonations(guildId, page, limit);
 
       // Map to the expected client format
-      const formattedDonations = donations.map((d) => ({
+      const formattedDonations = result.donations.map((d) => ({
         id: String(d.id),
         guildId: guildId,
         itemName: d.itemName ?? 'Unknown Item',
@@ -41,14 +47,21 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
         status: d.status
       }));
 
-      return { donations: formattedDonations };
+      return {
+        donations: formattedDonations,
+        total: result.total,
+        pending: result.pending,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages
+      };
     } catch (error) {
       request.log.error({ err: error, guildId }, 'Failed to fetch guild donations.');
-      return { donations: [] };
+      return { donations: [], total: 0, pending: 0, page, limit, totalPages: 0 };
     }
   });
 
-  // Get pending donation count for a guild (lightweight endpoint for badge)
+  // Get donation counts for a guild (lightweight endpoint for badge)
   server.get('/:guildId/donations/count', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
@@ -60,10 +73,10 @@ export async function guildDonationRoutes(server: FastifyInstance): Promise<void
     }
 
     try {
-      const count = await getPendingDonationCount(guildId);
-      return { count };
+      const counts = await getDonationCounts(guildId);
+      return { pending: counts.pending, total: counts.total };
     } catch {
-      return { count: 0 };
+      return { pending: 0, total: 0 };
     }
   });
 

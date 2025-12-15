@@ -1,10 +1,11 @@
-import { computed, ref, watch, onUnmounted } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { api, type GuildDonation } from '../services/api';
 import { useAuthStore } from './auth';
 
 const POLL_INTERVAL_MS = 60000; // Poll every 60 seconds
 const DONATIONS_STALE_MS = 10000; // Consider donations stale after 10 seconds
+const DEFAULT_PAGE_SIZE = 25;
 
 export const useGuildDonationsStore = defineStore('guildDonations', () => {
   const authStore = useAuthStore();
@@ -12,9 +13,16 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
   // State
   const donations = ref<GuildDonation[]>([]);
   const pendingCount = ref(0);
+  const totalCount = ref(0); // Total donations count (for badge visibility)
   const loading = ref(false);
   const error = ref<string | null>(null);
   const modalVisible = ref(false);
+
+  // Pagination state
+  const currentPage = ref(1);
+  const totalPages = ref(0);
+  const totalDonations = ref(0);
+  const pageSize = ref(DEFAULT_PAGE_SIZE);
 
   // Timestamps to avoid redundant fetches
   let lastDonationsFetchTime = 0;
@@ -25,6 +33,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
   // Computed
   const hasPendingDonations = computed(() => pendingCount.value > 0);
+  const hasDonations = computed(() => totalCount.value > 0);
 
   const currentGuildId = computed(() => authStore.primaryGuild?.id ?? null);
 
@@ -33,6 +42,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     const guildId = currentGuildId.value;
     if (!guildId) {
       pendingCount.value = 0;
+      totalCount.value = 0;
       return;
     }
 
@@ -42,23 +52,28 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     }
 
     try {
-      pendingCount.value = await api.fetchGuildDonationCount(guildId);
+      const counts = await api.fetchGuildDonationCounts(guildId);
+      pendingCount.value = counts.pending ?? 0;
+      totalCount.value = counts.total ?? 0;
       lastCountFetchTime = Date.now();
     } catch (err) {
       console.warn('Failed to fetch donation count:', err);
     }
   }
 
-  async function fetchDonations(force = false) {
+  async function fetchDonations(force = false, page?: number) {
     const guildId = currentGuildId.value;
     if (!guildId) {
       donations.value = [];
       return;
     }
 
-    // Skip if data is fresh (unless forced)
+    // Determine target page
+    const targetPage = page ?? currentPage.value;
+
+    // Skip if data is fresh and same page (unless forced)
     const now = Date.now();
-    if (!force && lastDonationsFetchTime > 0 && (now - lastDonationsFetchTime) < DONATIONS_STALE_MS) {
+    if (!force && !page && lastDonationsFetchTime > 0 && (now - lastDonationsFetchTime) < DONATIONS_STALE_MS) {
       return;
     }
 
@@ -71,8 +86,14 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     error.value = null;
 
     try {
-      donations.value = await api.fetchGuildDonations(guildId);
-      pendingCount.value = donations.value.length;
+      const result = await api.fetchGuildDonations(guildId, targetPage, pageSize.value);
+      donations.value = result.donations;
+      currentPage.value = result.page;
+      totalPages.value = result.totalPages;
+      totalDonations.value = result.total;
+      // Update counts for badge visibility and glow effect
+      totalCount.value = result.total;
+      pendingCount.value = result.pending ?? 0;
       lastDonationsFetchTime = Date.now();
       lastCountFetchTime = Date.now();
     } catch (err) {
@@ -84,15 +105,37 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     }
   }
 
+  async function goToPage(page: number) {
+    if (page < 1 || page > totalPages.value || page === currentPage.value) {
+      return;
+    }
+    await fetchDonations(true, page);
+  }
+
+  async function nextPage() {
+    if (currentPage.value < totalPages.value) {
+      await goToPage(currentPage.value + 1);
+    }
+  }
+
+  async function previousPage() {
+    if (currentPage.value > 1) {
+      await goToPage(currentPage.value - 1);
+    }
+  }
+
   async function rejectDonation(donationId: string) {
     const guildId = currentGuildId.value;
     if (!guildId) return;
 
     try {
       await api.rejectGuildDonation(guildId, donationId);
-      // Remove from local state
-      donations.value = donations.value.filter(d => d.id !== donationId);
-      pendingCount.value = Math.max(0, pendingCount.value - 1);
+      // Update the donation status in local state
+      const donation = donations.value.find(d => d.id === donationId);
+      if (donation && donation.status === 'PENDING') {
+        donation.status = 'REJECTED';
+        pendingCount.value = Math.max(0, pendingCount.value - 1);
+      }
     } catch (err) {
       console.error('Failed to reject donation:', err);
       throw err;
@@ -105,7 +148,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     try {
       const count = await api.rejectAllGuildDonations(guildId);
-      donations.value = [];
+      // Update all pending donations to rejected status
+      donations.value.forEach(d => {
+        if (d.status === 'PENDING') {
+          d.status = 'REJECTED';
+        }
+      });
       pendingCount.value = 0;
       return count;
     } catch (err) {
@@ -119,10 +167,17 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     if (!guildId) return;
 
     try {
+      // Find donation before deleting to check its status
+      const donation = donations.value.find(d => d.id === donationId);
+      const wasPending = donation?.status === 'PENDING';
+
       await api.deleteGuildDonation(guildId, donationId);
       // Remove from local state
       donations.value = donations.value.filter(d => d.id !== donationId);
-      pendingCount.value = Math.max(0, pendingCount.value - 1);
+      totalCount.value = Math.max(0, totalCount.value - 1);
+      if (wasPending) {
+        pendingCount.value = Math.max(0, pendingCount.value - 1);
+      }
     } catch (err) {
       console.error('Failed to delete donation:', err);
       throw err;
@@ -131,7 +186,9 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
   function showModal() {
     modalVisible.value = true;
-    fetchDonations();
+    // Reset to first page when opening modal
+    currentPage.value = 1;
+    fetchDonations(true, 1);
   }
 
   function hideModal() {
@@ -163,6 +220,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       stopPolling();
       donations.value = [];
       pendingCount.value = 0;
+      totalCount.value = 0;
     }
   }, { immediate: true });
 
@@ -183,12 +241,20 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     // State
     donations,
     pendingCount,
+    totalCount,
     loading,
     error,
     modalVisible,
 
+    // Pagination state
+    currentPage,
+    totalPages,
+    totalDonations,
+    pageSize,
+
     // Computed
     hasPendingDonations,
+    hasDonations,
     currentGuildId,
 
     // Actions
@@ -200,6 +266,11 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     showModal,
     hideModal,
     startPolling,
-    stopPolling
+    stopPolling,
+
+    // Pagination actions
+    goToPage,
+    nextPage,
+    previousPage
   };
 });
