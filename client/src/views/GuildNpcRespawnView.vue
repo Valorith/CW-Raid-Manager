@@ -957,8 +957,8 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .expansion-icon {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   flex-shrink: 0;
 }

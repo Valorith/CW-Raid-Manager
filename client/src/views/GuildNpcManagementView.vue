@@ -826,8 +826,8 @@ onMounted(async () => {
 }
 
 .expansion-icon {
-  width: 18px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   flex-shrink: 0;
 }
