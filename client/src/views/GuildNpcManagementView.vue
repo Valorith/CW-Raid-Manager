@@ -150,8 +150,8 @@
           </div>
 
           <div class="respawn-section">
-            <div class="respawn-inputs-row">
-              <div class="respawn-input-group">
+            <div class="respawn-input-group">
+              <div class="respawn-group-header">
                 <label class="respawn-label">Min Respawn</label>
                 <div class="time-inputs">
                   <div class="time-input-field">
@@ -180,7 +180,27 @@
                   </div>
                 </div>
               </div>
-              <div class="respawn-input-group">
+              <input
+                type="range"
+                class="respawn-slider"
+                :value="form.respawnMinMinutes ?? 0"
+                min="0"
+                max="10080"
+                step="15"
+                @input="setMinFromSlider($event)"
+              />
+              <div class="slider-labels">
+                <span>0</span>
+                <span>6h</span>
+                <span>12h</span>
+                <span>24h</span>
+                <span>3d</span>
+                <span>7d</span>
+              </div>
+            </div>
+
+            <div class="respawn-input-group">
+              <div class="respawn-group-header">
                 <label class="respawn-label">Max Respawn</label>
                 <div class="time-inputs">
                   <div class="time-input-field">
@@ -209,18 +229,22 @@
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div class="respawn-presets">
-              <span class="presets-label">Common windows:</span>
-              <div class="preset-buttons">
-                <button type="button" class="preset-btn" @click="setRespawnWindow(6 * 60, 8 * 60)">6-8h</button>
-                <button type="button" class="preset-btn" @click="setRespawnWindow(7 * 60, 8 * 60)">7-8h</button>
-                <button type="button" class="preset-btn" @click="setRespawnWindow(12 * 60, 18 * 60)">12-18h</button>
-                <button type="button" class="preset-btn" @click="setRespawnWindow(18 * 60, 24 * 60)">18-24h</button>
-                <button type="button" class="preset-btn" @click="setRespawnWindow(72 * 60, 72 * 60)">3d</button>
-                <button type="button" class="preset-btn" @click="setRespawnWindow(168 * 60, 168 * 60)">7d</button>
-                <button type="button" class="preset-btn preset-btn--clear" @click="clearRespawnTimes">Clear</button>
+              <input
+                type="range"
+                class="respawn-slider"
+                :value="form.respawnMaxMinutes ?? 0"
+                min="0"
+                max="10080"
+                step="15"
+                @input="setMaxFromSlider($event)"
+              />
+              <div class="slider-labels">
+                <span>0</span>
+                <span>6h</span>
+                <span>12h</span>
+                <span>24h</span>
+                <span>3d</span>
+                <span>7d</span>
               </div>
             </div>
 
@@ -230,7 +254,7 @@
                 <span class="helper-minutes muted">({{ form.respawnMinMinutes }}{{ form.respawnMaxMinutes && form.respawnMaxMinutes !== form.respawnMinMinutes ? ` - ${form.respawnMaxMinutes}` : '' }} min)</span>
               </template>
               <template v-else>
-                <span class="muted">Set respawn time using the inputs above</span>
+                <span class="muted">Set respawn time using the sliders or inputs above</span>
               </template>
             </div>
           </div>
@@ -348,25 +372,28 @@ watch([respawnMaxHours, respawnMaxMins], ([hours, mins]) => {
   form.value.respawnMaxMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
 });
 
-// Set respawn window from preset button (sets both min and max)
-function setRespawnWindow(minMinutes: number, maxMinutes: number) {
-  const minH = Math.floor(minMinutes / 60);
-  const minM = minMinutes % 60;
-  respawnMinHours.value = minH > 0 ? minH : null;
-  respawnMinMins.value = minM > 0 ? minM : null;
-
-  const maxH = Math.floor(maxMinutes / 60);
-  const maxM = maxMinutes % 60;
-  respawnMaxHours.value = maxH > 0 ? maxH : null;
-  respawnMaxMins.value = maxM > 0 ? maxM : null;
+// Set min respawn from slider
+function setMinFromSlider(event: Event) {
+  const value = parseInt((event.target as HTMLInputElement).value, 10);
+  if (value === 0) {
+    respawnMinHours.value = null;
+    respawnMinMins.value = null;
+  } else {
+    respawnMinHours.value = Math.floor(value / 60) || null;
+    respawnMinMins.value = (value % 60) || null;
+  }
 }
 
-// Clear respawn times
-function clearRespawnTimes() {
-  respawnMinHours.value = null;
-  respawnMinMins.value = null;
-  respawnMaxHours.value = null;
-  respawnMaxMins.value = null;
+// Set max respawn from slider
+function setMaxFromSlider(event: Event) {
+  const value = parseInt((event.target as HTMLInputElement).value, 10);
+  if (value === 0) {
+    respawnMaxHours.value = null;
+    respawnMaxMins.value = null;
+  } else {
+    respawnMaxHours.value = Math.floor(value / 60) || null;
+    respawnMaxMins.value = (value % 60) || null;
+  }
 }
 
 // Populate hours/minutes from total minutes
@@ -886,16 +913,16 @@ onMounted(async () => {
   border-radius: 0.5rem;
 }
 
-.respawn-inputs-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-
 .respawn-input-group {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
+}
+
+.respawn-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .respawn-label {
@@ -923,52 +950,51 @@ onMounted(async () => {
   font-weight: 500;
 }
 
-.respawn-presets {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.presets-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;
-}
-
-.preset-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.preset-btn {
-  padding: 0.3rem 0.6rem;
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 0.3rem;
-  color: #94a3b8;
-  font-size: 0.75rem;
-  font-weight: 500;
+.respawn-slider {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(30, 41, 59, 0.8);
+  border-radius: 3px;
+  outline: none;
   cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.preset-btn:hover {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #93c5fd;
+.respawn-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
-.preset-btn--clear {
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.25);
+.respawn-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);
 }
 
-.preset-btn--clear:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #fca5a5;
+.respawn-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #64748b;
+  padding: 0 2px;
 }
 
 .respawn-helper {
