@@ -212,6 +212,16 @@
                   </svg>
                 </button>
                 <button
+                  v-if="npc.lastKill"
+                  class="action-btn action-btn--spawn"
+                  title="It's Up! - Confirm NPC has spawned"
+                  @click="confirmSpawnUp(npc)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+                <button
                   :class="['action-btn action-btn--notify', { 'action-btn--active': isSubscribed(npc.id) }]"
                   title="Toggle Notifications"
                   @click="toggleNotify(npc.id)"
@@ -516,6 +526,22 @@ function openLootModal(npc: NpcRespawnTrackerEntry) {
 function closeLootModal() {
   showLootModal.value = false;
   lootModalNpc.value = null;
+}
+
+async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
+  if (!npc.lastKill) return;
+
+  const confirmed = confirm(
+    `Confirm that "${npc.npcName}" has spawned?\n\nThis will clear the respawn timer.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await store.deleteKillRecord(guildId, npc.lastKill.id);
+  } catch (err: any) {
+    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to confirm spawn');
+  }
 }
 
 async function refreshData() {
@@ -1062,6 +1088,18 @@ watch(() => route.params.guildId, (newGuildId) => {
   background: rgba(34, 197, 94, 0.2);
   border-color: rgba(34, 197, 94, 0.5);
   color: #86efac;
+}
+
+.action-btn--spawn {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.action-btn--spawn:hover {
+  background: rgba(34, 197, 94, 0.3);
+  border-color: rgba(34, 197, 94, 0.6);
+  color: #4ade80;
 }
 
 .action-btn--notify.action-btn--active {
