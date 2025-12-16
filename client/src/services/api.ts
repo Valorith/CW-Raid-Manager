@@ -840,6 +840,103 @@ export interface DonationCounts {
   total: number;
 }
 
+// NPC Respawn Tracker Types
+export type NpcRespawnStatus = 'unknown' | 'up' | 'window' | 'down';
+
+export interface NpcLootItem {
+  id: string;
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  allaLink: string | null;
+}
+
+export interface NpcLastKill {
+  id: string;
+  killedAt: string;
+  killedByName: string | null;
+  killedById: string | null;
+  notes: string | null;
+}
+
+export interface NpcDefinition {
+  id: string;
+  guildId: string;
+  npcName: string;
+  zoneName: string | null;
+  respawnMinMinutes: number | null;
+  respawnMaxMinutes: number | null;
+  notes: string | null;
+  allaLink: string | null;
+  createdById: string | null;
+  createdByName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lootItems: NpcLootItem[];
+  lastKill: NpcLastKill | null;
+}
+
+export interface NpcRespawnTrackerEntry extends NpcDefinition {
+  respawnStatus: NpcRespawnStatus;
+  respawnMinTime: string | null;
+  respawnMaxTime: string | null;
+  progressPercent: number | null;
+}
+
+export interface NpcKillRecord {
+  id: string;
+  guildId: string;
+  npcDefinitionId: string;
+  npcName: string;
+  zoneName: string | null;
+  respawnMinMinutes: number | null;
+  respawnMaxMinutes: number | null;
+  killedAt: string;
+  killedByName: string | null;
+  killedById: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NpcRespawnSubscription {
+  id: string;
+  npcDefinitionId: string;
+  notifyMinutes: number;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  npcDefinition: NpcDefinition;
+}
+
+export interface NpcDefinitionInput {
+  npcName: string;
+  zoneName?: string | null;
+  respawnMinMinutes?: number | null;
+  respawnMaxMinutes?: number | null;
+  notes?: string | null;
+  allaLink?: string | null;
+  lootItems?: Array<{
+    itemId?: number | null;
+    itemName: string;
+    itemIconId?: number | null;
+    allaLink?: string | null;
+  }>;
+}
+
+export interface NpcKillRecordInput {
+  npcDefinitionId: string;
+  killedAt: string;
+  killedByName?: string | null;
+  notes?: string | null;
+}
+
+export interface NpcSubscriptionInput {
+  npcDefinitionId: string;
+  notifyMinutes?: number;
+  isEnabled?: boolean;
+}
+
 
 export interface AttendanceEventSummary {
   id: string;
@@ -3285,6 +3382,103 @@ export const api = {
 
   async deleteGuildDonation(guildId: string, donationId: string): Promise<void> {
     await axios.delete(`/api/guilds/${guildId}/donations/${donationId}`);
+  },
+
+  // NPC Respawn Tracker
+
+  async fetchNpcRespawnTracker(guildId: string): Promise<{
+    npcs: NpcRespawnTrackerEntry[];
+    canManage: boolean;
+    viewerRole: GuildRole | null;
+  }> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-respawn`);
+    return {
+      npcs: response.data.npcs ?? [],
+      canManage: response.data.canManage ?? false,
+      viewerRole: response.data.viewerRole ?? null
+    };
+  },
+
+  async fetchNpcDefinitions(guildId: string): Promise<{
+    definitions: NpcDefinition[];
+    canManage: boolean;
+    viewerRole: GuildRole | null;
+  }> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-definitions`);
+    return {
+      definitions: response.data.definitions ?? [],
+      canManage: response.data.canManage ?? false,
+      viewerRole: response.data.viewerRole ?? null
+    };
+  },
+
+  async fetchNpcDefinition(guildId: string, npcDefinitionId: string): Promise<NpcDefinition> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-definitions/${npcDefinitionId}`);
+    return response.data.definition;
+  },
+
+  async createNpcDefinition(guildId: string, input: NpcDefinitionInput): Promise<NpcDefinition> {
+    const response = await axios.post(`/api/guilds/${guildId}/npc-definitions`, input);
+    return response.data.definition;
+  },
+
+  async updateNpcDefinition(
+    guildId: string,
+    npcDefinitionId: string,
+    input: NpcDefinitionInput
+  ): Promise<NpcDefinition> {
+    const response = await axios.put(
+      `/api/guilds/${guildId}/npc-definitions/${npcDefinitionId}`,
+      input
+    );
+    return response.data.definition;
+  },
+
+  async deleteNpcDefinition(guildId: string, npcDefinitionId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-definitions/${npcDefinitionId}`);
+  },
+
+  async fetchNpcKillRecords(
+    guildId: string,
+    options?: { npcDefinitionId?: string; limit?: number }
+  ): Promise<NpcKillRecord[]> {
+    const params = new URLSearchParams();
+    if (options?.npcDefinitionId) {
+      params.append('npcDefinitionId', options.npcDefinitionId);
+    }
+    if (options?.limit) {
+      params.append('limit', String(options.limit));
+    }
+    const response = await axios.get(
+      `/api/guilds/${guildId}/npc-kills${params.toString() ? '?' + params.toString() : ''}`
+    );
+    return response.data.records ?? [];
+  },
+
+  async createNpcKillRecord(guildId: string, input: NpcKillRecordInput): Promise<NpcKillRecord> {
+    const response = await axios.post(`/api/guilds/${guildId}/npc-kills`, input);
+    return response.data.record;
+  },
+
+  async deleteNpcKillRecord(guildId: string, killRecordId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-kills/${killRecordId}`);
+  },
+
+  async fetchNpcSubscriptions(guildId: string): Promise<NpcRespawnSubscription[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-subscriptions`);
+    return response.data.subscriptions ?? [];
+  },
+
+  async upsertNpcSubscription(
+    guildId: string,
+    input: NpcSubscriptionInput
+  ): Promise<NpcRespawnSubscription> {
+    const response = await axios.post(`/api/guilds/${guildId}/npc-subscriptions`, input);
+    return response.data.subscription;
+  },
+
+  async deleteNpcSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}`);
   }
 
 };

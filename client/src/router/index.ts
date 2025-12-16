@@ -64,6 +64,18 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/guilds/:guildId/npc-respawn',
+      name: 'GuildNpcRespawn',
+      component: () => import('../views/GuildNpcRespawnView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/guilds/:guildId/npc-respawn/manage',
+      name: 'GuildNpcManagement',
+      component: () => import('../views/GuildNpcManagementView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/raids',
       name: 'Raids',
       component: () => import('../views/RaidDashboardView.vue'),
