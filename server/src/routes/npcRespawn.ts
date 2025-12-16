@@ -16,7 +16,9 @@ import {
   getUserSubscriptions,
   upsertSubscription,
   deleteSubscription,
-  getRespawnTrackerData
+  getRespawnTrackerData,
+  getEnabledContentFlags,
+  NPC_CONTENT_FLAGS
 } from '../services/npcRespawnService.js';
 import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
 import { prisma } from '../utils/prisma.js';
@@ -29,6 +31,7 @@ const npcDefinitionBodySchema = z.object({
   respawnMinMinutes: z.number().int().min(0).nullable().optional(),
   respawnMaxMinutes: z.number().int().min(0).nullable().optional(),
   isRaidTarget: z.boolean().optional(),
+  contentFlag: z.enum(NPC_CONTENT_FLAGS).nullable().optional(),
   notes: z.string().max(8000).nullable().optional(),
   allaLink: z.string().max(512).nullable().optional()
 });
@@ -91,10 +94,22 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     const { guildId } = paramsSchema.parse(request.params);
 
     const role = await ensureUserCanViewGuild(request.user.userId, guildId);
-    const npcs = await getRespawnTrackerData(guildId);
+    const [allNpcs, enabledContentFlags] = await Promise.all([
+      getRespawnTrackerData(guildId),
+      getEnabledContentFlags()
+    ]);
+
+    // Filter NPCs: include if no contentFlag or if contentFlag is enabled
+    const npcs = allNpcs.filter((npc) => {
+      if (!npc.contentFlag) {
+        return true;
+      }
+      return enabledContentFlags.includes(npc.contentFlag as typeof enabledContentFlags[number]);
+    });
 
     return {
       npcs,
+      enabledContentFlags,
       canManage: roleCanEditRaid(role),
       viewerRole: role
     };

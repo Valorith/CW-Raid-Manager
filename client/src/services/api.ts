@@ -859,6 +859,9 @@ export interface NpcLastKill {
   notes: string | null;
 }
 
+export const NPC_CONTENT_FLAGS = ['Christmas', 'Halloween'] as const;
+export type NpcContentFlag = (typeof NPC_CONTENT_FLAGS)[number];
+
 export interface NpcDefinition {
   id: string;
   guildId: string;
@@ -867,6 +870,7 @@ export interface NpcDefinition {
   respawnMinMinutes: number | null;
   respawnMaxMinutes: number | null;
   isRaidTarget: boolean;
+  contentFlag: NpcContentFlag | null;
   notes: string | null;
   allaLink: string | null;
   createdById: string | null;
@@ -915,6 +919,7 @@ export interface NpcDefinitionInput {
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
   isRaidTarget?: boolean;
+  contentFlag?: NpcContentFlag | null;
   notes?: string | null;
   allaLink?: string | null;
 }

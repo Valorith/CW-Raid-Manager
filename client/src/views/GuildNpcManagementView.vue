@@ -79,7 +79,12 @@
               </svg>
             </a>
           </div>
-          <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
+          <div class="npc-card__badges">
+            <span v-if="npc.contentFlag" :class="['content-flag-badge', `content-flag-badge--${npc.contentFlag.toLowerCase()}`]">
+              {{ npc.contentFlag }}
+            </span>
+            <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
+          </div>
         </header>
 
         <div class="npc-card__body">
@@ -271,6 +276,23 @@
               When enabled, manual kills will trigger the "Raid Target Killed" Discord webhook notification.
             </p>
           </div>
+
+          <div class="form-group">
+            <label for="npc-content-flag">Content Flag</label>
+            <select
+              id="npc-content-flag"
+              v-model="form.contentFlag"
+              class="input input--select"
+            >
+              <option :value="null">None (Always Visible)</option>
+              <option v-for="flag in NPC_CONTENT_FLAGS" :key="flag" :value="flag">
+                {{ flag }}
+              </option>
+            </select>
+            <p class="field-hint">
+              If set, this NPC will only appear on the tracker when the corresponding content flag is enabled in the game database.
+            </p>
+          </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeModal">Cancel</button>
@@ -320,7 +342,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
+import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../services/api';
+import { NPC_CONTENT_FLAGS } from '../services/api';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -341,6 +364,7 @@ const form = ref<NpcDefinitionInput>({
   respawnMinMinutes: null,
   respawnMaxMinutes: null,
   isRaidTarget: false,
+  contentFlag: null,
   notes: null,
   allaLink: null
 });
@@ -420,6 +444,7 @@ function resetForm() {
     respawnMinMinutes: null,
     respawnMaxMinutes: null,
     isRaidTarget: false,
+    contentFlag: null,
     notes: null,
     allaLink: null
   };
@@ -445,6 +470,7 @@ function openEditModal(npc: NpcDefinition) {
     respawnMinMinutes: npc.respawnMinMinutes,
     respawnMaxMinutes: npc.respawnMaxMinutes,
     isRaidTarget: npc.isRaidTarget ?? false,
+    contentFlag: npc.contentFlag ?? null,
     notes: npc.notes,
     allaLink: npc.allaLink
   };
@@ -694,6 +720,12 @@ onMounted(async () => {
   height: 14px;
 }
 
+.npc-card__badges {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .zone-badge {
   display: inline-block;
   padding: 0.2rem 0.5rem;
@@ -704,6 +736,28 @@ onMounted(async () => {
   color: #a5b4fc;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.content-flag-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.content-flag-badge--christmas {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.content-flag-badge--halloween {
+  background: rgba(249, 115, 22, 0.2);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  color: #fdba74;
 }
 
 .npc-card__body {
@@ -1080,6 +1134,27 @@ onMounted(async () => {
 
 .checkbox-hint {
   margin: 0.4rem 0 0 1.7rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.input--select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+
+.input--select option {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.field-hint {
+  margin: 0.35rem 0 0;
   font-size: 0.75rem;
   color: #64748b;
   line-height: 1.4;

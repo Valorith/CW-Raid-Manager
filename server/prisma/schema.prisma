@@ -667,6 +667,7 @@ model NpcDefinition {
   respawnMinMinutes   Int?
   respawnMaxMinutes   Int?
   isRaidTarget        Boolean               @default(false)
+  contentFlag         String?               @db.VarChar(50)
   notes               String?               @db.LongText
   allaLink            String?               @db.VarChar(512)
   createdById         String?

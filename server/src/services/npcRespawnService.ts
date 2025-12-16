@@ -4,6 +4,10 @@ import type { RowDataPacket } from 'mysql2/promise';
 import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 
+// Valid content flags for NPC definitions
+export const NPC_CONTENT_FLAGS = ['Christmas', 'Halloween'] as const;
+export type NpcContentFlag = (typeof NPC_CONTENT_FLAGS)[number];
+
 // Input types
 export interface NpcDefinitionInput {
   npcName: string;
@@ -11,6 +15,7 @@ export interface NpcDefinitionInput {
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
   isRaidTarget?: boolean;
+  contentFlag?: NpcContentFlag | null;
   notes?: string | null;
   allaLink?: string | null;
 }
@@ -62,6 +67,7 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations) {
     respawnMinMinutes: record.respawnMinMinutes ?? null,
     respawnMaxMinutes: record.respawnMaxMinutes ?? null,
     isRaidTarget: record.isRaidTarget ?? false,
+    contentFlag: record.contentFlag ?? null,
     notes: record.notes ?? null,
     allaLink: record.allaLink ?? null,
     createdById: record.createdById ?? null,
@@ -172,6 +178,7 @@ export async function createNpcDefinition(
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
       isRaidTarget: input.isRaidTarget ?? false,
+      contentFlag: input.contentFlag ?? null,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink),
       createdById: creator.userId,
@@ -225,6 +232,7 @@ export async function updateNpcDefinition(
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
       isRaidTarget: input.isRaidTarget ?? false,
+      contentFlag: input.contentFlag ?? null,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink)
     },
@@ -529,6 +537,43 @@ export async function searchDiscoveredItems(
     }));
   } catch (error) {
     console.error('Failed to search discovered items:', error);
+    return [];
+  }
+}
+
+// Content flag to EQEmu database flag mapping
+const CONTENT_FLAG_DB_MAPPING: Record<NpcContentFlag, string> = {
+  Christmas: 'cw_christmas',
+  Halloween: 'cw_halloween'
+};
+
+// Get enabled content flags from EQEmu content_flags table
+export async function getEnabledContentFlags(): Promise<NpcContentFlag[]> {
+  if (!isEqDbConfigured()) {
+    return [];
+  }
+
+  try {
+    const dbFlagNames = Object.values(CONTENT_FLAG_DB_MAPPING);
+    const placeholders = dbFlagNames.map(() => '?').join(', ');
+
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT flag_name FROM content_flags WHERE flag_name IN (${placeholders}) AND enabled = 1`,
+      dbFlagNames
+    );
+
+    const enabledDbFlags = new Set(rows.map((row) => String(row.flag_name)));
+    const enabledContentFlags: NpcContentFlag[] = [];
+
+    for (const [contentFlag, dbFlag] of Object.entries(CONTENT_FLAG_DB_MAPPING)) {
+      if (enabledDbFlags.has(dbFlag)) {
+        enabledContentFlags.push(contentFlag as NpcContentFlag);
+      }
+    }
+
+    return enabledContentFlags;
+  } catch (error) {
+    console.error('Failed to get enabled content flags:', error);
     return [];
   }
 }
