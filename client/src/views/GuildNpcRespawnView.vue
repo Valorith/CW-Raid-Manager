@@ -178,8 +178,8 @@
                   :title="item.itemName"
                 >
                   <img
-                    v-if="item.itemIconId"
-                    :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                    v-if="hasValidIconId(item.itemIconId)"
+                    :src="getLootIconSrc(item.itemIconId)"
                     :alt="item.itemName"
                     class="loot-icon"
                     loading="lazy"
@@ -277,6 +277,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;

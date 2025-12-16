@@ -100,8 +100,8 @@
                 :title="item.itemName"
               >
                 <img
-                  v-if="item.itemIconId"
-                  :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                  v-if="hasValidIconId(item.itemIconId)"
+                  :src="getLootIconSrc(item.itemIconId)"
                   :alt="item.itemName"
                   class="loot-icon"
                   loading="lazy"
@@ -252,8 +252,8 @@
                   @click="selectItem(item)"
                 >
                   <img
-                    v-if="item.itemIconId"
-                    :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                    v-if="hasValidIconId(item.itemIconId)"
+                    :src="getLootIconSrc(item.itemIconId)"
                     :alt="item.itemName"
                     class="item-search__icon"
                   />
@@ -281,8 +281,8 @@
                 class="loot-form-item loot-form-item--selected"
               >
                 <img
-                  v-if="item.itemIconId"
-                  :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                  v-if="hasValidIconId(item.itemIconId)"
+                  :src="getLootIconSrc(item.itemIconId)"
                   :alt="item.itemName"
                   class="loot-form-item__icon"
                 />
@@ -352,6 +352,7 @@ import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import { api } from '../services/api';
 import type { NpcDefinition, NpcDefinitionInput, DiscoveredItem } from '../services/api';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
