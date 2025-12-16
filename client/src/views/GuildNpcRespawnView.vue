@@ -212,7 +212,6 @@
                   </svg>
                 </button>
                 <button
-                  v-if="npc.lastKill"
                   class="action-btn action-btn--spawn"
                   title="It's Up! - Confirm NPC has spawned"
                   @click="confirmSpawnUp(npc)"
@@ -529,7 +528,10 @@ function closeLootModal() {
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
-  if (!npc.lastKill) return;
+  if (!npc.lastKill) {
+    alert(`"${npc.npcName}" has no active respawn timer to clear.\n\nThe NPC is already showing as available.`);
+    return;
+  }
 
   const confirmed = confirm(
     `Confirm that "${npc.npcName}" has spawned?\n\nThis will clear the respawn timer.`
