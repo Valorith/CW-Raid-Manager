@@ -185,7 +185,7 @@
                 class="respawn-slider"
                 :value="form.respawnMinMinutes ?? 0"
                 min="0"
-                max="10080"
+                max="1440"
                 step="15"
                 @input="setMinFromSlider($event)"
               />
@@ -193,9 +193,8 @@
                 <span>0</span>
                 <span>6h</span>
                 <span>12h</span>
+                <span>18h</span>
                 <span>24h</span>
-                <span>3d</span>
-                <span>7d</span>
               </div>
             </div>
 
@@ -234,7 +233,7 @@
                 class="respawn-slider"
                 :value="form.respawnMaxMinutes ?? 0"
                 min="0"
-                max="10080"
+                max="1440"
                 step="15"
                 @input="setMaxFromSlider($event)"
               />
@@ -242,9 +241,8 @@
                 <span>0</span>
                 <span>6h</span>
                 <span>12h</span>
+                <span>18h</span>
                 <span>24h</span>
-                <span>3d</span>
-                <span>7d</span>
               </div>
             </div>
 
