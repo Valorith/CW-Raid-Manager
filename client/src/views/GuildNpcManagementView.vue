@@ -350,7 +350,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import api from '../services/api';
+import { api } from '../services/api';
 import type { NpcDefinition, NpcDefinitionInput, DiscoveredItem } from '../services/api';
 
 const route = useRoute();
