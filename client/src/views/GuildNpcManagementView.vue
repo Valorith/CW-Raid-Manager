@@ -13,7 +13,7 @@
             Back to Tracker
           </RouterLink>
           <h1>Manage NPCs</h1>
-          <p class="muted">Configure NPCs, respawn times, and known loot</p>
+          <p class="muted">Configure NPCs and respawn times</p>
         </div>
         <div class="header-actions">
           <button class="btn btn--primary" @click="openAddModal">
@@ -88,37 +88,6 @@
             <span class="info-value">
               {{ formatRespawnRange(npc.respawnMinMinutes, npc.respawnMaxMinutes) }}
             </span>
-          </div>
-
-          <div v-if="npc.lootItems.length > 0" class="info-row info-row--loot">
-            <span class="info-label">Known Loot ({{ npc.lootItems.length }})</span>
-            <button
-              class="loot-preview"
-              type="button"
-              @click="openLootModal(npc)"
-              title="Click to view all loot items"
-            >
-              <div class="loot-icons">
-                <div
-                  v-for="item in npc.lootItems.slice(0, 5)"
-                  :key="item.id"
-                  class="loot-icon-wrapper"
-                  :title="item.itemName"
-                >
-                  <img
-                    v-if="hasValidIconId(item.itemIconId)"
-                    :src="getLootIconSrc(item.itemIconId)"
-                    :alt="item.itemName"
-                    class="loot-icon"
-                    loading="lazy"
-                  />
-                  <span v-else class="loot-icon-placeholder">?</span>
-                </div>
-                <span v-if="npc.lootItems.length > 5" class="loot-more-badge">
-                  +{{ npc.lootItems.length - 5 }}
-                </span>
-              </div>
-            </button>
           </div>
 
           <div v-if="npc.notes" class="info-row info-row--notes">
@@ -231,86 +200,6 @@
               placeholder="Any additional notes about this NPC..."
             ></textarea>
           </div>
-
-          <div class="form-section">
-            <div class="form-section__header">
-              <h4>Known Loot</h4>
-            </div>
-
-            <!-- Item Search -->
-            <div class="item-search">
-              <div class="item-search__input-wrapper">
-                <input
-                  v-model="itemSearchQuery"
-                  type="text"
-                  class="input"
-                  placeholder="Search discovered items..."
-                  @input="onItemSearchInput"
-                  @focus="showItemSearchResults = true"
-                />
-                <div v-if="itemSearchLoading" class="item-search__spinner"></div>
-              </div>
-              <div
-                v-if="showItemSearchResults && (itemSearchResults.length > 0 || itemSearchQuery.length >= 2)"
-                class="item-search__results"
-              >
-                <div
-                  v-for="item in itemSearchResults"
-                  :key="item.itemId"
-                  class="item-search__result"
-                  @click="selectItem(item)"
-                >
-                  <img
-                    v-if="hasValidIconId(item.itemIconId)"
-                    :src="getLootIconSrc(item.itemIconId)"
-                    :alt="item.itemName"
-                    class="item-search__icon"
-                  />
-                  <span v-else class="item-search__icon-placeholder">?</span>
-                  <span class="item-search__name">{{ item.itemName }}</span>
-                  <span class="item-search__id muted">#{{ item.itemId }}</span>
-                </div>
-                <div
-                  v-if="itemSearchResults.length === 0 && itemSearchQuery.length >= 2 && !itemSearchLoading"
-                  class="item-search__empty"
-                >
-                  No items found matching "{{ itemSearchQuery }}"
-                </div>
-              </div>
-            </div>
-
-            <!-- Selected Loot Items -->
-            <div v-if="form.lootItems.length === 0" class="muted small" style="margin-top: 0.75rem;">
-              No loot items added yet. Search above to add items.
-            </div>
-            <div v-else class="loot-form-list">
-              <div
-                v-for="(item, index) in form.lootItems"
-                :key="item.itemId ?? index"
-                class="loot-form-item loot-form-item--selected"
-              >
-                <img
-                  v-if="hasValidIconId(item.itemIconId)"
-                  :src="getLootIconSrc(item.itemIconId)"
-                  :alt="item.itemName"
-                  class="loot-form-item__icon"
-                />
-                <span v-else class="loot-form-item__icon-placeholder">?</span>
-                <span class="loot-form-item__name">{{ item.itemName }}</span>
-                <span v-if="item.itemId" class="loot-form-item__id muted">#{{ item.itemId }}</span>
-                <button
-                  class="btn btn--icon btn--danger"
-                  type="button"
-                  @click="removeLootItem(index)"
-                  title="Remove item"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeModal">Cancel</button>
@@ -353,57 +242,14 @@
       </div>
     </div>
 
-    <!-- Loot Detail Modal -->
-    <div v-if="showLootModal && lootModalNpc" class="modal-backdrop" @click.self="closeLootModal">
-      <div class="modal modal--loot">
-        <header class="modal__header">
-          <h3>{{ lootModalNpc.npcName }} - Known Loot</h3>
-          <button class="modal__close" @click="closeLootModal">&times;</button>
-        </header>
-        <div class="modal__body loot-modal-body">
-          <div class="loot-grid">
-            <div
-              v-for="item in lootModalNpc.lootItems"
-              :key="item.id"
-              class="loot-grid-item"
-            >
-              <div class="loot-grid-item__icon">
-                <img
-                  v-if="hasValidIconId(item.itemIconId)"
-                  :src="getLootIconSrc(item.itemIconId)"
-                  :alt="item.itemName"
-                  loading="lazy"
-                />
-                <span v-else class="loot-grid-item__icon-placeholder">?</span>
-              </div>
-              <div class="loot-grid-item__info">
-                <span class="loot-grid-item__name">{{ item.itemName }}</span>
-                <span v-if="item.itemId" class="loot-grid-item__id muted">#{{ item.itemId }}</span>
-              </div>
-            </div>
-          </div>
-          <p v-if="lootModalNpc.lootItems.length === 0" class="muted">
-            No loot items configured for this NPC.
-          </p>
-        </div>
-        <footer class="modal__actions">
-          <button class="btn btn--outline" @click="closeLootModal">Close</button>
-          <button class="btn btn--primary" @click="openEditFromLoot">
-            Edit NPC
-          </button>
-        </footer>
-      </div>
-    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import { api } from '../services/api';
-import type { NpcDefinition, NpcDefinitionInput, DiscoveredItem } from '../services/api';
-import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
+import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -418,25 +264,13 @@ const deletingNpc = ref<NpcDefinition | null>(null);
 const submitting = ref(false);
 const deleting = ref(false);
 
-// Item search state
-const itemSearchQuery = ref('');
-const itemSearchResults = ref<DiscoveredItem[]>([]);
-const itemSearchLoading = ref(false);
-const showItemSearchResults = ref(false);
-let itemSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-// Loot modal state
-const showLootModal = ref(false);
-const lootModalNpc = ref<NpcDefinition | null>(null);
-
 const form = ref<NpcDefinitionInput>({
   npcName: '',
   zoneName: null,
   respawnMinMinutes: null,
   respawnMaxMinutes: null,
   notes: null,
-  allaLink: null,
-  lootItems: []
+  allaLink: null
 });
 
 // Computed
@@ -475,8 +309,7 @@ function resetForm() {
     respawnMinMinutes: null,
     respawnMaxMinutes: null,
     notes: null,
-    allaLink: null,
-    lootItems: []
+    allaLink: null
   };
 }
 
@@ -494,13 +327,7 @@ function openEditModal(npc: NpcDefinition) {
     respawnMinMinutes: npc.respawnMinMinutes,
     respawnMaxMinutes: npc.respawnMaxMinutes,
     notes: npc.notes,
-    allaLink: npc.allaLink,
-    lootItems: npc.lootItems.map(item => ({
-      itemId: item.itemId,
-      itemName: item.itemName,
-      itemIconId: item.itemIconId,
-      allaLink: item.allaLink
-    }))
+    allaLink: npc.allaLink
   };
   showModal.value = true;
 }
@@ -509,84 +336,6 @@ function closeModal() {
   showModal.value = false;
   editingNpc.value = null;
   resetForm();
-  resetItemSearch();
-}
-
-function openLootModal(npc: NpcDefinition) {
-  lootModalNpc.value = npc;
-  showLootModal.value = true;
-}
-
-function closeLootModal() {
-  showLootModal.value = false;
-  lootModalNpc.value = null;
-}
-
-function openEditFromLoot() {
-  if (lootModalNpc.value) {
-    const npc = lootModalNpc.value;
-    closeLootModal();
-    openEditModal(npc);
-  }
-}
-
-function resetItemSearch() {
-  itemSearchQuery.value = '';
-  itemSearchResults.value = [];
-  showItemSearchResults.value = false;
-  if (itemSearchDebounceTimer) {
-    clearTimeout(itemSearchDebounceTimer);
-    itemSearchDebounceTimer = null;
-  }
-}
-
-async function searchItems() {
-  if (itemSearchQuery.value.length < 2) {
-    itemSearchResults.value = [];
-    return;
-  }
-
-  itemSearchLoading.value = true;
-  try {
-    // Filter out items already in the loot list
-    const existingIds = new Set((form.value.lootItems ?? []).map(item => item.itemId));
-    const results = await api.searchDiscoveredItems(guildId, itemSearchQuery.value, 20);
-    itemSearchResults.value = results.filter(item => !existingIds.has(item.itemId));
-  } catch (err) {
-    console.error('Failed to search items:', err);
-    itemSearchResults.value = [];
-  } finally {
-    itemSearchLoading.value = false;
-  }
-}
-
-function onItemSearchInput() {
-  if (itemSearchDebounceTimer) {
-    clearTimeout(itemSearchDebounceTimer);
-  }
-  itemSearchDebounceTimer = setTimeout(() => {
-    searchItems();
-  }, 300);
-}
-
-function selectItem(item: DiscoveredItem) {
-  form.value.lootItems = [
-    ...(form.value.lootItems ?? []),
-    {
-      itemId: item.itemId,
-      itemName: item.itemName,
-      itemIconId: item.itemIconId,
-      allaLink: null
-    }
-  ];
-  // Reset search after selection
-  itemSearchQuery.value = '';
-  itemSearchResults.value = [];
-  showItemSearchResults.value = false;
-}
-
-function removeLootItem(index: number) {
-  form.value.lootItems = form.value.lootItems?.filter((_, i) => i !== index) ?? [];
 }
 
 async function submitForm() {
@@ -594,16 +343,10 @@ async function submitForm() {
 
   submitting.value = true;
   try {
-    // Filter out empty loot items
-    const cleanedForm = {
-      ...form.value,
-      lootItems: (form.value.lootItems ?? []).filter(item => item.itemName.trim())
-    };
-
     if (editingNpc.value) {
-      await store.updateDefinition(guildId, editingNpc.value.id, cleanedForm);
+      await store.updateDefinition(guildId, editingNpc.value.id, form.value);
     } else {
-      await store.createDefinition(guildId, cleanedForm);
+      await store.createDefinition(guildId, form.value);
     }
     closeModal();
   } catch (err: any) {
@@ -637,25 +380,9 @@ async function executeDelete() {
   }
 }
 
-// Click outside handler to close search results
-function handleClickOutside(event: MouseEvent) {
-  const target = event.target as HTMLElement;
-  if (!target.closest('.item-search')) {
-    showItemSearchResults.value = false;
-  }
-}
-
 // Lifecycle
 onMounted(async () => {
   await store.fetchDefinitions(guildId);
-  document.addEventListener('click', handleClickOutside);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside);
-  if (itemSearchDebounceTimer) {
-    clearTimeout(itemSearchDebounceTimer);
-  }
 });
 </script>
 
@@ -864,7 +591,6 @@ onUnmounted(() => {
   align-items: center;
 }
 
-.info-row--loot,
 .info-row--notes {
   flex-direction: column;
   align-items: flex-start;
@@ -881,71 +607,6 @@ onUnmounted(() => {
 .info-value {
   font-weight: 500;
   color: #e2e8f0;
-}
-
-/* Loot Preview Styles */
-.loot-preview {
-  display: flex;
-  align-items: center;
-  background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.loot-preview:hover {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.4);
-}
-
-.loot-icons {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.loot-icon-wrapper {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 0.3rem;
-  overflow: hidden;
-}
-
-.loot-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-}
-
-.loot-icon-placeholder {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  color: #64748b;
-}
-
-.loot-more-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 0.4rem;
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  border-radius: 0.3rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #93c5fd;
 }
 
 .notes-text {
@@ -1114,30 +775,6 @@ onUnmounted(() => {
   color: #e2e8f0;
 }
 
-.loot-form-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.loot-form-item {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.loot-form-fields {
-  flex: 1;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.loot-form-fields .input:first-child {
-  flex: 1;
-  min-width: 150px;
-}
-
 .modal__actions {
   display: flex;
   gap: 0.75rem;
@@ -1242,215 +879,5 @@ onUnmounted(() => {
 
 .small {
   font-size: 0.8rem;
-}
-
-/* Item Search Styles */
-.item-search {
-  position: relative;
-  margin-bottom: 0.5rem;
-}
-
-.item-search__input-wrapper {
-  position: relative;
-}
-
-.item-search__spinner {
-  position: absolute;
-  right: 0.75rem;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(148, 163, 184, 0.3);
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.item-search__results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: rgba(15, 23, 42, 0.98);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-top: none;
-  border-radius: 0 0 0.5rem 0.5rem;
-  max-height: 250px;
-  overflow-y: auto;
-  z-index: 50;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-}
-
-.item-search__result {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.9rem;
-  cursor: pointer;
-  transition: background 0.1s ease;
-}
-
-.item-search__result:hover {
-  background: rgba(59, 130, 246, 0.15);
-}
-
-.item-search__icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.item-search__icon-placeholder {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(148, 163, 184, 0.1);
-  border-radius: 0.25rem;
-  font-size: 0.7rem;
-  color: #64748b;
-  flex-shrink: 0;
-}
-
-.item-search__name {
-  flex: 1;
-  color: #f1f5f9;
-  font-size: 0.9rem;
-}
-
-.item-search__id {
-  font-size: 0.75rem;
-  flex-shrink: 0;
-}
-
-.item-search__empty {
-  padding: 1rem;
-  text-align: center;
-  color: #64748b;
-  font-size: 0.85rem;
-}
-
-/* Selected loot items */
-.loot-form-item--selected {
-  background: rgba(30, 41, 59, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 0.5rem;
-  padding: 0.5rem 0.75rem;
-}
-
-.loot-form-item__icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.loot-form-item__icon-placeholder {
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(148, 163, 184, 0.1);
-  border-radius: 0.25rem;
-  font-size: 0.7rem;
-  color: #64748b;
-  flex-shrink: 0;
-}
-
-.loot-form-item__name {
-  flex: 1;
-  color: #e2e8f0;
-  font-size: 0.9rem;
-}
-
-.loot-form-item__id {
-  font-size: 0.75rem;
-  flex-shrink: 0;
-  margin-right: 0.5rem;
-}
-
-.loot-form-list {
-  margin-top: 0.75rem;
-}
-
-/* Loot Modal Styles */
-.modal--loot {
-  max-width: 550px;
-}
-
-.loot-modal-body {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.loot-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.75rem;
-}
-
-.loot-grid-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0.75rem;
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  border-radius: 0.5rem;
-  transition: border-color 0.15s ease;
-}
-
-.loot-grid-item:hover {
-  border-color: rgba(59, 130, 246, 0.4);
-}
-
-.loot-grid-item__icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 0.4rem;
-  flex-shrink: 0;
-}
-
-.loot-grid-item__icon img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.loot-grid-item__icon-placeholder {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  color: #64748b;
-}
-
-.loot-grid-item__info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.loot-grid-item__name {
-  font-size: 0.85rem;
-  color: #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.loot-grid-item__id {
-  font-size: 0.7rem;
 }
 </style>

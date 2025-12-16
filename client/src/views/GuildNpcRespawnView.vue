@@ -93,7 +93,6 @@
             <th class="col-zone">Zone</th>
             <th class="col-respawn">Respawn Timer</th>
             <th class="col-killed">Last Killed</th>
-            <th class="col-loot">Loot</th>
             <th class="col-actions">Actions</th>
           </tr>
         </thead>
@@ -168,37 +167,6 @@
                 </div>
               </div>
               <span v-else class="muted">Never</span>
-            </td>
-            <td class="col-loot">
-              <button
-                v-if="npc.lootItems.length > 0"
-                class="loot-preview"
-                type="button"
-                @click="openLootModal(npc)"
-                title="Click to view all loot items"
-              >
-                <div class="loot-icons">
-                  <div
-                    v-for="item in npc.lootItems.slice(0, 3)"
-                    :key="item.id"
-                    class="loot-icon-wrapper"
-                    :title="item.itemName"
-                  >
-                    <img
-                      v-if="hasValidIconId(item.itemIconId)"
-                      :src="getLootIconSrc(item.itemIconId)"
-                      :alt="item.itemName"
-                      class="loot-icon"
-                      loading="lazy"
-                    />
-                    <span v-else class="loot-icon-placeholder">?</span>
-                  </div>
-                  <span v-if="npc.lootItems.length > 3" class="loot-more-badge">
-                    +{{ npc.lootItems.length - 3 }}
-                  </span>
-                </div>
-              </button>
-              <span v-else class="muted">-</span>
             </td>
             <td class="col-actions">
               <div class="action-buttons">
@@ -298,44 +266,6 @@
       </div>
     </div>
 
-    <!-- Loot Detail Modal -->
-    <div v-if="showLootModal && lootModalNpc" class="modal-backdrop" @click.self="closeLootModal">
-      <div class="modal modal--loot">
-        <header class="modal__header">
-          <h3>{{ lootModalNpc.npcName }} - Known Loot</h3>
-          <button class="modal__close" @click="closeLootModal">&times;</button>
-        </header>
-        <div class="modal__body loot-modal-body">
-          <div class="loot-grid">
-            <div
-              v-for="item in lootModalNpc.lootItems"
-              :key="item.id"
-              class="loot-grid-item"
-            >
-              <div class="loot-grid-item__icon">
-                <img
-                  v-if="hasValidIconId(item.itemIconId)"
-                  :src="getLootIconSrc(item.itemIconId)"
-                  :alt="item.itemName"
-                  loading="lazy"
-                />
-                <span v-else class="loot-grid-item__icon-placeholder">?</span>
-              </div>
-              <div class="loot-grid-item__info">
-                <span class="loot-grid-item__name">{{ item.itemName }}</span>
-                <span v-if="item.itemId" class="loot-grid-item__id muted">#{{ item.itemId }}</span>
-              </div>
-            </div>
-          </div>
-          <p v-if="lootModalNpc.lootItems.length === 0" class="muted">
-            No loot items configured for this NPC.
-          </p>
-        </div>
-        <footer class="modal__actions">
-          <button class="btn btn--outline" @click="closeLootModal">Close</button>
-        </footer>
-      </div>
-    </div>
   </section>
 </template>
 
@@ -344,7 +274,6 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
-import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -363,10 +292,6 @@ const killForm = ref({
   killedByName: '',
   notes: ''
 });
-
-// Loot modal state
-const showLootModal = ref(false);
-const lootModalNpc = ref<NpcRespawnTrackerEntry | null>(null);
 
 // Computed
 const loading = computed(() => store.loading);
@@ -526,16 +451,6 @@ async function submitKill() {
   } finally {
     submittingKill.value = false;
   }
-}
-
-function openLootModal(npc: NpcRespawnTrackerEntry) {
-  lootModalNpc.value = npc;
-  showLootModal.value = true;
-}
-
-function closeLootModal() {
-  showLootModal.value = false;
-  lootModalNpc.value = null;
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
@@ -882,8 +797,7 @@ watch(() => route.params.guildId, (newGuildId) => {
 .col-zone { width: 120px; }
 .col-respawn { min-width: 180px; }
 .col-killed { width: 120px; }
-.col-loot { width: 100px; }
-.col-actions { width: 100px; text-align: center; }
+.col-actions { width: 120px; text-align: center; }
 
 .status-badge {
   display: inline-block;
@@ -1044,71 +958,6 @@ watch(() => route.params.guildId, (newGuildId) => {
 
 .kill-by {
   font-size: 0.75rem;
-}
-
-/* Loot Preview Button */
-.loot-preview {
-  display: flex;
-  align-items: center;
-  background: rgba(30, 41, 59, 0.4);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 0.5rem;
-  padding: 0.3rem 0.5rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.loot-preview:hover {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.4);
-}
-
-.loot-icons {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.loot-icon-wrapper {
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 0.25rem;
-  overflow: hidden;
-}
-
-.loot-icon {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-}
-
-.loot-icon-placeholder {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  color: #64748b;
-}
-
-.loot-more-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 26px;
-  height: 26px;
-  padding: 0 0.35rem;
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.4);
-  border-radius: 0.25rem;
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: #93c5fd;
 }
 
 .action-buttons {
@@ -1321,82 +1170,5 @@ watch(() => route.params.guildId, (newGuildId) => {
 
 .muted {
   color: #64748b;
-}
-
-/* Loot Modal Styles */
-.modal--loot {
-  max-width: 550px;
-}
-
-.loot-modal-body {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.loot-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.75rem;
-}
-
-.loot-grid-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  border-radius: 0.5rem;
-  transition: border-color 0.15s ease;
-}
-
-.loot-grid-item:hover {
-  border-color: rgba(59, 130, 246, 0.4);
-}
-
-.loot-grid-item__icon {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 0.4rem;
-  flex-shrink: 0;
-}
-
-.loot-grid-item__icon img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-}
-
-.loot-grid-item__icon-placeholder {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  color: #64748b;
-}
-
-.loot-grid-item__info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-.loot-grid-item__name {
-  font-size: 0.85rem;
-  color: #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.loot-grid-item__id {
-  font-size: 0.7rem;
 }
 </style>
