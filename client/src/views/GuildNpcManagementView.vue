@@ -151,107 +151,87 @@
 
           <div class="respawn-section">
             <div class="respawn-input-group">
-              <div class="respawn-group-header">
-                <label class="respawn-label">Min Respawn</label>
-                <div class="time-inputs">
-                  <div class="time-input-field">
-                    <input
-                      id="respawn-min-hours"
-                      v-model.number="respawnMinHours"
-                      type="number"
-                      min="0"
-                      max="999"
-                      class="input input--time"
-                      placeholder="0"
-                    />
-                    <span class="time-unit">h</span>
-                  </div>
-                  <div class="time-input-field">
-                    <input
-                      id="respawn-min-minutes"
-                      v-model.number="respawnMinMins"
-                      type="number"
-                      min="0"
-                      max="59"
-                      class="input input--time"
-                      placeholder="0"
-                    />
-                    <span class="time-unit">m</span>
-                  </div>
+              <label class="respawn-label">Min Respawn</label>
+              <div class="time-inputs">
+                <div class="time-input-field">
+                  <input
+                    id="respawn-min-days"
+                    v-model.number="respawnMinDays"
+                    type="number"
+                    min="0"
+                    max="99"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">d</span>
                 </div>
-              </div>
-              <input
-                type="range"
-                class="respawn-slider"
-                :value="form.respawnMinMinutes ?? 0"
-                min="0"
-                max="10080"
-                step="15"
-                @input="setMinFromSlider($event)"
-              />
-              <div class="slider-labels">
-                <span>0</span>
-                <span class="slider-label" style="left: 14.3%">1d</span>
-                <span class="slider-label" style="left: 42.9%">3d</span>
-                <span>7d</span>
+                <div class="time-input-field">
+                  <input
+                    id="respawn-min-hours"
+                    v-model.number="respawnMinHours"
+                    type="number"
+                    min="0"
+                    max="23"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">h</span>
+                </div>
+                <div class="time-input-field">
+                  <input
+                    id="respawn-min-minutes"
+                    v-model.number="respawnMinMins"
+                    type="number"
+                    min="0"
+                    max="59"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">m</span>
+                </div>
               </div>
             </div>
 
             <div class="respawn-input-group">
-              <div class="respawn-group-header">
-                <label class="respawn-label">Max Respawn</label>
-                <div class="time-inputs">
-                  <div class="time-input-field">
-                    <input
-                      id="respawn-max-hours"
-                      v-model.number="respawnMaxHours"
-                      type="number"
-                      min="0"
-                      max="999"
-                      class="input input--time"
-                      placeholder="0"
-                    />
-                    <span class="time-unit">h</span>
-                  </div>
-                  <div class="time-input-field">
-                    <input
-                      id="respawn-max-minutes"
-                      v-model.number="respawnMaxMins"
-                      type="number"
-                      min="0"
-                      max="59"
-                      class="input input--time"
-                      placeholder="0"
-                    />
-                    <span class="time-unit">m</span>
-                  </div>
+              <label class="respawn-label">Max Respawn</label>
+              <div class="time-inputs">
+                <div class="time-input-field">
+                  <input
+                    id="respawn-max-days"
+                    v-model.number="respawnMaxDays"
+                    type="number"
+                    min="0"
+                    max="99"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">d</span>
+                </div>
+                <div class="time-input-field">
+                  <input
+                    id="respawn-max-hours"
+                    v-model.number="respawnMaxHours"
+                    type="number"
+                    min="0"
+                    max="23"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">h</span>
+                </div>
+                <div class="time-input-field">
+                  <input
+                    id="respawn-max-minutes"
+                    v-model.number="respawnMaxMins"
+                    type="number"
+                    min="0"
+                    max="59"
+                    class="input input--time"
+                    placeholder="0"
+                  />
+                  <span class="time-unit">m</span>
                 </div>
               </div>
-              <input
-                type="range"
-                class="respawn-slider"
-                :value="form.respawnMaxMinutes ?? 0"
-                min="0"
-                max="10080"
-                step="15"
-                @input="setMaxFromSlider($event)"
-              />
-              <div class="slider-labels">
-                <span>0</span>
-                <span class="slider-label" style="left: 14.3%">1d</span>
-                <span class="slider-label" style="left: 42.9%">3d</span>
-                <span>7d</span>
-              </div>
-            </div>
-
-            <div class="respawn-helper">
-              <template v-if="form.respawnMinMinutes">
-                <span class="helper-result">{{ formatRespawnRange(form.respawnMinMinutes, form.respawnMaxMinutes) }}</span>
-                <span class="helper-minutes muted">({{ form.respawnMinMinutes }}{{ form.respawnMaxMinutes && form.respawnMaxMinutes !== form.respawnMinMinutes ? ` - ${form.respawnMaxMinutes}` : '' }} min)</span>
-              </template>
-              <template v-else>
-                <span class="muted">Set respawn time using the sliders or inputs above</span>
-              </template>
             </div>
           </div>
 
@@ -349,63 +329,41 @@ const form = ref<NpcDefinitionInput>({
   allaLink: null
 });
 
-// Respawn time inputs (hours + minutes for better UX)
+// Respawn time inputs (days + hours + minutes for better UX)
+const respawnMinDays = ref<number | null>(null);
 const respawnMinHours = ref<number | null>(null);
 const respawnMinMins = ref<number | null>(null);
+const respawnMaxDays = ref<number | null>(null);
 const respawnMaxHours = ref<number | null>(null);
 const respawnMaxMins = ref<number | null>(null);
 
 // Watch time inputs and update form values
-watch([respawnMinHours, respawnMinMins], ([hours, mins]) => {
+watch([respawnMinDays, respawnMinHours, respawnMinMins], ([days, hours, mins]) => {
+  const d = days ?? 0;
   const h = hours ?? 0;
   const m = mins ?? 0;
-  form.value.respawnMinMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
+  form.value.respawnMinMinutes = (d > 0 || h > 0 || m > 0) ? d * 1440 + h * 60 + m : null;
 });
 
-watch([respawnMaxHours, respawnMaxMins], ([hours, mins]) => {
+watch([respawnMaxDays, respawnMaxHours, respawnMaxMins], ([days, hours, mins]) => {
+  const d = days ?? 0;
   const h = hours ?? 0;
   const m = mins ?? 0;
-  form.value.respawnMaxMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
+  form.value.respawnMaxMinutes = (d > 0 || h > 0 || m > 0) ? d * 1440 + h * 60 + m : null;
 });
 
-// Set min respawn from slider
-function setMinFromSlider(event: Event) {
-  const value = parseInt((event.target as HTMLInputElement).value, 10);
-  if (value === 0) {
-    respawnMinHours.value = null;
-    respawnMinMins.value = null;
-  } else {
-    const hours = Math.floor(value / 60);
-    const mins = value % 60;
-    respawnMinHours.value = hours > 0 ? hours : null;
-    respawnMinMins.value = mins;
-  }
-}
-
-// Set max respawn from slider
-function setMaxFromSlider(event: Event) {
-  const value = parseInt((event.target as HTMLInputElement).value, 10);
-  if (value === 0) {
-    respawnMaxHours.value = null;
-    respawnMaxMins.value = null;
-  } else {
-    const hours = Math.floor(value / 60);
-    const mins = value % 60;
-    respawnMaxHours.value = hours > 0 ? hours : null;
-    respawnMaxMins.value = mins;
-  }
-}
-
-// Populate hours/minutes from total minutes
-function minutesToTimeInputs(totalMinutes: number | null): { hours: number | null; mins: number | null } {
+// Populate days/hours/minutes from total minutes
+function minutesToTimeInputs(totalMinutes: number | null): { days: number | null; hours: number | null; mins: number | null } {
   if (totalMinutes === null || totalMinutes === 0) {
-    return { hours: null, mins: null };
+    return { days: null, hours: null, mins: null };
   }
-  const hours = Math.floor(totalMinutes / 60);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
   const mins = totalMinutes % 60;
   return {
+    days: days > 0 ? days : null,
     hours: hours > 0 ? hours : null,
-    mins: mins
+    mins: mins > 0 ? mins : null
   };
 }
 
@@ -448,8 +406,10 @@ function resetForm() {
     notes: null,
     allaLink: null
   };
+  respawnMinDays.value = null;
   respawnMinHours.value = null;
   respawnMinMins.value = null;
+  respawnMaxDays.value = null;
   respawnMaxHours.value = null;
   respawnMaxMins.value = null;
 }
@@ -472,9 +432,11 @@ function openEditModal(npc: NpcDefinition) {
   };
   // Populate time inputs from total minutes
   const minTime = minutesToTimeInputs(npc.respawnMinMinutes);
+  respawnMinDays.value = minTime.days;
   respawnMinHours.value = minTime.hours;
   respawnMinMins.value = minTime.mins;
   const maxTime = minutesToTimeInputs(npc.respawnMaxMinutes);
+  respawnMaxDays.value = maxTime.days;
   respawnMaxHours.value = maxTime.hours;
   respawnMaxMins.value = maxTime.mins;
   showModal.value = true;
@@ -916,13 +878,7 @@ onMounted(async () => {
 .respawn-input-group {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.respawn-group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 0.4rem;
 }
 
 .respawn-label {
@@ -948,80 +904,6 @@ onMounted(async () => {
   font-size: 0.85rem;
   color: #64748b;
   font-weight: 500;
-}
-
-.respawn-slider {
-  width: 100%;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: rgba(30, 41, 59, 0.8);
-  border-radius: 3px;
-  outline: none;
-  cursor: pointer;
-}
-
-.respawn-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-}
-
-.respawn-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-  box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);
-}
-
-.respawn-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-}
-
-.slider-labels {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.65rem;
-  color: #64748b;
-  padding: 0 2px;
-  height: 1em;
-}
-
-.slider-label {
-  position: absolute;
-  transform: translateX(-50%);
-}
-
-.respawn-helper {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: rgba(59, 130, 246, 0.1);
-  border-radius: 0.4rem;
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  font-size: 0.85rem;
-}
-
-.helper-result {
-  font-weight: 600;
-  color: #93c5fd;
-}
-
-.helper-minutes {
-  font-size: 0.8rem;
 }
 
 .form-section {
