@@ -90,7 +90,16 @@
               </span>
             </div>
           </div>
-          <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
+          <div v-if="npc.zoneName" class="zone-cell">
+            <img
+              v-if="getExpansionForZone(npc.zoneName)"
+              :src="getExpansionForZone(npc.zoneName)?.icon"
+              :alt="getExpansionForZone(npc.zoneName)?.shortName"
+              :title="getExpansionForZone(npc.zoneName)?.name"
+              class="expansion-icon"
+            />
+            <span class="zone-badge">{{ npc.zoneName }}</span>
+          </div>
         </header>
 
         <div class="npc-card__body">
@@ -385,6 +394,7 @@ import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../services/api';
 import { NPC_CONTENT_FLAGS } from '../services/api';
+import { getExpansionForZone } from '../data/expansionZones';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -807,6 +817,19 @@ onMounted(async () => {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+
+.zone-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.expansion-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .zone-badge {

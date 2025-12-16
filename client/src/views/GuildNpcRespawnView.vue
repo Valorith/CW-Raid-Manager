@@ -126,7 +126,16 @@
               </div>
             </td>
             <td class="col-zone">
-              <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
+              <div class="zone-cell">
+                <img
+                  v-if="getExpansionForZone(npc.zoneName)"
+                  :src="getExpansionForZone(npc.zoneName)?.icon"
+                  :alt="getExpansionForZone(npc.zoneName)?.shortName"
+                  :title="getExpansionForZone(npc.zoneName)?.name"
+                  class="expansion-icon"
+                />
+                <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
+              </div>
             </td>
             <td class="col-respawn">
               <div v-if="npc.lastKill && npc.respawnMinMinutes !== null" class="respawn-timer">
@@ -310,6 +319,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
+import { getExpansionForZone } from '../data/expansionZones';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -938,6 +948,19 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 .alla-link svg {
   width: 14px;
   height: 14px;
+}
+
+.zone-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.expansion-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .zone-badge {
