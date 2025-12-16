@@ -185,16 +185,15 @@
                 class="respawn-slider"
                 :value="form.respawnMinMinutes ?? 0"
                 min="0"
-                max="1440"
+                max="10080"
                 step="15"
                 @input="setMinFromSlider($event)"
               />
               <div class="slider-labels">
                 <span>0</span>
-                <span>6h</span>
-                <span>12h</span>
-                <span>18h</span>
-                <span>24h</span>
+                <span class="slider-label" style="left: 14.3%">1d</span>
+                <span class="slider-label" style="left: 42.9%">3d</span>
+                <span>7d</span>
               </div>
             </div>
 
@@ -233,16 +232,15 @@
                 class="respawn-slider"
                 :value="form.respawnMaxMinutes ?? 0"
                 min="0"
-                max="1440"
+                max="10080"
                 step="15"
                 @input="setMaxFromSlider($event)"
               />
               <div class="slider-labels">
                 <span>0</span>
-                <span>6h</span>
-                <span>12h</span>
-                <span>18h</span>
-                <span>24h</span>
+                <span class="slider-label" style="left: 14.3%">1d</span>
+                <span class="slider-label" style="left: 42.9%">3d</span>
+                <span>7d</span>
               </div>
             </div>
 
@@ -992,11 +990,18 @@ onMounted(async () => {
 }
 
 .slider-labels {
+  position: relative;
   display: flex;
   justify-content: space-between;
   font-size: 0.65rem;
   color: #64748b;
   padding: 0 2px;
+  height: 1em;
+}
+
+.slider-label {
+  position: absolute;
+  transform: translateX(-50%);
 }
 
 .respawn-helper {
