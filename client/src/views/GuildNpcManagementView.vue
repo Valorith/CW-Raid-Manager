@@ -256,6 +256,21 @@
               placeholder="Any additional notes about this NPC..."
             ></textarea>
           </div>
+
+          <div class="form-group form-group--checkbox">
+            <label class="checkbox-label">
+              <input
+                id="npc-raid-target"
+                v-model="form.isRaidTarget"
+                type="checkbox"
+                class="checkbox-input"
+              />
+              <span class="checkbox-text">Raid Target</span>
+            </label>
+            <p class="checkbox-hint">
+              When enabled, manual kills will trigger the "Raid Target Killed" Discord webhook notification.
+            </p>
+          </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeModal">Cancel</button>
@@ -325,6 +340,7 @@ const form = ref<NpcDefinitionInput>({
   zoneName: null,
   respawnMinMinutes: null,
   respawnMaxMinutes: null,
+  isRaidTarget: false,
   notes: null,
   allaLink: null
 });
@@ -403,6 +419,7 @@ function resetForm() {
     zoneName: null,
     respawnMinMinutes: null,
     respawnMaxMinutes: null,
+    isRaidTarget: false,
     notes: null,
     allaLink: null
   };
@@ -427,6 +444,7 @@ function openEditModal(npc: NpcDefinition) {
     zoneName: npc.zoneName,
     respawnMinMinutes: npc.respawnMinMinutes,
     respawnMaxMinutes: npc.respawnMaxMinutes,
+    isRaidTarget: npc.isRaidTarget ?? false,
     notes: npc.notes,
     allaLink: npc.allaLink
   };
@@ -1030,5 +1048,40 @@ onMounted(async () => {
 
 .small {
   font-size: 0.8rem;
+}
+
+/* Checkbox styles */
+.form-group--checkbox {
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.checkbox-input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.checkbox-hint {
+  margin: 0.4rem 0 0 1.7rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
 }
 </style>

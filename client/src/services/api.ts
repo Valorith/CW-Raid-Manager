@@ -866,13 +866,13 @@ export interface NpcDefinition {
   zoneName: string | null;
   respawnMinMinutes: number | null;
   respawnMaxMinutes: number | null;
+  isRaidTarget: boolean;
   notes: string | null;
   allaLink: string | null;
   createdById: string | null;
   createdByName: string | null;
   createdAt: string;
   updatedAt: string;
-  lootItems: NpcLootItem[];
   lastKill: NpcLastKill | null;
 }
 
@@ -914,14 +914,9 @@ export interface NpcDefinitionInput {
   zoneName?: string | null;
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
+  isRaidTarget?: boolean;
   notes?: string | null;
   allaLink?: string | null;
-  lootItems?: Array<{
-    itemId?: number | null;
-    itemName: string;
-    itemIconId?: number | null;
-    allaLink?: string | null;
-  }>;
 }
 
 export interface NpcKillRecordInput {

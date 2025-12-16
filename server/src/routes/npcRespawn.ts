@@ -18,6 +18,7 @@ import {
   deleteSubscription,
   getRespawnTrackerData
 } from '../services/npcRespawnService.js';
+import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
 import { prisma } from '../utils/prisma.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 
@@ -27,6 +28,7 @@ const npcDefinitionBodySchema = z.object({
   zoneName: z.string().trim().max(191).nullable().optional(),
   respawnMinMinutes: z.number().int().min(0).nullable().optional(),
   respawnMaxMinutes: z.number().int().min(0).nullable().optional(),
+  isRaidTarget: z.boolean().optional(),
   notes: z.string().max(8000).nullable().optional(),
   allaLink: z.string().max(512).nullable().optional()
 });
@@ -239,6 +241,27 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         killedById: request.user.userId,
         notes: data.notes ?? null
       });
+
+      // Check if NPC is a raid target and trigger webhook
+      const npcDefinition = await prisma.npcDefinition.findUnique({
+        where: { id: data.npcDefinitionId },
+        include: { guild: { select: { name: true } } }
+      });
+
+      if (npcDefinition?.isRaidTarget) {
+        // Emit raid target killed webhook
+        await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+          guildName: npcDefinition.guild?.name ?? 'Guild',
+          guildId,
+          npcName: npcDefinition.npcName,
+          kills: [{
+            npcName: npcDefinition.npcName,
+            killerName: data.killedByName ?? null,
+            occurredAt: new Date(data.killedAt)
+          }]
+        });
+      }
+
       return { record };
     } catch (error) {
       return reply.badRequest(error instanceof Error ? error.message : 'Failed to create kill record.');

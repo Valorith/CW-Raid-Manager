@@ -10,6 +10,7 @@ export interface NpcDefinitionInput {
   zoneName?: string | null;
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
+  isRaidTarget?: boolean;
   notes?: string | null;
   allaLink?: string | null;
 }
@@ -60,6 +61,7 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations) {
     zoneName: record.zoneName ?? null,
     respawnMinMinutes: record.respawnMinMinutes ?? null,
     respawnMaxMinutes: record.respawnMaxMinutes ?? null,
+    isRaidTarget: record.isRaidTarget ?? false,
     notes: record.notes ?? null,
     allaLink: record.allaLink ?? null,
     createdById: record.createdById ?? null,
@@ -169,6 +171,7 @@ export async function createNpcDefinition(
       zoneName: input.zoneName?.trim() || null,
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
+      isRaidTarget: input.isRaidTarget ?? false,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink),
       createdById: creator.userId,
@@ -221,6 +224,7 @@ export async function updateNpcDefinition(
       zoneName: input.zoneName?.trim() || null,
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
+      isRaidTarget: input.isRaidTarget ?? false,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink)
     },

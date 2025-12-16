@@ -666,6 +666,7 @@ model NpcDefinition {
   zoneName            String?               @db.VarChar(191)
   respawnMinMinutes   Int?
   respawnMaxMinutes   Int?
+  isRaidTarget        Boolean               @default(false)
   notes               String?               @db.LongText
   allaLink            String?               @db.VarChar(512)
   createdById         String?
