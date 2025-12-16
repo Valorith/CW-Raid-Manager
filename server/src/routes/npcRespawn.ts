@@ -299,6 +299,17 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       return reply.badRequest('Invalid subscription payload: ' + parsedBody.error.message);
     }
 
+    // Verify the NPC definition belongs to this guild
+    const npcDefinition = await prisma.npcDefinition.findFirst({
+      where: {
+        id: parsedBody.data.npcDefinitionId,
+        guildId
+      }
+    });
+    if (!npcDefinition) {
+      return reply.notFound('NPC definition not found in this guild.');
+    }
+
     const subscription = await upsertSubscription(request.user.userId, parsedBody.data);
     return { subscription };
   });
@@ -312,6 +323,17 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
 
     await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    // Verify the NPC definition belongs to this guild before allowing deletion
+    const npcDefinition = await prisma.npcDefinition.findFirst({
+      where: {
+        id: npcDefinitionId,
+        guildId
+      }
+    });
+    if (!npcDefinition) {
+      return reply.notFound('NPC definition not found in this guild.');
+    }
 
     await deleteSubscription(request.user.userId, npcDefinitionId);
     return reply.code(204).send();
