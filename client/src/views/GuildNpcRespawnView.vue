@@ -110,6 +110,7 @@
             <td class="col-name">
               <div class="npc-name-cell">
                 <strong>{{ npc.npcName }}</strong>
+                <span v-if="npc.isRaidTarget" class="raid-badge" title="Raid Target">RAID</span>
                 <a
                   v-if="npc.allaLink"
                   :href="npc.allaLink"
@@ -841,6 +842,19 @@ watch(() => route.params.guildId, (newGuildId) => {
 
 .npc-name-cell strong {
   color: #f1f5f9;
+}
+
+.raid-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 0.25rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fca5a5;
 }
 
 .alla-link {
