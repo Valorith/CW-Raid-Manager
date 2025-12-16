@@ -539,31 +539,19 @@ function closeLootModal() {
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
-  // If there's an active respawn timer, clear it by deleting the kill record
-  if (npc.lastKill) {
-    const confirmed = confirm(
-      `Confirm that "${npc.npcName}" has spawned?\n\nThis will clear the respawn timer.`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      await store.deleteKillRecord(guildId, npc.lastKill.id);
-    } catch (err: any) {
-      alert(err?.response?.data?.message ?? err?.message ?? 'Failed to confirm spawn');
-    }
-    return;
-  }
-
-  // If no kill record exists, create one with an old timestamp to mark as "Up"
   const confirmed = confirm(
-    `Mark "${npc.npcName}" as spawned (Up)?`
+    `Confirm that "${npc.npcName}" has spawned?\n\nThis will mark the NPC as Up.`
   );
 
   if (!confirmed) return;
 
   try {
-    // Calculate a timestamp old enough to show as "Up"
+    // Delete existing kill record if present
+    if (npc.lastKill) {
+      await store.deleteKillRecord(guildId, npc.lastKill.id);
+    }
+
+    // Create a backdated kill record to show as "Up"
     // Use the max respawn time + 1 minute, or default to 24 hours if no respawn configured
     const respawnMs = npc.respawnMaxMinutes
       ? (npc.respawnMaxMinutes + 1) * 60 * 1000
@@ -879,6 +867,14 @@ watch(() => route.params.guildId, (newGuildId) => {
 
 .npc-row--window:hover {
   background: rgba(250, 204, 21, 0.12);
+}
+
+.npc-row--down {
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.npc-row--down:hover {
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .col-status { width: 80px; text-align: center; }
