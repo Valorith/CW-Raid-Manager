@@ -379,8 +379,10 @@ function setMinFromSlider(event: Event) {
     respawnMinHours.value = null;
     respawnMinMins.value = null;
   } else {
-    respawnMinHours.value = Math.floor(value / 60) || null;
-    respawnMinMins.value = (value % 60) || null;
+    const hours = Math.floor(value / 60);
+    const mins = value % 60;
+    respawnMinHours.value = hours > 0 ? hours : null;
+    respawnMinMins.value = mins;
   }
 }
 
@@ -391,8 +393,10 @@ function setMaxFromSlider(event: Event) {
     respawnMaxHours.value = null;
     respawnMaxMins.value = null;
   } else {
-    respawnMaxHours.value = Math.floor(value / 60) || null;
-    respawnMaxMins.value = (value % 60) || null;
+    const hours = Math.floor(value / 60);
+    const mins = value % 60;
+    respawnMaxHours.value = hours > 0 ? hours : null;
+    respawnMaxMins.value = mins;
   }
 }
 
@@ -405,7 +409,7 @@ function minutesToTimeInputs(totalMinutes: number | null): { hours: number | nul
   const mins = totalMinutes % 60;
   return {
     hours: hours > 0 ? hours : null,
-    mins: mins > 0 ? mins : null
+    mins: mins
   };
 }
 
