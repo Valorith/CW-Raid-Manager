@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
+import type { RowDataPacket } from 'mysql2/promise';
 
 import { prisma } from '../utils/prisma.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 
 // Input types
 export interface NpcDefinitionInput {
@@ -572,4 +574,49 @@ export async function getRespawnTrackerData(guildId: string) {
       progressPercent
     };
   });
+}
+
+// Search discovered items from EQEmu database
+export interface DiscoveredItemResult {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+}
+
+export async function searchDiscoveredItems(
+  searchQuery: string,
+  limit: number = 20
+): Promise<DiscoveredItemResult[]> {
+  if (!isEqDbConfigured()) {
+    return [];
+  }
+
+  const trimmedQuery = searchQuery.trim();
+  if (trimmedQuery.length < 2) {
+    return [];
+  }
+
+  try {
+    // Query discovered_items joined with items table to get item details
+    // discovered_items has: item_id, char_name
+    // items has: id, Name, icon
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT DISTINCT i.id as itemId, i.Name as itemName, i.icon as itemIconId
+       FROM discovered_items di
+       INNER JOIN items i ON di.item_id = i.id
+       WHERE i.Name LIKE ?
+       ORDER BY i.Name ASC
+       LIMIT ?`,
+      [`%${trimmedQuery}%`, limit]
+    );
+
+    return rows.map((row) => ({
+      itemId: Number(row.itemId),
+      itemName: String(row.itemName),
+      itemIconId: row.itemIconId != null ? Number(row.itemIconId) : null
+    }));
+  } catch (error) {
+    console.error('Failed to search discovered items:', error);
+    return [];
+  }
 }

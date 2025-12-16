@@ -937,6 +937,12 @@ export interface NpcSubscriptionInput {
   isEnabled?: boolean;
 }
 
+export interface DiscoveredItem {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+}
+
 
 export interface AttendanceEventSummary {
   id: string;
@@ -3479,6 +3485,24 @@ export const api = {
 
   async deleteNpcSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
     await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}`);
+  },
+
+  async searchDiscoveredItems(
+    guildId: string,
+    query?: string,
+    limit?: number
+  ): Promise<DiscoveredItem[]> {
+    const params = new URLSearchParams();
+    if (query) {
+      params.append('q', query);
+    }
+    if (limit) {
+      params.append('limit', String(limit));
+    }
+    const response = await axios.get(
+      `/api/guilds/${guildId}/discovered-items${params.toString() ? '?' + params.toString() : ''}`
+    );
+    return response.data.items ?? [];
   }
 
 };

@@ -226,43 +226,74 @@
           <div class="form-section">
             <div class="form-section__header">
               <h4>Known Loot</h4>
-              <button class="btn btn--small btn--outline" type="button" @click="addLootItem">
-                + Add Item
-              </button>
             </div>
-            <div v-if="form.lootItems.length === 0" class="muted small">
-              No loot items added yet.
+
+            <!-- Item Search -->
+            <div class="item-search">
+              <div class="item-search__input-wrapper">
+                <input
+                  v-model="itemSearchQuery"
+                  type="text"
+                  class="input"
+                  placeholder="Search discovered items..."
+                  @input="onItemSearchInput"
+                  @focus="showItemSearchResults = true"
+                />
+                <div v-if="itemSearchLoading" class="item-search__spinner"></div>
+              </div>
+              <div
+                v-if="showItemSearchResults && (itemSearchResults.length > 0 || itemSearchQuery.length >= 2)"
+                class="item-search__results"
+              >
+                <div
+                  v-for="item in itemSearchResults"
+                  :key="item.itemId"
+                  class="item-search__result"
+                  @click="selectItem(item)"
+                >
+                  <img
+                    v-if="item.itemIconId"
+                    :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                    :alt="item.itemName"
+                    class="item-search__icon"
+                  />
+                  <span v-else class="item-search__icon-placeholder">?</span>
+                  <span class="item-search__name">{{ item.itemName }}</span>
+                  <span class="item-search__id muted">#{{ item.itemId }}</span>
+                </div>
+                <div
+                  v-if="itemSearchResults.length === 0 && itemSearchQuery.length >= 2 && !itemSearchLoading"
+                  class="item-search__empty"
+                >
+                  No items found matching "{{ itemSearchQuery }}"
+                </div>
+              </div>
+            </div>
+
+            <!-- Selected Loot Items -->
+            <div v-if="form.lootItems.length === 0" class="muted small" style="margin-top: 0.75rem;">
+              No loot items added yet. Search above to add items.
             </div>
             <div v-else class="loot-form-list">
               <div
                 v-for="(item, index) in form.lootItems"
-                :key="index"
-                class="loot-form-item"
+                :key="item.itemId ?? index"
+                class="loot-form-item loot-form-item--selected"
               >
-                <div class="loot-form-fields">
-                  <input
-                    v-model="item.itemName"
-                    type="text"
-                    class="input"
-                    placeholder="Item name"
-                  />
-                  <input
-                    v-model.number="item.itemId"
-                    type="number"
-                    class="input input--small"
-                    placeholder="Item ID"
-                  />
-                  <input
-                    v-model.number="item.itemIconId"
-                    type="number"
-                    class="input input--small"
-                    placeholder="Icon ID"
-                  />
-                </div>
+                <img
+                  v-if="item.itemIconId"
+                  :src="`https://www.eqitems.com/item_images/${item.itemIconId}.gif`"
+                  :alt="item.itemName"
+                  class="loot-form-item__icon"
+                />
+                <span v-else class="loot-form-item__icon-placeholder">?</span>
+                <span class="loot-form-item__name">{{ item.itemName }}</span>
+                <span v-if="item.itemId" class="loot-form-item__id muted">#{{ item.itemId }}</span>
                 <button
                   class="btn btn--icon btn--danger"
                   type="button"
                   @click="removeLootItem(index)"
+                  title="Remove item"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M6 18L18 6M6 6l12 12" />
@@ -316,10 +347,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
+import api from '../services/api';
+import type { NpcDefinition, NpcDefinitionInput, DiscoveredItem } from '../services/api';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -333,6 +365,13 @@ const editingNpc = ref<NpcDefinition | null>(null);
 const deletingNpc = ref<NpcDefinition | null>(null);
 const submitting = ref(false);
 const deleting = ref(false);
+
+// Item search state
+const itemSearchQuery = ref('');
+const itemSearchResults = ref<DiscoveredItem[]>([]);
+const itemSearchLoading = ref(false);
+const showItemSearchResults = ref(false);
+let itemSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const form = ref<NpcDefinitionInput>({
   npcName: '',
@@ -414,13 +453,62 @@ function closeModal() {
   showModal.value = false;
   editingNpc.value = null;
   resetForm();
+  resetItemSearch();
 }
 
-function addLootItem() {
+function resetItemSearch() {
+  itemSearchQuery.value = '';
+  itemSearchResults.value = [];
+  showItemSearchResults.value = false;
+  if (itemSearchDebounceTimer) {
+    clearTimeout(itemSearchDebounceTimer);
+    itemSearchDebounceTimer = null;
+  }
+}
+
+async function searchItems() {
+  if (itemSearchQuery.value.length < 2) {
+    itemSearchResults.value = [];
+    return;
+  }
+
+  itemSearchLoading.value = true;
+  try {
+    // Filter out items already in the loot list
+    const existingIds = new Set((form.value.lootItems ?? []).map(item => item.itemId));
+    const results = await api.searchDiscoveredItems(guildId, itemSearchQuery.value, 20);
+    itemSearchResults.value = results.filter(item => !existingIds.has(item.itemId));
+  } catch (err) {
+    console.error('Failed to search items:', err);
+    itemSearchResults.value = [];
+  } finally {
+    itemSearchLoading.value = false;
+  }
+}
+
+function onItemSearchInput() {
+  if (itemSearchDebounceTimer) {
+    clearTimeout(itemSearchDebounceTimer);
+  }
+  itemSearchDebounceTimer = setTimeout(() => {
+    searchItems();
+  }, 300);
+}
+
+function selectItem(item: DiscoveredItem) {
   form.value.lootItems = [
     ...(form.value.lootItems ?? []),
-    { itemName: '', itemId: null, itemIconId: null, allaLink: null }
+    {
+      itemId: item.itemId,
+      itemName: item.itemName,
+      itemIconId: item.itemIconId,
+      allaLink: null
+    }
   ];
+  // Reset search after selection
+  itemSearchQuery.value = '';
+  itemSearchResults.value = [];
+  showItemSearchResults.value = false;
 }
 
 function removeLootItem(index: number) {
@@ -475,9 +563,25 @@ async function executeDelete() {
   }
 }
 
+// Click outside handler to close search results
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest('.item-search')) {
+    showItemSearchResults.value = false;
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
   await store.fetchDefinitions(guildId);
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+  if (itemSearchDebounceTimer) {
+    clearTimeout(itemSearchDebounceTimer);
+  }
 });
 </script>
 
@@ -1036,5 +1140,138 @@ onMounted(async () => {
 
 .small {
   font-size: 0.8rem;
+}
+
+/* Item Search Styles */
+.item-search {
+  position: relative;
+  margin-bottom: 0.5rem;
+}
+
+.item-search__input-wrapper {
+  position: relative;
+}
+
+.item-search__spinner {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.item-search__results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-top: none;
+  border-radius: 0 0 0.5rem 0.5rem;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 50;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.item-search__result {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.item-search__result:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.item-search__icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.item-search__icon-placeholder {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.item-search__name {
+  flex: 1;
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.item-search__id {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.item-search__empty {
+  padding: 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+/* Selected loot items */
+.loot-form-item--selected {
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.loot-form-item__icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.loot-form-item__icon-placeholder {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.loot-form-item__name {
+  flex: 1;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.loot-form-item__id {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+}
+
+.loot-form-list {
+  margin-top: 0.75rem;
 }
 </style>

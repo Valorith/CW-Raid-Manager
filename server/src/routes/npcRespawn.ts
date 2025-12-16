@@ -338,4 +338,23 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     await deleteSubscription(request.user.userId, npcDefinitionId);
     return reply.code(204).send();
   });
+
+  // Search discovered items from EQEmu discovered_items table
+  server.get('/:guildId/discovered-items', { preHandler: [authenticate] }, async (request) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const querySchema = z.object({
+      q: z.string().trim().min(1).max(100).optional(),
+      limit: z.coerce.number().int().min(1).max(50).optional()
+    });
+
+    const { guildId } = paramsSchema.parse(request.params);
+    const { q: searchQuery, limit = 20 } = querySchema.parse(request.query ?? {});
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    const { searchDiscoveredItems } = await import('../services/npcRespawnService.js');
+    const items = await searchDiscoveredItems(searchQuery ?? '', limit);
+
+    return { items };
+  });
 }
