@@ -406,10 +406,14 @@ function formatTimeRemaining(isoString: string | null): string {
 
   if (diff <= 0) return 'Now';
 
-  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
   if (hours > 0) {
     return `${hours}h ${minutes}m`;
   }
@@ -421,17 +425,28 @@ function formatTimeRemaining(isoString: string | null): string {
 
 function formatRespawnRange(min: number | null, max: number | null): string {
   if (min === null) return 'Unknown';
-  const minHours = Math.floor(min / 60);
-  const minMins = min % 60;
-  const minStr = minHours > 0 ? `${minHours}h ${minMins}m` : `${minMins}m`;
 
+  const formatTime = (totalMinutes: number) => {
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const mins = totalMinutes % 60;
+
+    if (days > 0) {
+      if (hours > 0 && mins > 0) return `${days}d ${hours}h ${mins}m`;
+      if (hours > 0) return `${days}d ${hours}h`;
+      if (mins > 0) return `${days}d ${mins}m`;
+      return `${days}d`;
+    }
+    if (hours > 0) {
+      if (mins > 0) return `${hours}h ${mins}m`;
+      return `${hours}h`;
+    }
+    return `${mins}m`;
+  };
+
+  const minStr = formatTime(min);
   if (max === null || max === min) return minStr;
-
-  const maxHours = Math.floor(max / 60);
-  const maxMins = max % 60;
-  const maxStr = maxHours > 0 ? `${maxHours}h ${maxMins}m` : `${maxMins}m`;
-
-  return `${minStr} - ${maxStr}`;
+  return `${minStr} - ${formatTime(max)}`;
 }
 
 function formatKillDate(isoString: string): string {

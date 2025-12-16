@@ -480,11 +480,21 @@ function isContentFlagEnabled(flag: string | null): boolean {
 // Methods
 function formatRespawnRange(min: number | null, max: number | null): string {
   if (min === null) return 'Unknown';
-  const formatTime = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hours > 0 && mins > 0) return `${hours}h ${mins}m`;
-    if (hours > 0) return `${hours}h`;
+  const formatTime = (totalMinutes: number) => {
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const mins = totalMinutes % 60;
+
+    if (days > 0) {
+      if (hours > 0 && mins > 0) return `${days}d ${hours}h ${mins}m`;
+      if (hours > 0) return `${days}d ${hours}h`;
+      if (mins > 0) return `${days}d ${mins}m`;
+      return `${days}d`;
+    }
+    if (hours > 0) {
+      if (mins > 0) return `${hours}h ${mins}m`;
+      return `${hours}h`;
+    }
     return `${mins}m`;
   };
 
