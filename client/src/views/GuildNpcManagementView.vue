@@ -92,24 +92,33 @@
 
           <div v-if="npc.lootItems.length > 0" class="info-row info-row--loot">
             <span class="info-label">Known Loot ({{ npc.lootItems.length }})</span>
-            <div class="loot-list">
-              <div
-                v-for="item in npc.lootItems"
-                :key="item.id"
-                class="loot-item"
-                :title="item.itemName"
-              >
-                <img
-                  v-if="hasValidIconId(item.itemIconId)"
-                  :src="getLootIconSrc(item.itemIconId)"
-                  :alt="item.itemName"
-                  class="loot-icon"
-                  loading="lazy"
-                />
-                <span v-else class="loot-icon-placeholder">?</span>
-                <span class="loot-name">{{ item.itemName }}</span>
+            <button
+              class="loot-preview"
+              type="button"
+              @click="openLootModal(npc)"
+              title="Click to view all loot items"
+            >
+              <div class="loot-icons">
+                <div
+                  v-for="item in npc.lootItems.slice(0, 5)"
+                  :key="item.id"
+                  class="loot-icon-wrapper"
+                  :title="item.itemName"
+                >
+                  <img
+                    v-if="hasValidIconId(item.itemIconId)"
+                    :src="getLootIconSrc(item.itemIconId)"
+                    :alt="item.itemName"
+                    class="loot-icon"
+                    loading="lazy"
+                  />
+                  <span v-else class="loot-icon-placeholder">?</span>
+                </div>
+                <span v-if="npc.lootItems.length > 5" class="loot-more-badge">
+                  +{{ npc.lootItems.length - 5 }}
+                </span>
               </div>
-            </div>
+            </button>
           </div>
 
           <div v-if="npc.notes" class="info-row info-row--notes">
@@ -343,6 +352,48 @@
         </footer>
       </div>
     </div>
+
+    <!-- Loot Detail Modal -->
+    <div v-if="showLootModal && lootModalNpc" class="modal-backdrop" @click.self="closeLootModal">
+      <div class="modal modal--loot">
+        <header class="modal__header">
+          <h3>{{ lootModalNpc.npcName }} - Known Loot</h3>
+          <button class="modal__close" @click="closeLootModal">&times;</button>
+        </header>
+        <div class="modal__body loot-modal-body">
+          <div class="loot-grid">
+            <div
+              v-for="item in lootModalNpc.lootItems"
+              :key="item.id"
+              class="loot-grid-item"
+            >
+              <div class="loot-grid-item__icon">
+                <img
+                  v-if="hasValidIconId(item.itemIconId)"
+                  :src="getLootIconSrc(item.itemIconId)"
+                  :alt="item.itemName"
+                  loading="lazy"
+                />
+                <span v-else class="loot-grid-item__icon-placeholder">?</span>
+              </div>
+              <div class="loot-grid-item__info">
+                <span class="loot-grid-item__name">{{ item.itemName }}</span>
+                <span v-if="item.itemId" class="loot-grid-item__id muted">#{{ item.itemId }}</span>
+              </div>
+            </div>
+          </div>
+          <p v-if="lootModalNpc.lootItems.length === 0" class="muted">
+            No loot items configured for this NPC.
+          </p>
+        </div>
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="closeLootModal">Close</button>
+          <button class="btn btn--primary" @click="openEditFromLoot">
+            Edit NPC
+          </button>
+        </footer>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -373,6 +424,10 @@ const itemSearchResults = ref<DiscoveredItem[]>([]);
 const itemSearchLoading = ref(false);
 const showItemSearchResults = ref(false);
 let itemSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Loot modal state
+const showLootModal = ref(false);
+const lootModalNpc = ref<NpcDefinition | null>(null);
 
 const form = ref<NpcDefinitionInput>({
   npcName: '',
@@ -455,6 +510,24 @@ function closeModal() {
   editingNpc.value = null;
   resetForm();
   resetItemSearch();
+}
+
+function openLootModal(npc: NpcDefinition) {
+  lootModalNpc.value = npc;
+  showLootModal.value = true;
+}
+
+function closeLootModal() {
+  showLootModal.value = false;
+  lootModalNpc.value = null;
+}
+
+function openEditFromLoot() {
+  if (lootModalNpc.value) {
+    const npc = lootModalNpc.value;
+    closeLootModal();
+    openEditModal(npc);
+  }
 }
 
 function resetItemSearch() {
@@ -810,41 +883,69 @@ onUnmounted(() => {
   color: #e2e8f0;
 }
 
-.loot-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.loot-item {
+/* Loot Preview Styles */
+.loot-preview {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.6rem;
-  background: rgba(30, 41, 59, 0.6);
+  background: rgba(30, 41, 59, 0.4);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.loot-preview:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.loot-icons {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.loot-icon-wrapper {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 0.3rem;
+  overflow: hidden;
 }
 
 .loot-icon {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
 }
 
 .loot-icon-placeholder {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: #64748b;
 }
 
-.loot-name {
-  font-size: 0.8rem;
-  color: #cbd5e1;
+.loot-more-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.4rem;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  border-radius: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #93c5fd;
 }
 
 .notes-text {
@@ -1274,5 +1375,82 @@ onUnmounted(() => {
 
 .loot-form-list {
   margin-top: 0.75rem;
+}
+
+/* Loot Modal Styles */
+.modal--loot {
+  max-width: 550px;
+}
+
+.loot-modal-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.loot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.loot-grid-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+  transition: border-color 0.15s ease;
+}
+
+.loot-grid-item:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+}
+
+.loot-grid-item__icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 0.4rem;
+  flex-shrink: 0;
+}
+
+.loot-grid-item__icon img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+
+.loot-grid-item__icon-placeholder {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.loot-grid-item__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.loot-grid-item__name {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loot-grid-item__id {
+  font-size: 0.7rem;
 }
 </style>
