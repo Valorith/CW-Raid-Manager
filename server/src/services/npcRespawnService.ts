@@ -12,12 +12,6 @@ export interface NpcDefinitionInput {
   respawnMaxMinutes?: number | null;
   notes?: string | null;
   allaLink?: string | null;
-  lootItems?: Array<{
-    itemId?: number | null;
-    itemName: string;
-    itemIconId?: number | null;
-    allaLink?: string | null;
-  }>;
 }
 
 export interface NpcKillRecordInput {
@@ -53,7 +47,7 @@ function normalizeAllaLink(input?: string | null) {
 
 // Type for formatted NPC definition
 type NpcDefinitionWithRelations = Prisma.NpcDefinitionGetPayload<{
-  include: { lootItems: true; killRecords: { orderBy: { killedAt: 'desc' }; take: 1 } };
+  include: { killRecords: { orderBy: { killedAt: 'desc' }; take: 1 } };
 }>;
 
 function formatNpcDefinition(record: NpcDefinitionWithRelations) {
@@ -72,13 +66,6 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations) {
     createdByName: record.createdByName ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    lootItems: record.lootItems.map((item) => ({
-      id: item.id,
-      itemId: item.itemId ?? null,
-      itemName: item.itemName,
-      itemIconId: item.itemIconId ?? null,
-      allaLink: item.allaLink ?? null
-    })),
     lastKill: lastKill
       ? {
           id: lastKill.id,
@@ -118,7 +105,6 @@ export async function listNpcDefinitions(guildId: string) {
   const definitions = await prisma.npcDefinition.findMany({
     where: { guildId },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1
@@ -133,7 +119,6 @@ export async function getNpcDefinition(guildId: string, npcDefinitionId: string)
   const definition = await prisma.npcDefinition.findFirst({
     where: { guildId, id: npcDefinitionId },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1
@@ -148,7 +133,6 @@ export async function getNpcDefinitionByName(guildId: string, npcName: string) {
   const definition = await prisma.npcDefinition.findFirst({
     where: { guildId, npcNameNormalized: normalized },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1
@@ -177,54 +161,20 @@ export async function createNpcDefinition(
     throw new Error('An NPC with this name already exists.');
   }
 
-  const lootItems = (input.lootItems ?? []).map((item) => {
-    const itemName = item.itemName.trim();
-    if (!itemName) {
-      throw new Error('Loot item name is required.');
-    }
-    return {
-      itemId: item.itemId ?? null,
-      itemName,
-      itemIconId: item.itemIconId ?? null,
-      allaLink: normalizeAllaLink(item.allaLink)
-    };
-  });
-
-  const definitionId = await prisma.$transaction(async (tx) => {
-    const record = await tx.npcDefinition.create({
-      data: {
-        guildId,
-        npcName,
-        npcNameNormalized: normalized,
-        zoneName: input.zoneName?.trim() || null,
-        respawnMinMinutes: input.respawnMinMinutes ?? null,
-        respawnMaxMinutes: input.respawnMaxMinutes ?? null,
-        notes: input.notes?.trim() || null,
-        allaLink: normalizeAllaLink(input.allaLink),
-        createdById: creator.userId,
-        createdByName: creator.displayName
-      }
-    });
-
-    if (lootItems.length > 0) {
-      await tx.npcDefinitionLoot.createMany({
-        data: lootItems.map((item) => ({
-          npcDefinitionId: record.id,
-          itemId: item.itemId,
-          itemName: item.itemName,
-          itemIconId: item.itemIconId,
-          allaLink: item.allaLink
-        }))
-      });
-    }
-
-    return record.id;
-  });
-
-  const created = await prisma.npcDefinition.findUnique({
-    where: { id: definitionId },
+  const record = await prisma.npcDefinition.create({
+    data: {
+      guildId,
+      npcName,
+      npcNameNormalized: normalized,
+      zoneName: input.zoneName?.trim() || null,
+      respawnMinMinutes: input.respawnMinMinutes ?? null,
+      respawnMaxMinutes: input.respawnMaxMinutes ?? null,
+      notes: input.notes?.trim() || null,
+      allaLink: normalizeAllaLink(input.allaLink),
+      createdById: creator.userId,
+      createdByName: creator.displayName
+    },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1
@@ -232,10 +182,7 @@ export async function createNpcDefinition(
     }
   });
 
-  if (!created) {
-    throw new Error('NPC definition could not be found after creation.');
-  }
-  return formatNpcDefinition(created);
+  return formatNpcDefinition(record);
 }
 
 export async function updateNpcDefinition(
@@ -266,52 +213,18 @@ export async function updateNpcDefinition(
     }
   }
 
-  const lootItems = (input.lootItems ?? []).map((item) => {
-    const itemName = item.itemName.trim();
-    if (!itemName) {
-      throw new Error('Loot item name is required.');
-    }
-    return {
-      itemId: item.itemId ?? null,
-      itemName,
-      itemIconId: item.itemIconId ?? null,
-      allaLink: normalizeAllaLink(item.allaLink)
-    };
-  });
-
-  await prisma.$transaction(async (tx) => {
-    await tx.npcDefinition.update({
-      where: { id: npcDefinitionId },
-      data: {
-        npcName,
-        npcNameNormalized: normalized,
-        zoneName: input.zoneName?.trim() || null,
-        respawnMinMinutes: input.respawnMinMinutes ?? null,
-        respawnMaxMinutes: input.respawnMaxMinutes ?? null,
-        notes: input.notes?.trim() || null,
-        allaLink: normalizeAllaLink(input.allaLink)
-      }
-    });
-
-    // Replace loot items
-    await tx.npcDefinitionLoot.deleteMany({ where: { npcDefinitionId } });
-    if (lootItems.length > 0) {
-      await tx.npcDefinitionLoot.createMany({
-        data: lootItems.map((item) => ({
-          npcDefinitionId,
-          itemId: item.itemId,
-          itemName: item.itemName,
-          itemIconId: item.itemIconId,
-          allaLink: item.allaLink
-        }))
-      });
-    }
-  });
-
-  const updated = await prisma.npcDefinition.findUnique({
+  const updated = await prisma.npcDefinition.update({
     where: { id: npcDefinitionId },
+    data: {
+      npcName,
+      npcNameNormalized: normalized,
+      zoneName: input.zoneName?.trim() || null,
+      respawnMinMinutes: input.respawnMinMinutes ?? null,
+      respawnMaxMinutes: input.respawnMaxMinutes ?? null,
+      notes: input.notes?.trim() || null,
+      allaLink: normalizeAllaLink(input.allaLink)
+    },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1
@@ -319,9 +232,6 @@ export async function updateNpcDefinition(
     }
   });
 
-  if (!updated) {
-    throw new Error('NPC definition could not be found after update.');
-  }
   return formatNpcDefinition(updated);
 }
 
@@ -403,7 +313,6 @@ export async function getUserSubscriptions(userId: string, guildId: string) {
     include: {
       npcDefinition: {
         include: {
-          lootItems: true,
           killRecords: {
             orderBy: { killedAt: 'desc' },
             take: 1
@@ -527,7 +436,6 @@ export async function getRespawnTrackerData(guildId: string) {
   const definitions = await prisma.npcDefinition.findMany({
     where: { guildId },
     include: {
-      lootItems: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
         take: 1

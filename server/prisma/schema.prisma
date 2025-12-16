@@ -673,26 +673,11 @@ model NpcDefinition {
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   guild               Guild                 @relation(fields: [guildId], references: [id], onDelete: Cascade)
-  lootItems           NpcDefinitionLoot[]
   killRecords         NpcKillRecord[]
   subscriptions       NpcRespawnSubscription[]
 
   @@unique([guildId, npcNameNormalized], map: "NpcDefinition_guild_npc_unique")
   @@index([guildId])
-}
-
-model NpcDefinitionLoot {
-  id              String        @id @default(cuid())
-  npcDefinitionId String
-  itemId          Int?
-  itemName        String        @db.VarChar(191)
-  itemIconId      Int?
-  allaLink        String?       @db.VarChar(512)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  npcDefinition   NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
-
-  @@index([npcDefinitionId])
 }
 
 model NpcKillRecord {

@@ -22,21 +22,13 @@ import { prisma } from '../utils/prisma.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 
 // Schema definitions
-const lootItemSchema = z.object({
-  itemId: z.number().nullable().optional(),
-  itemName: z.string().trim().min(1, 'Item name is required').max(191),
-  itemIconId: z.number().nullable().optional(),
-  allaLink: z.string().max(512).nullable().optional()
-});
-
 const npcDefinitionBodySchema = z.object({
   npcName: z.string().trim().min(1, 'NPC name is required').max(191),
   zoneName: z.string().trim().max(191).nullable().optional(),
   respawnMinMinutes: z.number().int().min(0).nullable().optional(),
   respawnMaxMinutes: z.number().int().min(0).nullable().optional(),
   notes: z.string().max(8000).nullable().optional(),
-  allaLink: z.string().max(512).nullable().optional(),
-  lootItems: z.array(lootItemSchema).optional().default([])
+  allaLink: z.string().max(512).nullable().optional()
 });
 
 const killRecordBodySchema = z.object({
