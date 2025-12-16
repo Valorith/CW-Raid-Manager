@@ -466,6 +466,60 @@ export async function deleteSubscription(userId: string, npcDefinitionId: string
   }
 }
 
+// Record a kill for a tracked NPC (called automatically from raid NPC kill detection)
+// Only records if the NPC is already configured in the respawn tracker
+export async function recordKillForTrackedNpc(
+  guildId: string,
+  input: {
+    npcName: string;
+    npcNameNormalized: string;
+    killedAt: Date;
+    killedByName?: string | null;
+  }
+) {
+  // Find the NPC definition by normalized name
+  const definition = await prisma.npcDefinition.findFirst({
+    where: {
+      guildId,
+      npcNameNormalized: input.npcNameNormalized
+    }
+  });
+
+  if (!definition) {
+    // NPC is not tracked in the respawn tracker, skip
+    return null;
+  }
+
+  // Check if we already have a kill record for this exact time
+  // to avoid duplicates from multiple log uploads
+  const existingKill = await prisma.npcKillRecord.findFirst({
+    where: {
+      guildId,
+      npcDefinitionId: definition.id,
+      killedAt: input.killedAt
+    }
+  });
+
+  if (existingKill) {
+    // Already recorded this kill
+    return existingKill;
+  }
+
+  // Create the kill record
+  const record = await prisma.npcKillRecord.create({
+    data: {
+      guildId,
+      npcDefinitionId: definition.id,
+      killedAt: input.killedAt,
+      killedByName: input.killedByName?.trim() || null,
+      killedById: null,
+      notes: 'Auto-recorded from raid log'
+    }
+  });
+
+  return record;
+}
+
 // Get respawn tracker data - combines NPC definitions with latest kills and respawn calculations
 export async function getRespawnTrackerData(guildId: string) {
   const definitions = await prisma.npcDefinition.findMany({
