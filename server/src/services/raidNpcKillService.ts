@@ -4,6 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { recordKillForTrackedNpc } from './npcRespawnService.js';
 
 export type NpcKillInput = {
   npcName: string;
@@ -158,6 +159,25 @@ export async function recordRaidNpcKills(
     }
   }
 
+  // Record kills in the NPC Respawn Tracker for any tracked NPCs
+  // This happens regardless of Discord webhook settings
+  if (insertedEntries.length > 0) {
+    for (const entry of insertedEntries) {
+      try {
+        await recordKillForTrackedNpc(guildId, {
+          npcName: entry.npcName,
+          npcNameNormalized: entry.npcNameNormalized,
+          killedAt: entry.occurredAt,
+          killedByName: entry.killerName
+        });
+      } catch (error) {
+        // Silently continue - NPC may not be tracked in respawn tracker
+        logger?.debug?.({ error, npcName: entry.npcName }, 'NPC not tracked in respawn tracker or failed to record kill');
+      }
+    }
+  }
+
+  // Emit Discord webhook for target boss kills
   if (insertedEntries.length > 0 && targetLookup.size > 0) {
     const targetKills = insertedEntries
       .filter((entry) => targetLookup.has(entry.npcNameNormalized))

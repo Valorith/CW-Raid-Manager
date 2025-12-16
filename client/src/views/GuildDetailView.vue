@@ -34,6 +34,12 @@
         >
           Quest Tracker
         </RouterLink>
+        <RouterLink
+          class="guild-action-button guild-action-button--respawn"
+          :to="{ name: 'GuildNpcRespawn', params: { guildId } }"
+        >
+          NPC Respawn
+        </RouterLink>
         <button
           v-if="canPlanRaid"
           type="button"
@@ -1358,6 +1364,12 @@ onUnmounted(() => {
   --guild-action-bg: linear-gradient(135deg, rgba(34, 197, 94, 0.35), rgba(16, 185, 129, 0.45));
   --guild-action-border: rgba(45, 212, 191, 0.65);
   --guild-action-shadow: rgba(6, 95, 70, 0.35);
+}
+
+.guild-action-button--respawn {
+  --guild-action-bg: linear-gradient(135deg, rgba(251, 146, 60, 0.35), rgba(245, 158, 11, 0.45));
+  --guild-action-border: rgba(251, 191, 36, 0.65);
+  --guild-action-shadow: rgba(180, 83, 9, 0.35);
 }
 
 @media (min-width: 640px) {

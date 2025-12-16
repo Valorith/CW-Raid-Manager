@@ -67,6 +67,8 @@ model Guild {
   questAssignments   QuestAssignment[]
   questBlueprintFolders QuestBlueprintFolder[]
   calendarAvailability CalendarAvailability[]
+  npcDefinitions     NpcDefinition[]
+  npcKillRecords     NpcKillRecord[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -652,4 +654,62 @@ enum QuestNodeType {
   USE
   TOUCH
   GIVE_CASH
+}
+
+// NPC Respawn Tracker Models
+
+model NpcDefinition {
+  id                  String                @id @default(cuid())
+  guildId             String
+  npcName             String                @db.VarChar(191)
+  npcNameNormalized   String                @db.VarChar(191)
+  zoneName            String?               @db.VarChar(191)
+  respawnMinMinutes   Int?
+  respawnMaxMinutes   Int?
+  isRaidTarget        Boolean               @default(false)
+  contentFlag         String?               @db.VarChar(50)
+  notes               String?               @db.LongText
+  allaLink            String?               @db.VarChar(512)
+  createdById         String?
+  createdByName       String?               @db.VarChar(191)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  guild               Guild                 @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  killRecords         NpcKillRecord[]
+  subscriptions       NpcRespawnSubscription[]
+
+  @@unique([guildId, npcNameNormalized], map: "NpcDefinition_guild_npc_unique")
+  @@index([guildId])
+}
+
+model NpcKillRecord {
+  id              String        @id @default(cuid())
+  guildId         String
+  npcDefinitionId String
+  killedAt        DateTime
+  killedByName    String?       @db.VarChar(191)
+  killedById      String?
+  notes           String?       @db.VarChar(500)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  guild           Guild         @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  npcDefinition   NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+  @@index([npcDefinitionId])
+  @@index([guildId, killedAt])
+}
+
+model NpcRespawnSubscription {
+  id              String        @id @default(cuid())
+  npcDefinitionId String
+  userId          String
+  notifyMinutes   Int           @default(5)
+  isEnabled       Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  npcDefinition   NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
+
+  @@unique([npcDefinitionId, userId])
+  @@index([userId])
 }

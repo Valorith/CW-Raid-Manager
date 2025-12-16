@@ -378,8 +378,9 @@ type DiscordWebhookPayloadMap = {
   };
   'raid.targetKilled': {
     guildName: string;
-    raidId: string;
-    raidName: string;
+    guildId?: string;
+    raidId?: string | null;
+    raidName?: string | null;
     kills: Array<{
       npcName: string;
       killerName?: string | null;
@@ -718,7 +719,6 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       if (!Array.isArray(raidTargetPayload.kills) || raidTargetPayload.kills.length === 0) {
         return null;
       }
-      const raidTargetUrl = buildRaidUrl(raidTargetPayload.raidId);
       const killLines = raidTargetPayload.kills.slice(0, 10).map((kill) => {
         return `• **${kill.npcName}** — ${formatDiscordTimestamp(kill.occurredAt)}`;
       });
@@ -726,13 +726,26 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         const remaining = raidTargetPayload.kills.length - 10;
         killLines.push(`…and ${remaining} more target${remaining === 1 ? '' : 's'}.`);
       }
-      if (raidTargetUrl) {
-        killLines.push(`[View Raid](${raidTargetUrl})`);
+      // Add link - prefer raid if available, otherwise respawn tracker
+      if (raidTargetPayload.raidId) {
+        const raidTargetUrl = buildRaidUrl(raidTargetPayload.raidId);
+        if (raidTargetUrl) {
+          killLines.push(`[View Raid](${raidTargetUrl})`);
+        }
+      } else if (raidTargetPayload.guildId) {
+        const respawnTrackerUrl = buildRespawnTrackerUrl(raidTargetPayload.guildId);
+        if (respawnTrackerUrl) {
+          killLines.push(`[View Respawn Tracker](${respawnTrackerUrl})`);
+        }
       }
+      // Use raid name if available, otherwise show just "Raid Target Killed"
+      const targetKilledTitle = raidTargetPayload.raidName
+        ? `🎯 Raid Target Killed: ${raidTargetPayload.raidName}`
+        : `🎯 Raid Target Killed`;
       return {
         embeds: [
           {
-            title: `🎯 Raid Target Killed: ${raidTargetPayload.raidName}`,
+            title: targetKilledTitle,
             color: DISCORD_COLORS.success,
             fields: [
               {
@@ -1290,6 +1303,13 @@ function buildGuildApplicantsUrl(guildId: string) {
     return null;
   }
   return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}?members=APPLICANT`;
+}
+
+function buildRespawnTrackerUrl(guildId: string) {
+  if (!clientBaseUrl) {
+    return null;
+  }
+  return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}/respawn-tracker`;
 }
 
 function buildAttendanceEventUrl(raidId: string, attendanceEventId: string) {
