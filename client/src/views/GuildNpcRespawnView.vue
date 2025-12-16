@@ -212,12 +212,23 @@
                   </svg>
                 </button>
                 <button
+                  v-if="npc.respawnStatus !== 'up'"
                   class="action-btn action-btn--spawn"
                   title="It's Up! - Confirm NPC has spawned"
                   @click="confirmSpawnUp(npc)"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 19V5M5 12l7-7 7 7" />
+                  </svg>
+                </button>
+                <button
+                  v-if="npc.respawnStatus !== 'down'"
+                  class="action-btn action-btn--down"
+                  title="It's Down! - Mark NPC as killed"
+                  @click="confirmMarkDown(npc)"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12l7 7 7-7" />
                   </svg>
                 </button>
                 <button
@@ -567,6 +578,31 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
     });
   } catch (err: any) {
     alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as spawned');
+  }
+}
+
+async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
+  const confirmed = confirm(
+    `Mark "${npc.npcName}" as killed (Down)?\n\nThis will start the respawn timer.`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    // If there's an existing kill record, delete it first to avoid duplicates
+    if (npc.lastKill) {
+      await store.deleteKillRecord(guildId, npc.lastKill.id);
+    }
+
+    // Record a new kill with current timestamp
+    await store.recordKill(guildId, {
+      npcDefinitionId: npc.id,
+      killedAt: new Date().toISOString(),
+      killedByName: null,
+      notes: 'Marked as killed via "It\'s Down!" button'
+    });
+  } catch (err: any) {
+    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as killed');
   }
 }
 
@@ -1126,6 +1162,18 @@ watch(() => route.params.guildId, (newGuildId) => {
   background: rgba(34, 197, 94, 0.3);
   border-color: rgba(34, 197, 94, 0.6);
   color: #4ade80;
+}
+
+.action-btn--down {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.action-btn--down:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #f87171;
 }
 
 .action-btn--notify.action-btn--active {
