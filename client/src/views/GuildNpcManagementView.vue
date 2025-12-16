@@ -149,38 +149,94 @@
             </div>
           </div>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label for="respawn-min">Min Respawn (minutes)</label>
-              <input
-                id="respawn-min"
-                v-model.number="form.respawnMinMinutes"
-                type="number"
-                min="0"
-                class="input"
-                placeholder="e.g., 420"
-              />
+          <div class="respawn-section">
+            <div class="respawn-inputs-row">
+              <div class="respawn-input-group">
+                <label class="respawn-label">Min Respawn</label>
+                <div class="time-inputs">
+                  <div class="time-input-field">
+                    <input
+                      id="respawn-min-hours"
+                      v-model.number="respawnMinHours"
+                      type="number"
+                      min="0"
+                      max="999"
+                      class="input input--time"
+                      placeholder="0"
+                    />
+                    <span class="time-unit">h</span>
+                  </div>
+                  <div class="time-input-field">
+                    <input
+                      id="respawn-min-minutes"
+                      v-model.number="respawnMinMins"
+                      type="number"
+                      min="0"
+                      max="59"
+                      class="input input--time"
+                      placeholder="0"
+                    />
+                    <span class="time-unit">m</span>
+                  </div>
+                </div>
+              </div>
+              <div class="respawn-input-group">
+                <label class="respawn-label">Max Respawn</label>
+                <div class="time-inputs">
+                  <div class="time-input-field">
+                    <input
+                      id="respawn-max-hours"
+                      v-model.number="respawnMaxHours"
+                      type="number"
+                      min="0"
+                      max="999"
+                      class="input input--time"
+                      placeholder="0"
+                    />
+                    <span class="time-unit">h</span>
+                  </div>
+                  <div class="time-input-field">
+                    <input
+                      id="respawn-max-minutes"
+                      v-model.number="respawnMaxMins"
+                      type="number"
+                      min="0"
+                      max="59"
+                      class="input input--time"
+                      placeholder="0"
+                    />
+                    <span class="time-unit">m</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="form-group">
-              <label for="respawn-max">Max Respawn (minutes)</label>
-              <input
-                id="respawn-max"
-                v-model.number="form.respawnMaxMinutes"
-                type="number"
-                min="0"
-                class="input"
-                placeholder="e.g., 480"
-              />
-            </div>
-          </div>
 
-          <div class="respawn-helper muted small">
-            <template v-if="form.respawnMinMinutes">
-              {{ formatRespawnRange(form.respawnMinMinutes, form.respawnMaxMinutes) }}
-            </template>
-            <template v-else>
-              Enter respawn times in minutes (e.g., 7 hours = 420 minutes)
-            </template>
+            <div class="respawn-presets">
+              <span class="presets-label">Quick set:</span>
+              <div class="preset-buttons">
+                <button type="button" class="preset-btn" @click="setRespawnPreset(15)">15m</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(30)">30m</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(60)">1h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(120)">2h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(360)">6h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(420)">7h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(480)">8h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(720)">12h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(1440)">24h</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(4320)">3d</button>
+                <button type="button" class="preset-btn" @click="setRespawnPreset(10080)">7d</button>
+              </div>
+            </div>
+
+            <div class="respawn-helper">
+              <template v-if="form.respawnMinMinutes">
+                <span class="helper-result">{{ formatRespawnRange(form.respawnMinMinutes, form.respawnMaxMinutes) }}</span>
+                <span class="helper-minutes muted">({{ form.respawnMinMinutes }}{{ form.respawnMaxMinutes && form.respawnMaxMinutes !== form.respawnMinMinutes ? ` - ${form.respawnMaxMinutes}` : '' }} min)</span>
+              </template>
+              <template v-else>
+                <span class="muted">Set respawn time using the inputs above</span>
+              </template>
+            </div>
           </div>
 
           <div class="form-group">
@@ -250,7 +306,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
@@ -276,6 +332,46 @@ const form = ref<NpcDefinitionInput>({
   notes: null,
   allaLink: null
 });
+
+// Respawn time inputs (hours + minutes for better UX)
+const respawnMinHours = ref<number | null>(null);
+const respawnMinMins = ref<number | null>(null);
+const respawnMaxHours = ref<number | null>(null);
+const respawnMaxMins = ref<number | null>(null);
+
+// Watch time inputs and update form values
+watch([respawnMinHours, respawnMinMins], ([hours, mins]) => {
+  const h = hours ?? 0;
+  const m = mins ?? 0;
+  form.value.respawnMinMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
+});
+
+watch([respawnMaxHours, respawnMaxMins], ([hours, mins]) => {
+  const h = hours ?? 0;
+  const m = mins ?? 0;
+  form.value.respawnMaxMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
+});
+
+// Set respawn from preset button (sets min only, user can adjust max)
+function setRespawnPreset(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  respawnMinHours.value = hours > 0 ? hours : null;
+  respawnMinMins.value = mins > 0 ? mins : null;
+}
+
+// Populate hours/minutes from total minutes
+function minutesToTimeInputs(totalMinutes: number | null): { hours: number | null; mins: number | null } {
+  if (totalMinutes === null || totalMinutes === 0) {
+    return { hours: null, mins: null };
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  return {
+    hours: hours > 0 ? hours : null,
+    mins: mins > 0 ? mins : null
+  };
+}
 
 // Computed
 const loading = computed(() => store.loading);
@@ -316,6 +412,10 @@ function resetForm() {
     notes: null,
     allaLink: null
   };
+  respawnMinHours.value = null;
+  respawnMinMins.value = null;
+  respawnMaxHours.value = null;
+  respawnMaxMins.value = null;
 }
 
 function openAddModal() {
@@ -334,6 +434,13 @@ function openEditModal(npc: NpcDefinition) {
     notes: npc.notes,
     allaLink: npc.allaLink
   };
+  // Populate time inputs from total minutes
+  const minTime = minutesToTimeInputs(npc.respawnMinMinutes);
+  respawnMinHours.value = minTime.hours;
+  respawnMinMins.value = minTime.mins;
+  const maxTime = minutesToTimeInputs(npc.respawnMaxMinutes);
+  respawnMaxHours.value = maxTime.hours;
+  respawnMaxMins.value = maxTime.mins;
   showModal.value = true;
 }
 
@@ -753,11 +860,115 @@ onMounted(async () => {
   width: 90px;
 }
 
+.input--time {
+  width: 60px;
+  text-align: center;
+  padding: 0.5rem 0.4rem;
+}
+
+/* Respawn time section */
+.respawn-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+}
+
+.respawn-inputs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.respawn-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.respawn-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+}
+
+.time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.time-input-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.time-unit {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.respawn-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.presets-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.preset-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.preset-btn {
+  padding: 0.3rem 0.6rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.3rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-btn:hover {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+}
+
 .respawn-helper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   background: rgba(59, 130, 246, 0.1);
   border-radius: 0.4rem;
   border: 1px solid rgba(59, 130, 246, 0.2);
+  font-size: 0.85rem;
+}
+
+.helper-result {
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.helper-minutes {
+  font-size: 0.8rem;
 }
 
 .form-section {
