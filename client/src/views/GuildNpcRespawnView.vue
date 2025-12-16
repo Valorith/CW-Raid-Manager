@@ -528,21 +528,45 @@ function closeLootModal() {
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
-  if (!npc.lastKill) {
-    alert(`"${npc.npcName}" has no active respawn timer to clear.\n\nThe NPC is already showing as available.`);
+  // If there's an active respawn timer, clear it by deleting the kill record
+  if (npc.lastKill) {
+    const confirmed = confirm(
+      `Confirm that "${npc.npcName}" has spawned?\n\nThis will clear the respawn timer.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await store.deleteKillRecord(guildId, npc.lastKill.id);
+    } catch (err: any) {
+      alert(err?.response?.data?.message ?? err?.message ?? 'Failed to confirm spawn');
+    }
     return;
   }
 
+  // If no kill record exists, create one with an old timestamp to mark as "Up"
   const confirmed = confirm(
-    `Confirm that "${npc.npcName}" has spawned?\n\nThis will clear the respawn timer.`
+    `Mark "${npc.npcName}" as spawned (Up)?`
   );
 
   if (!confirmed) return;
 
   try {
-    await store.deleteKillRecord(guildId, npc.lastKill.id);
+    // Calculate a timestamp old enough to show as "Up"
+    // Use the max respawn time + 1 minute, or default to 24 hours if no respawn configured
+    const respawnMs = npc.respawnMaxMinutes
+      ? (npc.respawnMaxMinutes + 1) * 60 * 1000
+      : 24 * 60 * 60 * 1000;
+    const oldKillTime = new Date(Date.now() - respawnMs);
+
+    await store.recordKill(guildId, {
+      npcDefinitionId: npc.id,
+      killedAt: oldKillTime.toISOString(),
+      killedByName: null,
+      notes: 'Marked as spawned via "It\'s Up!" button'
+    });
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to confirm spawn');
+    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as spawned');
   }
 }
 
