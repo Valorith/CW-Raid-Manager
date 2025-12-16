@@ -40,7 +40,8 @@ const killRecordBodySchema = z.object({
   npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
   killedAt: z.string().datetime().or(z.date()),
   killedByName: z.string().trim().max(191).nullable().optional(),
-  notes: z.string().max(500).nullable().optional()
+  notes: z.string().max(500).nullable().optional(),
+  triggerWebhook: z.boolean().optional()
 });
 
 const subscriptionBodySchema = z.object({
@@ -261,24 +262,27 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         notes: data.notes ?? null
       });
 
-      // Check if NPC is a raid target and trigger webhook
-      const npcDefinition = await prisma.npcDefinition.findUnique({
-        where: { id: data.npcDefinitionId },
-        include: { guild: { select: { name: true } } }
-      });
-
-      if (npcDefinition?.isRaidTarget) {
-        // Emit raid target killed webhook
-        await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
-          guildName: npcDefinition.guild?.name ?? 'Guild',
-          guildId,
-          npcName: npcDefinition.npcName,
-          kills: [{
-            npcName: npcDefinition.npcName,
-            killerName: data.killedByName ?? null,
-            occurredAt: new Date(data.killedAt)
-          }]
+      // Check if NPC is a raid target and trigger webhook (unless explicitly disabled)
+      const shouldTriggerWebhook = data.triggerWebhook !== false;
+      if (shouldTriggerWebhook) {
+        const npcDefinition = await prisma.npcDefinition.findUnique({
+          where: { id: data.npcDefinitionId },
+          include: { guild: { select: { name: true } } }
         });
+
+        if (npcDefinition?.isRaidTarget) {
+          // Emit raid target killed webhook
+          await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+            guildName: npcDefinition.guild?.name ?? 'Guild',
+            guildId,
+            npcName: npcDefinition.npcName,
+            kills: [{
+              npcName: npcDefinition.npcName,
+              killerName: data.killedByName ?? null,
+              occurredAt: new Date(data.killedAt)
+            }]
+          });
+        }
       }
 
       return { record };

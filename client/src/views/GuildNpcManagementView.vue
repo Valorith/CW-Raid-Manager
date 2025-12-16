@@ -40,7 +40,7 @@
       <p>Loading NPCs...</p>
     </div>
 
-    <div v-else-if="filteredDefinitions.length === 0" class="empty-state">
+    <div v-else-if="paginatedDefinitions.length === 0" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -59,7 +59,7 @@
 
     <div v-else class="npc-grid">
       <article
-        v-for="npc in filteredDefinitions"
+        v-for="npc in paginatedDefinitions"
         :key="npc.id"
         class="npc-card"
       >
@@ -126,6 +126,41 @@
           </button>
         </footer>
       </article>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div v-if="totalPages > 1" class="pagination">
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === 1"
+        @click="currentPage = 1"
+      >
+        First
+      </button>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === 1"
+        @click="currentPage--"
+      >
+        Prev
+      </button>
+      <span class="pagination-info">
+        Page {{ currentPage }} of {{ totalPages }} ({{ filteredDefinitions.length }} NPCs)
+      </span>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === totalPages"
+        @click="currentPage++"
+      >
+        Next
+      </button>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === totalPages"
+        @click="currentPage = totalPages"
+      >
+        Last
+      </button>
     </div>
 
     <!-- Add/Edit Modal -->
@@ -363,6 +398,8 @@ const editingNpc = ref<NpcDefinition | null>(null);
 const deletingNpc = ref<NpcDefinition | null>(null);
 const submitting = ref(false);
 const deleting = ref(false);
+const currentPage = ref(1);
+const itemsPerPage = 24;
 
 const form = ref<NpcDefinitionInput>({
   npcName: '',
@@ -426,6 +463,13 @@ const filteredDefinitions = computed(() => {
     npc.npcName.toLowerCase().includes(query) ||
     (npc.zoneName?.toLowerCase().includes(query) ?? false)
   );
+});
+
+const totalPages = computed(() => Math.ceil(filteredDefinitions.value.length / itemsPerPage));
+
+const paginatedDefinitions = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage;
+  return filteredDefinitions.value.slice(start, start + itemsPerPage);
 });
 
 function isContentFlagEnabled(flag: string | null): boolean {
@@ -545,6 +589,11 @@ async function executeDelete() {
     deleting.value = false;
   }
 }
+
+// Reset page when search changes
+watch(searchQuery, () => {
+  currentPage.value = 1;
+});
 
 // Lifecycle
 onMounted(async () => {
@@ -1183,5 +1232,50 @@ onMounted(async () => {
   font-size: 0.75rem;
   color: #64748b;
   line-height: 1.4;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: #94a3b8;
+  font-size: 0.85rem;
 }
 </style>

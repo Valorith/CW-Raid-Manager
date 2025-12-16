@@ -929,6 +929,7 @@ export interface NpcKillRecordInput {
   killedAt: string;
   killedByName?: string | null;
   notes?: string | null;
+  triggerWebhook?: boolean;
 }
 
 export interface NpcSubscriptionInput {

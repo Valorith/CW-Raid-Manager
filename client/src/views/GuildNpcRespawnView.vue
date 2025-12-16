@@ -63,7 +63,7 @@
       <p>Loading NPC data...</p>
     </div>
 
-    <div v-else-if="filteredNpcs.length === 0" class="empty-state">
+    <div v-else-if="paginatedNpcs.length === 0" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -98,7 +98,7 @@
         </thead>
         <tbody>
           <tr
-            v-for="npc in filteredNpcs"
+            v-for="npc in paginatedNpcs"
             :key="npc.id"
             :class="['npc-row', `npc-row--${npc.respawnStatus}`]"
           >
@@ -216,6 +216,41 @@
       </table>
     </div>
 
+    <!-- Pagination Controls -->
+    <div v-if="totalPages > 1" class="pagination">
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === 1"
+        @click="currentPage = 1"
+      >
+        First
+      </button>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === 1"
+        @click="currentPage--"
+      >
+        Prev
+      </button>
+      <span class="pagination-info">
+        Page {{ currentPage }} of {{ totalPages }} ({{ filteredNpcs.length }} NPCs)
+      </span>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === totalPages"
+        @click="currentPage++"
+      >
+        Next
+      </button>
+      <button
+        class="pagination-btn"
+        :disabled="currentPage === totalPages"
+        @click="currentPage = totalPages"
+      >
+        Last
+      </button>
+    </div>
+
     <!-- Kill Recording Modal -->
     <div v-if="showKillModal" class="modal-backdrop" @click.self="closeKillModal">
       <div class="modal">
@@ -287,6 +322,8 @@ const activeZoneFilter = ref('all');
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
+const currentPage = ref(1);
+const itemsPerPage = 25;
 
 const killForm = ref({
   killedAt: '',
@@ -336,6 +373,13 @@ const filteredNpcs = computed(() => {
   }
 
   return result;
+});
+
+const totalPages = computed(() => Math.ceil(filteredNpcs.value.length / itemsPerPage));
+
+const paginatedNpcs = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage;
+  return filteredNpcs.value.slice(start, start + itemsPerPage);
 });
 
 // Methods
@@ -478,7 +522,8 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
       npcDefinitionId: npc.id,
       killedAt: oldKillTime.toISOString(),
       killedByName: null,
-      notes: 'Marked as spawned via "It\'s Up!" button'
+      notes: 'Marked as spawned via "It\'s Up!" button',
+      triggerWebhook: false
     });
   } catch (err: any) {
     alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as spawned');
@@ -503,7 +548,8 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
       npcDefinitionId: npc.id,
       killedAt: new Date().toISOString(),
       killedByName: null,
-      notes: 'Marked as killed via "It\'s Down!" button'
+      notes: 'Marked as killed via "It\'s Down!" button',
+      triggerWebhook: false
     });
   } catch (err: any) {
     alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as killed');
@@ -533,7 +579,13 @@ watch(() => route.params.guildId, (newGuildId) => {
     searchQuery.value = '';
     activeStatusFilter.value = 'all';
     activeZoneFilter.value = 'all';
+    currentPage.value = 1;
   }
+});
+
+// Reset page when filters change
+watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
+  currentPage.value = 1;
 });
 </script>
 
@@ -1184,5 +1236,50 @@ watch(() => route.params.guildId, (newGuildId) => {
 
 .muted {
   color: #64748b;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+}
+
+.pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: #94a3b8;
+  font-size: 0.85rem;
 }
 </style>
