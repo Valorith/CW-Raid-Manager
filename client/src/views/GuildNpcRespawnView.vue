@@ -872,7 +872,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .col-status { width: 80px; text-align: center; }
 .col-name { min-width: 150px; }
-.col-zone { width: 120px; }
+.col-zone { width: 240px; }
 .col-respawn { min-width: 180px; }
 .col-killed { width: 120px; }
 .col-actions { width: 120px; text-align: center; }
