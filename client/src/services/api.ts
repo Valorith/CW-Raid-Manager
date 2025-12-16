@@ -3407,12 +3407,14 @@ export const api = {
 
   async fetchNpcDefinitions(guildId: string): Promise<{
     definitions: NpcDefinition[];
+    enabledContentFlags: NpcContentFlag[];
     canManage: boolean;
     viewerRole: GuildRole | null;
   }> {
     const response = await axios.get(`/api/guilds/${guildId}/npc-definitions`);
     return {
       definitions: response.data.definitions ?? [],
+      enabledContentFlags: response.data.enabledContentFlags ?? [],
       canManage: response.data.canManage ?? false,
       viewerRole: response.data.viewerRole ?? null
     };

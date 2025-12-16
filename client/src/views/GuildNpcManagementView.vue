@@ -64,27 +64,33 @@
         class="npc-card"
       >
         <header class="npc-card__header">
-          <div class="npc-card__title">
-            <h3>{{ npc.npcName }}</h3>
-            <a
-              v-if="npc.allaLink"
-              :href="npc.allaLink"
-              target="_blank"
-              rel="noopener"
-              class="alla-link"
-              title="View on Allakhazam"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
+          <div class="npc-card__title-row">
+            <div class="npc-card__title">
+              <h3>{{ npc.npcName }}</h3>
+              <a
+                v-if="npc.allaLink"
+                :href="npc.allaLink"
+                target="_blank"
+                rel="noopener"
+                class="alla-link"
+                title="View on Allakhazam"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            </div>
+            <div class="npc-card__badges">
+              <span
+                v-if="npc.contentFlag"
+                :class="['content-flag-badge', isContentFlagEnabled(npc.contentFlag) ? 'content-flag-badge--enabled' : 'content-flag-badge--disabled']"
+                :title="isContentFlagEnabled(npc.contentFlag) ? `${npc.contentFlag} event is active` : `${npc.contentFlag} event is inactive`"
+              >
+                {{ npc.contentFlag }}
+              </span>
+            </div>
           </div>
-          <div class="npc-card__badges">
-            <span v-if="npc.contentFlag" :class="['content-flag-badge', `content-flag-badge--${npc.contentFlag.toLowerCase()}`]">
-              {{ npc.contentFlag }}
-            </span>
-            <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
-          </div>
+          <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
         </header>
 
         <div class="npc-card__body">
@@ -411,6 +417,7 @@ function minutesToTimeInputs(totalMinutes: number | null): { days: number | null
 const loading = computed(() => store.loading);
 const definitions = computed(() => store.definitions);
 const canManage = computed(() => store.canManage);
+const enabledContentFlags = computed(() => store.enabledContentFlags);
 
 const filteredDefinitions = computed(() => {
   if (!searchQuery.value) return definitions.value;
@@ -420,6 +427,11 @@ const filteredDefinitions = computed(() => {
     (npc.zoneName?.toLowerCase().includes(query) ?? false)
   );
 });
+
+function isContentFlagEnabled(flag: string | null): boolean {
+  if (!flag) return true;
+  return enabledContentFlags.value.includes(flag as typeof enabledContentFlags.value[number]);
+}
 
 // Methods
 function formatRespawnRange(min: number | null, max: number | null): string {
@@ -684,17 +696,26 @@ onMounted(async () => {
 
 .npc-card__header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 1.25rem 1.25rem 0.75rem;
   background: rgba(30, 41, 59, 0.4);
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.npc-card__title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .npc-card__title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
 }
 
 .npc-card__title h3 {
@@ -702,6 +723,9 @@ onMounted(async () => {
   font-size: 1.1rem;
   font-weight: 600;
   color: #f1f5f9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .alla-link {
@@ -746,18 +770,19 @@ onMounted(async () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  flex-shrink: 0;
 }
 
-.content-flag-badge--christmas {
+.content-flag-badge--enabled {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+.content-flag-badge--disabled {
   background: rgba(239, 68, 68, 0.2);
   border: 1px solid rgba(239, 68, 68, 0.4);
   color: #fca5a5;
-}
-
-.content-flag-badge--halloween {
-  background: rgba(249, 115, 22, 0.2);
-  border: 1px solid rgba(249, 115, 22, 0.4);
-  color: #fdba74;
 }
 
 .npc-card__body {

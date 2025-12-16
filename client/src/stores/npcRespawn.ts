@@ -8,7 +8,8 @@ import {
   type NpcRespawnSubscription,
   type NpcDefinitionInput,
   type NpcKillRecordInput,
-  type GuildRole
+  type GuildRole,
+  type NpcContentFlag
 } from '../services/api';
 
 export const useNpcRespawnStore = defineStore('npcRespawn', () => {
@@ -16,6 +17,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const npcs = ref<NpcRespawnTrackerEntry[]>([]);
   const definitions = ref<NpcDefinition[]>([]);
   const subscriptions = ref<NpcRespawnSubscription[]>([]);
+  const enabledContentFlags = ref<NpcContentFlag[]>([]);
   const loadedGuildId = ref<string | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -98,6 +100,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     try {
       const result = await api.fetchNpcDefinitions(guildId);
       definitions.value = result.definitions;
+      enabledContentFlags.value = result.enabledContentFlags ?? [];
       canManage.value = result.canManage;
       viewerRole.value = result.viewerRole;
     } catch (err: any) {
@@ -239,6 +242,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     npcs.value = [];
     definitions.value = [];
     subscriptions.value = [];
+    enabledContentFlags.value = [];
     loadedGuildId.value = null;
     loading.value = false;
     error.value = null;
@@ -252,6 +256,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     npcs,
     definitions,
     subscriptions,
+    enabledContentFlags,
     loadedGuildId,
     loading,
     error,

@@ -121,10 +121,14 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     const { guildId } = paramsSchema.parse(request.params);
 
     const role = await ensureUserCanViewGuild(request.user.userId, guildId);
-    const definitions = await listNpcDefinitions(guildId);
+    const [definitions, enabledContentFlags] = await Promise.all([
+      listNpcDefinitions(guildId),
+      getEnabledContentFlags()
+    ]);
 
     return {
       definitions,
+      enabledContentFlags,
       canManage: roleCanEditRaid(role),
       viewerRole: role
     };
