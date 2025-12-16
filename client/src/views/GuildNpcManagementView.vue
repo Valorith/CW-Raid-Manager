@@ -212,19 +212,15 @@
             </div>
 
             <div class="respawn-presets">
-              <span class="presets-label">Quick set:</span>
+              <span class="presets-label">Common windows:</span>
               <div class="preset-buttons">
-                <button type="button" class="preset-btn" @click="setRespawnPreset(15)">15m</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(30)">30m</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(60)">1h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(120)">2h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(360)">6h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(420)">7h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(480)">8h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(720)">12h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(1440)">24h</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(4320)">3d</button>
-                <button type="button" class="preset-btn" @click="setRespawnPreset(10080)">7d</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(6 * 60, 8 * 60)">6-8h</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(7 * 60, 8 * 60)">7-8h</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(12 * 60, 18 * 60)">12-18h</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(18 * 60, 24 * 60)">18-24h</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(72 * 60, 72 * 60)">3d</button>
+                <button type="button" class="preset-btn" @click="setRespawnWindow(168 * 60, 168 * 60)">7d</button>
+                <button type="button" class="preset-btn preset-btn--clear" @click="clearRespawnTimes">Clear</button>
               </div>
             </div>
 
@@ -352,12 +348,25 @@ watch([respawnMaxHours, respawnMaxMins], ([hours, mins]) => {
   form.value.respawnMaxMinutes = (h > 0 || m > 0) ? h * 60 + m : null;
 });
 
-// Set respawn from preset button (sets min only, user can adjust max)
-function setRespawnPreset(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  respawnMinHours.value = hours > 0 ? hours : null;
-  respawnMinMins.value = mins > 0 ? mins : null;
+// Set respawn window from preset button (sets both min and max)
+function setRespawnWindow(minMinutes: number, maxMinutes: number) {
+  const minH = Math.floor(minMinutes / 60);
+  const minM = minMinutes % 60;
+  respawnMinHours.value = minH > 0 ? minH : null;
+  respawnMinMins.value = minM > 0 ? minM : null;
+
+  const maxH = Math.floor(maxMinutes / 60);
+  const maxM = maxMinutes % 60;
+  respawnMaxHours.value = maxH > 0 ? maxH : null;
+  respawnMaxMins.value = maxM > 0 ? maxM : null;
+}
+
+// Clear respawn times
+function clearRespawnTimes() {
+  respawnMinHours.value = null;
+  respawnMinMins.value = null;
+  respawnMaxHours.value = null;
+  respawnMaxMins.value = null;
 }
 
 // Populate hours/minutes from total minutes
@@ -949,6 +958,17 @@ onMounted(async () => {
   background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.4);
   color: #93c5fd;
+}
+
+.preset-btn--clear {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+.preset-btn--clear:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
 }
 
 .respawn-helper {
