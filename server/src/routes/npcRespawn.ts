@@ -139,15 +139,12 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     return { definition };
   });
 
-  // Create a new NPC definition
+  // Create a new NPC definition (any guild member can create)
   server.post('/:guildId/npc-definitions', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ guildId: z.string() });
     const { guildId } = paramsSchema.parse(request.params);
 
-    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
-    if (!roleCanEditRaid(role)) {
-      return reply.forbidden('You do not have permission to create NPC definitions.');
-    }
+    await ensureUserCanViewGuild(request.user.userId, guildId);
 
     const parsedBody = npcDefinitionBodySchema.safeParse(request.body ?? {});
     if (!parsedBody.success) {
@@ -168,7 +165,7 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     }
   });
 
-  // Update an NPC definition
+  // Update an NPC definition (any guild member can edit)
   server.put('/:guildId/npc-definitions/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({
       guildId: z.string(),
@@ -176,10 +173,7 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     });
     const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
 
-    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
-    if (!roleCanEditRaid(role)) {
-      return reply.forbidden('You do not have permission to update NPC definitions.');
-    }
+    await ensureUserCanViewGuild(request.user.userId, guildId);
 
     const parsedBody = npcDefinitionBodySchema.safeParse(request.body ?? {});
     if (!parsedBody.success) {
@@ -259,7 +253,7 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     }
   });
 
-  // Delete a kill record
+  // Delete a kill record (any guild member can delete - needed for Up/Down status buttons)
   server.delete('/:guildId/npc-kills/:killRecordId', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({
       guildId: z.string(),
@@ -267,10 +261,7 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     });
     const { guildId, killRecordId } = paramsSchema.parse(request.params);
 
-    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
-    if (!roleCanEditRaid(role)) {
-      return reply.forbidden('You do not have permission to delete kill records.');
-    }
+    await ensureUserCanViewGuild(request.user.userId, guildId);
 
     await deleteKillRecord(guildId, killRecordId);
     return reply.code(204).send();

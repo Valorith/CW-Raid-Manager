@@ -106,7 +106,11 @@
           <button class="btn btn--small btn--outline" @click="openEditModal(npc)">
             Edit
           </button>
-          <button class="btn btn--small btn--danger-outline" @click="confirmDelete(npc)">
+          <button
+            v-if="canManage"
+            class="btn btn--small btn--danger-outline"
+            @click="confirmDelete(npc)"
+          >
             Delete
           </button>
         </footer>
@@ -276,6 +280,7 @@ const form = ref<NpcDefinitionInput>({
 // Computed
 const loading = computed(() => store.loading);
 const definitions = computed(() => store.definitions);
+const canManage = computed(() => store.canManage);
 
 const filteredDefinitions = computed(() => {
   if (!searchQuery.value) return definitions.value;
