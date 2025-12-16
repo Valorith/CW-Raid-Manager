@@ -91,6 +91,7 @@
             </div>
           </div>
           <div v-if="npc.zoneName" class="zone-cell">
+            <span class="zone-badge">{{ npc.zoneName }}</span>
             <img
               v-if="getExpansionForZone(npc.zoneName)"
               :src="getExpansionForZone(npc.zoneName)?.icon"
@@ -98,7 +99,6 @@
               :title="getExpansionForZone(npc.zoneName)?.name"
               class="expansion-icon"
             />
-            <span class="zone-badge">{{ npc.zoneName }}</span>
           </div>
         </header>
 
@@ -821,6 +821,7 @@ onMounted(async () => {
 
 .zone-cell {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
 }

@@ -127,6 +127,7 @@
             </td>
             <td class="col-zone">
               <div class="zone-cell">
+                <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
                 <img
                   v-if="getExpansionForZone(npc.zoneName)"
                   :src="getExpansionForZone(npc.zoneName)?.icon"
@@ -134,7 +135,6 @@
                   :title="getExpansionForZone(npc.zoneName)?.name"
                   class="expansion-icon"
                 />
-                <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
               </div>
             </td>
             <td class="col-respawn">
@@ -952,6 +952,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .zone-cell {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 0.5rem;
 }
