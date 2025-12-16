@@ -275,7 +275,6 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
           await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
             guildName: npcDefinition.guild?.name ?? 'Guild',
             guildId,
-            npcName: npcDefinition.npcName,
             kills: [{
               npcName: npcDefinition.npcName,
               killerName: data.killedByName ?? null,
