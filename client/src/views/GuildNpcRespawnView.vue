@@ -816,7 +816,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .npc-table th,
 .npc-table td {
-  padding: 1rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
@@ -958,8 +958,8 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .expansion-icon {
-  width: 64px;
-  height: 64px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
   flex-shrink: 0;
 }
