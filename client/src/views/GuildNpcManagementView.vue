@@ -111,6 +111,7 @@
           </div>
           <div class="npc-card__badges">
             <span v-if="npc.isRaidTarget" class="raid-badge">RAID</span>
+            <span v-if="npc.hasInstanceVersion" class="instance-badge" title="Tracking both Overworld and Instance versions">INSTANCE</span>
             <span
               v-if="npc.contentFlag"
               :class="['content-flag-badge', isContentFlagEnabled(npc.contentFlag) ? 'content-flag-badge--enabled' : 'content-flag-badge--disabled']"
@@ -321,6 +322,22 @@
             </p>
           </div>
 
+          <div class="form-group form-group--checkbox">
+            <label class="checkbox-label">
+              <input
+                id="npc-has-instance"
+                v-model="form.hasInstanceVersion"
+                type="checkbox"
+                class="checkbox-input"
+              />
+              <span class="checkbox-text">Track Instance Version</span>
+            </label>
+            <p class="checkbox-hint">
+              When enabled, this NPC will be tracked separately for Overworld and Instance kills.
+              Two entries will appear on the tracker with independent respawn timers.
+            </p>
+          </div>
+
           <div class="form-group">
             <label for="npc-content-flag">Content Flag</label>
             <select
@@ -379,6 +396,9 @@
       </div>
     </div>
 
+    <!-- Error Modal -->
+    <ErrorModal />
+
   </section>
 </template>
 
@@ -389,10 +409,13 @@ import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../services/api';
 import { NPC_CONTENT_FLAGS } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
+import ErrorModal from '../components/ErrorModal.vue';
+import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
 const store = useNpcRespawnStore();
+const { showErrorFromException } = useErrorModal();
 
 // State
 const searchQuery = ref('');
@@ -411,6 +434,7 @@ const form = ref<NpcDefinitionInput>({
   respawnMinMinutes: null,
   respawnMaxMinutes: null,
   isRaidTarget: false,
+  hasInstanceVersion: false,
   contentFlag: null,
   notes: null,
   allaLink: null
@@ -514,6 +538,7 @@ function resetForm() {
     respawnMinMinutes: null,
     respawnMaxMinutes: null,
     isRaidTarget: false,
+    hasInstanceVersion: false,
     contentFlag: null,
     notes: null,
     allaLink: null
@@ -540,6 +565,7 @@ function openEditModal(npc: NpcDefinition) {
     respawnMinMinutes: npc.respawnMinMinutes,
     respawnMaxMinutes: npc.respawnMaxMinutes,
     isRaidTarget: npc.isRaidTarget ?? false,
+    hasInstanceVersion: npc.hasInstanceVersion ?? false,
     contentFlag: npc.contentFlag ?? null,
     notes: npc.notes,
     allaLink: npc.allaLink
@@ -574,7 +600,7 @@ async function submitForm() {
     }
     closeModal();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to save NPC');
+    showErrorFromException(err, 'Failed to save NPC');
   } finally {
     submitting.value = false;
   }
@@ -598,7 +624,7 @@ async function executeDelete() {
     await store.deleteDefinition(guildId, deletingNpc.value.id);
     cancelDelete();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to delete NPC');
+    showErrorFromException(err, 'Failed to delete NPC');
   } finally {
     deleting.value = false;
   }
@@ -848,6 +874,16 @@ onMounted(async () => {
 
 .raid-badge {
   background: rgba(239, 68, 68, 0.8);
+  color: #fff;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.2rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.instance-badge {
+  background: rgba(139, 92, 246, 0.8);
   color: #fff;
   padding: 0.15rem 0.4rem;
   border-radius: 0.2rem;

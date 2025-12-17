@@ -667,6 +667,7 @@ model NpcDefinition {
   respawnMinMinutes   Int?
   respawnMaxMinutes   Int?
   isRaidTarget        Boolean               @default(false)
+  hasInstanceVersion  Boolean               @default(false)
   contentFlag         String?               @db.VarChar(50)
   notes               String?               @db.LongText
   allaLink            String?               @db.VarChar(512)
@@ -678,7 +679,7 @@ model NpcDefinition {
   killRecords         NpcKillRecord[]
   subscriptions       NpcRespawnSubscription[]
 
-  @@unique([guildId, npcNameNormalized], map: "NpcDefinition_guild_npc_unique")
+  @@unique([guildId, npcNameNormalized, zoneName], map: "NpcDefinition_guild_npc_zone_unique")
   @@index([guildId])
 }
 
@@ -690,6 +691,7 @@ model NpcKillRecord {
   killedByName    String?       @db.VarChar(191)
   killedById      String?
   notes           String?       @db.VarChar(500)
+  isInstance      Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   guild           Guild         @relation(fields: [guildId], references: [id], onDelete: Cascade)

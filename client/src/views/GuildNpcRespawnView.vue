@@ -69,6 +69,31 @@
         <span class="raid-filter-text">Only</span>
       </label>
       <span class="filter-divider"></span>
+      <div v-if="hasInstanceNpcs" class="variant-filters">
+        <button
+          :class="['variant-filter-btn', { 'variant-filter-btn--active': activeVariantFilter === 'all' }]"
+          @click="activeVariantFilter = 'all'"
+        >
+          All
+        </button>
+        <button
+          :class="['variant-filter-btn variant-filter-btn--overworld', { 'variant-filter-btn--active': activeVariantFilter === 'overworld' }]"
+          @click="activeVariantFilter = 'overworld'"
+          title="Show only Overworld entries"
+        >
+          <span class="variant-filter-badge variant-filter-badge--overworld">OW</span>
+          Overworld
+        </button>
+        <button
+          :class="['variant-filter-btn variant-filter-btn--instance', { 'variant-filter-btn--active': activeVariantFilter === 'instance' }]"
+          @click="activeVariantFilter = 'instance'"
+          title="Show only Instance entries"
+        >
+          <span class="variant-filter-badge variant-filter-badge--instance">INST</span>
+          Instance
+        </button>
+      </div>
+      <span v-if="hasInstanceNpcs" class="filter-divider"></span>
       <button
         v-if="expansions.length > 0"
         :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
@@ -128,7 +153,7 @@
         <tbody>
           <tr
             v-for="npc in paginatedNpcs"
-            :key="npc.id"
+            :key="`${npc.id}-${npc.isInstanceVariant}`"
             :class="['npc-row', `npc-row--${npc.respawnStatus}`]"
           >
             <td class="col-status">
@@ -139,6 +164,13 @@
             <td class="col-name">
               <div class="npc-name-cell">
                 <strong>{{ npc.npcName }}</strong>
+                <span
+                  v-if="npc.hasInstanceVersion"
+                  :class="['variant-badge', npc.isInstanceVariant ? 'variant-badge--instance' : 'variant-badge--overworld']"
+                  :title="npc.isInstanceVariant ? 'Instance version' : 'Overworld version'"
+                >
+                  {{ npc.isInstanceVariant ? 'INSTANCE' : 'OVERWORLD' }}
+                </span>
                 <span v-if="npc.isRaidTarget" class="raid-badge" title="Raid Target">RAID</span>
                 <a
                   v-if="npc.allaLink"
@@ -177,13 +209,12 @@
                 </div>
                 <div class="timer-labels">
                   <span v-if="npc.respawnStatus === 'down'" class="timer-countdown">
-                    {{ formatTimeRemaining(npc.respawnMinTime) }}
+                    <span class="countdown-time">{{ formatTimeRemaining(npc.respawnMinTime) }}</span>
+                    <span class="countdown-label">until spawn window opens</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'window'" class="timer-window">
-                    Window open
-                    <span v-if="npc.respawnMaxTime" class="timer-max">
-                      ({{ formatTimeRemaining(npc.respawnMaxTime) }} max)
-                    </span>
+                    <span class="countdown-time countdown-time--window">{{ formatTimeRemaining(npc.respawnMaxTime) }}</span>
+                    <span class="countdown-label">until spawn window closes</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'up'" class="timer-up">
                     Should be up!
@@ -326,6 +357,21 @@
               placeholder="Any additional notes"
             />
           </div>
+          <div v-if="selectedNpc?.hasInstanceVersion" class="form-group form-group--checkbox">
+            <label class="checkbox-label">
+              <input
+                id="kill-instance"
+                v-model="killForm.isInstance"
+                type="checkbox"
+                class="checkbox-input"
+              />
+              <span class="checkbox-text">Instance Kill</span>
+            </label>
+            <p class="checkbox-hint">
+              Check this if the kill occurred in an instance (e.g., Agent of Change).
+              Leave unchecked for overworld kills.
+            </p>
+          </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeKillModal">Cancel</button>
@@ -340,6 +386,9 @@
       </div>
     </div>
 
+    <!-- Error Modal -->
+    <ErrorModal />
+
   </section>
 </template>
 
@@ -349,10 +398,13 @@ import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
+import ErrorModal from '../components/ErrorModal.vue';
+import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
 const store = useNpcRespawnStore();
+const { showErrorFromException } = useErrorModal();
 
 // State
 const searchQuery = ref('');
@@ -360,6 +412,7 @@ const activeStatusFilter = ref<'all' | NpcRespawnStatus>('all');
 const activeZoneFilter = ref('all');
 const activeExpansionFilter = ref('all');
 const raidOnlyFilter = ref(false);
+const activeVariantFilter = ref<'all' | 'overworld' | 'instance'>('all');
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
@@ -369,7 +422,8 @@ const itemsPerPage = 10;
 const killForm = ref({
   killedAt: '',
   killedByName: '',
-  notes: ''
+  notes: '',
+  isInstance: false
 });
 
 // Computed
@@ -399,6 +453,10 @@ const expansions = computed(() => {
   }
 
   return Array.from(expansionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+});
+
+const hasInstanceNpcs = computed(() => {
+  return npcs.value.some(n => n.hasInstanceVersion);
 });
 
 const statusFilters = [
@@ -444,6 +502,13 @@ const filteredNpcs = computed(() => {
     result = result.filter(n => n.isRaidTarget);
   }
 
+  // Filter by variant (overworld/instance)
+  if (activeVariantFilter.value === 'overworld') {
+    result = result.filter(n => !n.isInstanceVariant);
+  } else if (activeVariantFilter.value === 'instance') {
+    result = result.filter(n => n.isInstanceVariant);
+  }
+
   return result;
 });
 
@@ -483,11 +548,12 @@ function formatTimeRemaining(isoString: string | null): string {
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
+  // Always include seconds for a live countdown feel
   if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m`;
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
   }
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    return `${hours}h ${minutes}m ${seconds}s`;
   }
   if (minutes > 0) {
     return `${minutes}m ${seconds}s`;
@@ -556,7 +622,9 @@ function openKillModal(npc: NpcRespawnTrackerEntry) {
   killForm.value = {
     killedAt: now.toISOString().slice(0, 16),
     killedByName: '',
-    notes: ''
+    notes: '',
+    // Default isInstance based on whether we clicked on an instance variant row
+    isInstance: npc.isInstanceVariant ?? false
   };
   showKillModal.value = true;
 }
@@ -575,19 +643,23 @@ async function submitKill() {
       npcDefinitionId: selectedNpc.value.id,
       killedAt: new Date(killForm.value.killedAt).toISOString(),
       killedByName: killForm.value.killedByName || null,
-      notes: killForm.value.notes || null
+      notes: killForm.value.notes || null,
+      isInstance: killForm.value.isInstance
     });
     closeKillModal();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to record kill');
+    showErrorFromException(err, 'Failed to record kill');
   } finally {
     submittingKill.value = false;
   }
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
+  const variantLabel = npc.hasInstanceVersion
+    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    : '';
   const confirmed = confirm(
-    `Confirm that "${npc.npcName}" has spawned?\n\nThis will mark the NPC as Up.`
+    `Confirm that "${npc.npcName}"${variantLabel} has spawned?\n\nThis will mark the NPC as Up.`
   );
 
   if (!confirmed) return;
@@ -610,16 +682,20 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
       killedAt: oldKillTime.toISOString(),
       killedByName: null,
       notes: 'Marked as spawned via "It\'s Up!" button',
+      isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as spawned');
+    showErrorFromException(err, 'Failed to mark as spawned');
   }
 }
 
 async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
+  const variantLabel = npc.hasInstanceVersion
+    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    : '';
   const confirmed = confirm(
-    `Mark "${npc.npcName}" as killed (Down)?\n\nThis will start the respawn timer.`
+    `Mark "${npc.npcName}"${variantLabel} as killed (Down)?\n\nThis will start the respawn timer.`
   );
 
   if (!confirmed) return;
@@ -636,10 +712,11 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
       killedAt: new Date().toISOString(),
       killedByName: null,
       notes: 'Marked as killed via "It\'s Down!" button',
+      isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as killed');
+    showErrorFromException(err, 'Failed to mark as killed');
   }
 }
 
@@ -671,7 +748,7 @@ watch(() => route.params.guildId, (newGuildId) => {
 });
 
 // Reset page when filters change
-watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
+watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter, raidOnlyFilter, activeVariantFilter], () => {
   currentPage.value = 1;
 });
 </script>
@@ -944,6 +1021,68 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   margin: 0 0.25rem;
 }
 
+.variant-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.variant-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.variant-filter-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+.variant-filter-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.variant-filter-btn--overworld:hover,
+.variant-filter-btn--overworld.variant-filter-btn--active {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.variant-filter-btn--instance:hover,
+.variant-filter-btn--instance.variant-filter-btn--active {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.variant-filter-badge {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.variant-filter-badge--overworld {
+  background: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+
+.variant-filter-badge--instance {
+  background: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+}
+
 .loading-state,
 .empty-state {
   display: flex;
@@ -1114,6 +1253,28 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   color: #fca5a5;
 }
 
+.variant-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.variant-badge--overworld {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+.variant-badge--instance {
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+}
+
 .alla-link {
   display: inline-flex;
   align-items: center;
@@ -1202,19 +1363,31 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   font-size: 0.85rem;
 }
 
-.timer-countdown {
-  color: #fca5a5;
-  font-weight: 600;
-}
-
+.timer-countdown,
 .timer-window {
-  color: #fde047;
-  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.timer-max {
+.countdown-time {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.countdown-time--window {
+  color: #fde047;
+}
+
+.countdown-label {
+  font-size: 0.7rem;
   font-weight: 400;
   color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .timer-up {
@@ -1396,6 +1569,41 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   outline: none;
   border-color: rgba(59, 130, 246, 0.6);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Checkbox styles for kill modal */
+.form-group--checkbox {
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.checkbox-input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.checkbox-hint {
+  margin: 0.4rem 0 0 1.7rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .modal__actions {

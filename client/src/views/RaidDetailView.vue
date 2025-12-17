@@ -1963,6 +1963,117 @@
       </div>
     </div>
   </div>
+  <!-- Instance Clarification Modal -->
+  <div v-if="showInstanceClarificationModal" class="modal-backdrop" @click.self="closeInstanceClarificationModal">
+    <div class="modal instance-clarification-modal">
+      <header class="modal__header">
+        <div>
+          <h3>Instance Kill Clarification</h3>
+          <p class="muted small">
+            The following tracked NPC kills were detected. Please indicate which kills occurred in an instance.
+          </p>
+        </div>
+        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">✕</button>
+      </header>
+      <div class="modal__body">
+        <div class="clarification-list">
+          <div
+            v-for="(kill, index) in instanceClarifications"
+            :key="`${kill.npcDefinitionId}-${kill.killedAt}`"
+            class="clarification-item"
+          >
+            <div class="clarification-info">
+              <strong>{{ kill.npcName }}</strong>
+              <span class="kill-time">{{ formatClarificationTime(kill.killedAt) }}</span>
+              <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
+            </div>
+            <label class="instance-toggle">
+              <input
+                type="checkbox"
+                v-model="instanceClarifications[index].isInstance"
+              />
+              <span class="toggle-label">Instance</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <footer class="modal__footer">
+        <button
+          type="button"
+          class="btn btn--outline"
+          @click="closeInstanceClarificationModal"
+        >
+          Skip
+        </button>
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="submittingClarifications"
+          @click="submitInstanceClarifications"
+        >
+          {{ submittingClarifications ? 'Saving...' : 'Save Kills' }}
+        </button>
+      </footer>
+    </div>
+  </div>
+  <!-- Zone Clarification Modal -->
+  <div v-if="showZoneClarificationModal" class="modal-backdrop" @click.self="closeZoneClarificationModal">
+    <div class="modal zone-clarification-modal">
+      <header class="modal__header">
+        <div>
+          <h3>Zone Clarification Required</h3>
+          <p class="muted small">
+            The following kills match NPCs tracked in multiple zones. Please select the correct zone for each kill.
+          </p>
+        </div>
+        <button class="icon-button" type="button" @click="closeZoneClarificationModal">✕</button>
+      </header>
+      <div class="modal__body">
+        <div class="clarification-list">
+          <div
+            v-for="(kill, index) in zoneClarifications"
+            :key="`zone-${kill.npcName}-${kill.killedAt}`"
+            class="clarification-item"
+          >
+            <div class="clarification-info">
+              <strong>{{ kill.npcName }}</strong>
+              <span class="kill-time">{{ formatClarificationTime(kill.killedAt) }}</span>
+              <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
+            </div>
+            <select
+              v-model="zoneClarifications[index].selectedNpcDefinitionId"
+              class="zone-select"
+            >
+              <option
+                v-for="option in kill.zoneOptions"
+                :key="option.npcDefinitionId"
+                :value="option.npcDefinitionId"
+              >
+                {{ option.zoneName || '(No zone specified)' }}
+              </option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <footer class="modal__footer">
+        <button
+          type="button"
+          class="btn btn--outline"
+          @click="closeZoneClarificationModal"
+        >
+          Skip
+        </button>
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="submittingZoneClarifications"
+          @click="submitZoneClarifications"
+        >
+          {{ submittingZoneClarifications ? 'Saving...' : 'Save Kills' }}
+        </button>
+      </footer>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -1974,7 +2085,7 @@ import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
-import { api } from '../services/api';
+import { api, type PendingInstanceClarification, type PendingZoneClarification } from '../services/api';
 import {
   characterClassLabels,
   characterClassIcons,
@@ -3079,6 +3190,15 @@ const totalNpcKills = computed(() =>
 const showNpcKillGraph = ref(false);
 const uploadingKillLog = ref(false);
 const killLogInput = ref<HTMLInputElement | null>(null);
+// Instance clarification modal state
+const showInstanceClarificationModal = ref(false);
+const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>([]);
+const submittingClarifications = ref(false);
+
+// Zone clarification modal state
+const showZoneClarificationModal = ref(false);
+const zoneClarifications = ref<Array<PendingZoneClarification & { selectedNpcDefinitionId: string }>>([]);
+const submittingZoneClarifications = ref(false);
 const npcKillZoomRange = ref<{ min: number; max: number } | null>(null);
 const npcKillChartRef = ref<any>(null);
 let detachNpcKillWheel: (() => void) | null = null;
@@ -4071,12 +4191,36 @@ async function uploadKillLogFile(file: File) {
         npcName: entry.npcName,
         occurredAt: entry.timestamp ? entry.timestamp.toISOString() : start.toISOString(),
         killerName: entry.killerName ?? null,
-        rawLine: entry.rawLine
+        rawLine: entry.rawLine,
+        zoneName: entry.zoneName ?? null
       }));
+      // Collect all pending clarifications from batched uploads
+      const allPendingClarifications: PendingInstanceClarification[] = [];
+      const allPendingZoneClarifications: PendingZoneClarification[] = [];
       for (let index = 0; index < payload.length; index += 100) {
-        await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
+        const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
+        if (result.pendingClarifications && result.pendingClarifications.length > 0) {
+          allPendingClarifications.push(...result.pendingClarifications);
+        }
+        if (result.pendingZoneClarifications && result.pendingZoneClarifications.length > 0) {
+          allPendingZoneClarifications.push(...result.pendingZoneClarifications);
+        }
       }
       await loadRaid();
+      // Show zone clarification modal first if needed, then instance clarification
+      if (allPendingZoneClarifications.length > 0) {
+        zoneClarifications.value = allPendingZoneClarifications.map(c => ({
+          ...c,
+          selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
+        }));
+        showZoneClarificationModal.value = true;
+      } else if (allPendingClarifications.length > 0) {
+        instanceClarifications.value = allPendingClarifications.map(c => ({
+          ...c,
+          isInstance: false // Default to overworld
+        }));
+        showInstanceClarificationModal.value = true;
+      }
     } else {
       window.alert('No kills found within the raid window.');
     }
@@ -4085,6 +4229,70 @@ async function uploadKillLogFile(file: File) {
     window.alert('Unable to upload kill log. Please try again.');
   } finally {
     uploadingKillLog.value = false;
+  }
+}
+
+// Instance clarification modal functions
+function closeInstanceClarificationModal() {
+  showInstanceClarificationModal.value = false;
+  instanceClarifications.value = [];
+}
+
+async function submitInstanceClarifications() {
+  if (submittingClarifications.value || !raid.value) return;
+
+  submittingClarifications.value = true;
+  try {
+    // Create kill records for each clarified kill
+    for (const clarification of instanceClarifications.value) {
+      await api.createNpcKillRecord(raid.value.guildId, {
+        npcDefinitionId: clarification.npcDefinitionId,
+        killedAt: clarification.killedAt,
+        killedByName: clarification.killedByName,
+        notes: 'Auto-recorded from raid log',
+        isInstance: clarification.isInstance
+      });
+    }
+    closeInstanceClarificationModal();
+  } catch (error: any) {
+    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications');
+  } finally {
+    submittingClarifications.value = false;
+  }
+}
+
+function formatClarificationTime(isoString: string): string {
+  const date = new Date(isoString);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+// Zone clarification modal functions
+function closeZoneClarificationModal() {
+  showZoneClarificationModal.value = false;
+  zoneClarifications.value = [];
+}
+
+async function submitZoneClarifications() {
+  if (submittingZoneClarifications.value || !raid.value) return;
+
+  submittingZoneClarifications.value = true;
+  try {
+    // Create kill records for each clarified kill with the selected zone's NPC definition
+    for (const clarification of zoneClarifications.value) {
+      if (!clarification.selectedNpcDefinitionId) continue;
+      await api.createNpcKillRecord(raid.value.guildId, {
+        npcDefinitionId: clarification.selectedNpcDefinitionId,
+        killedAt: clarification.killedAt,
+        killedByName: clarification.killedByName,
+        notes: 'Auto-recorded from raid log (zone selected manually)',
+        isInstance: false
+      });
+    }
+    closeZoneClarificationModal();
+  } catch (error: any) {
+    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit zone clarifications');
+  } finally {
+    submittingZoneClarifications.value = false;
   }
 }
 
@@ -8718,6 +8926,110 @@ th {
   flex: 1;
   width: 100%;
   height: 100%;
+}
+
+/* Instance Clarification Modal */
+.instance-clarification-modal {
+  max-width: 32rem;
+  max-height: 80vh;
+}
+
+.instance-clarification-modal .modal__body {
+  overflow-y: auto;
+  max-height: 50vh;
+}
+
+.clarification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clarification-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  gap: 1rem;
+}
+
+.clarification-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.clarification-info strong {
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.kill-time {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.kill-by {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.instance-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.instance-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  color: #c4b5fd;
+  font-weight: 500;
+}
+
+.zone-select {
+  padding: 0.4rem 0.6rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.35rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  cursor: pointer;
+  min-width: 10rem;
+}
+
+.zone-select:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.zone-select option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.zone-clarification-modal {
+  max-width: 32rem;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 .manual-kill-modal {

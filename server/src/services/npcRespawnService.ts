@@ -15,6 +15,7 @@ export interface NpcDefinitionInput {
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
   isRaidTarget?: boolean;
+  hasInstanceVersion?: boolean;
   contentFlag?: NpcContentFlag | null;
   notes?: string | null;
   allaLink?: string | null;
@@ -26,6 +27,7 @@ export interface NpcKillRecordInput {
   killedByName?: string | null;
   killedById?: string | null;
   notes?: string | null;
+  isInstance?: boolean;
 }
 
 export interface NpcSubscriptionInput {
@@ -56,8 +58,8 @@ type NpcDefinitionWithRelations = Prisma.NpcDefinitionGetPayload<{
   include: { killRecords: { orderBy: { killedAt: 'desc' }; take: 1 } };
 }>;
 
-function formatNpcDefinition(record: NpcDefinitionWithRelations) {
-  const lastKill = record.killRecords[0] ?? null;
+function formatNpcDefinition(record: NpcDefinitionWithRelations, lastKillOverride?: typeof record.killRecords[0] | null) {
+  const lastKill = lastKillOverride !== undefined ? lastKillOverride : (record.killRecords[0] ?? null);
 
   return {
     id: record.id,
@@ -67,6 +69,7 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations) {
     respawnMinMinutes: record.respawnMinMinutes ?? null,
     respawnMaxMinutes: record.respawnMaxMinutes ?? null,
     isRaidTarget: record.isRaidTarget ?? false,
+    hasInstanceVersion: record.hasInstanceVersion ?? false,
     contentFlag: record.contentFlag ?? null,
     notes: record.notes ?? null,
     allaLink: record.allaLink ?? null,
@@ -80,7 +83,8 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations) {
           killedAt: lastKill.killedAt,
           killedByName: lastKill.killedByName ?? null,
           killedById: lastKill.killedById ?? null,
-          notes: lastKill.notes ?? null
+          notes: lastKill.notes ?? null,
+          isInstance: lastKill.isInstance ?? false
         }
       : null
   };
@@ -103,6 +107,7 @@ function formatKillRecord(record: NpcKillRecordFull) {
     killedByName: record.killedByName ?? null,
     killedById: record.killedById ?? null,
     notes: record.notes ?? null,
+    isInstance: record.isInstance ?? false,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
@@ -120,7 +125,7 @@ export async function listNpcDefinitions(guildId: string) {
     },
     orderBy: { npcName: 'asc' }
   });
-  return definitions.map(formatNpcDefinition);
+  return definitions.map(def => formatNpcDefinition(def));
 }
 
 export async function getNpcDefinition(guildId: string, npcDefinitionId: string) {
@@ -161,12 +166,26 @@ export async function createNpcDefinition(
   }
   const normalized = normalizeNpcName(npcName);
 
-  // Check for duplicates
-  const existing = await prisma.npcDefinition.findFirst({
-    where: { guildId, npcNameNormalized: normalized }
+  // Check for duplicates - same name AND same zone is not allowed
+  // Fetch all NPCs with same name and check zone programmatically to handle null/empty string differences
+  const inputZone = input.zoneName?.trim() || null;
+  const existingWithSameName = await prisma.npcDefinition.findMany({
+    where: {
+      guildId,
+      npcNameNormalized: normalized
+    }
   });
-  if (existing) {
-    throw new Error('An NPC with this name already exists.');
+  const duplicate = existingWithSameName.find(npc => {
+    const npcZone = npc.zoneName?.trim() || null;
+    // Compare zones case-insensitively, treating null and empty string as equivalent
+    if (inputZone === null && npcZone === null) return true;
+    if (inputZone === null || npcZone === null) return false;
+    return inputZone.toLowerCase() === npcZone.toLowerCase();
+  });
+  if (duplicate) {
+    const existingZone = duplicate.zoneName || '(no zone)';
+    const newZone = inputZone || '(no zone)';
+    throw new Error(`An NPC named "${duplicate.npcName}" already exists in zone "${existingZone}". You tried to add it to zone "${newZone}".`);
   }
 
   const record = await prisma.npcDefinition.create({
@@ -178,6 +197,7 @@ export async function createNpcDefinition(
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
       isRaidTarget: input.isRaidTarget ?? false,
+      hasInstanceVersion: input.hasInstanceVersion ?? false,
       contentFlag: input.contentFlag ?? null,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink),
@@ -213,13 +233,29 @@ export async function updateNpcDefinition(
   }
   const normalized = normalizeNpcName(npcName);
 
-  // Check for duplicates if name changed
-  if (normalized !== existing.npcNameNormalized) {
-    const duplicate = await prisma.npcDefinition.findFirst({
-      where: { guildId, npcNameNormalized: normalized, id: { not: npcDefinitionId } }
+  // Check for duplicates if name or zone changed - same name AND same zone is not allowed
+  // Fetch all other NPCs with same name and check zone programmatically
+  const newZone = input.zoneName?.trim() || null;
+  const existingZone = existing.zoneName?.trim() || null;
+  const nameChanged = normalized !== existing.npcNameNormalized;
+  const zoneChanged = newZone?.toLowerCase() !== existingZone?.toLowerCase();
+
+  if (nameChanged || zoneChanged) {
+    const othersWithSameName = await prisma.npcDefinition.findMany({
+      where: {
+        guildId,
+        npcNameNormalized: normalized,
+        id: { not: npcDefinitionId }
+      }
+    });
+    const duplicate = othersWithSameName.find(npc => {
+      const npcZone = npc.zoneName?.trim() || null;
+      if (newZone === null && npcZone === null) return true;
+      if (newZone === null || npcZone === null) return false;
+      return newZone.toLowerCase() === npcZone.toLowerCase();
     });
     if (duplicate) {
-      throw new Error('An NPC with this name already exists.');
+      throw new Error('An NPC with this name already exists in this zone.');
     }
   }
 
@@ -232,6 +268,7 @@ export async function updateNpcDefinition(
       respawnMinMinutes: input.respawnMinMinutes ?? null,
       respawnMaxMinutes: input.respawnMaxMinutes ?? null,
       isRaidTarget: input.isRaidTarget ?? false,
+      hasInstanceVersion: input.hasInstanceVersion ?? false,
       contentFlag: input.contentFlag ?? null,
       notes: input.notes?.trim() || null,
       allaLink: normalizeAllaLink(input.allaLink)
@@ -297,7 +334,8 @@ export async function createKillRecord(
       killedAt: input.killedAt,
       killedByName: input.killedByName?.trim() || null,
       killedById: input.killedById || null,
-      notes: input.notes?.trim() || null
+      notes: input.notes?.trim() || null,
+      isInstance: input.isInstance ?? false
     },
     include: { npcDefinition: true }
   });
@@ -389,8 +427,29 @@ export async function deleteSubscription(userId: string, npcDefinitionId: string
   }
 }
 
+// Zone option for zone clarification
+export type ZoneOption = {
+  npcDefinitionId: string;
+  zoneName: string | null;
+};
+
+// Result type for recording kills for tracked NPCs
+export type RecordKillResult = {
+  recorded: boolean;
+  needsInstanceClarification: boolean;
+  needsZoneClarification?: boolean;
+  zoneOptions?: ZoneOption[];
+  npcDefinitionId?: string;
+  npcName?: string;
+  killedAt?: Date;
+  killedByName?: string | null;
+};
+
 // Record a kill for a tracked NPC (called automatically from raid NPC kill detection)
 // Only records if the NPC is already configured in the respawn tracker
+// For NPCs with hasInstanceVersion, does NOT auto-record - returns needsInstanceClarification=true instead
+// If multiple NPCs have the same name (different zones), tries to match by zone from log
+// If zone can't be determined, returns needsZoneClarification=true with zone options
 export async function recordKillForTrackedNpc(
   guildId: string,
   input: {
@@ -398,19 +457,93 @@ export async function recordKillForTrackedNpc(
     npcNameNormalized: string;
     killedAt: Date;
     killedByName?: string | null;
+    zoneName?: string | null;
   }
-) {
-  // Find the NPC definition by normalized name
-  const definition = await prisma.npcDefinition.findFirst({
+): Promise<RecordKillResult> {
+  // Find all NPC definitions by normalized name (could be multiple in different zones)
+  const definitions = await prisma.npcDefinition.findMany({
     where: {
       guildId,
       npcNameNormalized: input.npcNameNormalized
     }
   });
 
-  if (!definition) {
+  if (definitions.length === 0) {
     // NPC is not tracked in the respawn tracker, skip
-    return null;
+    return { recorded: false, needsInstanceClarification: false };
+  }
+
+  let definition = definitions[0];
+
+  // If multiple NPCs have the same name (different zones), try to match by zone
+  if (definitions.length > 1) {
+    if (input.zoneName) {
+      // Try to find a matching zone (case-insensitive)
+      const inputZone = input.zoneName.trim().toLowerCase();
+      const matched = definitions.find(
+        (d) => d.zoneName && d.zoneName.trim().toLowerCase() === inputZone
+      );
+
+      if (matched) {
+        // Found a match by zone
+        definition = matched;
+      } else {
+        // Zone from log doesn't match any configured zones - need user clarification
+        return {
+          recorded: false,
+          needsInstanceClarification: false,
+          needsZoneClarification: true,
+          zoneOptions: definitions.map((d) => ({
+            npcDefinitionId: d.id,
+            zoneName: d.zoneName
+          })),
+          npcName: input.npcName,
+          killedAt: input.killedAt,
+          killedByName: input.killedByName
+        };
+      }
+    } else {
+      // No zone from log - need user clarification
+      return {
+        recorded: false,
+        needsInstanceClarification: false,
+        needsZoneClarification: true,
+        zoneOptions: definitions.map((d) => ({
+          npcDefinitionId: d.id,
+          zoneName: d.zoneName
+        })),
+        npcName: input.npcName,
+        killedAt: input.killedAt,
+        killedByName: input.killedByName
+      };
+    }
+  }
+
+  // If NPC has instance version tracking, don't auto-record - needs clarification
+  if (definition.hasInstanceVersion) {
+    // Check if we already have a kill record for this exact time to avoid duplicates
+    const existingKill = await prisma.npcKillRecord.findFirst({
+      where: {
+        guildId,
+        npcDefinitionId: definition.id,
+        killedAt: input.killedAt
+      }
+    });
+
+    if (existingKill) {
+      // Already recorded this kill
+      return { recorded: true, needsInstanceClarification: false };
+    }
+
+    // Needs clarification from user
+    return {
+      recorded: false,
+      needsInstanceClarification: true,
+      npcDefinitionId: definition.id,
+      npcName: definition.npcName,
+      killedAt: input.killedAt,
+      killedByName: input.killedByName
+    };
   }
 
   // Check if we already have a kill record for this exact time
@@ -425,75 +558,147 @@ export async function recordKillForTrackedNpc(
 
   if (existingKill) {
     // Already recorded this kill
-    return existingKill;
+    return { recorded: true, needsInstanceClarification: false };
   }
 
-  // Create the kill record
-  const record = await prisma.npcKillRecord.create({
+  // Create the kill record (default to overworld for NPCs without instance tracking)
+  await prisma.npcKillRecord.create({
     data: {
       guildId,
       npcDefinitionId: definition.id,
       killedAt: input.killedAt,
       killedByName: input.killedByName?.trim() || null,
       killedById: null,
-      notes: 'Auto-recorded from raid log'
+      notes: 'Auto-recorded from raid log',
+      isInstance: false
     }
   });
 
-  return record;
+  return { recorded: true, needsInstanceClarification: false };
+}
+
+// Helper to calculate respawn status from a kill record
+function calculateRespawnStatus(
+  lastKill: { killedAt: Date; isInstance: boolean } | null,
+  respawnMinMinutes: number | null,
+  respawnMaxMinutes: number | null
+) {
+  const now = new Date();
+
+  let respawnStatus: 'unknown' | 'up' | 'window' | 'down' = 'unknown';
+  let respawnMinTime: Date | null = null;
+  let respawnMaxTime: Date | null = null;
+  let progressPercent: number | null = null;
+
+  if (lastKill && respawnMinMinutes !== null) {
+    // NPC has a configured respawn timer
+    const killedTime = new Date(lastKill.killedAt).getTime();
+    respawnMinTime = new Date(killedTime + respawnMinMinutes * 60 * 1000);
+
+    if (respawnMaxMinutes !== null) {
+      respawnMaxTime = new Date(killedTime + respawnMaxMinutes * 60 * 1000);
+    }
+
+    const totalWindowMs = (respawnMaxMinutes ?? respawnMinMinutes) * 60 * 1000;
+    const elapsedMs = now.getTime() - killedTime;
+    progressPercent = Math.min(100, Math.max(0, (elapsedMs / totalWindowMs) * 100));
+
+    if (now >= (respawnMaxTime ?? respawnMinTime)) {
+      respawnStatus = 'up';
+    } else if (now >= respawnMinTime) {
+      respawnStatus = 'window';
+    } else {
+      respawnStatus = 'down';
+    }
+  } else if (lastKill && respawnMinMinutes === null) {
+    // NPC has no configured respawn timer but has a kill record
+    // Use 24 hours as default threshold for up/down status
+    const killedTime = new Date(lastKill.killedAt).getTime();
+    const defaultRespawnMs = 24 * 60 * 60 * 1000; // 24 hours
+    const elapsedMs = now.getTime() - killedTime;
+
+    if (elapsedMs >= defaultRespawnMs) {
+      respawnStatus = 'up';
+    } else {
+      respawnStatus = 'down';
+    }
+    progressPercent = Math.min(100, Math.max(0, (elapsedMs / defaultRespawnMs) * 100));
+  }
+
+  return { respawnStatus, respawnMinTime, respawnMaxTime, progressPercent };
 }
 
 // Get respawn tracker data - combines NPC definitions with latest kills and respawn calculations
+// For NPCs with hasInstanceVersion=true, returns two entries: one for overworld, one for instance
 export async function getRespawnTrackerData(guildId: string) {
+  // Fetch definitions with all kill records (we need to separate overworld vs instance kills)
   const definitions = await prisma.npcDefinition.findMany({
     where: { guildId },
     include: {
       killRecords: {
-        orderBy: { killedAt: 'desc' },
-        take: 1
+        orderBy: { killedAt: 'desc' }
       }
     },
     orderBy: { npcName: 'asc' }
   });
 
-  return definitions.map((def) => {
-    const lastKill = def.killRecords[0] ?? null;
-    const now = new Date();
+  const entries: Array<ReturnType<typeof formatNpcDefinition> & {
+    respawnStatus: 'unknown' | 'up' | 'window' | 'down';
+    respawnMinTime: Date | null;
+    respawnMaxTime: Date | null;
+    progressPercent: number | null;
+    isInstanceVariant: boolean;
+  }> = [];
 
-    let respawnStatus: 'unknown' | 'up' | 'window' | 'down' = 'unknown';
-    let respawnMinTime: Date | null = null;
-    let respawnMaxTime: Date | null = null;
-    let progressPercent: number | null = null;
+  for (const def of definitions) {
+    if (def.hasInstanceVersion) {
+      // Create two entries: overworld and instance
+      const overworldKills = def.killRecords.filter(k => !k.isInstance);
+      const instanceKills = def.killRecords.filter(k => k.isInstance);
 
-    if (lastKill && def.respawnMinMinutes !== null) {
-      const killedTime = new Date(lastKill.killedAt).getTime();
-      respawnMinTime = new Date(killedTime + def.respawnMinMinutes * 60 * 1000);
+      const lastOverworldKill = overworldKills[0] ?? null;
+      const lastInstanceKill = instanceKills[0] ?? null;
 
-      if (def.respawnMaxMinutes !== null) {
-        respawnMaxTime = new Date(killedTime + def.respawnMaxMinutes * 60 * 1000);
-      }
+      // Overworld entry
+      const overworldStatus = calculateRespawnStatus(
+        lastOverworldKill,
+        def.respawnMinMinutes,
+        def.respawnMaxMinutes
+      );
+      entries.push({
+        ...formatNpcDefinition(def, lastOverworldKill),
+        ...overworldStatus,
+        isInstanceVariant: false
+      });
 
-      const totalWindowMs = (def.respawnMaxMinutes ?? def.respawnMinMinutes) * 60 * 1000;
-      const elapsedMs = now.getTime() - killedTime;
-      progressPercent = Math.min(100, Math.max(0, (elapsedMs / totalWindowMs) * 100));
-
-      if (now >= (respawnMaxTime ?? respawnMinTime)) {
-        respawnStatus = 'up';
-      } else if (now >= respawnMinTime) {
-        respawnStatus = 'window';
-      } else {
-        respawnStatus = 'down';
-      }
+      // Instance entry
+      const instanceStatus = calculateRespawnStatus(
+        lastInstanceKill,
+        def.respawnMinMinutes,
+        def.respawnMaxMinutes
+      );
+      entries.push({
+        ...formatNpcDefinition(def, lastInstanceKill),
+        ...instanceStatus,
+        isInstanceVariant: true
+      });
+    } else {
+      // Regular NPC without instance tracking - use latest kill regardless of isInstance flag
+      const lastKill = def.killRecords[0] ?? null;
+      const status = calculateRespawnStatus(
+        lastKill,
+        def.respawnMinMinutes,
+        def.respawnMaxMinutes
+      );
+      entries.push({
+        ...formatNpcDefinition(def, lastKill),
+        ...status,
+        isInstanceVariant: false
+      });
     }
+  }
 
-    return {
-      ...formatNpcDefinition(def),
-      respawnStatus,
-      respawnMinTime,
-      respawnMaxTime,
-      progressPercent
-    };
-  });
+  return entries;
 }
 
 // Search discovered items from EQEmu database

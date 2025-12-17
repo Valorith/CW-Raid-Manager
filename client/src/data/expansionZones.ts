@@ -37,7 +37,7 @@ export interface ExpansionInfo {
 }
 
 export const expansionInfo: Record<ExpansionKey, ExpansionInfo> = {
-  original: { name: 'Original EverQuest', shortName: 'Classic', icon: '/expansion-icons/original.gif' },
+  original: { name: 'Original', shortName: 'Original', icon: '/expansion-icons/original.gif' },
   kunark: { name: 'Ruins of Kunark', shortName: 'Kunark', icon: '/expansion-icons/kunarkicon.gif' },
   velious: { name: 'Scars of Velious', shortName: 'Velious', icon: '/expansion-icons/veliousicon.gif' },
   luclin: { name: 'Shadows of Luclin', shortName: 'Luclin', icon: '/expansion-icons/luclinicon.gif' },
@@ -104,6 +104,7 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   'Misty Thicket (A)': 'original',
   'North Ro (A)': 'original',
   'South Ro (A)': 'original',
+  'South Ro': 'original',
   'Befallen (A)': 'original',
   'Oasis of Marr': 'original',
   'Toxxulia Forest': 'original',
@@ -116,6 +117,7 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   'Qeynos Catacombs': 'original',
   'Innothule Swamp (A)': 'original',
   'The Feerrott(A)': 'original',
+  'The Feerrott': 'original',
   'Cazic-Thule': 'original',
   'Oggok': 'original',
   'Mountains of Rathe': 'original',
@@ -422,8 +424,6 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   "Tunare's Shrine": 'por',
   'Theater of Blood': 'por',
   'Deathknell, Tower of Dissonance': 'por',
-  'East Freeport': 'por',
-  'West Freeport': 'por',
   'Freeport Sewers': 'por',
   'Academy of Arcane Sciences': 'por',
   'Temple of Marr (B)': 'por',
