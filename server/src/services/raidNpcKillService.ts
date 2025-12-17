@@ -62,24 +62,6 @@ function chunkArray<T>(items: T[], size: number) {
   return chunks;
 }
 
-function buildTargetLookup(targets?: unknown) {
-  const lookup = new Map<string, string>();
-  if (!Array.isArray(targets)) {
-    return lookup;
-  }
-  for (const target of targets) {
-    if (typeof target !== 'string') {
-      continue;
-    }
-    const normalized = normalizeNpcName(target);
-    if (!normalized) {
-      continue;
-    }
-    lookup.set(normalized.toLowerCase(), target.trim());
-  }
-  return lookup;
-}
-
 export async function recordRaidNpcKills(
   raidId: string,
   guildId: string,
@@ -123,7 +105,6 @@ export async function recordRaidNpcKills(
     select: {
       id: true,
       name: true,
-      targetBosses: true,
       guild: {
         select: {
           id: true,
@@ -133,7 +114,21 @@ export async function recordRaidNpcKills(
     }
   });
 
-  const targetLookup = buildTargetLookup(raidContext?.targetBosses);
+  // Build lookup of NPCs from the respawn tracker that are flagged as raid targets for webhook triggering
+  const raidTargetNpcs = await prisma.npcDefinition.findMany({
+    where: {
+      guildId,
+      isRaidTarget: true
+    },
+    select: {
+      npcName: true,
+      npcNameNormalized: true
+    }
+  });
+  const raidTargetNpcLookup = new Map<string, string>();
+  for (const npc of raidTargetNpcs) {
+    raidTargetNpcLookup.set(npc.npcNameNormalized, npc.npcName);
+  }
 
   const signatures = prepared.map((entry) => entry.logSignature);
   let uniqueEntries = prepared;
@@ -214,22 +209,22 @@ export async function recordRaidNpcKills(
     }
   }
 
-  // Emit Discord webhook for target boss kills
-  if (insertedEntries.length > 0 && targetLookup.size > 0) {
-    const targetKills = insertedEntries
-      .filter((entry) => targetLookup.has(entry.npcNameNormalized))
+  // Emit Discord webhook for kills of NPCs that are flagged as raid targets in the respawn tracker
+  if (insertedEntries.length > 0 && raidTargetNpcLookup.size > 0) {
+    const raidTargetKills = insertedEntries
+      .filter((entry) => raidTargetNpcLookup.has(entry.npcNameNormalized))
       .map((entry) => ({
-        npcName: targetLookup.get(entry.npcNameNormalized) ?? entry.npcName,
+        npcName: raidTargetNpcLookup.get(entry.npcNameNormalized) ?? entry.npcName,
         killerName: entry.killerName,
         occurredAt: entry.occurredAt
       }));
 
-    if (targetKills.length > 0) {
+    if (raidTargetKills.length > 0) {
       await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
         guildName: raidContext?.guild?.name ?? 'Guild',
         raidId,
         raidName: raidContext?.name ?? 'Raid',
-        kills: targetKills
+        kills: raidTargetKills
       });
     }
   }
