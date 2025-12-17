@@ -829,8 +829,9 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 .expansion-filters {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem 1rem;
+  padding: 0.35rem 1rem;
   background: rgba(15, 23, 42, 0.5);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 0.75rem;
@@ -862,26 +863,26 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .expansion-filter-btn--icon-only {
-  padding: 0;
+  padding: 0.15rem;
   width: auto;
   height: auto;
   background: transparent;
-  border: none;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
   justify-content: center;
   opacity: 0.6;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: opacity 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
 }
 
 .expansion-filter-btn--icon-only:hover {
   background: transparent;
-  border: none;
   opacity: 0.85;
   transform: scale(1.05);
 }
 
 .expansion-filter-btn--icon-only.expansion-filter-btn--active {
   background: transparent;
-  border: none;
+  border-color: rgba(59, 130, 246, 0.7);
   opacity: 1;
 }
 
