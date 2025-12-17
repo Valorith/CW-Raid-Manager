@@ -478,11 +478,43 @@ export async function recordKillForTrackedNpc(
   // If multiple NPCs have the same name (different zones), try to match by zone
   if (definitions.length > 1) {
     if (input.zoneName) {
-      // Try to find a matching zone (case-insensitive)
+      // Try to find a matching zone (case-insensitive exact match first)
       const inputZone = input.zoneName.trim().toLowerCase();
-      const matched = definitions.find(
+      let matched = definitions.find(
         (d) => d.zoneName && d.zoneName.trim().toLowerCase() === inputZone
       );
+
+      // If no exact match, try fuzzy matching for common typos/variations
+      if (!matched) {
+        // Try partial matching - check if zone names are similar (handles typos like Drakkal vs Drakkel)
+        matched = definitions.find((d) => {
+          if (!d.zoneName) return false;
+          const defZone = d.zoneName.trim().toLowerCase();
+          // Check if one contains the other or if they share a significant prefix
+          if (defZone.includes(inputZone) || inputZone.includes(defZone)) {
+            return true;
+          }
+          // Check for similar zone names (same prefix, minor suffix differences)
+          // This handles cases like "Kael Drakkal" vs "Kael Drakkel"
+          const minLen = Math.min(defZone.length, inputZone.length);
+          if (minLen >= 5) {
+            // Count matching characters from the start
+            let matchingChars = 0;
+            for (let i = 0; i < minLen; i++) {
+              if (defZone[i] === inputZone[i]) {
+                matchingChars++;
+              } else {
+                break;
+              }
+            }
+            // If at least 80% of the shorter string matches from the start, consider it a match
+            if (matchingChars >= minLen * 0.8) {
+              return true;
+            }
+          }
+          return false;
+        });
+      }
 
       if (matched) {
         // Found a match by zone
