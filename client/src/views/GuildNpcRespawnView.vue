@@ -69,6 +69,31 @@
         <span class="raid-filter-text">Only</span>
       </label>
       <span class="filter-divider"></span>
+      <div v-if="hasInstanceNpcs" class="variant-filters">
+        <button
+          :class="['variant-filter-btn', { 'variant-filter-btn--active': activeVariantFilter === 'all' }]"
+          @click="activeVariantFilter = 'all'"
+        >
+          All
+        </button>
+        <button
+          :class="['variant-filter-btn variant-filter-btn--overworld', { 'variant-filter-btn--active': activeVariantFilter === 'overworld' }]"
+          @click="activeVariantFilter = 'overworld'"
+          title="Show only Overworld entries"
+        >
+          <span class="variant-filter-badge variant-filter-badge--overworld">OW</span>
+          Overworld
+        </button>
+        <button
+          :class="['variant-filter-btn variant-filter-btn--instance', { 'variant-filter-btn--active': activeVariantFilter === 'instance' }]"
+          @click="activeVariantFilter = 'instance'"
+          title="Show only Instance entries"
+        >
+          <span class="variant-filter-badge variant-filter-badge--instance">INST</span>
+          Instance
+        </button>
+      </div>
+      <span v-if="hasInstanceNpcs" class="filter-divider"></span>
       <button
         v-if="expansions.length > 0"
         :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
@@ -382,6 +407,7 @@ const activeStatusFilter = ref<'all' | NpcRespawnStatus>('all');
 const activeZoneFilter = ref('all');
 const activeExpansionFilter = ref('all');
 const raidOnlyFilter = ref(false);
+const activeVariantFilter = ref<'all' | 'overworld' | 'instance'>('all');
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
@@ -422,6 +448,10 @@ const expansions = computed(() => {
   }
 
   return Array.from(expansionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+});
+
+const hasInstanceNpcs = computed(() => {
+  return npcs.value.some(n => n.hasInstanceVersion);
 });
 
 const statusFilters = [
@@ -465,6 +495,13 @@ const filteredNpcs = computed(() => {
   // Filter by raid targets only
   if (raidOnlyFilter.value) {
     result = result.filter(n => n.isRaidTarget);
+  }
+
+  // Filter by variant (overworld/instance)
+  if (activeVariantFilter.value === 'overworld') {
+    result = result.filter(n => !n.isInstanceVariant);
+  } else if (activeVariantFilter.value === 'instance') {
+    result = result.filter(n => n.isInstanceVariant);
   }
 
   return result;
@@ -705,7 +742,7 @@ watch(() => route.params.guildId, (newGuildId) => {
 });
 
 // Reset page when filters change
-watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
+watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter, raidOnlyFilter, activeVariantFilter], () => {
   currentPage.value = 1;
 });
 </script>
@@ -976,6 +1013,68 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   height: 24px;
   background: rgba(148, 163, 184, 0.3);
   margin: 0 0.25rem;
+}
+
+.variant-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.variant-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.variant-filter-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+.variant-filter-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.variant-filter-btn--overworld:hover,
+.variant-filter-btn--overworld.variant-filter-btn--active {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+.variant-filter-btn--instance:hover,
+.variant-filter-btn--instance.variant-filter-btn--active {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.variant-filter-badge {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.variant-filter-badge--overworld {
+  background: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+
+.variant-filter-badge--instance {
+  background: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
 }
 
 .loading-state,
