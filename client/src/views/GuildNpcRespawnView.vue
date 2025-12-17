@@ -58,6 +58,35 @@
       </div>
     </div>
 
+    <div class="expansion-filters">
+      <label class="raid-filter-checkbox" title="Show only raid targets">
+        <input
+          v-model="raidOnlyFilter"
+          type="checkbox"
+          class="raid-checkbox-input"
+        />
+        <span class="raid-filter-badge">RAID</span>
+        <span class="raid-filter-text">Only</span>
+      </label>
+      <span class="filter-divider"></span>
+      <button
+        v-if="expansions.length > 0"
+        :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
+        @click="activeExpansionFilter = 'all'"
+      >
+        All Expansions
+      </button>
+      <button
+        v-for="exp in expansions"
+        :key="exp.key"
+        :class="['expansion-filter-btn expansion-filter-btn--icon-only', { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }]"
+        :title="exp.name"
+        @click="activeExpansionFilter = exp.shortName"
+      >
+        <img :src="exp.icon" :alt="exp.shortName" class="expansion-filter-icon" />
+      </button>
+    </div>
+
     <div v-if="loading && npcs.length === 0" class="loading-state">
       <div class="spinner"></div>
       <p>Loading NPC data...</p>
@@ -126,7 +155,16 @@
               </div>
             </td>
             <td class="col-zone">
-              <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
+              <div class="zone-cell">
+                <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
+                <img
+                  v-if="getExpansionForZone(npc.zoneName)"
+                  :src="getExpansionForZone(npc.zoneName)?.icon"
+                  :alt="getExpansionForZone(npc.zoneName)?.shortName"
+                  :title="getExpansionForZone(npc.zoneName)?.name"
+                  class="expansion-icon"
+                />
+              </div>
             </td>
             <td class="col-respawn">
               <div v-if="npc.lastKill && npc.respawnMinMinutes !== null" class="respawn-timer">
@@ -310,6 +348,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
+import { getExpansionForZone } from '../data/expansionZones';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -319,11 +358,13 @@ const store = useNpcRespawnStore();
 const searchQuery = ref('');
 const activeStatusFilter = ref<'all' | NpcRespawnStatus>('all');
 const activeZoneFilter = ref('all');
+const activeExpansionFilter = ref('all');
+const raidOnlyFilter = ref(false);
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
 const currentPage = ref(1);
-const itemsPerPage = 25;
+const itemsPerPage = 10;
 
 const killForm = ref({
   killedAt: '',
@@ -340,6 +381,24 @@ const canManage = computed(() => store.canManage);
 const zones = computed(() => {
   const uniqueZones = new Set(npcs.value.map(n => n.zoneName ?? 'Unknown').filter(Boolean));
   return Array.from(uniqueZones).sort();
+});
+
+const expansions = computed(() => {
+  const expansionMap = new Map<string, { key: string; name: string; shortName: string; icon: string }>();
+
+  for (const npc of npcs.value) {
+    const expansion = getExpansionForZone(npc.zoneName);
+    if (expansion && !expansionMap.has(expansion.shortName)) {
+      expansionMap.set(expansion.shortName, {
+        key: expansion.shortName,
+        name: expansion.name,
+        shortName: expansion.shortName,
+        icon: expansion.icon
+      });
+    }
+  }
+
+  return Array.from(expansionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 });
 
 const statusFilters = [
@@ -370,6 +429,19 @@ const filteredNpcs = computed(() => {
   // Filter by zone
   if (activeZoneFilter.value !== 'all') {
     result = result.filter(n => (n.zoneName ?? 'Unknown') === activeZoneFilter.value);
+  }
+
+  // Filter by expansion
+  if (activeExpansionFilter.value !== 'all') {
+    result = result.filter(n => {
+      const expansion = getExpansionForZone(n.zoneName);
+      return expansion?.shortName === activeExpansionFilter.value;
+    });
+  }
+
+  // Filter by raid targets only
+  if (raidOnlyFilter.value) {
+    result = result.filter(n => n.isRaidTarget);
   }
 
   return result;
@@ -406,10 +478,14 @@ function formatTimeRemaining(isoString: string | null): string {
 
   if (diff <= 0) return 'Now';
 
-  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
   if (hours > 0) {
     return `${hours}h ${minutes}m`;
   }
@@ -421,17 +497,28 @@ function formatTimeRemaining(isoString: string | null): string {
 
 function formatRespawnRange(min: number | null, max: number | null): string {
   if (min === null) return 'Unknown';
-  const minHours = Math.floor(min / 60);
-  const minMins = min % 60;
-  const minStr = minHours > 0 ? `${minHours}h ${minMins}m` : `${minMins}m`;
 
+  const formatTime = (totalMinutes: number) => {
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const mins = totalMinutes % 60;
+
+    if (days > 0) {
+      if (hours > 0 && mins > 0) return `${days}d ${hours}h ${mins}m`;
+      if (hours > 0) return `${days}d ${hours}h`;
+      if (mins > 0) return `${days}d ${mins}m`;
+      return `${days}d`;
+    }
+    if (hours > 0) {
+      if (mins > 0) return `${hours}h ${mins}m`;
+      return `${hours}h`;
+    }
+    return `${mins}m`;
+  };
+
+  const minStr = formatTime(min);
   if (max === null || max === min) return minStr;
-
-  const maxHours = Math.floor(max / 60);
-  const maxMins = max % 60;
-  const maxStr = maxHours > 0 ? `${maxHours}h ${maxMins}m` : `${maxMins}m`;
-
-  return `${minStr} - ${maxStr}`;
+  return `${minStr} - ${formatTime(max)}`;
 }
 
 function formatKillDate(isoString: string): string {
@@ -739,6 +826,124 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   font-size: 0.7rem;
 }
 
+.expansion-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+}
+
+.expansion-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expansion-filter-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+.expansion-filter-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.expansion-filter-btn--icon-only {
+  padding: 0.15rem;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 0.5rem;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+}
+
+.expansion-filter-btn--icon-only:hover {
+  background: transparent;
+  opacity: 0.85;
+  transform: scale(1.05);
+}
+
+.expansion-filter-btn--icon-only.expansion-filter-btn--active {
+  background: transparent;
+  border-color: rgba(59, 130, 246, 0.7);
+  opacity: 1;
+}
+
+.expansion-filter-icon {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.raid-filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.raid-filter-checkbox:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.raid-filter-checkbox:has(.raid-checkbox-input:checked) {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.raid-checkbox-input {
+  width: 14px;
+  height: 14px;
+  accent-color: #ef4444;
+  cursor: pointer;
+}
+
+.raid-filter-badge {
+  background: rgba(239, 68, 68, 0.8);
+  color: #fff;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.raid-filter-text {
+  font-weight: 500;
+}
+
+.filter-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(148, 163, 184, 0.3);
+  margin: 0 0.25rem;
+}
+
 .loading-state,
 .empty-state {
   display: flex;
@@ -778,7 +983,6 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .npc-table-container {
-  overflow-x: auto;
   background: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 1rem;
@@ -791,7 +995,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .npc-table th,
 .npc-table td {
-  padding: 1rem;
+  padding: 0.5rem 0.75rem;
   text-align: left;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
@@ -803,6 +1007,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   letter-spacing: 0.1em;
   color: #94a3b8;
   font-weight: 600;
+  text-align: center;
 }
 
 .npc-table th:first-child {
@@ -847,7 +1052,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .col-status { width: 80px; text-align: center; }
 .col-name { min-width: 150px; }
-.col-zone { width: 120px; }
+.col-zone { width: 240px; }
 .col-respawn { min-width: 180px; }
 .col-killed { width: 120px; }
 .col-actions { width: 120px; text-align: center; }
@@ -923,6 +1128,21 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 .alla-link svg {
   width: 14px;
   height: 14px;
+}
+
+.zone-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.expansion-icon {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex-shrink: 0;
+  margin: -12px 0;
 }
 
 .zone-badge {
