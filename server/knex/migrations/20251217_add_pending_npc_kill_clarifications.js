@@ -3,27 +3,26 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
-  await knex.schema.createTable('PendingNpcKillClarification', (table) => {
-    table.string('id', 30).primary();
-    table.string('guildId', 30).notNullable();
-    table.string('raidId', 30).nullable();
-    table.string('clarificationType', 20).notNullable(); // 'instance' or 'zone'
-    table.string('npcName', 191).notNullable();
-    table.datetime('killedAt').notNullable();
-    table.string('killedByName', 191).nullable();
-    table.string('npcDefinitionId', 30).nullable();
-    table.json('zoneOptions').nullable();
-    table.datetime('createdAt').notNullable().defaultTo(knex.fn.now());
-
-    // Foreign keys
-    table.foreign('guildId').references('id').inTable('Guild').onDelete('CASCADE');
-    table.foreign('raidId').references('id').inTable('RaidEvent').onDelete('SET NULL');
-    table.foreign('npcDefinitionId').references('id').inTable('NpcDefinition').onDelete('CASCADE');
-
-    // Indexes
-    table.index(['guildId']);
-    table.index(['raidId']);
-  });
+  await knex.schema.raw(`
+    CREATE TABLE IF NOT EXISTS \`PendingNpcKillClarification\` (
+      \`id\` VARCHAR(191) NOT NULL,
+      \`guildId\` VARCHAR(191) NOT NULL,
+      \`raidId\` VARCHAR(191) NULL,
+      \`clarificationType\` VARCHAR(20) NOT NULL,
+      \`npcName\` VARCHAR(191) NOT NULL,
+      \`killedAt\` DATETIME(3) NOT NULL,
+      \`killedByName\` VARCHAR(191) NULL,
+      \`npcDefinitionId\` VARCHAR(191) NULL,
+      \`zoneOptions\` JSON NULL,
+      \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (\`id\`),
+      INDEX \`PendingNpcKillClarification_guildId_idx\`(\`guildId\`),
+      INDEX \`PendingNpcKillClarification_raidId_idx\`(\`raidId\`),
+      CONSTRAINT \`PendingNpcKillClarification_guildId_fkey\` FOREIGN KEY (\`guildId\`) REFERENCES \`Guild\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT \`PendingNpcKillClarification_raidId_fkey\` FOREIGN KEY (\`raidId\`) REFERENCES \`RaidEvent\`(\`id\`) ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT \`PendingNpcKillClarification_npcDefinitionId_fkey\` FOREIGN KEY (\`npcDefinitionId\`) REFERENCES \`NpcDefinition\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE
+    ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  `);
 }
 
 /**
@@ -31,5 +30,5 @@ export async function up(knex) {
  * @returns { Promise<void> }
  */
 export async function down(knex) {
-  await knex.schema.dropTableIfExists('PendingNpcKillClarification');
+  await knex.schema.raw('DROP TABLE IF EXISTS `PendingNpcKillClarification`;');
 }
