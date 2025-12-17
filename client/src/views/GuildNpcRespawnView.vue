@@ -128,7 +128,7 @@
         <tbody>
           <tr
             v-for="npc in paginatedNpcs"
-            :key="npc.id"
+            :key="`${npc.id}-${npc.isInstanceVariant}`"
             :class="['npc-row', `npc-row--${npc.respawnStatus}`]"
           >
             <td class="col-status">
