@@ -190,10 +190,10 @@
               <div class="zone-cell">
                 <span class="zone-badge">{{ npc.zoneName ?? 'Unknown' }}</span>
                 <img
-                  v-if="getExpansionForZone(npc.zoneName)"
-                  :src="getExpansionForZone(npc.zoneName)?.icon"
-                  :alt="getExpansionForZone(npc.zoneName)?.shortName"
-                  :title="getExpansionForZone(npc.zoneName)?.name"
+                  v-if="getCachedExpansionForZone(npc.zoneName)"
+                  :src="getCachedExpansionForZone(npc.zoneName)?.icon"
+                  :alt="getCachedExpansionForZone(npc.zoneName)?.shortName"
+                  :title="getCachedExpansionForZone(npc.zoneName)?.name"
                   class="expansion-icon"
                 />
               </div>
@@ -437,11 +437,27 @@ const zones = computed(() => {
   return Array.from(uniqueZones).sort();
 });
 
+// Memoize expansion lookups by zone name to avoid repeated function calls
+const expansionByZone = computed(() => {
+  const cache = new Map<string | null, ReturnType<typeof getExpansionForZone>>();
+  for (const npc of npcs.value) {
+    if (!cache.has(npc.zoneName)) {
+      cache.set(npc.zoneName, getExpansionForZone(npc.zoneName));
+    }
+  }
+  return cache;
+});
+
+// Helper to get expansion from cache (used in template and computed properties)
+function getCachedExpansionForZone(zoneName: string | null | undefined) {
+  return expansionByZone.value.get(zoneName ?? null) ?? getExpansionForZone(zoneName);
+}
+
 const expansions = computed(() => {
   const expansionMap = new Map<string, { key: string; name: string; shortName: string; icon: string }>();
 
   for (const npc of npcs.value) {
-    const expansion = getExpansionForZone(npc.zoneName);
+    const expansion = expansionByZone.value.get(npc.zoneName);
     if (expansion && !expansionMap.has(expansion.shortName)) {
       expansionMap.set(expansion.shortName, {
         key: expansion.shortName,
@@ -489,10 +505,10 @@ const filteredNpcs = computed(() => {
     result = result.filter(n => (n.zoneName ?? 'Unknown') === activeZoneFilter.value);
   }
 
-  // Filter by expansion
+  // Filter by expansion (use cached expansion lookups)
   if (activeExpansionFilter.value !== 'all') {
     result = result.filter(n => {
-      const expansion = getExpansionForZone(n.zoneName);
+      const expansion = expansionByZone.value.get(n.zoneName);
       return expansion?.shortName === activeExpansionFilter.value;
     });
   }
@@ -537,7 +553,8 @@ function getStatusLabel(status: NpcRespawnStatus): string {
 
 function formatTimeRemaining(isoString: string | null): string {
   if (!isoString) return '--';
-  const target = new Date(isoString).getTime();
+  // Use Date.parse() instead of new Date().getTime() to avoid creating Date objects
+  const target = Date.parse(isoString);
   const now = Date.now();
   const diff = target - now;
 
