@@ -183,7 +183,9 @@ export async function createNpcDefinition(
     return inputZone.toLowerCase() === npcZone.toLowerCase();
   });
   if (duplicate) {
-    throw new Error('An NPC with this name already exists in this zone.');
+    const existingZone = duplicate.zoneName || '(no zone)';
+    const newZone = inputZone || '(no zone)';
+    throw new Error(`An NPC named "${duplicate.npcName}" already exists in zone "${existingZone}". You tried to add it to zone "${newZone}".`);
   }
 
   const record = await prisma.npcDefinition.create({
