@@ -117,6 +117,7 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   'Qeynos Catacombs': 'original',
   'Innothule Swamp (A)': 'original',
   'The Feerrott(A)': 'original',
+  'The Feerrott': 'original',
   'Cazic-Thule': 'original',
   'Oggok': 'original',
   'Mountains of Rathe': 'original',
