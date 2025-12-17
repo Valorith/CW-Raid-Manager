@@ -504,6 +504,7 @@ function calculateRespawnStatus(
   let progressPercent: number | null = null;
 
   if (lastKill && respawnMinMinutes !== null) {
+    // NPC has a configured respawn timer
     const killedTime = new Date(lastKill.killedAt).getTime();
     respawnMinTime = new Date(killedTime + respawnMinMinutes * 60 * 1000);
 
@@ -522,6 +523,19 @@ function calculateRespawnStatus(
     } else {
       respawnStatus = 'down';
     }
+  } else if (lastKill && respawnMinMinutes === null) {
+    // NPC has no configured respawn timer but has a kill record
+    // Use 24 hours as default threshold for up/down status
+    const killedTime = new Date(lastKill.killedAt).getTime();
+    const defaultRespawnMs = 24 * 60 * 60 * 1000; // 24 hours
+    const elapsedMs = now.getTime() - killedTime;
+
+    if (elapsedMs >= defaultRespawnMs) {
+      respawnStatus = 'up';
+    } else {
+      respawnStatus = 'down';
+    }
+    progressPercent = Math.min(100, Math.max(0, (elapsedMs / defaultRespawnMs) * 100));
   }
 
   return { respawnStatus, respawnMinTime, respawnMaxTime, progressPercent };
