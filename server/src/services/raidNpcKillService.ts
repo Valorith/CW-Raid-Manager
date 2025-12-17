@@ -180,13 +180,16 @@ export async function recordRaidNpcKills(
   if (uniqueEntries.length > 0) {
     for (const chunk of chunkArray(uniqueEntries, 100)) {
       try {
+        // Strip zoneName from insert data - it's not in the RaidNpcKillEvent schema
+        // zoneName is only used for respawn tracker processing
+        const insertData = chunk.map(({ zoneName, ...rest }) => rest);
         const result = await prisma.raidNpcKillEvent.createMany({
-          data: chunk,
+          data: insertData,
           skipDuplicates: true
         });
         inserted += result.count;
       } catch (error) {
-        logger?.warn({ error }, 'Failed to persist NPC kill chunk.');
+        logger?.warn({ error, errorMessage: String(error) }, 'Failed to persist NPC kill chunk.');
       }
     }
   }
