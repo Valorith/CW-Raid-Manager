@@ -5477,13 +5477,14 @@ async function submitInstanceClarifications() {
   submittingClarifications.value = true;
   try {
     for (const clarification of instanceClarifications.value) {
-      await api.createNpcKillRecord(raid.value.guildId, {
-        npcDefinitionId: clarification.npcDefinitionId,
-        killedAt: clarification.killedAt,
-        killedByName: clarification.killedByName,
-        notes: 'Auto-recorded from raid log',
-        isInstance: clarification.isInstance
-      });
+      await api.resolvePendingNpcKillClarification(
+        raid.value.guildId,
+        clarification.id,
+        {
+          npcDefinitionId: clarification.npcDefinitionId,
+          isInstance: clarification.isInstance
+        }
+      );
     }
     appendDebugLog('Instance clarifications submitted', { count: instanceClarifications.value.length });
     closeInstanceClarificationModal();
@@ -5512,13 +5513,14 @@ async function submitZoneClarifications() {
   try {
     for (const clarification of zoneClarifications.value) {
       if (!clarification.selectedNpcDefinitionId) continue;
-      await api.createNpcKillRecord(raid.value.guildId, {
-        npcDefinitionId: clarification.selectedNpcDefinitionId,
-        killedAt: clarification.killedAt,
-        killedByName: clarification.killedByName,
-        notes: 'Auto-recorded from raid log (zone selected manually)',
-        isInstance: false
-      });
+      await api.resolvePendingNpcKillClarification(
+        raid.value.guildId,
+        clarification.id,
+        {
+          npcDefinitionId: clarification.selectedNpcDefinitionId,
+          isInstance: false
+        }
+      );
     }
     appendDebugLog('Zone clarifications submitted', { count: zoneClarifications.value.length });
     closeZoneClarificationModal();

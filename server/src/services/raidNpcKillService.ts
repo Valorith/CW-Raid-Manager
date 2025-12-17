@@ -226,14 +226,48 @@ export async function recordRaidNpcKills(
           needsZoneClarification: result.needsZoneClarification
         }, 'Respawn tracker result');
         if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
+          // Store pending clarification in database
+          const clarificationId = `${guildId}-${result.npcDefinitionId}-${result.killedAt.toISOString()}`;
+          await prisma.pendingNpcKillClarification.upsert({
+            where: { id: clarificationId },
+            create: {
+              id: clarificationId,
+              guildId,
+              raidId,
+              clarificationType: 'instance',
+              npcName: result.npcName,
+              killedAt: result.killedAt,
+              killedByName: result.killedByName ?? null,
+              npcDefinitionId: result.npcDefinitionId
+            },
+            update: {} // Don't update if already exists
+          });
           pendingClarifications.push({
+            id: clarificationId,
             npcDefinitionId: result.npcDefinitionId,
             npcName: result.npcName,
             killedAt: result.killedAt.toISOString(),
             killedByName: result.killedByName ?? null
           });
         } else if (result.needsZoneClarification && result.zoneOptions && result.npcName && result.killedAt) {
+          // Store pending zone clarification in database
+          const clarificationId = `${guildId}-zone-${result.npcName.toLowerCase()}-${result.killedAt.toISOString()}`;
+          await prisma.pendingNpcKillClarification.upsert({
+            where: { id: clarificationId },
+            create: {
+              id: clarificationId,
+              guildId,
+              raidId,
+              clarificationType: 'zone',
+              npcName: result.npcName,
+              killedAt: result.killedAt,
+              killedByName: result.killedByName ?? null,
+              zoneOptions: result.zoneOptions
+            },
+            update: {} // Don't update if already exists
+          });
           pendingZoneClarifications.push({
+            id: clarificationId,
             npcName: result.npcName,
             killedAt: result.killedAt.toISOString(),
             killedByName: result.killedByName ?? null,

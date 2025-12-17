@@ -112,6 +112,57 @@
       </button>
     </div>
 
+    <!-- Pending Clarifications Section -->
+    <div v-if="pendingClarifications.length > 0" class="pending-clarifications">
+      <header class="pending-clarifications__header">
+        <h3>
+          <span class="pending-icon">⚠️</span>
+          Pending Kill Clarifications
+          <span class="pending-count">{{ pendingClarifications.length }}</span>
+        </h3>
+        <p class="muted small">Double-click to clarify instance/overworld status</p>
+      </header>
+      <div class="pending-clarifications__list">
+        <div
+          v-for="clarification in pendingClarifications"
+          :key="clarification.id"
+          class="pending-item"
+          @dblclick="openClarificationModal(clarification)"
+        >
+          <div class="pending-item__info">
+            <strong>{{ clarification.npcName }}</strong>
+            <span class="pending-item__type">
+              {{ clarification.clarificationType === 'instance' ? 'Instance/Overworld?' : 'Zone?' }}
+            </span>
+          </div>
+          <div class="pending-item__details">
+            <span class="pending-item__time">{{ formatClarificationTime(clarification.killedAt) }}</span>
+            <span v-if="clarification.killedByName" class="pending-item__killer">
+              by {{ clarification.killedByName }}
+            </span>
+            <span v-if="clarification.raidName" class="pending-item__raid">
+              from {{ clarification.raidName }}
+            </span>
+          </div>
+          <div class="pending-item__actions">
+            <button
+              class="btn btn--small btn--primary"
+              @click.stop="openClarificationModal(clarification)"
+            >
+              Clarify
+            </button>
+            <button
+              v-if="canManage"
+              class="btn btn--small btn--outline btn--danger"
+              @click.stop="dismissClarification(clarification)"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="loading && npcs.length === 0" class="loading-state">
       <div class="spinner"></div>
       <p>Loading NPC data...</p>
@@ -386,6 +437,83 @@
       </div>
     </div>
 
+    <!-- Clarification Modal -->
+    <div v-if="showClarificationModal && selectedClarification" class="modal-backdrop" @click.self="closeClarificationModal">
+      <div class="modal clarification-modal">
+        <header class="modal__header">
+          <h3>
+            {{ selectedClarification.clarificationType === 'instance'
+              ? 'Instance Kill Clarification'
+              : 'Zone Clarification Required' }}
+          </h3>
+          <button class="modal__close" @click="closeClarificationModal">&times;</button>
+        </header>
+        <div class="modal__body">
+          <div class="clarification-details">
+            <p class="clarification-npc-name">{{ selectedClarification.npcName }}</p>
+            <p class="clarification-time muted">
+              Killed at {{ formatClarificationTime(selectedClarification.killedAt) }}
+              <span v-if="selectedClarification.killedByName">
+                by {{ selectedClarification.killedByName }}
+              </span>
+            </p>
+            <p v-if="selectedClarification.raidName" class="clarification-raid muted">
+              From raid: {{ selectedClarification.raidName }}
+            </p>
+          </div>
+
+          <!-- Instance Clarification -->
+          <div v-if="selectedClarification.clarificationType === 'instance'" class="clarification-options">
+            <p class="clarification-prompt">Was this kill in an instance or overworld?</p>
+            <div class="clarification-toggle">
+              <label class="toggle-option" :class="{ 'toggle-option--active': !clarificationForm.isInstance }">
+                <input
+                  v-model="clarificationForm.isInstance"
+                  type="radio"
+                  :value="false"
+                  name="instance-toggle"
+                />
+                <span class="toggle-label">Overworld</span>
+              </label>
+              <label class="toggle-option" :class="{ 'toggle-option--active': clarificationForm.isInstance }">
+                <input
+                  v-model="clarificationForm.isInstance"
+                  type="radio"
+                  :value="true"
+                  name="instance-toggle"
+                />
+                <span class="toggle-label">Instance</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Zone Clarification -->
+          <div v-else-if="selectedClarification.clarificationType === 'zone'" class="clarification-options">
+            <p class="clarification-prompt">Which zone was this NPC killed in?</p>
+            <select v-model="clarificationForm.npcDefinitionId" class="input input--select zone-select">
+              <option
+                v-for="option in (selectedClarification.zoneOptions ?? [])"
+                :key="option.npcDefinitionId"
+                :value="option.npcDefinitionId"
+              >
+                {{ option.zoneName ?? 'Unknown Zone' }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="closeClarificationModal">Cancel</button>
+          <button
+            class="btn btn--primary"
+            :disabled="submittingClarification"
+            @click="submitClarification"
+          >
+            {{ submittingClarification ? 'Saving...' : 'Confirm Kill' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Error Modal -->
     <ErrorModal />
 
@@ -396,7 +524,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
+import { api, type NpcRespawnTrackerEntry, type NpcRespawnStatus, type PendingNpcKillClarification } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
 import { useErrorModal } from '../composables/useErrorModal';
@@ -426,6 +554,17 @@ const killForm = ref({
   isInstance: false
 });
 
+// Pending clarifications state
+const pendingClarifications = ref<PendingNpcKillClarification[]>([]);
+const loadingClarifications = ref(false);
+const showClarificationModal = ref(false);
+const selectedClarification = ref<PendingNpcKillClarification | null>(null);
+const clarificationForm = ref({
+  npcDefinitionId: '',
+  isInstance: false
+});
+const submittingClarification = ref(false);
+
 // Computed
 const loading = computed(() => store.loading);
 const error = computed(() => store.error);
@@ -450,7 +589,7 @@ const expansionByZone = computed(() => {
 
 // Helper to get expansion from cache (used in template and computed properties)
 function getCachedExpansionForZone(zoneName: string | null | undefined) {
-  return expansionByZone.value.get(zoneName ?? null) ?? getExpansionForZone(zoneName);
+  return expansionByZone.value.get(zoneName ?? null) ?? getExpansionForZone(zoneName ?? null);
 }
 
 const expansions = computed(() => {
@@ -739,13 +878,97 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
 
 async function refreshData() {
   await store.fetchRespawnTracker(guildId, true);
+  await loadPendingClarifications();
+}
+
+// Pending clarifications methods
+async function loadPendingClarifications() {
+  loadingClarifications.value = true;
+  try {
+    const response = await api.fetchPendingNpcKillClarifications(guildId);
+    pendingClarifications.value = response.clarifications;
+  } catch (err) {
+    console.error('Failed to load pending clarifications:', err);
+  } finally {
+    loadingClarifications.value = false;
+  }
+}
+
+function openClarificationModal(clarification: PendingNpcKillClarification) {
+  selectedClarification.value = clarification;
+  if (clarification.clarificationType === 'instance' && clarification.npcDefinitionId) {
+    clarificationForm.value = {
+      npcDefinitionId: clarification.npcDefinitionId,
+      isInstance: false
+    };
+  } else if (clarification.clarificationType === 'zone' && clarification.zoneOptions?.length) {
+    clarificationForm.value = {
+      npcDefinitionId: clarification.zoneOptions[0].npcDefinitionId,
+      isInstance: false
+    };
+  }
+  showClarificationModal.value = true;
+}
+
+function closeClarificationModal() {
+  showClarificationModal.value = false;
+  selectedClarification.value = null;
+}
+
+async function submitClarification() {
+  if (!selectedClarification.value || submittingClarification.value) return;
+
+  submittingClarification.value = true;
+  try {
+    await api.resolvePendingNpcKillClarification(
+      guildId,
+      selectedClarification.value.id,
+      {
+        npcDefinitionId: clarificationForm.value.npcDefinitionId,
+        isInstance: clarificationForm.value.isInstance
+      }
+    );
+    closeClarificationModal();
+    // Refresh data to show the new kill record
+    await Promise.all([
+      store.fetchRespawnTracker(guildId, true),
+      loadPendingClarifications()
+    ]);
+  } catch (err: any) {
+    showErrorFromException(err, 'Failed to resolve clarification');
+  } finally {
+    submittingClarification.value = false;
+  }
+}
+
+async function dismissClarification(clarification: PendingNpcKillClarification) {
+  if (!confirm(`Dismiss this kill clarification for ${clarification.npcName}? The kill will not be recorded.`)) {
+    return;
+  }
+  try {
+    await api.dismissPendingNpcKillClarification(guildId, clarification.id);
+    await loadPendingClarifications();
+  } catch (err: any) {
+    showErrorFromException(err, 'Failed to dismiss clarification');
+  }
+}
+
+function formatClarificationTime(isoString: string) {
+  const date = new Date(isoString);
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 }
 
 // Lifecycle
 onMounted(async () => {
   await Promise.all([
     store.fetchRespawnTracker(guildId),
-    store.fetchSubscriptions(guildId)
+    store.fetchSubscriptions(guildId),
+    loadPendingClarifications()
   ]);
   store.startAutoRefresh(guildId);
 });
@@ -1726,5 +1949,201 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
 .pagination-info {
   color: #94a3b8;
   font-size: 0.85rem;
+}
+
+/* Pending Clarifications */
+.pending-clarifications {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.1), rgba(234, 179, 8, 0.05));
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.pending-clarifications__header {
+  margin-bottom: 0.75rem;
+}
+
+.pending-clarifications__header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+  color: #fbbf24;
+}
+
+.pending-icon {
+  font-size: 1.2rem;
+}
+
+.pending-count {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.pending-clarifications__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pending-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: rgba(30, 41, 59, 0.8);
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(234, 179, 8, 0.2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pending-item:hover {
+  background: rgba(30, 41, 59, 1);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+
+.pending-item__info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.pending-item__info strong {
+  color: #f1f5f9;
+  white-space: nowrap;
+}
+
+.pending-item__type {
+  font-size: 0.75rem;
+  color: #fbbf24;
+  background: rgba(234, 179, 8, 0.15);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  white-space: nowrap;
+}
+
+.pending-item__details {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.pending-item__time {
+  white-space: nowrap;
+}
+
+.pending-item__killer,
+.pending-item__raid {
+  color: #64748b;
+}
+
+.pending-item__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn--small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.btn--danger {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.btn--danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+/* Clarification Modal */
+.clarification-modal {
+  max-width: 28rem;
+}
+
+.clarification-details {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.clarification-npc-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0 0 0.5rem;
+}
+
+.clarification-time,
+.clarification-raid {
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.clarification-options {
+  background: rgba(30, 41, 59, 0.5);
+  padding: 1rem;
+  border-radius: 0.5rem;
+}
+
+.clarification-prompt {
+  text-align: center;
+  margin: 0 0 1rem;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.clarification-toggle {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.toggle-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid #334155;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.toggle-option:hover {
+  border-color: #475569;
+}
+
+.toggle-option--active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+}
+
+.toggle-option input {
+  cursor: pointer;
+}
+
+.toggle-label {
+  color: #e2e8f0;
+  font-size: 0.9rem;
+}
+
+.zone-select {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 0.9rem;
 }
 </style>

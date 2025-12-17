@@ -14,7 +14,7 @@ import type {
   QuestNodeType
 } from './types';
 
-export type { CharacterClass };
+export type { CharacterClass, GuildRole };
 
 export interface GuildSummary {
   id: string;
@@ -948,6 +948,7 @@ export interface NpcSubscriptionInput {
 
 // Type for kills that need instance clarification from raid log uploads
 export interface PendingInstanceClarification {
+  id: string;
   npcDefinitionId: string;
   npcName: string;
   killedAt: string;
@@ -962,10 +963,31 @@ export interface ZoneOption {
 
 // Type for kills that need zone clarification from raid log uploads
 export interface PendingZoneClarification {
+  id: string;
   npcName: string;
   killedAt: string;
   killedByName: string | null;
   zoneOptions: ZoneOption[];
+}
+
+// Type for persisted pending NPC kill clarifications
+export interface PendingNpcKillClarification {
+  id: string;
+  clarificationType: 'instance' | 'zone';
+  npcName: string;
+  killedAt: string;
+  killedByName: string | null;
+  npcDefinitionId: string | null;
+  npcDefinition: {
+    id: string;
+    npcName: string;
+    zoneName: string | null;
+    hasInstanceVersion: boolean;
+  } | null;
+  zoneOptions: ZoneOption[] | null;
+  raidId: string | null;
+  raidName: string | null;
+  createdAt: string;
 }
 
 export interface DiscoveredItem {
@@ -3523,6 +3545,33 @@ export const api = {
 
   async deleteNpcSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
     await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}`);
+  },
+
+  async fetchPendingNpcKillClarifications(guildId: string): Promise<{
+    clarifications: PendingNpcKillClarification[];
+    canManage: boolean;
+  }> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-pending-clarifications`);
+    return {
+      clarifications: response.data.clarifications ?? [],
+      canManage: response.data.canManage ?? false
+    };
+  },
+
+  async resolvePendingNpcKillClarification(
+    guildId: string,
+    clarificationId: string,
+    data: { npcDefinitionId: string; isInstance: boolean }
+  ): Promise<NpcKillRecord> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/npc-pending-clarifications/${clarificationId}/resolve`,
+      data
+    );
+    return response.data.record;
+  },
+
+  async dismissPendingNpcKillClarification(guildId: string, clarificationId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-pending-clarifications/${clarificationId}`);
   },
 
   async searchDiscoveredItems(
