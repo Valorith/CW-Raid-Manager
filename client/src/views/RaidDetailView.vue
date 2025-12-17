@@ -3371,7 +3371,11 @@ const npcKillScatterData = computed(() => {
   if (events.length === 0) {
     return null;
   }
+  // Include both explicit target bosses and tracked NPCs from respawn tracker
   const targetBossSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
+  trackedNpcs.value.forEach((npc) => {
+    targetBossSet.add(npc.npcName.trim().toLowerCase());
+  });
   const points = events
     .map((event, index) => {
       const occurredAt = new Date(event.occurredAt);
