@@ -5269,7 +5269,19 @@ async function persistAutoKeptLoot(entries: ParsedLootEvent[], emoji: string) {
 }
 
 async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
-  if (!raid.value || kills.length === 0 || !canManageLoot.value) {
+  if (!raid.value) {
+    appendDebugLog('NPC kill persist skipped: no raid loaded');
+    return;
+  }
+  if (kills.length === 0) {
+    appendDebugLog('NPC kill persist skipped: no kills provided');
+    return;
+  }
+  if (!canManageLoot.value) {
+    appendDebugLog('NPC kill persist skipped: no permission to manage loot', {
+      role: raid.value?.permissions?.role,
+      canManage: raid.value?.permissions?.canManage
+    });
     return;
   }
 
@@ -5284,13 +5296,24 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     }));
 
   if (payload.length === 0) {
+    appendDebugLog('NPC kill persist skipped: payload empty after filtering');
     return;
   }
+
+  appendDebugLog('NPC kill persist: sending to API', {
+    count: payload.length,
+    firstKill: payload[0]
+  });
 
   const chunkSize = 100;
   try {
     for (let index = 0; index < payload.length; index += chunkSize) {
-      await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
+      const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + chunkSize));
+      appendDebugLog('NPC kill persist: API response', {
+        inserted: result.inserted,
+        pendingClarifications: result.pendingClarifications?.length ?? 0,
+        pendingZoneClarifications: result.pendingZoneClarifications?.length ?? 0
+      });
     }
   } catch (error) {
     appendDebugLog('Failed to record NPC kills', { error: String(error) });
@@ -5613,18 +5636,38 @@ function processLogContent(
   const includeConsole = Boolean(monitorSession.value);
   const consolePayloads: LootConsolePayload[] = [];
 
+  // Debug: Log NPC kill parsing results
+  if (npcKillEvents.length > 0) {
+    appendDebugLog('NPC kills parsed from log', {
+      count: npcKillEvents.length,
+      kills: npcKillEvents.map((k) => ({
+        npcName: k.npcName,
+        timestamp: k.timestamp?.toISOString(),
+        zoneName: k.zoneName,
+        killerName: k.killerName
+      }))
+    });
+  }
+
   if (npcKillEvents.length > 0) {
     const newKills: ParsedNpcKillEvent[] = [];
     for (const kill of npcKillEvents) {
       const key = buildNpcKillKey(kill);
       if (processedNpcKillKeys.has(key)) {
+        appendDebugLog('NPC kill skipped (duplicate)', { key, npcName: kill.npcName });
         continue;
       }
       processedNpcKillKeys.add(key);
       newKills.push(kill);
     }
     if (newKills.length > 0) {
+      appendDebugLog('Sending NPC kills to server', {
+        count: newKills.length,
+        kills: newKills.map((k) => k.npcName)
+      });
       void persistRaidNpcKillEvents(newKills);
+    } else {
+      appendDebugLog('No new NPC kills to send (all duplicates)');
     }
   }
 

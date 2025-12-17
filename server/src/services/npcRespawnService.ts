@@ -470,8 +470,18 @@ export async function recordKillForTrackedNpc(
     }
   });
 
+  console.log('[recordKillForTrackedNpc] Lookup result:', {
+    guildId,
+    npcName: input.npcName,
+    npcNameNormalized: input.npcNameNormalized,
+    zoneName: input.zoneName,
+    definitionsFound: definitions.length,
+    definitions: definitions.map(d => ({ id: d.id, npcName: d.npcName, npcNameNormalized: d.npcNameNormalized, zoneName: d.zoneName, hasInstanceVersion: d.hasInstanceVersion }))
+  });
+
   if (definitions.length === 0) {
     // NPC is not tracked in the respawn tracker, skip
+    console.log('[recordKillForTrackedNpc] NPC not found in respawn tracker');
     return { recorded: false, needsInstanceClarification: false };
   }
 

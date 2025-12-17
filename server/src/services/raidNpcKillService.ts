@@ -178,8 +178,15 @@ export async function recordRaidNpcKills(
   const pendingClarifications: PendingInstanceClarification[] = [];
   const pendingZoneClarifications: PendingZoneClarification[] = [];
   if (insertedEntries.length > 0) {
+    logger?.info?.({ count: insertedEntries.length }, 'Processing inserted kills for respawn tracker');
     for (const entry of insertedEntries) {
       try {
+        logger?.info?.({
+          npcName: entry.npcName,
+          npcNameNormalized: entry.npcNameNormalized,
+          zoneName: entry.zoneName,
+          killedAt: entry.occurredAt
+        }, 'Attempting to record kill in respawn tracker');
         const result = await recordKillForTrackedNpc(guildId, {
           npcName: entry.npcName,
           npcNameNormalized: entry.npcNameNormalized,
@@ -187,6 +194,12 @@ export async function recordRaidNpcKills(
           killedByName: entry.killerName,
           zoneName: entry.zoneName
         });
+        logger?.info?.({
+          npcName: entry.npcName,
+          recorded: result.recorded,
+          needsInstanceClarification: result.needsInstanceClarification,
+          needsZoneClarification: result.needsZoneClarification
+        }, 'Respawn tracker result');
         if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
           pendingClarifications.push({
             npcDefinitionId: result.npcDefinitionId,
@@ -203,8 +216,8 @@ export async function recordRaidNpcKills(
           });
         }
       } catch (error) {
-        // Silently continue - NPC may not be tracked in respawn tracker
-        logger?.debug?.({ error, npcName: entry.npcName }, 'NPC not tracked in respawn tracker or failed to record kill');
+        // Log error and continue - NPC may not be tracked in respawn tracker
+        logger?.warn?.({ error, npcName: entry.npcName }, 'Failed to record kill in respawn tracker');
       }
     }
   }
