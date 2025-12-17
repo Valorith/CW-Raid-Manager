@@ -862,15 +862,32 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .expansion-filter-btn--icon-only {
-  padding: 0.25rem;
-  width: 88px;
-  height: 44px;
+  padding: 0;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: none;
   justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.expansion-filter-btn--icon-only:hover {
+  background: transparent;
+  border: none;
+  opacity: 0.85;
+  transform: scale(1.05);
+}
+
+.expansion-filter-btn--icon-only.expansion-filter-btn--active {
+  background: transparent;
+  border: none;
+  opacity: 1;
 }
 
 .expansion-filter-icon {
-  width: 36px;
-  height: 36px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
 }
 
