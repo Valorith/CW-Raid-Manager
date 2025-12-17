@@ -3420,6 +3420,7 @@ export const api = {
     return {
       donations: response.data.donations ?? [],
       total: response.data.total ?? 0,
+      pending: response.data.pending ?? 0,
       page: response.data.page ?? page,
       limit: response.data.limit ?? limit,
       totalPages: response.data.totalPages ?? 0

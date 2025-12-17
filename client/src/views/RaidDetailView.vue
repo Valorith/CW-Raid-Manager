@@ -2854,6 +2854,11 @@ interface GroupedLootEntry {
   eventIds: string[];
   isWhitelisted: boolean;
 }
+interface LootEntryDisplay {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+}
 const lootContextMenu = reactive({
   visible: false,
   x: 0,

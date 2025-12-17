@@ -271,7 +271,7 @@ const groupedEvents = computed(() => {
       acc[bucket]?.push(definition);
       return acc;
     },
-    { RAID: [], ATTENDANCE: [], APPLICATION: [] }
+    { RAID: [], ATTENDANCE: [], APPLICATION: [], BANK: [] }
   );
 
   return categoryOrder
