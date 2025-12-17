@@ -37,7 +37,7 @@ export interface ExpansionInfo {
 }
 
 export const expansionInfo: Record<ExpansionKey, ExpansionInfo> = {
-  original: { name: 'Original EverQuest', shortName: 'Classic', icon: '/expansion-icons/original.gif' },
+  original: { name: 'Classic', shortName: 'Classic', icon: '/expansion-icons/original.gif' },
   kunark: { name: 'Ruins of Kunark', shortName: 'Kunark', icon: '/expansion-icons/kunarkicon.gif' },
   velious: { name: 'Scars of Velious', shortName: 'Velious', icon: '/expansion-icons/veliousicon.gif' },
   luclin: { name: 'Shadows of Luclin', shortName: 'Luclin', icon: '/expansion-icons/luclinicon.gif' },
@@ -104,6 +104,7 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   'Misty Thicket (A)': 'original',
   'North Ro (A)': 'original',
   'South Ro (A)': 'original',
+  'South Ro': 'original',
   'Befallen (A)': 'original',
   'Oasis of Marr': 'original',
   'Toxxulia Forest': 'original',
