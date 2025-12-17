@@ -210,11 +210,11 @@
                 <div class="timer-labels">
                   <span v-if="npc.respawnStatus === 'down'" class="timer-countdown">
                     <span class="countdown-time">{{ formatTimeRemaining(npc.respawnMinTime) }}</span>
-                    <span class="countdown-label">until window opens</span>
+                    <span class="countdown-label">until spawn window opens</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'window'" class="timer-window">
                     <span class="countdown-time countdown-time--window">{{ formatTimeRemaining(npc.respawnMaxTime) }}</span>
-                    <span class="countdown-label">until window closes</span>
+                    <span class="countdown-label">until spawn window closes</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'up'" class="timer-up">
                     Should be up!
