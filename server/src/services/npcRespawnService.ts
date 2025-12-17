@@ -38,7 +38,9 @@ export interface NpcSubscriptionInput {
 
 // Helper functions
 function normalizeNpcName(name: string) {
-  return name.trim().toLowerCase();
+  // Collapse multiple spaces to single space, trim, and lowercase
+  // Must match normalization in raidNpcKillService.ts for consistent lookups
+  return name.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function normalizeAllaLink(input?: string | null) {
