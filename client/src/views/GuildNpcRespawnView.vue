@@ -79,12 +79,11 @@
       <button
         v-for="exp in expansions"
         :key="exp.key"
-        :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }]"
+        :class="['expansion-filter-btn expansion-filter-btn--icon-only', { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }]"
         :title="exp.name"
         @click="activeExpansionFilter = exp.shortName"
       >
         <img :src="exp.icon" :alt="exp.shortName" class="expansion-filter-icon" />
-        <span class="expansion-filter-label">{{ exp.shortName }}</span>
       </button>
     </div>
 
@@ -862,14 +861,17 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   color: #f8fafc;
 }
 
-.expansion-filter-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
+.expansion-filter-btn--icon-only {
+  padding: 0.25rem;
+  width: 44px;
+  height: 44px;
+  justify-content: center;
 }
 
-.expansion-filter-label {
-  font-weight: 500;
+.expansion-filter-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }
 
 .raid-filter-checkbox {
