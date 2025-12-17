@@ -59,14 +59,15 @@
     </div>
 
     <div class="expansion-filters">
-      <button
-        :class="['expansion-filter-btn', 'raid-filter-btn', { 'expansion-filter-btn--active': raidOnlyFilter }]"
-        @click="raidOnlyFilter = !raidOnlyFilter"
-        title="Show only raid targets"
-      >
+      <label class="raid-filter-checkbox" title="Show only raid targets">
+        <input
+          v-model="raidOnlyFilter"
+          type="checkbox"
+          class="raid-checkbox-input"
+        />
         <span class="raid-filter-badge">RAID</span>
-        <span class="expansion-filter-label">Only</span>
-      </button>
+        <span class="raid-filter-text">Only</span>
+      </label>
       <span class="filter-divider"></span>
       <button
         v-if="expansions.length > 0"
@@ -871,19 +872,35 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   font-weight: 500;
 }
 
-.raid-filter-btn {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
+.raid-filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
-.raid-filter-btn:hover {
+.raid-filter-checkbox:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.raid-filter-checkbox:has(.raid-checkbox-input:checked) {
   background: rgba(239, 68, 68, 0.25);
   border-color: rgba(239, 68, 68, 0.5);
 }
 
-.raid-filter-btn.expansion-filter-btn--active {
-  background: rgba(239, 68, 68, 0.35);
-  border-color: rgba(239, 68, 68, 0.6);
+.raid-checkbox-input {
+  width: 14px;
+  height: 14px;
+  accent-color: #ef4444;
+  cursor: pointer;
 }
 
 .raid-filter-badge {
@@ -894,6 +911,10 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.raid-filter-text {
+  font-weight: 500;
 }
 
 .filter-divider {
