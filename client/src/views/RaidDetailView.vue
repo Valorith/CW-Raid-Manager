@@ -2104,6 +2104,7 @@ import type {
   GuildLootListEntry,
   GuildLootListSummary,
   GuildNpcNote,
+  NpcDefinition,
   RaidDetail,
   RaidEventSummary,
   RaidLootEvent,
@@ -2170,6 +2171,8 @@ const attendanceStatusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED
 const lootEvents = ref<RaidLootEvent[]>([]);
 const npcNotes = ref<GuildNpcNote[]>([]);
 const npcNotesLoaded = ref(false);
+const trackedNpcs = ref<NpcDefinition[]>([]);
+const trackedNpcsLoaded = ref(false);
 const npcNotesState = reactive({
   visible: false,
   loading: false,
@@ -2277,6 +2280,23 @@ async function ensureNpcNotesLoaded() {
     npcNotesState.error = extractErrorMessage(error, 'Unable to load NPC notes.');
   } finally {
     npcNotesState.loading = false;
+  }
+}
+
+async function ensureTrackedNpcsLoaded() {
+  if (trackedNpcsLoaded.value) {
+    return;
+  }
+  if (!raid.value?.guild?.id) {
+    return;
+  }
+  try {
+    const response = await api.fetchNpcDefinitions(raid.value.guild.id);
+    trackedNpcs.value = response.definitions;
+    trackedNpcsLoaded.value = true;
+  } catch {
+    // Silently fail - tracked NPCs are not critical
+    trackedNpcs.value = [];
   }
 }
 
@@ -3173,7 +3193,11 @@ const npcKillEvents = computed(() => raid.value?.npcKillEvents ?? []);
 const registeredCharacterNames = computed(() => guildMainCharacterNames.value);
 const npcKillSummary = computed(() => {
   const kills = raid.value?.npcKills ?? [];
+  // Include both explicit target bosses and tracked NPCs from respawn tracker
   const targetBossSet = new Set(normalizedTargetBosses.value.map((boss) => boss.normalized));
+  trackedNpcs.value.forEach((npc) => {
+    targetBossSet.add(npc.npcName.trim().toLowerCase());
+  });
   return [...kills].sort((a, b) => {
     if (b.killCount !== a.killCount) {
       return b.killCount - a.killCount;
@@ -4135,6 +4159,8 @@ async function loadRaid() {
     npcNotesState.canApproveDeletion = false;
     npcNotesState.viewerRole = null;
     npcNotesState.deletionStatus = '';
+    trackedNpcsLoaded.value = false;
+    trackedNpcs.value = [];
   }
   if (data.guild?.id) {
     loadGuildMainCharacters(data.guild.id);
@@ -4150,6 +4176,7 @@ async function loadRaid() {
   recurrenceError.value = null;
   await refreshLootListSummary();
   await ensureNpcNotesLoaded();
+  await ensureTrackedNpcsLoaded();
 }
 
 function triggerKillLogUpload() {
