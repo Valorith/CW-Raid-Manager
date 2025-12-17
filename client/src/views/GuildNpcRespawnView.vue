@@ -58,6 +58,25 @@
       </div>
     </div>
 
+    <div v-if="expansions.length > 0" class="expansion-filters">
+      <button
+        :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
+        @click="activeExpansionFilter = 'all'"
+      >
+        All Expansions
+      </button>
+      <button
+        v-for="exp in expansions"
+        :key="exp.key"
+        :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }]"
+        :title="exp.name"
+        @click="activeExpansionFilter = exp.shortName"
+      >
+        <img :src="exp.icon" :alt="exp.shortName" class="expansion-filter-icon" />
+        <span class="expansion-filter-label">{{ exp.shortName }}</span>
+      </button>
+    </div>
+
     <div v-if="loading && npcs.length === 0" class="loading-state">
       <div class="spinner"></div>
       <p>Loading NPC data...</p>
@@ -329,6 +348,7 @@ const store = useNpcRespawnStore();
 const searchQuery = ref('');
 const activeStatusFilter = ref<'all' | NpcRespawnStatus>('all');
 const activeZoneFilter = ref('all');
+const activeExpansionFilter = ref('all');
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
@@ -350,6 +370,24 @@ const canManage = computed(() => store.canManage);
 const zones = computed(() => {
   const uniqueZones = new Set(npcs.value.map(n => n.zoneName ?? 'Unknown').filter(Boolean));
   return Array.from(uniqueZones).sort();
+});
+
+const expansions = computed(() => {
+  const expansionMap = new Map<string, { key: string; name: string; shortName: string; icon: string }>();
+
+  for (const npc of npcs.value) {
+    const expansion = getExpansionForZone(npc.zoneName);
+    if (expansion && !expansionMap.has(expansion.shortName)) {
+      expansionMap.set(expansion.shortName, {
+        key: expansion.shortName,
+        name: expansion.name,
+        shortName: expansion.shortName,
+        icon: expansion.icon
+      });
+    }
+  }
+
+  return Array.from(expansionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 });
 
 const statusFilters = [
@@ -380,6 +418,14 @@ const filteredNpcs = computed(() => {
   // Filter by zone
   if (activeZoneFilter.value !== 'all') {
     result = result.filter(n => (n.zoneName ?? 'Unknown') === activeZoneFilter.value);
+  }
+
+  // Filter by expansion
+  if (activeExpansionFilter.value !== 'all') {
+    result = result.filter(n => {
+      const expansion = getExpansionForZone(n.zoneName);
+      return expansion?.shortName === activeExpansionFilter.value;
+    });
   }
 
   return result;
@@ -762,6 +808,51 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   padding: 0.15rem 0.4rem;
   border-radius: 0.25rem;
   font-size: 0.7rem;
+}
+
+.expansion-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+}
+
+.expansion-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.5rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.expansion-filter-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+.expansion-filter-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #f8fafc;
+}
+
+.expansion-filter-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.expansion-filter-label {
+  font-weight: 500;
 }
 
 .loading-state,
