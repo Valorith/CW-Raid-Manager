@@ -209,13 +209,12 @@
                 </div>
                 <div class="timer-labels">
                   <span v-if="npc.respawnStatus === 'down'" class="timer-countdown">
-                    {{ formatTimeRemaining(npc.respawnMinTime) }}
+                    <span class="countdown-time">{{ formatTimeRemaining(npc.respawnMinTime) }}</span>
+                    <span class="countdown-label">until window opens</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'window'" class="timer-window">
-                    Window open
-                    <span v-if="npc.respawnMaxTime" class="timer-max">
-                      ({{ formatTimeRemaining(npc.respawnMaxTime) }} max)
-                    </span>
+                    <span class="countdown-time countdown-time--window">{{ formatTimeRemaining(npc.respawnMaxTime) }}</span>
+                    <span class="countdown-label">until window closes</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'up'" class="timer-up">
                     Should be up!
@@ -1363,19 +1362,31 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
   font-size: 0.85rem;
 }
 
-.timer-countdown {
-  color: #fca5a5;
-  font-weight: 600;
-}
-
+.timer-countdown,
 .timer-window {
-  color: #fde047;
-  font-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.timer-max {
+.countdown-time {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fca5a5;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.countdown-time--window {
+  color: #fde047;
+}
+
+.countdown-label {
+  font-size: 0.7rem;
   font-weight: 400;
   color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .timer-up {
