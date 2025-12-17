@@ -548,11 +548,12 @@ function formatTimeRemaining(isoString: string | null): string {
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
+  // Always include seconds for a live countdown feel
   if (days > 0) {
-    return `${days}d ${hours}h ${minutes}m`;
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
   }
   if (hours > 0) {
-    return `${hours}h ${minutes}m`;
+    return `${hours}h ${minutes}m ${seconds}s`;
   }
   if (minutes > 0) {
     return `${minutes}m ${seconds}s`;
