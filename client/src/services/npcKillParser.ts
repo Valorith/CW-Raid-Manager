@@ -5,7 +5,12 @@ export interface ParsedNpcKillEvent {
   npcName: string;
   killerName?: string | null;
   rawLine: string;
+  zoneName?: string | null;
 }
+
+// Pattern to extract zone entry: "[...] You have entered South Ro." or "There is X hours, Y minutes remaining..."
+// Some zones have period in name like "S. Ro" or "N. Ro" - handle those
+const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
 
 const killPatterns: Array<{ regex: RegExp; map: (match: RegExpMatchArray) => { npcName: string; killerName?: string | null } | null }> = [
   {
@@ -59,6 +64,47 @@ export function parseNpcKills(
   const lines = logContent.split(/\r?\n/);
   const kills: ParsedNpcKillEvent[] = [];
 
+  // Track zone changes with timestamps so we can match zones to kills
+  const zoneChanges: Array<{ timestamp: Date; zoneName: string }> = [];
+
+  // First pass: extract all zone changes within the raid window
+  for (const line of lines) {
+    if (!line.includes('You have entered')) {
+      continue;
+    }
+
+    const timestamp = extractTimestamp(line);
+    if (!timestamp) {
+      continue;
+    }
+
+    const zoneMatch = line.match(zoneEntryPattern);
+    if (zoneMatch?.groups?.zone) {
+      const zoneName = zoneMatch.groups.zone.trim();
+      if (zoneName) {
+        zoneChanges.push({ timestamp, zoneName });
+      }
+    }
+  }
+
+  // Sort zone changes by timestamp
+  zoneChanges.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+  // Helper to find the current zone at a given timestamp
+  function getZoneAtTime(timestamp: Date): string | null {
+    // Find the most recent zone change before or at the given timestamp
+    let currentZone: string | null = null;
+    for (const change of zoneChanges) {
+      if (change.timestamp <= timestamp) {
+        currentZone = change.zoneName;
+      } else {
+        break;
+      }
+    }
+    return currentZone;
+  }
+
+  // Second pass: extract kills and attach zone context
   for (const line of lines) {
     if (!line.includes('slain')) {
       continue;
@@ -82,11 +128,16 @@ export function parseNpcKills(
       if (!npcName) {
         continue;
       }
+
+      // Get the zone at the time of this kill
+      const zoneName = getZoneAtTime(timestamp);
+
       kills.push({
         timestamp,
         npcName,
         killerName: details.killerName ?? null,
-        rawLine: line
+        rawLine: line,
+        zoneName
       });
       break;
     }

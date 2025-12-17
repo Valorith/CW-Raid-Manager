@@ -954,6 +954,20 @@ export interface PendingInstanceClarification {
   killedByName: string | null;
 }
 
+// Type for zone options when multiple NPCs have the same name in different zones
+export interface ZoneOption {
+  npcDefinitionId: string;
+  zoneName: string | null;
+}
+
+// Type for kills that need zone clarification from raid log uploads
+export interface PendingZoneClarification {
+  npcName: string;
+  killedAt: string;
+  killedByName: string | null;
+  zoneOptions: ZoneOption[];
+}
+
 export interface DiscoveredItem {
   itemId: number;
   itemName: string;
@@ -2676,15 +2690,16 @@ export const api = {
 
   async recordRaidNpcKills(
     raidId: string,
-    kills: Array<{ npcName: string; occurredAt: string; killerName?: string | null; rawLine?: string | null }>
-  ): Promise<{ inserted: number; pendingClarifications: PendingInstanceClarification[] }> {
+    kills: Array<{ npcName: string; occurredAt: string; killerName?: string | null; rawLine?: string | null; zoneName?: string | null }>
+  ): Promise<{ inserted: number; pendingClarifications: PendingInstanceClarification[]; pendingZoneClarifications: PendingZoneClarification[] }> {
     if (!Array.isArray(kills) || kills.length === 0) {
-      return { inserted: 0, pendingClarifications: [] };
+      return { inserted: 0, pendingClarifications: [], pendingZoneClarifications: [] };
     }
     const response = await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
     return {
       inserted: response.data.inserted ?? 0,
-      pendingClarifications: response.data.pendingClarifications ?? []
+      pendingClarifications: response.data.pendingClarifications ?? [],
+      pendingZoneClarifications: response.data.pendingZoneClarifications ?? []
     };
   },
 

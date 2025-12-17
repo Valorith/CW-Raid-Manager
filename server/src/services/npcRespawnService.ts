@@ -427,10 +427,18 @@ export async function deleteSubscription(userId: string, npcDefinitionId: string
   }
 }
 
+// Zone option for zone clarification
+export type ZoneOption = {
+  npcDefinitionId: string;
+  zoneName: string | null;
+};
+
 // Result type for recording kills for tracked NPCs
 export type RecordKillResult = {
   recorded: boolean;
   needsInstanceClarification: boolean;
+  needsZoneClarification?: boolean;
+  zoneOptions?: ZoneOption[];
   npcDefinitionId?: string;
   npcName?: string;
   killedAt?: Date;
@@ -440,7 +448,8 @@ export type RecordKillResult = {
 // Record a kill for a tracked NPC (called automatically from raid NPC kill detection)
 // Only records if the NPC is already configured in the respawn tracker
 // For NPCs with hasInstanceVersion, does NOT auto-record - returns needsInstanceClarification=true instead
-// If multiple NPCs have the same name (different zones), does NOT auto-record to avoid ambiguity
+// If multiple NPCs have the same name (different zones), tries to match by zone from log
+// If zone can't be determined, returns needsZoneClarification=true with zone options
 export async function recordKillForTrackedNpc(
   guildId: string,
   input: {
@@ -448,6 +457,7 @@ export async function recordKillForTrackedNpc(
     npcNameNormalized: string;
     killedAt: Date;
     killedByName?: string | null;
+    zoneName?: string | null;
   }
 ): Promise<RecordKillResult> {
   // Find all NPC definitions by normalized name (could be multiple in different zones)
@@ -463,13 +473,51 @@ export async function recordKillForTrackedNpc(
     return { recorded: false, needsInstanceClarification: false };
   }
 
-  // If multiple NPCs have the same name (different zones), skip auto-recording
-  // User will need to manually record which zone the kill was in
-  if (definitions.length > 1) {
-    return { recorded: false, needsInstanceClarification: false };
-  }
+  let definition = definitions[0];
 
-  const definition = definitions[0];
+  // If multiple NPCs have the same name (different zones), try to match by zone
+  if (definitions.length > 1) {
+    if (input.zoneName) {
+      // Try to find a matching zone (case-insensitive)
+      const inputZone = input.zoneName.trim().toLowerCase();
+      const matched = definitions.find(
+        (d) => d.zoneName && d.zoneName.trim().toLowerCase() === inputZone
+      );
+
+      if (matched) {
+        // Found a match by zone
+        definition = matched;
+      } else {
+        // Zone from log doesn't match any configured zones - need user clarification
+        return {
+          recorded: false,
+          needsInstanceClarification: false,
+          needsZoneClarification: true,
+          zoneOptions: definitions.map((d) => ({
+            npcDefinitionId: d.id,
+            zoneName: d.zoneName
+          })),
+          npcName: input.npcName,
+          killedAt: input.killedAt,
+          killedByName: input.killedByName
+        };
+      }
+    } else {
+      // No zone from log - need user clarification
+      return {
+        recorded: false,
+        needsInstanceClarification: false,
+        needsZoneClarification: true,
+        zoneOptions: definitions.map((d) => ({
+          npcDefinitionId: d.id,
+          zoneName: d.zoneName
+        })),
+        npcName: input.npcName,
+        killedAt: input.killedAt,
+        killedByName: input.killedByName
+      };
+    }
+  }
 
   // If NPC has instance version tracking, don't auto-record - needs clarification
   if (definition.hasInstanceVersion) {

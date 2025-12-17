@@ -437,7 +437,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
           npcName: z.string().min(2).max(191),
           occurredAt: z.string().datetime({ offset: true }),
           killerName: z.string().min(1).max(191).optional(),
-          rawLine: z.string().max(500).optional()
+          rawLine: z.string().max(500).optional(),
+          zoneName: z.string().max(191).nullable().optional()
         })
       );
 
@@ -478,7 +479,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
             npcName,
             occurredAt,
             killerName: kill.killerName?.trim() ?? null,
-            rawLine: kill.rawLine ?? null
+            rawLine: kill.rawLine ?? null,
+            zoneName: kill.zoneName?.trim() ?? null
           };
         })
         .filter((kill): kill is NonNullable<typeof kill> => Boolean(kill));
@@ -490,7 +492,8 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
       return {
         inserted: result.inserted,
-        pendingClarifications: result.pendingClarifications
+        pendingClarifications: result.pendingClarifications,
+        pendingZoneClarifications: result.pendingZoneClarifications
       };
     }
   );

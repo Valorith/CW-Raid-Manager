@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
-import { recordKillForTrackedNpc, type RecordKillResult } from './npcRespawnService.js';
+import { recordKillForTrackedNpc, type RecordKillResult, type ZoneOption } from './npcRespawnService.js';
 
 // Type for kills that need instance clarification
 export type PendingInstanceClarification = {
@@ -14,11 +14,20 @@ export type PendingInstanceClarification = {
   killedByName: string | null;
 };
 
+// Type for kills that need zone clarification (multiple NPCs with same name in different zones)
+export type PendingZoneClarification = {
+  npcName: string;
+  killedAt: string;
+  killedByName: string | null;
+  zoneOptions: ZoneOption[];
+};
+
 export type NpcKillInput = {
   npcName: string;
   occurredAt: Date;
   killerName?: string | null;
   rawLine?: string | null;
+  zoneName?: string | null;
 };
 
 function normalizeNpcName(name: string) {
@@ -99,7 +108,8 @@ export async function recordRaidNpcKills(
         npcNameNormalized,
         killerName: normalizeKillerName(entry.killerName),
         occurredAt: entry.occurredAt,
-        logSignature: signature
+        logSignature: signature,
+        zoneName: entry.zoneName?.trim() || null
       };
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
@@ -169,8 +179,9 @@ export async function recordRaidNpcKills(
 
   // Record kills in the NPC Respawn Tracker for any tracked NPCs
   // This happens regardless of Discord webhook settings
-  // Collect any kills that need instance clarification (for NPCs with hasInstanceVersion)
+  // Collect any kills that need instance or zone clarification
   const pendingClarifications: PendingInstanceClarification[] = [];
+  const pendingZoneClarifications: PendingZoneClarification[] = [];
   if (insertedEntries.length > 0) {
     for (const entry of insertedEntries) {
       try {
@@ -178,7 +189,8 @@ export async function recordRaidNpcKills(
           npcName: entry.npcName,
           npcNameNormalized: entry.npcNameNormalized,
           killedAt: entry.occurredAt,
-          killedByName: entry.killerName
+          killedByName: entry.killerName,
+          zoneName: entry.zoneName
         });
         if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
           pendingClarifications.push({
@@ -186,6 +198,13 @@ export async function recordRaidNpcKills(
             npcName: result.npcName,
             killedAt: result.killedAt.toISOString(),
             killedByName: result.killedByName ?? null
+          });
+        } else if (result.needsZoneClarification && result.zoneOptions && result.npcName && result.killedAt) {
+          pendingZoneClarifications.push({
+            npcName: result.npcName,
+            killedAt: result.killedAt.toISOString(),
+            killedByName: result.killedByName ?? null,
+            zoneOptions: result.zoneOptions
           });
         }
       } catch (error) {
@@ -215,7 +234,7 @@ export async function recordRaidNpcKills(
     }
   }
 
-  return { inserted, pendingClarifications };
+  return { inserted, pendingClarifications, pendingZoneClarifications };
 }
 
 export async function listRaidNpcKillSummary(raidId: string) {
