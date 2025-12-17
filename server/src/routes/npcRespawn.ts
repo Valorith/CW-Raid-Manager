@@ -31,6 +31,7 @@ const npcDefinitionBodySchema = z.object({
   respawnMinMinutes: z.number().int().min(0).nullable().optional(),
   respawnMaxMinutes: z.number().int().min(0).nullable().optional(),
   isRaidTarget: z.boolean().optional(),
+  hasInstanceVersion: z.boolean().optional(),
   contentFlag: z.enum(NPC_CONTENT_FLAGS).nullable().optional(),
   notes: z.string().max(8000).nullable().optional(),
   allaLink: z.string().max(512).nullable().optional()
@@ -41,6 +42,7 @@ const killRecordBodySchema = z.object({
   killedAt: z.string().datetime().or(z.date()),
   killedByName: z.string().trim().max(191).nullable().optional(),
   notes: z.string().max(500).nullable().optional(),
+  isInstance: z.boolean().optional(),
   triggerWebhook: z.boolean().optional()
 });
 
@@ -259,7 +261,8 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         killedAt: new Date(data.killedAt),
         killedByName: data.killedByName ?? null,
         killedById: request.user.userId,
-        notes: data.notes ?? null
+        notes: data.notes ?? null,
+        isInstance: data.isInstance ?? false
       });
 
       // Check if NPC is a raid target and trigger webhook (unless explicitly disabled)

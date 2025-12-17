@@ -1963,6 +1963,59 @@
       </div>
     </div>
   </div>
+  <!-- Instance Clarification Modal -->
+  <div v-if="showInstanceClarificationModal" class="modal-backdrop" @click.self="closeInstanceClarificationModal">
+    <div class="modal instance-clarification-modal">
+      <header class="modal__header">
+        <div>
+          <h3>Instance Kill Clarification</h3>
+          <p class="muted small">
+            The following tracked NPC kills were detected. Please indicate which kills occurred in an instance.
+          </p>
+        </div>
+        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">✕</button>
+      </header>
+      <div class="modal__body">
+        <div class="clarification-list">
+          <div
+            v-for="(kill, index) in instanceClarifications"
+            :key="`${kill.npcDefinitionId}-${kill.killedAt}`"
+            class="clarification-item"
+          >
+            <div class="clarification-info">
+              <strong>{{ kill.npcName }}</strong>
+              <span class="kill-time">{{ formatClarificationTime(kill.killedAt) }}</span>
+              <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
+            </div>
+            <label class="instance-toggle">
+              <input
+                type="checkbox"
+                v-model="instanceClarifications[index].isInstance"
+              />
+              <span class="toggle-label">Instance</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <footer class="modal__footer">
+        <button
+          type="button"
+          class="btn btn--outline"
+          @click="closeInstanceClarificationModal"
+        >
+          Skip
+        </button>
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="submittingClarifications"
+          @click="submitInstanceClarifications"
+        >
+          {{ submittingClarifications ? 'Saving...' : 'Save Kills' }}
+        </button>
+      </footer>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -1974,7 +2027,7 @@ import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
-import { api } from '../services/api';
+import { api, type PendingInstanceClarification } from '../services/api';
 import {
   characterClassLabels,
   characterClassIcons,
@@ -3079,6 +3132,10 @@ const totalNpcKills = computed(() =>
 const showNpcKillGraph = ref(false);
 const uploadingKillLog = ref(false);
 const killLogInput = ref<HTMLInputElement | null>(null);
+// Instance clarification modal state
+const showInstanceClarificationModal = ref(false);
+const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>([]);
+const submittingClarifications = ref(false);
 const npcKillZoomRange = ref<{ min: number; max: number } | null>(null);
 const npcKillChartRef = ref<any>(null);
 let detachNpcKillWheel: (() => void) | null = null;
@@ -4073,10 +4130,23 @@ async function uploadKillLogFile(file: File) {
         killerName: entry.killerName ?? null,
         rawLine: entry.rawLine
       }));
+      // Collect all pending clarifications from batched uploads
+      const allPendingClarifications: PendingInstanceClarification[] = [];
       for (let index = 0; index < payload.length; index += 100) {
-        await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
+        const result = await api.recordRaidNpcKills(raidId, payload.slice(index, index + 100));
+        if (result.pendingClarifications && result.pendingClarifications.length > 0) {
+          allPendingClarifications.push(...result.pendingClarifications);
+        }
       }
       await loadRaid();
+      // If there are pending clarifications, show the modal
+      if (allPendingClarifications.length > 0) {
+        instanceClarifications.value = allPendingClarifications.map(c => ({
+          ...c,
+          isInstance: false // Default to overworld
+        }));
+        showInstanceClarificationModal.value = true;
+      }
     } else {
       window.alert('No kills found within the raid window.');
     }
@@ -4086,6 +4156,40 @@ async function uploadKillLogFile(file: File) {
   } finally {
     uploadingKillLog.value = false;
   }
+}
+
+// Instance clarification modal functions
+function closeInstanceClarificationModal() {
+  showInstanceClarificationModal.value = false;
+  instanceClarifications.value = [];
+}
+
+async function submitInstanceClarifications() {
+  if (submittingClarifications.value || !raid.value) return;
+
+  submittingClarifications.value = true;
+  try {
+    // Create kill records for each clarified kill
+    for (const clarification of instanceClarifications.value) {
+      await api.createNpcKillRecord(raid.value.guildId, {
+        npcDefinitionId: clarification.npcDefinitionId,
+        killedAt: clarification.killedAt,
+        killedByName: clarification.killedByName,
+        notes: 'Auto-recorded from raid log',
+        isInstance: clarification.isInstance
+      });
+    }
+    closeInstanceClarificationModal();
+  } catch (error: any) {
+    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications');
+  } finally {
+    submittingClarifications.value = false;
+  }
+}
+
+function formatClarificationTime(isoString: string): string {
+  const date = new Date(isoString);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 async function loadGuildMainCharacters(guildId: string) {
@@ -8718,6 +8822,85 @@ th {
   flex: 1;
   width: 100%;
   height: 100%;
+}
+
+/* Instance Clarification Modal */
+.instance-clarification-modal {
+  max-width: 32rem;
+  max-height: 80vh;
+}
+
+.instance-clarification-modal .modal__body {
+  overflow-y: auto;
+  max-height: 50vh;
+}
+
+.clarification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.clarification-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  gap: 1rem;
+}
+
+.clarification-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.clarification-info strong {
+  color: #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.kill-time {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.kill-by {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.instance-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.instance-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  color: #c4b5fd;
+  font-weight: 500;
+}
+
+.modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 .manual-kill-modal {

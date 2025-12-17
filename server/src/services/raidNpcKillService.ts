@@ -4,7 +4,15 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
-import { recordKillForTrackedNpc } from './npcRespawnService.js';
+import { recordKillForTrackedNpc, type RecordKillResult } from './npcRespawnService.js';
+
+// Type for kills that need instance clarification
+export type PendingInstanceClarification = {
+  npcDefinitionId: string;
+  npcName: string;
+  killedAt: string;
+  killedByName: string | null;
+};
 
 export type NpcKillInput = {
   npcName: string;
@@ -161,15 +169,25 @@ export async function recordRaidNpcKills(
 
   // Record kills in the NPC Respawn Tracker for any tracked NPCs
   // This happens regardless of Discord webhook settings
+  // Collect any kills that need instance clarification (for NPCs with hasInstanceVersion)
+  const pendingClarifications: PendingInstanceClarification[] = [];
   if (insertedEntries.length > 0) {
     for (const entry of insertedEntries) {
       try {
-        await recordKillForTrackedNpc(guildId, {
+        const result = await recordKillForTrackedNpc(guildId, {
           npcName: entry.npcName,
           npcNameNormalized: entry.npcNameNormalized,
           killedAt: entry.occurredAt,
           killedByName: entry.killerName
         });
+        if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
+          pendingClarifications.push({
+            npcDefinitionId: result.npcDefinitionId,
+            npcName: result.npcName,
+            killedAt: result.killedAt.toISOString(),
+            killedByName: result.killedByName ?? null
+          });
+        }
       } catch (error) {
         // Silently continue - NPC may not be tracked in respawn tracker
         logger?.debug?.({ error, npcName: entry.npcName }, 'NPC not tracked in respawn tracker or failed to record kill');
@@ -197,7 +215,7 @@ export async function recordRaidNpcKills(
     }
   }
 
-  return { inserted };
+  return { inserted, pendingClarifications };
 }
 
 export async function listRaidNpcKillSummary(raidId: string) {

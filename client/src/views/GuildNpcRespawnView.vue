@@ -139,6 +139,13 @@
             <td class="col-name">
               <div class="npc-name-cell">
                 <strong>{{ npc.npcName }}</strong>
+                <span
+                  v-if="npc.hasInstanceVersion"
+                  :class="['variant-badge', npc.isInstanceVariant ? 'variant-badge--instance' : 'variant-badge--overworld']"
+                  :title="npc.isInstanceVariant ? 'Instance version' : 'Overworld version'"
+                >
+                  {{ npc.isInstanceVariant ? 'INSTANCE' : 'OVERWORLD' }}
+                </span>
                 <span v-if="npc.isRaidTarget" class="raid-badge" title="Raid Target">RAID</span>
                 <a
                   v-if="npc.allaLink"
@@ -326,6 +333,21 @@
               placeholder="Any additional notes"
             />
           </div>
+          <div v-if="selectedNpc?.hasInstanceVersion" class="form-group form-group--checkbox">
+            <label class="checkbox-label">
+              <input
+                id="kill-instance"
+                v-model="killForm.isInstance"
+                type="checkbox"
+                class="checkbox-input"
+              />
+              <span class="checkbox-text">Instance Kill</span>
+            </label>
+            <p class="checkbox-hint">
+              Check this if the kill occurred in an instance (e.g., Agent of Change).
+              Leave unchecked for overworld kills.
+            </p>
+          </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeKillModal">Cancel</button>
@@ -369,7 +391,8 @@ const itemsPerPage = 10;
 const killForm = ref({
   killedAt: '',
   killedByName: '',
-  notes: ''
+  notes: '',
+  isInstance: false
 });
 
 // Computed
@@ -556,7 +579,9 @@ function openKillModal(npc: NpcRespawnTrackerEntry) {
   killForm.value = {
     killedAt: now.toISOString().slice(0, 16),
     killedByName: '',
-    notes: ''
+    notes: '',
+    // Default isInstance based on whether we clicked on an instance variant row
+    isInstance: npc.isInstanceVariant ?? false
   };
   showKillModal.value = true;
 }
@@ -575,7 +600,8 @@ async function submitKill() {
       npcDefinitionId: selectedNpc.value.id,
       killedAt: new Date(killForm.value.killedAt).toISOString(),
       killedByName: killForm.value.killedByName || null,
-      notes: killForm.value.notes || null
+      notes: killForm.value.notes || null,
+      isInstance: killForm.value.isInstance
     });
     closeKillModal();
   } catch (err: any) {
@@ -586,8 +612,11 @@ async function submitKill() {
 }
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
+  const variantLabel = npc.hasInstanceVersion
+    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    : '';
   const confirmed = confirm(
-    `Confirm that "${npc.npcName}" has spawned?\n\nThis will mark the NPC as Up.`
+    `Confirm that "${npc.npcName}"${variantLabel} has spawned?\n\nThis will mark the NPC as Up.`
   );
 
   if (!confirmed) return;
@@ -610,6 +639,7 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
       killedAt: oldKillTime.toISOString(),
       killedByName: null,
       notes: 'Marked as spawned via "It\'s Up!" button',
+      isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
   } catch (err: any) {
@@ -618,8 +648,11 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
 }
 
 async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
+  const variantLabel = npc.hasInstanceVersion
+    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    : '';
   const confirmed = confirm(
-    `Mark "${npc.npcName}" as killed (Down)?\n\nThis will start the respawn timer.`
+    `Mark "${npc.npcName}"${variantLabel} as killed (Down)?\n\nThis will start the respawn timer.`
   );
 
   if (!confirmed) return;
@@ -636,6 +669,7 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
       killedAt: new Date().toISOString(),
       killedByName: null,
       notes: 'Marked as killed via "It\'s Down!" button',
+      isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
   } catch (err: any) {
@@ -1114,6 +1148,28 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   color: #fca5a5;
 }
 
+.variant-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.variant-badge--overworld {
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+.variant-badge--instance {
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+}
+
 .alla-link {
   display: inline-flex;
   align-items: center;
@@ -1396,6 +1452,41 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   outline: none;
   border-color: rgba(59, 130, 246, 0.6);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* Checkbox styles for kill modal */
+.form-group--checkbox {
+  padding: 0.75rem;
+  background: rgba(30, 41, 59, 0.4);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.5rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.checkbox-input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.checkbox-hint {
+  margin: 0.4rem 0 0 1.7rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .modal__actions {

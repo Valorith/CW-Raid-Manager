@@ -857,6 +857,7 @@ export interface NpcLastKill {
   killedByName: string | null;
   killedById: string | null;
   notes: string | null;
+  isInstance: boolean;
 }
 
 export const NPC_CONTENT_FLAGS = ['Christmas', 'Halloween'] as const;
@@ -870,6 +871,7 @@ export interface NpcDefinition {
   respawnMinMinutes: number | null;
   respawnMaxMinutes: number | null;
   isRaidTarget: boolean;
+  hasInstanceVersion: boolean;
   contentFlag: NpcContentFlag | null;
   notes: string | null;
   allaLink: string | null;
@@ -885,6 +887,9 @@ export interface NpcRespawnTrackerEntry extends NpcDefinition {
   respawnMinTime: string | null;
   respawnMaxTime: string | null;
   progressPercent: number | null;
+  // When hasInstanceVersion is true, two entries are returned: one for overworld (isInstanceVariant=false)
+  // and one for instance (isInstanceVariant=true)
+  isInstanceVariant: boolean;
 }
 
 export interface NpcKillRecord {
@@ -899,6 +904,7 @@ export interface NpcKillRecord {
   killedByName: string | null;
   killedById: string | null;
   notes: string | null;
+  isInstance: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -919,6 +925,7 @@ export interface NpcDefinitionInput {
   respawnMinMinutes?: number | null;
   respawnMaxMinutes?: number | null;
   isRaidTarget?: boolean;
+  hasInstanceVersion?: boolean;
   contentFlag?: NpcContentFlag | null;
   notes?: string | null;
   allaLink?: string | null;
@@ -929,6 +936,7 @@ export interface NpcKillRecordInput {
   killedAt: string;
   killedByName?: string | null;
   notes?: string | null;
+  isInstance?: boolean;
   triggerWebhook?: boolean;
 }
 
@@ -936,6 +944,14 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+}
+
+// Type for kills that need instance clarification from raid log uploads
+export interface PendingInstanceClarification {
+  npcDefinitionId: string;
+  npcName: string;
+  killedAt: string;
+  killedByName: string | null;
 }
 
 export interface DiscoveredItem {
@@ -2661,11 +2677,15 @@ export const api = {
   async recordRaidNpcKills(
     raidId: string,
     kills: Array<{ npcName: string; occurredAt: string; killerName?: string | null; rawLine?: string | null }>
-  ) {
+  ): Promise<{ inserted: number; pendingClarifications: PendingInstanceClarification[] }> {
     if (!Array.isArray(kills) || kills.length === 0) {
-      return;
+      return { inserted: 0, pendingClarifications: [] };
     }
-    await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
+    const response = await axios.post(`/api/raids/${raidId}/npc-kills`, { kills });
+    return {
+      inserted: response.data.inserted ?? 0,
+      pendingClarifications: response.data.pendingClarifications ?? []
+    };
   },
 
   async deleteRaidNpcKills(raidId: string) {

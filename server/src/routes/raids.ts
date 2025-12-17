@@ -488,7 +488,10 @@ export async function raidsRoutes(server: FastifyInstance): Promise<void> {
       }
 
       const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
-      return { inserted: result.inserted };
+      return {
+        inserted: result.inserted,
+        pendingClarifications: result.pendingClarifications
+      };
     }
   );
 
