@@ -58,8 +58,18 @@
       </div>
     </div>
 
-    <div v-if="expansions.length > 0" class="expansion-filters">
+    <div class="expansion-filters">
       <button
+        :class="['expansion-filter-btn', 'raid-filter-btn', { 'expansion-filter-btn--active': raidOnlyFilter }]"
+        @click="raidOnlyFilter = !raidOnlyFilter"
+        title="Show only raid targets"
+      >
+        <span class="raid-filter-badge">RAID</span>
+        <span class="expansion-filter-label">Only</span>
+      </button>
+      <span class="filter-divider"></span>
+      <button
+        v-if="expansions.length > 0"
         :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
         @click="activeExpansionFilter = 'all'"
       >
@@ -349,6 +359,7 @@ const searchQuery = ref('');
 const activeStatusFilter = ref<'all' | NpcRespawnStatus>('all');
 const activeZoneFilter = ref('all');
 const activeExpansionFilter = ref('all');
+const raidOnlyFilter = ref(false);
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
@@ -426,6 +437,11 @@ const filteredNpcs = computed(() => {
       const expansion = getExpansionForZone(n.zoneName);
       return expansion?.shortName === activeExpansionFilter.value;
     });
+  }
+
+  // Filter by raid targets only
+  if (raidOnlyFilter.value) {
+    result = result.filter(n => n.isRaidTarget);
   }
 
   return result;
@@ -853,6 +869,38 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .expansion-filter-label {
   font-weight: 500;
+}
+
+.raid-filter-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.raid-filter-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.raid-filter-btn.expansion-filter-btn--active {
+  background: rgba(239, 68, 68, 0.35);
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.raid-filter-badge {
+  background: rgba(239, 68, 68, 0.8);
+  color: #fff;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.filter-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(148, 163, 184, 0.3);
+  margin: 0 0.25rem;
 }
 
 .loading-state,
