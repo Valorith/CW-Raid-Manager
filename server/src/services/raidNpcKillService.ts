@@ -153,33 +153,32 @@ export async function recordRaidNpcKills(
     }
   }
 
-  if (uniqueEntries.length === 0) {
-    return { inserted: 0 };
-  }
-
   let inserted = 0;
-  const insertedEntries: typeof uniqueEntries = [];
-  for (const chunk of chunkArray(uniqueEntries, 100)) {
-    try {
-      const result = await prisma.raidNpcKillEvent.createMany({
-        data: chunk,
-        skipDuplicates: true
-      });
-      inserted += result.count;
-      insertedEntries.push(...chunk);
-    } catch (error) {
-      logger?.warn({ error }, 'Failed to persist NPC kill chunk.');
+  if (uniqueEntries.length > 0) {
+    for (const chunk of chunkArray(uniqueEntries, 100)) {
+      try {
+        const result = await prisma.raidNpcKillEvent.createMany({
+          data: chunk,
+          skipDuplicates: true
+        });
+        inserted += result.count;
+      } catch (error) {
+        logger?.warn({ error }, 'Failed to persist NPC kill chunk.');
+      }
     }
   }
 
   // Record kills in the NPC Respawn Tracker for any tracked NPCs
   // This happens regardless of Discord webhook settings
-  // Collect any kills that need instance or zone clarification
+  // IMPORTANT: Process ALL prepared kills, not just newly inserted ones!
+  // A kill might already be in RaidNpcKillEvent but not yet in the respawn tracker
+  // (e.g., if the respawn tracker recording failed or was skipped previously)
+  // The respawn tracker service has its own deduplication logic
   const pendingClarifications: PendingInstanceClarification[] = [];
   const pendingZoneClarifications: PendingZoneClarification[] = [];
-  if (insertedEntries.length > 0) {
-    logger?.info?.({ count: insertedEntries.length }, 'Processing inserted kills for respawn tracker');
-    for (const entry of insertedEntries) {
+  if (prepared.length > 0) {
+    logger?.info?.({ count: prepared.length }, 'Processing kills for respawn tracker');
+    for (const entry of prepared) {
       try {
         logger?.info?.({
           npcName: entry.npcName,
@@ -223,8 +222,9 @@ export async function recordRaidNpcKills(
   }
 
   // Emit Discord webhook for kills of NPCs that are flagged as raid targets in the respawn tracker
-  if (insertedEntries.length > 0 && raidTargetNpcLookup.size > 0) {
-    const raidTargetKills = insertedEntries
+  // Only emit for newly inserted kills to avoid duplicate notifications
+  if (uniqueEntries.length > 0 && raidTargetNpcLookup.size > 0) {
+    const raidTargetKills = uniqueEntries
       .filter((entry) => raidTargetNpcLookup.has(entry.npcNameNormalized))
       .map((entry) => ({
         npcName: raidTargetNpcLookup.get(entry.npcNameNormalized) ?? entry.npcName,
