@@ -422,8 +422,6 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   "Tunare's Shrine": 'por',
   'Theater of Blood': 'por',
   'Deathknell, Tower of Dissonance': 'por',
-  'East Freeport': 'por',
-  'West Freeport': 'por',
   'Freeport Sewers': 'por',
   'Academy of Arcane Sciences': 'por',
   'Temple of Marr (B)': 'por',
