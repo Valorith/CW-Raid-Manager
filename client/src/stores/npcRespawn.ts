@@ -36,17 +36,19 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   const sortedNpcs = computed(() => {
     return [...npcs.value].sort((a, b) => {
-      // Sort by respawn status: up > window > down > unknown
+      // Sort by respawn status: down > window > up > unknown
+      // This prioritizes NPCs that are actively being tracked (down/window) over those already up
       const statusOrder: Record<string, number> = {
-        up: 0,
+        down: 0,
         window: 1,
-        down: 2,
+        up: 2,
         unknown: 3
       };
       const statusDiff = (statusOrder[a.respawnStatus] ?? 3) - (statusOrder[b.respawnStatus] ?? 3);
       if (statusDiff !== 0) return statusDiff;
 
       // Then by progress percent (descending) for those in window/down
+      // NPCs closer to respawning appear first
       if (a.progressPercent !== null && b.progressPercent !== null) {
         return b.progressPercent - a.progressPercent;
       }
