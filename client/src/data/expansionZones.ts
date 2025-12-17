@@ -37,7 +37,7 @@ export interface ExpansionInfo {
 }
 
 export const expansionInfo: Record<ExpansionKey, ExpansionInfo> = {
-  original: { name: 'Classic', shortName: 'Classic', icon: '/expansion-icons/original.gif' },
+  original: { name: 'Original', shortName: 'Original', icon: '/expansion-icons/original.gif' },
   kunark: { name: 'Ruins of Kunark', shortName: 'Kunark', icon: '/expansion-icons/kunarkicon.gif' },
   velious: { name: 'Scars of Velious', shortName: 'Velious', icon: '/expansion-icons/veliousicon.gif' },
   luclin: { name: 'Shadows of Luclin', shortName: 'Luclin', icon: '/expansion-icons/luclinicon.gif' },
