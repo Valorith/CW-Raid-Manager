@@ -460,6 +460,11 @@ export async function recordKillForTrackedNpc(
     killedAt: Date;
     killedByName?: string | null;
     zoneName?: string | null;
+  },
+  options?: {
+    // When true, auto-record kills as overworld even if NPC has hasInstanceVersion=true
+    // This is useful for continuous monitoring where we don't want to interrupt with clarification dialogs
+    autoRecordAsOverworld?: boolean;
   }
 ): Promise<RecordKillResult> {
   // Find all NPC definitions by normalized name (could be multiple in different zones)
@@ -563,7 +568,7 @@ export async function recordKillForTrackedNpc(
     }
   }
 
-  // If NPC has instance version tracking, don't auto-record - needs clarification
+  // If NPC has instance version tracking, behavior depends on options
   if (definition.hasInstanceVersion) {
     // Check if we already have a kill record for this exact time to avoid duplicates
     const existingKill = await prisma.npcKillRecord.findFirst({
@@ -576,6 +581,24 @@ export async function recordKillForTrackedNpc(
 
     if (existingKill) {
       // Already recorded this kill
+      return { recorded: true, needsInstanceClarification: false };
+    }
+
+    // If autoRecordAsOverworld is enabled, record as overworld without clarification
+    // This is used for continuous monitoring where we don't want to interrupt with dialogs
+    if (options?.autoRecordAsOverworld) {
+      console.log('[recordKillForTrackedNpc] Auto-recording as overworld (hasInstanceVersion=true, autoRecordAsOverworld=true)');
+      await prisma.npcKillRecord.create({
+        data: {
+          guildId,
+          npcDefinitionId: definition.id,
+          killedAt: input.killedAt,
+          killedByName: input.killedByName?.trim() || null,
+          killedById: null,
+          notes: 'Auto-recorded from raid log (overworld)',
+          isInstance: false
+        }
+      });
       return { recorded: true, needsInstanceClarification: false };
     }
 

@@ -209,6 +209,10 @@ export async function recordRaidNpcKills(
           killedAt: entry.occurredAt,
           killedByName: entry.killerName,
           zoneName: entry.zoneName
+        }, {
+          // Auto-record as overworld for continuous monitoring
+          // This avoids requiring user clarification during live tracking
+          autoRecordAsOverworld: true
         });
         logger?.info?.({
           npcName: entry.npcName,
