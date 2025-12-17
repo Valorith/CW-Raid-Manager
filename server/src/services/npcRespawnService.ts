@@ -166,12 +166,16 @@ export async function createNpcDefinition(
   }
   const normalized = normalizeNpcName(npcName);
 
-  // Check for duplicates
+  // Check for duplicates - same name AND same zone is not allowed
   const existing = await prisma.npcDefinition.findFirst({
-    where: { guildId, npcNameNormalized: normalized }
+    where: {
+      guildId,
+      npcNameNormalized: normalized,
+      zoneName: input.zoneName?.trim() || null
+    }
   });
   if (existing) {
-    throw new Error('An NPC with this name already exists.');
+    throw new Error('An NPC with this name already exists in this zone.');
   }
 
   const record = await prisma.npcDefinition.create({
@@ -219,13 +223,19 @@ export async function updateNpcDefinition(
   }
   const normalized = normalizeNpcName(npcName);
 
-  // Check for duplicates if name changed
-  if (normalized !== existing.npcNameNormalized) {
+  // Check for duplicates if name or zone changed - same name AND same zone is not allowed
+  const newZone = input.zoneName?.trim() || null;
+  if (normalized !== existing.npcNameNormalized || newZone !== existing.zoneName) {
     const duplicate = await prisma.npcDefinition.findFirst({
-      where: { guildId, npcNameNormalized: normalized, id: { not: npcDefinitionId } }
+      where: {
+        guildId,
+        npcNameNormalized: normalized,
+        zoneName: newZone,
+        id: { not: npcDefinitionId }
+      }
     });
     if (duplicate) {
-      throw new Error('An NPC with this name already exists.');
+      throw new Error('An NPC with this name already exists in this zone.');
     }
   }
 
@@ -410,6 +420,7 @@ export type RecordKillResult = {
 // Record a kill for a tracked NPC (called automatically from raid NPC kill detection)
 // Only records if the NPC is already configured in the respawn tracker
 // For NPCs with hasInstanceVersion, does NOT auto-record - returns needsInstanceClarification=true instead
+// If multiple NPCs have the same name (different zones), does NOT auto-record to avoid ambiguity
 export async function recordKillForTrackedNpc(
   guildId: string,
   input: {
@@ -419,18 +430,26 @@ export async function recordKillForTrackedNpc(
     killedByName?: string | null;
   }
 ): Promise<RecordKillResult> {
-  // Find the NPC definition by normalized name
-  const definition = await prisma.npcDefinition.findFirst({
+  // Find all NPC definitions by normalized name (could be multiple in different zones)
+  const definitions = await prisma.npcDefinition.findMany({
     where: {
       guildId,
       npcNameNormalized: input.npcNameNormalized
     }
   });
 
-  if (!definition) {
+  if (definitions.length === 0) {
     // NPC is not tracked in the respawn tracker, skip
     return { recorded: false, needsInstanceClarification: false };
   }
+
+  // If multiple NPCs have the same name (different zones), skip auto-recording
+  // User will need to manually record which zone the kill was in
+  if (definitions.length > 1) {
+    return { recorded: false, needsInstanceClarification: false };
+  }
+
+  const definition = definitions[0];
 
   // If NPC has instance version tracking, don't auto-record - needs clarification
   if (definition.hasInstanceVersion) {
