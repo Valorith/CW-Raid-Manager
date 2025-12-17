@@ -578,12 +578,13 @@ export async function recordKillForTrackedNpc(
 }
 
 // Helper to calculate respawn status from a kill record
+// Accepts optional `now` timestamp to avoid creating multiple Date objects when called in a loop
 function calculateRespawnStatus(
   lastKill: { killedAt: Date; isInstance: boolean } | null,
   respawnMinMinutes: number | null,
-  respawnMaxMinutes: number | null
+  respawnMaxMinutes: number | null,
+  now: Date = new Date()
 ) {
-  const now = new Date();
 
   let respawnStatus: 'unknown' | 'up' | 'window' | 'down' = 'unknown';
   let respawnMinTime: Date | null = null;
@@ -631,12 +632,15 @@ function calculateRespawnStatus(
 // Get respawn tracker data - combines NPC definitions with latest kills and respawn calculations
 // For NPCs with hasInstanceVersion=true, returns two entries: one for overworld, one for instance
 export async function getRespawnTrackerData(guildId: string) {
-  // Fetch definitions with all kill records (we need to separate overworld vs instance kills)
+  // Fetch definitions with recent kill records (limited to avoid fetching entire history)
+  // We need to separate overworld vs instance kills, so fetch enough recent records
+  // to likely capture at least one of each type
   const definitions = await prisma.npcDefinition.findMany({
     where: { guildId },
     include: {
       killRecords: {
-        orderBy: { killedAt: 'desc' }
+        orderBy: { killedAt: 'desc' },
+        take: 10 // Limit to recent kills - we only need the latest of each type
       }
     },
     orderBy: { npcName: 'asc' }
@@ -649,6 +653,9 @@ export async function getRespawnTrackerData(guildId: string) {
     progressPercent: number | null;
     isInstanceVariant: boolean;
   }> = [];
+
+  // Create a single timestamp for all calculations to ensure consistency and avoid repeated Date creation
+  const now = new Date();
 
   for (const def of definitions) {
     if (def.hasInstanceVersion) {
@@ -663,7 +670,8 @@ export async function getRespawnTrackerData(guildId: string) {
       const overworldStatus = calculateRespawnStatus(
         lastOverworldKill,
         def.respawnMinMinutes,
-        def.respawnMaxMinutes
+        def.respawnMaxMinutes,
+        now
       );
       entries.push({
         ...formatNpcDefinition(def, lastOverworldKill),
@@ -675,7 +683,8 @@ export async function getRespawnTrackerData(guildId: string) {
       const instanceStatus = calculateRespawnStatus(
         lastInstanceKill,
         def.respawnMinMinutes,
-        def.respawnMaxMinutes
+        def.respawnMaxMinutes,
+        now
       );
       entries.push({
         ...formatNpcDefinition(def, lastInstanceKill),
@@ -688,7 +697,8 @@ export async function getRespawnTrackerData(guildId: string) {
       const status = calculateRespawnStatus(
         lastKill,
         def.respawnMinMinutes,
-        def.respawnMaxMinutes
+        def.respawnMaxMinutes,
+        now
       );
       entries.push({
         ...formatNpcDefinition(def, lastKill),

@@ -217,25 +217,32 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       if (!npc.lastKill || npc.respawnMinMinutes === null) continue;
 
       const killedTime = new Date(npc.lastKill.killedAt).getTime();
-      const respawnMinTime = killedTime + npc.respawnMinMinutes * 60 * 1000;
-      const respawnMaxTime = npc.respawnMaxMinutes !== null
+      const respawnMinTimeMs = killedTime + npc.respawnMinMinutes * 60 * 1000;
+      const respawnMaxTimeMs = npc.respawnMaxMinutes !== null
         ? killedTime + npc.respawnMaxMinutes * 60 * 1000
-        : respawnMinTime;
+        : respawnMinTimeMs;
 
       const totalWindowMs = (npc.respawnMaxMinutes ?? npc.respawnMinMinutes) * 60 * 1000;
       const elapsedMs = now - killedTime;
       npc.progressPercent = Math.min(100, Math.max(0, (elapsedMs / totalWindowMs) * 100));
 
-      if (now >= respawnMaxTime) {
+      // Update status based on current time
+      if (now >= respawnMaxTimeMs) {
         npc.respawnStatus = 'up';
-      } else if (now >= respawnMinTime) {
+      } else if (now >= respawnMinTimeMs) {
         npc.respawnStatus = 'window';
       } else {
         npc.respawnStatus = 'down';
       }
 
-      npc.respawnMinTime = new Date(respawnMinTime).toISOString();
-      npc.respawnMaxTime = new Date(respawnMaxTime).toISOString();
+      // Only update respawn times if they haven't been set yet
+      // (they don't change once the kill time is recorded)
+      if (!npc.respawnMinTime) {
+        npc.respawnMinTime = new Date(respawnMinTimeMs).toISOString();
+      }
+      if (!npc.respawnMaxTime) {
+        npc.respawnMaxTime = new Date(respawnMaxTimeMs).toISOString();
+      }
     }
   }
 
