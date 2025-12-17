@@ -679,7 +679,7 @@ model NpcDefinition {
   killRecords         NpcKillRecord[]
   subscriptions       NpcRespawnSubscription[]
 
-  @@unique([guildId, npcNameNormalized], map: "NpcDefinition_guild_npc_unique")
+  @@unique([guildId, npcNameNormalized, zoneName], map: "NpcDefinition_guild_npc_zone_unique")
   @@index([guildId])
 }
 
