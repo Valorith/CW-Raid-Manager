@@ -125,7 +125,7 @@ export async function listNpcDefinitions(guildId: string) {
     },
     orderBy: { npcName: 'asc' }
   });
-  return definitions.map(formatNpcDefinition);
+  return definitions.map(def => formatNpcDefinition(def));
 }
 
 export async function getNpcDefinition(guildId: string, npcDefinitionId: string) {
