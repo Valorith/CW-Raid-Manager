@@ -863,7 +863,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 
 .expansion-filter-btn--icon-only {
   padding: 0.25rem;
-  width: 44px;
+  width: 88px;
   height: 44px;
   justify-content: center;
 }
