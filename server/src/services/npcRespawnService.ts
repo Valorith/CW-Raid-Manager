@@ -167,14 +167,22 @@ export async function createNpcDefinition(
   const normalized = normalizeNpcName(npcName);
 
   // Check for duplicates - same name AND same zone is not allowed
-  const existing = await prisma.npcDefinition.findFirst({
+  // Fetch all NPCs with same name and check zone programmatically to handle null/empty string differences
+  const inputZone = input.zoneName?.trim() || null;
+  const existingWithSameName = await prisma.npcDefinition.findMany({
     where: {
       guildId,
-      npcNameNormalized: normalized,
-      zoneName: input.zoneName?.trim() || null
+      npcNameNormalized: normalized
     }
   });
-  if (existing) {
+  const duplicate = existingWithSameName.find(npc => {
+    const npcZone = npc.zoneName?.trim() || null;
+    // Compare zones case-insensitively, treating null and empty string as equivalent
+    if (inputZone === null && npcZone === null) return true;
+    if (inputZone === null || npcZone === null) return false;
+    return inputZone.toLowerCase() === npcZone.toLowerCase();
+  });
+  if (duplicate) {
     throw new Error('An NPC with this name already exists in this zone.');
   }
 
@@ -224,15 +232,25 @@ export async function updateNpcDefinition(
   const normalized = normalizeNpcName(npcName);
 
   // Check for duplicates if name or zone changed - same name AND same zone is not allowed
+  // Fetch all other NPCs with same name and check zone programmatically
   const newZone = input.zoneName?.trim() || null;
-  if (normalized !== existing.npcNameNormalized || newZone !== existing.zoneName) {
-    const duplicate = await prisma.npcDefinition.findFirst({
+  const existingZone = existing.zoneName?.trim() || null;
+  const nameChanged = normalized !== existing.npcNameNormalized;
+  const zoneChanged = newZone?.toLowerCase() !== existingZone?.toLowerCase();
+
+  if (nameChanged || zoneChanged) {
+    const othersWithSameName = await prisma.npcDefinition.findMany({
       where: {
         guildId,
         npcNameNormalized: normalized,
-        zoneName: newZone,
         id: { not: npcDefinitionId }
       }
+    });
+    const duplicate = othersWithSameName.find(npc => {
+      const npcZone = npc.zoneName?.trim() || null;
+      if (newZone === null && npcZone === null) return true;
+      if (newZone === null || npcZone === null) return false;
+      return newZone.toLowerCase() === npcZone.toLowerCase();
     });
     if (duplicate) {
       throw new Error('An NPC with this name already exists in this zone.');
