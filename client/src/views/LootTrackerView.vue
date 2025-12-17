@@ -5279,7 +5279,8 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
       npcName: kill.npcName.trim(),
       occurredAt: kill.timestamp!.toISOString(),
       killerName: kill.killerName ?? null,
-      rawLine: kill.rawLine ?? null
+      rawLine: kill.rawLine ?? null,
+      zoneName: kill.zoneName ?? null
     }));
 
   if (payload.length === 0) {
