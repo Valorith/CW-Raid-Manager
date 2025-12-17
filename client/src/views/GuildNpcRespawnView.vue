@@ -387,6 +387,9 @@
       </div>
     </div>
 
+    <!-- Error Modal -->
+    <ErrorModal />
+
   </section>
 </template>
 
@@ -396,10 +399,13 @@ import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcRespawnTrackerEntry, NpcRespawnStatus } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
+import ErrorModal from '../components/ErrorModal.vue';
+import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
 const store = useNpcRespawnStore();
+const { showErrorFromException } = useErrorModal();
 
 // State
 const searchQuery = ref('');
@@ -642,7 +648,7 @@ async function submitKill() {
     });
     closeKillModal();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to record kill');
+    showErrorFromException(err, 'Failed to record kill');
   } finally {
     submittingKill.value = false;
   }
@@ -680,7 +686,7 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
       triggerWebhook: false
     });
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as spawned');
+    showErrorFromException(err, 'Failed to mark as spawned');
   }
 }
 
@@ -710,7 +716,7 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
       triggerWebhook: false
     });
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to mark as killed');
+    showErrorFromException(err, 'Failed to mark as killed');
   }
 }
 

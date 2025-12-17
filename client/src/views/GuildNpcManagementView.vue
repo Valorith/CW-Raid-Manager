@@ -396,6 +396,9 @@
       </div>
     </div>
 
+    <!-- Error Modal -->
+    <ErrorModal />
+
   </section>
 </template>
 
@@ -406,10 +409,13 @@ import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../services/api';
 import { NPC_CONTENT_FLAGS } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
+import ErrorModal from '../components/ErrorModal.vue';
+import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
 const store = useNpcRespawnStore();
+const { showErrorFromException } = useErrorModal();
 
 // State
 const searchQuery = ref('');
@@ -594,7 +600,7 @@ async function submitForm() {
     }
     closeModal();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to save NPC');
+    showErrorFromException(err, 'Failed to save NPC');
   } finally {
     submitting.value = false;
   }
@@ -618,7 +624,7 @@ async function executeDelete() {
     await store.deleteDefinition(guildId, deletingNpc.value.id);
     cancelDelete();
   } catch (err: any) {
-    alert(err?.response?.data?.message ?? err?.message ?? 'Failed to delete NPC');
+    showErrorFromException(err, 'Failed to delete NPC');
   } finally {
     deleting.value = false;
   }
