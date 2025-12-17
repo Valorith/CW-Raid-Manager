@@ -133,12 +133,12 @@ export async function recordRaidNpcKills(
   const signatures = prepared.map((entry) => entry.logSignature);
   let uniqueEntries = prepared;
 
-  logger?.info?.({
+  console.log('[recordRaidNpcKills] Processing NPC kills:', {
     raidId,
     guildId,
     preparedCount: prepared.length,
-    preparedKills: prepared.map(e => ({ npcName: e.npcName, signature: e.logSignature.substring(0, 8) }))
-  }, 'Processing NPC kills for raid event');
+    preparedKills: prepared.slice(0, 5).map(e => ({ npcName: e.npcName, signature: e.logSignature.substring(0, 8) }))
+  });
 
   if (signatures.length > 0) {
     const existing = await prisma.raidNpcKillEvent.findMany({
@@ -151,24 +151,30 @@ export async function recordRaidNpcKills(
       select: { logSignature: true }
     });
 
-    logger?.info?.({
+    console.log('[recordRaidNpcKills] Duplicate check result:', {
+      raidId,
       existingCount: existing.length,
-      existingSignatures: existing.map(e => e.logSignature.substring(0, 8))
-    }, 'Found existing kills in raid event');
+      existingSignatures: existing.slice(0, 5).map(e => e.logSignature.substring(0, 8))
+    });
 
     const seen = new Set(existing.map((item) => item.logSignature));
     uniqueEntries = [];
     for (const entry of prepared) {
       if (seen.has(entry.logSignature)) {
-        logger?.info?.({ npcName: entry.npcName, signature: entry.logSignature.substring(0, 8) }, 'Kill skipped (duplicate in raid event)');
         continue;
       }
       seen.add(entry.logSignature);
       uniqueEntries.push(entry);
     }
 
-    logger?.info?.({ uniqueCount: uniqueEntries.length }, 'Unique kills to insert');
+    console.log('[recordRaidNpcKills] After filtering duplicates:', {
+      uniqueCount: uniqueEntries.length
+    });
   }
+
+  // Also check total count in database for this raid
+  const totalInDb = await prisma.raidNpcKillEvent.count({ where: { raidId } });
+  console.log('[recordRaidNpcKills] Total kills in DB for this raid:', totalInDb);
 
   let inserted = 0;
   if (uniqueEntries.length > 0) {
