@@ -828,6 +828,7 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
   letter-spacing: 0.1em;
   color: #94a3b8;
   font-weight: 600;
+  text-align: center;
 }
 
 .npc-table th:first-child {
@@ -958,10 +959,11 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter], () => {
 }
 
 .expansion-icon {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
   flex-shrink: 0;
+  margin: -12px 0;
 }
 
 .zone-badge {
