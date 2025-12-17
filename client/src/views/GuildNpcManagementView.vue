@@ -63,8 +63,8 @@
         :key="npc.id"
         class="npc-card"
       >
-        <div class="npc-card__main">
-          <div class="npc-card__left">
+        <div class="npc-card__header">
+          <div class="npc-card__zone">
             <img
               v-if="getExpansionForZone(npc.zoneName)"
               :src="getExpansionForZone(npc.zoneName)?.icon"
@@ -72,38 +72,7 @@
               :title="getExpansionForZone(npc.zoneName)?.name"
               class="expansion-icon"
             />
-          </div>
-          <div class="npc-card__content">
-            <div class="npc-card__header">
-              <div class="npc-card__title">
-                <h3>{{ npc.npcName }}</h3>
-                <a
-                  v-if="npc.allaLink"
-                  :href="npc.allaLink"
-                  target="_blank"
-                  rel="noopener"
-                  class="alla-link"
-                  title="View on Allakhazam"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
-                <span v-if="npc.isRaidTarget" class="raid-badge">RAID</span>
-                <span
-                  v-if="npc.contentFlag"
-                  :class="['content-flag-badge', isContentFlagEnabled(npc.contentFlag) ? 'content-flag-badge--enabled' : 'content-flag-badge--disabled']"
-                  :title="isContentFlagEnabled(npc.contentFlag) ? `${npc.contentFlag} event is active` : `${npc.contentFlag} event is inactive`"
-                >
-                  {{ npc.contentFlag }}
-                </span>
-              </div>
-            </div>
-            <div class="npc-card__details">
-              <span v-if="npc.zoneName" class="zone-badge">{{ npc.zoneName }}</span>
-              <span class="respawn-info">{{ formatRespawnRange(npc.respawnMinMinutes, npc.respawnMaxMinutes) }}</span>
-            </div>
-            <p v-if="npc.notes" class="npc-card__notes">{{ npc.notes }}</p>
+            <span v-if="npc.zoneName" class="zone-name">{{ npc.zoneName }}</span>
           </div>
           <div class="npc-card__actions">
             <button class="btn btn--icon btn--outline" @click="openEditModal(npc)" title="Edit">
@@ -123,6 +92,41 @@
               </svg>
             </button>
           </div>
+        </div>
+        <div class="npc-card__body">
+          <div class="npc-card__title">
+            <h3>{{ npc.npcName }}</h3>
+            <a
+              v-if="npc.allaLink"
+              :href="npc.allaLink"
+              target="_blank"
+              rel="noopener"
+              class="alla-link"
+              title="View on Allakhazam"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+          <div class="npc-card__badges">
+            <span v-if="npc.isRaidTarget" class="raid-badge">RAID</span>
+            <span
+              v-if="npc.contentFlag"
+              :class="['content-flag-badge', isContentFlagEnabled(npc.contentFlag) ? 'content-flag-badge--enabled' : 'content-flag-badge--disabled']"
+              :title="isContentFlagEnabled(npc.contentFlag) ? `${npc.contentFlag} event is active` : `${npc.contentFlag} event is inactive`"
+            >
+              {{ npc.contentFlag }}
+            </span>
+          </div>
+          <div class="npc-card__respawn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 6v6l4 2" />
+            </svg>
+            <span>{{ formatRespawnRange(npc.respawnMinMinutes, npc.respawnMaxMinutes) }}</span>
+          </div>
+          <p v-if="npc.notes" class="npc-card__notes">{{ npc.notes }}</p>
         </div>
       </article>
     </div>
@@ -734,9 +738,9 @@ onMounted(async () => {
 }
 
 .npc-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
   padding: 0 0.5rem;
 }
 
@@ -746,6 +750,8 @@ onMounted(async () => {
   border-radius: 0.5rem;
   overflow: hidden;
   transition: border-color 0.15s ease, background 0.15s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .npc-card:hover {
@@ -753,46 +759,56 @@ onMounted(async () => {
   background: rgba(15, 23, 42, 0.85);
 }
 
-.npc-card__main {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
-}
-
-.npc-card__left {
-  flex-shrink: 0;
-  width: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.expansion-icon {
-  width: 36px;
-  height: 36px;
-  object-fit: contain;
-}
-
-.npc-card__content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
 .npc-card__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.npc-card__zone {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.expansion-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.zone-name {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.npc-card__actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.npc-card__body {
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
 }
 
 .npc-card__title {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   min-width: 0;
-  flex-wrap: wrap;
 }
 
 .npc-card__title h3 {
@@ -810,6 +826,7 @@ onMounted(async () => {
   align-items: center;
   color: #64748b;
   transition: color 0.15s ease;
+  flex-shrink: 0;
 }
 
 .alla-link:hover {
@@ -817,40 +834,41 @@ onMounted(async () => {
 }
 
 .alla-link svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
+}
+
+.npc-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-height: 1.2rem;
 }
 
 .raid-badge {
   background: rgba(239, 68, 68, 0.8);
   color: #fff;
-  padding: 0.1rem 0.35rem;
+  padding: 0.15rem 0.4rem;
   border-radius: 0.2rem;
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
 
-.npc-card__details {
+.npc-card__respawn {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.zone-badge {
-  display: inline-block;
-  padding: 0.15rem 0.4rem;
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  border-radius: 0.25rem;
-  font-size: 0.65rem;
-  color: #a5b4fc;
-}
-
-.respawn-info {
-  font-size: 0.75rem;
+  gap: 0.35rem;
   color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.npc-card__respawn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .npc-card__notes {
@@ -860,28 +878,21 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 400px;
-}
-
-.npc-card__actions {
-  display: flex;
-  gap: 0.4rem;
-  flex-shrink: 0;
 }
 
 .btn--icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border-radius: 0.375rem;
+  border-radius: 0.3rem;
 }
 
 .btn--icon svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .content-flag-badge {
