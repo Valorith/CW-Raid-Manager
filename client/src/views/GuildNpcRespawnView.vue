@@ -364,7 +364,7 @@ const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
 const currentPage = ref(1);
-const itemsPerPage = 25;
+const itemsPerPage = 10;
 
 const killForm = ref({
   killedAt: '',
