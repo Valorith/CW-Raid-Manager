@@ -38,7 +38,9 @@ export interface NpcSubscriptionInput {
 
 // Helper functions
 function normalizeNpcName(name: string) {
-  return name.trim().toLowerCase();
+  // Collapse multiple spaces to single space, trim, and lowercase
+  // Must match normalization in raidNpcKillService.ts for consistent lookups
+  return name.replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function normalizeAllaLink(input?: string | null) {
@@ -458,6 +460,11 @@ export async function recordKillForTrackedNpc(
     killedAt: Date;
     killedByName?: string | null;
     zoneName?: string | null;
+  },
+  options?: {
+    // When true, auto-record kills as overworld even if NPC has hasInstanceVersion=true
+    // This is useful for continuous monitoring where we don't want to interrupt with clarification dialogs
+    autoRecordAsOverworld?: boolean;
   }
 ): Promise<RecordKillResult> {
   // Find all NPC definitions by normalized name (could be multiple in different zones)
@@ -468,8 +475,18 @@ export async function recordKillForTrackedNpc(
     }
   });
 
+  console.log('[recordKillForTrackedNpc] Lookup result:', {
+    guildId,
+    npcName: input.npcName,
+    npcNameNormalized: input.npcNameNormalized,
+    zoneName: input.zoneName,
+    definitionsFound: definitions.length,
+    definitions: definitions.map(d => ({ id: d.id, npcName: d.npcName, npcNameNormalized: d.npcNameNormalized, zoneName: d.zoneName, hasInstanceVersion: d.hasInstanceVersion }))
+  });
+
   if (definitions.length === 0) {
     // NPC is not tracked in the respawn tracker, skip
+    console.log('[recordKillForTrackedNpc] NPC not found in respawn tracker');
     return { recorded: false, needsInstanceClarification: false };
   }
 
@@ -478,11 +495,43 @@ export async function recordKillForTrackedNpc(
   // If multiple NPCs have the same name (different zones), try to match by zone
   if (definitions.length > 1) {
     if (input.zoneName) {
-      // Try to find a matching zone (case-insensitive)
+      // Try to find a matching zone (case-insensitive exact match first)
       const inputZone = input.zoneName.trim().toLowerCase();
-      const matched = definitions.find(
+      let matched = definitions.find(
         (d) => d.zoneName && d.zoneName.trim().toLowerCase() === inputZone
       );
+
+      // If no exact match, try fuzzy matching for common typos/variations
+      if (!matched) {
+        // Try partial matching - check if zone names are similar (handles typos like Drakkal vs Drakkel)
+        matched = definitions.find((d) => {
+          if (!d.zoneName) return false;
+          const defZone = d.zoneName.trim().toLowerCase();
+          // Check if one contains the other or if they share a significant prefix
+          if (defZone.includes(inputZone) || inputZone.includes(defZone)) {
+            return true;
+          }
+          // Check for similar zone names (same prefix, minor suffix differences)
+          // This handles cases like "Kael Drakkal" vs "Kael Drakkel"
+          const minLen = Math.min(defZone.length, inputZone.length);
+          if (minLen >= 5) {
+            // Count matching characters from the start
+            let matchingChars = 0;
+            for (let i = 0; i < minLen; i++) {
+              if (defZone[i] === inputZone[i]) {
+                matchingChars++;
+              } else {
+                break;
+              }
+            }
+            // If at least 80% of the shorter string matches from the start, consider it a match
+            if (matchingChars >= minLen * 0.8) {
+              return true;
+            }
+          }
+          return false;
+        });
+      }
 
       if (matched) {
         // Found a match by zone
@@ -519,7 +568,13 @@ export async function recordKillForTrackedNpc(
     }
   }
 
-  // If NPC has instance version tracking, don't auto-record - needs clarification
+  // If NPC has instance version tracking, behavior depends on options
+  console.log('[recordKillForTrackedNpc] Checking instance version:', {
+    npcName: definition.npcName,
+    hasInstanceVersion: definition.hasInstanceVersion,
+    definitionId: definition.id
+  });
+
   if (definition.hasInstanceVersion) {
     // Check if we already have a kill record for this exact time to avoid duplicates
     const existingKill = await prisma.npcKillRecord.findFirst({
@@ -530,12 +585,37 @@ export async function recordKillForTrackedNpc(
       }
     });
 
+    console.log('[recordKillForTrackedNpc] Existing kill check:', {
+      hasExistingKill: !!existingKill,
+      existingKillId: existingKill?.id ?? null,
+      killedAt: input.killedAt
+    });
+
     if (existingKill) {
       // Already recorded this kill
       return { recorded: true, needsInstanceClarification: false };
     }
 
+    // If autoRecordAsOverworld is enabled, record as overworld without clarification
+    // This is used for continuous monitoring where we don't want to interrupt with dialogs
+    if (options?.autoRecordAsOverworld) {
+      console.log('[recordKillForTrackedNpc] Auto-recording as overworld (hasInstanceVersion=true, autoRecordAsOverworld=true)');
+      await prisma.npcKillRecord.create({
+        data: {
+          guildId,
+          npcDefinitionId: definition.id,
+          killedAt: input.killedAt,
+          killedByName: input.killedByName?.trim() || null,
+          killedById: null,
+          notes: 'Auto-recorded from raid log (overworld)',
+          isInstance: false
+        }
+      });
+      return { recorded: true, needsInstanceClarification: false };
+    }
+
     // Needs clarification from user
+    console.log('[recordKillForTrackedNpc] Returning needsInstanceClarification=true');
     return {
       recorded: false,
       needsInstanceClarification: true,

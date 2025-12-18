@@ -388,4 +388,138 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
 
     return { items };
   });
+
+  // Get pending NPC kill clarifications for a guild
+  server.get('/:guildId/npc-pending-clarifications', { preHandler: [authenticate] }, async (request) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    const clarifications = await prisma.pendingNpcKillClarification.findMany({
+      where: { guildId },
+      include: {
+        npcDefinition: {
+          select: {
+            id: true,
+            npcName: true,
+            zoneName: true,
+            hasInstanceVersion: true
+          }
+        },
+        raidEvent: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    return {
+      clarifications: clarifications.map((c) => ({
+        id: c.id,
+        clarificationType: c.clarificationType,
+        npcName: c.npcName,
+        killedAt: c.killedAt.toISOString(),
+        killedByName: c.killedByName,
+        npcDefinitionId: c.npcDefinitionId,
+        npcDefinition: c.npcDefinition,
+        zoneOptions: c.zoneOptions,
+        raidId: c.raidId,
+        raidName: c.raidEvent?.name ?? null,
+        createdAt: c.createdAt.toISOString()
+      })),
+      canManage: roleCanEditRaid(role)
+    };
+  });
+
+  // Resolve a pending clarification (creates the kill record)
+  server.post('/:guildId/npc-pending-clarifications/:clarificationId/resolve', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      clarificationId: z.string()
+    });
+    const bodySchema = z.object({
+      npcDefinitionId: z.string().min(1),
+      isInstance: z.boolean()
+    });
+
+    const { guildId, clarificationId } = paramsSchema.parse(request.params);
+    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    if (!roleCanEditRaid(role)) {
+      return reply.forbidden('You do not have permission to resolve clarifications.');
+    }
+
+    const parsedBody = bodySchema.safeParse(request.body ?? {});
+    if (!parsedBody.success) {
+      return reply.badRequest('Invalid request body: ' + parsedBody.error.message);
+    }
+
+    const clarification = await prisma.pendingNpcKillClarification.findFirst({
+      where: { id: clarificationId, guildId }
+    });
+
+    if (!clarification) {
+      return reply.notFound('Clarification not found.');
+    }
+
+    // Create the kill record
+    const record = await createKillRecord(guildId, {
+      npcDefinitionId: parsedBody.data.npcDefinitionId,
+      killedAt: clarification.killedAt,
+      killedByName: clarification.killedByName ?? null,
+      killedById: request.user.userId,
+      notes: 'Resolved from pending clarification',
+      isInstance: parsedBody.data.isInstance
+    });
+
+    // Delete the pending clarification
+    await prisma.pendingNpcKillClarification.delete({
+      where: { id: clarificationId }
+    });
+
+    // Check if NPC is a raid target and trigger webhook
+    const npcDefinition = await prisma.npcDefinition.findUnique({
+      where: { id: parsedBody.data.npcDefinitionId },
+      include: { guild: { select: { name: true } } }
+    });
+
+    if (npcDefinition?.isRaidTarget) {
+      await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+        guildName: npcDefinition.guild?.name ?? 'Guild',
+        guildId,
+        kills: [{
+          npcName: npcDefinition.npcName,
+          killerName: clarification.killedByName ?? null,
+          occurredAt: clarification.killedAt
+        }]
+      });
+    }
+
+    return { record };
+  });
+
+  // Delete/dismiss a pending clarification without resolving
+  server.delete('/:guildId/npc-pending-clarifications/:clarificationId', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      clarificationId: z.string()
+    });
+
+    const { guildId, clarificationId } = paramsSchema.parse(request.params);
+    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    if (!roleCanEditRaid(role)) {
+      return reply.forbidden('You do not have permission to dismiss clarifications.');
+    }
+
+    await prisma.pendingNpcKillClarification.deleteMany({
+      where: { id: clarificationId, guildId }
+    });
+
+    return reply.code(204).send();
+  });
 }

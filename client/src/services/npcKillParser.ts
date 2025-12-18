@@ -14,14 +14,18 @@ const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
 
 const killPatterns: Array<{ regex: RegExp; map: (match: RegExpMatchArray) => { npcName: string; killerName?: string | null } | null }> = [
   {
-    regex: /\] You have slain (?<npc>.+?)!$/i,
+    // Pattern: "[timestamp] You have slain NpcName!"
+    // Allow trailing whitespace after the exclamation mark
+    regex: /\] You have slain (?<npc>.+?)!\s*$/i,
     map: (match) => {
       const npcName = match.groups?.npc ?? match[1];
       return npcName ? { npcName: npcName.trim(), killerName: 'You' } : null;
     }
   },
   {
-    regex: /\] (?<npc>.+?) has been slain by (?<killer>.+?)!$/i,
+    // Pattern: "[timestamp] NpcName has been slain by KillerName!"
+    // Allow trailing whitespace after the exclamation mark
+    regex: /\] (?<npc>.+?) has been slain by (?<killer>.+?)!\s*$/i,
     map: (match) => {
       const npcName = match.groups?.npc ?? match[1];
       if (!npcName) {

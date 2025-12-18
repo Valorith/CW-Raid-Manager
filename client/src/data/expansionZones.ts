@@ -186,7 +186,7 @@ const zoneExpansionMap: Record<string, ExpansionKey> = {
   'Iceclad Ocean': 'velious',
   'Tower of Frozen Shadow': 'velious',
   "Velketor's Labyrinth": 'velious',
-  'Kael Drakkal': 'velious',
+  'Kael Drakkel': 'velious',
   'Skyshrine': 'velious',
   'Thurgadin': 'velious',
   'Eastern Wastes': 'velious',
