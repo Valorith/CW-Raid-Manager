@@ -494,6 +494,34 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       });
     }
 
+    // Auto-resolve all other pending clarifications for the same NPC definition
+    // This prevents the user from having to action each kill event separately
+    // when the same NPC was killed multiple times during a raid
+    const otherClarifications = await prisma.pendingNpcKillClarification.findMany({
+      where: {
+        guildId,
+        npcDefinitionId: parsedBody.data.npcDefinitionId,
+        resolvedAt: null,
+        id: { not: clarificationId }
+      }
+    });
+
+    for (const other of otherClarifications) {
+      if (other.raidId) {
+        await prisma.pendingNpcKillClarification.update({
+          where: { id: other.id },
+          data: {
+            resolvedAt: new Date(),
+            resolvedById: request.user.userId
+          }
+        });
+      } else {
+        await prisma.pendingNpcKillClarification.delete({
+          where: { id: other.id }
+        });
+      }
+    }
+
     // Check if NPC is a raid target and trigger webhook
     const npcDefinition = await prisma.npcDefinition.findUnique({
       where: { id: parsedBody.data.npcDefinitionId },
@@ -553,6 +581,51 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       await prisma.pendingNpcKillClarification.delete({
         where: { id: clarificationId }
       });
+    }
+
+    // Auto-dismiss all other pending clarifications for the same NPC
+    // This prevents the user from having to dismiss each kill event separately
+    // when the same NPC was killed multiple times during a raid
+    const whereClause: {
+      guildId: string;
+      resolvedAt: null;
+      id: { not: string };
+      npcDefinitionId?: string;
+      npcName?: string;
+      clarificationType?: string;
+    } = {
+      guildId,
+      resolvedAt: null,
+      id: { not: clarificationId }
+    };
+
+    // For instance clarifications, match by npcDefinitionId
+    // For zone clarifications, match by npcName and clarificationType
+    if (clarification.npcDefinitionId) {
+      whereClause.npcDefinitionId = clarification.npcDefinitionId;
+    } else {
+      whereClause.npcName = clarification.npcName;
+      whereClause.clarificationType = clarification.clarificationType;
+    }
+
+    const otherClarifications = await prisma.pendingNpcKillClarification.findMany({
+      where: whereClause
+    });
+
+    for (const other of otherClarifications) {
+      if (other.raidId) {
+        await prisma.pendingNpcKillClarification.update({
+          where: { id: other.id },
+          data: {
+            resolvedAt: new Date(),
+            resolvedById: request.user.userId
+          }
+        });
+      } else {
+        await prisma.pendingNpcKillClarification.delete({
+          where: { id: other.id }
+        });
+      }
     }
 
     return reply.code(204).send();
