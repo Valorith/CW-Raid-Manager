@@ -827,10 +827,10 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
     }
 
     // Create a backdated kill record to show as "Up"
-    // Use the max respawn time + 1 minute, or default to 24 hours if no respawn configured
-    const respawnMs = npc.respawnMaxMinutes
-      ? (npc.respawnMaxMinutes + 1) * 60 * 1000
-      : 24 * 60 * 60 * 1000;
+    // Use the max respawn time + 1 minute, fallback to min time, or default to 24 hours if no respawn configured
+    // This must match the server's logic which uses: respawnMaxTime ?? respawnMinTime
+    const respawnMinutes = npc.respawnMaxMinutes ?? npc.respawnMinMinutes ?? (24 * 60);
+    const respawnMs = (respawnMinutes + 1) * 60 * 1000;
     const oldKillTime = new Date(Date.now() - respawnMs);
 
     await store.recordKill(guildId, {
