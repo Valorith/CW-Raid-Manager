@@ -1344,6 +1344,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
+import { isAxiosError } from 'axios';
 
 import {
   api,
@@ -3680,7 +3681,16 @@ const monitorHealthMessage = computed(() => {
 });
 
 async function loadData() {
-  raid.value = await api.fetchRaid(raidId);
+  try {
+    raid.value = await api.fetchRaid(raidId);
+  } catch (error) {
+    // If raid doesn't exist (404), redirect to raids list
+    if (isAxiosError(error) && error.response?.status === 404) {
+      router.replace({ name: 'Raids' });
+      return;
+    }
+    throw error;
+  }
   // Clear local loot disposition history if the raid has ended
   if (raid.value?.endedAt) {
     clearLootDispositionHistory();
@@ -3970,6 +3980,13 @@ async function fetchMonitorStatus() {
       startMonitorHeartbeat();
     }
   } catch (error) {
+    // If raid was deleted (404), stop polling and redirect
+    if (isAxiosError(error) && error.response?.status === 404) {
+      stopMonitorStatusPolling();
+      cleanupMonitorController();
+      router.replace({ name: 'Raids' });
+      return;
+    }
     appendDebugLog('Failed to load log monitor status', { error: String(error) });
   }
 }
@@ -4902,8 +4919,15 @@ async function handleActiveRaidUpdated() {
     const updatedRaid = await api.fetchRaid(raidId);
     raid.value = updatedRaid;
     // The watch on raid.value?.endedAt will clear loot disposition history if raid ended
-  } catch {
-    // Ignore fetch errors during refresh
+  } catch (error) {
+    // If raid was deleted (404), stop polling and redirect to raids list
+    if (isAxiosError(error) && error.response?.status === 404) {
+      stopMonitorStatusPolling();
+      cleanupMonitorController();
+      router.replace({ name: 'Raids' });
+      return;
+    }
+    // Ignore other fetch errors during refresh
   }
 }
 
