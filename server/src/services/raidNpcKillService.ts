@@ -253,6 +253,27 @@ export async function recordRaidNpcKills(
               },
               update: {} // Don't update if already exists
             });
+
+            // Limit to 2 most recent pending clarifications per NPC definition
+            // This prevents the user from having to action many clarifications for the same NPC
+            const existingClarifications = await prisma.pendingNpcKillClarification.findMany({
+              where: {
+                guildId,
+                npcDefinitionId: result.npcDefinitionId,
+                resolvedAt: null
+              },
+              orderBy: { killedAt: 'desc' },
+              select: { id: true }
+            });
+
+            // If more than 2, soft-delete the older ones
+            if (existingClarifications.length > 2) {
+              const idsToResolve = existingClarifications.slice(2).map(c => c.id);
+              await prisma.pendingNpcKillClarification.updateMany({
+                where: { id: { in: idsToResolve } },
+                data: { resolvedAt: new Date() }
+              });
+            }
           } catch (dbError) {
             logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending clarification to database');
           }
@@ -282,6 +303,28 @@ export async function recordRaidNpcKills(
               },
               update: {} // Don't update if already exists
             });
+
+            // Limit to 2 most recent pending zone clarifications per NPC name
+            // This prevents the user from having to action many clarifications for the same NPC
+            const existingZoneClarifications = await prisma.pendingNpcKillClarification.findMany({
+              where: {
+                guildId,
+                npcName: result.npcName,
+                clarificationType: 'zone',
+                resolvedAt: null
+              },
+              orderBy: { killedAt: 'desc' },
+              select: { id: true }
+            });
+
+            // If more than 2, soft-delete the older ones
+            if (existingZoneClarifications.length > 2) {
+              const idsToResolve = existingZoneClarifications.slice(2).map(c => c.id);
+              await prisma.pendingNpcKillClarification.updateMany({
+                where: { id: { in: idsToResolve } },
+                data: { resolvedAt: new Date() }
+              });
+            }
           } catch (dbError) {
             logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending zone clarification to database');
           }
