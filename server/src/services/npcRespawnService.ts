@@ -569,6 +569,12 @@ export async function recordKillForTrackedNpc(
   }
 
   // If NPC has instance version tracking, behavior depends on options
+  console.log('[recordKillForTrackedNpc] Checking instance version:', {
+    npcName: definition.npcName,
+    hasInstanceVersion: definition.hasInstanceVersion,
+    definitionId: definition.id
+  });
+
   if (definition.hasInstanceVersion) {
     // Check if we already have a kill record for this exact time to avoid duplicates
     const existingKill = await prisma.npcKillRecord.findFirst({
@@ -577,6 +583,12 @@ export async function recordKillForTrackedNpc(
         npcDefinitionId: definition.id,
         killedAt: input.killedAt
       }
+    });
+
+    console.log('[recordKillForTrackedNpc] Existing kill check:', {
+      hasExistingKill: !!existingKill,
+      existingKillId: existingKill?.id ?? null,
+      killedAt: input.killedAt
     });
 
     if (existingKill) {
@@ -603,6 +615,7 @@ export async function recordKillForTrackedNpc(
     }
 
     // Needs clarification from user
+    console.log('[recordKillForTrackedNpc] Returning needsInstanceClarification=true');
     return {
       recorded: false,
       needsInstanceClarification: true,
