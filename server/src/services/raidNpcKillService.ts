@@ -226,22 +226,8 @@ export async function recordRaidNpcKills(
           needsZoneClarification: result.needsZoneClarification
         }, 'Respawn tracker result');
         if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
-          // Store pending clarification in database
           const clarificationId = `${guildId}-${result.npcDefinitionId}-${result.killedAt.toISOString()}`;
-          await prisma.pendingNpcKillClarification.upsert({
-            where: { id: clarificationId },
-            create: {
-              id: clarificationId,
-              guildId,
-              raidId,
-              clarificationType: 'instance',
-              npcName: result.npcName,
-              killedAt: result.killedAt,
-              killedByName: result.killedByName ?? null,
-              npcDefinitionId: result.npcDefinitionId
-            },
-            update: {} // Don't update if already exists
-          });
+          // Add to response array first (before database save which might fail)
           pendingClarifications.push({
             id: clarificationId,
             npcDefinitionId: result.npcDefinitionId,
@@ -249,23 +235,28 @@ export async function recordRaidNpcKills(
             killedAt: result.killedAt.toISOString(),
             killedByName: result.killedByName ?? null
           });
+          // Try to persist to database (non-blocking)
+          try {
+            await prisma.pendingNpcKillClarification.upsert({
+              where: { id: clarificationId },
+              create: {
+                id: clarificationId,
+                guildId,
+                raidId,
+                clarificationType: 'instance',
+                npcName: result.npcName,
+                killedAt: result.killedAt,
+                killedByName: result.killedByName ?? null,
+                npcDefinitionId: result.npcDefinitionId
+              },
+              update: {} // Don't update if already exists
+            });
+          } catch (dbError) {
+            logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending clarification to database');
+          }
         } else if (result.needsZoneClarification && result.zoneOptions && result.npcName && result.killedAt) {
-          // Store pending zone clarification in database
           const clarificationId = `${guildId}-zone-${result.npcName.toLowerCase()}-${result.killedAt.toISOString()}`;
-          await prisma.pendingNpcKillClarification.upsert({
-            where: { id: clarificationId },
-            create: {
-              id: clarificationId,
-              guildId,
-              raidId,
-              clarificationType: 'zone',
-              npcName: result.npcName,
-              killedAt: result.killedAt,
-              killedByName: result.killedByName ?? null,
-              zoneOptions: result.zoneOptions
-            },
-            update: {} // Don't update if already exists
-          });
+          // Add to response array first (before database save which might fail)
           pendingZoneClarifications.push({
             id: clarificationId,
             npcName: result.npcName,
@@ -273,6 +264,25 @@ export async function recordRaidNpcKills(
             killedByName: result.killedByName ?? null,
             zoneOptions: result.zoneOptions
           });
+          // Try to persist to database (non-blocking)
+          try {
+            await prisma.pendingNpcKillClarification.upsert({
+              where: { id: clarificationId },
+              create: {
+                id: clarificationId,
+                guildId,
+                raidId,
+                clarificationType: 'zone',
+                npcName: result.npcName,
+                killedAt: result.killedAt,
+                killedByName: result.killedByName ?? null,
+                zoneOptions: result.zoneOptions
+              },
+              update: {} // Don't update if already exists
+            });
+          } catch (dbError) {
+            logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending zone clarification to database');
+          }
         }
       } catch (error) {
         // Log error and continue - NPC may not be tracked in respawn tracker
