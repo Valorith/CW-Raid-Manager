@@ -8,6 +8,7 @@ import { recordKillForTrackedNpc, type RecordKillResult, type ZoneOption } from 
 
 // Type for kills that need instance clarification
 export type PendingInstanceClarification = {
+  id: string;
   npcDefinitionId: string;
   npcName: string;
   killedAt: string;
@@ -16,6 +17,7 @@ export type PendingInstanceClarification = {
 
 // Type for kills that need zone clarification (multiple NPCs with same name in different zones)
 export type PendingZoneClarification = {
+  id: string;
   npcName: string;
   killedAt: string;
   killedByName: string | null;
