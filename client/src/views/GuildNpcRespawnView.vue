@@ -865,10 +865,9 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
   if (!confirmed) return;
 
   try {
-    // Delete existing kill record if present
-    if (npc.lastKill) {
-      await store.deleteKillRecord(guildId, npc.lastKill.id);
-    }
+    // Delete ALL existing kill records for this specific NPC variant
+    // This ensures clicking "It's Up" once clears all previous kills for this variant
+    await api.deleteAllNpcKillRecordsForVariant(guildId, npc.id, npc.isInstanceVariant ?? false);
 
     // Create a backdated kill record to show as "Up"
     // Use the max respawn time + 1 minute, fallback to min time, or default to 24 hours if no respawn configured
@@ -901,10 +900,9 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
   if (!confirmed) return;
 
   try {
-    // If there's an existing kill record, delete it first to avoid duplicates
-    if (npc.lastKill) {
-      await store.deleteKillRecord(guildId, npc.lastKill.id);
-    }
+    // Delete ALL existing kill records for this specific NPC variant
+    // This ensures clicking "It's Down" once clears all previous kills for this variant
+    await api.deleteAllNpcKillRecordsForVariant(guildId, npc.id, npc.isInstanceVariant ?? false);
 
     // Record a new kill with current timestamp
     await store.recordKill(guildId, {

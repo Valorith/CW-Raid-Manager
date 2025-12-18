@@ -307,6 +307,40 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     return reply.code(204).send();
   });
 
+  // Delete all kill records for a specific NPC definition + variant
+  // Used by "It's Up" / "It's Down" buttons to ensure clean state before recording new status
+  server.delete('/:guildId/npc-definitions/:npcDefinitionId/kills', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      npcDefinitionId: z.string()
+    });
+    const querySchema = z.object({
+      isInstance: z.enum(['true', 'false']).optional()
+    });
+
+    const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+    const { isInstance } = querySchema.parse(request.query);
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    // Build where clause - always filter by guildId and npcDefinitionId
+    const whereClause: { guildId: string; npcDefinitionId: string; isInstance?: boolean } = {
+      guildId,
+      npcDefinitionId
+    };
+
+    // If isInstance is specified, filter by variant
+    if (isInstance !== undefined) {
+      whereClause.isInstance = isInstance === 'true';
+    }
+
+    await prisma.npcKillRecord.deleteMany({
+      where: whereClause
+    });
+
+    return reply.code(204).send();
+  });
+
   // Get user's subscriptions for a guild
   server.get('/:guildId/npc-subscriptions', { preHandler: [authenticate] }, async (request) => {
     const paramsSchema = z.object({ guildId: z.string() });
