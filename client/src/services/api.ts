@@ -3575,12 +3575,6 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/npc-pending-clarifications/${clarificationId}`);
   },
 
-  // Dismiss all pending clarifications for a specific NPC definition
-  // Used when manually changing NPC status via "It's Up" or "It's Down" buttons
-  async dismissPendingClarificationsForNpc(guildId: string, npcDefinitionId: string): Promise<void> {
-    await axios.delete(`/api/guilds/${guildId}/npc-definitions/${npcDefinitionId}/pending-clarifications`);
-  },
-
   async searchDiscoveredItems(
     guildId: string,
     query?: string,
