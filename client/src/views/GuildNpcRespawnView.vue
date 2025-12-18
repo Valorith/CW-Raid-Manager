@@ -841,6 +841,15 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
       isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
+
+    // Dismiss any pending clarifications for this NPC since we've manually set its status
+    try {
+      await api.dismissPendingClarificationsForNpc(guildId, npc.id);
+      // Refresh pending clarifications list
+      await loadPendingClarifications();
+    } catch {
+      // Ignore errors - dismissing clarifications is best-effort
+    }
   } catch (err: any) {
     showErrorFromException(err, 'Failed to mark as spawned');
   }
@@ -871,6 +880,15 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
       isInstance: npc.isInstanceVariant ?? false,
       triggerWebhook: false
     });
+
+    // Dismiss any pending clarifications for this NPC since we've manually set its status
+    try {
+      await api.dismissPendingClarificationsForNpc(guildId, npc.id);
+      // Refresh pending clarifications list
+      await loadPendingClarifications();
+    } catch {
+      // Ignore errors - dismissing clarifications is best-effort
+    }
   } catch (err: any) {
     showErrorFromException(err, 'Failed to mark as killed');
   }

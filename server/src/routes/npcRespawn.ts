@@ -522,4 +522,52 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.code(204).send();
   });
+
+  // Dismiss all pending clarifications for a specific NPC definition
+  // This is called when using "It's Up" or "It's Down" buttons to ensure
+  // clarifications don't reappear after manually changing NPC status
+  server.delete('/:guildId/npc-definitions/:npcDefinitionId/pending-clarifications', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      npcDefinitionId: z.string()
+    });
+
+    const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    // Delete all pending clarifications for this NPC definition
+    // This includes both instance clarifications (direct match on npcDefinitionId)
+    // and zone clarifications (where this definition is in the zoneOptions)
+    const deleted = await prisma.pendingNpcKillClarification.deleteMany({
+      where: {
+        guildId,
+        OR: [
+          { npcDefinitionId },
+          // For zone clarifications, we need to check if the NPC definition is in zoneOptions
+          // Since Prisma doesn't support JSON array queries well, we'll handle this separately
+        ]
+      }
+    });
+
+    // Also delete zone clarifications that include this NPC definition in their options
+    // We need to fetch them and check the JSON manually
+    const zoneClarifications = await prisma.pendingNpcKillClarification.findMany({
+      where: {
+        guildId,
+        clarificationType: 'zone',
+        zoneOptions: { not: null }
+      }
+    });
+
+    for (const clarification of zoneClarifications) {
+      const options = clarification.zoneOptions as { npcDefinitionId: string; zoneName: string | null }[] | null;
+      if (options?.some(opt => opt.npcDefinitionId === npcDefinitionId)) {
+        await prisma.pendingNpcKillClarification.delete({
+          where: { id: clarification.id }
+        });
+      }
+    }
+
+    return reply.code(204).send();
+  });
 }
