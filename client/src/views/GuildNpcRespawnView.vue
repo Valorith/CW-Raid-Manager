@@ -124,7 +124,7 @@
       </header>
       <div class="pending-clarifications__list">
         <div
-          v-for="clarification in pendingClarifications"
+          v-for="clarification in paginatedClarifications"
           :key="clarification.id"
           class="pending-item"
           @dblclick="openClarificationModal(clarification)"
@@ -160,6 +160,40 @@
             </button>
           </div>
         </div>
+      </div>
+      <!-- Clarifications Pagination -->
+      <div v-if="clarificationTotalPages > 1" class="clarifications-pagination">
+        <button
+          class="pagination-btn pagination-btn--small"
+          :disabled="clarificationCurrentPage === 1"
+          @click="clarificationCurrentPage = 1"
+        >
+          First
+        </button>
+        <button
+          class="pagination-btn pagination-btn--small"
+          :disabled="clarificationCurrentPage === 1"
+          @click="clarificationCurrentPage--"
+        >
+          Prev
+        </button>
+        <span class="pagination-info pagination-info--small">
+          {{ clarificationCurrentPage }} / {{ clarificationTotalPages }}
+        </span>
+        <button
+          class="pagination-btn pagination-btn--small"
+          :disabled="clarificationCurrentPage === clarificationTotalPages"
+          @click="clarificationCurrentPage++"
+        >
+          Next
+        </button>
+        <button
+          class="pagination-btn pagination-btn--small"
+          :disabled="clarificationCurrentPage === clarificationTotalPages"
+          @click="clarificationCurrentPage = clarificationTotalPages"
+        >
+          Last
+        </button>
       </div>
     </div>
 
@@ -564,6 +598,8 @@ const clarificationForm = ref({
   isInstance: false
 });
 const submittingClarification = ref(false);
+const clarificationCurrentPage = ref(1);
+const clarificationsPerPage = 5;
 
 // Computed
 const loading = computed(() => store.loading);
@@ -672,6 +708,14 @@ const totalPages = computed(() => Math.ceil(filteredNpcs.value.length / itemsPer
 const paginatedNpcs = computed(() => {
   const start = (currentPage.value - 1) * itemsPerPage;
   return filteredNpcs.value.slice(start, start + itemsPerPage);
+});
+
+// Pending clarifications pagination
+const clarificationTotalPages = computed(() => Math.ceil(pendingClarifications.value.length / clarificationsPerPage));
+
+const paginatedClarifications = computed(() => {
+  const start = (clarificationCurrentPage.value - 1) * clarificationsPerPage;
+  return pendingClarifications.value.slice(start, start + clarificationsPerPage);
 });
 
 // Methods
@@ -821,16 +865,15 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
   if (!confirmed) return;
 
   try {
-    // Delete existing kill record if present
-    if (npc.lastKill) {
-      await store.deleteKillRecord(guildId, npc.lastKill.id);
-    }
+    // Delete ALL existing kill records for this specific NPC variant
+    // This ensures clicking "It's Up" once clears all previous kills for this variant
+    await api.deleteAllNpcKillRecordsForVariant(guildId, npc.id, npc.isInstanceVariant ?? false);
 
     // Create a backdated kill record to show as "Up"
-    // Use the max respawn time + 1 minute, or default to 24 hours if no respawn configured
-    const respawnMs = npc.respawnMaxMinutes
-      ? (npc.respawnMaxMinutes + 1) * 60 * 1000
-      : 24 * 60 * 60 * 1000;
+    // Use the max respawn time + 1 minute, fallback to min time, or default to 24 hours if no respawn configured
+    // This must match the server's logic which uses: respawnMaxTime ?? respawnMinTime
+    const respawnMinutes = npc.respawnMaxMinutes ?? npc.respawnMinMinutes ?? (24 * 60);
+    const respawnMs = (respawnMinutes + 1) * 60 * 1000;
     const oldKillTime = new Date(Date.now() - respawnMs);
 
     await store.recordKill(guildId, {
@@ -857,10 +900,9 @@ async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
   if (!confirmed) return;
 
   try {
-    // If there's an existing kill record, delete it first to avoid duplicates
-    if (npc.lastKill) {
-      await store.deleteKillRecord(guildId, npc.lastKill.id);
-    }
+    // Delete ALL existing kill records for this specific NPC variant
+    // This ensures clicking "It's Down" once clears all previous kills for this variant
+    await api.deleteAllNpcKillRecordsForVariant(guildId, npc.id, npc.isInstanceVariant ?? false);
 
     // Record a new kill with current timestamp
     await store.recordKill(guildId, {
@@ -887,6 +929,13 @@ async function loadPendingClarifications() {
   try {
     const response = await api.fetchPendingNpcKillClarifications(guildId);
     pendingClarifications.value = response.clarifications;
+    // Reset to page 1 if current page is beyond the new total
+    const newTotalPages = Math.ceil(response.clarifications.length / clarificationsPerPage);
+    if (clarificationCurrentPage.value > newTotalPages && newTotalPages > 0) {
+      clarificationCurrentPage.value = newTotalPages;
+    } else if (newTotalPages === 0) {
+      clarificationCurrentPage.value = 1;
+    }
   } catch (err) {
     console.error('Failed to load pending clarifications:', err);
   } finally {
@@ -2067,6 +2116,26 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
 .btn--danger:hover {
   background: rgba(248, 113, 113, 0.1);
   border-color: rgba(248, 113, 113, 0.5);
+}
+
+/* Clarifications Pagination */
+.clarifications-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(234, 179, 8, 0.2);
+}
+
+.pagination-btn--small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.pagination-info--small {
+  font-size: 0.75rem;
 }
 
 /* Clarification Modal */

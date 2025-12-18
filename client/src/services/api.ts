@@ -3531,6 +3531,16 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/npc-kills/${killRecordId}`);
   },
 
+  async deleteAllNpcKillRecordsForVariant(
+    guildId: string,
+    npcDefinitionId: string,
+    isInstance: boolean
+  ): Promise<void> {
+    await axios.delete(
+      `/api/guilds/${guildId}/npc-definitions/${npcDefinitionId}/kills?isInstance=${isInstance}`
+    );
+  },
+
   async fetchNpcSubscriptions(guildId: string): Promise<NpcRespawnSubscription[]> {
     const response = await axios.get(`/api/guilds/${guildId}/npc-subscriptions`);
     return response.data.subscriptions ?? [];

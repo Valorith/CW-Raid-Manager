@@ -611,6 +611,12 @@ export async function endRaidEvent(raidId: string, userId: string) {
 
   stopLootMonitorSession(raidId);
 
+  // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
+  // since they're no longer needed after the raid ends
+  await prisma.pendingNpcKillClarification.deleteMany({
+    where: { raidId }
+  });
+
   if (shouldEmitRaidEnded) {
     emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
       guildName: existing.guild.name,
@@ -723,6 +729,12 @@ export async function cancelRaidEvent(raidId: string, userId: string) {
         select: recurrenceSelection
       }
     }
+  });
+
+  // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
+  // since they're no longer needed after the raid is canceled
+  await prisma.pendingNpcKillClarification.deleteMany({
+    where: { raidId }
   });
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.canceled', {
@@ -838,6 +850,11 @@ export async function deleteRaidEvent(
     });
 
     await tx.raidSignup.deleteMany({
+      where: { raidId }
+    });
+
+    // Clean up all pending NPC kill clarifications for this raid
+    await tx.pendingNpcKillClarification.deleteMany({
       where: { raidId }
     });
 

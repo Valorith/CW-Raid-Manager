@@ -733,6 +733,10 @@ model PendingNpcKillClarification {
   // For zone clarification - JSON array of {npcDefinitionId, zoneName} options
   zoneOptions       Json?
   createdAt         DateTime  @default(now())
+  // Soft-delete tracking - when resolved/dismissed, set these instead of deleting
+  // This prevents re-scanning raid logs from recreating actioned clarifications
+  resolvedAt        DateTime?
+  resolvedById      String?   @db.VarChar(191)
   guild             Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade)
   raidEvent         RaidEvent? @relation(fields: [raidId], references: [id], onDelete: SetNull)
   npcDefinition     NpcDefinition? @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)

@@ -307,6 +307,40 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     return reply.code(204).send();
   });
 
+  // Delete all kill records for a specific NPC definition + variant
+  // Used by "It's Up" / "It's Down" buttons to ensure clean state before recording new status
+  server.delete('/:guildId/npc-definitions/:npcDefinitionId/kills', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      npcDefinitionId: z.string()
+    });
+    const querySchema = z.object({
+      isInstance: z.enum(['true', 'false']).optional()
+    });
+
+    const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+    const { isInstance } = querySchema.parse(request.query);
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    // Build where clause - always filter by guildId and npcDefinitionId
+    const whereClause: { guildId: string; npcDefinitionId: string; isInstance?: boolean } = {
+      guildId,
+      npcDefinitionId
+    };
+
+    // If isInstance is specified, filter by variant
+    if (isInstance !== undefined) {
+      whereClause.isInstance = isInstance === 'true';
+    }
+
+    await prisma.npcKillRecord.deleteMany({
+      where: whereClause
+    });
+
+    return reply.code(204).send();
+  });
+
   // Get user's subscriptions for a guild
   server.get('/:guildId/npc-subscriptions', { preHandler: [authenticate] }, async (request) => {
     const paramsSchema = z.object({ guildId: z.string() });
@@ -396,8 +430,9 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
 
     const role = await ensureUserCanViewGuild(request.user.userId, guildId);
 
+    // Only fetch unresolved clarifications (resolvedAt is null)
     const clarifications = await prisma.pendingNpcKillClarification.findMany({
-      where: { guildId },
+      where: { guildId, resolvedAt: null },
       include: {
         npcDefinition: {
           select: {
@@ -476,10 +511,22 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       isInstance: parsedBody.data.isInstance
     });
 
-    // Delete the pending clarification
-    await prisma.pendingNpcKillClarification.delete({
-      where: { id: clarificationId }
-    });
+    // Mark the clarification as resolved
+    // If it has a raidId, soft-delete (set resolvedAt) so re-scanning won't recreate it
+    // If no raidId, hard-delete since there's no raid lifecycle to trigger cleanup
+    if (clarification.raidId) {
+      await prisma.pendingNpcKillClarification.update({
+        where: { id: clarificationId },
+        data: {
+          resolvedAt: new Date(),
+          resolvedById: request.user.userId
+        }
+      });
+    } else {
+      await prisma.pendingNpcKillClarification.delete({
+        where: { id: clarificationId }
+      });
+    }
 
     // Check if NPC is a raid target and trigger webhook
     const npcDefinition = await prisma.npcDefinition.findUnique({
@@ -516,9 +563,31 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       return reply.forbidden('You do not have permission to dismiss clarifications.');
     }
 
-    await prisma.pendingNpcKillClarification.deleteMany({
-      where: { id: clarificationId, guildId }
+    // Find the clarification to check if it has a raidId
+    const clarification = await prisma.pendingNpcKillClarification.findFirst({
+      where: { id: clarificationId, guildId, resolvedAt: null }
     });
+
+    if (!clarification) {
+      // Already resolved or doesn't exist - return success
+      return reply.code(204).send();
+    }
+
+    // If it has a raidId, soft-delete so re-scanning won't recreate it
+    // If no raidId, hard-delete since there's no raid lifecycle to trigger cleanup
+    if (clarification.raidId) {
+      await prisma.pendingNpcKillClarification.update({
+        where: { id: clarificationId },
+        data: {
+          resolvedAt: new Date(),
+          resolvedById: request.user.userId
+        }
+      });
+    } else {
+      await prisma.pendingNpcKillClarification.delete({
+        where: { id: clarificationId }
+      });
+    }
 
     return reply.code(204).send();
   });
