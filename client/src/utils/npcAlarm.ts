@@ -1,20 +1,26 @@
 /**
- * NPC Respawn Notification Alarm
- * Plays a looping alarm sound until stopped.
+ * NPC Respawn Notification Jingle
+ * Plays a cheerful, uplifting melody until stopped.
  * Designed to work even when the tab is in the background.
  */
 
 let alarmAudioContext: AudioContext | null = null;
-let alarmOscillator: OscillatorNode | null = null;
-let alarmGain: GainNode | null = null;
 let alarmIntervalId: number | null = null;
+let melodyTimeoutIds: number[] = [];
 
-// Alarm pattern: alternating tones to create an attention-grabbing sound
-const ALARM_FREQUENCY_HIGH = 880; // A5
-const ALARM_FREQUENCY_LOW = 660;  // E5
-const ALARM_VOLUME = 0.15;
-const TONE_DURATION = 300; // ms per tone
-const ALARM_CYCLE = 600; // ms per full cycle (high + low)
+// Cheerful jingle notes (frequencies in Hz)
+// Playing a happy ascending arpeggio pattern
+const JINGLE_NOTES = [
+  { freq: 523.25, duration: 120 },  // C5
+  { freq: 659.25, duration: 120 },  // E5
+  { freq: 783.99, duration: 120 },  // G5
+  { freq: 1046.50, duration: 200 }, // C6 (hold slightly longer)
+  { freq: 783.99, duration: 100 },  // G5
+  { freq: 1046.50, duration: 300 }, // C6 (finale note)
+];
+
+const JINGLE_VOLUME = 0.12;
+const JINGLE_LOOP_DELAY = 2500; // ms between jingle repeats
 
 function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined' || typeof window.AudioContext === 'undefined') {
@@ -28,7 +34,39 @@ function getAudioContext(): AudioContext | null {
   return alarmAudioContext;
 }
 
-function playTone(frequency: number, duration: number): void {
+function playNote(frequency: number, duration: number, startDelay: number): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+
+  try {
+    const oscillator = ctx.createOscillator();
+    oscillator.type = 'sine'; // Softer, more pleasant tone
+
+    const gain = ctx.createGain();
+
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+
+    const startTime = ctx.currentTime + startDelay / 1000;
+    const durationSec = duration / 1000;
+
+    // Set frequency
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+
+    // Gentle envelope for a pleasant sound
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(JINGLE_VOLUME, startTime + 0.02);
+    gain.gain.setValueAtTime(JINGLE_VOLUME, startTime + durationSec * 0.7);
+    gain.gain.exponentialRampToValueAtTime(0.001, startTime + durationSec);
+
+    oscillator.start(startTime);
+    oscillator.stop(startTime + durationSec);
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+function playJingle(): void {
   const ctx = getAudioContext();
   if (!ctx) return;
 
@@ -37,36 +75,17 @@ function playTone(frequency: number, duration: number): void {
     void ctx.resume();
   }
 
-  try {
-    const oscillator = ctx.createOscillator();
-    oscillator.type = 'square';
-    oscillator.frequency.value = frequency;
-
-    const gain = ctx.createGain();
-    gain.gain.value = ALARM_VOLUME;
-
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    const durationSec = duration / 1000;
-
-    // Quick fade in and out for each tone
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(ALARM_VOLUME, now + 0.02);
-    gain.gain.setValueAtTime(ALARM_VOLUME, now + durationSec - 0.02);
-    gain.gain.linearRampToValueAtTime(0, now + durationSec);
-
-    oscillator.start(now);
-    oscillator.stop(now + durationSec);
-  } catch {
-    // Ignore audio errors
+  // Play each note with appropriate timing
+  let currentDelay = 0;
+  for (const note of JINGLE_NOTES) {
+    playNote(note.freq, note.duration, currentDelay);
+    currentDelay += note.duration + 30; // Small gap between notes
   }
 }
 
 /**
- * Start the alarm sound. It will loop until stopNpcAlarm() is called.
- * The alarm will continue playing even if the tab is in the background.
+ * Start the notification jingle. It will loop until stopNpcAlarm() is called.
+ * The jingle will continue playing even if the tab is in the background.
  */
 export function startNpcAlarm(): void {
   // Don't start if already playing
@@ -83,27 +102,16 @@ export function startNpcAlarm(): void {
   }
 
   // Play immediately
-  playTone(ALARM_FREQUENCY_HIGH, TONE_DURATION);
+  playJingle();
 
-  let isHighTone = true;
-  let lastPlayTime = Date.now();
-
-  // Use setInterval for the looping alarm
-  // This works better in background tabs than requestAnimationFrame
+  // Loop the jingle with a delay between plays
   alarmIntervalId = window.setInterval(() => {
-    const now = Date.now();
-    const elapsed = now - lastPlayTime;
-
-    if (elapsed >= TONE_DURATION) {
-      isHighTone = !isHighTone;
-      playTone(isHighTone ? ALARM_FREQUENCY_HIGH : ALARM_FREQUENCY_LOW, TONE_DURATION);
-      lastPlayTime = now;
-    }
-  }, 100); // Check frequently but only play when needed
+    playJingle();
+  }, JINGLE_LOOP_DELAY);
 }
 
 /**
- * Stop the alarm sound immediately.
+ * Stop the notification jingle immediately.
  */
 export function stopNpcAlarm(): void {
   if (alarmIntervalId !== null) {
@@ -111,23 +119,15 @@ export function stopNpcAlarm(): void {
     alarmIntervalId = null;
   }
 
-  // Clean up any lingering audio nodes
-  if (alarmOscillator) {
-    try {
-      alarmOscillator.stop();
-    } catch {
-      // Already stopped
-    }
-    alarmOscillator = null;
+  // Clear any pending melody timeouts
+  for (const timeoutId of melodyTimeoutIds) {
+    clearTimeout(timeoutId);
   }
-
-  if (alarmGain) {
-    alarmGain = null;
-  }
+  melodyTimeoutIds = [];
 }
 
 /**
- * Check if the alarm is currently playing.
+ * Check if the jingle is currently playing.
  */
 export function isNpcAlarmPlaying(): boolean {
   return alarmIntervalId !== null;
