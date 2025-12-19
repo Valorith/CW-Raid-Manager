@@ -758,6 +758,6 @@ model NpcFavorite {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   guild               Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, guildId, npcNameNormalized, isInstanceVariant])
+  @@unique([userId, guildId, npcNameNormalized, isInstanceVariant], map: "NpcFavorite_user_guild_npc_variant_key")
   @@index([userId, guildId])
 }

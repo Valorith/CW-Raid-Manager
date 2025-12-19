@@ -18,7 +18,7 @@ export async function up(knex) {
       \`isInstanceVariant\` TINYINT(1) NOT NULL DEFAULT 0,
       \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
       PRIMARY KEY (\`id\`),
-      UNIQUE INDEX \`NpcFavorite_userId_guildId_npcNameNormalized_isInstanceVariant_key\` (\`userId\`, \`guildId\`, \`npcNameNormalized\`, \`isInstanceVariant\`),
+      UNIQUE INDEX \`NpcFavorite_user_guild_npc_variant_key\` (\`userId\`, \`guildId\`, \`npcNameNormalized\`, \`isInstanceVariant\`),
       INDEX \`NpcFavorite_userId_guildId_idx\` (\`userId\`, \`guildId\`),
       CONSTRAINT \`NpcFavorite_userId_fkey\` FOREIGN KEY (\`userId\`) REFERENCES \`User\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
       CONSTRAINT \`NpcFavorite_guildId_fkey\` FOREIGN KEY (\`guildId\`) REFERENCES \`Guild\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE
