@@ -6,6 +6,9 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
+  // Drop table if it exists from a previous failed migration attempt
+  await knex.schema.raw('DROP TABLE IF EXISTS `NpcFavorite`;');
+
   await knex.schema.raw(`
     CREATE TABLE \`NpcFavorite\` (
       \`id\` VARCHAR(191) NOT NULL,
