@@ -3,11 +3,19 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
-  // Add isInstanceVariant column to track which variant the subscription is for
-  await knex.schema.raw(`
-    ALTER TABLE \`NpcRespawnSubscription\`
-    ADD COLUMN \`isInstanceVariant\` BOOLEAN NOT NULL DEFAULT FALSE;
+  // Check if column already exists (from a previous failed migration attempt)
+  const [columns] = await knex.raw(`
+    SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'NpcRespawnSubscription' AND COLUMN_NAME = 'isInstanceVariant'
   `);
+
+  if (columns.length === 0) {
+    // Add isInstanceVariant column to track which variant the subscription is for
+    await knex.schema.raw(`
+      ALTER TABLE \`NpcRespawnSubscription\`
+      ADD COLUMN \`isInstanceVariant\` BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+  }
 
   // Drop the foreign key constraint first (it depends on the unique index)
   await knex.schema.raw(`
