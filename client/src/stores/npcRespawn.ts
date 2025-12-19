@@ -34,6 +34,9 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const dismissedNotificationKeys = ref<Set<string>>(new Set());
   // Currently active notifications to display
   const activeNotifications = ref<NpcNotification[]>([]);
+  // Track which variants are subscribed (since backend only stores per-definition)
+  // Key format: `${npcId}:${isInstanceVariant}`
+  const subscribedVariants = ref<Set<string>>(new Set());
 
   // Refresh interval for live updates
   let refreshInterval: number | null = null;
@@ -90,6 +93,16 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const subscribedNpcIds = computed(() => {
     return new Set(subscriptions.value.filter(s => s.isEnabled).map(s => s.npcDefinitionId));
   });
+
+  // Helper to create a unique key for variant subscriptions
+  function getVariantKey(npcId: string, isInstanceVariant: boolean): string {
+    return `${npcId}:${isInstanceVariant}`;
+  }
+
+  // Check if a specific variant is subscribed for notifications
+  function isVariantSubscribed(npcId: string, isInstanceVariant: boolean): boolean {
+    return subscribedVariants.value.has(getVariantKey(npcId, isInstanceVariant));
+  }
 
   // Helper to create a unique key for favorites lookup
   function getFavoriteKey(npcNameNormalized: string, isInstanceVariant: boolean): string {
@@ -200,34 +213,51 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     await fetchRespawnTracker(guildId, true);
   }
 
-  async function toggleSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
-    const existing = subscriptions.value.find(s => s.npcDefinitionId === npcDefinitionId);
-    if (existing?.isEnabled) {
-      await api.deleteNpcSubscription(guildId, npcDefinitionId);
-      subscriptions.value = subscriptions.value.filter(s => s.npcDefinitionId !== npcDefinitionId);
+  async function toggleSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean): Promise<void> {
+    const variantKey = getVariantKey(npcDefinitionId, isInstanceVariant);
+    const isCurrentlySubscribed = subscribedVariants.value.has(variantKey);
+
+    if (isCurrentlySubscribed) {
+      // Unsubscribe this variant
+      subscribedVariants.value.delete(variantKey);
+
+      // Check if any other variant of this NPC is still subscribed
+      const otherVariantKey = getVariantKey(npcDefinitionId, !isInstanceVariant);
+      const hasOtherVariantSubscribed = subscribedVariants.value.has(otherVariantKey);
+
+      // Only delete the backend subscription if no variants are subscribed
+      if (!hasOtherVariantSubscribed) {
+        await api.deleteNpcSubscription(guildId, npcDefinitionId);
+        subscriptions.value = subscriptions.value.filter(s => s.npcDefinitionId !== npcDefinitionId);
+      }
     } else {
-      const subscription = await api.upsertNpcSubscription(guildId, {
-        npcDefinitionId,
-        isEnabled: true,
-        notifyMinutes: 5
-      });
-      if (existing) {
-        const index = subscriptions.value.findIndex(s => s.npcDefinitionId === npcDefinitionId);
-        if (index >= 0) {
-          subscriptions.value[index] = subscription;
+      // Subscribe this variant
+      subscribedVariants.value.add(variantKey);
+
+      // Create backend subscription if it doesn't exist
+      const existing = subscriptions.value.find(s => s.npcDefinitionId === npcDefinitionId);
+      if (!existing?.isEnabled) {
+        const subscription = await api.upsertNpcSubscription(guildId, {
+          npcDefinitionId,
+          isEnabled: true,
+          notifyMinutes: 5
+        });
+        if (existing) {
+          const index = subscriptions.value.findIndex(s => s.npcDefinitionId === npcDefinitionId);
+          if (index >= 0) {
+            subscriptions.value[index] = subscription;
+          }
+        } else {
+          subscriptions.value.push(subscription);
         }
-      } else {
-        subscriptions.value.push(subscription);
       }
 
-      // If the NPC is already in up/window status, mark current state as dismissed
+      // If the NPC variant is already in up/window status, mark current state as dismissed
       // so we don't immediately alarm for an NPC that's already up
-      const npcVariants = npcs.value.filter(n => n.id === npcDefinitionId);
-      for (const npc of npcVariants) {
-        if (npc.respawnStatus === 'up' || npc.respawnStatus === 'window') {
-          const notificationKey = getNotificationKey(npc, npc.respawnStatus);
-          dismissedNotificationKeys.value.add(notificationKey);
-        }
+      const npc = npcs.value.find(n => n.id === npcDefinitionId && n.isInstanceVariant === isInstanceVariant);
+      if (npc && (npc.respawnStatus === 'up' || npc.respawnStatus === 'window')) {
+        const notificationKey = getNotificationKey(npc, npc.respawnStatus);
+        dismissedNotificationKeys.value.add(notificationKey);
       }
     }
   }
@@ -289,8 +319,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     const newNotifications: NpcNotification[] = [];
 
     for (const npc of npcs.value) {
-      // Only notify for subscribed NPCs
-      if (!subscribedNpcIds.value.has(npc.id)) continue;
+      // Only notify for subscribed variants (not just NPC definition)
+      if (!isVariantSubscribed(npc.id, npc.isInstanceVariant)) continue;
 
       // Only notify for 'window' or 'up' status
       if (npc.respawnStatus !== 'window' && npc.respawnStatus !== 'up') continue;
@@ -401,6 +431,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     canManage.value = false;
     viewerRole.value = null;
     clearDismissedNotifications();
+    subscribedVariants.value.clear();
   }
 
   return {
@@ -437,6 +468,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     toggleSubscription,
     toggleFavorite,
     isFavorited,
+    isVariantSubscribed,
     startAutoRefresh,
     stopAutoRefresh,
     clearStore,
