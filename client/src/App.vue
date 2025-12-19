@@ -160,6 +160,10 @@
     <CharacterInventoryModal />
     <ItemTooltip />
     <GuildDonationsModal />
+    <NpcNotificationModal
+      :notifications="npcNotifications"
+      @dismiss="handleDismissNpcNotifications"
+    />
   </div>
 </template>
 
@@ -171,17 +175,27 @@ import { useAuthStore } from './stores/auth';
 import { api, type RaidEventSummary } from './services/api';
 import { useMonitorStore } from './stores/monitor';
 import { useAttentionStore } from './stores/attention';
+import { useNpcRespawnStore } from './stores/npcRespawn';
 import { playLootAlertChime } from './utils/audio';
 import CharacterInventoryModal from './components/CharacterInventoryModal.vue';
 import ItemTooltip from './components/ItemTooltip.vue';
 import GuildDonationsNotification from './components/GuildDonationsNotification.vue';
 import GuildDonationsModal from './components/GuildDonationsModal.vue';
+import NpcNotificationModal from './components/NpcNotificationModal.vue';
 
 const authStore = useAuthStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
 const router = useRouter();
 const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
+const npcRespawnStore = useNpcRespawnStore();
+
+// Computed for NPC notifications
+const npcNotifications = computed(() => npcRespawnStore.activeNotifications);
+
+function handleDismissNpcNotifications(ids: string[]) {
+  npcRespawnStore.dismissNotifications(ids);
+}
 
 const toasts = ref<{ id: number; title: string; message: string }[]>([]);
 let toastId = 0;
@@ -309,10 +323,32 @@ function handleLootActionsPending(_event: Event) {
   playLootAlertChime();
 }
 
+// Start NPC respawn monitoring for a guild
+async function startNpcRespawnMonitoring(guildId: string) {
+  try {
+    // Fetch subscriptions and tracker data
+    await Promise.all([
+      npcRespawnStore.fetchRespawnTracker(guildId),
+      npcRespawnStore.fetchSubscriptions(guildId)
+    ]);
+    // Start auto-refresh for live updates (checks notifications every second)
+    npcRespawnStore.startAutoRefresh(guildId);
+  } catch (err) {
+    console.warn('Unable to start NPC respawn monitoring:', err);
+  }
+}
+
+// Stop NPC respawn monitoring
+function stopNpcRespawnMonitoring() {
+  npcRespawnStore.stopAutoRefresh();
+}
+
 onMounted(async () => {
   await authStore.fetchCurrentUser();
   if (primaryGuild.value) {
     await loadActiveRaid(primaryGuild.value.id);
+    // Start NPC respawn monitoring for notifications
+    await startNpcRespawnMonitoring(primaryGuild.value.id);
   }
 
   window.addEventListener('active-raid-updated', handleActiveRaidEvent);
@@ -330,15 +366,23 @@ onBeforeUnmount(() => {
   window.removeEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
   window.removeEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
   window.removeEventListener('show-toast', handleShowToast as EventListener);
+  // Stop NPC respawn monitoring when app unmounts
+  stopNpcRespawnMonitoring();
 });
 
 watch(
   () => primaryGuild.value?.id,
-  async (guildId) => {
+  async (guildId, oldGuildId) => {
     if (guildId) {
       await loadActiveRaid(guildId);
+      // Start NPC respawn monitoring for the new guild
+      if (guildId !== oldGuildId) {
+        stopNpcRespawnMonitoring();
+        await startNpcRespawnMonitoring(guildId);
+      }
     } else {
       activeRaid.value = null;
+      stopNpcRespawnMonitoring();
     }
   }
 );

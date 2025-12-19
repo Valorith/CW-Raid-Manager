@@ -357,9 +357,9 @@
                   </svg>
                 </button>
                 <button
-                  :class="['action-btn action-btn--notify', { 'action-btn--active': isSubscribed(npc.id) }]"
+                  :class="['action-btn action-btn--notify', { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }]"
                   title="Toggle Notifications"
-                  @click="toggleNotify(npc.id)"
+                  @click="toggleNotify(npc.id, npc.isInstanceVariant)"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
@@ -834,13 +834,13 @@ function formatKillTime(isoString: string): string {
   }).format(new Date(isoString));
 }
 
-function isSubscribed(npcId: string): boolean {
-  return store.subscribedNpcIds.has(npcId);
+function isSubscribed(npcId: string, isInstanceVariant: boolean): boolean {
+  return store.isVariantSubscribed(npcId, isInstanceVariant);
 }
 
-async function toggleNotify(npcId: string) {
+async function toggleNotify(npcId: string, isInstanceVariant: boolean) {
   try {
-    await store.toggleSubscription(guildId, npcId);
+    await store.toggleSubscription(guildId, npcId, isInstanceVariant);
   } catch (err) {
     console.error('Failed to toggle subscription:', err);
   }

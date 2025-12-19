@@ -12,6 +12,7 @@ import {
   type GuildRole,
   type NpcContentFlag
 } from '../services/api';
+import type { NpcNotification } from '../components/NpcNotificationModal.vue';
 
 export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   // State
@@ -26,6 +27,16 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const lastFetchedAt = ref<number | null>(null);
   const canManage = ref(false);
   const viewerRole = ref<GuildRole | null>(null);
+
+  // Notification state
+  // Track dismissed notifications to prevent re-triggering
+  // Key format: `${npcId}:${isInstanceVariant}:${status}:${lastKillId}`
+  const dismissedNotificationKeys = ref<Set<string>>(new Set());
+  // Currently active notifications to display
+  const activeNotifications = ref<NpcNotification[]>([]);
+  // Track which variants are subscribed (since backend only stores per-definition)
+  // Key format: `${npcId}:${isInstanceVariant}`
+  const subscribedVariants = ref<Set<string>>(new Set());
 
   // Refresh interval for live updates
   let refreshInterval: number | null = null;
@@ -83,6 +94,16 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     return new Set(subscriptions.value.filter(s => s.isEnabled).map(s => s.npcDefinitionId));
   });
 
+  // Helper to create a unique key for variant subscriptions
+  function getVariantKey(npcId: string, isInstanceVariant: boolean): string {
+    return `${npcId}:${isInstanceVariant}`;
+  }
+
+  // Check if a specific variant is subscribed for notifications
+  function isVariantSubscribed(npcId: string, isInstanceVariant: boolean): boolean {
+    return subscribedVariants.value.has(getVariantKey(npcId, isInstanceVariant));
+  }
+
   // Helper to create a unique key for favorites lookup
   function getFavoriteKey(npcNameNormalized: string, isInstanceVariant: boolean): string {
     return `${npcNameNormalized}:${isInstanceVariant}`;
@@ -119,6 +140,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       viewerRole.value = result.viewerRole;
       loadedGuildId.value = guildId;
       lastFetchedAt.value = Date.now();
+      // Check for notifications after loading fresh data
+      checkForNotifications();
     } catch (err: any) {
       error.value = err?.response?.data?.message ?? err?.message ?? 'Failed to load NPC respawn tracker.';
       console.error('[NpcRespawnStore] Error loading respawn tracker:', err);
@@ -190,24 +213,51 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     await fetchRespawnTracker(guildId, true);
   }
 
-  async function toggleSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
-    const existing = subscriptions.value.find(s => s.npcDefinitionId === npcDefinitionId);
-    if (existing?.isEnabled) {
-      await api.deleteNpcSubscription(guildId, npcDefinitionId);
-      subscriptions.value = subscriptions.value.filter(s => s.npcDefinitionId !== npcDefinitionId);
+  async function toggleSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean): Promise<void> {
+    const variantKey = getVariantKey(npcDefinitionId, isInstanceVariant);
+    const isCurrentlySubscribed = subscribedVariants.value.has(variantKey);
+
+    if (isCurrentlySubscribed) {
+      // Unsubscribe this variant
+      subscribedVariants.value.delete(variantKey);
+
+      // Check if any other variant of this NPC is still subscribed
+      const otherVariantKey = getVariantKey(npcDefinitionId, !isInstanceVariant);
+      const hasOtherVariantSubscribed = subscribedVariants.value.has(otherVariantKey);
+
+      // Only delete the backend subscription if no variants are subscribed
+      if (!hasOtherVariantSubscribed) {
+        await api.deleteNpcSubscription(guildId, npcDefinitionId);
+        subscriptions.value = subscriptions.value.filter(s => s.npcDefinitionId !== npcDefinitionId);
+      }
     } else {
-      const subscription = await api.upsertNpcSubscription(guildId, {
-        npcDefinitionId,
-        isEnabled: true,
-        notifyMinutes: 5
-      });
-      if (existing) {
-        const index = subscriptions.value.findIndex(s => s.npcDefinitionId === npcDefinitionId);
-        if (index >= 0) {
-          subscriptions.value[index] = subscription;
+      // Subscribe this variant
+      subscribedVariants.value.add(variantKey);
+
+      // Create backend subscription if it doesn't exist
+      const existing = subscriptions.value.find(s => s.npcDefinitionId === npcDefinitionId);
+      if (!existing?.isEnabled) {
+        const subscription = await api.upsertNpcSubscription(guildId, {
+          npcDefinitionId,
+          isEnabled: true,
+          notifyMinutes: 5
+        });
+        if (existing) {
+          const index = subscriptions.value.findIndex(s => s.npcDefinitionId === npcDefinitionId);
+          if (index >= 0) {
+            subscriptions.value[index] = subscription;
+          }
+        } else {
+          subscriptions.value.push(subscription);
         }
-      } else {
-        subscriptions.value.push(subscription);
+      }
+
+      // If the NPC variant is already in up/window status, mark current state as dismissed
+      // so we don't immediately alarm for an NPC that's already up
+      const npc = npcs.value.find(n => n.id === npcDefinitionId && n.isInstanceVariant === isInstanceVariant);
+      if (npc && (npc.respawnStatus === 'up' || npc.respawnStatus === 'window')) {
+        const notificationKey = getNotificationKey(npc, npc.respawnStatus);
+        dismissedNotificationKeys.value.add(notificationKey);
       }
     }
   }
@@ -253,6 +303,82 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     }
   }
 
+  /**
+   * Generate a unique key for a notification to track dismissals.
+   * The key includes the kill ID so a new kill will generate a new notification.
+   */
+  function getNotificationKey(npc: NpcRespawnTrackerEntry, status: 'window' | 'up'): string {
+    const killId = npc.lastKill?.id ?? 'no-kill';
+    return `${npc.id}:${npc.isInstanceVariant}:${status}:${killId}`;
+  }
+
+  /**
+   * Check subscribed NPCs for status changes and trigger notifications.
+   */
+  function checkForNotifications() {
+    const newNotifications: NpcNotification[] = [];
+
+    for (const npc of npcs.value) {
+      // Only notify for subscribed variants (not just NPC definition)
+      if (!isVariantSubscribed(npc.id, npc.isInstanceVariant)) continue;
+
+      // Only notify for 'window' or 'up' status
+      if (npc.respawnStatus !== 'window' && npc.respawnStatus !== 'up') continue;
+
+      const notificationKey = getNotificationKey(npc, npc.respawnStatus);
+
+      // Skip if already dismissed
+      if (dismissedNotificationKeys.value.has(notificationKey)) continue;
+
+      // Skip if already in active notifications
+      const alreadyActive = activeNotifications.value.some(
+        n => n.id === notificationKey
+      );
+      if (alreadyActive) continue;
+
+      // Create a new notification
+      newNotifications.push({
+        id: notificationKey,
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        status: npc.respawnStatus,
+        respawnMaxTime: npc.respawnMaxTime,
+        hasInstanceVersion: npc.hasInstanceVersion,
+        isInstanceVariant: npc.isInstanceVariant
+      });
+    }
+
+    // Add new notifications to active list
+    if (newNotifications.length > 0) {
+      activeNotifications.value = [...activeNotifications.value, ...newNotifications];
+    }
+  }
+
+  /**
+   * Dismiss notifications by their IDs.
+   * Dismissed notifications won't re-trigger until a new kill is recorded.
+   */
+  function dismissNotifications(notificationIds: string[]) {
+    // Add to dismissed set
+    for (const id of notificationIds) {
+      dismissedNotificationKeys.value.add(id);
+    }
+
+    // Remove from active notifications
+    activeNotifications.value = activeNotifications.value.filter(
+      n => !notificationIds.includes(n.id)
+    );
+  }
+
+  /**
+   * Clear all dismissed notification keys.
+   * Called when leaving the page or switching guilds.
+   */
+  function clearDismissedNotifications() {
+    dismissedNotificationKeys.value.clear();
+    activeNotifications.value = [];
+  }
+
   function updateProgressLocally() {
     const now = Date.now();
     for (const npc of npcs.value) {
@@ -286,6 +412,9 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
         npc.respawnMaxTime = new Date(respawnMaxTimeMs).toISOString();
       }
     }
+
+    // Check for new notifications after updating progress
+    checkForNotifications();
   }
 
   function clearStore() {
@@ -301,6 +430,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     lastFetchedAt.value = null;
     canManage.value = false;
     viewerRole.value = null;
+    clearDismissedNotifications();
+    subscribedVariants.value.clear();
   }
 
   return {
@@ -316,6 +447,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     lastFetchedAt,
     canManage,
     viewerRole,
+    activeNotifications,
 
     // Computed
     canRefreshNow,
@@ -336,8 +468,11 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     toggleSubscription,
     toggleFavorite,
     isFavorited,
+    isVariantSubscribed,
     startAutoRefresh,
     stopAutoRefresh,
-    clearStore
+    clearStore,
+    dismissNotifications,
+    checkForNotifications
   };
 });
