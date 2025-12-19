@@ -239,7 +239,8 @@
           <tr
             v-for="npc in paginatedNpcs"
             :key="`${npc.id}-${npc.isInstanceVariant}`"
-            :class="['npc-row', `npc-row--${npc.respawnStatus}`]"
+            :class="['npc-row', `npc-row--${npc.respawnStatus}`, { 'npc-row--favorited': isNpcFavorited(npc) }]"
+            @contextmenu="openContextMenu($event, npc)"
           >
             <td class="col-status">
               <span :class="['status-badge', `status-badge--${npc.respawnStatus}`]">
@@ -248,6 +249,7 @@
             </td>
             <td class="col-name">
               <div class="npc-name-cell">
+                <span v-if="isNpcFavorited(npc)" class="favorite-star" title="Favorited">★</span>
                 <strong>{{ npc.npcName }}</strong>
                 <span
                   v-if="npc.hasInstanceVersion"
@@ -551,6 +553,30 @@
     <!-- Error Modal -->
     <ErrorModal />
 
+    <!-- Context Menu -->
+    <Teleport to="body">
+      <div
+        v-if="contextMenuVisible"
+        class="context-menu-overlay"
+        @click="closeContextMenu"
+        @contextmenu.prevent="closeContextMenu"
+      >
+        <div
+          class="context-menu"
+          :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+          @click.stop
+        >
+          <button
+            class="context-menu-item"
+            @click="contextMenuNpc && toggleFavorite(contextMenuNpc)"
+          >
+            <span class="context-menu-icon">{{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? '★' : '☆' }}</span>
+            {{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? 'Unfavorite' : 'Favorite' }}
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
   </section>
 </template>
 
@@ -600,6 +626,12 @@ const clarificationForm = ref({
 const submittingClarification = ref(false);
 const clarificationCurrentPage = ref(1);
 const clarificationsPerPage = 5;
+
+// Context menu state
+const contextMenuVisible = ref(false);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
+const contextMenuNpc = ref<NpcRespawnTrackerEntry | null>(null);
 
 // Computed
 const loading = computed(() => store.loading);
@@ -812,6 +844,33 @@ async function toggleNotify(npcId: string) {
   } catch (err) {
     console.error('Failed to toggle subscription:', err);
   }
+}
+
+// Context menu functions
+function openContextMenu(event: MouseEvent, npc: NpcRespawnTrackerEntry) {
+  event.preventDefault();
+  contextMenuNpc.value = npc;
+  contextMenuX.value = event.clientX;
+  contextMenuY.value = event.clientY;
+  contextMenuVisible.value = true;
+}
+
+function closeContextMenu() {
+  contextMenuVisible.value = false;
+  contextMenuNpc.value = null;
+}
+
+function isNpcFavorited(npc: NpcRespawnTrackerEntry): boolean {
+  return store.isFavorited(npc.npcNameNormalized, npc.isInstanceVariant);
+}
+
+async function toggleFavorite(npc: NpcRespawnTrackerEntry) {
+  try {
+    await store.toggleFavorite(guildId, npc.npcNameNormalized, npc.isInstanceVariant);
+  } catch (err) {
+    console.error('Failed to toggle favorite:', err);
+  }
+  closeContextMenu();
 }
 
 function openKillModal(npc: NpcRespawnTrackerEntry) {
@@ -2214,5 +2273,71 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
   width: 100%;
   padding: 0.75rem;
   font-size: 0.9rem;
+}
+
+/* Favorite star indicator */
+.favorite-star {
+  color: #fbbf24;
+  font-size: 1rem;
+  margin-right: 0.35rem;
+  text-shadow: 0 0 4px rgba(251, 191, 36, 0.4);
+}
+
+/* Favorited row styling */
+.npc-row--favorited {
+  border-left: 3px solid #fbbf24;
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.08) 0%, transparent 30%);
+}
+
+.npc-row--favorited td:first-child {
+  padding-left: calc(1rem - 3px);
+}
+
+/* Context menu overlay */
+.context-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
+/* Context menu */
+.context-menu {
+  position: fixed;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  padding: 0.25rem 0;
+  z-index: 10000;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  background: none;
+  border: none;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.context-menu-item:hover {
+  background: #334155;
+}
+
+.context-menu-icon {
+  color: #fbbf24;
+  font-size: 1rem;
+  width: 1rem;
+  text-align: center;
 }
 </style>
