@@ -67,6 +67,7 @@ function formatNpcDefinition(record: NpcDefinitionWithRelations, lastKillOverrid
     id: record.id,
     guildId: record.guildId,
     npcName: record.npcName,
+    npcNameNormalized: record.npcNameNormalized,
     zoneName: record.zoneName ?? null,
     respawnMinMinutes: record.respawnMinMinutes ?? null,
     respawnMaxMinutes: record.respawnMaxMinutes ?? null,

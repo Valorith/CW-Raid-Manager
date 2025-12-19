@@ -6,6 +6,7 @@ import {
   type NpcDefinition,
   type NpcKillRecord,
   type NpcRespawnSubscription,
+  type NpcFavorite,
   type NpcDefinitionInput,
   type NpcKillRecordInput,
   type GuildRole,
@@ -17,6 +18,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const npcs = ref<NpcRespawnTrackerEntry[]>([]);
   const definitions = ref<NpcDefinition[]>([]);
   const subscriptions = ref<NpcRespawnSubscription[]>([]);
+  const favorites = ref<NpcFavorite[]>([]);
   const enabledContentFlags = ref<NpcContentFlag[]>([]);
   const loadedGuildId = ref<string | null>(null);
   const loading = ref(false);
@@ -47,10 +49,32 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       const statusDiff = (statusOrder[a.respawnStatus] ?? 3) - (statusOrder[b.respawnStatus] ?? 3);
       if (statusDiff !== 0) return statusDiff;
 
-      // Then by progress percent (descending) for those in window/down
+      // Within same status, favorites come first
+      const aFavorited = isFavorited(a.npcNameNormalized, a.isInstanceVariant);
+      const bFavorited = isFavorited(b.npcNameNormalized, b.isInstanceVariant);
+      if (aFavorited !== bFavorited) {
+        return aFavorited ? -1 : 1;
+      }
+
+      // For down/window status: sort by progress percent (descending)
       // NPCs closer to respawning appear first
-      if (a.progressPercent !== null && b.progressPercent !== null) {
-        return b.progressPercent - a.progressPercent;
+      if (a.respawnStatus === 'down' || a.respawnStatus === 'window') {
+        if (a.progressPercent !== null && b.progressPercent !== null) {
+          const progressDiff = b.progressPercent - a.progressPercent;
+          if (progressDiff !== 0) return progressDiff;
+        }
+      }
+
+      // For 'up' status (and as fallback): sort by respawn time (soonest first), then alphabetically
+      // This helps users see which NPCs respawned most recently at the top
+      if (a.respawnStatus === 'up' && b.respawnStatus === 'up') {
+        // If both have respawn times, sort by most recent respawn (soonest first means most recently respawned)
+        if (a.respawnMaxTime && b.respawnMaxTime) {
+          const aTime = new Date(a.respawnMaxTime).getTime();
+          const bTime = new Date(b.respawnMaxTime).getTime();
+          const timeDiff = bTime - aTime; // More recent first
+          if (timeDiff !== 0) return timeDiff;
+        }
       }
 
       // Then alphabetically
@@ -74,6 +98,21 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     return new Set(subscriptions.value.filter(s => s.isEnabled).map(s => s.npcDefinitionId));
   });
 
+  // Helper to create a unique key for favorites lookup
+  function getFavoriteKey(npcNameNormalized: string, isInstanceVariant: boolean): string {
+    return `${npcNameNormalized}:${isInstanceVariant}`;
+  }
+
+  // Set of favorited NPC keys for fast lookup
+  const favoritedNpcKeys = computed(() => {
+    return new Set(favorites.value.map(f => getFavoriteKey(f.npcNameNormalized, f.isInstanceVariant)));
+  });
+
+  // Check if a specific NPC variant is favorited
+  function isFavorited(npcNameNormalized: string, isInstanceVariant: boolean): boolean {
+    return favoritedNpcKeys.value.has(getFavoriteKey(npcNameNormalized, isInstanceVariant));
+  }
+
   // Actions
   async function fetchRespawnTracker(guildId: string, force = false) {
     if (loading.value) return;
@@ -84,8 +123,13 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     loading.value = true;
     error.value = null;
     try {
-      const result = await api.fetchNpcRespawnTracker(guildId);
+      // Fetch respawn tracker data and favorites in parallel
+      const [result, favs] = await Promise.all([
+        api.fetchNpcRespawnTracker(guildId),
+        api.fetchNpcFavorites(guildId)
+      ]);
       npcs.value = result.npcs;
+      favorites.value = favs;
       canManage.value = result.canManage;
       viewerRole.value = result.viewerRole;
       loadedGuildId.value = guildId;
@@ -183,6 +227,19 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     }
   }
 
+  async function toggleFavorite(guildId: string, npcNameNormalized: string, isInstanceVariant: boolean): Promise<void> {
+    const currentlyFavorited = isFavorited(npcNameNormalized, isInstanceVariant);
+    if (currentlyFavorited) {
+      await api.removeNpcFavorite(guildId, npcNameNormalized, isInstanceVariant);
+      favorites.value = favorites.value.filter(
+        f => !(f.npcNameNormalized === npcNameNormalized && f.isInstanceVariant === isInstanceVariant)
+      );
+    } else {
+      const favorite = await api.addNpcFavorite(guildId, npcNameNormalized, isInstanceVariant);
+      favorites.value.push(favorite);
+    }
+  }
+
   function startAutoRefresh(guildId: string) {
     stopAutoRefresh();
     refreshInterval = window.setInterval(() => {
@@ -251,6 +308,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     npcs.value = [];
     definitions.value = [];
     subscriptions.value = [];
+    favorites.value = [];
     enabledContentFlags.value = [];
     loadedGuildId.value = null;
     loading.value = false;
@@ -265,6 +323,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     npcs,
     definitions,
     subscriptions,
+    favorites,
     enabledContentFlags,
     loadedGuildId,
     loading,
@@ -278,6 +337,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     sortedNpcs,
     npcsByZone,
     subscribedNpcIds,
+    favoritedNpcKeys,
 
     // Actions
     fetchRespawnTracker,
@@ -289,6 +349,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     recordKill,
     deleteKillRecord,
     toggleSubscription,
+    toggleFavorite,
+    isFavorited,
     startAutoRefresh,
     stopAutoRefresh,
     clearStore

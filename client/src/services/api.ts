@@ -867,6 +867,7 @@ export interface NpcDefinition {
   id: string;
   guildId: string;
   npcName: string;
+  npcNameNormalized: string;
   zoneName: string | null;
   respawnMinMinutes: number | null;
   respawnMaxMinutes: number | null;
@@ -944,6 +945,12 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+}
+
+// Type for NPC favorites - user preference for prioritizing NPCs in the tracker
+export interface NpcFavorite {
+  npcNameNormalized: string;
+  isInstanceVariant: boolean;
 }
 
 // Type for kills that need instance clarification from raid log uploads
@@ -3601,6 +3608,33 @@ export const api = {
       `/api/guilds/${guildId}/discovered-items${params.toString() ? '?' + params.toString() : ''}`
     );
     return response.data.items ?? [];
+  },
+
+  async fetchNpcFavorites(guildId: string): Promise<NpcFavorite[]> {
+    const response = await axios.get(`/api/guilds/${guildId}/npc-favorites`);
+    return response.data.favorites ?? [];
+  },
+
+  async addNpcFavorite(
+    guildId: string,
+    npcNameNormalized: string,
+    isInstanceVariant: boolean
+  ): Promise<NpcFavorite> {
+    const response = await axios.post(`/api/guilds/${guildId}/npc-favorites`, {
+      npcNameNormalized,
+      isInstanceVariant
+    });
+    return response.data.favorite;
+  },
+
+  async removeNpcFavorite(
+    guildId: string,
+    npcNameNormalized: string,
+    isInstanceVariant: boolean
+  ): Promise<void> {
+    await axios.delete(
+      `/api/guilds/${guildId}/npc-favorites?npcNameNormalized=${encodeURIComponent(npcNameNormalized)}&isInstanceVariant=${isInstanceVariant}`
+    );
   }
 
 };

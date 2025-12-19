@@ -591,4 +591,94 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
 
     return reply.code(204).send();
   });
+
+  // Get user's NPC favorites for a guild
+  server.get('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    const favorites = await prisma.npcFavorite.findMany({
+      where: {
+        userId: request.user.userId,
+        guildId
+      }
+    });
+
+    return {
+      favorites: favorites.map((f) => ({
+        npcNameNormalized: f.npcNameNormalized,
+        isInstanceVariant: f.isInstanceVariant
+      }))
+    };
+  });
+
+  // Add an NPC to favorites
+  server.post('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const bodySchema = z.object({
+      npcNameNormalized: z.string().min(1).max(191),
+      isInstanceVariant: z.boolean()
+    });
+
+    const { guildId } = paramsSchema.parse(request.params);
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    const parsedBody = bodySchema.safeParse(request.body ?? {});
+    if (!parsedBody.success) {
+      return reply.badRequest('Invalid favorite payload: ' + parsedBody.error.message);
+    }
+
+    // Upsert the favorite (idempotent)
+    const favorite = await prisma.npcFavorite.upsert({
+      where: {
+        userId_guildId_npcNameNormalized_isInstanceVariant: {
+          userId: request.user.userId,
+          guildId,
+          npcNameNormalized: parsedBody.data.npcNameNormalized,
+          isInstanceVariant: parsedBody.data.isInstanceVariant
+        }
+      },
+      create: {
+        userId: request.user.userId,
+        guildId,
+        npcNameNormalized: parsedBody.data.npcNameNormalized,
+        isInstanceVariant: parsedBody.data.isInstanceVariant
+      },
+      update: {} // No update needed, just return existing
+    });
+
+    return {
+      favorite: {
+        npcNameNormalized: favorite.npcNameNormalized,
+        isInstanceVariant: favorite.isInstanceVariant
+      }
+    };
+  });
+
+  // Remove an NPC from favorites
+  server.delete('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const querySchema = z.object({
+      npcNameNormalized: z.string().min(1).max(191),
+      isInstanceVariant: z.enum(['true', 'false'])
+    });
+
+    const { guildId } = paramsSchema.parse(request.params);
+    const { npcNameNormalized, isInstanceVariant } = querySchema.parse(request.query);
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    await prisma.npcFavorite.deleteMany({
+      where: {
+        userId: request.user.userId,
+        guildId,
+        npcNameNormalized,
+        isInstanceVariant: isInstanceVariant === 'true'
+      }
+    });
+
+    return reply.code(204).send();
+  });
 }

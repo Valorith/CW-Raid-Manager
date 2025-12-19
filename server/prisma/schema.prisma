@@ -33,6 +33,7 @@ model User {
   questAssignments   QuestAssignment[]
   personalBankCharacters GuildBankCharacter[]
   calendarAvailability CalendarAvailability[]
+  npcFavorites         NpcFavorite[]
 }
 
 model Guild {
@@ -70,6 +71,7 @@ model Guild {
   npcDefinitions     NpcDefinition[]
   npcKillRecords     NpcKillRecord[]
   pendingNpcKillClarifications PendingNpcKillClarification[]
+  npcFavorites       NpcFavorite[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -743,4 +745,19 @@ model PendingNpcKillClarification {
 
   @@index([guildId])
   @@index([raidId])
+}
+
+// NPC Favorites - user preference for prioritizing NPCs in respawn tracker
+model NpcFavorite {
+  id                  String   @id @default(cuid())
+  userId              String
+  guildId             String
+  npcNameNormalized   String   @db.VarChar(191)
+  isInstanceVariant   Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guild               Guild    @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, guildId, npcNameNormalized, isInstanceVariant])
+  @@index([userId, guildId])
 }
