@@ -49,7 +49,8 @@ const killRecordBodySchema = z.object({
 const subscriptionBodySchema = z.object({
   npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
   notifyMinutes: z.number().int().min(0).max(1440).optional(),
-  isEnabled: z.boolean().optional()
+  isEnabled: z.boolean().optional(),
+  isInstanceVariant: z.boolean().optional()
 });
 
 async function resolveGuildMemberDisplayName(
@@ -385,7 +386,11 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       guildId: z.string(),
       npcDefinitionId: z.string()
     });
+    const querySchema = z.object({
+      isInstanceVariant: z.enum(['true', 'false']).transform(v => v === 'true').optional()
+    });
     const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+    const { isInstanceVariant = false } = querySchema.parse(request.query);
 
     await ensureUserCanViewGuild(request.user.userId, guildId);
 
@@ -400,7 +405,7 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       return reply.notFound('NPC definition not found in this guild.');
     }
 
-    await deleteSubscription(request.user.userId, npcDefinitionId);
+    await deleteSubscription(request.user.userId, npcDefinitionId, isInstanceVariant);
     return reply.code(204).send();
   });
 

@@ -166,6 +166,13 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   async function fetchSubscriptions(guildId: string) {
     try {
       subscriptions.value = await api.fetchNpcSubscriptions(guildId);
+      // Repopulate subscribedVariants from fetched subscriptions
+      subscribedVariants.value.clear();
+      for (const sub of subscriptions.value) {
+        if (sub.isEnabled) {
+          subscribedVariants.value.add(getVariantKey(sub.npcDefinitionId, sub.isInstanceVariant));
+        }
+      }
     } catch (err: any) {
       console.error('[NpcRespawnStore] Error loading subscriptions:', err);
     }
@@ -221,29 +228,30 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       // Unsubscribe this variant
       subscribedVariants.value.delete(variantKey);
 
-      // Check if any other variant of this NPC is still subscribed
-      const otherVariantKey = getVariantKey(npcDefinitionId, !isInstanceVariant);
-      const hasOtherVariantSubscribed = subscribedVariants.value.has(otherVariantKey);
-
-      // Only delete the backend subscription if no variants are subscribed
-      if (!hasOtherVariantSubscribed) {
-        await api.deleteNpcSubscription(guildId, npcDefinitionId);
-        subscriptions.value = subscriptions.value.filter(s => s.npcDefinitionId !== npcDefinitionId);
-      }
+      // Delete the backend subscription for this specific variant
+      await api.deleteNpcSubscription(guildId, npcDefinitionId, isInstanceVariant);
+      subscriptions.value = subscriptions.value.filter(
+        s => !(s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant)
+      );
     } else {
       // Subscribe this variant
       subscribedVariants.value.add(variantKey);
 
-      // Create backend subscription if it doesn't exist
-      const existing = subscriptions.value.find(s => s.npcDefinitionId === npcDefinitionId);
+      // Create backend subscription for this specific variant
+      const existing = subscriptions.value.find(
+        s => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
+      );
       if (!existing?.isEnabled) {
         const subscription = await api.upsertNpcSubscription(guildId, {
           npcDefinitionId,
           isEnabled: true,
-          notifyMinutes: 5
+          notifyMinutes: 5,
+          isInstanceVariant
         });
         if (existing) {
-          const index = subscriptions.value.findIndex(s => s.npcDefinitionId === npcDefinitionId);
+          const index = subscriptions.value.findIndex(
+            s => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
+          );
           if (index >= 0) {
             subscriptions.value[index] = subscription;
           }

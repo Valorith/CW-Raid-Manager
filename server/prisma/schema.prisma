@@ -708,16 +708,17 @@ model NpcKillRecord {
 }
 
 model NpcRespawnSubscription {
-  id              String        @id @default(cuid())
-  npcDefinitionId String
-  userId          String
-  notifyMinutes   Int           @default(5)
-  isEnabled       Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  npcDefinition   NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
+  id                String        @id @default(cuid())
+  npcDefinitionId   String
+  userId            String
+  notifyMinutes     Int           @default(5)
+  isEnabled         Boolean       @default(true)
+  isInstanceVariant Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  npcDefinition     NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
 
-  @@unique([npcDefinitionId, userId])
+  @@unique([npcDefinitionId, userId, isInstanceVariant], map: "NpcRespawnSubscription_npcDef_user_variant_key")
   @@index([userId])
 }
 

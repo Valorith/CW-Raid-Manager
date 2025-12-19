@@ -915,6 +915,7 @@ export interface NpcRespawnSubscription {
   npcDefinitionId: string;
   notifyMinutes: number;
   isEnabled: boolean;
+  isInstanceVariant: boolean;
   createdAt: string;
   updatedAt: string;
   npcDefinition: NpcDefinition;
@@ -945,6 +946,7 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+  isInstanceVariant?: boolean;
 }
 
 // Type for NPC favorites - user preference for prioritizing NPCs in the tracker
@@ -3561,8 +3563,8 @@ export const api = {
     return response.data.subscription;
   },
 
-  async deleteNpcSubscription(guildId: string, npcDefinitionId: string): Promise<void> {
-    await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}`);
+  async deleteNpcSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean = false): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}?isInstanceVariant=${isInstanceVariant}`);
   },
 
   async fetchPendingNpcKillClarifications(guildId: string): Promise<{

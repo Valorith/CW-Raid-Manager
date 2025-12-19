@@ -34,6 +34,7 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+  isInstanceVariant?: boolean;
 }
 
 // Helper functions
@@ -380,6 +381,7 @@ export async function getUserSubscriptions(userId: string, guildId: string) {
     npcDefinitionId: sub.npcDefinitionId,
     notifyMinutes: sub.notifyMinutes,
     isEnabled: sub.isEnabled,
+    isInstanceVariant: sub.isInstanceVariant,
     createdAt: sub.createdAt,
     updatedAt: sub.updatedAt,
     npcDefinition: formatNpcDefinition(sub.npcDefinition)
@@ -387,11 +389,14 @@ export async function getUserSubscriptions(userId: string, guildId: string) {
 }
 
 export async function upsertSubscription(userId: string, input: NpcSubscriptionInput) {
+  const isInstanceVariant = input.isInstanceVariant ?? false;
+
   const existing = await prisma.npcRespawnSubscription.findUnique({
     where: {
-      npcDefinitionId_userId: {
+      npcDefinitionId_userId_isInstanceVariant: {
         npcDefinitionId: input.npcDefinitionId,
-        userId
+        userId,
+        isInstanceVariant
       }
     }
   });
@@ -411,17 +416,19 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
       npcDefinitionId: input.npcDefinitionId,
       userId,
       notifyMinutes: input.notifyMinutes ?? 5,
-      isEnabled: input.isEnabled ?? true
+      isEnabled: input.isEnabled ?? true,
+      isInstanceVariant
     }
   });
 }
 
-export async function deleteSubscription(userId: string, npcDefinitionId: string) {
+export async function deleteSubscription(userId: string, npcDefinitionId: string, isInstanceVariant: boolean = false) {
   const existing = await prisma.npcRespawnSubscription.findUnique({
     where: {
-      npcDefinitionId_userId: {
+      npcDefinitionId_userId_isInstanceVariant: {
         npcDefinitionId,
-        userId
+        userId,
+        isInstanceVariant
       }
     }
   });
