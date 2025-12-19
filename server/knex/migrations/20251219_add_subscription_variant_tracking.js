@@ -3,25 +3,37 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
-  await knex.transaction(async (trx) => {
-    // Add isInstanceVariant column to track which variant the subscription is for
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      ADD COLUMN \`isInstanceVariant\` BOOLEAN NOT NULL DEFAULT FALSE;
-    `);
+  // Add isInstanceVariant column to track which variant the subscription is for
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    ADD COLUMN \`isInstanceVariant\` BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
 
-    // Drop the old unique constraint (npcDefinitionId, userId)
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      DROP INDEX \`NpcRespawnSubscription_npcDefinitionId_userId_key\`;
-    `);
+  // Drop the foreign key constraint first (it depends on the unique index)
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    DROP FOREIGN KEY \`NpcRespawnSubscription_npcDefinitionId_fkey\`;
+  `);
 
-    // Create new unique constraint including isInstanceVariant
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      ADD UNIQUE INDEX \`NpcRespawnSubscription_npcDef_user_variant_key\`(\`npcDefinitionId\`, \`userId\`, \`isInstanceVariant\`);
-    `);
-  });
+  // Drop the old unique constraint (npcDefinitionId, userId)
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    DROP INDEX \`NpcRespawnSubscription_npcDefinitionId_userId_key\`;
+  `);
+
+  // Create new unique constraint including isInstanceVariant
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    ADD UNIQUE INDEX \`NpcRespawnSubscription_npcDef_user_variant_key\`(\`npcDefinitionId\`, \`userId\`, \`isInstanceVariant\`);
+  `);
+
+  // Recreate the foreign key constraint
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    ADD CONSTRAINT \`NpcRespawnSubscription_npcDefinitionId_fkey\`
+    FOREIGN KEY (\`npcDefinitionId\`) REFERENCES \`NpcDefinition\`(\`id\`)
+    ON DELETE CASCADE ON UPDATE CASCADE;
+  `);
 }
 
 /**
@@ -29,23 +41,44 @@ export async function up(knex) {
  * @returns { Promise<void> }
  */
 export async function down(knex) {
-  await knex.transaction(async (trx) => {
-    // Drop the new unique constraint
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      DROP INDEX \`NpcRespawnSubscription_npcDef_user_variant_key\`;
-    `);
+  // Drop the foreign key constraint first
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    DROP FOREIGN KEY \`NpcRespawnSubscription_npcDefinitionId_fkey\`;
+  `);
 
-    // Recreate the old unique constraint
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      ADD UNIQUE INDEX \`NpcRespawnSubscription_npcDefinitionId_userId_key\`(\`npcDefinitionId\`, \`userId\`);
-    `);
+  // Drop the new unique constraint
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    DROP INDEX \`NpcRespawnSubscription_npcDef_user_variant_key\`;
+  `);
 
-    // Remove the isInstanceVariant column
-    await trx.schema.raw(`
-      ALTER TABLE \`NpcRespawnSubscription\`
-      DROP COLUMN \`isInstanceVariant\`;
-    `);
-  });
+  // Delete any duplicate subscriptions that would violate the old constraint
+  // (keep the one with isInstanceVariant=false)
+  await knex.schema.raw(`
+    DELETE s1 FROM \`NpcRespawnSubscription\` s1
+    INNER JOIN \`NpcRespawnSubscription\` s2
+    ON s1.npcDefinitionId = s2.npcDefinitionId AND s1.userId = s2.userId
+    WHERE s1.isInstanceVariant = TRUE AND s2.isInstanceVariant = FALSE;
+  `);
+
+  // Recreate the old unique constraint
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    ADD UNIQUE INDEX \`NpcRespawnSubscription_npcDefinitionId_userId_key\`(\`npcDefinitionId\`, \`userId\`);
+  `);
+
+  // Recreate the foreign key constraint
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    ADD CONSTRAINT \`NpcRespawnSubscription_npcDefinitionId_fkey\`
+    FOREIGN KEY (\`npcDefinitionId\`) REFERENCES \`NpcDefinition\`(\`id\`)
+    ON DELETE CASCADE ON UPDATE CASCADE;
+  `);
+
+  // Remove the isInstanceVariant column
+  await knex.schema.raw(`
+    ALTER TABLE \`NpcRespawnSubscription\`
+    DROP COLUMN \`isInstanceVariant\`;
+  `);
 }
