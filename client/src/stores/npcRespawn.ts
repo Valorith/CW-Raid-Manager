@@ -56,25 +56,10 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
         return aFavorited ? -1 : 1;
       }
 
-      // For down/window status: sort by progress percent (descending)
-      // NPCs closer to respawning appear first
-      if (a.respawnStatus === 'down' || a.respawnStatus === 'window') {
-        if (a.progressPercent !== null && b.progressPercent !== null) {
-          const progressDiff = b.progressPercent - a.progressPercent;
-          if (progressDiff !== 0) return progressDiff;
-        }
-      }
-
-      // For 'up' status (and as fallback): sort by respawn time (soonest first), then alphabetically
-      // This helps users see which NPCs respawned most recently at the top
-      if (a.respawnStatus === 'up' && b.respawnStatus === 'up') {
-        // If both have respawn times, sort by most recent respawn (soonest first means most recently respawned)
-        if (a.respawnMaxTime && b.respawnMaxTime) {
-          const aTime = new Date(a.respawnMaxTime).getTime();
-          const bTime = new Date(b.respawnMaxTime).getTime();
-          const timeDiff = bTime - aTime; // More recent first
-          if (timeDiff !== 0) return timeDiff;
-        }
+      // Then by progress percent (descending) - NPCs closer to respawning appear first
+      if (a.progressPercent !== null && b.progressPercent !== null) {
+        const progressDiff = b.progressPercent - a.progressPercent;
+        if (progressDiff !== 0) return progressDiff;
       }
 
       // Then alphabetically
