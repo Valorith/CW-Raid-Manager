@@ -219,6 +219,16 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       } else {
         subscriptions.value.push(subscription);
       }
+
+      // If the NPC is already in up/window status, mark current state as dismissed
+      // so we don't immediately alarm for an NPC that's already up
+      const npcVariants = npcs.value.filter(n => n.id === npcDefinitionId);
+      for (const npc of npcVariants) {
+        if (npc.respawnStatus === 'up' || npc.respawnStatus === 'window') {
+          const notificationKey = getNotificationKey(npc, npc.respawnStatus);
+          dismissedNotificationKeys.value.add(notificationKey);
+        }
+      }
     }
   }
 
