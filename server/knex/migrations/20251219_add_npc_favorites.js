@@ -6,24 +6,21 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
-  await knex.schema.createTable('NpcFavorite', table => {
-    table.string('id', 191).primary();
-    table.string('userId', 191).notNullable();
-    table.string('guildId', 191).notNullable();
-    table.string('npcNameNormalized', 191).notNullable();
-    table.boolean('isInstanceVariant').notNullable().defaultTo(false);
-    table.timestamp('createdAt').defaultTo(knex.fn.now());
-
-    // Foreign keys
-    table.foreign('userId').references('id').inTable('User').onDelete('CASCADE');
-    table.foreign('guildId').references('id').inTable('Guild').onDelete('CASCADE');
-
-    // Unique constraint: one favorite per user per NPC variant per guild
-    table.unique(['userId', 'guildId', 'npcNameNormalized', 'isInstanceVariant']);
-
-    // Indexes for efficient queries
-    table.index(['userId', 'guildId']);
-  });
+  await knex.schema.raw(`
+    CREATE TABLE \`NpcFavorite\` (
+      \`id\` VARCHAR(191) NOT NULL,
+      \`userId\` VARCHAR(191) NOT NULL,
+      \`guildId\` VARCHAR(191) NOT NULL,
+      \`npcNameNormalized\` VARCHAR(191) NOT NULL,
+      \`isInstanceVariant\` TINYINT(1) NOT NULL DEFAULT 0,
+      \`createdAt\` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (\`id\`),
+      UNIQUE INDEX \`NpcFavorite_userId_guildId_npcNameNormalized_isInstanceVariant_key\` (\`userId\`, \`guildId\`, \`npcNameNormalized\`, \`isInstanceVariant\`),
+      INDEX \`NpcFavorite_userId_guildId_idx\` (\`userId\`, \`guildId\`),
+      CONSTRAINT \`NpcFavorite_userId_fkey\` FOREIGN KEY (\`userId\`) REFERENCES \`User\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT \`NpcFavorite_guildId_fkey\` FOREIGN KEY (\`guildId\`) REFERENCES \`Guild\`(\`id\`) ON DELETE CASCADE ON UPDATE CASCADE
+    ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  `);
 }
 
 /**
@@ -31,5 +28,5 @@ export async function up(knex) {
  * @returns { Promise<void> }
  */
 export async function down(knex) {
-  await knex.schema.dropTableIfExists('NpcFavorite');
+  await knex.schema.raw('DROP TABLE IF EXISTS `NpcFavorite`;');
 }
