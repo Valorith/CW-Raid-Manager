@@ -3568,65 +3568,105 @@ const npcKillScatterPlugin = {
       }
     });
 
-    // Second pass: resolve bubble overlaps with multiple iterations
-    const overlapPadding = 10;
+    // Second pass: resolve bubble overlaps
+    const overlapPadding = 8;
 
-    // Helper to check if bubble overlaps with any other bubble
-    const checkOverlap = (bubble: typeof bubbles[0], others: typeof bubbles) => {
-      for (const other of others) {
-        if (other === bubble) continue;
-        const overlapX = bubble.bubbleX < other.bubbleX + other.bubbleWidth + overlapPadding &&
-                         bubble.bubbleX + bubble.bubbleWidth + overlapPadding > other.bubbleX;
-        const overlapY = bubble.bubbleY < other.bubbleY + other.bubbleHeight + overlapPadding &&
-                         bubble.bubbleY + bubble.bubbleHeight + overlapPadding > other.bubbleY;
-        if (overlapX && overlapY) return other;
+    // Helper to check if a rectangle overlaps with any placed bubble
+    const hasOverlap = (testX: number, testY: number, testW: number, testH: number, exclude: typeof bubbles[0] | null, placed: typeof bubbles) => {
+      for (const other of placed) {
+        if (other === exclude) continue;
+        const overlapX = testX < other.bubbleX + other.bubbleWidth + overlapPadding &&
+                         testX + testW + overlapPadding > other.bubbleX;
+        const overlapY = testY < other.bubbleY + other.bubbleHeight + overlapPadding &&
+                         testY + testH + overlapPadding > other.bubbleY;
+        if (overlapX && overlapY) return true;
       }
-      return null;
+      return false;
     };
 
-    // Run multiple passes to resolve cascading overlaps
-    for (let pass = 0; pass < 5; pass++) {
-      let anyMoved = false;
+    // Place bubbles one by one, finding non-overlapping positions
+    const placedBubbles: typeof bubbles = [];
 
-      for (let i = 0; i < bubbles.length; i++) {
-        const bubble = bubbles[i];
-        const overlapping = checkOverlap(bubble, bubbles.slice(0, i));
+    for (const bubble of bubbles) {
+      // Try original position first
+      if (!hasOverlap(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+        placedBubbles.push(bubble);
+        continue;
+      }
 
-        if (overlapping) {
-          anyMoved = true;
+      // Try shifting horizontally at same Y level
+      let placed = false;
+      const baseY = bubble.bubbleY;
 
-          // Try shifting right of the overlapping bubble
-          const shiftRight = overlapping.bubbleX + overlapping.bubbleWidth + overlapPadding;
-          // Try shifting left of the overlapping bubble
-          const shiftLeft = overlapping.bubbleX - bubble.bubbleWidth - overlapPadding;
+      // Try positions to the right and left of current position
+      for (let offset = overlapPadding; offset < chartArea.right - chartArea.left; offset += 20) {
+        // Try right
+        const rightX = bubble.bubbleX + offset;
+        if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
+          if (!hasOverlap(rightX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = rightX;
+            placed = true;
+            break;
+          }
+        }
 
-          // Check which horizontal shift works without creating new overlaps
-          const canShiftRight = shiftRight + bubble.bubbleWidth <= chartArea.right - edgePadding;
-          const canShiftLeft = shiftLeft >= chartArea.left + edgePadding;
-
-          if (canShiftRight) {
-            bubble.bubbleX = shiftRight;
-          } else if (canShiftLeft) {
-            bubble.bubbleX = shiftLeft;
-          } else {
-            // No horizontal space - shift vertically and try to find clear horizontal spot
-            if (bubble.placeAbove) {
-              bubble.bubbleY = overlapping.bubbleY - bubble.bubbleHeight - overlapPadding;
-            } else {
-              bubble.bubbleY = overlapping.bubbleY + overlapping.bubbleHeight + overlapPadding;
-            }
-            // Reset horizontal to preferred position
-            bubble.bubbleX = bubble.starX - bubble.bubbleWidth / 2;
-            if (bubble.bubbleX < chartArea.left + edgePadding) {
-              bubble.bubbleX = chartArea.left + edgePadding;
-            } else if (bubble.bubbleX + bubble.bubbleWidth > chartArea.right - edgePadding) {
-              bubble.bubbleX = chartArea.right - edgePadding - bubble.bubbleWidth;
-            }
+        // Try left
+        const leftX = bubble.bubbleX - offset;
+        if (leftX >= chartArea.left + edgePadding) {
+          if (!hasOverlap(leftX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = leftX;
+            placed = true;
+            break;
           }
         }
       }
 
-      if (!anyMoved) break;
+      // If horizontal shift didn't work, try different Y levels
+      if (!placed) {
+        const yOffsets = bubble.placeAbove
+          ? [-(bubble.bubbleHeight + overlapPadding), -(bubble.bubbleHeight + overlapPadding) * 2]
+          : [(bubble.bubbleHeight + overlapPadding), (bubble.bubbleHeight + overlapPadding) * 2];
+
+        for (const yOffset of yOffsets) {
+          const newY = baseY + yOffset;
+          // Reset X to preferred position for this Y level
+          let newX = bubble.starX - bubble.bubbleWidth / 2;
+          if (newX < chartArea.left + edgePadding) newX = chartArea.left + edgePadding;
+          if (newX + bubble.bubbleWidth > chartArea.right - edgePadding) newX = chartArea.right - edgePadding - bubble.bubbleWidth;
+
+          if (!hasOverlap(newX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = newX;
+            bubble.bubbleY = newY;
+            placed = true;
+            break;
+          }
+
+          // Try horizontal shifts at this Y level too
+          for (let offset = overlapPadding; offset < chartArea.right - chartArea.left; offset += 20) {
+            const rightX = newX + offset;
+            if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
+              if (!hasOverlap(rightX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+                bubble.bubbleX = rightX;
+                bubble.bubbleY = newY;
+                placed = true;
+                break;
+              }
+            }
+            const leftX = newX - offset;
+            if (leftX >= chartArea.left + edgePadding) {
+              if (!hasOverlap(leftX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+                bubble.bubbleX = leftX;
+                bubble.bubbleY = newY;
+                placed = true;
+                break;
+              }
+            }
+          }
+          if (placed) break;
+        }
+      }
+
+      placedBubbles.push(bubble);
     }
 
     // Third pass: draw all bubbles and connecting lines
