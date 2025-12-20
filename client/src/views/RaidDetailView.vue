@@ -3474,7 +3474,10 @@ const npcKillScatterOptions = computed(() => ({
 
 const npcKillScatterPlugin = {
   id: 'npcKillScatterPlugin',
+  _bubbleData: null as any,
   afterDatasetsDraw(chart: any) {
+    // Reset bubble data for this render
+    this._bubbleData = null;
     const dataset = chart.data.datasets?.[0];
     if (!dataset) {
       return;
@@ -3685,8 +3688,21 @@ const npcKillScatterPlugin = {
       placedBubbles.push(bubble);
     }
 
-    // Third pass: draw all bubbles and connecting lines
-    bubbles.forEach((bubble) => {
+    // Store bubble data and constants for afterDraw hook
+    this._bubbleData = { bubbles, starRadius, bubbleRadius };
+  },
+
+  // Draw bubbles in afterDraw hook (outside clip region)
+  afterDraw(chart: any) {
+    const data = this._bubbleData;
+    if (!data || !data.bubbles.length) {
+      return;
+    }
+
+    const { ctx } = chart;
+    const { bubbles, starRadius, bubbleRadius } = data;
+
+    bubbles.forEach((bubble: any) => {
       const bubbleCenterX = bubble.bubbleX + bubble.bubbleWidth / 2;
       const labelY = bubble.bubbleY + bubble.bubbleHeight / 2;
 
