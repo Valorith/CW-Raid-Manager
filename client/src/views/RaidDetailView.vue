@@ -3723,8 +3723,8 @@ const npcKillScatterPlugin = {
       ctx.stroke();
 
       // Draw bubble background
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-      ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#facc15';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, bubbleRadius);
