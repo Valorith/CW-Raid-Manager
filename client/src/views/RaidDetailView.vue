@@ -3568,38 +3568,65 @@ const npcKillScatterPlugin = {
       }
     });
 
-    // Second pass: resolve bubble overlaps
-    const overlapPadding = 4;
-    for (let i = 0; i < bubbles.length; i++) {
-      for (let j = 0; j < i; j++) {
-        const a = bubbles[i];
-        const b = bubbles[j];
+    // Second pass: resolve bubble overlaps with multiple iterations
+    const overlapPadding = 10;
 
-        // Check if bubbles overlap
-        const overlapX = a.bubbleX < b.bubbleX + b.bubbleWidth + overlapPadding &&
-                         a.bubbleX + a.bubbleWidth + overlapPadding > b.bubbleX;
-        const overlapY = a.bubbleY < b.bubbleY + b.bubbleHeight + overlapPadding &&
-                         a.bubbleY + a.bubbleHeight + overlapPadding > b.bubbleY;
+    // Helper to check if bubble overlaps with any other bubble
+    const checkOverlap = (bubble: typeof bubbles[0], others: typeof bubbles) => {
+      for (const other of others) {
+        if (other === bubble) continue;
+        const overlapX = bubble.bubbleX < other.bubbleX + other.bubbleWidth + overlapPadding &&
+                         bubble.bubbleX + bubble.bubbleWidth + overlapPadding > other.bubbleX;
+        const overlapY = bubble.bubbleY < other.bubbleY + other.bubbleHeight + overlapPadding &&
+                         bubble.bubbleY + bubble.bubbleHeight + overlapPadding > other.bubbleY;
+        if (overlapX && overlapY) return other;
+      }
+      return null;
+    };
 
-        if (overlapX && overlapY) {
-          // Try to resolve by shifting horizontally first
-          const shiftRight = b.bubbleX + b.bubbleWidth + overlapPadding;
-          const shiftLeft = b.bubbleX - a.bubbleWidth - overlapPadding;
+    // Run multiple passes to resolve cascading overlaps
+    for (let pass = 0; pass < 5; pass++) {
+      let anyMoved = false;
 
-          if (shiftRight + a.bubbleWidth <= chartArea.right - edgePadding) {
-            a.bubbleX = shiftRight;
-          } else if (shiftLeft >= chartArea.left + edgePadding) {
-            a.bubbleX = shiftLeft;
+      for (let i = 0; i < bubbles.length; i++) {
+        const bubble = bubbles[i];
+        const overlapping = checkOverlap(bubble, bubbles.slice(0, i));
+
+        if (overlapping) {
+          anyMoved = true;
+
+          // Try shifting right of the overlapping bubble
+          const shiftRight = overlapping.bubbleX + overlapping.bubbleWidth + overlapPadding;
+          // Try shifting left of the overlapping bubble
+          const shiftLeft = overlapping.bubbleX - bubble.bubbleWidth - overlapPadding;
+
+          // Check which horizontal shift works without creating new overlaps
+          const canShiftRight = shiftRight + bubble.bubbleWidth <= chartArea.right - edgePadding;
+          const canShiftLeft = shiftLeft >= chartArea.left + edgePadding;
+
+          if (canShiftRight) {
+            bubble.bubbleX = shiftRight;
+          } else if (canShiftLeft) {
+            bubble.bubbleX = shiftLeft;
           } else {
-            // Can't shift horizontally, shift vertically
-            if (a.placeAbove) {
-              a.bubbleY = b.bubbleY - a.bubbleHeight - overlapPadding;
+            // No horizontal space - shift vertically and try to find clear horizontal spot
+            if (bubble.placeAbove) {
+              bubble.bubbleY = overlapping.bubbleY - bubble.bubbleHeight - overlapPadding;
             } else {
-              a.bubbleY = b.bubbleY + b.bubbleHeight + overlapPadding;
+              bubble.bubbleY = overlapping.bubbleY + overlapping.bubbleHeight + overlapPadding;
+            }
+            // Reset horizontal to preferred position
+            bubble.bubbleX = bubble.starX - bubble.bubbleWidth / 2;
+            if (bubble.bubbleX < chartArea.left + edgePadding) {
+              bubble.bubbleX = chartArea.left + edgePadding;
+            } else if (bubble.bubbleX + bubble.bubbleWidth > chartArea.right - edgePadding) {
+              bubble.bubbleX = chartArea.right - edgePadding - bubble.bubbleWidth;
             }
           }
         }
       }
+
+      if (!anyMoved) break;
     }
 
     // Third pass: draw all bubbles and connecting lines
