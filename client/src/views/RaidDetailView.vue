@@ -794,7 +794,7 @@
         <div class="raid-kills-grid" role="list">
           <article
             v-for="kill in npcKillSummary"
-            :key="kill.npcName"
+            :key="`${kill.npcName}-${kill.zoneName ?? 'unknown'}`"
             :class="[
               'raid-kills-grid__item',
               { 'raid-kills-grid__item--target': kill.isTargetBoss }
@@ -813,6 +813,7 @@
                 📜
               </span>
             </span>
+            <span v-if="kill.zoneName" class="raid-kills-grid__zone">{{ kill.zoneName }}</span>
             <span class="raid-kills-grid__badge" :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }">
               {{ kill.killCount }}
             </span>
@@ -8380,6 +8381,16 @@ th {
   display: flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+.raid-kills-grid__zone {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -0.15rem;
 }
 
 .raid-kills-grid__badge {

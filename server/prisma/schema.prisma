@@ -297,6 +297,7 @@ model RaidNpcKillEvent {
   npcName           String    @db.VarChar(191)
   npcNameNormalized String    @db.VarChar(191)
   killerName        String?   @db.VarChar(191)
+  zoneName          String?   @db.VarChar(191)
   occurredAt        DateTime
   logSignature      String    @db.VarChar(191)
   createdAt         DateTime  @default(now())
