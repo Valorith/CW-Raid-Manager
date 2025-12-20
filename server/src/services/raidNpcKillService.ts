@@ -182,11 +182,8 @@ export async function recordRaidNpcKills(
   if (uniqueEntries.length > 0) {
     for (const chunk of chunkArray(uniqueEntries, 100)) {
       try {
-        // Strip zoneName from insert data - it's not in the RaidNpcKillEvent schema
-        // zoneName is only used for respawn tracker processing
-        const insertData = chunk.map(({ zoneName, ...rest }) => rest);
         const result = await prisma.raidNpcKillEvent.createMany({
-          data: insertData,
+          data: chunk,
           skipDuplicates: true
         });
         inserted += result.count;
@@ -362,17 +359,19 @@ export async function recordRaidNpcKills(
 
 export async function listRaidNpcKillSummary(raidId: string) {
   const grouped = await prisma.raidNpcKillEvent.groupBy({
-    by: ['npcName'],
+    by: ['npcName', 'zoneName'],
     where: { raidId },
     _count: { raidId: true },
     orderBy: [
       { _count: { raidId: 'desc' } },
-      { npcName: 'asc' }
+      { npcName: 'asc' },
+      { zoneName: 'asc' }
     ]
   });
 
   return grouped.map((row) => ({
     npcName: row.npcName,
+    zoneName: row.zoneName,
     killCount: row._count?.raidId ?? 0
   }));
 }

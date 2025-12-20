@@ -794,7 +794,7 @@
         <div class="raid-kills-grid" role="list">
           <article
             v-for="kill in npcKillSummary"
-            :key="kill.npcName"
+            :key="`${kill.npcName}-${kill.zoneName ?? 'unknown'}`"
             :class="[
               'raid-kills-grid__item',
               { 'raid-kills-grid__item--target': kill.isTargetBoss }
@@ -813,6 +813,7 @@
                 📜
               </span>
             </span>
+            <span v-if="kill.zoneName" class="raid-kills-grid__zone">{{ kill.zoneName }}</span>
             <span class="raid-kills-grid__badge" :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }">
               {{ kill.killCount }}
             </span>
@@ -3426,6 +3427,11 @@ const npcKillScatterData = computed(() => {
 const npcKillScatterOptions = computed(() => ({
   maintainAspectRatio: false,
   parsing: false as const,
+  layout: {
+    padding: {
+      top: 60 // Space above chart area for bubble labels
+    }
+  },
   scales: {
     x: {
       type: 'linear' as const,
@@ -3473,7 +3479,10 @@ const npcKillScatterOptions = computed(() => ({
 
 const npcKillScatterPlugin = {
   id: 'npcKillScatterPlugin',
+  _bubbleData: null as any,
   afterDatasetsDraw(chart: any) {
+    // Reset bubble data for this render
+    this._bubbleData = null;
     const dataset = chart.data.datasets?.[0];
     if (!dataset) {
       return;
@@ -3482,8 +3491,31 @@ const npcKillScatterPlugin = {
     const points = dataset.data as Array<{
       isPlayerDeath?: boolean;
       isTargetBossKill?: boolean;
+      npcName?: string;
     }>;
-    const { ctx } = chart;
+    const { ctx, chartArea } = chart;
+
+    // First pass: draw all icons and collect bubble data for target boss kills
+    const bubbles: Array<{
+      starX: number;
+      starY: number;
+      npcName: string;
+      bubbleWidth: number;
+      bubbleHeight: number;
+      bubbleX: number;
+      bubbleY: number;
+      placeAbove: boolean;
+    }> = [];
+
+    const starRadius = 14;
+    const lineLength = 16;
+    const bubbleHeight = 22;
+    const bubbleRadius = 5;
+    const edgePadding = 4;
+    const padding = 8;
+
+    ctx.font = '600 12px system-ui, -apple-system, sans-serif';
+
     meta.data.forEach((element: any, index: number) => {
       const raw = points?.[index];
       if (!raw) {
@@ -3495,6 +3527,8 @@ const npcKillScatterPlugin = {
       }
       const x = element.x;
       const y = element.y;
+
+      // Draw the icon
       ctx.save();
       ctx.font = '20px "Segoe UI Emoji", sans-serif';
       ctx.textAlign = 'center';
@@ -3507,6 +3541,202 @@ const npcKillScatterPlugin = {
       ctx.shadowBlur = 12;
       ctx.fillText(icon, x, y);
       ctx.shadowBlur = 0;
+      ctx.restore();
+
+      // Collect bubble data for target boss kills
+      if (raw.isTargetBossKill && raw.npcName) {
+        ctx.font = '600 12px system-ui, -apple-system, sans-serif';
+        const textWidth = ctx.measureText(raw.npcName).width;
+        const bubbleWidth = textWidth + padding * 2;
+
+        const minSpaceAbove = starRadius + lineLength + bubbleHeight + 4;
+        const minSpaceBelow = starRadius + lineLength + bubbleHeight + 4;
+        // Allow bubbles to extend above chart area (but not into header)
+        // minSpaceAbove is ~52px, so we need at least that much overflow for stars near the top
+        const aboveOverflow = 60;
+        const canPlaceAbove = y - minSpaceAbove >= chartArea.top - aboveOverflow;
+        const canPlaceBelow = y + minSpaceBelow <= chartArea.bottom;
+
+        // Alternate above/below based on bubble index, respecting chart bounds
+        let placeAbove: boolean;
+        if (canPlaceAbove && canPlaceBelow) {
+          // Alternate: even index = above, odd index = below
+          placeAbove = bubbles.length % 2 === 0;
+        } else {
+          // Use whichever side has space
+          placeAbove = canPlaceAbove;
+        }
+
+        const labelY = placeAbove
+          ? y - starRadius - lineLength - bubbleHeight / 2
+          : y + starRadius + lineLength + bubbleHeight / 2;
+
+        // Initial horizontal position (clamped to chart bounds)
+        let bubbleX = x - bubbleWidth / 2;
+        if (bubbleX < chartArea.left + edgePadding) {
+          bubbleX = chartArea.left + edgePadding;
+        } else if (bubbleX + bubbleWidth > chartArea.right - edgePadding) {
+          bubbleX = chartArea.right - edgePadding - bubbleWidth;
+        }
+
+        bubbles.push({
+          starX: x,
+          starY: y,
+          npcName: raw.npcName,
+          bubbleWidth,
+          bubbleHeight,
+          bubbleX,
+          bubbleY: labelY - bubbleHeight / 2,
+          placeAbove
+        });
+      }
+    });
+
+    // Second pass: resolve bubble overlaps
+    const overlapPadding = 8;
+
+    // Helper to check if a rectangle overlaps with any placed bubble
+    const hasOverlap = (testX: number, testY: number, testW: number, testH: number, exclude: typeof bubbles[0] | null, placed: typeof bubbles) => {
+      for (const other of placed) {
+        if (other === exclude) continue;
+        const overlapX = testX < other.bubbleX + other.bubbleWidth + overlapPadding &&
+                         testX + testW + overlapPadding > other.bubbleX;
+        const overlapY = testY < other.bubbleY + other.bubbleHeight + overlapPadding &&
+                         testY + testH + overlapPadding > other.bubbleY;
+        if (overlapX && overlapY) return true;
+      }
+      return false;
+    };
+
+    // Place bubbles one by one, finding non-overlapping positions
+    const placedBubbles: typeof bubbles = [];
+
+    for (const bubble of bubbles) {
+      // Try original position first
+      if (!hasOverlap(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+        placedBubbles.push(bubble);
+        continue;
+      }
+
+      // Try shifting horizontally at same Y level
+      let placed = false;
+      const baseY = bubble.bubbleY;
+
+      // Try positions to the right and left of current position
+      for (let offset = overlapPadding; offset < chartArea.right - chartArea.left; offset += 20) {
+        // Try right
+        const rightX = bubble.bubbleX + offset;
+        if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
+          if (!hasOverlap(rightX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = rightX;
+            placed = true;
+            break;
+          }
+        }
+
+        // Try left
+        const leftX = bubble.bubbleX - offset;
+        if (leftX >= chartArea.left + edgePadding) {
+          if (!hasOverlap(leftX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = leftX;
+            placed = true;
+            break;
+          }
+        }
+      }
+
+      // If horizontal shift didn't work, try different Y levels
+      if (!placed) {
+        const yOffsets = bubble.placeAbove
+          ? [-(bubble.bubbleHeight + overlapPadding), -(bubble.bubbleHeight + overlapPadding) * 2]
+          : [(bubble.bubbleHeight + overlapPadding), (bubble.bubbleHeight + overlapPadding) * 2];
+
+        for (const yOffset of yOffsets) {
+          const newY = baseY + yOffset;
+          // Reset X to preferred position for this Y level
+          let newX = bubble.starX - bubble.bubbleWidth / 2;
+          if (newX < chartArea.left + edgePadding) newX = chartArea.left + edgePadding;
+          if (newX + bubble.bubbleWidth > chartArea.right - edgePadding) newX = chartArea.right - edgePadding - bubble.bubbleWidth;
+
+          if (!hasOverlap(newX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+            bubble.bubbleX = newX;
+            bubble.bubbleY = newY;
+            placed = true;
+            break;
+          }
+
+          // Try horizontal shifts at this Y level too
+          for (let offset = overlapPadding; offset < chartArea.right - chartArea.left; offset += 20) {
+            const rightX = newX + offset;
+            if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
+              if (!hasOverlap(rightX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+                bubble.bubbleX = rightX;
+                bubble.bubbleY = newY;
+                placed = true;
+                break;
+              }
+            }
+            const leftX = newX - offset;
+            if (leftX >= chartArea.left + edgePadding) {
+              if (!hasOverlap(leftX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+                bubble.bubbleX = leftX;
+                bubble.bubbleY = newY;
+                placed = true;
+                break;
+              }
+            }
+          }
+          if (placed) break;
+        }
+      }
+
+      placedBubbles.push(bubble);
+    }
+
+    // Store bubble data and constants for afterDraw hook
+    this._bubbleData = { bubbles, starRadius, bubbleRadius };
+  },
+
+  // Draw bubbles in afterDraw hook (outside clip region)
+  afterDraw(chart: any) {
+    const data = this._bubbleData;
+    if (!data || !data.bubbles.length) {
+      return;
+    }
+
+    const { ctx } = chart;
+    const { bubbles, starRadius, bubbleRadius } = data;
+
+    bubbles.forEach((bubble: any) => {
+      const bubbleCenterX = bubble.bubbleX + bubble.bubbleWidth / 2;
+      const labelY = bubble.bubbleY + bubble.bubbleHeight / 2;
+
+      // Draw connecting line
+      const lineStartY = bubble.placeAbove ? bubble.starY - starRadius : bubble.starY + starRadius;
+      const lineEndY = bubble.placeAbove ? bubble.bubbleY + bubble.bubbleHeight + 2 : bubble.bubbleY - 2;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bubble.starX, lineStartY);
+      ctx.lineTo(bubbleCenterX, lineEndY);
+      ctx.stroke();
+
+      // Draw bubble background
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, bubbleRadius);
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw NPC name text
+      ctx.font = '600 12px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(bubble.npcName, bubbleCenterX, labelY);
       ctx.restore();
     });
   }
@@ -8380,6 +8610,16 @@ th {
   display: flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+.raid-kills-grid__zone {
+  font-size: 0.7rem;
+  color: #94a3b8;
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: -0.15rem;
 }
 
 .raid-kills-grid__badge {
