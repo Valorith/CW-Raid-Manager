@@ -3509,12 +3509,12 @@ const npcKillScatterPlugin = {
 
     const starRadius = 14;
     const lineLength = 16;
-    const bubbleHeight = 18;
-    const bubbleRadius = 4;
+    const bubbleHeight = 22;
+    const bubbleRadius = 5;
     const edgePadding = 4;
-    const padding = 6;
+    const padding = 8;
 
-    ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+    ctx.font = '600 12px system-ui, -apple-system, sans-serif';
 
     meta.data.forEach((element: any, index: number) => {
       const raw = points?.[index];
@@ -3545,7 +3545,7 @@ const npcKillScatterPlugin = {
 
       // Collect bubble data for target boss kills
       if (raw.isTargetBossKill && raw.npcName) {
-        ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+        ctx.font = '600 12px system-ui, -apple-system, sans-serif';
         const textWidth = ctx.measureText(raw.npcName).width;
         const bubbleWidth = textWidth + padding * 2;
 
@@ -3732,8 +3732,8 @@ const npcKillScatterPlugin = {
       ctx.stroke();
 
       // Draw NPC name text
-      ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
-      ctx.fillStyle = '#facc15';
+      ctx.font = '600 12px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(bubble.npcName, bubbleCenterX, labelY);
