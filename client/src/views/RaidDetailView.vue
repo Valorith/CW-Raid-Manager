@@ -3486,6 +3486,28 @@ const npcKillScatterPlugin = {
       npcName?: string;
     }>;
     const { ctx, chartArea } = chart;
+
+    // First pass: draw all icons and collect bubble data for target boss kills
+    const bubbles: Array<{
+      starX: number;
+      starY: number;
+      npcName: string;
+      bubbleWidth: number;
+      bubbleHeight: number;
+      bubbleX: number;
+      bubbleY: number;
+      placeAbove: boolean;
+    }> = [];
+
+    const starRadius = 14;
+    const lineLength = 16;
+    const bubbleHeight = 18;
+    const bubbleRadius = 4;
+    const edgePadding = 4;
+    const padding = 6;
+
+    ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+
     meta.data.forEach((element: any, index: number) => {
       const raw = points?.[index];
       if (!raw) {
@@ -3497,6 +3519,8 @@ const npcKillScatterPlugin = {
       }
       const x = element.x;
       const y = element.y;
+
+      // Draw the icon
       ctx.save();
       ctx.font = '20px "Segoe UI Emoji", sans-serif';
       ctx.textAlign = 'center';
@@ -3511,62 +3535,105 @@ const npcKillScatterPlugin = {
       ctx.shadowBlur = 0;
       ctx.restore();
 
-      // Draw NPC name label for target boss kills (stars)
+      // Collect bubble data for target boss kills
       if (raw.isTargetBossKill && raw.npcName) {
-        ctx.save();
         ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
-        ctx.textAlign = 'center';
         const textWidth = ctx.measureText(raw.npcName).width;
-        const padding = 6;
         const bubbleWidth = textWidth + padding * 2;
-        const bubbleHeight = 18;
-        const bubbleRadius = 4;
 
-        // Position label above or below the star based on available space
-        const starRadius = 14;
-        const lineLength = 16;
         const minSpaceNeeded = starRadius + lineLength + bubbleHeight + 4;
         const placeAbove = y - minSpaceNeeded >= chartArea.top;
         const labelY = placeAbove
           ? y - starRadius - lineLength - bubbleHeight / 2
           : y + starRadius + lineLength + bubbleHeight / 2;
 
-        // Clamp bubble horizontally to stay within chart bounds
-        const edgePadding = 4;
+        // Initial horizontal position (clamped to chart bounds)
         let bubbleX = x - bubbleWidth / 2;
         if (bubbleX < chartArea.left + edgePadding) {
           bubbleX = chartArea.left + edgePadding;
         } else if (bubbleX + bubbleWidth > chartArea.right - edgePadding) {
           bubbleX = chartArea.right - edgePadding - bubbleWidth;
         }
-        const bubbleCenterX = bubbleX + bubbleWidth / 2;
 
-        // Draw connecting line (angled if bubble is offset)
-        const lineStartY = placeAbove ? y - starRadius : y + starRadius;
-        const lineEndY = placeAbove ? labelY + bubbleHeight / 2 + 2 : labelY - bubbleHeight / 2 - 2;
-        ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(x, lineStartY);
-        ctx.lineTo(bubbleCenterX, lineEndY);
-        ctx.stroke();
-
-        // Draw bubble background
-        const bubbleY = labelY - bubbleHeight / 2;
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-        ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, bubbleRadius);
-        ctx.fill();
-        ctx.stroke();
-
-        // Draw NPC name text
-        ctx.fillStyle = '#facc15';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(raw.npcName, bubbleCenterX, labelY);
-        ctx.restore();
+        bubbles.push({
+          starX: x,
+          starY: y,
+          npcName: raw.npcName,
+          bubbleWidth,
+          bubbleHeight,
+          bubbleX,
+          bubbleY: labelY - bubbleHeight / 2,
+          placeAbove
+        });
       }
+    });
+
+    // Second pass: resolve bubble overlaps
+    const overlapPadding = 4;
+    for (let i = 0; i < bubbles.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const a = bubbles[i];
+        const b = bubbles[j];
+
+        // Check if bubbles overlap
+        const overlapX = a.bubbleX < b.bubbleX + b.bubbleWidth + overlapPadding &&
+                         a.bubbleX + a.bubbleWidth + overlapPadding > b.bubbleX;
+        const overlapY = a.bubbleY < b.bubbleY + b.bubbleHeight + overlapPadding &&
+                         a.bubbleY + a.bubbleHeight + overlapPadding > b.bubbleY;
+
+        if (overlapX && overlapY) {
+          // Try to resolve by shifting horizontally first
+          const shiftRight = b.bubbleX + b.bubbleWidth + overlapPadding;
+          const shiftLeft = b.bubbleX - a.bubbleWidth - overlapPadding;
+
+          if (shiftRight + a.bubbleWidth <= chartArea.right - edgePadding) {
+            a.bubbleX = shiftRight;
+          } else if (shiftLeft >= chartArea.left + edgePadding) {
+            a.bubbleX = shiftLeft;
+          } else {
+            // Can't shift horizontally, shift vertically
+            if (a.placeAbove) {
+              a.bubbleY = b.bubbleY - a.bubbleHeight - overlapPadding;
+            } else {
+              a.bubbleY = b.bubbleY + b.bubbleHeight + overlapPadding;
+            }
+          }
+        }
+      }
+    }
+
+    // Third pass: draw all bubbles and connecting lines
+    bubbles.forEach((bubble) => {
+      const bubbleCenterX = bubble.bubbleX + bubble.bubbleWidth / 2;
+      const labelY = bubble.bubbleY + bubble.bubbleHeight / 2;
+
+      // Draw connecting line
+      const lineStartY = bubble.placeAbove ? bubble.starY - starRadius : bubble.starY + starRadius;
+      const lineEndY = bubble.placeAbove ? bubble.bubbleY + bubble.bubbleHeight + 2 : bubble.bubbleY - 2;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(bubble.starX, lineStartY);
+      ctx.lineTo(bubbleCenterX, lineEndY);
+      ctx.stroke();
+
+      // Draw bubble background
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, bubbleRadius);
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw NPC name text
+      ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#facc15';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(bubble.npcName, bubbleCenterX, labelY);
+      ctx.restore();
     });
   }
 };
