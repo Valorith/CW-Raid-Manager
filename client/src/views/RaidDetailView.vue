@@ -3522,11 +3522,24 @@ const npcKillScatterPlugin = {
         const bubbleHeight = 18;
         const bubbleRadius = 4;
 
-        // Position label above or below the star based on proximity to chart edges
-        const labelOffset = 22;
-        const labelY = y - labelOffset - bubbleHeight / 2 < chartArea.top
-          ? y + labelOffset
-          : y - labelOffset;
+        // Position label above or below the star based on available space
+        const starRadius = 14;
+        const lineLength = 16;
+        const minSpaceNeeded = starRadius + lineLength + bubbleHeight + 4;
+        const placeAbove = y - minSpaceNeeded >= chartArea.top;
+        const labelY = placeAbove
+          ? y - starRadius - lineLength - bubbleHeight / 2
+          : y + starRadius + lineLength + bubbleHeight / 2;
+
+        // Draw connecting line
+        const lineStartY = placeAbove ? y - starRadius : y + starRadius;
+        const lineEndY = placeAbove ? labelY + bubbleHeight / 2 + 2 : labelY - bubbleHeight / 2 - 2;
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, lineStartY);
+        ctx.lineTo(x, lineEndY);
+        ctx.stroke();
 
         // Draw bubble background
         const bubbleX = x - bubbleWidth / 2;
