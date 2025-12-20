@@ -3543,7 +3543,9 @@ const npcKillScatterPlugin = {
 
         const minSpaceAbove = starRadius + lineLength + bubbleHeight + 4;
         const minSpaceBelow = starRadius + lineLength + bubbleHeight + 4;
-        const canPlaceAbove = y - minSpaceAbove >= chartArea.top;
+        // Allow bubbles to extend above chart area by up to 30px (but not into header)
+        const aboveOverflow = 30;
+        const canPlaceAbove = y - minSpaceAbove >= chartArea.top - aboveOverflow;
         const canPlaceBelow = y + minSpaceBelow <= chartArea.bottom;
 
         // Alternate above/below based on bubble index, respecting chart bounds
