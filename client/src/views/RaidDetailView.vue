@@ -3427,6 +3427,11 @@ const npcKillScatterData = computed(() => {
 const npcKillScatterOptions = computed(() => ({
   maintainAspectRatio: false,
   parsing: false as const,
+  layout: {
+    padding: {
+      top: 60 // Space above chart area for bubble labels
+    }
+  },
   scales: {
     x: {
       type: 'linear' as const,
@@ -9191,16 +9196,12 @@ th {
   height: 85vh;
   display: flex;
   flex-direction: column;
-  overflow: visible;
 }
 
 .npc-kill-chart {
   flex: 1;
   width: 100%;
   height: 100%;
-  padding-top: 60px;
-  margin-top: -60px;
-  overflow: visible;
 }
 
 /* Instance Clarification Modal */
