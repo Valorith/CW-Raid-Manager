@@ -3483,8 +3483,9 @@ const npcKillScatterPlugin = {
     const points = dataset.data as Array<{
       isPlayerDeath?: boolean;
       isTargetBossKill?: boolean;
+      npcName?: string;
     }>;
-    const { ctx } = chart;
+    const { ctx, chartArea } = chart;
     meta.data.forEach((element: any, index: number) => {
       const raw = points?.[index];
       if (!raw) {
@@ -3509,6 +3510,41 @@ const npcKillScatterPlugin = {
       ctx.fillText(icon, x, y);
       ctx.shadowBlur = 0;
       ctx.restore();
+
+      // Draw NPC name label for target boss kills (stars)
+      if (raw.isTargetBossKill && raw.npcName) {
+        ctx.save();
+        ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        const textWidth = ctx.measureText(raw.npcName).width;
+        const padding = 6;
+        const bubbleWidth = textWidth + padding * 2;
+        const bubbleHeight = 18;
+        const bubbleRadius = 4;
+
+        // Position label above or below the star based on proximity to chart edges
+        const labelOffset = 22;
+        const labelY = y - labelOffset - bubbleHeight / 2 < chartArea.top
+          ? y + labelOffset
+          : y - labelOffset;
+
+        // Draw bubble background
+        const bubbleX = x - bubbleWidth / 2;
+        const bubbleY = labelY - bubbleHeight / 2;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, bubbleRadius);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw NPC name text
+        ctx.fillStyle = '#facc15';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(raw.npcName, x, labelY);
+        ctx.restore();
+      }
     });
   }
 };
