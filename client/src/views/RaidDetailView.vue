@@ -3531,18 +3531,27 @@ const npcKillScatterPlugin = {
           ? y - starRadius - lineLength - bubbleHeight / 2
           : y + starRadius + lineLength + bubbleHeight / 2;
 
-        // Draw connecting line
+        // Clamp bubble horizontally to stay within chart bounds
+        const edgePadding = 4;
+        let bubbleX = x - bubbleWidth / 2;
+        if (bubbleX < chartArea.left + edgePadding) {
+          bubbleX = chartArea.left + edgePadding;
+        } else if (bubbleX + bubbleWidth > chartArea.right - edgePadding) {
+          bubbleX = chartArea.right - edgePadding - bubbleWidth;
+        }
+        const bubbleCenterX = bubbleX + bubbleWidth / 2;
+
+        // Draw connecting line (angled if bubble is offset)
         const lineStartY = placeAbove ? y - starRadius : y + starRadius;
         const lineEndY = placeAbove ? labelY + bubbleHeight / 2 + 2 : labelY - bubbleHeight / 2 - 2;
         ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(x, lineStartY);
-        ctx.lineTo(x, lineEndY);
+        ctx.lineTo(bubbleCenterX, lineEndY);
         ctx.stroke();
 
         // Draw bubble background
-        const bubbleX = x - bubbleWidth / 2;
         const bubbleY = labelY - bubbleHeight / 2;
         ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
         ctx.strokeStyle = 'rgba(250, 204, 21, 0.6)';
@@ -3555,7 +3564,7 @@ const npcKillScatterPlugin = {
         // Draw NPC name text
         ctx.fillStyle = '#facc15';
         ctx.textBaseline = 'middle';
-        ctx.fillText(raw.npcName, x, labelY);
+        ctx.fillText(raw.npcName, bubbleCenterX, labelY);
         ctx.restore();
       }
     });
