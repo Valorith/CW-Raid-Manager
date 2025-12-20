@@ -3541,8 +3541,21 @@ const npcKillScatterPlugin = {
         const textWidth = ctx.measureText(raw.npcName).width;
         const bubbleWidth = textWidth + padding * 2;
 
-        const minSpaceNeeded = starRadius + lineLength + bubbleHeight + 4;
-        const placeAbove = y - minSpaceNeeded >= chartArea.top;
+        const minSpaceAbove = starRadius + lineLength + bubbleHeight + 4;
+        const minSpaceBelow = starRadius + lineLength + bubbleHeight + 4;
+        const canPlaceAbove = y - minSpaceAbove >= chartArea.top;
+        const canPlaceBelow = y + minSpaceBelow <= chartArea.bottom;
+
+        // Alternate above/below based on bubble index, respecting chart bounds
+        let placeAbove: boolean;
+        if (canPlaceAbove && canPlaceBelow) {
+          // Alternate: even index = above, odd index = below
+          placeAbove = bubbles.length % 2 === 0;
+        } else {
+          // Use whichever side has space
+          placeAbove = canPlaceAbove;
+        }
+
         const labelY = placeAbove
           ? y - starRadius - lineLength - bubbleHeight / 2
           : y + starRadius + lineLength + bubbleHeight / 2;
