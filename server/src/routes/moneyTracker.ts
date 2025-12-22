@@ -175,8 +175,12 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
         return serializeBigInt({ snapshot });
       } catch (error) {
         request.log.error({ error }, 'Failed to create money snapshot.');
-        if (error instanceof Error && error.message.includes('already exists')) {
-          return reply.conflict(error.message);
+        // Check for database unique constraint violation
+        if (error instanceof Error && (
+          error.message.includes('Unique constraint') ||
+          error.message.includes('Duplicate entry')
+        )) {
+          return reply.conflict('A snapshot with this date already exists. Please delete the existing snapshot first or wait for the migration to complete.');
         }
         return reply.internalServerError('Unable to create money snapshot.');
       }

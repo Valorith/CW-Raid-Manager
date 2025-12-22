@@ -814,9 +814,17 @@ async function refreshLiveData(): Promise<void> {
 async function takeSnapshot(): Promise<void> {
   creatingSnapshot.value = true;
   try {
-    await axios.post('/api/admin/money-tracker/snapshots');
+    const response = await axios.post('/api/admin/money-tracker/snapshots');
+    console.log('Snapshot created:', response.data);
+
     // Refresh all data after creating a snapshot
     await Promise.all([fetchSummary(), fetchSnapshots()]);
+
+    // Also refresh allSnapshots if the history modal has been opened
+    if (allSnapshots.value.length > 0) {
+      await fetchAllSnapshots();
+    }
+
     liveData.value = null; // Clear live data to show the new snapshot
     addToast({
       title: 'Snapshot Created',
@@ -824,9 +832,12 @@ async function takeSnapshot(): Promise<void> {
     });
   } catch (error) {
     console.error('Failed to create snapshot:', error);
+    const errorMessage = axios.isAxiosError(error) && error.response?.data?.message
+      ? error.response.data.message
+      : 'Failed to create snapshot. Please try again.';
     addToast({
       title: 'Error',
-      message: 'Failed to create snapshot. Please try again.'
+      message: errorMessage
     });
   } finally {
     creatingSnapshot.value = false;
