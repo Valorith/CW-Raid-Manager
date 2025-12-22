@@ -192,8 +192,8 @@
             <svg
               :class="['refresh-icon', { 'refresh-icon--spinning': refreshingCharacters }]"
               xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
+              width="24"
+              height="24"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -273,8 +273,8 @@
             <svg
               :class="['refresh-icon', { 'refresh-icon--spinning': refreshingSharedBanks }]"
               xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
+              width="24"
+              height="24"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
