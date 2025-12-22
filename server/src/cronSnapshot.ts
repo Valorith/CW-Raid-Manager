@@ -10,12 +10,11 @@
  * The script will:
  * 1. Check if auto-snapshot is enabled in settings
  * 2. Check if the configured snapshot time has passed for today
- * 3. Check if the scheduled snapshot already ran at the configured time today
- * 4. Create a snapshot if conditions are met
- * 5. Exit with code 0 on success, 1 on error
+ * 3. Create a snapshot if conditions are met
+ * 4. Exit with code 0 on success, 1 on error
  *
- * Note: Manual snapshots taken earlier in the day will NOT prevent the
- * scheduled snapshot from running at the configured time.
+ * After creating a snapshot, lastSnapshotAt is updated so subsequent runs
+ * today will skip (since lastSnapshotAt >= scheduledTimeToday).
  */
 
 import 'dotenv/config';
@@ -56,17 +55,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Check if we already ran the scheduled snapshot at this time today
-  // This allows manual snapshots earlier in the day without blocking the scheduled one
+  // Check if we already took a snapshot after today's scheduled time
+  // This prevents multiple snapshots after the scheduled time passes
   if (settings.lastSnapshotAt) {
     const lastSnapshot = new Date(settings.lastSnapshotAt);
-    const todayDate = now.toISOString().split('T')[0];
-    const lastSnapshotDate = lastSnapshot.toISOString().split('T')[0];
-    const lastSnapshotHour = lastSnapshot.getUTCHours();
-
-    // Only skip if the last snapshot was today at the scheduled hour
-    if (lastSnapshotDate === todayDate && lastSnapshotHour === settings.snapshotHour) {
-      console.log('[CronSnapshot] Scheduled snapshot already ran at the configured time today. Exiting.');
+    if (lastSnapshot >= scheduledTimeToday) {
+      console.log('[CronSnapshot] Snapshot already taken after scheduled time today. Exiting.');
       return;
     }
   }
