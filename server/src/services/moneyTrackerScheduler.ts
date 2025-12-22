@@ -9,6 +9,7 @@ import { isEqDbConfigured } from '../utils/eqDb.js';
 import {
   createMoneySnapshot,
   getSettings,
+  getSnapshotByDate,
   updateLastSnapshotTime
 } from './moneyTrackerService.js';
 
@@ -21,6 +22,22 @@ type SchedulerLogger = {
 let schedulerInterval: NodeJS.Timeout | null = null;
 let lastRunDate: string | null = null;
 let logger: SchedulerLogger = console;
+
+/**
+ * Check if a snapshot already exists for today in the database
+ * This is used to prevent duplicate snapshots after server restarts
+ */
+async function hasSnapshotForToday(): Promise<boolean> {
+  try {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const snapshot = await getSnapshotByDate(today);
+    return snapshot !== null;
+  } catch (error) {
+    logger.error('[MoneyTrackerScheduler] Error checking for existing snapshot:', error);
+    return false;
+  }
+}
 
 /**
  * Check if we should run the snapshot now
@@ -49,8 +66,17 @@ async function shouldRunSnapshot(): Promise<boolean> {
       return false;
     }
 
-    // Check if we already ran today (prevent duplicate runs within the same minute)
+    // Check if we already ran today (in-memory check for current process)
     if (lastRunDate === todayDate) {
+      return false;
+    }
+
+    // Also check the database for existing snapshot (handles server restarts)
+    // This prevents duplicate attempts when the server restarts on the scheduled minute
+    if (await hasSnapshotForToday()) {
+      // Update in-memory state to match database
+      lastRunDate = todayDate;
+      logger.debug?.('[MoneyTrackerScheduler] Snapshot already exists for today (found in database).');
       return false;
     }
 
@@ -102,6 +128,23 @@ async function schedulerTick(): Promise<void> {
 }
 
 /**
+ * Initialize the scheduler state from the database
+ * This syncs the in-memory lastRunDate with actual database state
+ */
+async function initializeSchedulerState(): Promise<void> {
+  try {
+    // Check if a snapshot already exists for today
+    if (await hasSnapshotForToday()) {
+      const todayDate = new Date().toISOString().split('T')[0];
+      lastRunDate = todayDate;
+      logger.info('[MoneyTrackerScheduler] Found existing snapshot for today, marking as already run.');
+    }
+  } catch (error) {
+    logger.error('[MoneyTrackerScheduler] Error initializing scheduler state:', error);
+  }
+}
+
+/**
  * Start the money tracker scheduler
  */
 export function startMoneyTrackerScheduler(customLogger?: SchedulerLogger): void {
@@ -116,6 +159,10 @@ export function startMoneyTrackerScheduler(customLogger?: SchedulerLogger): void
 
   logger.info('[MoneyTrackerScheduler] Starting scheduler (checking every minute)...');
 
+  // Initialize state from database (async, but we don't wait for it)
+  // This syncs lastRunDate if a snapshot was already taken today before server restart
+  void initializeSchedulerState();
+
   // Run immediately on startup to check if we missed today's snapshot
   void schedulerTick();
 
@@ -124,8 +171,9 @@ export function startMoneyTrackerScheduler(customLogger?: SchedulerLogger): void
     void schedulerTick();
   }, 60 * 1000); // Every 60 seconds
 
-  // Don't keep the process alive just for this interval
-  schedulerInterval.unref();
+  // NOTE: We intentionally do NOT call .unref() here.
+  // The scheduler must keep the Node.js process alive to ensure
+  // auto-snapshots work even when there's no other activity.
 }
 
 /**
