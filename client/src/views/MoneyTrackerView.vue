@@ -150,8 +150,17 @@
       <!-- Chart Section -->
       <article class="money-tracker__chart-card">
         <header class="money-tracker__chart-header">
-          <h2>Server Currency Over Time</h2>
-          <span class="muted small">Total platinum equivalent across all characters</span>
+          <div>
+            <h2>Server Currency Over Time</h2>
+            <span class="muted small">Total platinum equivalent across all characters</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--outline btn--sm"
+            @click="openSnapshotHistory"
+          >
+            View All Snapshots
+          </button>
         </header>
         <div class="money-tracker__chart">
           <Line
@@ -255,6 +264,64 @@
           No shared bank data available. Refresh live data to see shared banks.
         </p>
       </article>
+    </div>
+
+    <!-- Snapshot History Modal -->
+    <div v-if="showSnapshotHistory" class="modal-backdrop" @click.self="closeSnapshotHistory">
+      <div class="modal modal--wide">
+        <header class="modal__header">
+          <div>
+            <h2 class="modal__title">Snapshot History</h2>
+            <p class="muted">All recorded currency snapshots</p>
+          </div>
+          <button class="icon-button" @click="closeSnapshotHistory">✕</button>
+        </header>
+
+        <div class="modal__body">
+          <div v-if="loadingAllSnapshots" class="modal__loading">
+            <p class="muted">Loading snapshots...</p>
+          </div>
+          <div v-else-if="allSnapshots.length === 0" class="modal__empty">
+            <p class="muted">No snapshots found.</p>
+          </div>
+          <div v-else class="modal__table-wrapper">
+            <table class="snapshot-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Total Wealth (PP)</th>
+                  <th>Characters</th>
+                  <th>Inventory</th>
+                  <th>Bank</th>
+                  <th>Cursor</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="snapshot in allSnapshots" :key="snapshot.id">
+                  <td class="snapshot-history-table__date">
+                    {{ formatSnapshotDate(snapshot.snapshotDate) }}
+                  </td>
+                  <td class="snapshot-history-table__total">
+                    {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000) }}
+                  </td>
+                  <td>{{ snapshot.characterCount }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinum)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
+                  <td class="snapshot-history-table__created">
+                    {{ formatScheduledTime(snapshot.createdAt) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="closeSnapshotHistory">Close</button>
+        </footer>
+      </div>
     </div>
   </section>
 </template>
@@ -399,6 +466,9 @@ const savingSettings = ref(false);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
 const snapshots = ref<MoneySnapshot[]>([]);
+const allSnapshots = ref<MoneySnapshot[]>([]);
+const showSnapshotHistory = ref(false);
+const loadingAllSnapshots = ref(false);
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
@@ -613,6 +683,34 @@ async function fetchSnapshots(): Promise<void> {
   } catch (error) {
     console.error('Failed to fetch snapshots:', error);
   }
+}
+
+async function fetchAllSnapshots(): Promise<void> {
+  loadingAllSnapshots.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/snapshots', {
+      params: { limit: '9999' }
+    });
+    // Sort by date descending (newest first)
+    allSnapshots.value = response.data.snapshots.sort((a: MoneySnapshot, b: MoneySnapshot) => {
+      return new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime();
+    });
+  } catch (error) {
+    console.error('Failed to fetch all snapshots:', error);
+  } finally {
+    loadingAllSnapshots.value = false;
+  }
+}
+
+async function openSnapshotHistory(): Promise<void> {
+  showSnapshotHistory.value = true;
+  if (allSnapshots.value.length === 0) {
+    await fetchAllSnapshots();
+  }
+}
+
+function closeSnapshotHistory(): void {
+  showSnapshotHistory.value = false;
 }
 
 async function refreshLiveData(): Promise<void> {
@@ -860,6 +958,13 @@ onMounted(() => {
 .money-tracker__chart-header,
 .money-tracker__table-header {
   margin-bottom: 1rem;
+}
+
+.money-tracker__chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
 }
 
 .money-tracker__chart-header h2,
@@ -1151,6 +1256,148 @@ onMounted(() => {
   .money-tracker__setting {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* Modal Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 120;
+}
+
+.modal {
+  width: min(500px, 100%);
+  max-height: 90vh;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.modal--wide {
+  width: min(900px, 95%);
+}
+
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.modal__body {
+  flex: 1;
+  overflow: auto;
+  min-height: 200px;
+  max-height: 60vh;
+}
+
+.modal__loading,
+.modal__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+}
+
+.modal__table-wrapper {
+  overflow-x: auto;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.icon-button:hover {
+  color: #e2e8f0;
+}
+
+/* Snapshot History Table */
+.snapshot-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.snapshot-history-table th,
+.snapshot-history-table td {
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #334155);
+  white-space: nowrap;
+}
+
+.snapshot-history-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #94a3b8);
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.snapshot-history-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.snapshot-history-table__date {
+  font-weight: 600;
+  color: var(--color-accent, #60a5fa);
+}
+
+.snapshot-history-table__total {
+  font-weight: 600;
+}
+
+.snapshot-history-table__created {
+  font-size: 0.75rem;
+  color: var(--color-muted, #94a3b8);
+}
+
+@media (max-width: 768px) {
+  .modal {
+    padding: 1rem;
+  }
+
+  .modal--wide {
+    width: 100%;
+  }
+
+  .snapshot-history-table {
+    font-size: 0.75rem;
+  }
+
+  .snapshot-history-table th,
+  .snapshot-history-table td {
+    padding: 0.5rem 0.25rem;
   }
 }
 </style>
