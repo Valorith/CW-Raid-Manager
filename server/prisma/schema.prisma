@@ -805,6 +805,5 @@ model MoneySnapshot {
   createdAt           DateTime @default(now())
   createdById         String?
 
-  @@unique([snapshotDate])
   @@index([snapshotDate])
 }

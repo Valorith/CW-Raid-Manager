@@ -317,15 +317,6 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  // Check if a snapshot already exists for today
-  const existing = await prisma.moneySnapshot.findUnique({
-    where: { snapshotDate: today }
-  });
-
-  if (existing) {
-    throw new Error(`A snapshot already exists for ${today.toISOString().split('T')[0]}. Only one snapshot per day is allowed.`);
-  }
-
   // Fetch current data from EQEmu
   const [totals, topCharacters, sharedBankTotals] = await Promise.all([
     fetchServerCurrencyTotals(),

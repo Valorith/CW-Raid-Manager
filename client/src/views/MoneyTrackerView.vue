@@ -162,9 +162,10 @@
             View All Snapshots
           </button>
         </header>
-        <div class="money-tracker__chart">
+        <div class="money-tracker__chart" @contextmenu="handleChartRightClick">
           <Line
             v-if="hasChartData"
+            ref="chartRef"
             :data="chartData"
             :options="chartOptions"
           />
@@ -296,6 +297,7 @@
                   <th>Bank</th>
                   <th>Cursor</th>
                   <th>Shared Bank</th>
+                  <th class="snapshot-history-table__th-actions"></th>
                 </tr>
               </thead>
               <tbody>
@@ -314,6 +316,16 @@
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalSharedPlatinum || 0)) }}</td>
+                  <td class="snapshot-history-table__actions">
+                    <button
+                      type="button"
+                      class="btn btn--danger btn--sm"
+                      :disabled="deletingSnapshotId === snapshot.id"
+                      @click="confirmDeleteSnapshot(snapshot)"
+                    >
+                      {{ deletingSnapshotId === snapshot.id ? 'Deleting...' : 'Delete' }}
+                    </button>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -325,11 +337,46 @@
         </footer>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteConfirm" class="modal-backdrop" @click.self="cancelDelete">
+      <div class="modal modal--sm">
+        <header class="modal__header">
+          <h2 class="modal__title">Delete Snapshot?</h2>
+          <button class="icon-button" @click="cancelDelete">✕</button>
+        </header>
+        <div class="modal__body">
+          <p>Are you sure you want to delete the snapshot from <strong>{{ snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : '' }}</strong>?</p>
+          <p class="muted small">This action cannot be undone.</p>
+        </div>
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="cancelDelete">Cancel</button>
+          <button
+            class="btn btn--danger"
+            :disabled="deletingSnapshotId !== null"
+            @click="executeDeleteSnapshot"
+          >
+            {{ deletingSnapshotId ? 'Deleting...' : 'Delete' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Context Menu for Chart -->
+    <div
+      v-if="contextMenu.visible"
+      class="context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+    >
+      <button class="context-menu__item context-menu__item--danger" @click="deleteFromContextMenu">
+        Delete Snapshot
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 import axios from 'axios';
 
@@ -480,6 +527,22 @@ const settingsForm = ref({
   snapshotMinute: 0
 });
 const timezoneAbbr = ref(getTimezoneAbbreviation());
+
+// Delete state
+const showDeleteConfirm = ref(false);
+const snapshotToDelete = ref<MoneySnapshot | null>(null);
+const deletingSnapshotId = ref<string | null>(null);
+
+// Context menu state
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  snapshotIndex: -1
+});
+
+// Chart ref for right-click detection
+const chartRef = ref<InstanceType<typeof Line> | null>(null);
 
 // Computed
 const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
@@ -755,13 +818,16 @@ async function takeSnapshot(): Promise<void> {
     // Refresh all data after creating a snapshot
     await Promise.all([fetchSummary(), fetchSnapshots()]);
     liveData.value = null; // Clear live data to show the new snapshot
+    addToast({
+      title: 'Snapshot Created',
+      message: 'Currency snapshot has been saved successfully.'
+    });
   } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 409) {
-      alert('A snapshot already exists for today. Only one snapshot per day is allowed.');
-    } else {
-      console.error('Failed to create snapshot:', error);
-      alert('Failed to create snapshot. Please try again.');
-    }
+    console.error('Failed to create snapshot:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to create snapshot. Please try again.'
+    });
   } finally {
     creatingSnapshot.value = false;
   }
@@ -849,14 +915,113 @@ async function loadData(): Promise<void> {
   }
 }
 
+// Delete snapshot functions
+function confirmDeleteSnapshot(snapshot: MoneySnapshot): void {
+  snapshotToDelete.value = snapshot;
+  showDeleteConfirm.value = true;
+}
+
+function cancelDelete(): void {
+  showDeleteConfirm.value = false;
+  snapshotToDelete.value = null;
+}
+
+async function executeDeleteSnapshot(): Promise<void> {
+  if (!snapshotToDelete.value) return;
+
+  const snapshotId = snapshotToDelete.value.id;
+  deletingSnapshotId.value = snapshotId;
+
+  try {
+    await axios.delete(`/api/admin/money-tracker/snapshots/${snapshotId}`);
+
+    // Remove from local arrays
+    allSnapshots.value = allSnapshots.value.filter((s) => s.id !== snapshotId);
+    snapshots.value = snapshots.value.filter((s) => s.id !== snapshotId);
+
+    // Refresh summary to update counts
+    await fetchSummary();
+
+    addToast({
+      title: 'Snapshot Deleted',
+      message: 'The snapshot has been successfully deleted.'
+    });
+  } catch (error) {
+    console.error('Failed to delete snapshot:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to delete snapshot. Please try again.'
+    });
+  } finally {
+    deletingSnapshotId.value = null;
+    showDeleteConfirm.value = false;
+    snapshotToDelete.value = null;
+  }
+}
+
+// Context menu functions
+function showContextMenu(event: MouseEvent, snapshotIndex: number): void {
+  event.preventDefault();
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    snapshotIndex
+  };
+}
+
+function hideContextMenu(): void {
+  contextMenu.value.visible = false;
+  contextMenu.value.snapshotIndex = -1;
+}
+
+function deleteFromContextMenu(): void {
+  if (contextMenu.value.snapshotIndex >= 0 && contextMenu.value.snapshotIndex < snapshots.value.length) {
+    const snapshot = snapshots.value[contextMenu.value.snapshotIndex];
+    confirmDeleteSnapshot(snapshot);
+  }
+  hideContextMenu();
+}
+
+function handleChartRightClick(event: MouseEvent): void {
+  if (!chartRef.value?.chart) return;
+
+  const chart = chartRef.value.chart;
+  const elements = chart.getElementsAtEventForMode(
+    event,
+    'nearest',
+    { intersect: true },
+    false
+  );
+
+  if (elements.length > 0) {
+    event.preventDefault();
+    const dataIndex = elements[0].index;
+    showContextMenu(event, dataIndex);
+  }
+}
+
 // Watch for date range changes
 watch(dateRange, () => {
   fetchSnapshots();
 });
 
+// Close context menu when clicking elsewhere
+function handleDocumentClick(): void {
+  if (contextMenu.value.visible) {
+    hideContextMenu();
+  }
+}
+
 // Initialize
 onMounted(() => {
   loadData();
+  document.addEventListener('click', handleDocumentClick);
+});
+
+// Cleanup
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick);
 });
 </script>
 
@@ -1403,6 +1568,73 @@ onMounted(() => {
 
 .snapshot-history-table__total {
   font-weight: 600;
+}
+
+/* Small modal variant for confirmations */
+.modal--sm {
+  width: min(400px, 90%);
+}
+
+.modal--sm .modal__body {
+  min-height: auto;
+  max-height: none;
+}
+
+/* Delete/danger button styles */
+.btn--danger {
+  background: var(--color-danger, #dc2626);
+  color: white;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--color-danger-hover, #b91c1c);
+}
+
+/* Snapshot history table actions */
+.snapshot-history-table__th-actions {
+  width: 80px;
+}
+
+.snapshot-history-table__actions {
+  text-align: center;
+}
+
+/* Context menu styles */
+.context-menu {
+  position: fixed;
+  z-index: 150;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.5rem;
+  padding: 0.25rem;
+  min-width: 150px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu__item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: background 0.15s;
+}
+
+.context-menu__item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu__item--danger {
+  color: var(--color-danger, #f87171);
+}
+
+.context-menu__item--danger:hover {
+  background: rgba(220, 38, 38, 0.2);
 }
 
 @media (max-width: 768px) {
