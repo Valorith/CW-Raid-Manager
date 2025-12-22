@@ -101,6 +101,7 @@
             <span class="money-tracker__setting-label">Next Scheduled Snapshot</span>
             <span class="money-tracker__setting-value">
               {{ formatScheduledTime(settings.nextScheduledTime) }}
+              <span v-if="snapshotCountdown" class="money-tracker__countdown">({{ snapshotCountdown }})</span>
             </span>
           </div>
           <div v-if="settings?.lastSnapshotAt" class="money-tracker__setting">
@@ -624,6 +625,10 @@ const settingsForm = ref({
 });
 const timezoneAbbr = ref(getTimezoneAbbreviation());
 
+// Countdown timer state
+const snapshotCountdown = ref<string>('');
+let countdownInterval: number | null = null;
+
 // Delete state
 const showDeleteConfirm = ref(false);
 const snapshotToDelete = ref<MoneySnapshot | null>(null);
@@ -877,6 +882,44 @@ function formatSnapshotTime(dateStr: string | null | undefined): string {
     minute: '2-digit',
     timeZoneName: 'short'
   });
+}
+
+function formatTimeRemaining(targetDate: string | null): string {
+  if (!targetDate) return '';
+  const target = new Date(targetDate).getTime();
+  const now = Date.now();
+  const diff = target - now;
+
+  if (diff <= 0) return 'Now';
+
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function updateCountdown(): void {
+  if (settings.value?.nextScheduledTime) {
+    snapshotCountdown.value = formatTimeRemaining(settings.value.nextScheduledTime);
+  } else {
+    snapshotCountdown.value = '';
+  }
+}
+
+function startCountdownTimer(): void {
+  stopCountdownTimer();
+  updateCountdown();
+  countdownInterval = window.setInterval(updateCountdown, 1000);
+}
+
+function stopCountdownTimer(): void {
+  if (countdownInterval !== null) {
+    window.clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
 }
 
 async function checkStatus(): Promise<boolean> {
@@ -1245,11 +1288,13 @@ function handleDocumentClick(): void {
 onMounted(() => {
   loadData();
   document.addEventListener('click', handleDocumentClick);
+  startCountdownTimer();
 });
 
 // Cleanup
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick);
+  stopCountdownTimer();
 });
 </script>
 
@@ -1632,6 +1677,12 @@ onUnmounted(() => {
 .money-tracker__setting-value {
   font-size: 0.875rem;
   font-weight: 500;
+}
+
+.money-tracker__countdown {
+  color: var(--color-accent, #60a5fa);
+  font-weight: 400;
+  margin-left: 0.25rem;
 }
 
 .money-tracker__time-inputs {
