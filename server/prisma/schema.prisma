@@ -795,10 +795,13 @@ model MoneySnapshot {
   totalCopperCursor   BigInt   @default(0)
   // Total in platinum equivalent for graphing (stored as cents to avoid float issues)
   totalPlatinumEquivalent BigInt @default(0)
+  // Shared bank platinum (account-level shared plat)
+  totalSharedPlatinum BigInt   @default(0)
   // Top characters snapshot (stored as JSON for flexibility)
   topCharacters       Json     @default(dbgenerated("(json_array())"))
   // Metadata
   characterCount      Int      @default(0)
+  sharedBankCount     Int      @default(0)
   createdAt           DateTime @default(now())
   createdById         String?
 

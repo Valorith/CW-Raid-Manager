@@ -294,6 +294,7 @@
                   <th>Inventory</th>
                   <th>Bank</th>
                   <th>Cursor</th>
+                  <th>Shared Bank</th>
                   <th>Created</th>
                 </tr>
               </thead>
@@ -309,6 +310,7 @@
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinum)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalSharedPlatinum || 0)) }}</td>
                   <td class="snapshot-history-table__created">
                     {{ formatScheduledTime(snapshot.createdAt) }}
                   </td>
@@ -372,8 +374,10 @@ interface MoneySnapshot {
   totalSilverCursor: string;
   totalCopperCursor: string;
   totalPlatinumEquivalent: string;
+  totalSharedPlatinum: string;
   topCharacters: TopCharacterCurrency[];
   characterCount: number;
+  sharedBankCount: number;
   createdAt: string;
 }
 

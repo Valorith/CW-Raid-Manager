@@ -88,8 +88,10 @@ export interface MoneySnapshotData {
   totalSilverCursor: bigint;
   totalCopperCursor: bigint;
   totalPlatinumEquivalent: bigint;
+  totalSharedPlatinum: bigint;
   topCharacters: TopCharacterCurrency[];
   characterCount: number;
+  sharedBankCount: number;
   createdAt: Date;
 }
 
@@ -325,9 +327,10 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
   }
 
   // Fetch current data from EQEmu
-  const [totals, topCharacters] = await Promise.all([
+  const [totals, topCharacters, sharedBankTotals] = await Promise.all([
     fetchServerCurrencyTotals(),
-    fetchTopCharactersByCurrency(20)
+    fetchTopCharactersByCurrency(20),
+    fetchSharedBankTotals()
   ]);
 
   // Create the snapshot
@@ -347,8 +350,10 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
       totalSilverCursor: totals.silverCursor,
       totalCopperCursor: totals.copperCursor,
       totalPlatinumEquivalent: totals.totalPlatinumEquivalent,
+      totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
       topCharacters: JSON.parse(JSON.stringify(topCharacters)),
       characterCount: totals.characterCount,
+      sharedBankCount: sharedBankTotals.accountCount,
       createdById
     }
   });
