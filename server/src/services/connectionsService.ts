@@ -56,11 +56,11 @@ function mapEqClassIdToName(classId: number): string {
 let schemaCache: {
   zoneTable: { exists: boolean; idColumn: string | null; longNameColumn: string | null; shortNameColumn: string | null } | null;
   guildsTable: { exists: boolean; idColumn: string | null; nameColumn: string | null } | null;
-  characterDataGuildColumn: string | null;
+  guildMembersTable: { exists: boolean; charIdColumn: string | null; guildIdColumn: string | null } | null;
 } = {
   zoneTable: null,
   guildsTable: null,
-  characterDataGuildColumn: null
+  guildMembersTable: null
 };
 
 async function getTableColumns(tableName: string): Promise<string[]> {
@@ -87,8 +87,9 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
     return schemaCache.zoneTable;
   }
 
-  // Find the zone ID column (could be zoneidnumber, zoneid, id, etc.)
-  const idCandidates = ['zoneidnumber', 'zoneid', 'zone_id', 'id'];
+  // Find the zone ID column - try multiple options since character_data.zone_id might map to different columns
+  // Priority: zoneidnumber first (standard EQEmu), then id
+  const idCandidates = ['zoneidnumber', 'id', 'zoneid', 'zone_id'];
   const idColumn = idCandidates.find(c => columns.includes(c)) || null;
 
   // Find the long name column
@@ -99,7 +100,7 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
   const shortNameCandidates = ['short_name', 'shortname', 'short'];
   const shortNameColumn = shortNameCandidates.find(c => columns.includes(c)) || null;
 
-  console.log('[connectionsService] Zone table schema:', { columns, idColumn, longNameColumn, shortNameColumn });
+  console.log('[connectionsService] Zone table schema:', { idColumn, longNameColumn, shortNameColumn });
 
   schemaCache.zoneTable = {
     exists: true,
@@ -121,15 +122,13 @@ async function discoverGuildsSchema(): Promise<typeof schemaCache.guildsTable> {
     return schemaCache.guildsTable;
   }
 
-  // Find the ID column
   const idCandidates = ['id', 'guild_id', 'guildid'];
   const idColumn = idCandidates.find(c => columns.includes(c)) || null;
 
-  // Find the name column
   const nameCandidates = ['name', 'guild_name', 'guildname'];
   const nameColumn = nameCandidates.find(c => columns.includes(c)) || null;
 
-  console.log('[connectionsService] Guilds table schema:', { columns, idColumn, nameColumn });
+  console.log('[connectionsService] Guilds table schema:', { idColumn, nameColumn });
 
   schemaCache.guildsTable = {
     exists: true,
@@ -139,24 +138,37 @@ async function discoverGuildsSchema(): Promise<typeof schemaCache.guildsTable> {
   return schemaCache.guildsTable;
 }
 
-async function discoverCharacterDataGuildColumn(): Promise<string | null> {
-  if (schemaCache.characterDataGuildColumn !== null) {
-    return schemaCache.characterDataGuildColumn;
+async function discoverGuildMembersSchema(): Promise<typeof schemaCache.guildMembersTable> {
+  if (schemaCache.guildMembersTable !== null) {
+    return schemaCache.guildMembersTable;
   }
 
-  const columns = await getTableColumns('character_data');
-  const guildCandidates = ['guild_id', 'guildid', 'guild'];
-  const guildColumn = guildCandidates.find(c => columns.includes(c)) || null;
+  const columns = await getTableColumns('guild_members');
+  if (columns.length === 0) {
+    schemaCache.guildMembersTable = { exists: false, charIdColumn: null, guildIdColumn: null };
+    return schemaCache.guildMembersTable;
+  }
 
-  console.log('[connectionsService] character_data guild column:', guildColumn, 'from columns:', columns.filter(c => c.includes('guild')));
+  // Find character ID column
+  const charIdCandidates = ['char_id', 'charid', 'character_id', 'characterid'];
+  const charIdColumn = charIdCandidates.find(c => columns.includes(c)) || null;
 
-  schemaCache.characterDataGuildColumn = guildColumn || '';
-  return schemaCache.characterDataGuildColumn || null;
+  // Find guild ID column
+  const guildIdCandidates = ['guild_id', 'guildid'];
+  const guildIdColumn = guildIdCandidates.find(c => columns.includes(c)) || null;
+
+  console.log('[connectionsService] Guild_members table schema:', { columns, charIdColumn, guildIdColumn });
+
+  schemaCache.guildMembersTable = {
+    exists: true,
+    charIdColumn,
+    guildIdColumn
+  };
+  return schemaCache.guildMembersTable;
 }
 
 /**
  * Fetch all currently connected characters from the EQEmu server
- * Joins with character_data for character details, zone for zone names, and guilds for guild names
  */
 export async function fetchServerConnections(): Promise<ServerConnection[]> {
   if (!isEqDbConfigured()) {
@@ -166,10 +178,10 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
   }
 
   // Discover schemas
-  const [zoneSchema, guildsSchema, charGuildColumn] = await Promise.all([
+  const [zoneSchema, guildsSchema, guildMembersSchema] = await Promise.all([
     discoverZoneSchema(),
     discoverGuildsSchema(),
-    discoverCharacterDataGuildColumn()
+    discoverGuildMembersSchema()
   ]);
 
   // Build query dynamically based on available tables and columns
@@ -187,7 +199,7 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
     FROM connections c
     LEFT JOIN character_data cd ON c.characterid = cd.id`;
 
-  // Add zone join if table exists and has required columns
+  // Add zone join - try zoneidnumber first, then id
   const canJoinZone = zoneSchema?.exists && zoneSchema.idColumn && (zoneSchema.longNameColumn || zoneSchema.shortNameColumn);
   if (canJoinZone) {
     if (zoneSchema.longNameColumn) {
@@ -204,21 +216,29 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       selectFields += `,
       NULL as zone_short_name`;
     }
-    joins += `
+    // Try joining on zoneidnumber first, if that's not the id column, also try id
+    if (zoneSchema.idColumn === 'zoneidnumber') {
+      joins += `
+    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber`;
+    } else {
+      joins += `
     LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}`;
+    }
   } else {
     selectFields += `,
       NULL as zone_long_name,
       NULL as zone_short_name`;
   }
 
-  // Add guilds join if table exists and has required columns
-  const canJoinGuilds = guildsSchema?.exists && guildsSchema.idColumn && guildsSchema.nameColumn && charGuildColumn;
+  // Add guild join through guild_members table
+  const canJoinGuilds = guildsSchema?.exists && guildsSchema.idColumn && guildsSchema.nameColumn &&
+                        guildMembersSchema?.exists && guildMembersSchema.charIdColumn && guildMembersSchema.guildIdColumn;
   if (canJoinGuilds) {
     selectFields += `,
       g.${guildsSchema.nameColumn} as guild_name`;
     joins += `
-    LEFT JOIN guilds g ON cd.${charGuildColumn} = g.${guildsSchema.idColumn} AND cd.${charGuildColumn} > 0`;
+    LEFT JOIN guild_members gm ON cd.id = gm.${guildMembersSchema.charIdColumn}
+    LEFT JOIN guilds g ON gm.${guildMembersSchema.guildIdColumn} = g.${guildsSchema.idColumn}`;
   } else {
     selectFields += `,
       NULL as guild_name`;
@@ -229,6 +249,16 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
 
   try {
     const rows = await queryEqDb<ConnectionRow[]>(query);
+
+    // Log first row for debugging
+    if (rows.length > 0) {
+      console.log('[connectionsService] First row sample:', {
+        zone_id: rows[0].zone_id,
+        zone_long_name: rows[0].zone_long_name,
+        zone_short_name: rows[0].zone_short_name,
+        guild_name: rows[0].guild_name
+      });
+    }
 
     return rows.map((row) => ({
       connectId: row.connectid,
@@ -244,7 +274,6 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       guildName: row.guild_name || null
     }));
   } catch (error) {
-    // If the query fails, try a simpler query without joins
     console.error('[connectionsService] Full query failed, trying simplified query:', error);
 
     const simpleQuery = `
