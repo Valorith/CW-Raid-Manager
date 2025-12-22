@@ -1008,9 +1008,10 @@ async function fetchAllSnapshots(): Promise<void> {
     const response = await axios.get('/api/admin/money-tracker/snapshots', {
       params: { limit: '9999' }
     });
-    // Sort by date descending (newest first)
+    // Sort by createdAt descending (newest first) - this is more accurate than snapshotDate
+    // since multiple snapshots can have the same snapshotDate
     allSnapshots.value = response.data.snapshots.sort((a: MoneySnapshot, b: MoneySnapshot) => {
-      return new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime();
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   } catch (error) {
     console.error('Failed to fetch all snapshots:', error);
