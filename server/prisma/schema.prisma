@@ -802,7 +802,8 @@ model MoneySnapshot {
   // Top characters snapshot (stored as JSON for flexibility)
   topCharacters       Json     @default(dbgenerated("(json_array())"))
   // Top guild banks snapshot (stored as JSON for flexibility)
-  topGuildBanks       Json     @default(dbgenerated("(json_array())"))
+  // Note: JSON columns can't have default values in older MySQL versions, so nullable
+  topGuildBanks       Json?
   // Metadata
   characterCount      Int      @default(0)
   sharedBankCount     Int      @default(0)

@@ -4,7 +4,9 @@
 export function up(knex) {
   return knex.schema.alterTable('MoneySnapshot', (table) => {
     table.bigInteger('totalGuildBankPlatinum').notNullable().defaultTo(0);
-    table.json('topGuildBanks').notNullable().defaultTo('[]');
+    // JSON columns can't have default values in MySQL, so we use nullable
+    // and handle the default in application code
+    table.json('topGuildBanks').nullable();
     table.integer('guildBankCount').notNullable().defaultTo(0);
   });
 }
