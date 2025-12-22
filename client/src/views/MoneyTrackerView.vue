@@ -811,27 +811,51 @@ const chartData = computed(() => {
   };
 });
 
-const chartOptions = computed(() => ({
-  maintainAspectRatio: false,
-  interaction: { mode: 'index' as const, intersect: false },
-  scales: {
-    y: {
-      beginAtZero: false,
-      ticks: {
-        callback: (value: number) => formatPlatinum(value)
+const chartOptions = computed(() => {
+  // Calculate Y-axis range to prevent over-zooming on similar values
+  const dataValues = chartData.value.datasets[0]?.data as number[] || [];
+  let yMin = 0;
+  let yMax = undefined;
+
+  if (dataValues.length > 0) {
+    const minValue = Math.min(...dataValues);
+    const maxValue = Math.max(...dataValues);
+    const range = maxValue - minValue;
+
+    // If the range is less than 5% of the max value, add padding for context
+    // This prevents the chart from zooming in too much on nearly identical values
+    if (range < maxValue * 0.05) {
+      const padding = maxValue * 0.05; // 5% padding on each side
+      yMin = Math.max(0, minValue - padding);
+      yMax = maxValue + padding;
+    } else {
+      // Normal case: start from 0 or slightly below min if values are large
+      yMin = minValue > 1000000 ? Math.floor(minValue * 0.9) : 0;
+    }
+  }
+
+  return {
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    scales: {
+      y: {
+        min: yMin,
+        max: yMax,
+        ticks: {
+          callback: (value: number) => formatPlatinum(value)
+        }
+      },
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 0
+        }
       }
     },
-    x: {
-      ticks: {
-        maxRotation: 45,
-        minRotation: 0
-      }
-    }
-  },
-  plugins: {
-    tooltip: {
-      callbacks: {
-        title: (context: { dataIndex: number }[]) => {
+    plugins: {
+      tooltip: {
+        callbacks: {
+          title: (context: { dataIndex: number }[]) => {
           if (context.length === 0) return '';
           const snapshot = snapshots.value[context[0].dataIndex];
           if (!snapshot) return '';
@@ -845,8 +869,8 @@ const chartOptions = computed(() => ({
         }
       }
     }
-  }
-}));
+  };
+});
 
 // Methods
 function formatPlatinum(value: number): string {
