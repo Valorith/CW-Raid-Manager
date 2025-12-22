@@ -100,8 +100,6 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
   const shortNameCandidates = ['short_name', 'shortname', 'short'];
   const shortNameColumn = shortNameCandidates.find(c => columns.includes(c)) || null;
 
-  console.log('[connectionsService] Zone table schema:', { idColumn, longNameColumn, shortNameColumn });
-
   schemaCache.zoneTable = {
     exists: true,
     idColumn,
@@ -127,8 +125,6 @@ async function discoverGuildsSchema(): Promise<typeof schemaCache.guildsTable> {
 
   const nameCandidates = ['name', 'guild_name', 'guildname'];
   const nameColumn = nameCandidates.find(c => columns.includes(c)) || null;
-
-  console.log('[connectionsService] Guilds table schema:', { idColumn, nameColumn });
 
   schemaCache.guildsTable = {
     exists: true,
@@ -156,8 +152,6 @@ async function discoverGuildMembersSchema(): Promise<typeof schemaCache.guildMem
   // Find guild ID column
   const guildIdCandidates = ['guild_id', 'guildid'];
   const guildIdColumn = guildIdCandidates.find(c => columns.includes(c)) || null;
-
-  console.log('[connectionsService] Guild_members table schema:', { columns, charIdColumn, guildIdColumn });
 
   schemaCache.guildMembersTable = {
     exists: true,
@@ -246,20 +240,9 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
 
   // Use GROUP BY to prevent duplicates from guild_members join (if character has multiple guild entries)
   const query = `SELECT ${selectFields} ${joins} GROUP BY c.connectid ORDER BY cd.name ASC`;
-  console.log('[connectionsService] Executing query:', query);
 
   try {
     const rows = await queryEqDb<ConnectionRow[]>(query);
-
-    // Log first row for debugging
-    if (rows.length > 0) {
-      console.log('[connectionsService] First row sample:', {
-        zone_id: rows[0].zone_id,
-        zone_long_name: rows[0].zone_long_name,
-        zone_short_name: rows[0].zone_short_name,
-        guild_name: rows[0].guild_name
-      });
-    }
 
     return rows.map((row) => ({
       connectId: row.connectid,

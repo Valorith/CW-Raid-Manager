@@ -26,12 +26,12 @@
         <strong class="stat-card__value">{{ connections.length }}</strong>
       </div>
       <div class="stat-card">
-        <span class="stat-card__label">Unique Zones</span>
-        <strong class="stat-card__value">{{ uniqueZones }}</strong>
+        <span class="stat-card__label">Unique IPs</span>
+        <strong class="stat-card__value">{{ uniqueIps }}</strong>
       </div>
       <div class="stat-card">
-        <span class="stat-card__label">Guilded Players</span>
-        <strong class="stat-card__value">{{ guildedCount }}</strong>
+        <span class="stat-card__label">Unique Zones</span>
+        <strong class="stat-card__value">{{ uniqueZones }}</strong>
       </div>
       <div class="stat-card">
         <span class="stat-card__label">Auto-Refresh</span>
@@ -50,7 +50,7 @@
       <header class="card__header">
         <div>
           <h2>Connected Characters</h2>
-          <span class="muted small">{{ filteredConnections.length }} characters</span>
+          <span class="muted small">{{ filteredConnections.length }} characters from {{ filteredIpGroups.length }} IPs</span>
         </div>
         <input
           v-model="searchQuery"
@@ -70,46 +70,54 @@
         {{ searchQuery ? 'No characters match your search.' : 'No characters currently connected.' }}
       </p>
 
-      <div v-else class="table-wrapper">
-        <table class="connections-table">
-          <thead>
-            <tr>
-              <th class="col-class">Class</th>
-              <th class="col-name">Character</th>
-              <th class="col-level">Level</th>
-              <th class="col-zone">Zone</th>
-              <th class="col-guild">Guild</th>
-              <th class="col-ip">IP Address</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(conn, index) in paginatedConnections" :key="`${conn.connectId}-${index}`">
-              <td class="col-class">
-                <div class="class-cell">
-                  <img
-                    v-if="getClassIcon(conn.className)"
-                    :src="getClassIcon(conn.className) ?? undefined"
-                    :alt="formatClass(conn.className)"
-                    class="class-icon"
-                  />
-                  <span class="class-label">{{ formatClass(conn.className) }}</span>
-                </div>
-              </td>
-              <td class="col-name">
-                <CharacterLink :name="conn.characterName" />
-              </td>
-              <td class="col-level">{{ conn.level }}</td>
-              <td class="col-zone">{{ conn.zoneName }}</td>
-              <td class="col-guild">
-                <span v-if="conn.guildName" class="guild-tag">{{ conn.guildName }}</span>
-                <span v-else class="muted">-</span>
-              </td>
-              <td class="col-ip">
-                <code class="ip-address">{{ conn.ip }}</code>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div v-else class="ip-groups">
+        <div
+          v-for="group in paginatedIpGroups"
+          :key="group.ip"
+          class="ip-group"
+        >
+          <div class="ip-group__header">
+            <code class="ip-address">{{ group.ip }}</code>
+            <span class="ip-group__count">{{ group.connections.length }} character{{ group.connections.length !== 1 ? 's' : '' }}</span>
+          </div>
+          <div class="table-wrapper">
+            <table class="connections-table">
+              <thead>
+                <tr>
+                  <th class="col-class">Class</th>
+                  <th class="col-name">Character</th>
+                  <th class="col-level">Level</th>
+                  <th class="col-zone">Zone</th>
+                  <th class="col-guild">Guild</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(conn, index) in group.connections" :key="`${conn.connectId}-${index}`">
+                  <td class="col-class">
+                    <div class="class-cell">
+                      <img
+                        v-if="getClassIcon(conn.className)"
+                        :src="getClassIcon(conn.className) ?? undefined"
+                        :alt="formatClass(conn.className)"
+                        class="class-icon"
+                      />
+                      <span class="class-label">{{ formatClass(conn.className) }}</span>
+                    </div>
+                  </td>
+                  <td class="col-name">
+                    <CharacterLink :name="conn.characterName" />
+                  </td>
+                  <td class="col-level">{{ conn.level }}</td>
+                  <td class="col-zone">{{ conn.zoneName }}</td>
+                  <td class="col-guild">
+                    <span v-if="conn.guildName" class="guild-tag">{{ conn.guildName }}</span>
+                    <span v-else class="muted">-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
@@ -143,12 +151,17 @@ import CharacterLink from '../components/CharacterLink.vue';
 import { api, type ServerConnection } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 
+interface IpGroup {
+  ip: string;
+  connections: ServerConnection[];
+}
+
 const connections = ref<ServerConnection[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const searchQuery = ref('');
 const currentPage = ref(1);
-const itemsPerPage = 25;
+const itemsPerPage = 10; // Groups per page
 const autoRefreshEnabled = ref(true);
 const lastUpdated = ref<Date | null>(null);
 
@@ -171,22 +184,46 @@ const filteredConnections = computed(() => {
   });
 });
 
+const filteredIpGroups = computed((): IpGroup[] => {
+  const groupMap = new Map<string, ServerConnection[]>();
+
+  for (const conn of filteredConnections.value) {
+    const existing = groupMap.get(conn.ip);
+    if (existing) {
+      existing.push(conn);
+    } else {
+      groupMap.set(conn.ip, [conn]);
+    }
+  }
+
+  // Sort groups by number of connections (descending), then by IP
+  return Array.from(groupMap.entries())
+    .map(([ip, conns]) => ({ ip, connections: conns }))
+    .sort((a, b) => {
+      if (b.connections.length !== a.connections.length) {
+        return b.connections.length - a.connections.length;
+      }
+      return a.ip.localeCompare(b.ip);
+    });
+});
+
 const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredConnections.value.length / itemsPerPage))
+  Math.max(1, Math.ceil(filteredIpGroups.value.length / itemsPerPage))
 );
 
-const paginatedConnections = computed(() => {
+const paginatedIpGroups = computed(() => {
   const start = (currentPage.value - 1) * itemsPerPage;
-  return filteredConnections.value.slice(start, start + itemsPerPage);
+  return filteredIpGroups.value.slice(start, start + itemsPerPage);
+});
+
+const uniqueIps = computed(() => {
+  const ips = new Set(connections.value.map((c) => c.ip));
+  return ips.size;
 });
 
 const uniqueZones = computed(() => {
   const zones = new Set(connections.value.map((c) => c.zoneName));
   return zones.size;
-});
-
-const guildedCount = computed(() => {
-  return connections.value.filter((c) => c.guildName).length;
 });
 
 const formatLastUpdated = computed(() => {
@@ -218,7 +255,6 @@ async function loadConnections() {
     connections.value = await api.fetchAdminConnections();
     lastUpdated.value = new Date();
   } catch (err) {
-    console.error('Failed to load connections:', err);
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
     loading.value = false;
@@ -402,6 +438,35 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
+.ip-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.ip-group {
+  background: rgba(30, 41, 59, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.ip-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: rgba(15, 23, 42, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.ip-group__count {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
 .table-wrapper {
   overflow-x: auto;
 }
@@ -414,20 +479,18 @@ onUnmounted(() => {
 
 .connections-table th,
 .connections-table td {
-  padding: 0.85rem 1rem;
+  padding: 0.75rem 1rem;
   text-align: left;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
 }
 
 .connections-table th {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: rgba(148, 163, 184, 0.9);
-  background: rgba(15, 23, 42, 0.5);
-  position: sticky;
-  top: 0;
+  color: rgba(148, 163, 184, 0.7);
+  background: rgba(15, 23, 42, 0.3);
 }
 
 .connections-table tbody tr {
@@ -438,8 +501,12 @@ onUnmounted(() => {
   background: rgba(59, 130, 246, 0.08);
 }
 
+.connections-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .col-class {
-  width: 100px;
+  width: 90px;
 }
 
 .col-name {
@@ -459,10 +526,6 @@ onUnmounted(() => {
   min-width: 140px;
 }
 
-.col-ip {
-  width: 130px;
-}
-
 .class-cell {
   display: flex;
   align-items: center;
@@ -470,8 +533,8 @@ onUnmounted(() => {
 }
 
 .class-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   object-fit: contain;
 }
@@ -496,11 +559,12 @@ onUnmounted(() => {
 
 .ip-address {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.8rem;
-  color: rgba(148, 163, 184, 0.9);
-  background: rgba(15, 23, 42, 0.5);
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+  background: rgba(59, 130, 246, 0.15);
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
 .loading-message,
@@ -614,10 +678,6 @@ onUnmounted(() => {
 
   .input--search {
     width: 100%;
-  }
-
-  .col-ip {
-    display: none;
   }
 }
 </style>
