@@ -262,10 +262,10 @@ function formatClass(className: string): string {
   return characterClassLabels[className as CharacterClass] ?? className;
 }
 
-const HOME_ZONE = "Clumsy's Home";
+const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar"];
 
 function isOutsideHome(conn: ServerConnection): boolean {
-  return conn.zoneName !== HOME_ZONE;
+  return !INACTIVE_ZONES.includes(conn.zoneName);
 }
 
 function getOutsideHomeCount(group: IpGroup): number {
