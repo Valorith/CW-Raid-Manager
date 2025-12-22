@@ -772,6 +772,22 @@ onUnmounted(() => {
     align-items: flex-start;
   }
 
+  .section-header__titles h1 {
+    font-size: 1.4rem;
+  }
+
+  .section-header__actions {
+    width: 100%;
+  }
+
+  .section-header__actions .btn {
+    flex: 1;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
   .card__header {
     flex-direction: column;
     align-items: flex-start;
@@ -779,6 +795,181 @@ onUnmounted(() => {
 
   .input--search {
     width: 100%;
+  }
+
+  .ip-group__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .ip-group__left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+  }
+
+  .ip-address {
+    font-size: 0.75rem;
+  }
+
+  .connections-table {
+    font-size: 0.8rem;
+  }
+
+  .connections-table th,
+  .connections-table td {
+    padding: 0.5rem 0.5rem;
+  }
+
+  .col-class {
+    width: 70px;
+  }
+
+  .class-label {
+    display: none;
+  }
+
+  .class-icon {
+    width: 20px;
+    height: 20px;
+  }
+
+  .col-level {
+    width: 50px;
+  }
+
+  .col-zone {
+    min-width: 120px;
+  }
+
+  .col-guild {
+    min-width: 100px;
+  }
+
+  .guild-tag {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pagination__button {
+    padding: 0.4rem 0.7rem;
+    font-size: 0.65rem;
+  }
+
+  .pagination__label {
+    width: 100%;
+    text-align: center;
+    order: -1;
+    font-size: 0.75rem;
+  }
+
+  .stat-card__value {
+    font-size: 1.4rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .connections {
+    gap: 1rem;
+  }
+
+  .section-header__titles h1 {
+    font-size: 1.2rem;
+  }
+
+  .connections-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-card {
+    padding: 0.75rem;
+  }
+
+  .stat-card__label {
+    font-size: 0.65rem;
+  }
+
+  .stat-card__value {
+    font-size: 1.2rem;
+  }
+
+  .card {
+    padding: 0.75rem;
+    border-radius: 0.75rem;
+  }
+
+  .card__header h2 {
+    font-size: 1rem;
+  }
+
+  .ip-group {
+    border-radius: 0.5rem;
+  }
+
+  .ip-group__header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .connections-table {
+    font-size: 0.75rem;
+  }
+
+  .connections-table th,
+  .connections-table td {
+    padding: 0.4rem 0.35rem;
+  }
+
+  .connections-table th {
+    font-size: 0.6rem;
+  }
+
+  .col-guild {
+    display: none;
+  }
+
+  .class-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .ip-address {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+  }
+
+  .ip-group__count {
+    font-size: 0.65rem;
+  }
+
+  .ip-group__outside-count {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.5rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .section-header__actions {
+    flex-direction: column;
+  }
+
+  .connections-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .col-zone {
+    min-width: 80px;
+  }
+
+  .connections-table th,
+  .connections-table td {
+    padding: 0.35rem 0.25rem;
   }
 }
 </style>
