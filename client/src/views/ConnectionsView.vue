@@ -83,7 +83,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="conn in paginatedConnections" :key="conn.connectId">
+            <tr v-for="(conn, index) in paginatedConnections" :key="`${conn.connectId}-${index}`">
               <td class="col-class">
                 <div class="class-cell">
                   <img

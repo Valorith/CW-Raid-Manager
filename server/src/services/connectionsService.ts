@@ -244,7 +244,8 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       NULL as guild_name`;
   }
 
-  const query = `SELECT ${selectFields} ${joins} ORDER BY cd.name ASC`;
+  // Use GROUP BY to prevent duplicates from guild_members join (if character has multiple guild entries)
+  const query = `SELECT ${selectFields} ${joins} GROUP BY c.connectid ORDER BY cd.name ASC`;
   console.log('[connectionsService] Executing query:', query);
 
   try {
