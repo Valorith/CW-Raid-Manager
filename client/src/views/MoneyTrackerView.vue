@@ -71,7 +71,6 @@
                 v-model.number="settingsForm.snapshotHour"
                 class="input input--time"
                 :disabled="savingSettings || !settings?.autoSnapshotEnabled"
-                @change="saveSettings"
               >
                 <option v-for="h in 24" :key="h - 1" :value="h - 1">
                   {{ String(h - 1).padStart(2, '0') }}
@@ -82,13 +81,20 @@
                 v-model.number="settingsForm.snapshotMinute"
                 class="input input--time"
                 :disabled="savingSettings || !settings?.autoSnapshotEnabled"
-                @change="saveSettings"
               >
                 <option v-for="m in 60" :key="m - 1" :value="m - 1">
                   {{ String(m - 1).padStart(2, '0') }}
                 </option>
               </select>
               <span class="muted small">UTC</span>
+              <button
+                type="button"
+                class="btn btn--accent btn--sm"
+                :disabled="savingSettings || !settings?.autoSnapshotEnabled || !hasUnsavedChanges"
+                @click="saveSettings"
+              >
+                {{ savingSettings ? 'Saving...' : 'Save' }}
+              </button>
             </div>
           </div>
           <div v-if="settings?.nextScheduledTime" class="money-tracker__setting">
@@ -215,8 +221,11 @@ import { Line } from 'vue-chartjs';
 import axios from 'axios';
 
 import { ensureChartJsRegistered } from '../utils/registerCharts';
+import { useToastBus } from '../components/ToastBus';
 
 ensureChartJsRegistered();
+
+const { addToast } = useToastBus();
 
 interface TopCharacterCurrency {
   id: number;
@@ -345,6 +354,14 @@ const tableDataSource = computed(() => {
 });
 
 const hasChartData = computed(() => snapshots.value.length > 0);
+
+const hasUnsavedChanges = computed(() => {
+  if (!settings.value) return false;
+  return (
+    settingsForm.value.snapshotHour !== settings.value.snapshotHour ||
+    settingsForm.value.snapshotMinute !== settings.value.snapshotMinute
+  );
+});
 
 const chartData = computed(() => {
   const labels = snapshots.value.map((s) => {
@@ -531,10 +548,20 @@ async function toggleAutoSnapshot(event: Event): Promise<void> {
       autoSnapshotEnabled: enabled
     });
     settings.value = response.data;
+    addToast({
+      title: enabled ? 'Auto-Snapshot Enabled' : 'Auto-Snapshot Disabled',
+      message: enabled
+        ? `Daily snapshots will be taken at ${String(settings.value?.snapshotHour ?? 0).padStart(2, '0')}:${String(settings.value?.snapshotMinute ?? 0).padStart(2, '0')} UTC`
+        : 'Automatic daily snapshots have been disabled.'
+    });
   } catch (error) {
     console.error('Failed to update settings:', error);
     // Revert the checkbox
     target.checked = !enabled;
+    addToast({
+      title: 'Error',
+      message: 'Failed to update auto-snapshot setting. Please try again.'
+    });
   } finally {
     savingSettings.value = false;
   }
@@ -548,8 +575,16 @@ async function saveSettings(): Promise<void> {
       snapshotMinute: settingsForm.value.snapshotMinute
     });
     settings.value = response.data;
+    addToast({
+      title: 'Settings Saved',
+      message: `Auto-snapshot scheduled for ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} UTC`
+    });
   } catch (error) {
     console.error('Failed to save settings:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to save settings. Please try again.'
+    });
   } finally {
     savingSettings.value = false;
   }
@@ -813,6 +848,11 @@ onMounted(() => {
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.btn--sm {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8rem;
 }
 
 /* Settings Panel */
