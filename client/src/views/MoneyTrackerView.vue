@@ -205,6 +205,13 @@
                 </td>
               </tr>
             </tbody>
+            <tfoot>
+              <tr class="money-tracker__total-row">
+                <td colspan="2" class="money-tracker__td--total-label">Total (All Characters)</td>
+                <td class="money-tracker__td--total">{{ formatPlatinum(totalCharacterPlatinum) }}</td>
+                <td colspan="3"></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
         <p v-else class="money-tracker__empty muted">
@@ -236,6 +243,12 @@
                 <td class="money-tracker__td--total">{{ formatPlatinum(account.sharedplat) }}</td>
               </tr>
             </tbody>
+            <tfoot>
+              <tr class="money-tracker__total-row">
+                <td colspan="3" class="money-tracker__td--total-label">Total (All Shared Banks)</td>
+                <td class="money-tracker__td--total">{{ formatPlatinum(totalSharedBankPlatinum) }}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
         <p v-else class="money-tracker__empty muted">
@@ -423,6 +436,25 @@ const topSharedBanks = computed<SharedBankAccount[]>(() => {
     return liveData.value.topSharedBanks;
   }
   return [];
+});
+
+// Total character currency (in platinum) - from all characters, not just top 20
+const totalCharacterPlatinum = computed(() => {
+  if (liveData.value) {
+    return Number(liveData.value.totals.totalPlatinumEquivalent) / 1000;
+  }
+  if (latestSnapshot.value) {
+    return Number(latestSnapshot.value.totalPlatinumEquivalent) / 1000;
+  }
+  return 0;
+});
+
+// Total shared bank platinum - from all accounts, not just top 20
+const totalSharedBankPlatinum = computed(() => {
+  if (liveData.value) {
+    return Number(liveData.value.totals.totalSharedPlatinum);
+  }
+  return 0;
 });
 
 const tableDataSource = computed(() => {
@@ -885,6 +917,25 @@ onMounted(() => {
 
 .money-tracker__table tbody tr:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.money-tracker__table tfoot {
+  border-top: 2px solid var(--color-border, #334155);
+}
+
+.money-tracker__total-row {
+  background: rgba(96, 165, 250, 0.1);
+  font-weight: 600;
+}
+
+.money-tracker__total-row td {
+  border-bottom: none;
+}
+
+.money-tracker__td--total-label {
+  text-align: right;
+  padding-right: 1rem;
+  color: var(--color-muted, #94a3b8);
 }
 
 .currency-breakdown {
