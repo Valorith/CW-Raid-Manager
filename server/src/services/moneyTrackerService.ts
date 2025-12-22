@@ -280,7 +280,7 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
       totalSilverCursor: totals.silverCursor,
       totalCopperCursor: totals.copperCursor,
       totalPlatinumEquivalent: totals.totalPlatinumEquivalent,
-      topCharacters: topCharacters,
+      topCharacters: JSON.parse(JSON.stringify(topCharacters)),
       characterCount: totals.characterCount,
       createdById
     }
@@ -288,7 +288,7 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
   };
 }
 
@@ -320,7 +320,7 @@ export async function getSnapshotsInRange(
 
   return snapshots.map((snapshot) => ({
     ...snapshot,
-    topCharacters: snapshot.topCharacters as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
   }));
 }
 
@@ -338,7 +338,7 @@ export async function getLatestSnapshot(): Promise<MoneySnapshotData | null> {
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
   };
 }
 
@@ -359,7 +359,7 @@ export async function getSnapshotByDate(date: Date): Promise<MoneySnapshotData |
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
   };
 }
 
