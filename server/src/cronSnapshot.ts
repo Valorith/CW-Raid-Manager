@@ -10,9 +10,11 @@
  * The script will:
  * 1. Check if auto-snapshot is enabled in settings
  * 2. Check if the configured snapshot time has passed for today
- * 3. Check if a snapshot already exists for today
- * 4. Create a snapshot if conditions are met
- * 5. Exit with code 0 on success, 1 on error
+ * 3. Create a snapshot if conditions are met
+ * 4. Exit with code 0 on success, 1 on error
+ *
+ * After creating a snapshot, lastSnapshotAt is updated so subsequent runs
+ * today will skip (since lastSnapshotAt >= scheduledTimeToday).
  */
 
 import 'dotenv/config';
@@ -53,28 +55,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Check if we already have a snapshot for today
-  const todayStart = new Date(now);
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
-
-  const existingSnapshot = await prisma.moneySnapshot.findFirst({
-    where: {
-      snapshotDate: {
-        gte: todayStart,
-        lt: tomorrowStart
-      }
+  // Check if we already took a snapshot after today's scheduled time
+  // This prevents multiple snapshots after the scheduled time passes
+  if (settings.lastSnapshotAt) {
+    const lastSnapshot = new Date(settings.lastSnapshotAt);
+    if (lastSnapshot >= scheduledTimeToday) {
+      console.log('[CronSnapshot] Snapshot already taken after scheduled time today. Exiting.');
+      return;
     }
-  });
-
-  if (existingSnapshot) {
-    console.log('[CronSnapshot] Snapshot already exists for today. Exiting.');
-    return;
   }
 
   // Create the snapshot
-  console.log('[CronSnapshot] Scheduled time has passed and no snapshot exists. Creating snapshot...');
+  console.log('[CronSnapshot] Scheduled time has passed. Creating snapshot...');
   await createMoneySnapshot();
   await updateLastSnapshotTime();
   console.log('[CronSnapshot] Snapshot created successfully.');
