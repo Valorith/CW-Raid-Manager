@@ -73,17 +73,7 @@
                 :disabled="savingSettings || !settings?.autoSnapshotEnabled"
               >
                 <option v-for="h in 24" :key="h - 1" :value="h - 1">
-                  {{ String(h - 1).padStart(2, '0') }}
-                </option>
-              </select>
-              <span class="time-separator">:</span>
-              <select
-                v-model.number="settingsForm.snapshotMinute"
-                class="input input--time"
-                :disabled="savingSettings || !settings?.autoSnapshotEnabled"
-              >
-                <option v-for="m in 60" :key="m - 1" :value="m - 1">
-                  {{ String(m - 1).padStart(2, '0') }}
+                  {{ String(h - 1).padStart(2, '0') }}:00
                 </option>
               </select>
               <span class="muted small">{{ timezoneAbbr }}</span>
@@ -620,8 +610,7 @@ const loadingAllSnapshots = ref(false);
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
-  snapshotHour: 3,  // Stored in local time for display
-  snapshotMinute: 0
+  snapshotHour: 3  // Stored in local time for display (minutes always 0)
 });
 const timezoneAbbr = ref(getTimezoneAbbreviation());
 
@@ -753,12 +742,9 @@ const hasChartData = computed(() => snapshots.value.length > 0);
 
 const hasUnsavedChanges = computed(() => {
   if (!settings.value) return false;
-  // Convert the UTC settings to local time for comparison with the form
-  const localSettings = utcToLocal(settings.value.snapshotHour, settings.value.snapshotMinute);
-  return (
-    settingsForm.value.snapshotHour !== localSettings.hour ||
-    settingsForm.value.snapshotMinute !== localSettings.minute
-  );
+  // Convert the UTC settings to local time for comparison with the form (minutes always 0)
+  const localSettings = utcToLocal(settings.value.snapshotHour, 0);
+  return settingsForm.value.snapshotHour !== localSettings.hour;
 });
 
 const chartData = computed(() => {
@@ -1108,10 +1094,9 @@ async function fetchSettings(): Promise<void> {
   try {
     const response = await axios.get('/api/admin/money-tracker/settings');
     settings.value = response.data;
-    // Convert UTC time from server to local time for display
-    const localTime = utcToLocal(response.data.snapshotHour, response.data.snapshotMinute);
+    // Convert UTC time from server to local time for display (minutes always 0)
+    const localTime = utcToLocal(response.data.snapshotHour, 0);
     settingsForm.value.snapshotHour = localTime.hour;
-    settingsForm.value.snapshotMinute = localTime.minute;
   } catch (error) {
     console.error('Failed to fetch settings:', error);
   }
@@ -1131,7 +1116,7 @@ async function toggleAutoSnapshot(event: Event): Promise<void> {
     addToast({
       title: enabled ? 'Auto-Snapshot Enabled' : 'Auto-Snapshot Disabled',
       message: enabled
-        ? `Daily snapshots will be taken at ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} ${timezoneAbbr.value}`
+        ? `Daily snapshots will be taken at ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:00 ${timezoneAbbr.value}`
         : 'Automatic daily snapshots have been disabled.'
     });
   } catch (error) {
@@ -1150,16 +1135,16 @@ async function toggleAutoSnapshot(event: Event): Promise<void> {
 async function saveSettings(): Promise<void> {
   savingSettings.value = true;
   try {
-    // Convert local time from form to UTC before sending to server
-    const utcTime = localToUtc(settingsForm.value.snapshotHour, settingsForm.value.snapshotMinute);
+    // Convert local time from form to UTC before sending to server (minutes always 0)
+    const utcTime = localToUtc(settingsForm.value.snapshotHour, 0);
     const response = await axios.patch('/api/admin/money-tracker/settings', {
       snapshotHour: utcTime.hour,
-      snapshotMinute: utcTime.minute
+      snapshotMinute: 0
     });
     settings.value = response.data;
     addToast({
       title: 'Settings Saved',
-      message: `Auto-snapshot scheduled for ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} ${timezoneAbbr.value}`
+      message: `Auto-snapshot scheduled for ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:00 ${timezoneAbbr.value}`
     });
   } catch (error) {
     console.error('Failed to save settings:', error);
@@ -1692,7 +1677,7 @@ onUnmounted(() => {
 }
 
 .input--time {
-  width: 4rem;
+  width: 5.5rem;
   padding: 0.375rem 0.5rem;
   text-align: center;
 }
