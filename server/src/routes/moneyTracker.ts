@@ -159,6 +159,59 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
     }
   );
 
+  // Get live top characters data only
+  server.get(
+    '/live/top-characters',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      if (!isEqDbConfigured()) {
+        return reply.badRequest('EQ database is not configured.');
+      }
+
+      try {
+        const topCharacters = await fetchTopCharactersByCurrency(20);
+        return serializeBigInt({
+          topCharacters,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch top characters.');
+        return reply.internalServerError('Unable to fetch top characters.');
+      }
+    }
+  );
+
+  // Get live top shared banks data only
+  server.get(
+    '/live/top-shared-banks',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      if (!isEqDbConfigured()) {
+        return reply.badRequest('EQ database is not configured.');
+      }
+
+      try {
+        const [sharedBankTotals, topSharedBanks] = await Promise.all([
+          fetchSharedBankTotals(),
+          fetchTopSharedBanks(20)
+        ]);
+        return serializeBigInt({
+          topSharedBanks,
+          totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
+          sharedBankAccountCount: sharedBankTotals.accountCount,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch top shared banks.');
+        return reply.internalServerError('Unable to fetch top shared banks.');
+      }
+    }
+  );
+
   // Create a new snapshot (manual trigger)
   server.post(
     '/snapshots',

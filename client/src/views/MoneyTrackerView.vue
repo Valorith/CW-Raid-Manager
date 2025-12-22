@@ -177,9 +177,36 @@
 
       <!-- Top 20 Characters Table -->
       <article class="money-tracker__table-card">
-        <header class="money-tracker__table-header">
-          <h2>Top 20 Wealthiest Characters</h2>
-          <span class="muted small">From {{ tableDataSource }}</span>
+        <header class="money-tracker__table-header money-tracker__table-header--with-action">
+          <div>
+            <h2>Top 20 Wealthiest Characters</h2>
+            <span class="muted small">From {{ tableDataSource }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--icon"
+            :disabled="refreshingCharacters"
+            :title="refreshingCharacters ? 'Refreshing...' : 'Refresh character data'"
+            @click="refreshTopCharacters"
+          >
+            <svg
+              :class="['refresh-icon', { 'refresh-icon--spinning': refreshingCharacters }]"
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+              <path d="M16 16h5v5" />
+            </svg>
+          </button>
         </header>
         <div v-if="topCharacters.length > 0" class="money-tracker__table-wrapper">
           <table class="money-tracker__table">
@@ -231,9 +258,36 @@
 
       <!-- Top 20 Shared Banks Table -->
       <article class="money-tracker__table-card">
-        <header class="money-tracker__table-header">
-          <h2>Top 20 Wealthiest Shared Banks</h2>
-          <span class="muted small">From {{ tableDataSource }}</span>
+        <header class="money-tracker__table-header money-tracker__table-header--with-action">
+          <div>
+            <h2>Top 20 Wealthiest Shared Banks</h2>
+            <span class="muted small">From {{ tableDataSource }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--icon"
+            :disabled="refreshingSharedBanks"
+            :title="refreshingSharedBanks ? 'Refreshing...' : 'Refresh shared bank data'"
+            @click="refreshTopSharedBanks"
+          >
+            <svg
+              :class="['refresh-icon', { 'refresh-icon--spinning': refreshingSharedBanks }]"
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+              <path d="M16 16h5v5" />
+            </svg>
+          </button>
         </header>
         <div v-if="topSharedBanks.length > 0" class="money-tracker__table-wrapper">
           <table class="money-tracker__table">
@@ -513,7 +567,14 @@ const loading = ref(true);
 const isConfigured = ref(true);
 const creatingSnapshot = ref(false);
 const refreshingLive = ref(false);
+const refreshingCharacters = ref(false);
+const refreshingSharedBanks = ref(false);
 const savingSettings = ref(false);
+
+// Individually refreshed data (overrides liveData when set)
+const refreshedTopCharacters = ref<TopCharacterCurrency[] | null>(null);
+const refreshedTopSharedBanks = ref<SharedBankAccount[] | null>(null);
+const refreshedTotalSharedPlatinum = ref<number | null>(null);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
 const snapshots = ref<MoneySnapshot[]>([]);
@@ -559,6 +620,10 @@ const latestTotalPlatinum = computed(() => {
 });
 
 const topCharacters = computed<TopCharacterCurrency[]>(() => {
+  // Prioritize individually refreshed data
+  if (refreshedTopCharacters.value) {
+    return refreshedTopCharacters.value;
+  }
   if (liveData.value) {
     return liveData.value.topCharacters;
   }
@@ -569,6 +634,10 @@ const topCharacters = computed<TopCharacterCurrency[]>(() => {
 });
 
 const topSharedBanks = computed<SharedBankAccount[]>(() => {
+  // Prioritize individually refreshed data
+  if (refreshedTopSharedBanks.value) {
+    return refreshedTopSharedBanks.value;
+  }
   if (liveData.value) {
     return liveData.value.topSharedBanks;
   }
@@ -588,6 +657,10 @@ const totalCharacterPlatinum = computed(() => {
 
 // Total shared bank platinum - from all accounts, not just top 20
 const totalSharedBankPlatinum = computed(() => {
+  // Prioritize individually refreshed data
+  if (refreshedTotalSharedPlatinum.value !== null) {
+    return refreshedTotalSharedPlatinum.value;
+  }
   if (liveData.value) {
     return Number(liveData.value.totals.totalSharedPlatinum);
   }
@@ -804,10 +877,55 @@ async function refreshLiveData(): Promise<void> {
   try {
     const response = await axios.get('/api/admin/money-tracker/live');
     liveData.value = response.data;
+    // Clear individually refreshed data when full refresh happens
+    refreshedTopCharacters.value = null;
+    refreshedTopSharedBanks.value = null;
+    refreshedTotalSharedPlatinum.value = null;
   } catch (error) {
     console.error('Failed to fetch live data:', error);
   } finally {
     refreshingLive.value = false;
+  }
+}
+
+async function refreshTopCharacters(): Promise<void> {
+  refreshingCharacters.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/live/top-characters');
+    refreshedTopCharacters.value = response.data.topCharacters;
+    addToast({
+      title: 'Characters Refreshed',
+      message: 'Top 20 wealthiest characters data has been updated.'
+    });
+  } catch (error) {
+    console.error('Failed to refresh top characters:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to refresh character data. Please try again.'
+    });
+  } finally {
+    refreshingCharacters.value = false;
+  }
+}
+
+async function refreshTopSharedBanks(): Promise<void> {
+  refreshingSharedBanks.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/live/top-shared-banks');
+    refreshedTopSharedBanks.value = response.data.topSharedBanks;
+    refreshedTotalSharedPlatinum.value = Number(response.data.totalSharedPlatinum);
+    addToast({
+      title: 'Shared Banks Refreshed',
+      message: 'Top 20 wealthiest shared banks data has been updated.'
+    });
+  } catch (error) {
+    console.error('Failed to refresh top shared banks:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to refresh shared bank data. Please try again.'
+    });
+  } finally {
+    refreshingSharedBanks.value = false;
   }
 }
 
@@ -1159,6 +1277,13 @@ onUnmounted(() => {
   margin-bottom: 1rem;
 }
 
+.money-tracker__table-header--with-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .money-tracker__chart-header {
   display: flex;
   justify-content: space-between;
@@ -1170,6 +1295,51 @@ onUnmounted(() => {
 .money-tracker__table-header h2 {
   margin: 0 0 0.25rem;
   font-size: 1.25rem;
+}
+
+/* Icon button styles */
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn--icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text, #e2e8f0);
+  border-color: var(--color-accent, #60a5fa);
+}
+
+.btn--icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Refresh icon animation */
+.refresh-icon {
+  transition: transform 0.2s;
+}
+
+.refresh-icon--spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .money-tracker__chart {
