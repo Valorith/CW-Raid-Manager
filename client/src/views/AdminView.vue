@@ -5,9 +5,14 @@
         <h1>Admin Console</h1>
         <p class="muted">Centralize user and guild management for the platform.</p>
       </div>
-      <router-link to="/admin/loot-management" class="btn btn--accent">
-        Master Loot Diagnostics
-      </router-link>
+      <div class="section-header__actions">
+        <router-link to="/admin/money-tracker" class="btn btn--accent">
+          Money Tracker
+        </router-link>
+        <router-link to="/admin/loot-management" class="btn btn--outline">
+          Master Loot Diagnostics
+        </router-link>
+      </div>
     </header>
 
     <div class="admin-stats">
@@ -1439,6 +1444,12 @@ onMounted(async () => {
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #e2e8f0;
+}
+
+.section-header__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
 .admin-stats {
