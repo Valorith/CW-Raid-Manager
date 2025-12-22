@@ -1351,6 +1351,21 @@ export interface AdminRaidDetail extends AdminRaidSummary {
   }>;
 }
 
+// Server Connection Types
+export interface ServerConnection {
+  connectId: number;
+  ip: string;
+  accountId: number;
+  characterId: number;
+  characterName: string;
+  level: number;
+  className: CharacterClass;
+  classId: number;
+  zoneName: string;
+  zoneShortName: string;
+  guildName: string | null;
+}
+
 // Loot Management Types
 export interface LootManagementSummary {
   lootMasterCount: number;
@@ -3235,6 +3250,11 @@ export const api = {
 
   async removeAdminGuildMember(guildId: string, userId: string) {
     await axios.delete(`/api/admin/guilds/${guildId}/members/${userId}`);
+  },
+
+  async fetchAdminConnections(): Promise<ServerConnection[]> {
+    const response = await axios.get('/api/admin/connections');
+    return Array.isArray(response.data.connections) ? response.data.connections : [];
   },
 
   /**
