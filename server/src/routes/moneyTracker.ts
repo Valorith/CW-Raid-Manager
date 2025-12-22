@@ -7,7 +7,9 @@ import {
   createMoneySnapshot,
   deleteSnapshot,
   fetchServerCurrencyTotals,
+  fetchSharedBankTotals,
   fetchTopCharactersByCurrency,
+  fetchTopSharedBanks,
   getLatestSnapshot,
   getMoneyTrackerSummary,
   getSettings,
@@ -127,14 +129,27 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       }
 
       try {
-        const [totals, topCharacters] = await Promise.all([
+        const [totals, topCharacters, sharedBankTotals, topSharedBanks] = await Promise.all([
           fetchServerCurrencyTotals(),
-          fetchTopCharactersByCurrency(20)
+          fetchTopCharactersByCurrency(20),
+          fetchSharedBankTotals(),
+          fetchTopSharedBanks(20)
         ]);
 
+        // Calculate combined total including shared bank platinum
+        // Character currency totals are in copper, shared bank is in platinum
+        const sharedBankInCopper = sharedBankTotals.totalSharedPlatinum * BigInt(1000);
+        const grandTotalPlatinumEquivalent = totals.totalPlatinumEquivalent + sharedBankInCopper;
+
         return serializeBigInt({
-          totals,
+          totals: {
+            ...totals,
+            totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
+            grandTotalPlatinumEquivalent
+          },
           topCharacters,
+          topSharedBanks,
+          sharedBankAccountCount: sharedBankTotals.accountCount,
           timestamp: new Date().toISOString()
         });
       } catch (error) {

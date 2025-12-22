@@ -60,6 +60,18 @@ export interface TopCharacterCurrency {
   copperCursor: number;
 }
 
+export interface SharedBankAccount {
+  id: number;
+  name: string;
+  charname: string;
+  sharedplat: number;
+}
+
+export interface SharedBankTotals {
+  totalSharedPlatinum: bigint;
+  accountCount: number;
+}
+
 export interface MoneySnapshotData {
   id: string;
   snapshotDate: Date;
@@ -237,6 +249,61 @@ export async function fetchTopCharactersByCurrency(limit: number = 20): Promise<
       copperCursor: row.copper_cursor || 0
     };
   });
+}
+
+/**
+ * Fetch total shared bank platinum from all accounts
+ */
+export async function fetchSharedBankTotals(): Promise<SharedBankTotals> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
+  }
+
+  const totalsQuery = `
+    SELECT
+      COALESCE(SUM(sharedplat), 0) as total_shared_plat,
+      COUNT(*) as account_count
+    FROM account
+    WHERE sharedplat > 0
+  `;
+
+  const [totals] = await queryEqDb<RowDataPacket[]>(totalsQuery);
+  const row = totals as RowDataPacket;
+
+  return {
+    totalSharedPlatinum: BigInt(row.total_shared_plat || 0),
+    accountCount: Number(row.account_count || 0)
+  };
+}
+
+/**
+ * Fetch top N accounts by shared bank platinum
+ */
+export async function fetchTopSharedBanks(limit: number = 20): Promise<SharedBankAccount[]> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
+  }
+
+  const topSharedBanksQuery = `
+    SELECT
+      id,
+      name,
+      charname,
+      sharedplat
+    FROM account
+    WHERE sharedplat > 0
+    ORDER BY sharedplat DESC
+    LIMIT ?
+  `;
+
+  const rows = await queryEqDb<RowDataPacket[]>(topSharedBanksQuery, [limit]);
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name || '',
+    charname: row.charname || '',
+    sharedplat: Number(row.sharedplat || 0)
+  }));
 }
 
 /**

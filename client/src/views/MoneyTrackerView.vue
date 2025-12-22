@@ -211,6 +211,37 @@
           No character data available.
         </p>
       </article>
+
+      <!-- Top 20 Shared Banks Table -->
+      <article class="money-tracker__table-card">
+        <header class="money-tracker__table-header">
+          <h2>Top 20 Wealthiest Shared Banks</h2>
+          <span class="muted small">From {{ tableDataSource }}</span>
+        </header>
+        <div v-if="topSharedBanks.length > 0" class="money-tracker__table-wrapper">
+          <table class="money-tracker__table">
+            <thead>
+              <tr>
+                <th class="money-tracker__th--rank">#</th>
+                <th class="money-tracker__th--name">Account</th>
+                <th class="money-tracker__th--name">Last Character</th>
+                <th class="money-tracker__th--total">Shared Plat (PP)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(account, index) in topSharedBanks" :key="account.id">
+                <td class="money-tracker__td--rank">{{ index + 1 }}</td>
+                <td class="money-tracker__td--name">{{ account.name }}</td>
+                <td class="money-tracker__td--name">{{ account.charname || '—' }}</td>
+                <td class="money-tracker__td--total">{{ formatPlatinum(account.sharedplat) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="money-tracker__empty muted">
+          No shared bank data available. Refresh live data to see shared banks.
+        </p>
+      </article>
     </div>
   </section>
 </template>
@@ -273,6 +304,13 @@ interface MoneyTrackerSummary {
   newestSnapshotDate: string | null;
 }
 
+interface SharedBankAccount {
+  id: number;
+  name: string;
+  charname: string;
+  sharedplat: number;
+}
+
 interface LiveData {
   totals: {
     platinum: string;
@@ -288,9 +326,13 @@ interface LiveData {
     silverCursor: string;
     copperCursor: string;
     totalPlatinumEquivalent: string;
+    totalSharedPlatinum: string;
+    grandTotalPlatinumEquivalent: string;
     characterCount: number;
   };
   topCharacters: TopCharacterCurrency[];
+  topSharedBanks: SharedBankAccount[];
+  sharedBankAccountCount: number;
   timestamp: string;
 }
 
@@ -357,7 +399,8 @@ const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
 
 const latestTotalPlatinum = computed(() => {
   if (liveData.value) {
-    return Number(liveData.value.totals.totalPlatinumEquivalent) / 1000;
+    // Use grand total which includes shared bank platinum
+    return Number(liveData.value.totals.grandTotalPlatinumEquivalent) / 1000;
   }
   if (latestSnapshot.value) {
     return Number(latestSnapshot.value.totalPlatinumEquivalent) / 1000;
@@ -371,6 +414,13 @@ const topCharacters = computed<TopCharacterCurrency[]>(() => {
   }
   if (latestSnapshot.value) {
     return latestSnapshot.value.topCharacters;
+  }
+  return [];
+});
+
+const topSharedBanks = computed<SharedBankAccount[]>(() => {
+  if (liveData.value) {
+    return liveData.value.topSharedBanks;
   }
   return [];
 });
