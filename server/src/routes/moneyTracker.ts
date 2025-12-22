@@ -6,9 +6,11 @@ import { ensureAdmin } from '../services/adminService.js';
 import {
   createMoneySnapshot,
   deleteSnapshot,
+  fetchGuildBankTotals,
   fetchServerCurrencyTotals,
   fetchSharedBankTotals,
   fetchTopCharactersByCurrency,
+  fetchTopGuildBanks,
   fetchTopSharedBanks,
   getLatestSnapshot,
   getMoneyTrackerSummary,
@@ -129,27 +131,33 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       }
 
       try {
-        const [totals, topCharacters, sharedBankTotals, topSharedBanks] = await Promise.all([
+        const [totals, topCharacters, sharedBankTotals, topSharedBanks, guildBankTotals, topGuildBanks] = await Promise.all([
           fetchServerCurrencyTotals(),
           fetchTopCharactersByCurrency(20),
           fetchSharedBankTotals(),
-          fetchTopSharedBanks(20)
+          fetchTopSharedBanks(20),
+          fetchGuildBankTotals(),
+          fetchTopGuildBanks(20)
         ]);
 
-        // Calculate combined total including shared bank platinum
-        // Character currency totals are in copper, shared bank is in platinum
+        // Calculate combined total including shared bank and guild bank platinum
+        // Character currency totals are in copper, shared bank and guild bank are in platinum
         const sharedBankInCopper = sharedBankTotals.totalSharedPlatinum * BigInt(1000);
-        const grandTotalPlatinumEquivalent = totals.totalPlatinumEquivalent + sharedBankInCopper;
+        const guildBankInCopper = guildBankTotals.totalGuildBankPlatinum * BigInt(1000);
+        const grandTotalPlatinumEquivalent = totals.totalPlatinumEquivalent + sharedBankInCopper + guildBankInCopper;
 
         return serializeBigInt({
           totals: {
             ...totals,
             totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
+            totalGuildBankPlatinum: guildBankTotals.totalGuildBankPlatinum,
             grandTotalPlatinumEquivalent
           },
           topCharacters,
           topSharedBanks,
+          topGuildBanks,
           sharedBankAccountCount: sharedBankTotals.accountCount,
+          guildBankCount: guildBankTotals.guildCount,
           timestamp: new Date().toISOString()
         });
       } catch (error) {
@@ -212,6 +220,35 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch shared bank data.');
         return reply.internalServerError('Unable to fetch shared bank data.');
+      }
+    }
+  );
+
+  // Get live guild banks data (all guilds with bank balances)
+  server.get(
+    '/live/guild-banks',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      if (!isEqDbConfigured()) {
+        return reply.badRequest('EQ database is not configured.');
+      }
+
+      try {
+        const [guildBankTotals, guildBanks] = await Promise.all([
+          fetchGuildBankTotals(),
+          fetchTopGuildBanks() // No limit - fetch all
+        ]);
+        return serializeBigInt({
+          guildBanks,
+          totalGuildBankPlatinum: guildBankTotals.totalGuildBankPlatinum,
+          guildBankCount: guildBankTotals.guildCount,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch guild bank data.');
+        return reply.internalServerError('Unable to fetch guild bank data.');
       }
     }
   );

@@ -797,11 +797,17 @@ model MoneySnapshot {
   totalPlatinumEquivalent BigInt @default(0)
   // Shared bank platinum (account-level shared plat)
   totalSharedPlatinum BigInt   @default(0)
+  // Guild bank platinum (from data_buckets)
+  totalGuildBankPlatinum BigInt @default(0)
   // Top characters snapshot (stored as JSON for flexibility)
   topCharacters       Json     @default(dbgenerated("(json_array())"))
+  // Top guild banks snapshot (stored as JSON for flexibility)
+  // Note: JSON columns can't have default values in older MySQL versions, so nullable
+  topGuildBanks       Json?
   // Metadata
   characterCount      Int      @default(0)
   sharedBankCount     Int      @default(0)
+  guildBankCount      Int      @default(0)
   createdAt           DateTime @default(now())
   createdById         String?
 
