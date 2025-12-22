@@ -645,11 +645,16 @@ const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
 
 const latestTotalPlatinum = computed(() => {
   if (liveData.value) {
-    // Use grand total which includes shared bank platinum
+    // Use grand total which includes shared bank and guild bank platinum
     return Number(liveData.value.totals.grandTotalPlatinumEquivalent) / 1000;
   }
   if (latestSnapshot.value) {
-    return Number(latestSnapshot.value.totalPlatinumEquivalent) / 1000;
+    // Calculate full server wealth from snapshot data
+    // totalPlatinumEquivalent is in copper, shared/guild bank are in platinum
+    const characterTotal = Number(latestSnapshot.value.totalPlatinumEquivalent) / 1000;
+    const sharedBank = Number(latestSnapshot.value.totalSharedPlatinum || 0);
+    const guildBank = Number(latestSnapshot.value.totalGuildBankPlatinum || 0);
+    return characterTotal + sharedBank + guildBank;
   }
   return 0;
 });
@@ -759,8 +764,12 @@ const chartData = computed(() => {
   });
 
   const data = snapshots.value.map((s) => {
-    // Convert from copper to platinum (divide by 1000)
-    return Number(s.totalPlatinumEquivalent) / 1000;
+    // Calculate full server wealth: character currency + shared bank + guild bank
+    // totalPlatinumEquivalent is in copper, shared/guild bank are in platinum
+    const characterTotal = Number(s.totalPlatinumEquivalent) / 1000;
+    const sharedBank = Number(s.totalSharedPlatinum || 0);
+    const guildBank = Number(s.totalGuildBankPlatinum || 0);
+    return characterTotal + sharedBank + guildBank;
   });
 
   return {
