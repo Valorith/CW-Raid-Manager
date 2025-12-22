@@ -28,6 +28,7 @@ import {
   fetchLootMaster,
   getLootManagementSummary
 } from '../services/lootManagementService.js';
+import { fetchServerConnections, fetchIpExemptions } from '../services/connectionsService.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
   try {
@@ -561,6 +562,29 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to fetch LC votes data.');
+      }
+    }
+  );
+
+  // Server Connections Route
+  server.get(
+    '/connections',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const [connections, ipExemptions] = await Promise.all([
+          fetchServerConnections(),
+          fetchIpExemptions()
+        ]);
+        return { connections, ipExemptions };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch server connections.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch server connections.');
       }
     }
   );

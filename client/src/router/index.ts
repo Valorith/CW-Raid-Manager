@@ -116,6 +116,12 @@ const router = createRouter({
       name: 'MoneyTracker',
       component: () => import('../views/MoneyTrackerView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/connections',
+      name: 'Connections',
+      component: () => import('../views/ConnectionsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });

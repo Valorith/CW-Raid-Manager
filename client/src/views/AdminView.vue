@@ -6,7 +6,10 @@
         <p class="muted">Centralize user and guild management for the platform.</p>
       </div>
       <div class="section-header__actions">
-        <router-link to="/admin/money-tracker" class="btn btn--accent">
+        <router-link to="/admin/connections" class="btn btn--accent">
+          Server Connections
+        </router-link>
+        <router-link to="/admin/money-tracker" class="btn btn--outline">
           Money Tracker
         </router-link>
         <router-link to="/admin/loot-management" class="btn btn--outline">
