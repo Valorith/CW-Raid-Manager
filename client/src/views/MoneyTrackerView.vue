@@ -361,7 +361,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="snapshot in allSnapshots" :key="snapshot.id">
+                <tr v-for="snapshot in paginatedSnapshots" :key="snapshot.id">
                   <td class="snapshot-history-table__date">
                     {{ formatSnapshotDate(snapshot.snapshotDate) }}
                   </td>
@@ -390,6 +390,26 @@
                 </tr>
               </tbody>
             </table>
+            <!-- Pagination Controls -->
+            <div v-if="snapshotHistoryTotalPages > 1" class="snapshot-history-pagination">
+              <button
+                class="pagination__button"
+                :disabled="snapshotHistoryPage === 1"
+                @click="setSnapshotHistoryPage(snapshotHistoryPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">
+                Page {{ snapshotHistoryPage }} of {{ snapshotHistoryTotalPages }}
+              </span>
+              <button
+                class="pagination__button"
+                :disabled="snapshotHistoryPage === snapshotHistoryTotalPages"
+                @click="setSnapshotHistoryPage(snapshotHistoryPage + 1)"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
 
@@ -607,6 +627,8 @@ const snapshots = ref<MoneySnapshot[]>([]);
 const allSnapshots = ref<MoneySnapshot[]>([]);
 const showSnapshotHistory = ref(false);
 const loadingAllSnapshots = ref(false);
+const snapshotHistoryPage = ref(1);
+const snapshotHistoryPageSize = 10;
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
@@ -739,6 +761,17 @@ const tableDataSource = computed(() => {
 });
 
 const hasChartData = computed(() => snapshots.value.length > 0);
+
+// Pagination computed properties for snapshot history
+const snapshotHistoryTotalPages = computed(() => {
+  return Math.ceil(allSnapshots.value.length / snapshotHistoryPageSize);
+});
+
+const paginatedSnapshots = computed(() => {
+  const startIndex = (snapshotHistoryPage.value - 1) * snapshotHistoryPageSize;
+  const endIndex = startIndex + snapshotHistoryPageSize;
+  return allSnapshots.value.slice(startIndex, endIndex);
+});
 
 const hasUnsavedChanges = computed(() => {
   if (!settings.value) return false;
@@ -963,6 +996,7 @@ async function fetchAllSnapshots(): Promise<void> {
 
 async function openSnapshotHistory(): Promise<void> {
   showSnapshotHistory.value = true;
+  snapshotHistoryPage.value = 1; // Reset to first page when opening
   if (allSnapshots.value.length === 0) {
     await fetchAllSnapshots();
   }
@@ -970,6 +1004,10 @@ async function openSnapshotHistory(): Promise<void> {
 
 function closeSnapshotHistory(): void {
   showSnapshotHistory.value = false;
+}
+
+function setSnapshotHistoryPage(page: number): void {
+  snapshotHistoryPage.value = Math.min(Math.max(1, page), snapshotHistoryTotalPages.value);
 }
 
 async function refreshLiveData(): Promise<void> {
@@ -1887,6 +1925,43 @@ onUnmounted(() => {
 
 .snapshot-history-table__total {
   font-weight: 600;
+}
+
+/* Snapshot History Pagination */
+.snapshot-history-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border, #334155);
+  margin-top: 0.5rem;
+}
+
+.pagination__button {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid var(--color-border, #334155);
+  color: inherit;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pagination__button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--color-accent, #60a5fa);
+}
+
+.pagination__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination__label {
+  font-size: 0.875rem;
+  color: var(--color-muted, #94a3b8);
 }
 
 /* Small modal variant for confirmations */
