@@ -856,16 +856,17 @@ const chartOptions = computed(() => {
       tooltip: {
         callbacks: {
           title: (context: { dataIndex: number }[]) => {
-          if (context.length === 0) return '';
-          const snapshot = snapshots.value[context[0].dataIndex];
-          if (!snapshot) return '';
-          // Show both the snapshot date and the creation time
-          const snapshotDate = formatSnapshotDate(snapshot.snapshotDate);
-          const createdTime = formatScheduledTime(snapshot.createdAt);
-          return [snapshotDate, `Taken: ${createdTime}`];
-        },
-        label: (context: { parsed: { y: number } }) => {
-          return `Total: ${formatPlatinum(context.parsed.y)} PP`;
+            if (context.length === 0) return '';
+            const snapshot = snapshots.value[context[0].dataIndex];
+            if (!snapshot) return '';
+            // Show both the snapshot date and the creation time
+            const snapshotDate = formatSnapshotDate(snapshot.snapshotDate);
+            const createdTime = formatScheduledTime(snapshot.createdAt);
+            return [snapshotDate, `Taken: ${createdTime}`];
+          },
+          label: (context: { parsed: { y: number } }) => {
+            return `Total: ${formatPlatinum(context.parsed.y)} PP`;
+          }
         }
       }
     }
