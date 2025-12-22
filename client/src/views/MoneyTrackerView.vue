@@ -150,12 +150,22 @@
       <!-- Chart Section -->
       <article class="money-tracker__chart-card">
         <header class="money-tracker__chart-header">
-          <h2>Server Currency Over Time</h2>
-          <span class="muted small">Total platinum equivalent across all characters</span>
+          <div>
+            <h2>Server Currency Over Time</h2>
+            <span class="muted small">Total platinum equivalent across all characters</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--outline btn--sm"
+            @click="openSnapshotHistory"
+          >
+            View All Snapshots
+          </button>
         </header>
-        <div class="money-tracker__chart">
+        <div class="money-tracker__chart" @contextmenu="handleChartRightClick">
           <Line
             v-if="hasChartData"
+            ref="chartRef"
             :data="chartData"
             :options="chartOptions"
           />
@@ -167,9 +177,20 @@
 
       <!-- Top 20 Characters Table -->
       <article class="money-tracker__table-card">
-        <header class="money-tracker__table-header">
-          <h2>Top 20 Wealthiest Characters</h2>
-          <span class="muted small">From {{ tableDataSource }}</span>
+        <header class="money-tracker__table-header money-tracker__table-header--with-action">
+          <div>
+            <h2>Top 20 Wealthiest Characters</h2>
+            <span class="muted small">From {{ tableDataSource }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--icon"
+            :disabled="refreshingCharacters"
+            :title="refreshingCharacters ? 'Refreshing...' : 'Refresh character data'"
+            @click="refreshTopCharacters"
+          >
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingCharacters }]">↻</span>
+          </button>
         </header>
         <div v-if="topCharacters.length > 0" class="money-tracker__table-wrapper">
           <table class="money-tracker__table">
@@ -221,9 +242,20 @@
 
       <!-- Top 20 Shared Banks Table -->
       <article class="money-tracker__table-card">
-        <header class="money-tracker__table-header">
-          <h2>Top 20 Wealthiest Shared Banks</h2>
-          <span class="muted small">From {{ tableDataSource }}</span>
+        <header class="money-tracker__table-header money-tracker__table-header--with-action">
+          <div>
+            <h2>Top 20 Wealthiest Shared Banks</h2>
+            <span class="muted small">From {{ tableDataSource }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--icon"
+            :disabled="refreshingSharedBanks"
+            :title="refreshingSharedBanks ? 'Refreshing...' : 'Refresh shared bank data'"
+            @click="refreshTopSharedBanks"
+          >
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingSharedBanks }]">↻</span>
+          </button>
         </header>
         <div v-if="topSharedBanks.length > 0" class="money-tracker__table-wrapper">
           <table class="money-tracker__table">
@@ -256,11 +288,117 @@
         </p>
       </article>
     </div>
+
+    <!-- Snapshot History Modal -->
+    <div v-if="showSnapshotHistory" class="modal-backdrop" @click.self="closeSnapshotHistory">
+      <div class="modal modal--wide">
+        <header class="modal__header">
+          <div>
+            <h2 class="modal__title">Snapshot History</h2>
+            <p class="muted">All recorded currency snapshots</p>
+          </div>
+          <button class="icon-button" @click="closeSnapshotHistory">✕</button>
+        </header>
+
+        <div class="modal__body">
+          <div v-if="loadingAllSnapshots" class="modal__loading">
+            <p class="muted">Loading snapshots...</p>
+          </div>
+          <div v-else-if="allSnapshots.length === 0" class="modal__empty">
+            <p class="muted">No snapshots found.</p>
+          </div>
+          <div v-else class="modal__table-wrapper">
+            <table class="snapshot-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Taken At</th>
+                  <th>Total Wealth (PP)</th>
+                  <th>Characters</th>
+                  <th>Inventory</th>
+                  <th>Bank</th>
+                  <th>Cursor</th>
+                  <th>Shared Bank</th>
+                  <th class="snapshot-history-table__th-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="snapshot in allSnapshots" :key="snapshot.id">
+                  <td class="snapshot-history-table__date">
+                    {{ formatSnapshotDate(snapshot.snapshotDate) }}
+                  </td>
+                  <td class="snapshot-history-table__time">
+                    {{ formatSnapshotTime(snapshot.createdAt) }}
+                  </td>
+                  <td class="snapshot-history-table__total">
+                    {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000) }}
+                  </td>
+                  <td>{{ snapshot.characterCount }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinum)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalSharedPlatinum || 0)) }}</td>
+                  <td class="snapshot-history-table__actions">
+                    <button
+                      type="button"
+                      class="btn btn--danger btn--sm"
+                      :disabled="deletingSnapshotId === snapshot.id"
+                      @click="confirmDeleteSnapshot(snapshot)"
+                    >
+                      {{ deletingSnapshotId === snapshot.id ? 'Deleting...' : 'Delete' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="closeSnapshotHistory">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteConfirm" class="modal-backdrop" @click.self="cancelDelete">
+      <div class="modal modal--sm">
+        <header class="modal__header">
+          <h2 class="modal__title">Delete Snapshot?</h2>
+          <button class="icon-button" @click="cancelDelete">✕</button>
+        </header>
+        <div class="modal__body">
+          <p>Are you sure you want to delete the snapshot from <strong>{{ snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : '' }}</strong>?</p>
+          <p class="muted small">This action cannot be undone.</p>
+        </div>
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="cancelDelete">Cancel</button>
+          <button
+            class="btn btn--danger"
+            :disabled="deletingSnapshotId !== null"
+            @click="executeDeleteSnapshot"
+          >
+            {{ deletingSnapshotId ? 'Deleting...' : 'Delete' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Context Menu for Chart -->
+    <div
+      v-if="contextMenu.visible"
+      class="context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+    >
+      <button class="context-menu__item context-menu__item--danger" @click="deleteFromContextMenu">
+        Delete Snapshot
+      </button>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 import axios from 'axios';
 
@@ -305,8 +443,10 @@ interface MoneySnapshot {
   totalSilverCursor: string;
   totalCopperCursor: string;
   totalPlatinumEquivalent: string;
+  totalSharedPlatinum: string;
   topCharacters: TopCharacterCurrency[];
   characterCount: number;
+  sharedBankCount: number;
   createdAt: string;
 }
 
@@ -395,10 +535,24 @@ const loading = ref(true);
 const isConfigured = ref(true);
 const creatingSnapshot = ref(false);
 const refreshingLive = ref(false);
+const refreshingCharacters = ref(false);
+const refreshingSharedBanks = ref(false);
 const savingSettings = ref(false);
+
+// Individually refreshed data (overrides liveData when set)
+const refreshedCharacters = ref<TopCharacterCurrency[] | null>(null);
+const refreshedCharacterTotals = ref<{
+  totalPlatinumEquivalent: string;
+  characterCount: number;
+} | null>(null);
+const refreshedSharedBanks = ref<SharedBankAccount[] | null>(null);
+const refreshedTotalSharedPlatinum = ref<number | null>(null);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
 const snapshots = ref<MoneySnapshot[]>([]);
+const allSnapshots = ref<MoneySnapshot[]>([]);
+const showSnapshotHistory = ref(false);
+const loadingAllSnapshots = ref(false);
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
@@ -406,6 +560,22 @@ const settingsForm = ref({
   snapshotMinute: 0
 });
 const timezoneAbbr = ref(getTimezoneAbbreviation());
+
+// Delete state
+const showDeleteConfirm = ref(false);
+const snapshotToDelete = ref<MoneySnapshot | null>(null);
+const deletingSnapshotId = ref<string | null>(null);
+
+// Context menu state
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  snapshotIndex: -1
+});
+
+// Chart ref for right-click detection
+const chartRef = ref<InstanceType<typeof Line> | null>(null);
 
 // Computed
 const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
@@ -422,6 +592,10 @@ const latestTotalPlatinum = computed(() => {
 });
 
 const topCharacters = computed<TopCharacterCurrency[]>(() => {
+  // Prioritize individually refreshed data, but only show top 20 for display
+  if (refreshedCharacters.value) {
+    return refreshedCharacters.value.slice(0, 20);
+  }
   if (liveData.value) {
     return liveData.value.topCharacters;
   }
@@ -432,6 +606,10 @@ const topCharacters = computed<TopCharacterCurrency[]>(() => {
 });
 
 const topSharedBanks = computed<SharedBankAccount[]>(() => {
+  // Prioritize individually refreshed data, but only show top 20 for display
+  if (refreshedSharedBanks.value) {
+    return refreshedSharedBanks.value.slice(0, 20);
+  }
   if (liveData.value) {
     return liveData.value.topSharedBanks;
   }
@@ -440,6 +618,10 @@ const topSharedBanks = computed<SharedBankAccount[]>(() => {
 
 // Total character currency (in platinum) - from all characters, not just top 20
 const totalCharacterPlatinum = computed(() => {
+  // Prioritize individually refreshed data
+  if (refreshedCharacterTotals.value) {
+    return Number(refreshedCharacterTotals.value.totalPlatinumEquivalent) / 1000;
+  }
   if (liveData.value) {
     return Number(liveData.value.totals.totalPlatinumEquivalent) / 1000;
   }
@@ -451,6 +633,10 @@ const totalCharacterPlatinum = computed(() => {
 
 // Total shared bank platinum - from all accounts, not just top 20
 const totalSharedBankPlatinum = computed(() => {
+  // Prioritize individually refreshed data
+  if (refreshedTotalSharedPlatinum.value !== null) {
+    return refreshedTotalSharedPlatinum.value;
+  }
   if (liveData.value) {
     return Number(liveData.value.totals.totalSharedPlatinum);
   }
@@ -482,7 +668,8 @@ const hasUnsavedChanges = computed(() => {
 const chartData = computed(() => {
   const labels = snapshots.value.map((s) => {
     const date = new Date(s.snapshotDate);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    // Use UTC for snapshot dates since they represent calendar days stored as UTC midnight
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   });
 
   const data = snapshots.value.map((s) => {
@@ -525,6 +712,15 @@ const chartOptions = computed(() => ({
   plugins: {
     tooltip: {
       callbacks: {
+        title: (context: { dataIndex: number }[]) => {
+          if (context.length === 0) return '';
+          const snapshot = snapshots.value[context[0].dataIndex];
+          if (!snapshot) return '';
+          // Show both the snapshot date and the creation time
+          const snapshotDate = formatSnapshotDate(snapshot.snapshotDate);
+          const createdTime = formatScheduledTime(snapshot.createdAt);
+          return [snapshotDate, `Taken: ${createdTime}`];
+        },
         label: (context: { parsed: { y: number } }) => {
           return `Total: ${formatPlatinum(context.parsed.y)} PP`;
         }
@@ -556,10 +752,12 @@ function formatCurrency(pp: number, gp: number, sp: number, cp: number): string 
 function formatSnapshotDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return 'Never';
   const date = new Date(dateStr);
+  // Use UTC for snapshot dates since they represent calendar days stored as UTC midnight
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   });
 }
 
@@ -570,6 +768,16 @@ function formatScheduledTime(dateStr: string | null | undefined): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
+function formatSnapshotTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  return date.toLocaleString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     timeZoneName: 'short'
@@ -612,11 +820,44 @@ async function fetchSnapshots(): Promise<void> {
   }
 }
 
+async function fetchAllSnapshots(): Promise<void> {
+  loadingAllSnapshots.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/snapshots', {
+      params: { limit: '9999' }
+    });
+    // Sort by date descending (newest first)
+    allSnapshots.value = response.data.snapshots.sort((a: MoneySnapshot, b: MoneySnapshot) => {
+      return new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime();
+    });
+  } catch (error) {
+    console.error('Failed to fetch all snapshots:', error);
+  } finally {
+    loadingAllSnapshots.value = false;
+  }
+}
+
+async function openSnapshotHistory(): Promise<void> {
+  showSnapshotHistory.value = true;
+  if (allSnapshots.value.length === 0) {
+    await fetchAllSnapshots();
+  }
+}
+
+function closeSnapshotHistory(): void {
+  showSnapshotHistory.value = false;
+}
+
 async function refreshLiveData(): Promise<void> {
   refreshingLive.value = true;
   try {
     const response = await axios.get('/api/admin/money-tracker/live');
     liveData.value = response.data;
+    // Clear individually refreshed data when full refresh happens
+    refreshedCharacters.value = null;
+    refreshedCharacterTotals.value = null;
+    refreshedSharedBanks.value = null;
+    refreshedTotalSharedPlatinum.value = null;
   } catch (error) {
     console.error('Failed to fetch live data:', error);
   } finally {
@@ -624,20 +865,79 @@ async function refreshLiveData(): Promise<void> {
   }
 }
 
+async function refreshTopCharacters(): Promise<void> {
+  refreshingCharacters.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/live/characters');
+    refreshedCharacters.value = response.data.characters;
+    refreshedCharacterTotals.value = {
+      totalPlatinumEquivalent: response.data.totals.totalPlatinumEquivalent,
+      characterCount: response.data.totals.characterCount
+    };
+    addToast({
+      title: 'Characters Refreshed',
+      message: `Loaded ${response.data.characters.length} characters with currency data.`
+    });
+  } catch (error) {
+    console.error('Failed to refresh characters:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to refresh character data. Please try again.'
+    });
+  } finally {
+    refreshingCharacters.value = false;
+  }
+}
+
+async function refreshTopSharedBanks(): Promise<void> {
+  refreshingSharedBanks.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/live/shared-banks');
+    refreshedSharedBanks.value = response.data.sharedBanks;
+    refreshedTotalSharedPlatinum.value = Number(response.data.totalSharedPlatinum);
+    addToast({
+      title: 'Shared Banks Refreshed',
+      message: `Loaded ${response.data.sharedBanks.length} accounts with shared bank data.`
+    });
+  } catch (error) {
+    console.error('Failed to refresh shared banks:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to refresh shared bank data. Please try again.'
+    });
+  } finally {
+    refreshingSharedBanks.value = false;
+  }
+}
+
 async function takeSnapshot(): Promise<void> {
   creatingSnapshot.value = true;
   try {
-    await axios.post('/api/admin/money-tracker/snapshots');
+    const response = await axios.post('/api/admin/money-tracker/snapshots');
+    console.log('Snapshot created:', response.data);
+
     // Refresh all data after creating a snapshot
     await Promise.all([fetchSummary(), fetchSnapshots()]);
-    liveData.value = null; // Clear live data to show the new snapshot
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 409) {
-      alert('A snapshot already exists for today. Only one snapshot per day is allowed.');
-    } else {
-      console.error('Failed to create snapshot:', error);
-      alert('Failed to create snapshot. Please try again.');
+
+    // Also refresh allSnapshots if the history modal has been opened
+    if (allSnapshots.value.length > 0) {
+      await fetchAllSnapshots();
     }
+
+    liveData.value = null; // Clear live data to show the new snapshot
+    addToast({
+      title: 'Snapshot Created',
+      message: 'Currency snapshot has been saved successfully.'
+    });
+  } catch (error) {
+    console.error('Failed to create snapshot:', error);
+    const errorMessage = axios.isAxiosError(error) && error.response?.data?.message
+      ? error.response.data.message
+      : 'Failed to create snapshot. Please try again.';
+    addToast({
+      title: 'Error',
+      message: errorMessage
+    });
   } finally {
     creatingSnapshot.value = false;
   }
@@ -725,14 +1025,113 @@ async function loadData(): Promise<void> {
   }
 }
 
+// Delete snapshot functions
+function confirmDeleteSnapshot(snapshot: MoneySnapshot): void {
+  snapshotToDelete.value = snapshot;
+  showDeleteConfirm.value = true;
+}
+
+function cancelDelete(): void {
+  showDeleteConfirm.value = false;
+  snapshotToDelete.value = null;
+}
+
+async function executeDeleteSnapshot(): Promise<void> {
+  if (!snapshotToDelete.value) return;
+
+  const snapshotId = snapshotToDelete.value.id;
+  deletingSnapshotId.value = snapshotId;
+
+  try {
+    await axios.delete(`/api/admin/money-tracker/snapshots/${snapshotId}`);
+
+    // Remove from local arrays
+    allSnapshots.value = allSnapshots.value.filter((s) => s.id !== snapshotId);
+    snapshots.value = snapshots.value.filter((s) => s.id !== snapshotId);
+
+    // Refresh summary to update counts
+    await fetchSummary();
+
+    addToast({
+      title: 'Snapshot Deleted',
+      message: 'The snapshot has been successfully deleted.'
+    });
+  } catch (error) {
+    console.error('Failed to delete snapshot:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to delete snapshot. Please try again.'
+    });
+  } finally {
+    deletingSnapshotId.value = null;
+    showDeleteConfirm.value = false;
+    snapshotToDelete.value = null;
+  }
+}
+
+// Context menu functions
+function showContextMenu(event: MouseEvent, snapshotIndex: number): void {
+  event.preventDefault();
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    snapshotIndex
+  };
+}
+
+function hideContextMenu(): void {
+  contextMenu.value.visible = false;
+  contextMenu.value.snapshotIndex = -1;
+}
+
+function deleteFromContextMenu(): void {
+  if (contextMenu.value.snapshotIndex >= 0 && contextMenu.value.snapshotIndex < snapshots.value.length) {
+    const snapshot = snapshots.value[contextMenu.value.snapshotIndex];
+    confirmDeleteSnapshot(snapshot);
+  }
+  hideContextMenu();
+}
+
+function handleChartRightClick(event: MouseEvent): void {
+  if (!chartRef.value?.chart) return;
+
+  const chart = chartRef.value.chart;
+  const elements = chart.getElementsAtEventForMode(
+    event,
+    'nearest',
+    { intersect: true },
+    false
+  );
+
+  if (elements.length > 0) {
+    event.preventDefault();
+    const dataIndex = elements[0].index;
+    showContextMenu(event, dataIndex);
+  }
+}
+
 // Watch for date range changes
 watch(dateRange, () => {
   fetchSnapshots();
 });
 
+// Close context menu when clicking elsewhere
+function handleDocumentClick(): void {
+  if (contextMenu.value.visible) {
+    hideContextMenu();
+  }
+}
+
 // Initialize
 onMounted(() => {
   loadData();
+  document.addEventListener('click', handleDocumentClick);
+});
+
+// Cleanup
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick);
 });
 </script>
 
@@ -859,10 +1258,72 @@ onMounted(() => {
   margin-bottom: 1rem;
 }
 
+.money-tracker__table-header--with-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.money-tracker__chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .money-tracker__chart-header h2,
 .money-tracker__table-header h2 {
   margin: 0 0 0.25rem;
   font-size: 1.25rem;
+}
+
+/* Icon button styles */
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  border: 1px solid var(--color-border, #334155);
+  color: var(--color-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn--icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-text, #e2e8f0);
+  border-color: var(--color-accent, #60a5fa);
+}
+
+.btn--icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Refresh icon styles */
+.refresh-icon {
+  display: inline-block;
+  font-size: 1.25rem;
+  line-height: 1;
+  transition: transform 0.2s;
+}
+
+.refresh-icon--spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .money-tracker__chart {
@@ -1148,6 +1609,215 @@ onMounted(() => {
   .money-tracker__setting {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* Modal Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 120;
+}
+
+.modal {
+  width: min(500px, 100%);
+  max-height: 90vh;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.modal--wide {
+  width: min(900px, 95%);
+}
+
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.modal__body {
+  flex: 1;
+  overflow: auto;
+  min-height: 200px;
+  max-height: 60vh;
+}
+
+.modal__loading,
+.modal__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+}
+
+.modal__table-wrapper {
+  overflow-x: auto;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0.25rem;
+}
+
+.icon-button:hover {
+  color: #e2e8f0;
+}
+
+/* Snapshot History Table */
+.snapshot-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.snapshot-history-table th,
+.snapshot-history-table td {
+  padding: 0.75rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #334155);
+  white-space: nowrap;
+}
+
+.snapshot-history-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #94a3b8);
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.95);
+}
+
+.snapshot-history-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.snapshot-history-table__date {
+  font-weight: 600;
+  color: var(--color-accent, #60a5fa);
+}
+
+.snapshot-history-table__time {
+  font-size: 0.8rem;
+  color: var(--color-muted, #94a3b8);
+}
+
+.snapshot-history-table__total {
+  font-weight: 600;
+}
+
+/* Small modal variant for confirmations */
+.modal--sm {
+  width: min(400px, 90%);
+}
+
+.modal--sm .modal__body {
+  min-height: auto;
+  max-height: none;
+}
+
+/* Delete/danger button styles */
+.btn--danger {
+  background: var(--color-danger, #dc2626);
+  color: white;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--color-danger-hover, #b91c1c);
+}
+
+/* Snapshot history table actions */
+.snapshot-history-table__th-actions {
+  width: 80px;
+}
+
+.snapshot-history-table__actions {
+  text-align: center;
+}
+
+/* Context menu styles */
+.context-menu {
+  position: fixed;
+  z-index: 150;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.5rem;
+  padding: 0.25rem;
+  min-width: 150px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.context-menu__item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.25rem;
+  transition: background 0.15s;
+}
+
+.context-menu__item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu__item--danger {
+  color: var(--color-danger, #f87171);
+}
+
+.context-menu__item--danger:hover {
+  background: rgba(220, 38, 38, 0.2);
+}
+
+@media (max-width: 768px) {
+  .modal {
+    padding: 1rem;
+  }
+
+  .modal--wide {
+    width: 100%;
+  }
+
+  .snapshot-history-table {
+    font-size: 0.75rem;
+  }
+
+  .snapshot-history-table th,
+  .snapshot-history-table td {
+    padding: 0.5rem 0.25rem;
   }
 }
 </style>

@@ -88,8 +88,10 @@ export interface MoneySnapshotData {
   totalSilverCursor: bigint;
   totalCopperCursor: bigint;
   totalPlatinumEquivalent: bigint;
+  totalSharedPlatinum: bigint;
   topCharacters: TopCharacterCurrency[];
   characterCount: number;
+  sharedBankCount: number;
   createdAt: Date;
 }
 
@@ -183,13 +185,15 @@ export async function fetchServerCurrencyTotals(): Promise<ServerCurrencyTotals>
 /**
  * Fetch top N characters by total currency wealth
  * Uses a calculated field for sorting efficiency
+ * @param limit - Number of characters to fetch. Pass 0 or undefined to fetch all.
  */
-export async function fetchTopCharactersByCurrency(limit: number = 20): Promise<TopCharacterCurrency[]> {
+export async function fetchTopCharactersByCurrency(limit?: number): Promise<TopCharacterCurrency[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
   // Query that calculates total wealth in copper and sorts by it
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
   const topCharactersQuery = `
     SELECT
       cd.id,
@@ -215,10 +219,10 @@ export async function fetchTopCharactersByCurrency(limit: number = 20): Promise<
     FROM character_currency cc
     INNER JOIN character_data cd ON cd.id = cc.id
     ORDER BY total_copper_value DESC
-    LIMIT ?
+    ${limitClause}
   `;
 
-  const rows = await queryEqDb<CharacterCurrencyRow[]>(topCharactersQuery, [limit]);
+  const rows = await queryEqDb<CharacterCurrencyRow[]>(topCharactersQuery);
 
   return rows.map((row) => {
     const totalCopper = calculatePlatinumEquivalentInCopper(
@@ -278,12 +282,14 @@ export async function fetchSharedBankTotals(): Promise<SharedBankTotals> {
 
 /**
  * Fetch top N accounts by shared bank platinum
+ * @param limit - Number of accounts to fetch. Pass 0 or undefined to fetch all.
  */
-export async function fetchTopSharedBanks(limit: number = 20): Promise<SharedBankAccount[]> {
+export async function fetchTopSharedBanks(limit?: number): Promise<SharedBankAccount[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
   const topSharedBanksQuery = `
     SELECT
       id,
@@ -293,10 +299,10 @@ export async function fetchTopSharedBanks(limit: number = 20): Promise<SharedBan
     FROM account
     WHERE sharedplat > 0
     ORDER BY sharedplat DESC
-    LIMIT ?
+    ${limitClause}
   `;
 
-  const rows = await queryEqDb<RowDataPacket[]>(topSharedBanksQuery, [limit]);
+  const rows = await queryEqDb<RowDataPacket[]>(topSharedBanksQuery);
 
   return rows.map((row) => ({
     id: row.id,
@@ -315,19 +321,11 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  // Check if a snapshot already exists for today
-  const existing = await prisma.moneySnapshot.findUnique({
-    where: { snapshotDate: today }
-  });
-
-  if (existing) {
-    throw new Error(`A snapshot already exists for ${today.toISOString().split('T')[0]}. Only one snapshot per day is allowed.`);
-  }
-
   // Fetch current data from EQEmu
-  const [totals, topCharacters] = await Promise.all([
+  const [totals, topCharacters, sharedBankTotals] = await Promise.all([
     fetchServerCurrencyTotals(),
-    fetchTopCharactersByCurrency(20)
+    fetchTopCharactersByCurrency(20),
+    fetchSharedBankTotals()
   ]);
 
   // Create the snapshot
@@ -347,8 +345,10 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
       totalSilverCursor: totals.silverCursor,
       totalCopperCursor: totals.copperCursor,
       totalPlatinumEquivalent: totals.totalPlatinumEquivalent,
+      totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
       topCharacters: JSON.parse(JSON.stringify(topCharacters)),
       characterCount: totals.characterCount,
+      sharedBankCount: sharedBankTotals.accountCount,
       createdById
     }
   });
@@ -410,14 +410,15 @@ export async function getLatestSnapshot(): Promise<MoneySnapshotData | null> {
 }
 
 /**
- * Get snapshot for a specific date
+ * Get snapshot for a specific date (returns the first/oldest snapshot for that date)
  */
 export async function getSnapshotByDate(date: Date): Promise<MoneySnapshotData | null> {
   const normalizedDate = new Date(date);
   normalizedDate.setUTCHours(0, 0, 0, 0);
 
-  const snapshot = await prisma.moneySnapshot.findUnique({
-    where: { snapshotDate: normalizedDate }
+  const snapshot = await prisma.moneySnapshot.findFirst({
+    where: { snapshotDate: normalizedDate },
+    orderBy: { createdAt: 'asc' }
   });
 
   if (!snapshot) {

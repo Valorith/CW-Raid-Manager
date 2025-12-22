@@ -79,7 +79,7 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       const querySchema = z.object({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        limit: z.coerce.number().int().positive().max(365).default(90)
+        limit: z.coerce.number().int().positive().max(10000).default(90)
       });
 
       const parsed = querySchema.safeParse(request.query);
@@ -159,6 +159,63 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
     }
   );
 
+  // Get live character currency data (all characters)
+  server.get(
+    '/live/characters',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      if (!isEqDbConfigured()) {
+        return reply.badRequest('EQ database is not configured.');
+      }
+
+      try {
+        const [totals, characters] = await Promise.all([
+          fetchServerCurrencyTotals(),
+          fetchTopCharactersByCurrency() // No limit - fetch all
+        ]);
+        return serializeBigInt({
+          characters,
+          totals,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch character data.');
+        return reply.internalServerError('Unable to fetch character data.');
+      }
+    }
+  );
+
+  // Get live shared banks data (all accounts)
+  server.get(
+    '/live/shared-banks',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      if (!isEqDbConfigured()) {
+        return reply.badRequest('EQ database is not configured.');
+      }
+
+      try {
+        const [sharedBankTotals, sharedBanks] = await Promise.all([
+          fetchSharedBankTotals(),
+          fetchTopSharedBanks() // No limit - fetch all
+        ]);
+        return serializeBigInt({
+          sharedBanks,
+          totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
+          sharedBankAccountCount: sharedBankTotals.accountCount,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch shared bank data.');
+        return reply.internalServerError('Unable to fetch shared bank data.');
+      }
+    }
+  );
+
   // Create a new snapshot (manual trigger)
   server.post(
     '/snapshots',
@@ -175,8 +232,12 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
         return serializeBigInt({ snapshot });
       } catch (error) {
         request.log.error({ error }, 'Failed to create money snapshot.');
-        if (error instanceof Error && error.message.includes('already exists')) {
-          return reply.conflict(error.message);
+        // Check for database unique constraint violation
+        if (error instanceof Error && (
+          error.message.includes('Unique constraint') ||
+          error.message.includes('Duplicate entry')
+        )) {
+          return reply.conflict('A snapshot with this date already exists. Please delete the existing snapshot first or wait for the migration to complete.');
         }
         return reply.internalServerError('Unable to create money snapshot.');
       }
