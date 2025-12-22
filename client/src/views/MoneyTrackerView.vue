@@ -44,11 +44,11 @@
       <article class="money-tracker__settings-card">
         <header class="money-tracker__settings-header">
           <h2>Auto-Snapshot Settings</h2>
-          <span v-if="settings?.schedulerRunning" class="status-badge status-badge--active">
-            Scheduler Running
+          <span v-if="settings?.autoSnapshotEnabled" class="status-badge status-badge--active">
+            Enabled
           </span>
           <span v-else class="status-badge status-badge--inactive">
-            Scheduler Inactive
+            Disabled
           </span>
         </header>
         <div class="money-tracker__settings-content">
