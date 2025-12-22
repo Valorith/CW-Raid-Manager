@@ -79,7 +79,7 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       const querySchema = z.object({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        limit: z.coerce.number().int().positive().max(365).default(90)
+        limit: z.coerce.number().int().positive().max(10000).default(90)
       });
 
       const parsed = querySchema.safeParse(request.query);
