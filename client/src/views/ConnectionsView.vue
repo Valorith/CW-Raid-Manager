@@ -92,7 +92,11 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(conn, index) in group.connections" :key="`${conn.connectId}-${index}`">
+                <tr
+                  v-for="(conn, index) in group.connections"
+                  :key="`${conn.connectId}-${index}`"
+                  :class="getRowClass(conn, group)"
+                >
                   <td class="col-class">
                     <div class="class-cell">
                       <img
@@ -242,6 +246,28 @@ function getClassIcon(className: string): string | null {
 
 function formatClass(className: string): string {
   return characterClassLabels[className as CharacterClass] ?? className;
+}
+
+const HOME_ZONE = "Clumsy's Home";
+
+function isOutsideHome(conn: ServerConnection): boolean {
+  return conn.zoneName !== HOME_ZONE;
+}
+
+function getOutsideHomeCount(group: IpGroup): number {
+  return group.connections.filter(isOutsideHome).length;
+}
+
+function getRowClass(conn: ServerConnection, group: IpGroup): string {
+  if (!isOutsideHome(conn)) {
+    return ''; // In home zone, no special styling
+  }
+
+  const outsideCount = getOutsideHomeCount(group);
+  if (outsideCount > 2) {
+    return 'row--danger'; // Red theme: more than 2 outside from same IP
+  }
+  return 'row--warning'; // Green theme: 2 or fewer outside from same IP
 }
 
 function setPage(page: number) {
@@ -499,6 +525,32 @@ onUnmounted(() => {
 
 .connections-table tbody tr:hover {
   background: rgba(59, 130, 246, 0.08);
+}
+
+.connections-table tbody tr.row--warning {
+  background: rgba(34, 197, 94, 0.12);
+  border-left: 3px solid rgba(34, 197, 94, 0.6);
+}
+
+.connections-table tbody tr.row--warning:hover {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.connections-table tbody tr.row--warning td {
+  color: #86efac;
+}
+
+.connections-table tbody tr.row--danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-left: 3px solid rgba(239, 68, 68, 0.6);
+}
+
+.connections-table tbody tr.row--danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.connections-table tbody tr.row--danger td {
+  color: #fca5a5;
 }
 
 .connections-table tbody tr:last-child td {
