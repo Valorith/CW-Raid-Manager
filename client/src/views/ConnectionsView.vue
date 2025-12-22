@@ -77,8 +77,19 @@
           class="ip-group"
         >
           <div class="ip-group__header">
-            <code class="ip-address">{{ group.ip }}</code>
-            <span class="ip-group__count">{{ group.connections.length }} character{{ group.connections.length !== 1 ? 's' : '' }}</span>
+            <div class="ip-group__left">
+              <code class="ip-address">{{ group.ip }}</code>
+              <span class="ip-group__count">{{ group.connections.length }} character{{ group.connections.length !== 1 ? 's' : '' }}</span>
+            </div>
+            <span
+              class="ip-group__outside-count"
+              :class="{
+                'ip-group__outside-count--warning': getOutsideHomeCount(group) > 0 && getOutsideHomeCount(group) <= getIpLimit(group.ip),
+                'ip-group__outside-count--danger': getOutsideHomeCount(group) > getIpLimit(group.ip)
+              }"
+            >
+              Outside: {{ getOutsideHomeCount(group) }}/{{ getIpLimit(group.ip) }}
+            </span>
           </div>
           <div class="table-wrapper">
             <table class="connections-table">
@@ -152,8 +163,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
-import { api, type ServerConnection } from '../services/api';
+import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
+
+const DEFAULT_OUTSIDE_LIMIT = 2;
 
 interface IpGroup {
   ip: string;
@@ -161,6 +174,7 @@ interface IpGroup {
 }
 
 const connections = ref<ServerConnection[]>([]);
+const ipExemptions = ref<IpExemption[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 const searchQuery = ref('');
@@ -258,16 +272,22 @@ function getOutsideHomeCount(group: IpGroup): number {
   return group.connections.filter(isOutsideHome).length;
 }
 
+function getIpLimit(ip: string): number {
+  const exemption = ipExemptions.value.find((e) => e.ip === ip);
+  return exemption ? exemption.exemptionAmount : DEFAULT_OUTSIDE_LIMIT;
+}
+
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
   if (!isOutsideHome(conn)) {
     return ''; // In home zone, no special styling
   }
 
   const outsideCount = getOutsideHomeCount(group);
-  if (outsideCount > 2) {
-    return 'row--danger'; // Red theme: more than 2 outside from same IP
+  const limit = getIpLimit(group.ip);
+  if (outsideCount > limit) {
+    return 'row--danger'; // Red theme: exceeds limit for this IP
   }
-  return 'row--warning'; // Green theme: 2 or fewer outside from same IP
+  return 'row--warning'; // Green theme: within limit for this IP
 }
 
 function setPage(page: number) {
@@ -278,7 +298,9 @@ async function loadConnections() {
   loading.value = true;
   error.value = null;
   try {
-    connections.value = await api.fetchAdminConnections();
+    const response = await api.fetchAdminConnections();
+    connections.value = response.connections;
+    ipExemptions.value = response.ipExemptions;
     lastUpdated.value = new Date();
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
@@ -486,11 +508,38 @@ onUnmounted(() => {
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
+.ip-group__left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .ip-group__count {
   font-size: 0.75rem;
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+}
+
+.ip-group__outside-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.4rem;
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+
+.ip-group__outside-count--warning {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.ip-group__outside-count--danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
 }
 
 .table-wrapper {

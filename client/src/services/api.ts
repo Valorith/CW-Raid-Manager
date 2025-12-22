@@ -1366,6 +1366,16 @@ export interface ServerConnection {
   guildName: string | null;
 }
 
+export interface IpExemption {
+  ip: string;
+  exemptionAmount: number;
+}
+
+export interface ConnectionsResponse {
+  connections: ServerConnection[];
+  ipExemptions: IpExemption[];
+}
+
 // Loot Management Types
 export interface LootManagementSummary {
   lootMasterCount: number;
@@ -3252,9 +3262,12 @@ export const api = {
     await axios.delete(`/api/admin/guilds/${guildId}/members/${userId}`);
   },
 
-  async fetchAdminConnections(): Promise<ServerConnection[]> {
+  async fetchAdminConnections(): Promise<ConnectionsResponse> {
     const response = await axios.get('/api/admin/connections');
-    return Array.isArray(response.data.connections) ? response.data.connections : [];
+    return {
+      connections: Array.isArray(response.data.connections) ? response.data.connections : [],
+      ipExemptions: Array.isArray(response.data.ipExemptions) ? response.data.ipExemptions : []
+    };
   },
 
   /**

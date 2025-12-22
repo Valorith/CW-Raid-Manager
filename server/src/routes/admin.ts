@@ -28,7 +28,7 @@ import {
   fetchLootMaster,
   getLootManagementSummary
 } from '../services/lootManagementService.js';
-import { fetchServerConnections } from '../services/connectionsService.js';
+import { fetchServerConnections, fetchIpExemptions } from '../services/connectionsService.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
   try {
@@ -574,8 +574,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       try {
-        const connections = await fetchServerConnections();
-        return { connections };
+        const [connections, ipExemptions] = await Promise.all([
+          fetchServerConnections(),
+          fetchIpExemptions()
+        ]);
+        return { connections, ipExemptions };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch server connections.');
         if (error instanceof Error) {

@@ -16,6 +16,11 @@ export interface ServerConnection {
   guildName: string | null;
 }
 
+export interface IpExemption {
+  ip: string;
+  exemptionAmount: number;
+}
+
 type ConnectionRow = RowDataPacket & {
   connectid: number;
   ip: string;
@@ -304,4 +309,27 @@ export async function getConnectionCount(): Promise<number> {
   const query = `SELECT COUNT(*) as count FROM connections`;
   const [row] = await queryEqDb<RowDataPacket[]>(query);
   return Number(row?.count || 0);
+}
+
+/**
+ * Fetch IP exemptions from the EQEmu database
+ * These define custom limits for specific IP addresses
+ */
+export async function fetchIpExemptions(): Promise<IpExemption[]> {
+  if (!isEqDbConfigured()) {
+    return [];
+  }
+
+  try {
+    const query = `SELECT exemption_ip, exemption_amount FROM ip_exemptions`;
+    const rows = await queryEqDb<RowDataPacket[]>(query);
+
+    return rows.map((row) => ({
+      ip: row.exemption_ip || '',
+      exemptionAmount: Number(row.exemption_amount) || 0
+    }));
+  } catch {
+    // Table may not exist, return empty array
+    return [];
+  }
 }
