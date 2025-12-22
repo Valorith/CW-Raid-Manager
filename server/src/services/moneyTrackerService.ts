@@ -72,6 +72,17 @@ export interface SharedBankTotals {
   accountCount: number;
 }
 
+export interface GuildBankAccount {
+  id: number;
+  name: string;
+  platinum: number;
+}
+
+export interface GuildBankTotals {
+  totalGuildBankPlatinum: bigint;
+  guildCount: number;
+}
+
 export interface MoneySnapshotData {
   id: string;
   snapshotDate: Date;
@@ -89,9 +100,12 @@ export interface MoneySnapshotData {
   totalCopperCursor: bigint;
   totalPlatinumEquivalent: bigint;
   totalSharedPlatinum: bigint;
+  totalGuildBankPlatinum: bigint;
   topCharacters: TopCharacterCurrency[];
+  topGuildBanks: GuildBankAccount[];
   characterCount: number;
   sharedBankCount: number;
+  guildBankCount: number;
   createdAt: Date;
 }
 
@@ -313,6 +327,65 @@ export async function fetchTopSharedBanks(limit?: number): Promise<SharedBankAcc
 }
 
 /**
+ * Fetch total guild bank platinum from all guilds
+ * Guild bank balances are stored in data_buckets with key format: "{guildId}-balance"
+ */
+export async function fetchGuildBankTotals(): Promise<GuildBankTotals> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
+  }
+
+  // Join guilds with data_buckets to get guild bank balances
+  // Only guilds with a balance entry in data_buckets are counted
+  const totalsQuery = `
+    SELECT
+      COALESCE(SUM(CAST(db.value AS UNSIGNED)), 0) as total_guild_plat,
+      COUNT(*) as guild_count
+    FROM guilds g
+    INNER JOIN data_buckets db ON db.\`key\` = CONCAT(g.id, '-balance')
+  `;
+
+  const [totals] = await queryEqDb<RowDataPacket[]>(totalsQuery);
+  const row = totals as RowDataPacket;
+
+  return {
+    totalGuildBankPlatinum: BigInt(row.total_guild_plat || 0),
+    guildCount: Number(row.guild_count || 0)
+  };
+}
+
+/**
+ * Fetch top N guilds by guild bank platinum
+ * @param limit - Number of guilds to fetch. Pass 0 or undefined to fetch all.
+ */
+export async function fetchTopGuildBanks(limit?: number): Promise<GuildBankAccount[]> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
+  }
+
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
+  // Join guilds with data_buckets to get guild names and balances
+  const topGuildBanksQuery = `
+    SELECT
+      g.id,
+      g.name,
+      CAST(db.value AS UNSIGNED) as platinum
+    FROM guilds g
+    INNER JOIN data_buckets db ON db.\`key\` = CONCAT(g.id, '-balance')
+    ORDER BY platinum DESC
+    ${limitClause}
+  `;
+
+  const rows = await queryEqDb<RowDataPacket[]>(topGuildBanksQuery);
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name || '',
+    platinum: Number(row.platinum || 0)
+  }));
+}
+
+/**
  * Create a new money snapshot
  * This captures the current state of all server currency
  */
@@ -321,11 +394,13 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  // Fetch current data from EQEmu
-  const [totals, topCharacters, sharedBankTotals] = await Promise.all([
+  // Fetch current data from EQEmu (all queries in parallel for performance)
+  const [totals, topCharacters, sharedBankTotals, guildBankTotals, topGuildBanks] = await Promise.all([
     fetchServerCurrencyTotals(),
     fetchTopCharactersByCurrency(20),
-    fetchSharedBankTotals()
+    fetchSharedBankTotals(),
+    fetchGuildBankTotals(),
+    fetchTopGuildBanks(20)
   ]);
 
   // Create the snapshot
@@ -346,16 +421,20 @@ export async function createMoneySnapshot(createdById?: string): Promise<MoneySn
       totalCopperCursor: totals.copperCursor,
       totalPlatinumEquivalent: totals.totalPlatinumEquivalent,
       totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
+      totalGuildBankPlatinum: guildBankTotals.totalGuildBankPlatinum,
       topCharacters: JSON.parse(JSON.stringify(topCharacters)),
+      topGuildBanks: JSON.parse(JSON.stringify(topGuildBanks)),
       characterCount: totals.characterCount,
       sharedBankCount: sharedBankTotals.accountCount,
+      guildBankCount: guildBankTotals.guildCount,
       createdById
     }
   });
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[],
+    topGuildBanks: snapshot.topGuildBanks as unknown as GuildBankAccount[]
   };
 }
 
@@ -387,7 +466,8 @@ export async function getSnapshotsInRange(
 
   return snapshots.map((snapshot) => ({
     ...snapshot,
-    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[],
+    topGuildBanks: (snapshot.topGuildBanks as unknown as GuildBankAccount[]) || []
   }));
 }
 
@@ -405,7 +485,8 @@ export async function getLatestSnapshot(): Promise<MoneySnapshotData | null> {
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[],
+    topGuildBanks: (snapshot.topGuildBanks as unknown as GuildBankAccount[]) || []
   };
 }
 
@@ -427,7 +508,8 @@ export async function getSnapshotByDate(date: Date): Promise<MoneySnapshotData |
 
   return {
     ...snapshot,
-    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[]
+    topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[],
+    topGuildBanks: (snapshot.topGuildBanks as unknown as GuildBankAccount[]) || []
   };
 }
 

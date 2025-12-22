@@ -287,6 +287,52 @@
           No shared bank data available. Refresh live data to see shared banks.
         </p>
       </article>
+
+      <!-- Top 20 Guild Banks Table -->
+      <article class="money-tracker__table-card">
+        <header class="money-tracker__table-header money-tracker__table-header--with-action">
+          <div>
+            <h2>Top 20 Wealthiest Guilds</h2>
+            <span class="muted small">From {{ tableDataSource }}</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--icon"
+            :disabled="refreshingGuildBanks"
+            :title="refreshingGuildBanks ? 'Refreshing...' : 'Refresh guild bank data'"
+            @click="refreshTopGuildBanks"
+          >
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingGuildBanks }]">↻</span>
+          </button>
+        </header>
+        <div v-if="topGuildBanks.length > 0" class="money-tracker__table-wrapper">
+          <table class="money-tracker__table">
+            <thead>
+              <tr>
+                <th class="money-tracker__th--rank">#</th>
+                <th class="money-tracker__th--name">Guild</th>
+                <th class="money-tracker__th--total">Guild Bank (PP)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(guild, index) in topGuildBanks" :key="guild.id">
+                <td class="money-tracker__td--rank">{{ index + 1 }}</td>
+                <td class="money-tracker__td--name">{{ guild.name }}</td>
+                <td class="money-tracker__td--total">{{ formatPlatinum(guild.platinum) }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="money-tracker__total-row">
+                <td colspan="2" class="money-tracker__td--total-label">Total (All Guild Banks)</td>
+                <td class="money-tracker__td--total">{{ formatPlatinum(totalGuildBankPlatinum) }}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p v-else class="money-tracker__empty muted">
+          No guild bank data available. Refresh live data to see guild banks.
+        </p>
+      </article>
     </div>
 
     <!-- Snapshot History Modal -->
@@ -319,6 +365,7 @@
                   <th>Bank</th>
                   <th>Cursor</th>
                   <th>Shared Bank</th>
+                  <th>Guild Bank</th>
                   <th class="snapshot-history-table__th-actions"></th>
                 </tr>
               </thead>
@@ -338,6 +385,7 @@
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalSharedPlatinum || 0)) }}</td>
+                  <td>{{ formatPlatinum(Number(snapshot.totalGuildBankPlatinum || 0)) }}</td>
                   <td class="snapshot-history-table__actions">
                     <button
                       type="button"
@@ -444,9 +492,12 @@ interface MoneySnapshot {
   totalCopperCursor: string;
   totalPlatinumEquivalent: string;
   totalSharedPlatinum: string;
+  totalGuildBankPlatinum: string;
   topCharacters: TopCharacterCurrency[];
+  topGuildBanks: GuildBankAccount[];
   characterCount: number;
   sharedBankCount: number;
+  guildBankCount: number;
   createdAt: string;
 }
 
@@ -462,6 +513,12 @@ interface SharedBankAccount {
   name: string;
   charname: string;
   sharedplat: number;
+}
+
+interface GuildBankAccount {
+  id: number;
+  name: string;
+  platinum: number;
 }
 
 interface LiveData {
@@ -480,12 +537,15 @@ interface LiveData {
     copperCursor: string;
     totalPlatinumEquivalent: string;
     totalSharedPlatinum: string;
+    totalGuildBankPlatinum: string;
     grandTotalPlatinumEquivalent: string;
     characterCount: number;
   };
   topCharacters: TopCharacterCurrency[];
   topSharedBanks: SharedBankAccount[];
+  topGuildBanks: GuildBankAccount[];
   sharedBankAccountCount: number;
+  guildBankCount: number;
   timestamp: string;
 }
 
@@ -537,6 +597,7 @@ const creatingSnapshot = ref(false);
 const refreshingLive = ref(false);
 const refreshingCharacters = ref(false);
 const refreshingSharedBanks = ref(false);
+const refreshingGuildBanks = ref(false);
 const savingSettings = ref(false);
 
 // Individually refreshed data (overrides liveData when set)
@@ -547,6 +608,8 @@ const refreshedCharacterTotals = ref<{
 } | null>(null);
 const refreshedSharedBanks = ref<SharedBankAccount[] | null>(null);
 const refreshedTotalSharedPlatinum = ref<number | null>(null);
+const refreshedGuildBanks = ref<GuildBankAccount[] | null>(null);
+const refreshedTotalGuildBankPlatinum = ref<number | null>(null);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
 const snapshots = ref<MoneySnapshot[]>([]);
@@ -616,6 +679,17 @@ const topSharedBanks = computed<SharedBankAccount[]>(() => {
   return [];
 });
 
+const topGuildBanks = computed<GuildBankAccount[]>(() => {
+  // Prioritize individually refreshed data, but only show top 20 for display
+  if (refreshedGuildBanks.value) {
+    return refreshedGuildBanks.value.slice(0, 20);
+  }
+  if (liveData.value) {
+    return liveData.value.topGuildBanks;
+  }
+  return [];
+});
+
 // Total character currency (in platinum) - from all characters, not just top 20
 const totalCharacterPlatinum = computed(() => {
   // Prioritize individually refreshed data
@@ -639,6 +713,18 @@ const totalSharedBankPlatinum = computed(() => {
   }
   if (liveData.value) {
     return Number(liveData.value.totals.totalSharedPlatinum);
+  }
+  return 0;
+});
+
+// Total guild bank platinum - from all guilds, not just top 20
+const totalGuildBankPlatinum = computed(() => {
+  // Prioritize individually refreshed data
+  if (refreshedTotalGuildBankPlatinum.value !== null) {
+    return refreshedTotalGuildBankPlatinum.value;
+  }
+  if (liveData.value) {
+    return Number(liveData.value.totals.totalGuildBankPlatinum);
   }
   return 0;
 });
@@ -858,6 +944,8 @@ async function refreshLiveData(): Promise<void> {
     refreshedCharacterTotals.value = null;
     refreshedSharedBanks.value = null;
     refreshedTotalSharedPlatinum.value = null;
+    refreshedGuildBanks.value = null;
+    refreshedTotalGuildBankPlatinum.value = null;
   } catch (error) {
     console.error('Failed to fetch live data:', error);
   } finally {
@@ -907,6 +995,27 @@ async function refreshTopSharedBanks(): Promise<void> {
     });
   } finally {
     refreshingSharedBanks.value = false;
+  }
+}
+
+async function refreshTopGuildBanks(): Promise<void> {
+  refreshingGuildBanks.value = true;
+  try {
+    const response = await axios.get('/api/admin/money-tracker/live/guild-banks');
+    refreshedGuildBanks.value = response.data.guildBanks;
+    refreshedTotalGuildBankPlatinum.value = Number(response.data.totalGuildBankPlatinum);
+    addToast({
+      title: 'Guild Banks Refreshed',
+      message: `Loaded ${response.data.guildBanks.length} guilds with bank data.`
+    });
+  } catch (error) {
+    console.error('Failed to refresh guild banks:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to refresh guild bank data. Please try again.'
+    });
+  } finally {
+    refreshingGuildBanks.value = false;
   }
 }
 
