@@ -410,14 +410,15 @@ export async function getLatestSnapshot(): Promise<MoneySnapshotData | null> {
 }
 
 /**
- * Get snapshot for a specific date
+ * Get snapshot for a specific date (returns the first/oldest snapshot for that date)
  */
 export async function getSnapshotByDate(date: Date): Promise<MoneySnapshotData | null> {
   const normalizedDate = new Date(date);
   normalizedDate.setUTCHours(0, 0, 0, 0);
 
-  const snapshot = await prisma.moneySnapshot.findUnique({
-    where: { snapshotDate: normalizedDate }
+  const snapshot = await prisma.moneySnapshot.findFirst({
+    where: { snapshotDate: normalizedDate },
+    orderBy: { createdAt: 'asc' }
   });
 
   if (!snapshot) {
