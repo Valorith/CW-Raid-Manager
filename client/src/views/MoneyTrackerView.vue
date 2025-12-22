@@ -65,7 +65,7 @@
             </div>
           </label>
           <div class="money-tracker__setting">
-            <span class="money-tracker__setting-label">Snapshot Time (UTC)</span>
+            <span class="money-tracker__setting-label">Snapshot Time</span>
             <div class="money-tracker__time-inputs">
               <select
                 v-model.number="settingsForm.snapshotHour"
@@ -86,7 +86,7 @@
                   {{ String(m - 1).padStart(2, '0') }}
                 </option>
               </select>
-              <span class="muted small">UTC</span>
+              <span class="muted small">{{ timezoneAbbr }}</span>
               <button
                 type="button"
                 class="btn btn--accent btn--sm"
@@ -304,6 +304,37 @@ interface MoneyTrackerSettingsResponse {
   schedulerRunning: boolean;
 }
 
+// Timezone conversion helpers
+function utcToLocal(utcHour: number, utcMinute: number): { hour: number; minute: number } {
+  // Create a date object with the UTC time
+  const date = new Date();
+  date.setUTCHours(utcHour, utcMinute, 0, 0);
+  // Return local hour and minute
+  return {
+    hour: date.getHours(),
+    minute: date.getMinutes()
+  };
+}
+
+function localToUtc(localHour: number, localMinute: number): { hour: number; minute: number } {
+  // Create a date object with the local time
+  const date = new Date();
+  date.setHours(localHour, localMinute, 0, 0);
+  // Return UTC hour and minute
+  return {
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes()
+  };
+}
+
+function getTimezoneAbbreviation(): string {
+  const date = new Date();
+  const timeString = date.toLocaleTimeString('en-US', { timeZoneName: 'short' });
+  // Extract timezone abbreviation (e.g., "EST", "PST", "GMT+5")
+  const match = timeString.match(/[A-Z]{2,5}[+-]?\d*$/);
+  return match ? match[0] : 'Local';
+}
+
 // State
 const loading = ref(true);
 const isConfigured = ref(true);
@@ -316,9 +347,10 @@ const snapshots = ref<MoneySnapshot[]>([]);
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
-  snapshotHour: 3,
+  snapshotHour: 3,  // Stored in local time for display
   snapshotMinute: 0
 });
+const timezoneAbbr = ref(getTimezoneAbbreviation());
 
 // Computed
 const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
@@ -357,9 +389,11 @@ const hasChartData = computed(() => snapshots.value.length > 0);
 
 const hasUnsavedChanges = computed(() => {
   if (!settings.value) return false;
+  // Convert the UTC settings to local time for comparison with the form
+  const localSettings = utcToLocal(settings.value.snapshotHour, settings.value.snapshotMinute);
   return (
-    settingsForm.value.snapshotHour !== settings.value.snapshotHour ||
-    settingsForm.value.snapshotMinute !== settings.value.snapshotMinute
+    settingsForm.value.snapshotHour !== localSettings.hour ||
+    settingsForm.value.snapshotMinute !== localSettings.minute
   );
 });
 
@@ -531,8 +565,10 @@ async function fetchSettings(): Promise<void> {
   try {
     const response = await axios.get('/api/admin/money-tracker/settings');
     settings.value = response.data;
-    settingsForm.value.snapshotHour = response.data.snapshotHour;
-    settingsForm.value.snapshotMinute = response.data.snapshotMinute;
+    // Convert UTC time from server to local time for display
+    const localTime = utcToLocal(response.data.snapshotHour, response.data.snapshotMinute);
+    settingsForm.value.snapshotHour = localTime.hour;
+    settingsForm.value.snapshotMinute = localTime.minute;
   } catch (error) {
     console.error('Failed to fetch settings:', error);
   }
@@ -548,10 +584,11 @@ async function toggleAutoSnapshot(event: Event): Promise<void> {
       autoSnapshotEnabled: enabled
     });
     settings.value = response.data;
+    // Use the form's local time for the toast message
     addToast({
       title: enabled ? 'Auto-Snapshot Enabled' : 'Auto-Snapshot Disabled',
       message: enabled
-        ? `Daily snapshots will be taken at ${String(settings.value?.snapshotHour ?? 0).padStart(2, '0')}:${String(settings.value?.snapshotMinute ?? 0).padStart(2, '0')} UTC`
+        ? `Daily snapshots will be taken at ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} ${timezoneAbbr.value}`
         : 'Automatic daily snapshots have been disabled.'
     });
   } catch (error) {
@@ -570,14 +607,16 @@ async function toggleAutoSnapshot(event: Event): Promise<void> {
 async function saveSettings(): Promise<void> {
   savingSettings.value = true;
   try {
+    // Convert local time from form to UTC before sending to server
+    const utcTime = localToUtc(settingsForm.value.snapshotHour, settingsForm.value.snapshotMinute);
     const response = await axios.patch('/api/admin/money-tracker/settings', {
-      snapshotHour: settingsForm.value.snapshotHour,
-      snapshotMinute: settingsForm.value.snapshotMinute
+      snapshotHour: utcTime.hour,
+      snapshotMinute: utcTime.minute
     });
     settings.value = response.data;
     addToast({
       title: 'Settings Saved',
-      message: `Auto-snapshot scheduled for ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} UTC`
+      message: `Auto-snapshot scheduled for ${String(settingsForm.value.snapshotHour).padStart(2, '0')}:${String(settingsForm.value.snapshotMinute).padStart(2, '0')} ${timezoneAbbr.value}`
     });
   } catch (error) {
     console.error('Failed to save settings:', error);
