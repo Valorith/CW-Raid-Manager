@@ -5,12 +5,14 @@
  * It checks if an auto-snapshot should be taken and executes it if needed.
  *
  * Usage: node build/cronSnapshot.js
+ * Recommended cron schedule: 0 * * * * (every hour)
  *
  * The script will:
  * 1. Check if auto-snapshot is enabled in settings
- * 2. Check if a snapshot already exists for today
- * 3. Create a snapshot if conditions are met
- * 4. Exit with code 0 on success, 1 on error
+ * 2. Check if the configured snapshot time has passed for today
+ * 3. Check if a snapshot already exists for today
+ * 4. Create a snapshot if conditions are met
+ * 5. Exit with code 0 on success, 1 on error
  */
 
 import 'dotenv/config';
@@ -37,17 +39,31 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Calculate the scheduled snapshot time for today (in UTC)
+  const now = new Date();
+  const scheduledTimeToday = new Date(now);
+  scheduledTimeToday.setUTCHours(settings.snapshotHour, settings.snapshotMinute, 0, 0);
+
+  console.log(`[CronSnapshot] Current time (UTC): ${now.toISOString()}`);
+  console.log(`[CronSnapshot] Scheduled time today (UTC): ${scheduledTimeToday.toISOString()}`);
+
+  // Check if the scheduled time has passed
+  if (now < scheduledTimeToday) {
+    console.log('[CronSnapshot] Scheduled time has not yet passed for today. Exiting.');
+    return;
+  }
+
   // Check if we already have a snapshot for today
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const todayStart = new Date(now);
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
 
   const existingSnapshot = await prisma.moneySnapshot.findFirst({
     where: {
       snapshotDate: {
-        gte: today,
-        lt: tomorrow
+        gte: todayStart,
+        lt: tomorrowStart
       }
     }
   });
@@ -58,7 +74,7 @@ async function main(): Promise<void> {
   }
 
   // Create the snapshot
-  console.log('[CronSnapshot] Creating snapshot...');
+  console.log('[CronSnapshot] Scheduled time has passed and no snapshot exists. Creating snapshot...');
   await createMoneySnapshot();
   await updateLastSnapshotTime();
   console.log('[CronSnapshot] Snapshot created successfully.');
