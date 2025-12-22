@@ -482,8 +482,7 @@ const hasUnsavedChanges = computed(() => {
 const chartData = computed(() => {
   const labels = snapshots.value.map((s) => {
     const date = new Date(s.snapshotDate);
-    // Use UTC date components since snapshots are stored as UTC midnight
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   });
 
   const data = snapshots.value.map((s) => {
@@ -557,12 +556,10 @@ function formatCurrency(pp: number, gp: number, sp: number, cp: number): string 
 function formatSnapshotDate(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return 'Never';
   const date = new Date(dateStr);
-  // Use UTC date components since snapshots are stored as UTC midnight
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC'
+    day: 'numeric'
   });
 }
 
