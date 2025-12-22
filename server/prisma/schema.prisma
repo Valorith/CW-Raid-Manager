@@ -764,6 +764,17 @@ model NpcFavorite {
   @@index([userId, guildId])
 }
 
+// Money Tracker Settings - configuration for auto-snapshots
+model MoneyTrackerSettings {
+  id                  String   @id @default("singleton")
+  autoSnapshotEnabled Boolean  @default(false)
+  snapshotHour        Int      @default(3)  // 0-23 hour in UTC
+  snapshotMinute      Int      @default(0)  // 0-59 minute
+  lastSnapshotAt      DateTime?
+  updatedAt           DateTime @updatedAt
+  updatedById         String?
+}
+
 // Money Tracker - daily snapshots of server currency
 model MoneySnapshot {
   id                  String   @id @default(cuid())

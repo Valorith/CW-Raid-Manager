@@ -401,3 +401,99 @@ export async function getMoneyTrackerSummary(): Promise<{
     newestSnapshotDate: newest?.snapshotDate || null
   };
 }
+
+// ============================================================================
+// Settings Management
+// ============================================================================
+
+export interface MoneyTrackerSettingsData {
+  autoSnapshotEnabled: boolean;
+  snapshotHour: number;
+  snapshotMinute: number;
+  lastSnapshotAt: Date | null;
+  updatedAt: Date;
+}
+
+const SETTINGS_ID = 'singleton';
+
+/**
+ * Get the current auto-snapshot settings
+ */
+export async function getSettings(): Promise<MoneyTrackerSettingsData> {
+  let settings = await prisma.moneyTrackerSettings.findUnique({
+    where: { id: SETTINGS_ID }
+  });
+
+  // Create default settings if they don't exist
+  if (!settings) {
+    settings = await prisma.moneyTrackerSettings.create({
+      data: {
+        id: SETTINGS_ID,
+        autoSnapshotEnabled: false,
+        snapshotHour: 3,
+        snapshotMinute: 0
+      }
+    });
+  }
+
+  return {
+    autoSnapshotEnabled: settings.autoSnapshotEnabled,
+    snapshotHour: settings.snapshotHour,
+    snapshotMinute: settings.snapshotMinute,
+    lastSnapshotAt: settings.lastSnapshotAt,
+    updatedAt: settings.updatedAt
+  };
+}
+
+/**
+ * Update auto-snapshot settings
+ */
+export async function updateSettings(
+  data: {
+    autoSnapshotEnabled?: boolean;
+    snapshotHour?: number;
+    snapshotMinute?: number;
+  },
+  updatedById?: string
+): Promise<MoneyTrackerSettingsData> {
+  // Validate hour and minute
+  if (data.snapshotHour !== undefined && (data.snapshotHour < 0 || data.snapshotHour > 23)) {
+    throw new Error('Snapshot hour must be between 0 and 23');
+  }
+  if (data.snapshotMinute !== undefined && (data.snapshotMinute < 0 || data.snapshotMinute > 59)) {
+    throw new Error('Snapshot minute must be between 0 and 59');
+  }
+
+  const settings = await prisma.moneyTrackerSettings.upsert({
+    where: { id: SETTINGS_ID },
+    update: {
+      ...data,
+      updatedById
+    },
+    create: {
+      id: SETTINGS_ID,
+      autoSnapshotEnabled: data.autoSnapshotEnabled ?? false,
+      snapshotHour: data.snapshotHour ?? 3,
+      snapshotMinute: data.snapshotMinute ?? 0,
+      updatedById
+    }
+  });
+
+  return {
+    autoSnapshotEnabled: settings.autoSnapshotEnabled,
+    snapshotHour: settings.snapshotHour,
+    snapshotMinute: settings.snapshotMinute,
+    lastSnapshotAt: settings.lastSnapshotAt,
+    updatedAt: settings.updatedAt
+  };
+}
+
+/**
+ * Update the last snapshot timestamp (called by scheduler after successful snapshot)
+ */
+export async function updateLastSnapshotTime(): Promise<void> {
+  await prisma.moneyTrackerSettings.update({
+    where: { id: SETTINGS_ID },
+    data: { lastSnapshotAt: new Date() }
+  });
+}

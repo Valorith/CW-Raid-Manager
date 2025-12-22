@@ -10,8 +10,14 @@ import {
   fetchTopCharactersByCurrency,
   getLatestSnapshot,
   getMoneyTrackerSummary,
-  getSnapshotsInRange
+  getSettings,
+  getSnapshotsInRange,
+  updateSettings
 } from '../services/moneyTrackerService.js';
+import {
+  getNextScheduledTime,
+  isSchedulerRunning
+} from '../services/moneyTrackerScheduler.js';
 import { isEqDbConfigured } from '../utils/eqDb.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
@@ -184,6 +190,68 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       } catch (error) {
         request.log.error({ error }, 'Failed to delete money snapshot.');
         return reply.internalServerError('Unable to delete money snapshot.');
+      }
+    }
+  );
+
+  // Get auto-snapshot settings
+  server.get(
+    '/settings',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const settings = await getSettings();
+        const nextScheduledTime = await getNextScheduledTime();
+        const schedulerRunning = isSchedulerRunning();
+
+        return {
+          ...settings,
+          nextScheduledTime: nextScheduledTime?.toISOString() ?? null,
+          schedulerRunning
+        };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch money tracker settings.');
+        return reply.internalServerError('Unable to fetch settings.');
+      }
+    }
+  );
+
+  // Update auto-snapshot settings
+  server.patch(
+    '/settings',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        autoSnapshotEnabled: z.boolean().optional(),
+        snapshotHour: z.number().int().min(0).max(23).optional(),
+        snapshotMinute: z.number().int().min(0).max(59).optional()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid settings data.');
+      }
+
+      try {
+        const settings = await updateSettings(parsed.data, request.user.userId);
+        const nextScheduledTime = await getNextScheduledTime();
+        const schedulerRunning = isSchedulerRunning();
+
+        return {
+          ...settings,
+          nextScheduledTime: nextScheduledTime?.toISOString() ?? null,
+          schedulerRunning
+        };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to update money tracker settings.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.internalServerError('Unable to update settings.');
       }
     }
   );

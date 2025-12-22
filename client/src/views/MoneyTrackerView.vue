@@ -40,6 +40,72 @@
         </div>
       </div>
 
+      <!-- Settings Panel -->
+      <article class="money-tracker__settings-card">
+        <header class="money-tracker__settings-header">
+          <h2>Auto-Snapshot Settings</h2>
+          <span v-if="settings?.schedulerRunning" class="status-badge status-badge--active">
+            Scheduler Running
+          </span>
+          <span v-else class="status-badge status-badge--inactive">
+            Scheduler Inactive
+          </span>
+        </header>
+        <div class="money-tracker__settings-content">
+          <label class="money-tracker__setting">
+            <span class="money-tracker__setting-label">Enable Auto-Snapshot</span>
+            <div class="toggle-switch">
+              <input
+                type="checkbox"
+                :checked="settings?.autoSnapshotEnabled"
+                :disabled="savingSettings"
+                @change="toggleAutoSnapshot"
+              />
+              <span class="toggle-switch__slider"></span>
+            </div>
+          </label>
+          <div class="money-tracker__setting">
+            <span class="money-tracker__setting-label">Snapshot Time (UTC)</span>
+            <div class="money-tracker__time-inputs">
+              <select
+                v-model.number="settingsForm.snapshotHour"
+                class="input input--time"
+                :disabled="savingSettings || !settings?.autoSnapshotEnabled"
+                @change="saveSettings"
+              >
+                <option v-for="h in 24" :key="h - 1" :value="h - 1">
+                  {{ String(h - 1).padStart(2, '0') }}
+                </option>
+              </select>
+              <span class="time-separator">:</span>
+              <select
+                v-model.number="settingsForm.snapshotMinute"
+                class="input input--time"
+                :disabled="savingSettings || !settings?.autoSnapshotEnabled"
+                @change="saveSettings"
+              >
+                <option v-for="m in 60" :key="m - 1" :value="m - 1">
+                  {{ String(m - 1).padStart(2, '0') }}
+                </option>
+              </select>
+              <span class="muted small">UTC</span>
+            </div>
+          </div>
+          <div v-if="settings?.nextScheduledTime" class="money-tracker__setting">
+            <span class="money-tracker__setting-label">Next Scheduled Snapshot</span>
+            <span class="money-tracker__setting-value">
+              {{ formatScheduledTime(settings.nextScheduledTime) }}
+            </span>
+          </div>
+          <div v-if="settings?.lastSnapshotAt" class="money-tracker__setting">
+            <span class="money-tracker__setting-label">Last Auto-Snapshot</span>
+            <span class="money-tracker__setting-value">
+              {{ formatScheduledTime(settings.lastSnapshotAt) }}
+            </span>
+          </div>
+        </div>
+      </article>
+
       <!-- Actions -->
       <div class="money-tracker__actions">
         <button
@@ -219,15 +285,31 @@ interface LiveData {
   timestamp: string;
 }
 
+interface MoneyTrackerSettingsResponse {
+  autoSnapshotEnabled: boolean;
+  snapshotHour: number;
+  snapshotMinute: number;
+  lastSnapshotAt: string | null;
+  updatedAt: string;
+  nextScheduledTime: string | null;
+  schedulerRunning: boolean;
+}
+
 // State
 const loading = ref(true);
 const isConfigured = ref(true);
 const creatingSnapshot = ref(false);
 const refreshingLive = ref(false);
+const savingSettings = ref(false);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
 const snapshots = ref<MoneySnapshot[]>([]);
 const liveData = ref<LiveData | null>(null);
+const settings = ref<MoneyTrackerSettingsResponse | null>(null);
+const settingsForm = ref({
+  snapshotHour: 3,
+  snapshotMinute: 0
+});
 
 // Computed
 const latestSnapshot = computed(() => summary.value?.latestSnapshot ?? null);
@@ -348,6 +430,19 @@ function formatSnapshotDate(dateStr: string | Date | null | undefined): string {
   });
 }
 
+function formatScheduledTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return 'Not scheduled';
+  const date = new Date(dateStr);
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
 async function checkStatus(): Promise<boolean> {
   try {
     const response = await axios.get('/api/admin/money-tracker/status');
@@ -415,6 +510,51 @@ async function takeSnapshot(): Promise<void> {
   }
 }
 
+async function fetchSettings(): Promise<void> {
+  try {
+    const response = await axios.get('/api/admin/money-tracker/settings');
+    settings.value = response.data;
+    settingsForm.value.snapshotHour = response.data.snapshotHour;
+    settingsForm.value.snapshotMinute = response.data.snapshotMinute;
+  } catch (error) {
+    console.error('Failed to fetch settings:', error);
+  }
+}
+
+async function toggleAutoSnapshot(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement;
+  const enabled = target.checked;
+
+  savingSettings.value = true;
+  try {
+    const response = await axios.patch('/api/admin/money-tracker/settings', {
+      autoSnapshotEnabled: enabled
+    });
+    settings.value = response.data;
+  } catch (error) {
+    console.error('Failed to update settings:', error);
+    // Revert the checkbox
+    target.checked = !enabled;
+  } finally {
+    savingSettings.value = false;
+  }
+}
+
+async function saveSettings(): Promise<void> {
+  savingSettings.value = true;
+  try {
+    const response = await axios.patch('/api/admin/money-tracker/settings', {
+      snapshotHour: settingsForm.value.snapshotHour,
+      snapshotMinute: settingsForm.value.snapshotMinute
+    });
+    settings.value = response.data;
+  } catch (error) {
+    console.error('Failed to save settings:', error);
+  } finally {
+    savingSettings.value = false;
+  }
+}
+
 async function loadData(): Promise<void> {
   loading.value = true;
   try {
@@ -423,7 +563,7 @@ async function loadData(): Promise<void> {
       return;
     }
 
-    await Promise.all([fetchSummary(), fetchSnapshots(), refreshLiveData()]);
+    await Promise.all([fetchSummary(), fetchSnapshots(), refreshLiveData(), fetchSettings()]);
   } finally {
     loading.value = false;
   }
@@ -675,6 +815,134 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
+/* Settings Panel */
+.money-tracker__settings-card {
+  background: var(--color-surface, #1e293b);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  border: 1px solid var(--color-border, #334155);
+}
+
+.money-tracker__settings-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.money-tracker__settings-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.status-badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.status-badge--active {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.status-badge--inactive {
+  background: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+}
+
+.money-tracker__settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.money-tracker__setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.money-tracker__setting-label {
+  font-size: 0.875rem;
+  color: var(--color-muted, #94a3b8);
+}
+
+.money-tracker__setting-value {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.money-tracker__time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input--time {
+  width: 4rem;
+  padding: 0.375rem 0.5rem;
+  text-align: center;
+}
+
+.time-separator {
+  font-weight: 600;
+  color: var(--color-muted, #94a3b8);
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch__slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--color-border, #334155);
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.toggle-switch__slider::before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-switch__slider {
+  background-color: var(--color-accent, #3b82f6);
+}
+
+.toggle-switch input:checked + .toggle-switch__slider::before {
+  transform: translateX(24px);
+}
+
+.toggle-switch input:disabled + .toggle-switch__slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 768px) {
   .money-tracker {
     padding: 1rem;
@@ -695,6 +963,11 @@ onMounted(() => {
   .money-tracker__table th,
   .money-tracker__table td {
     padding: 0.5rem;
+  }
+
+  .money-tracker__setting {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
