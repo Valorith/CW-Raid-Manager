@@ -369,7 +369,7 @@
                     {{ formatSnapshotTime(snapshot.createdAt) }}
                   </td>
                   <td class="snapshot-history-table__total">
-                    {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000) }}
+                    {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000 + Number(snapshot.totalSharedPlatinum || 0) + Number(snapshot.totalGuildBankPlatinum || 0)) }}
                   </td>
                   <td>{{ snapshot.characterCount }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinum)) }}</td>
