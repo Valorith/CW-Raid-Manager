@@ -49,9 +49,30 @@ async function shouldRunSnapshot(): Promise<boolean> {
       return false;
     }
 
-    // Check if we already ran today (prevent duplicate runs within the same minute)
+    // Check if we already ran at this scheduled time today (in-memory check)
+    // This prevents running multiple times during the same scheduled minute
     if (lastRunDate === todayDate) {
       return false;
+    }
+
+    // Check if the last snapshot was taken at this scheduled time today (handles server restarts)
+    // This only prevents duplicate runs at the SAME scheduled time, not for earlier snapshots
+    if (settings.lastSnapshotAt) {
+      const lastSnapshot = new Date(settings.lastSnapshotAt);
+      const lastSnapshotDate = lastSnapshot.toISOString().split('T')[0];
+      const lastSnapshotHour = lastSnapshot.getUTCHours();
+      const lastSnapshotMinute = lastSnapshot.getUTCMinutes();
+
+      // If the last snapshot was today at this exact scheduled time, skip
+      if (
+        lastSnapshotDate === todayDate &&
+        lastSnapshotHour === settings.snapshotHour &&
+        lastSnapshotMinute === settings.snapshotMinute
+      ) {
+        lastRunDate = todayDate;
+        logger.debug?.('[MoneyTrackerScheduler] Already ran at this scheduled time today.');
+        return false;
+      }
     }
 
     return true;
@@ -73,18 +94,12 @@ async function executeScheduledSnapshot(): Promise<void> {
     await createMoneySnapshot();
     await updateLastSnapshotTime();
 
-    // Mark that we've run today
+    // Mark that we've run at this scheduled time today
     lastRunDate = todayDate;
 
     logger.info('[MoneyTrackerScheduler] Scheduled snapshot completed successfully.');
   } catch (error) {
-    // If snapshot already exists for today, just mark as run
-    if (error instanceof Error && error.message.includes('already exists')) {
-      lastRunDate = todayDate;
-      logger.info('[MoneyTrackerScheduler] Snapshot already exists for today, skipping.');
-    } else {
-      logger.error('[MoneyTrackerScheduler] Failed to create scheduled snapshot:', error);
-    }
+    logger.error('[MoneyTrackerScheduler] Failed to create scheduled snapshot:', error);
   }
 }
 
@@ -98,6 +113,38 @@ async function schedulerTick(): Promise<void> {
     }
   } catch (error) {
     logger.error('[MoneyTrackerScheduler] Error in scheduler tick:', error);
+  }
+}
+
+/**
+ * Initialize the scheduler state from the database
+ * This syncs the in-memory lastRunDate if we already ran at the scheduled time today
+ */
+async function initializeSchedulerState(): Promise<void> {
+  try {
+    const settings = await getSettings();
+    const now = new Date();
+    const todayDate = now.toISOString().split('T')[0];
+
+    // Check if the last snapshot was taken at the scheduled time today
+    // This prevents duplicate runs if the server restarts during the scheduled minute
+    if (settings.lastSnapshotAt) {
+      const lastSnapshot = new Date(settings.lastSnapshotAt);
+      const lastSnapshotDate = lastSnapshot.toISOString().split('T')[0];
+      const lastSnapshotHour = lastSnapshot.getUTCHours();
+      const lastSnapshotMinute = lastSnapshot.getUTCMinutes();
+
+      if (
+        lastSnapshotDate === todayDate &&
+        lastSnapshotHour === settings.snapshotHour &&
+        lastSnapshotMinute === settings.snapshotMinute
+      ) {
+        lastRunDate = todayDate;
+        logger.info('[MoneyTrackerScheduler] Already ran at scheduled time today, marking as complete.');
+      }
+    }
+  } catch (error) {
+    logger.error('[MoneyTrackerScheduler] Error initializing scheduler state:', error);
   }
 }
 
@@ -116,6 +163,10 @@ export function startMoneyTrackerScheduler(customLogger?: SchedulerLogger): void
 
   logger.info('[MoneyTrackerScheduler] Starting scheduler (checking every minute)...');
 
+  // Initialize state from database (async, but we don't wait for it)
+  // This syncs lastRunDate if we already ran at the scheduled time today
+  void initializeSchedulerState();
+
   // Run immediately on startup to check if we missed today's snapshot
   void schedulerTick();
 
@@ -124,8 +175,9 @@ export function startMoneyTrackerScheduler(customLogger?: SchedulerLogger): void
     void schedulerTick();
   }, 60 * 1000); // Every 60 seconds
 
-  // Don't keep the process alive just for this interval
-  schedulerInterval.unref();
+  // NOTE: We intentionally do NOT call .unref() here.
+  // The scheduler must keep the Node.js process alive to ensure
+  // auto-snapshots work even when there's no other activity.
 }
 
 /**
