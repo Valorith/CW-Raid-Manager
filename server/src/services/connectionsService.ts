@@ -52,6 +52,37 @@ function mapEqClassIdToName(classId: number): string {
   }
 }
 
+// Cache for table existence checks
+let hasZoneTable: boolean | null = null;
+let hasGuildsTable: boolean | null = null;
+
+async function checkTableExists(tableName: string): Promise<boolean> {
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT COUNT(*) as cnt FROM INFORMATION_SCHEMA.TABLES
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [tableName]
+    );
+    return Number(rows[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function checkZoneTable(): Promise<boolean> {
+  if (hasZoneTable === null) {
+    hasZoneTable = await checkTableExists('zone');
+  }
+  return hasZoneTable;
+}
+
+async function checkGuildsTable(): Promise<boolean> {
+  if (hasGuildsTable === null) {
+    hasGuildsTable = await checkTableExists('guilds');
+  }
+  return hasGuildsTable;
+}
+
 /**
  * Fetch all currently connected characters from the EQEmu server
  * Joins with character_data for character details, zone for zone names, and guilds for guild names
@@ -63,44 +94,102 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
     );
   }
 
-  // Query connections table, join with character_data, zone, and guilds
-  // Note: character_data.zone_id maps to zone.zoneidnumber
-  // character_data.guild_id maps to guilds.id (0 means no guild)
-  const query = `
-    SELECT
-      c.connectid,
-      c.ip,
-      c.accountid,
-      c.characterid,
-      cd.name,
-      cd.level,
-      cd.class,
-      cd.zone_id,
-      z.long_name as zone_long_name,
-      z.short_name as zone_short_name,
-      g.name as guild_name
+  // Check which tables are available
+  const [zoneAvailable, guildsAvailable] = await Promise.all([
+    checkZoneTable(),
+    checkGuildsTable()
+  ]);
+
+  // Build query dynamically based on available tables
+  let selectFields = `
+    c.connectid,
+    c.ip,
+    c.accountid,
+    c.characterid,
+    cd.name,
+    cd.level,
+    cd.class,
+    cd.zone_id`;
+
+  let joins = `
     FROM connections c
-    LEFT JOIN character_data cd ON c.characterid = cd.id
-    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber
-    LEFT JOIN guilds g ON cd.guild_id = g.id AND cd.guild_id > 0
-    ORDER BY cd.name ASC
-  `;
+    LEFT JOIN character_data cd ON c.characterid = cd.id`;
 
-  const rows = await queryEqDb<ConnectionRow[]>(query);
+  if (zoneAvailable) {
+    selectFields += `,
+      z.long_name as zone_long_name,
+      z.short_name as zone_short_name`;
+    joins += `
+    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber`;
+  } else {
+    selectFields += `,
+      NULL as zone_long_name,
+      NULL as zone_short_name`;
+  }
 
-  return rows.map((row) => ({
-    connectId: row.connectid,
-    ip: row.ip || '',
-    accountId: row.accountid,
-    characterId: row.characterid,
-    characterName: row.name || 'Unknown',
-    level: row.level || 0,
-    className: mapEqClassIdToName(row.class),
-    classId: row.class || 0,
-    zoneName: row.zone_long_name || row.zone_short_name || 'Unknown Zone',
-    zoneShortName: row.zone_short_name || '',
-    guildName: row.guild_name || null
-  }));
+  if (guildsAvailable) {
+    selectFields += `,
+      g.name as guild_name`;
+    joins += `
+    LEFT JOIN guilds g ON cd.guild_id = g.id AND cd.guild_id > 0`;
+  } else {
+    selectFields += `,
+      NULL as guild_name`;
+  }
+
+  const query = `SELECT ${selectFields} ${joins} ORDER BY cd.name ASC`;
+
+  try {
+    const rows = await queryEqDb<ConnectionRow[]>(query);
+
+    return rows.map((row) => ({
+      connectId: row.connectid,
+      ip: row.ip || '',
+      accountId: row.accountid,
+      characterId: row.characterid,
+      characterName: row.name || 'Unknown',
+      level: row.level || 0,
+      className: mapEqClassIdToName(row.class),
+      classId: row.class || 0,
+      zoneName: row.zone_long_name || row.zone_short_name || `Zone ${row.zone_id || 0}`,
+      zoneShortName: row.zone_short_name || '',
+      guildName: row.guild_name || null
+    }));
+  } catch (error) {
+    // If the query fails, try a simpler query without joins
+    console.error('[connectionsService] Full query failed, trying simplified query:', error);
+
+    const simpleQuery = `
+      SELECT
+        c.connectid,
+        c.ip,
+        c.accountid,
+        c.characterid,
+        cd.name,
+        cd.level,
+        cd.class,
+        cd.zone_id
+      FROM connections c
+      LEFT JOIN character_data cd ON c.characterid = cd.id
+      ORDER BY cd.name ASC
+    `;
+
+    const rows = await queryEqDb<RowDataPacket[]>(simpleQuery);
+
+    return rows.map((row) => ({
+      connectId: row.connectid,
+      ip: row.ip || '',
+      accountId: row.accountid,
+      characterId: row.characterid,
+      characterName: row.name || 'Unknown',
+      level: row.level || 0,
+      className: mapEqClassIdToName(row.class),
+      classId: row.class || 0,
+      zoneName: `Zone ${row.zone_id || 0}`,
+      zoneShortName: '',
+      guildName: null
+    }));
+  }
 }
 
 /**
