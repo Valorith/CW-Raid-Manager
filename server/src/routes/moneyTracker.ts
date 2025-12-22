@@ -159,9 +159,9 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
     }
   );
 
-  // Get live top characters data only
+  // Get live character currency data (all characters)
   server.get(
-    '/live/top-characters',
+    '/live/characters',
     {
       preHandler: [authenticate, requireAdmin]
     },
@@ -171,21 +171,25 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       }
 
       try {
-        const topCharacters = await fetchTopCharactersByCurrency(20);
+        const [totals, characters] = await Promise.all([
+          fetchServerCurrencyTotals(),
+          fetchTopCharactersByCurrency() // No limit - fetch all
+        ]);
         return serializeBigInt({
-          topCharacters,
+          characters,
+          totals,
           timestamp: new Date().toISOString()
         });
       } catch (error) {
-        request.log.error({ error }, 'Failed to fetch top characters.');
-        return reply.internalServerError('Unable to fetch top characters.');
+        request.log.error({ error }, 'Failed to fetch character data.');
+        return reply.internalServerError('Unable to fetch character data.');
       }
     }
   );
 
-  // Get live top shared banks data only
+  // Get live shared banks data (all accounts)
   server.get(
-    '/live/top-shared-banks',
+    '/live/shared-banks',
     {
       preHandler: [authenticate, requireAdmin]
     },
@@ -195,19 +199,19 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       }
 
       try {
-        const [sharedBankTotals, topSharedBanks] = await Promise.all([
+        const [sharedBankTotals, sharedBanks] = await Promise.all([
           fetchSharedBankTotals(),
-          fetchTopSharedBanks(20)
+          fetchTopSharedBanks() // No limit - fetch all
         ]);
         return serializeBigInt({
-          topSharedBanks,
+          sharedBanks,
           totalSharedPlatinum: sharedBankTotals.totalSharedPlatinum,
           sharedBankAccountCount: sharedBankTotals.accountCount,
           timestamp: new Date().toISOString()
         });
       } catch (error) {
-        request.log.error({ error }, 'Failed to fetch top shared banks.');
-        return reply.internalServerError('Unable to fetch top shared banks.');
+        request.log.error({ error }, 'Failed to fetch shared bank data.');
+        return reply.internalServerError('Unable to fetch shared bank data.');
       }
     }
   );

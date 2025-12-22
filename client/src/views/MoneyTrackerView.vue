@@ -572,8 +572,12 @@ const refreshingSharedBanks = ref(false);
 const savingSettings = ref(false);
 
 // Individually refreshed data (overrides liveData when set)
-const refreshedTopCharacters = ref<TopCharacterCurrency[] | null>(null);
-const refreshedTopSharedBanks = ref<SharedBankAccount[] | null>(null);
+const refreshedCharacters = ref<TopCharacterCurrency[] | null>(null);
+const refreshedCharacterTotals = ref<{
+  totalPlatinumEquivalent: string;
+  characterCount: number;
+} | null>(null);
+const refreshedSharedBanks = ref<SharedBankAccount[] | null>(null);
 const refreshedTotalSharedPlatinum = ref<number | null>(null);
 const dateRange = ref('90');
 const summary = ref<MoneyTrackerSummary | null>(null);
@@ -620,9 +624,9 @@ const latestTotalPlatinum = computed(() => {
 });
 
 const topCharacters = computed<TopCharacterCurrency[]>(() => {
-  // Prioritize individually refreshed data
-  if (refreshedTopCharacters.value) {
-    return refreshedTopCharacters.value;
+  // Prioritize individually refreshed data, but only show top 20 for display
+  if (refreshedCharacters.value) {
+    return refreshedCharacters.value.slice(0, 20);
   }
   if (liveData.value) {
     return liveData.value.topCharacters;
@@ -634,9 +638,9 @@ const topCharacters = computed<TopCharacterCurrency[]>(() => {
 });
 
 const topSharedBanks = computed<SharedBankAccount[]>(() => {
-  // Prioritize individually refreshed data
-  if (refreshedTopSharedBanks.value) {
-    return refreshedTopSharedBanks.value;
+  // Prioritize individually refreshed data, but only show top 20 for display
+  if (refreshedSharedBanks.value) {
+    return refreshedSharedBanks.value.slice(0, 20);
   }
   if (liveData.value) {
     return liveData.value.topSharedBanks;
@@ -646,6 +650,10 @@ const topSharedBanks = computed<SharedBankAccount[]>(() => {
 
 // Total character currency (in platinum) - from all characters, not just top 20
 const totalCharacterPlatinum = computed(() => {
+  // Prioritize individually refreshed data
+  if (refreshedCharacterTotals.value) {
+    return Number(refreshedCharacterTotals.value.totalPlatinumEquivalent) / 1000;
+  }
   if (liveData.value) {
     return Number(liveData.value.totals.totalPlatinumEquivalent) / 1000;
   }
@@ -878,8 +886,9 @@ async function refreshLiveData(): Promise<void> {
     const response = await axios.get('/api/admin/money-tracker/live');
     liveData.value = response.data;
     // Clear individually refreshed data when full refresh happens
-    refreshedTopCharacters.value = null;
-    refreshedTopSharedBanks.value = null;
+    refreshedCharacters.value = null;
+    refreshedCharacterTotals.value = null;
+    refreshedSharedBanks.value = null;
     refreshedTotalSharedPlatinum.value = null;
   } catch (error) {
     console.error('Failed to fetch live data:', error);
@@ -891,14 +900,18 @@ async function refreshLiveData(): Promise<void> {
 async function refreshTopCharacters(): Promise<void> {
   refreshingCharacters.value = true;
   try {
-    const response = await axios.get('/api/admin/money-tracker/live/top-characters');
-    refreshedTopCharacters.value = response.data.topCharacters;
+    const response = await axios.get('/api/admin/money-tracker/live/characters');
+    refreshedCharacters.value = response.data.characters;
+    refreshedCharacterTotals.value = {
+      totalPlatinumEquivalent: response.data.totals.totalPlatinumEquivalent,
+      characterCount: response.data.totals.characterCount
+    };
     addToast({
       title: 'Characters Refreshed',
-      message: 'Top 20 wealthiest characters data has been updated.'
+      message: `Loaded ${response.data.characters.length} characters with currency data.`
     });
   } catch (error) {
-    console.error('Failed to refresh top characters:', error);
+    console.error('Failed to refresh characters:', error);
     addToast({
       title: 'Error',
       message: 'Failed to refresh character data. Please try again.'
@@ -911,15 +924,15 @@ async function refreshTopCharacters(): Promise<void> {
 async function refreshTopSharedBanks(): Promise<void> {
   refreshingSharedBanks.value = true;
   try {
-    const response = await axios.get('/api/admin/money-tracker/live/top-shared-banks');
-    refreshedTopSharedBanks.value = response.data.topSharedBanks;
+    const response = await axios.get('/api/admin/money-tracker/live/shared-banks');
+    refreshedSharedBanks.value = response.data.sharedBanks;
     refreshedTotalSharedPlatinum.value = Number(response.data.totalSharedPlatinum);
     addToast({
       title: 'Shared Banks Refreshed',
-      message: 'Top 20 wealthiest shared banks data has been updated.'
+      message: `Loaded ${response.data.sharedBanks.length} accounts with shared bank data.`
     });
   } catch (error) {
-    console.error('Failed to refresh top shared banks:', error);
+    console.error('Failed to refresh shared banks:', error);
     addToast({
       title: 'Error',
       message: 'Failed to refresh shared bank data. Please try again.'

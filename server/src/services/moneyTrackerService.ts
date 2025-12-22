@@ -185,13 +185,15 @@ export async function fetchServerCurrencyTotals(): Promise<ServerCurrencyTotals>
 /**
  * Fetch top N characters by total currency wealth
  * Uses a calculated field for sorting efficiency
+ * @param limit - Number of characters to fetch. Pass 0 or undefined to fetch all.
  */
-export async function fetchTopCharactersByCurrency(limit: number = 20): Promise<TopCharacterCurrency[]> {
+export async function fetchTopCharactersByCurrency(limit?: number): Promise<TopCharacterCurrency[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
   // Query that calculates total wealth in copper and sorts by it
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
   const topCharactersQuery = `
     SELECT
       cd.id,
@@ -217,10 +219,10 @@ export async function fetchTopCharactersByCurrency(limit: number = 20): Promise<
     FROM character_currency cc
     INNER JOIN character_data cd ON cd.id = cc.id
     ORDER BY total_copper_value DESC
-    LIMIT ?
+    ${limitClause}
   `;
 
-  const rows = await queryEqDb<CharacterCurrencyRow[]>(topCharactersQuery, [limit]);
+  const rows = await queryEqDb<CharacterCurrencyRow[]>(topCharactersQuery);
 
   return rows.map((row) => {
     const totalCopper = calculatePlatinumEquivalentInCopper(
@@ -280,12 +282,14 @@ export async function fetchSharedBankTotals(): Promise<SharedBankTotals> {
 
 /**
  * Fetch top N accounts by shared bank platinum
+ * @param limit - Number of accounts to fetch. Pass 0 or undefined to fetch all.
  */
-export async function fetchTopSharedBanks(limit: number = 20): Promise<SharedBankAccount[]> {
+export async function fetchTopSharedBanks(limit?: number): Promise<SharedBankAccount[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
+  const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
   const topSharedBanksQuery = `
     SELECT
       id,
@@ -295,10 +299,10 @@ export async function fetchTopSharedBanks(limit: number = 20): Promise<SharedBan
     FROM account
     WHERE sharedplat > 0
     ORDER BY sharedplat DESC
-    LIMIT ?
+    ${limitClause}
   `;
 
-  const rows = await queryEqDb<RowDataPacket[]>(topSharedBanksQuery, [limit]);
+  const rows = await queryEqDb<RowDataPacket[]>(topSharedBanksQuery);
 
   return rows.map((row) => ({
     id: row.id,
