@@ -110,6 +110,12 @@ const router = createRouter({
       name: 'LootManagement',
       component: () => import('../views/LootManagementView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/money-tracker',
+      name: 'MoneyTracker',
+      component: () => import('../views/MoneyTrackerView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });

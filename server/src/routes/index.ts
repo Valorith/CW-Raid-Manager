@@ -18,6 +18,7 @@ import { questShareRoutes } from './questShare.js';
 import { guildBankRoutes } from './guildBank.js';
 import { guildDonationRoutes } from './guildDonations.js';
 import { itemRoutes } from './items.js';
+import { moneyTrackerRoutes } from './moneyTracker.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -38,4 +39,5 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(accountRoutes, { prefix: '/api/account' });
   server.register(adminRoutes, { prefix: '/api/admin' });
   server.register(itemRoutes, { prefix: '/api' });
+  server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });
 }

@@ -763,3 +763,34 @@ model NpcFavorite {
   @@unique([userId, guildId, npcNameNormalized, isInstanceVariant], map: "NpcFavorite_user_guild_npc_variant_key")
   @@index([userId, guildId])
 }
+
+// Money Tracker - daily snapshots of server currency
+model MoneySnapshot {
+  id                  String   @id @default(cuid())
+  snapshotDate        DateTime @db.Date
+  // Server totals (all currency converted to copper for precision)
+  totalPlatinum       BigInt   @default(0)
+  totalGold           BigInt   @default(0)
+  totalSilver         BigInt   @default(0)
+  totalCopper         BigInt   @default(0)
+  // Breakdown by location
+  totalPlatinumBank   BigInt   @default(0)
+  totalGoldBank       BigInt   @default(0)
+  totalSilverBank     BigInt   @default(0)
+  totalCopperBank     BigInt   @default(0)
+  totalPlatinumCursor BigInt   @default(0)
+  totalGoldCursor     BigInt   @default(0)
+  totalSilverCursor   BigInt   @default(0)
+  totalCopperCursor   BigInt   @default(0)
+  // Total in platinum equivalent for graphing (stored as cents to avoid float issues)
+  totalPlatinumEquivalent BigInt @default(0)
+  // Top characters snapshot (stored as JSON for flexibility)
+  topCharacters       Json     @default(dbgenerated("(json_array())"))
+  // Metadata
+  characterCount      Int      @default(0)
+  createdAt           DateTime @default(now())
+  createdById         String?
+
+  @@unique([snapshotDate])
+  @@index([snapshotDate])
+}
