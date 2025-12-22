@@ -1023,9 +1023,8 @@ async function fetchAllSnapshots(): Promise<void> {
 async function openSnapshotHistory(): Promise<void> {
   showSnapshotHistory.value = true;
   snapshotHistoryPage.value = 1; // Reset to first page when opening
-  if (allSnapshots.value.length === 0) {
-    await fetchAllSnapshots();
-  }
+  // Always fetch fresh data to ensure proper sorting and latest snapshots
+  await fetchAllSnapshots();
 }
 
 function closeSnapshotHistory(): void {
