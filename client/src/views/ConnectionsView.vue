@@ -88,7 +88,7 @@
                 'ip-group__outside-count--danger': getOutsideHomeCount(group) > getIpLimit(group.ip)
               }"
             >
-              Outside: {{ getOutsideHomeCount(group) }}/{{ getIpLimit(group.ip) }}
+              Active: {{ getOutsideHomeCount(group) }}/{{ getIpLimit(group.ip) }}
             </span>
           </div>
           <div class="table-wrapper">
