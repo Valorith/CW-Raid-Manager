@@ -1756,7 +1756,7 @@ onUnmounted(() => {
 }
 
 .modal--wide {
-  width: min(900px, 95%);
+  width: min(1200px, 95%);
 }
 
 .modal__header {
