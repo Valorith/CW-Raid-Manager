@@ -329,6 +329,7 @@ export async function fetchTopSharedBanks(limit?: number): Promise<SharedBankAcc
 /**
  * Fetch total guild bank platinum from all guilds
  * Guild bank balances are stored in data_buckets with key format: "{guildId}-balance"
+ * Note: Values in data_buckets are stored in copper, so we divide by 1000 to get platinum
  */
 export async function fetchGuildBankTotals(): Promise<GuildBankTotals> {
   if (!isEqDbConfigured()) {
@@ -337,9 +338,10 @@ export async function fetchGuildBankTotals(): Promise<GuildBankTotals> {
 
   // Join guilds with data_buckets to get guild bank balances
   // Only guilds with a balance entry in data_buckets are counted
+  // Values are stored in copper, so we divide by 1000 to get platinum
   const totalsQuery = `
     SELECT
-      COALESCE(SUM(CAST(db.value AS UNSIGNED)), 0) as total_guild_plat,
+      COALESCE(SUM(CAST(db.value AS UNSIGNED)), 0) as total_guild_copper,
       COUNT(*) as guild_count
     FROM guilds g
     INNER JOIN data_buckets db ON db.\`key\` = CONCAT(g.id, '-balance')
@@ -348,8 +350,10 @@ export async function fetchGuildBankTotals(): Promise<GuildBankTotals> {
   const [totals] = await queryEqDb<RowDataPacket[]>(totalsQuery);
   const row = totals as RowDataPacket;
 
+  // Convert from copper to platinum (divide by 1000)
+  const totalCopper = BigInt(row.total_guild_copper || 0);
   return {
-    totalGuildBankPlatinum: BigInt(row.total_guild_plat || 0),
+    totalGuildBankPlatinum: totalCopper / BigInt(1000),
     guildCount: Number(row.guild_count || 0)
   };
 }
@@ -357,6 +361,7 @@ export async function fetchGuildBankTotals(): Promise<GuildBankTotals> {
 /**
  * Fetch top N guilds by guild bank platinum
  * @param limit - Number of guilds to fetch. Pass 0 or undefined to fetch all.
+ * Note: Values in data_buckets are stored in copper, so we divide by 1000 to get platinum
  */
 export async function fetchTopGuildBanks(limit?: number): Promise<GuildBankAccount[]> {
   if (!isEqDbConfigured()) {
@@ -365,23 +370,25 @@ export async function fetchTopGuildBanks(limit?: number): Promise<GuildBankAccou
 
   const limitClause = limit && limit > 0 ? `LIMIT ${limit}` : '';
   // Join guilds with data_buckets to get guild names and balances
+  // Values are stored in copper, so we convert to platinum in the query
   const topGuildBanksQuery = `
     SELECT
       g.id,
       g.name,
-      CAST(db.value AS UNSIGNED) as platinum
+      CAST(db.value AS UNSIGNED) as copper_value
     FROM guilds g
     INNER JOIN data_buckets db ON db.\`key\` = CONCAT(g.id, '-balance')
-    ORDER BY platinum DESC
+    ORDER BY copper_value DESC
     ${limitClause}
   `;
 
   const rows = await queryEqDb<RowDataPacket[]>(topGuildBanksQuery);
 
+  // Convert from copper to platinum (divide by 1000)
   return rows.map((row) => ({
     id: row.id,
     name: row.name || '',
-    platinum: Number(row.platinum || 0)
+    platinum: Math.floor(Number(row.copper_value || 0) / 1000)
   }));
 }
 
