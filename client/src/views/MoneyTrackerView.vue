@@ -289,19 +289,22 @@
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Taken At</th>
                   <th>Total Wealth (PP)</th>
                   <th>Characters</th>
                   <th>Inventory</th>
                   <th>Bank</th>
                   <th>Cursor</th>
                   <th>Shared Bank</th>
-                  <th>Created</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="snapshot in allSnapshots" :key="snapshot.id">
                   <td class="snapshot-history-table__date">
                     {{ formatSnapshotDate(snapshot.snapshotDate) }}
+                  </td>
+                  <td class="snapshot-history-table__time">
+                    {{ formatSnapshotTime(snapshot.createdAt) }}
                   </td>
                   <td class="snapshot-history-table__total">
                     {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000) }}
@@ -311,9 +314,6 @@
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumBank)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinumCursor)) }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalSharedPlatinum || 0)) }}</td>
-                  <td class="snapshot-history-table__created">
-                    {{ formatScheduledTime(snapshot.createdAt) }}
-                  </td>
                 </tr>
               </tbody>
             </table>
@@ -600,6 +600,15 @@ const chartOptions = computed(() => ({
   plugins: {
     tooltip: {
       callbacks: {
+        title: (context: { dataIndex: number }[]) => {
+          if (context.length === 0) return '';
+          const snapshot = snapshots.value[context[0].dataIndex];
+          if (!snapshot) return '';
+          // Show both the snapshot date and the creation time
+          const snapshotDate = formatSnapshotDate(snapshot.snapshotDate);
+          const createdTime = formatScheduledTime(snapshot.createdAt);
+          return [snapshotDate, `Taken: ${createdTime}`];
+        },
         label: (context: { parsed: { y: number } }) => {
           return `Total: ${formatPlatinum(context.parsed.y)} PP`;
         }
@@ -647,6 +656,16 @@ function formatScheduledTime(dateStr: string | null | undefined): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  });
+}
+
+function formatSnapshotTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  return date.toLocaleString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
     timeZoneName: 'short'
@@ -1377,13 +1396,13 @@ onMounted(() => {
   color: var(--color-accent, #60a5fa);
 }
 
-.snapshot-history-table__total {
-  font-weight: 600;
+.snapshot-history-table__time {
+  font-size: 0.8rem;
+  color: var(--color-muted, #94a3b8);
 }
 
-.snapshot-history-table__created {
-  font-size: 0.75rem;
-  color: var(--color-muted, #94a3b8);
+.snapshot-history-table__total {
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {
