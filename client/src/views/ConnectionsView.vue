@@ -669,28 +669,21 @@ onUnmounted(() => {
   color: #fca5a5;
 }
 
-/* Watched character styling - pulsing orange border */
+/* Watched character styling - pulsing orange (using box-shadow for table compatibility) */
 .connections-table tbody tr.row--watched {
-  position: relative;
   animation: watchPulse 2s ease-in-out infinite;
 }
 
-.connections-table tbody tr.row--watched::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 2px solid rgba(249, 115, 22, 0.6);
-  border-radius: 4px;
-  pointer-events: none;
-  animation: watchBorderPulse 2s ease-in-out infinite;
+.connections-table tbody tr.row--watched td {
+  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
 }
 
-/* When watched and has other status, show a left indicator instead */
-.connections-table tbody tr.row--watched.row--warning::before,
-.connections-table tbody tr.row--watched.row--danger::before {
-  border: none;
-  border-left: 4px solid rgba(249, 115, 22, 0.8);
-  border-radius: 0;
+.connections-table tbody tr.row--watched td:first-child {
+  box-shadow: inset 3px 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
+}
+
+.connections-table tbody tr.row--watched td:last-child {
+  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset -3px -2px 0 rgba(249, 115, 22, 0.6);
 }
 
 @keyframes watchPulse {
@@ -698,43 +691,25 @@ onUnmounted(() => {
     background-color: rgba(249, 115, 22, 0.08);
   }
   50% {
-    background-color: rgba(249, 115, 22, 0.15);
+    background-color: rgba(249, 115, 22, 0.18);
   }
 }
 
-@keyframes watchBorderPulse {
-  0%, 100% {
-    border-color: rgba(249, 115, 22, 0.4);
-    box-shadow: 0 0 8px rgba(249, 115, 22, 0.2);
-  }
-  50% {
-    border-color: rgba(249, 115, 22, 0.8);
-    box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
-  }
-}
-
-/* Associated character styling - pulsing yellow border */
+/* Associated character styling - pulsing yellow */
 .connections-table tbody tr.row--watched-associated {
-  position: relative;
   animation: watchAssociatedPulse 2s ease-in-out infinite;
 }
 
-.connections-table tbody tr.row--watched-associated::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 2px solid rgba(234, 179, 8, 0.6);
-  border-radius: 4px;
-  pointer-events: none;
-  animation: watchAssociatedBorderPulse 2s ease-in-out infinite;
+.connections-table tbody tr.row--watched-associated td {
+  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
 }
 
-/* When associated and has other status, show a left indicator instead */
-.connections-table tbody tr.row--watched-associated.row--warning::before,
-.connections-table tbody tr.row--watched-associated.row--danger::before {
-  border: none;
-  border-left: 4px solid rgba(234, 179, 8, 0.8);
-  border-radius: 0;
+.connections-table tbody tr.row--watched-associated td:first-child {
+  box-shadow: inset 3px 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+}
+
+.connections-table tbody tr.row--watched-associated td:last-child {
+  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset -3px -2px 0 rgba(234, 179, 8, 0.6);
 }
 
 @keyframes watchAssociatedPulse {
@@ -742,18 +717,7 @@ onUnmounted(() => {
     background-color: rgba(234, 179, 8, 0.08);
   }
   50% {
-    background-color: rgba(234, 179, 8, 0.15);
-  }
-}
-
-@keyframes watchAssociatedBorderPulse {
-  0%, 100% {
-    border-color: rgba(234, 179, 8, 0.4);
-    box-shadow: 0 0 8px rgba(234, 179, 8, 0.2);
-  }
-  50% {
-    border-color: rgba(234, 179, 8, 0.8);
-    box-shadow: 0 0 12px rgba(234, 179, 8, 0.4);
+    background-color: rgba(234, 179, 8, 0.18);
   }
 }
 
