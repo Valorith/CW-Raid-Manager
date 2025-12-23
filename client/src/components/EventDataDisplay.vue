@@ -378,7 +378,15 @@
     <template v-else-if="event.eventTypeName === 'REZ_ACCEPTED'">
       <div class="data-row">
         <span class="data-label">Rezzer:</span>
-        <span class="data-value data-value--social">{{ eventData.rezzer || eventData.from || 'Unknown' }}</span>
+        <span class="data-value data-value--social">{{ eventData.resurrecter_name || eventData.rezzer || eventData.from || 'Unknown' }}</span>
+      </div>
+      <div v-if="eventData.spell_name" class="data-row">
+        <span class="data-label">Spell:</span>
+        <span class="data-value data-value--highlight">{{ eventData.spell_name }}</span>
+      </div>
+      <div v-if="eventData.spell_id" class="data-row">
+        <span class="data-label">Spell ID:</span>
+        <span class="data-value muted">{{ eventData.spell_id }}</span>
       </div>
       <div v-if="eventData.exp_percentage" class="data-row">
         <span class="data-label">Exp Restored:</span>
