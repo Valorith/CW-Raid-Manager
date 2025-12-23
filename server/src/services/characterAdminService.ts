@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2/promise';
-import { prisma } from '../prismaClient.js';
+import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import {
   fetchPlayerEventLogs,

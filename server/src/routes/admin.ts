@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { GuildRole } from '@prisma/client';
 import { z } from 'zod';
-import { prisma } from '../prismaClient.js';
+import { prisma } from '../utils/prisma.js';
 
 import { authenticate } from '../middleware/authenticate.js';
 import {
