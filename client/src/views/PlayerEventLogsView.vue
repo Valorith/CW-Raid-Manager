@@ -97,30 +97,44 @@
         </div>
 
         <div class="filters__row">
-          <div class="filter-group filter-group--wide">
+          <div class="filter-group">
             <label class="filter-label">Event Types</label>
-            <div class="event-type-chips">
+            <div class="event-type-dropdown" ref="eventTypeDropdownRef">
               <button
                 type="button"
-                :class="['chip', { 'chip--active': filters.eventTypes.length === 0 }]"
-                @click="clearEventTypes"
+                class="event-type-dropdown__trigger"
+                @click="toggleEventTypeDropdown"
               >
-                All
+                <span class="event-type-dropdown__text">
+                  {{ eventTypeFilterLabel }}
+                </span>
+                <span class="event-type-dropdown__arrow" :class="{ 'event-type-dropdown__arrow--open': showEventTypeDropdown }">▼</span>
               </button>
-              <button
-                v-for="eventType in eventTypes"
-                :key="eventType.id"
-                type="button"
-                :class="['chip', { 'chip--active': filters.eventTypes.includes(eventType.id) }]"
-                @click="toggleEventType(eventType.id)"
-              >
-                {{ eventType.label }}
-              </button>
+              <div v-if="showEventTypeDropdown" class="event-type-dropdown__menu">
+                <label class="event-type-dropdown__item event-type-dropdown__item--all">
+                  <input
+                    type="checkbox"
+                    :checked="filters.eventTypes.length === 0"
+                    @change="clearEventTypes"
+                  />
+                  <span>All Event Types</span>
+                </label>
+                <div class="event-type-dropdown__divider"></div>
+                <label
+                  v-for="eventType in eventTypes"
+                  :key="eventType.id"
+                  class="event-type-dropdown__item"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="filters.eventTypes.includes(eventType.id)"
+                    @change="toggleEventType(eventType.id)"
+                  />
+                  <span>{{ eventType.label }}</span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div class="filters__row">
           <div class="filter-group">
             <label class="filter-label">Date Range</label>
             <select v-model="dateRange" class="select" @change="applyDateRange">
@@ -333,6 +347,8 @@ const lastUpdated = ref<Date | null>(null);
 const showFilters = ref(true);
 const expandedEventId = ref<string | null>(null);
 const showRawJson = reactive<Record<string, boolean>>({});
+const showEventTypeDropdown = ref(false);
+const eventTypeDropdownRef = ref<HTMLElement | null>(null);
 
 const stats = ref<PlayerEventLogStats>({
   totalEvents: 0,
@@ -374,6 +390,17 @@ const formatLastUpdated = computed(() => {
     second: '2-digit',
     hour12: true
   }).format(lastUpdated.value);
+});
+
+const eventTypeFilterLabel = computed(() => {
+  if (filters.eventTypes.length === 0) {
+    return 'All Event Types';
+  }
+  if (filters.eventTypes.length === 1) {
+    const type = eventTypes.value.find(t => t.id === filters.eventTypes[0]);
+    return type?.label || '1 type selected';
+  }
+  return `${filters.eventTypes.length} types selected`;
 });
 
 function formatNumber(num: number): string {
@@ -434,6 +461,16 @@ function getEventBadgeClass(eventTypeName: string): string {
 
 function toggleFilters() {
   showFilters.value = !showFilters.value;
+}
+
+function toggleEventTypeDropdown() {
+  showEventTypeDropdown.value = !showEventTypeDropdown.value;
+}
+
+function handleClickOutside(event: MouseEvent) {
+  if (eventTypeDropdownRef.value && !eventTypeDropdownRef.value.contains(event.target as Node)) {
+    showEventTypeDropdown.value = false;
+  }
 }
 
 function toggleEventDetails(eventId: number | string) {
@@ -629,11 +666,13 @@ watch(() => filters.pageSize, () => {
 });
 
 onMounted(async () => {
+  document.addEventListener('click', handleClickOutside);
   await loadMetadata();
   await refreshData();
 });
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
   stopAutoRefresh();
   if (searchTimeout) {
     clearTimeout(searchTimeout);
@@ -803,34 +842,102 @@ onUnmounted(() => {
   color: rgba(148, 163, 184, 0.9);
 }
 
-.event-type-chips {
+.event-type-dropdown {
+  position: relative;
+  min-width: 200px;
+}
+
+.event-type-dropdown__trigger {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.chip {
-  padding: 0.35rem 0.7rem;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.6);
-  color: #e2e8f0;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: #f8fafc;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  text-align: left;
 }
 
-.chip:hover {
-  background: rgba(59, 130, 246, 0.18);
+.event-type-dropdown__trigger:hover {
   border-color: rgba(59, 130, 246, 0.45);
 }
 
-.chip--active {
-  background: rgba(59, 130, 246, 0.25);
-  border-color: rgba(59, 130, 246, 0.55);
+.event-type-dropdown__trigger:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.65);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.event-type-dropdown__text {
+  flex: 1;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-type-dropdown__arrow {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.7);
+  transition: transform 0.2s ease;
+  margin-left: 0.5rem;
+}
+
+.event-type-dropdown__arrow--open {
+  transform: rotate(180deg);
+}
+
+.event-type-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0;
+  z-index: 100;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.event-type-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  font-size: 0.85rem;
+  color: #e2e8f0;
+}
+
+.event-type-dropdown__item:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.event-type-dropdown__item--all {
+  font-weight: 600;
   color: #bae6fd;
+}
+
+.event-type-dropdown__item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.event-type-dropdown__divider {
+  height: 1px;
+  background: rgba(148, 163, 184, 0.15);
+  margin: 0.4rem 0;
 }
 
 .input {

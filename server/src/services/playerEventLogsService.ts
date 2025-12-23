@@ -406,6 +406,12 @@ export async function fetchPlayerEventLogs(
       }
     }
 
+    // Convert MySQL datetime to ISO format with UTC indicator
+    // MySQL stores times as UTC, so we need to append 'Z' to ensure proper timezone handling
+    const createdAtUtc = row.created_at
+      ? new Date(row.created_at + ' UTC').toISOString()
+      : new Date().toISOString();
+
     return {
       id: row.id,
       accountId: row.account_id,
@@ -418,7 +424,7 @@ export async function fetchPlayerEventLogs(
       eventTypeName,
       eventTypeLabel: EVENT_TYPE_LABELS[eventTypeName] || eventTypeName,
       eventData: parsedEventData,
-      createdAt: row.created_at
+      createdAt: createdAtUtc
     };
   });
 
