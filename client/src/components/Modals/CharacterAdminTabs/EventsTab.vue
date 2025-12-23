@@ -2,13 +2,49 @@
   <div class="events-tab">
     <!-- Filters -->
     <div class="filters-bar">
-      <div class="filter-group">
+      <div class="filter-group filter-group--event-types">
         <label>Event Types</label>
-        <select v-model="selectedEventTypes" multiple class="multi-select">
-          <option v-for="et in store.eventTypes" :key="et.id" :value="et.id">
-            {{ et.label }}
-          </option>
-        </select>
+        <div class="searchable-dropdown" ref="dropdownRef">
+          <div class="dropdown-trigger" @click="toggleDropdown">
+            <div class="selected-tags">
+              <span v-if="selectedEventTypes.length === 0" class="placeholder">All Event Types</span>
+              <span
+                v-for="typeId in selectedEventTypes"
+                :key="typeId"
+                class="tag"
+              >
+                {{ getEventTypeLabel(typeId) }}
+                <button type="button" class="tag-remove" @click.stop="removeEventType(typeId)">&times;</button>
+              </span>
+            </div>
+            <span class="dropdown-arrow">&#9662;</span>
+          </div>
+          <div v-if="dropdownOpen" class="dropdown-menu">
+            <input
+              type="text"
+              v-model="eventTypeSearch"
+              placeholder="Search event types..."
+              class="dropdown-search"
+              @click.stop
+              ref="searchInputRef"
+            />
+            <div class="dropdown-options">
+              <div
+                v-for="et in filteredEventTypes"
+                :key="et.id"
+                class="dropdown-option"
+                :class="{ 'dropdown-option--selected': selectedEventTypes.includes(et.id) }"
+                @click.stop="toggleEventType(et.id)"
+              >
+                <span class="option-checkbox">{{ selectedEventTypes.includes(et.id) ? '☑' : '☐' }}</span>
+                <span class="option-label">{{ et.label }}</span>
+              </div>
+              <div v-if="filteredEventTypes.length === 0" class="dropdown-empty">
+                No matching event types
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="filter-group">
@@ -115,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
 import EventDataDisplay from '../../EventDataDisplay.vue';
 
@@ -126,6 +162,74 @@ const selectedZone = ref<number | undefined>(undefined);
 const datePreset = ref('all');
 const customStartDate = ref('');
 const customEndDate = ref('');
+
+// Searchable dropdown state
+const dropdownOpen = ref(false);
+const eventTypeSearch = ref('');
+const dropdownRef = ref<HTMLElement | null>(null);
+const searchInputRef = ref<HTMLInputElement | null>(null);
+
+const filteredEventTypes = computed(() => {
+  if (!eventTypeSearch.value) {
+    return store.eventTypes;
+  }
+  const search = eventTypeSearch.value.toLowerCase();
+  return store.eventTypes.filter(et =>
+    et.label.toLowerCase().includes(search) ||
+    et.name.toLowerCase().includes(search)
+  );
+});
+
+function toggleDropdown() {
+  dropdownOpen.value = !dropdownOpen.value;
+  if (dropdownOpen.value) {
+    nextTick(() => {
+      searchInputRef.value?.focus();
+    });
+  } else {
+    eventTypeSearch.value = '';
+  }
+}
+
+function closeDropdown() {
+  dropdownOpen.value = false;
+  eventTypeSearch.value = '';
+}
+
+function toggleEventType(typeId: number) {
+  const index = selectedEventTypes.value.indexOf(typeId);
+  if (index === -1) {
+    selectedEventTypes.value.push(typeId);
+  } else {
+    selectedEventTypes.value.splice(index, 1);
+  }
+}
+
+function removeEventType(typeId: number) {
+  const index = selectedEventTypes.value.indexOf(typeId);
+  if (index !== -1) {
+    selectedEventTypes.value.splice(index, 1);
+  }
+}
+
+function getEventTypeLabel(typeId: number): string {
+  const eventType = store.eventTypes.find(et => et.id === typeId);
+  return eventType?.label || `Type ${typeId}`;
+}
+
+function handleClickOutside(event: MouseEvent) {
+  if (dropdownRef.value && !dropdownRef.value.contains(event.target as Node)) {
+    closeDropdown();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -201,10 +305,6 @@ function resetFilters() {
 function changePage(page: number) {
   store.setEventsPage(page);
 }
-
-onMounted(() => {
-  // Events are loaded when the tab is activated
-});
 </script>
 
 <style scoped lang="scss">
@@ -265,9 +365,156 @@ onMounted(() => {
   }
 }
 
-.multi-select {
-  min-height: 80px;
-  max-height: 120px;
+// Searchable dropdown styles
+.filter-group--event-types {
+  min-width: 200px;
+  max-width: 350px;
+  flex: 1;
+}
+
+.searchable-dropdown {
+  position: relative;
+}
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  min-height: 38px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+
+  &:hover {
+    border-color: #475569;
+  }
+}
+
+.selected-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.placeholder {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1;
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+.dropdown-arrow {
+  color: #64748b;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.25rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 0.25rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-search {
+  padding: 0.5rem;
+  border: none;
+  border-bottom: 1px solid #334155;
+  background: transparent;
+  color: #f8fafc;
+  font-size: 0.875rem;
+  outline: none;
+
+  &::placeholder {
+    color: #64748b;
+  }
+}
+
+.dropdown-options {
+  overflow-y: auto;
+  flex: 1;
+  max-height: 250px;
+}
+
+.dropdown-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+
+  &:hover {
+    background: #334155;
+  }
+
+  &--selected {
+    background: rgba(59, 130, 246, 0.1);
+  }
+}
+
+.option-checkbox {
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+.dropdown-option--selected .option-checkbox {
+  color: #3b82f6;
+}
+
+.option-label {
+  color: #e2e8f0;
+  font-size: 0.875rem;
+}
+
+.dropdown-empty {
+  padding: 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 .btn {
