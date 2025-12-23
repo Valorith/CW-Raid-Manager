@@ -246,12 +246,12 @@
                     class="btn btn--outline btn--tiny"
                     @click="toggleEventDetails(event.id)"
                   >
-                    {{ expandedEventId === event.id ? 'Hide' : 'View' }}
+                    {{ expandedEventId === Number(event.id) ? 'Hide' : 'View' }}
                   </button>
                   <span v-else class="muted">-</span>
                 </td>
               </tr>
-              <tr v-if="expandedEventId === event.id && event.eventData" class="details-row">
+              <tr v-if="expandedEventId === Number(event.id) && event.eventData" class="details-row">
                 <td colspan="5" class="event-details-cell">
                   <div class="event-details">
                     <div class="event-details__header">
@@ -261,10 +261,10 @@
                         class="btn btn--outline btn--tiny"
                         @click="toggleRawJson(event.id)"
                       >
-                        {{ showRawJson[event.id] ? 'Formatted' : 'Raw JSON' }}
+                        {{ showRawJson[Number(event.id)] ? 'Formatted' : 'Raw JSON' }}
                       </button>
                     </div>
-                    <div v-if="showRawJson[event.id]" class="event-details__json">
+                    <div v-if="showRawJson[Number(event.id)]" class="event-details__json">
                       <pre>{{ JSON.stringify(event.eventData, null, 2) }}</pre>
                     </div>
                     <div v-else class="event-details__formatted">
@@ -436,16 +436,18 @@ function toggleFilters() {
   showFilters.value = !showFilters.value;
 }
 
-function toggleEventDetails(eventId: number) {
-  if (expandedEventId.value === eventId) {
+function toggleEventDetails(eventId: number | string) {
+  const id = Number(eventId);
+  if (expandedEventId.value === id) {
     expandedEventId.value = null;
   } else {
-    expandedEventId.value = eventId;
+    expandedEventId.value = id;
   }
 }
 
-function toggleRawJson(eventId: number) {
-  showRawJson[eventId] = !showRawJson[eventId];
+function toggleRawJson(eventId: number | string) {
+  const id = Number(eventId);
+  showRawJson[id] = !showRawJson[id];
 }
 
 function toggleEventType(eventTypeId: number) {
