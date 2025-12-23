@@ -20,11 +20,15 @@
     <template v-else-if="event.eventTypeName === 'DEATH'">
       <div class="data-row">
         <span class="data-label">Killed by:</span>
-        <span class="data-value data-value--danger">{{ eventData.killed_by || 'Unknown' }}</span>
+        <span class="data-value data-value--danger">{{ eventData.killer_name || eventData.killed_by || 'Unknown' }}</span>
       </div>
       <div v-if="eventData.spell_name" class="data-row">
         <span class="data-label">Spell:</span>
         <span class="data-value">{{ eventData.spell_name }}</span>
+      </div>
+      <div v-if="eventData.skill_name && !eventData.spell_name" class="data-row">
+        <span class="data-label">Skill:</span>
+        <span class="data-value">{{ eventData.skill_name }}</span>
       </div>
       <div v-if="eventData.damage" class="data-row">
         <span class="data-label">Damage:</span>
@@ -100,18 +104,58 @@
 
     <!-- TRADE -->
     <template v-else-if="event.eventTypeName === 'TRADE'">
-      <div class="data-row">
-        <span class="data-label">With:</span>
-        <span class="data-value data-value--social">{{ eventData.with || eventData.target || 'Unknown' }}</span>
-      </div>
-      <div v-if="eventData.items && Array.isArray(eventData.items)" class="data-row">
-        <span class="data-label">Items:</span>
-        <span class="data-value">{{ eventData.items.length }} item(s)</span>
-      </div>
-      <div v-if="eventData.money" class="data-row">
-        <span class="data-label">Money:</span>
-        <span class="data-value">{{ formatMoney(eventData.money) }}</span>
-      </div>
+      <!-- Two-sided trade format -->
+      <template v-if="eventData.character_1_name && eventData.character_2_name">
+        <!-- Character 1's offer -->
+        <div class="trade-section">
+          <div class="data-row">
+            <span class="data-label">{{ eventData.character_1_name }} gives:</span>
+            <span v-if="!hasTradeContent(eventData.character_1_give_money, eventData.character_1_give_items)" class="data-value muted">Nothing</span>
+          </div>
+          <div v-if="hasMoneyValue(eventData.character_1_give_money)" class="data-row data-row--indented">
+            <span class="data-label">Money:</span>
+            <span class="data-value data-value--highlight">{{ formatMoney(eventData.character_1_give_money) }}</span>
+          </div>
+          <template v-if="eventData.character_1_give_items && eventData.character_1_give_items.length > 0">
+            <div v-for="(item, idx) in eventData.character_1_give_items" :key="'c1-item-' + idx" class="data-row data-row--indented">
+              <span class="data-label">{{ idx === 0 ? 'Items:' : '' }}</span>
+              <span class="data-value data-value--highlight">{{ formatTradeItem(item) }}</span>
+            </div>
+          </template>
+        </div>
+        <!-- Character 2's offer -->
+        <div class="trade-section">
+          <div class="data-row">
+            <span class="data-label">{{ eventData.character_2_name }} gives:</span>
+            <span v-if="!hasTradeContent(eventData.character_2_give_money, eventData.character_2_give_items)" class="data-value muted">Nothing</span>
+          </div>
+          <div v-if="hasMoneyValue(eventData.character_2_give_money)" class="data-row data-row--indented">
+            <span class="data-label">Money:</span>
+            <span class="data-value data-value--highlight">{{ formatMoney(eventData.character_2_give_money) }}</span>
+          </div>
+          <template v-if="eventData.character_2_give_items && eventData.character_2_give_items.length > 0">
+            <div v-for="(item, idx) in eventData.character_2_give_items" :key="'c2-item-' + idx" class="data-row data-row--indented">
+              <span class="data-label">{{ idx === 0 ? 'Items:' : '' }}</span>
+              <span class="data-value data-value--highlight">{{ formatTradeItem(item) }}</span>
+            </div>
+          </template>
+        </div>
+      </template>
+      <!-- Fallback for simple trade format -->
+      <template v-else>
+        <div class="data-row">
+          <span class="data-label">With:</span>
+          <span class="data-value data-value--social">{{ eventData.with || eventData.target || 'Unknown' }}</span>
+        </div>
+        <div v-if="eventData.items && Array.isArray(eventData.items)" class="data-row">
+          <span class="data-label">Items:</span>
+          <span class="data-value">{{ eventData.items.length }} item(s)</span>
+        </div>
+        <div v-if="eventData.money" class="data-row">
+          <span class="data-label">Money:</span>
+          <span class="data-value">{{ formatMoney(eventData.money) }}</span>
+        </div>
+      </template>
     </template>
 
     <!-- MERCHANT_PURCHASE / MERCHANT_SELL -->
@@ -331,6 +375,32 @@ function formatMoney(value: unknown): string {
   }
   return String(value);
 }
+
+function hasMoneyValue(money: unknown): boolean {
+  if (!money || typeof money !== 'object') return false;
+  const m = money as { platinum?: number; gold?: number; silver?: number; copper?: number };
+  return (m.platinum || 0) > 0 || (m.gold || 0) > 0 || (m.silver || 0) > 0 || (m.copper || 0) > 0;
+}
+
+function hasTradeContent(money: unknown, items: unknown): boolean {
+  return hasMoneyValue(money) || (Array.isArray(items) && items.length > 0);
+}
+
+function formatTradeItem(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (typeof item === 'object' && item !== null) {
+    const i = item as { item_name?: string; name?: string; quantity?: number; charges?: number };
+    const name = i.item_name || i.name || 'Unknown Item';
+    const qty = i.quantity || 1;
+    const charges = i.charges;
+    let result = qty > 1 ? `${name} x${qty}` : name;
+    if (charges !== undefined && charges > 0) {
+      result += ` (${charges} charges)`;
+    }
+    return result;
+  }
+  return String(item);
+}
 </script>
 
 <style scoped>
@@ -344,6 +414,24 @@ function formatMoney(value: unknown): string {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
+}
+
+.data-row--indented {
+  padding-left: 1rem;
+}
+
+.trade-section {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.trade-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.trade-section:first-child {
+  padding-top: 0;
 }
 
 .data-label {
