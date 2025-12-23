@@ -224,7 +224,7 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="event in events" :key="event.id">
+            <template v-for="(event, index) in events" :key="`${event.id}-${index}`">
               <tr :class="getEventRowClass(event)">
                 <td class="col-time">
                   <span class="time-display">{{ formatTime(event.createdAt) }}</span>
@@ -244,14 +244,14 @@
                     v-if="event.eventData"
                     type="button"
                     class="btn btn--outline btn--tiny"
-                    @click="toggleEventDetails(event.id)"
+                    @click="toggleEventDetails(index)"
                   >
-                    {{ expandedEventId === String(event.id) ? 'Hide' : 'View' }}
+                    {{ expandedEventId === String(index) ? 'Hide' : 'View' }}
                   </button>
                   <span v-else class="muted">-</span>
                 </td>
               </tr>
-              <tr v-if="expandedEventId === String(event.id) && event.eventData" class="details-row">
+              <tr v-if="expandedEventId === String(index) && event.eventData" class="details-row">
                 <td colspan="5" class="event-details-cell">
                   <div class="event-details">
                     <div class="event-details__header">
@@ -259,12 +259,12 @@
                       <button
                         type="button"
                         class="btn btn--outline btn--tiny"
-                        @click="toggleRawJson(event.id)"
+                        @click="toggleRawJson(index)"
                       >
-                        {{ showRawJson[String(event.id)] ? 'Formatted' : 'Raw JSON' }}
+                        {{ showRawJson[String(index)] ? 'Formatted' : 'Raw JSON' }}
                       </button>
                     </div>
-                    <div v-if="showRawJson[String(event.id)]" class="event-details__json">
+                    <div v-if="showRawJson[String(index)]" class="event-details__json">
                       <pre>{{ JSON.stringify(event.eventData, null, 2) }}</pre>
                     </div>
                     <div v-else class="event-details__formatted">
