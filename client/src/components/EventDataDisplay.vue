@@ -210,6 +210,58 @@
       </div>
     </template>
 
+    <!-- NPC_HANDIN -->
+    <template v-else-if="event.eventTypeName === 'NPC_HANDIN'">
+      <div class="data-row">
+        <span class="data-label">NPC:</span>
+        <span class="data-value data-value--social">{{ eventData.npc_name || 'Unknown NPC' }}</span>
+      </div>
+      <div v-if="eventData.npc_id" class="data-row">
+        <span class="data-label">NPC ID:</span>
+        <span class="data-value muted">{{ eventData.npc_id }}</span>
+      </div>
+      <div v-if="eventData.is_quest_handin" class="data-row">
+        <span class="data-label">Type:</span>
+        <span class="data-value data-value--highlight">Quest Handin</span>
+      </div>
+      <!-- Items handed in -->
+      <template v-if="eventData.handin_items && eventData.handin_items.length > 0">
+        <div class="handin-section">
+          <div class="data-row">
+            <span class="data-label">Handed In:</span>
+            <span class="data-value muted">{{ eventData.handin_items.length }} item(s)</span>
+          </div>
+          <div v-for="(item, idx) in eventData.handin_items" :key="'handin-' + idx" class="data-row data-row--indented">
+            <span class="data-label"></span>
+            <span class="data-value data-value--highlight">{{ formatHandinItem(item) }}</span>
+          </div>
+        </div>
+      </template>
+      <!-- Money handed in -->
+      <div v-if="hasMoneyValue(eventData.handin_money)" class="data-row">
+        <span class="data-label">Money Given:</span>
+        <span class="data-value data-value--highlight">{{ formatMoney(eventData.handin_money) }}</span>
+      </div>
+      <!-- Items returned -->
+      <template v-if="eventData.return_items && eventData.return_items.length > 0">
+        <div class="handin-section">
+          <div class="data-row">
+            <span class="data-label">Received:</span>
+            <span class="data-value muted">{{ eventData.return_items.length }} item(s)</span>
+          </div>
+          <div v-for="(item, idx) in eventData.return_items" :key="'return-' + idx" class="data-row data-row--indented">
+            <span class="data-label"></span>
+            <span class="data-value data-value--success">{{ formatHandinItem(item) }}</span>
+          </div>
+        </div>
+      </template>
+      <!-- Money returned -->
+      <div v-if="hasMoneyValue(eventData.return_money)" class="data-row">
+        <span class="data-label">Money Received:</span>
+        <span class="data-value data-value--success">{{ formatMoney(eventData.return_money) }}</span>
+      </div>
+    </template>
+
     <!-- COMBINE_SUCCESS / COMBINE_FAILURE -->
     <template v-else-if="event.eventTypeName === 'COMBINE_SUCCESS' || event.eventTypeName === 'COMBINE_FAILURE'">
       <div v-if="eventData.recipe_name || eventData.recipe" class="data-row">
@@ -439,6 +491,43 @@ function formatCorpseName(name: unknown): string {
   // Replace underscores with spaces and clean up the name
   return name.replace(/_/g, ' ');
 }
+
+function formatHandinItem(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (typeof item === 'object' && item !== null) {
+    const i = item as {
+      item_id?: number;
+      item_name?: string;
+      name?: string;
+      charges?: number;
+      attuned?: boolean;
+      augment_names?: string[];
+    };
+    const name = i.item_name || i.name || 'Unknown Item';
+    const parts: string[] = [name];
+
+    // Add charges if more than 1
+    if (i.charges && i.charges > 1) {
+      parts[0] = `${name} x${i.charges}`;
+    }
+
+    // Add attuned status
+    if (i.attuned) {
+      parts.push('(Attuned)');
+    }
+
+    // Add augments if any non-empty ones exist
+    if (i.augment_names && Array.isArray(i.augment_names)) {
+      const augments = i.augment_names.filter(aug => aug && aug.trim() !== '');
+      if (augments.length > 0) {
+        parts.push(`[${augments.join(', ')}]`);
+      }
+    }
+
+    return parts.join(' ');
+  }
+  return String(item);
+}
 </script>
 
 <style scoped>
@@ -470,6 +559,10 @@ function formatCorpseName(name: unknown): string {
 
 .trade-section:first-child {
   padding-top: 0;
+}
+
+.handin-section {
+  margin: 0.25rem 0;
 }
 
 .data-label {
