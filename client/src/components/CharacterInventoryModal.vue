@@ -619,7 +619,7 @@ function getItemStackCount(item: GuildBankItem | null | undefined): number | nul
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 120;
+  z-index: 130;
   backdrop-filter: blur(2px);
 }
 
