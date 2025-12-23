@@ -224,58 +224,56 @@
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="event in events"
-              :key="event.id"
-              :class="getEventRowClass(event)"
-            >
-              <td class="col-time">
-                <span class="time-display">{{ formatTime(event.createdAt) }}</span>
-                <span class="date-display muted">{{ formatDate(event.createdAt) }}</span>
-              </td>
-              <td class="col-character">
-                <CharacterLink :name="event.characterName" />
-              </td>
-              <td class="col-event">
-                <span :class="['event-badge', getEventBadgeClass(event.eventTypeName)]">
-                  {{ event.eventTypeLabel }}
-                </span>
-              </td>
-              <td class="col-zone">{{ event.zoneName }}</td>
-              <td class="col-details">
-                <button
-                  v-if="event.eventData"
-                  type="button"
-                  class="btn btn--outline btn--tiny"
-                  @click="toggleEventDetails(event.id)"
-                >
-                  {{ expandedEventId === event.id ? 'Hide' : 'View' }}
-                </button>
-                <span v-else class="muted">-</span>
-              </td>
-            </tr>
-            <tr v-for="event in events" :key="`${event.id}-details`" v-show="expandedEventId === event.id && event.eventData">
-              <td colspan="5" class="event-details-cell">
-                <div class="event-details">
-                  <div class="event-details__header">
-                    <h4>Event Details</h4>
-                    <button
-                      type="button"
-                      class="btn btn--outline btn--tiny"
-                      @click="toggleRawJson(event.id)"
-                    >
-                      {{ showRawJson[event.id] ? 'Formatted' : 'Raw JSON' }}
-                    </button>
+            <template v-for="event in events" :key="event.id">
+              <tr :class="getEventRowClass(event)">
+                <td class="col-time">
+                  <span class="time-display">{{ formatTime(event.createdAt) }}</span>
+                  <span class="date-display muted">{{ formatDate(event.createdAt) }}</span>
+                </td>
+                <td class="col-character">
+                  <CharacterLink :name="event.characterName" />
+                </td>
+                <td class="col-event">
+                  <span :class="['event-badge', getEventBadgeClass(event.eventTypeName)]">
+                    {{ event.eventTypeLabel }}
+                  </span>
+                </td>
+                <td class="col-zone">{{ event.zoneName }}</td>
+                <td class="col-details">
+                  <button
+                    v-if="event.eventData"
+                    type="button"
+                    class="btn btn--outline btn--tiny"
+                    @click="toggleEventDetails(event.id)"
+                  >
+                    {{ expandedEventId === event.id ? 'Hide' : 'View' }}
+                  </button>
+                  <span v-else class="muted">-</span>
+                </td>
+              </tr>
+              <tr v-if="expandedEventId === event.id && event.eventData" class="details-row">
+                <td colspan="5" class="event-details-cell">
+                  <div class="event-details">
+                    <div class="event-details__header">
+                      <h4>Event Details</h4>
+                      <button
+                        type="button"
+                        class="btn btn--outline btn--tiny"
+                        @click="toggleRawJson(event.id)"
+                      >
+                        {{ showRawJson[event.id] ? 'Formatted' : 'Raw JSON' }}
+                      </button>
+                    </div>
+                    <div v-if="showRawJson[event.id]" class="event-details__json">
+                      <pre>{{ JSON.stringify(event.eventData, null, 2) }}</pre>
+                    </div>
+                    <div v-else class="event-details__formatted">
+                      <EventDataDisplay :event="event" />
+                    </div>
                   </div>
-                  <div v-if="showRawJson[event.id]" class="event-details__json">
-                    <pre>{{ JSON.stringify(event.eventData, null, 2) }}</pre>
-                  </div>
-                  <div v-else class="event-details__formatted">
-                    <EventDataDisplay :event="event" />
-                  </div>
-                </div>
-              </td>
-            </tr>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -944,6 +942,14 @@ onUnmounted(() => {
 
 .events-table tbody tr.row--success:hover {
   background: rgba(34, 197, 94, 0.15);
+}
+
+.events-table tbody tr.details-row {
+  background: transparent;
+}
+
+.events-table tbody tr.details-row:hover {
+  background: transparent;
 }
 
 .col-time {
