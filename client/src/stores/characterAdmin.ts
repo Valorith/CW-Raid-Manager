@@ -92,6 +92,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   const watchLoading = ref(false);
   const watchData = ref<CharacterWatch | null>(null);
   const fullWatchList = ref<CharacterWatch[]>([]);
+  const associatedCharacterIds = ref<number[]>([]); // Characters associated with watched characters (via IP)
   const watchListLoaded = ref(false);
 
   // Computed helpers
@@ -456,10 +457,12 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     }
   }
 
-  // Load the full watch list
+  // Load the full watch list (with associated character IDs)
   async function loadWatchList() {
     try {
-      fullWatchList.value = await api.fetchCharacterWatchList();
+      const response = await api.fetchCharacterWatchList();
+      fullWatchList.value = response.watchList;
+      associatedCharacterIds.value = response.associatedCharacterIds;
       watchListLoaded.value = true;
     } catch (err) {
       console.error('[CharacterAdminStore] Error loading watch list:', err);
@@ -477,10 +480,6 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         await api.removeCharacterWatch(character.value.id);
         isWatched.value = false;
         watchData.value = null;
-        // Update full watch list
-        fullWatchList.value = fullWatchList.value.filter(
-          w => w.eqCharacterId !== character.value!.id
-        );
       } else {
         // Add to watch list
         const watch = await api.addCharacterWatch(
@@ -490,9 +489,9 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         );
         isWatched.value = true;
         watchData.value = watch;
-        // Update full watch list
-        fullWatchList.value = [watch, ...fullWatchList.value];
       }
+      // Reload full watch list to get updated associated character IDs
+      await loadWatchList();
     } catch (err) {
       console.error('[CharacterAdminStore] Error toggling watch:', err);
     } finally {
@@ -523,6 +522,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     watchLoading,
     watchData,
     fullWatchList,
+    associatedCharacterIds,
     watchListLoaded,
 
     // Computed

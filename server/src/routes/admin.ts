@@ -1163,7 +1163,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   // Character Watch List Endpoints
   // ============================================
 
-  // Get all watched characters
+  // Get all watched characters (with their associated character IDs)
   server.get(
     '/character-watch',
     {
@@ -1174,7 +1174,41 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         const watchList = await prisma.characterWatch.findMany({
           orderBy: { createdAt: 'desc' }
         });
-        return { watchList };
+
+        // Get all associated character IDs for watched characters
+        // These are characters in the CharacterAssociation table linked to any watched character
+        const watchedCharIds = watchList.map(w => w.eqCharacterId);
+
+        let associatedCharacterIds: number[] = [];
+        if (watchedCharIds.length > 0) {
+          const associations = await prisma.characterAssociation.findMany({
+            where: {
+              OR: [
+                { sourceCharacterId: { in: watchedCharIds } },
+                { targetCharacterId: { in: watchedCharIds } }
+              ]
+            },
+            select: {
+              sourceCharacterId: true,
+              targetCharacterId: true
+            }
+          });
+
+          // Collect all character IDs from associations (excluding the watched ones themselves)
+          const watchedSet = new Set(watchedCharIds);
+          const associatedSet = new Set<number>();
+          for (const assoc of associations) {
+            if (!watchedSet.has(assoc.sourceCharacterId)) {
+              associatedSet.add(assoc.sourceCharacterId);
+            }
+            if (!watchedSet.has(assoc.targetCharacterId)) {
+              associatedSet.add(assoc.targetCharacterId);
+            }
+          }
+          associatedCharacterIds = Array.from(associatedSet);
+        }
+
+        return { watchList, associatedCharacterIds };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch character watch list.');
         return reply.badRequest('Unable to fetch character watch list.');

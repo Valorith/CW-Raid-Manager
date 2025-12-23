@@ -171,8 +171,12 @@ const DEFAULT_OUTSIDE_LIMIT = 2;
 
 // Use shared watch list from characterAdmin store
 const characterAdminStore = useCharacterAdminStore();
+// Orange border: directly watched characters
 const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
+// Orange border: characters on the same account as watched characters
 const watchedAccountIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqAccountId)));
+// Yellow border: characters associated via IP with watched characters
+const associatedCharacterIds = computed(() => new Set(characterAdminStore.associatedCharacterIds));
 
 interface IpGroup {
   ip: string;
@@ -286,10 +290,12 @@ function getIpLimit(ip: string): number {
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
   const classes: string[] = [];
 
-  // Check if directly watched (orange) or associated with watched (yellow)
-  if (watchedCharacterIds.value.has(conn.characterId)) {
+  // Check watch status:
+  // Orange: directly watched OR same account as watched
+  // Yellow: associated via IP (from CharacterAssociation table)
+  if (watchedCharacterIds.value.has(conn.characterId) || watchedAccountIds.value.has(conn.accountId)) {
     classes.push('row--watched');
-  } else if (watchedAccountIds.value.has(conn.accountId)) {
+  } else if (associatedCharacterIds.value.has(conn.characterId)) {
     classes.push('row--watched-associated');
   }
 

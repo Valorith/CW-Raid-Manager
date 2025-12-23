@@ -1528,6 +1528,11 @@ export interface CharacterWatch {
   createdAt: string;
 }
 
+export interface CharacterWatchListResponse {
+  watchList: CharacterWatch[];
+  associatedCharacterIds: number[];
+}
+
 export interface CharacterSearchResult {
   id: number;
   name: string;
@@ -4024,11 +4029,14 @@ export const api = {
   // ============================================
 
   /**
-   * Fetches all watched characters.
+   * Fetches all watched characters with their associated character IDs.
    */
-  async fetchCharacterWatchList(): Promise<CharacterWatch[]> {
+  async fetchCharacterWatchList(): Promise<CharacterWatchListResponse> {
     const response = await axios.get('/api/admin/character-watch');
-    return response.data.watchList ?? [];
+    return {
+      watchList: response.data.watchList ?? [],
+      associatedCharacterIds: response.data.associatedCharacterIds ?? []
+    };
   },
 
   /**
