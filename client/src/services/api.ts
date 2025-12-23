@@ -1376,6 +1376,65 @@ export interface ConnectionsResponse {
   ipExemptions: IpExemption[];
 }
 
+// Player Event Log Types
+export interface PlayerEventLog {
+  id: number;
+  accountId: number;
+  characterId: number;
+  characterName: string;
+  zoneId: number;
+  zoneName: string;
+  instanceId: number;
+  eventTypeId: number;
+  eventTypeName: string;
+  eventTypeLabel: string;
+  eventData: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface PlayerEventLogFilters {
+  page?: number;
+  pageSize?: number;
+  characterName?: string;
+  eventTypes?: number[];
+  zoneId?: number;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: 'created_at' | 'character_name' | 'event_type_id' | 'zone_id';
+  sortOrder?: 'asc' | 'desc';
+  search?: string;
+}
+
+export interface PlayerEventLogResponse {
+  events: PlayerEventLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface PlayerEventLogStats {
+  totalEvents: number;
+  uniqueCharacters: number;
+  uniqueZones: number;
+  eventTypeCounts: Array<{ eventTypeId: number; eventTypeName: string; count: number }>;
+  recentActivity: {
+    last24Hours: number;
+    last7Days: number;
+  };
+}
+
+export interface PlayerEventType {
+  id: number;
+  name: string;
+  label: string;
+}
+
+export interface PlayerEventZone {
+  zoneId: number;
+  zoneName: string;
+}
+
 // Loot Management Types
 export interface LootManagementSummary {
   lootMasterCount: number;
@@ -3670,6 +3729,54 @@ export const api = {
     await axios.delete(
       `/api/guilds/${guildId}/npc-favorites?npcNameNormalized=${encodeURIComponent(npcNameNormalized)}&isInstanceVariant=${isInstanceVariant}`
     );
+  },
+
+  // Player Event Logs APIs
+
+  /**
+   * Fetches player event logs with filtering, pagination, and sorting.
+   */
+  async fetchPlayerEventLogs(filters: PlayerEventLogFilters = {}): Promise<PlayerEventLogResponse> {
+    const params = new URLSearchParams();
+    if (filters.page) params.append('page', String(filters.page));
+    if (filters.pageSize) params.append('pageSize', String(filters.pageSize));
+    if (filters.characterName) params.append('characterName', filters.characterName);
+    if (filters.eventTypes && filters.eventTypes.length > 0) {
+      params.append('eventTypes', filters.eventTypes.join(','));
+    }
+    if (filters.zoneId !== undefined) params.append('zoneId', String(filters.zoneId));
+    if (filters.startDate) params.append('startDate', filters.startDate);
+    if (filters.endDate) params.append('endDate', filters.endDate);
+    if (filters.sortBy) params.append('sortBy', filters.sortBy);
+    if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
+    if (filters.search) params.append('search', filters.search);
+
+    const response = await axios.get(`/api/admin/player-event-logs?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Fetches player event log statistics.
+   */
+  async fetchPlayerEventLogStats(): Promise<PlayerEventLogStats> {
+    const response = await axios.get('/api/admin/player-event-logs/stats');
+    return response.data.stats;
+  },
+
+  /**
+   * Fetches available event types for filtering.
+   */
+  async fetchPlayerEventTypes(): Promise<PlayerEventType[]> {
+    const response = await axios.get('/api/admin/player-event-logs/event-types');
+    return response.data.eventTypes ?? [];
+  },
+
+  /**
+   * Fetches zones that have player events logged.
+   */
+  async fetchPlayerEventZones(): Promise<PlayerEventZone[]> {
+    const response = await axios.get('/api/admin/player-event-logs/zones');
+    return response.data.zones ?? [];
   }
 
 };
