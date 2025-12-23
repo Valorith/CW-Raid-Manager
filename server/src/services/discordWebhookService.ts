@@ -1309,7 +1309,7 @@ function buildRespawnTrackerUrl(guildId: string) {
   if (!clientBaseUrl) {
     return null;
   }
-  return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}/respawn-tracker`;
+  return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}/npc-respawn`;
 }
 
 function buildAttendanceEventUrl(raidId: string, attendanceEventId: string) {
