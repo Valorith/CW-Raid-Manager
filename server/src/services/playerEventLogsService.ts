@@ -277,7 +277,7 @@ export async function fetchPlayerEventLogs(
 
   const {
     page = 1,
-    pageSize: requestedPageSize = 50,
+    pageSize: requestedPageSize = 25,
     characterName,
     eventTypes,
     zoneId,

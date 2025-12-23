@@ -373,7 +373,7 @@ const filters = reactive({
   endDate: '',
   sortBy: 'created_at' as 'created_at' | 'character_name' | 'event_type_id' | 'zone_id',
   sortOrder: 'desc' as 'asc' | 'desc',
-  pageSize: 50
+  pageSize: 25
 });
 
 const dateRange = ref('all');
