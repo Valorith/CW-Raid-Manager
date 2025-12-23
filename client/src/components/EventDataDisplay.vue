@@ -6,11 +6,19 @@
         <span class="data-label">Item:</span>
         <span class="data-value data-value--highlight">{{ eventData.item_name || 'Unknown Item' }}</span>
       </div>
-      <div v-if="eventData.npc_name" class="data-row">
-        <span class="data-label">From NPC:</span>
-        <span class="data-value">{{ eventData.npc_name }}</span>
+      <div v-if="eventData.item_id" class="data-row">
+        <span class="data-label">Item ID:</span>
+        <span class="data-value muted">{{ eventData.item_id }}</span>
       </div>
-      <div v-if="eventData.charges" class="data-row">
+      <div v-if="eventData.npc_name || eventData.corpse_name" class="data-row">
+        <span class="data-label">From:</span>
+        <span class="data-value">{{ formatCorpseName(eventData.npc_name || eventData.corpse_name) }}</span>
+      </div>
+      <div v-if="eventData.npc_id" class="data-row">
+        <span class="data-label">NPC ID:</span>
+        <span class="data-value muted">{{ eventData.npc_id }}</span>
+      </div>
+      <div v-if="eventData.charges && eventData.charges > 1" class="data-row">
         <span class="data-label">Charges:</span>
         <span class="data-value">{{ eventData.charges }}</span>
       </div>
@@ -424,6 +432,12 @@ function formatTradeItem(item: unknown): string {
     return result;
   }
   return String(item);
+}
+
+function formatCorpseName(name: unknown): string {
+  if (typeof name !== 'string') return String(name);
+  // Replace underscores with spaces and clean up the name
+  return name.replace(/_/g, ' ');
 }
 </script>
 
