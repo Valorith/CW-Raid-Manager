@@ -988,11 +988,13 @@ export async function searchCharacters(
 
 /**
  * Add a manual character association
+ * @param associationType - 'direct' (orange border) or 'indirect' (yellow border)
  */
 export async function addManualAssociation(
   sourceCharacterId: number,
   targetCharacterId: number,
   reason: string | undefined,
+  associationType: 'direct' | 'indirect',
   userId: string,
   userName: string
 ): Promise<void> {
@@ -1033,6 +1035,7 @@ export async function addManualAssociation(
       targetCharacterId,
       targetCharacterName: targetChar.name,
       targetAccountId: targetChar.account_id,
+      associationType,
       reason,
       createdById: userId,
       createdByName: userName
@@ -1210,7 +1213,7 @@ export async function syncIpGroupAssociations(
           continue;
         }
 
-        // Create the association
+        // Create the association (IP-based associations are always 'indirect')
         try {
           await prisma.characterAssociation.create({
             data: {
@@ -1219,6 +1222,7 @@ export async function syncIpGroupAssociations(
               targetCharacterId: charB.characterId,
               targetCharacterName: charB.characterName,
               targetAccountId: charB.accountId,
+              associationType: 'indirect',
               reason: `Same IP connection (${ip})`,
               createdById: userId,
               createdByName: userName

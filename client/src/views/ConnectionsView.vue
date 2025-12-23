@@ -175,8 +175,10 @@ const characterAdminStore = useCharacterAdminStore();
 const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
 // Orange border: characters on the same account as watched characters
 const watchedAccountIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqAccountId)));
-// Yellow border: characters associated via IP with watched characters
-const associatedCharacterIds = computed(() => new Set(characterAdminStore.associatedCharacterIds));
+// Orange border: characters with direct associations to watched characters
+const directAssociatedIds = computed(() => new Set(characterAdminStore.directAssociatedCharacterIds));
+// Yellow border: characters with indirect associations to watched characters
+const indirectAssociatedIds = computed(() => new Set(characterAdminStore.indirectAssociatedCharacterIds));
 
 interface IpGroup {
   ip: string;
@@ -291,11 +293,15 @@ function getRowClass(conn: ServerConnection, group: IpGroup): string {
   const classes: string[] = [];
 
   // Check watch status:
-  // Orange: directly watched OR same account as watched
-  // Yellow: associated via IP (from CharacterAssociation table)
-  if (watchedCharacterIds.value.has(conn.characterId) || watchedAccountIds.value.has(conn.accountId)) {
+  // Orange: directly watched OR same account as watched OR direct association
+  // Yellow: indirect association (IP-based)
+  if (
+    watchedCharacterIds.value.has(conn.characterId) ||
+    watchedAccountIds.value.has(conn.accountId) ||
+    directAssociatedIds.value.has(conn.characterId)
+  ) {
     classes.push('row--watched');
-  } else if (associatedCharacterIds.value.has(conn.characterId)) {
+  } else if (indirectAssociatedIds.value.has(conn.characterId)) {
     classes.push('row--watched-associated');
   }
 

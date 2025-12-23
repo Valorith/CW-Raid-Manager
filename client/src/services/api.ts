@@ -1530,7 +1530,8 @@ export interface CharacterWatch {
 
 export interface CharacterWatchListResponse {
   watchList: CharacterWatch[];
-  associatedCharacterIds: number[];
+  directAssociatedCharacterIds: number[];
+  indirectAssociatedCharacterIds: number[];
 }
 
 export interface CharacterSearchResult {
@@ -3950,14 +3951,17 @@ export const api = {
 
   /**
    * Adds a manual association between characters.
+   * @param associationType - 'direct' (orange border) or 'indirect' (yellow border)
    */
   async addCharacterAssociation(
     sourceCharacterId: number,
     targetCharacterId: number,
+    associationType: 'direct' | 'indirect' = 'indirect',
     reason?: string
   ): Promise<void> {
     await axios.post(`/api/admin/characters/id/${sourceCharacterId}/associates`, {
       targetCharacterId,
+      associationType,
       reason
     });
   },
@@ -4035,7 +4039,8 @@ export const api = {
     const response = await axios.get('/api/admin/character-watch');
     return {
       watchList: response.data.watchList ?? [],
-      associatedCharacterIds: response.data.associatedCharacterIds ?? []
+      directAssociatedCharacterIds: response.data.directAssociatedCharacterIds ?? [],
+      indirectAssociatedCharacterIds: response.data.indirectAssociatedCharacterIds ?? []
     };
   },
 

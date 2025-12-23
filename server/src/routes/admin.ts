@@ -886,6 +886,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       });
       const bodySchema = z.object({
         targetCharacterId: z.number().int().positive(),
+        associationType: z.enum(['direct', 'indirect']).default('indirect'),
         reason: z.string().max(500).optional()
       });
 
@@ -911,6 +912,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           parsedParams.data.id,
           parsedBody.data.targetCharacterId,
           parsedBody.data.reason,
+          parsedBody.data.associationType,
           request.user.userId,
           userName
         );
@@ -1179,7 +1181,9 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         // These are characters in the CharacterAssociation table linked to any watched character
         const watchedCharIds = watchList.map(w => w.eqCharacterId);
 
-        let associatedCharacterIds: number[] = [];
+        let directAssociatedCharacterIds: number[] = [];
+        let indirectAssociatedCharacterIds: number[] = [];
+
         if (watchedCharIds.length > 0) {
           const associations = await prisma.characterAssociation.findMany({
             where: {
@@ -1190,25 +1194,39 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             },
             select: {
               sourceCharacterId: true,
-              targetCharacterId: true
+              targetCharacterId: true,
+              associationType: true
             }
           });
 
-          // Collect all character IDs from associations (excluding the watched ones themselves)
+          // Collect character IDs from associations (excluding the watched ones themselves)
+          // Separate into direct (orange) and indirect (yellow)
           const watchedSet = new Set(watchedCharIds);
-          const associatedSet = new Set<number>();
+          const directSet = new Set<number>();
+          const indirectSet = new Set<number>();
+
           for (const assoc of associations) {
-            if (!watchedSet.has(assoc.sourceCharacterId)) {
-              associatedSet.add(assoc.sourceCharacterId);
-            }
-            if (!watchedSet.has(assoc.targetCharacterId)) {
-              associatedSet.add(assoc.targetCharacterId);
+            const charIds = [assoc.sourceCharacterId, assoc.targetCharacterId];
+            for (const charId of charIds) {
+              if (!watchedSet.has(charId)) {
+                if (assoc.associationType === 'direct') {
+                  directSet.add(charId);
+                } else {
+                  indirectSet.add(charId);
+                }
+              }
             }
           }
-          associatedCharacterIds = Array.from(associatedSet);
+
+          directAssociatedCharacterIds = Array.from(directSet);
+          indirectAssociatedCharacterIds = Array.from(indirectSet);
         }
 
-        return { watchList, associatedCharacterIds };
+        return {
+          watchList,
+          directAssociatedCharacterIds,
+          indirectAssociatedCharacterIds
+        };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch character watch list.');
         return reply.badRequest('Unable to fetch character watch list.');

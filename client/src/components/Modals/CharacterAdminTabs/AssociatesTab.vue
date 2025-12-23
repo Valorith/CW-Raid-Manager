@@ -38,6 +38,32 @@
           <strong>{{ selectedCharacter.name }}</strong>
           <span>Level {{ selectedCharacter.level }} {{ selectedCharacter.className }}</span>
         </div>
+        <div class="association-type-selector">
+          <label class="type-label">Association Type:</label>
+          <div class="type-buttons">
+            <button
+              type="button"
+              class="type-btn"
+              :class="{ 'type-btn--active': associationType === 'direct', 'type-btn--direct': associationType === 'direct' }"
+              @click="associationType = 'direct'"
+            >
+              <span class="type-icon">&#9679;</span>
+              Direct
+            </button>
+            <button
+              type="button"
+              class="type-btn"
+              :class="{ 'type-btn--active': associationType === 'indirect', 'type-btn--indirect': associationType === 'indirect' }"
+              @click="associationType = 'indirect'"
+            >
+              <span class="type-icon">&#9675;</span>
+              Indirect
+            </button>
+          </div>
+          <div class="type-description">
+            {{ associationType === 'direct' ? 'Direct = same person (orange border on connections)' : 'Indirect = possible alt/associate (yellow border on connections)' }}
+          </div>
+        </div>
         <input
           type="text"
           v-model="associationReason"
@@ -123,6 +149,7 @@ const store = useCharacterAdminStore();
 
 const searchQuery = ref('');
 const selectedCharacter = ref<CharacterSearchResult | null>(null);
+const associationType = ref<'direct' | 'indirect'>('indirect');
 const associationReason = ref('');
 const addingAssociation = ref(false);
 const removingId = ref<string | null>(null);
@@ -158,6 +185,7 @@ function selectCharacter(char: CharacterSearchResult) {
 
 function cancelSelection() {
   selectedCharacter.value = null;
+  associationType.value = 'indirect';
   associationReason.value = '';
 }
 
@@ -168,9 +196,11 @@ async function addAssociation() {
   try {
     await store.addAssociation(
       selectedCharacter.value.id,
+      associationType.value,
       associationReason.value || undefined
     );
     selectedCharacter.value = null;
+    associationType.value = 'indirect';
     associationReason.value = '';
   } catch (err) {
     console.error('Failed to add association:', err);
@@ -349,6 +379,70 @@ function formatDate(dateStr: string): string {
     font-size: 0.875rem;
     color: #94a3b8;
   }
+}
+
+.association-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.type-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.type-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.type-btn {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 1px solid #334155;
+  border-radius: 0.25rem;
+  background: #1e293b;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: #475569;
+  }
+
+  &--active {
+    border-width: 2px;
+  }
+
+  &--direct {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.15);
+    color: #fb923c;
+  }
+
+  &--indirect {
+    border-color: #eab308;
+    background: rgba(234, 179, 8, 0.15);
+    color: #facc15;
+  }
+}
+
+.type-icon {
+  font-size: 0.75rem;
+}
+
+.type-description {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-style: italic;
 }
 
 .action-buttons {

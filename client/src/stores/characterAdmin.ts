@@ -92,7 +92,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   const watchLoading = ref(false);
   const watchData = ref<CharacterWatch | null>(null);
   const fullWatchList = ref<CharacterWatch[]>([]);
-  const associatedCharacterIds = ref<number[]>([]); // Characters associated with watched characters (via IP)
+  const directAssociatedCharacterIds = ref<number[]>([]); // Direct associations (orange border)
+  const indirectAssociatedCharacterIds = ref<number[]>([]); // Indirect associations (yellow border)
   const watchListLoaded = ref(false);
 
   // Computed helpers
@@ -383,11 +384,15 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   }
 
   // Add manual association
-  async function addAssociation(targetCharacterId: number, reason?: string) {
+  async function addAssociation(
+    targetCharacterId: number,
+    associationType: 'direct' | 'indirect' = 'indirect',
+    reason?: string
+  ) {
     if (!character.value) return;
 
     try {
-      await api.addCharacterAssociation(character.value.id, targetCharacterId, reason);
+      await api.addCharacterAssociation(character.value.id, targetCharacterId, associationType, reason);
       await loadAssociates(); // Reload associates
     } catch (err) {
       console.error('[CharacterAdminStore] Error adding association:', err);
@@ -462,7 +467,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     try {
       const response = await api.fetchCharacterWatchList();
       fullWatchList.value = response.watchList;
-      associatedCharacterIds.value = response.associatedCharacterIds;
+      directAssociatedCharacterIds.value = response.directAssociatedCharacterIds;
+      indirectAssociatedCharacterIds.value = response.indirectAssociatedCharacterIds;
       watchListLoaded.value = true;
     } catch (err) {
       console.error('[CharacterAdminStore] Error loading watch list:', err);
@@ -522,7 +528,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     watchLoading,
     watchData,
     fullWatchList,
-    associatedCharacterIds,
+    directAssociatedCharacterIds,
+    indirectAssociatedCharacterIds,
     watchListLoaded,
 
     // Computed
