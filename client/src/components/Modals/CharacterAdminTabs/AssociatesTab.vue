@@ -73,7 +73,8 @@
         >
           <div class="associate-info">
             <div class="associate-header">
-              <span class="associate-name">{{ associate.characterName }}</span>
+              <span class="associate-name">{{ getDisplayName(associate.characterName) }}</span>
+              <span v-if="isDeleted(associate.characterName)" class="deleted-badge">Deleted</span>
               <span class="association-badge" :class="`badge--${associate.associationType}`">
                 {{ getAssociationLabel(associate.associationType) }}
               </span>
@@ -200,6 +201,18 @@ function getAssociationLabel(type: string): string {
     default:
       return type;
   }
+}
+
+function isDeleted(name: string): boolean {
+  return name.toLowerCase().includes('-deleted-');
+}
+
+function getDisplayName(name: string): string {
+  const deletedIndex = name.toLowerCase().indexOf('-deleted-');
+  if (deletedIndex !== -1) {
+    return name.substring(0, deletedIndex);
+  }
+  return name;
 }
 
 function formatDate(dateStr: string): string {
@@ -433,6 +446,17 @@ function formatDate(dateStr: string): string {
 .associate-name {
   font-weight: 600;
   color: #f8fafc;
+}
+
+.deleted-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
 .association-badge {
