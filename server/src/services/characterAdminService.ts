@@ -711,9 +711,62 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
     });
   }
 
-  // 2. Get characters from same IP via player_event_logs
+  // 2. Get characters from same IP via connections table (current/recent connections)
+  const seenCharIds = new Set(associates.map(a => a.characterId));
+
   try {
-    // First, get all IPs this character has logged in from
+    // First, get all IPs this character has connected from (from connections table)
+    const ipRows = await queryEqDb<RowDataPacket[]>(`
+      SELECT DISTINCT ip
+      FROM connections
+      WHERE characterid = ?
+    `, [characterId]);
+
+    const ips = ipRows.map(r => r.ip).filter(Boolean);
+
+    if (ips.length > 0) {
+      // Find other characters that connected from the same IPs
+      const sameIpChars = await queryEqDb<RowDataPacket[]>(`
+        SELECT DISTINCT
+          c.characterid as id,
+          cd.${charSchema.nameColumn} as name,
+          cd.${charSchema.accountIdColumn} as account_id,
+          cd.level,
+          cd.class,
+          a.${accountSchema.nameColumn} as account_name,
+          c.ip as shared_ip
+        FROM connections c
+        JOIN character_data cd ON c.characterid = cd.${charSchema.idColumn}
+        JOIN account a ON cd.${charSchema.accountIdColumn} = a.${accountSchema.idColumn}
+        WHERE c.ip IN (${ips.map(() => '?').join(',')})
+        AND c.characterid != ?
+        AND cd.${charSchema.accountIdColumn} != ?
+      `, [...ips, characterId, accountId]);
+
+      for (const char of sameIpChars) {
+        if (!seenCharIds.has(char.id)) {
+          seenCharIds.add(char.id);
+          associates.push({
+            characterId: char.id,
+            characterName: char.name,
+            accountId: char.account_id,
+            accountName: char.account_name,
+            level: char.level || 0,
+            className: mapEqClassIdToName(char.class),
+            associationType: 'same_ip',
+            sharedIp: char.shared_ip
+          });
+        }
+      }
+    }
+  } catch (err) {
+    // Connections table may not exist or have different schema
+    console.warn('[CharacterAdmin] Connections table IP lookup failed:', err);
+  }
+
+  // 2b. Also check player_event_logs for historical IP associations
+  try {
+    // Get all IPs this character has logged in from (from event logs)
     const ipRows = await queryEqDb<RowDataPacket[]>(`
       SELECT DISTINCT
         JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.ip_address')) as ip
@@ -746,8 +799,6 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
         LIMIT 200
       `, [...ips, characterId, accountId]);
 
-      // Deduplicate by character ID (keep first occurrence which has the IP)
-      const seenCharIds = new Set(associates.map(a => a.characterId));
       for (const char of sameIpChars) {
         if (!seenCharIds.has(char.id)) {
           seenCharIds.add(char.id);
