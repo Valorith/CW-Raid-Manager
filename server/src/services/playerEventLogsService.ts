@@ -182,6 +182,24 @@ let characterSchemaCache: {
   nameColumn: string | null;
 } | null = null;
 
+// Cache for stats with TTL (avoid repeated expensive queries)
+let statsCache: {
+  data: PlayerEventLogStats | null;
+  timestamp: number;
+} = { data: null, timestamp: 0 };
+const STATS_CACHE_TTL_MS = 30000; // 30 seconds
+
+// Cache for zones list
+let zonesCache: {
+  data: Array<{ zoneId: number; zoneName: string }> | null;
+  timestamp: number;
+} = { data: null, timestamp: 0 };
+const ZONES_CACHE_TTL_MS = 60000; // 1 minute
+
+// Performance limits
+const MAX_PAGE_SIZE = 100;
+const MAX_SEARCH_LENGTH = 100;
+
 async function getTableColumns(tableName: string): Promise<string[]> {
   try {
     const rows = await queryEqDb<RowDataPacket[]>(
@@ -259,7 +277,7 @@ export async function fetchPlayerEventLogs(
 
   const {
     page = 1,
-    pageSize = 50,
+    pageSize: requestedPageSize = 50,
     characterName,
     eventTypes,
     zoneId,
@@ -267,8 +285,12 @@ export async function fetchPlayerEventLogs(
     endDate,
     sortBy = 'created_at',
     sortOrder = 'desc',
-    search
+    search: rawSearch
   } = filters;
+
+  // Enforce performance limits
+  const pageSize = Math.min(Math.max(1, requestedPageSize), MAX_PAGE_SIZE);
+  const search = rawSearch ? rawSearch.slice(0, MAX_SEARCH_LENGTH) : undefined;
 
   // Discover schemas
   const [zoneSchema, characterSchema] = await Promise.all([
@@ -346,19 +368,10 @@ export async function fetchPlayerEventLogs(
     params.push(endDate);
   }
 
-  // General search across character name and event data
-  if (search) {
-    const searchConditions: string[] = [];
-    if (characterSchema?.exists && characterSchema.nameColumn) {
-      searchConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
-      params.push(`%${search}%`);
-    }
-    searchConditions.push(`pel.event_data LIKE ?`);
+  // General search - only search character name (event_data LIKE is too expensive)
+  if (search && characterSchema?.exists && characterSchema.nameColumn) {
+    whereConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
     params.push(`%${search}%`);
-
-    if (searchConditions.length > 0) {
-      whereConditions.push(`(${searchConditions.join(' OR ')})`);
-    }
   }
 
   const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -373,8 +386,15 @@ export async function fetchPlayerEventLogs(
   const sortColumn = validSortColumns[sortBy] || 'pel.created_at';
   const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-  // Get total count
-  const countQuery = `SELECT COUNT(*) as total ${joins} ${whereClause}`;
+  // Get total count - use optimized query without unnecessary JOINs when possible
+  // Only need JOINs if filtering by character name or searching
+  const needsCharacterJoinForCount = !!(characterName || search);
+  let countJoins = 'FROM player_event_logs pel';
+  if (needsCharacterJoinForCount && characterSchema?.exists && characterSchema.idColumn) {
+    countJoins += ` LEFT JOIN character_data cd ON pel.character_id = cd.${characterSchema.idColumn}`;
+  }
+
+  const countQuery = `SELECT COUNT(*) as total ${countJoins} ${whereClause}`;
   const [countResult] = await queryEqDb<RowDataPacket[]>(countQuery, params);
   const total = Number(countResult?.total || 0);
 
@@ -433,6 +453,7 @@ export async function fetchPlayerEventLogs(
 
 /**
  * Get statistics about player event logs
+ * Uses caching to avoid repeated expensive queries
  */
 export async function getPlayerEventLogStats(): Promise<PlayerEventLogStats> {
   if (!isEqDbConfigured()) {
@@ -441,31 +462,47 @@ export async function getPlayerEventLogStats(): Promise<PlayerEventLogStats> {
     );
   }
 
-  // Get total events count
-  const [totalResult] = await queryEqDb<RowDataPacket[]>(
-    'SELECT COUNT(*) as total FROM player_event_logs'
-  );
-  const totalEvents = Number(totalResult?.total || 0);
+  // Return cached stats if still valid
+  const now = Date.now();
+  if (statsCache.data && (now - statsCache.timestamp) < STATS_CACHE_TTL_MS) {
+    return statsCache.data;
+  }
 
-  // Get unique characters count
-  const [charactersResult] = await queryEqDb<RowDataPacket[]>(
-    'SELECT COUNT(DISTINCT character_id) as total FROM player_event_logs'
-  );
-  const uniqueCharacters = Number(charactersResult?.total || 0);
+  // Run queries in parallel for better performance
+  const [
+    [summaryResult],
+    eventTypeRows,
+    [recentResult]
+  ] = await Promise.all([
+    // Combined query for total, unique characters, unique zones
+    queryEqDb<RowDataPacket[]>(`
+      SELECT
+        COUNT(*) as total_events,
+        COUNT(DISTINCT character_id) as unique_characters,
+        COUNT(DISTINCT zone_id) as unique_zones
+      FROM player_event_logs
+    `),
+    // Event type counts (limited to top 20 for performance)
+    queryEqDb<RowDataPacket[]>(`
+      SELECT event_type_id, COUNT(*) as count
+      FROM player_event_logs
+      GROUP BY event_type_id
+      ORDER BY count DESC
+      LIMIT 20
+    `),
+    // Combined recent activity query
+    queryEqDb<RowDataPacket[]>(`
+      SELECT
+        SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 ELSE 0 END) as last_24h,
+        SUM(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as last_7d
+      FROM player_event_logs
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    `)
+  ]);
 
-  // Get unique zones count
-  const [zonesResult] = await queryEqDb<RowDataPacket[]>(
-    'SELECT COUNT(DISTINCT zone_id) as total FROM player_event_logs'
-  );
-  const uniqueZones = Number(zonesResult?.total || 0);
-
-  // Get event type counts
-  const eventTypeRows = await queryEqDb<RowDataPacket[]>(`
-    SELECT event_type_id, COUNT(*) as count
-    FROM player_event_logs
-    GROUP BY event_type_id
-    ORDER BY count DESC
-  `);
+  const totalEvents = Number(summaryResult?.total_events || 0);
+  const uniqueCharacters = Number(summaryResult?.unique_characters || 0);
+  const uniqueZones = Number(summaryResult?.unique_zones || 0);
 
   const eventTypeCounts = eventTypeRows.map((row) => ({
     eventTypeId: row.event_type_id,
@@ -473,18 +510,10 @@ export async function getPlayerEventLogStats(): Promise<PlayerEventLogStats> {
     count: Number(row.count)
   }));
 
-  // Get recent activity counts
-  const [last24HoursResult] = await queryEqDb<RowDataPacket[]>(
-    'SELECT COUNT(*) as total FROM player_event_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)'
-  );
-  const last24Hours = Number(last24HoursResult?.total || 0);
+  const last24Hours = Number(recentResult?.last_24h || 0);
+  const last7Days = Number(recentResult?.last_7d || 0);
 
-  const [last7DaysResult] = await queryEqDb<RowDataPacket[]>(
-    'SELECT COUNT(*) as total FROM player_event_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
-  );
-  const last7Days = Number(last7DaysResult?.total || 0);
-
-  return {
+  const stats: PlayerEventLogStats = {
     totalEvents,
     uniqueCharacters,
     uniqueZones,
@@ -494,6 +523,11 @@ export async function getPlayerEventLogStats(): Promise<PlayerEventLogStats> {
       last7Days
     }
   };
+
+  // Update cache
+  statsCache = { data: stats, timestamp: now };
+
+  return stats;
 }
 
 /**
@@ -509,10 +543,17 @@ export function getEventTypes(): Array<{ id: number; name: string; label: string
 
 /**
  * Get unique zones that have events logged
+ * Uses caching to avoid repeated queries
  */
 export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneName: string }>> {
   if (!isEqDbConfigured()) {
     return [];
+  }
+
+  // Return cached zones if still valid
+  const now = Date.now();
+  if (zonesCache.data && (now - zonesCache.timestamp) < ZONES_CACHE_TTL_MS) {
+    return zonesCache.data;
   }
 
   const zoneSchema = await discoverZoneSchema();
@@ -523,24 +564,32 @@ export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneNa
       ? 'pel.zone_id = z.zoneidnumber'
       : `pel.zone_id = z.${zoneSchema.idColumn}`;
 
+    // Use subquery with LIMIT for better performance on large tables
     query = `
       SELECT DISTINCT pel.zone_id, z.${zoneSchema.longNameColumn} as zone_name
       FROM player_event_logs pel
       LEFT JOIN zone z ON ${joinCondition}
       ORDER BY z.${zoneSchema.longNameColumn} ASC
+      LIMIT 500
     `;
   } else {
     query = `
       SELECT DISTINCT zone_id, NULL as zone_name
       FROM player_event_logs
       ORDER BY zone_id ASC
+      LIMIT 500
     `;
   }
 
   const rows = await queryEqDb<RowDataPacket[]>(query);
 
-  return rows.map((row) => ({
+  const zones = rows.map((row) => ({
     zoneId: row.zone_id,
     zoneName: row.zone_name || `Zone ${row.zone_id}`
   }));
+
+  // Update cache
+  zonesCache = { data: zones, timestamp: now };
+
+  return zones;
 }
