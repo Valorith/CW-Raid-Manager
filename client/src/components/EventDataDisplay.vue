@@ -54,6 +54,18 @@
         <span class="data-label">NPC ID:</span>
         <span class="data-value muted">{{ eventData.npc_id }}</span>
       </div>
+      <div v-if="eventData.combat_time_seconds !== undefined" class="data-row">
+        <span class="data-label">Combat Time:</span>
+        <span class="data-value">{{ eventData.combat_time_seconds }}s</span>
+      </div>
+      <div v-if="eventData.total_damage_per_second_taken !== undefined" class="data-row">
+        <span class="data-label">DPS Taken:</span>
+        <span class="data-value data-value--danger">{{ eventData.total_damage_per_second_taken }}</span>
+      </div>
+      <div v-if="eventData.total_heal_per_second_taken" class="data-row">
+        <span class="data-label">HPS Taken:</span>
+        <span class="data-value data-value--success">{{ eventData.total_heal_per_second_taken }}</span>
+      </div>
     </template>
 
     <!-- ZONING -->
