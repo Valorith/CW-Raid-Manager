@@ -713,6 +713,7 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
 
   // 2. Get characters from same IP via connections table (current/recent connections)
   const seenCharIds = new Set(associates.map(a => a.characterId));
+  const sameIpAccountIds = new Set<number>(); // Track accounts found via same IP
 
   try {
     // First, get all IPs this character has connected from (from connections table)
@@ -744,6 +745,7 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
       `, [...ips, characterId, accountId]);
 
       for (const char of sameIpChars) {
+        sameIpAccountIds.add(char.account_id);
         if (!seenCharIds.has(char.id)) {
           seenCharIds.add(char.id);
           associates.push({
@@ -800,6 +802,7 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
       `, [...ips, characterId, accountId]);
 
       for (const char of sameIpChars) {
+        sameIpAccountIds.add(char.account_id);
         if (!seenCharIds.has(char.id)) {
           seenCharIds.add(char.id);
           associates.push({
@@ -817,6 +820,45 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
     }
   } catch {
     // IP lookup may fail if event_data format is different
+  }
+
+  // 2c. Get ALL characters from accounts that had same-IP connections
+  // This ensures all alts on a same-IP account are also shown
+  if (sameIpAccountIds.size > 0) {
+    try {
+      const accountIdsArray = Array.from(sameIpAccountIds);
+      const allAccountChars = await queryEqDb<RowDataPacket[]>(`
+        SELECT
+          cd.${charSchema.idColumn} as id,
+          cd.${charSchema.nameColumn} as name,
+          cd.${charSchema.accountIdColumn} as account_id,
+          cd.level,
+          cd.class,
+          a.${accountSchema.nameColumn} as account_name
+        FROM character_data cd
+        JOIN account a ON cd.${charSchema.accountIdColumn} = a.${accountSchema.idColumn}
+        WHERE cd.${charSchema.accountIdColumn} IN (${accountIdsArray.map(() => '?').join(',')})
+        AND cd.${charSchema.idColumn} != ?
+      `, [...accountIdsArray, characterId]);
+
+      for (const char of allAccountChars) {
+        if (!seenCharIds.has(char.id)) {
+          seenCharIds.add(char.id);
+          associates.push({
+            characterId: char.id,
+            characterName: char.name,
+            accountId: char.account_id,
+            accountName: char.account_name,
+            level: char.level || 0,
+            className: mapEqClassIdToName(char.class),
+            associationType: 'same_ip',
+            sharedIp: '(via account)'
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[CharacterAdmin] Failed to fetch all characters from same-IP accounts:', err);
+    }
   }
 
   // 3. Get manual associations from our database
