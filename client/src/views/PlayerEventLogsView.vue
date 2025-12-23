@@ -408,21 +408,34 @@ function formatNumber(num: number): string {
 }
 
 function formatTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true
-  }).format(date);
+  // Parse the MySQL datetime string directly to avoid timezone conversion issues
+  // Format: "2025-12-22 15:37:00" or ISO format
+  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/);
+  if (!match) {
+    return dateStr;
+  }
+
+  let hours = parseInt(match[4], 10);
+  const minutes = match[5];
+  const seconds = match[6];
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+
+  return `${hours}:${minutes}:${seconds} ${ampm}`;
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric'
-  }).format(date);
+  // Parse the MySQL datetime string directly to avoid timezone conversion issues
+  const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return dateStr;
+  }
+
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[parseInt(match[2], 10) - 1];
+  const day = parseInt(match[3], 10);
+
+  return `${month} ${day}`;
 }
 
 function getEventRowClass(event: PlayerEventLog): string {
