@@ -246,12 +246,12 @@
                     class="btn btn--outline btn--tiny"
                     @click="toggleEventDetails(event.id)"
                   >
-                    {{ expandedEventId === Number(event.id) ? 'Hide' : 'View' }}
+                    {{ expandedEventId === String(event.id) ? 'Hide' : 'View' }}
                   </button>
                   <span v-else class="muted">-</span>
                 </td>
               </tr>
-              <tr v-if="expandedEventId === Number(event.id) && event.eventData" class="details-row">
+              <tr v-if="expandedEventId === String(event.id) && event.eventData" class="details-row">
                 <td colspan="5" class="event-details-cell">
                   <div class="event-details">
                     <div class="event-details__header">
@@ -261,10 +261,10 @@
                         class="btn btn--outline btn--tiny"
                         @click="toggleRawJson(event.id)"
                       >
-                        {{ showRawJson[Number(event.id)] ? 'Formatted' : 'Raw JSON' }}
+                        {{ showRawJson[String(event.id)] ? 'Formatted' : 'Raw JSON' }}
                       </button>
                     </div>
-                    <div v-if="showRawJson[Number(event.id)]" class="event-details__json">
+                    <div v-if="showRawJson[String(event.id)]" class="event-details__json">
                       <pre>{{ JSON.stringify(event.eventData, null, 2) }}</pre>
                     </div>
                     <div v-else class="event-details__formatted">
@@ -331,8 +331,8 @@ const totalPages = ref(1);
 const autoRefreshEnabled = ref(false);
 const lastUpdated = ref<Date | null>(null);
 const showFilters = ref(true);
-const expandedEventId = ref<number | null>(null);
-const showRawJson = reactive<Record<number, boolean>>({});
+const expandedEventId = ref<string | null>(null);
+const showRawJson = reactive<Record<string, boolean>>({});
 
 const stats = ref<PlayerEventLogStats>({
   totalEvents: 0,
@@ -437,7 +437,7 @@ function toggleFilters() {
 }
 
 function toggleEventDetails(eventId: number | string) {
-  const id = Number(eventId);
+  const id = String(eventId);
   if (expandedEventId.value === id) {
     expandedEventId.value = null;
   } else {
@@ -446,7 +446,7 @@ function toggleEventDetails(eventId: number | string) {
 }
 
 function toggleRawJson(eventId: number | string) {
-  const id = Number(eventId);
+  const id = String(eventId);
   showRawJson[id] = !showRawJson[id];
 }
 
@@ -543,6 +543,8 @@ function debouncedSearch() {
 async function loadEvents() {
   loading.value = true;
   error.value = null;
+  // Reset expanded state when loading new events to prevent stale references
+  expandedEventId.value = null;
 
   try {
     const response = await api.fetchPlayerEventLogs({
