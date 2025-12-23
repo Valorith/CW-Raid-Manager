@@ -270,9 +270,17 @@
           {{ eventData.recipe_name || eventData.recipe }}
         </span>
       </div>
-      <div v-if="eventData.tradeskill" class="data-row">
+      <div v-if="eventData.recipe_id" class="data-row">
+        <span class="data-label">Recipe ID:</span>
+        <span class="data-value muted">{{ eventData.recipe_id }}</span>
+      </div>
+      <div v-if="eventData.tradeskill || eventData.tradeskill_id !== undefined" class="data-row">
         <span class="data-label">Tradeskill:</span>
-        <span class="data-value">{{ eventData.tradeskill }}</span>
+        <span class="data-value">{{ eventData.tradeskill || `ID: ${eventData.tradeskill_id}` }}</span>
+      </div>
+      <div v-if="eventData.made_count !== undefined" class="data-row">
+        <span class="data-label">Made Count:</span>
+        <span class="data-value">{{ eventData.made_count }}</span>
       </div>
     </template>
 
