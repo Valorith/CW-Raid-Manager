@@ -91,6 +91,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   const isWatched = ref(false);
   const watchLoading = ref(false);
   const watchData = ref<CharacterWatch | null>(null);
+  const fullWatchList = ref<CharacterWatch[]>([]);
+  const watchListLoaded = ref(false);
 
   // Computed helpers
   const isOpen = computed(() => modalState.value.open);
@@ -454,6 +456,16 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     }
   }
 
+  // Load the full watch list
+  async function loadWatchList() {
+    try {
+      fullWatchList.value = await api.fetchCharacterWatchList();
+      watchListLoaded.value = true;
+    } catch (err) {
+      console.error('[CharacterAdminStore] Error loading watch list:', err);
+    }
+  }
+
   // Toggle watch status
   async function toggleWatch() {
     if (!character.value) return;
@@ -465,6 +477,10 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         await api.removeCharacterWatch(character.value.id);
         isWatched.value = false;
         watchData.value = null;
+        // Update full watch list
+        fullWatchList.value = fullWatchList.value.filter(
+          w => w.eqCharacterId !== character.value!.id
+        );
       } else {
         // Add to watch list
         const watch = await api.addCharacterWatch(
@@ -474,6 +490,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         );
         isWatched.value = true;
         watchData.value = watch;
+        // Update full watch list
+        fullWatchList.value = [watch, ...fullWatchList.value];
       }
     } catch (err) {
       console.error('[CharacterAdminStore] Error toggling watch:', err);
@@ -504,6 +522,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     isWatched,
     watchLoading,
     watchData,
+    fullWatchList,
+    watchListLoaded,
 
     // Computed
     isOpen,
@@ -528,6 +548,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     createNote,
     updateNote,
     deleteNote,
+    loadWatchList,
     toggleWatch
   };
 });

@@ -163,15 +163,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
-import { api, type ServerConnection, type IpExemption, type CharacterWatch } from '../services/api';
+import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
+import { useCharacterAdminStore } from '../stores/characterAdmin';
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
 
-// Watch list state
-const watchList = ref<CharacterWatch[]>([]);
-const watchedCharacterIds = computed(() => new Set(watchList.value.map(w => w.eqCharacterId)));
-const watchedAccountIds = computed(() => new Set(watchList.value.map(w => w.eqAccountId)));
+// Use shared watch list from characterAdmin store
+const characterAdminStore = useCharacterAdminStore();
+const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
+const watchedAccountIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqAccountId)));
 
 interface IpGroup {
   ip: string;
@@ -326,13 +327,6 @@ async function loadConnections() {
   }
 }
 
-async function loadWatchList() {
-  try {
-    watchList.value = await api.fetchCharacterWatchList();
-  } catch (err) {
-    console.error('Failed to load watch list:', err);
-  }
-}
 
 async function refreshConnections() {
   await loadConnections();
@@ -366,7 +360,11 @@ function stopAutoRefresh() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadConnections(), loadWatchList()]);
+  // Load connections and watch list (from shared store)
+  await Promise.all([
+    loadConnections(),
+    characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
+  ]);
   if (autoRefreshEnabled.value) {
     startAutoRefresh();
   }
