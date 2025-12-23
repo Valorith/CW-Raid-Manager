@@ -1129,3 +1129,109 @@ export async function deleteAccountNote(noteId: string): Promise<void> {
     where: { id: noteId }
   });
 }
+
+/**
+ * Connection data for IP group sync
+ */
+export interface ConnectionForSync {
+  characterId: number;
+  characterName: string;
+  accountId: number;
+  ip: string;
+}
+
+/**
+ * Sync associations from IP groups - ensures all characters in the same IP group
+ * are associated with each other. Called from the connections page.
+ */
+export async function syncIpGroupAssociations(
+  connections: ConnectionForSync[],
+  userId: string,
+  userName: string
+): Promise<{ created: number; skipped: number }> {
+  // Group connections by IP
+  const ipGroups = new Map<string, ConnectionForSync[]>();
+  for (const conn of connections) {
+    const existing = ipGroups.get(conn.ip);
+    if (existing) {
+      existing.push(conn);
+    } else {
+      ipGroups.set(conn.ip, [conn]);
+    }
+  }
+
+  let created = 0;
+  let skipped = 0;
+
+  // For each IP group with multiple characters from different accounts
+  for (const [ip, groupConnections] of ipGroups) {
+    // Get unique accounts in this IP group
+    const accountMap = new Map<number, ConnectionForSync[]>();
+    for (const conn of groupConnections) {
+      const existing = accountMap.get(conn.accountId);
+      if (existing) {
+        existing.push(conn);
+      } else {
+        accountMap.set(conn.accountId, [conn]);
+      }
+    }
+
+    // Only process if multiple accounts on the same IP
+    if (accountMap.size < 2) {
+      continue;
+    }
+
+    // Get all characters from all accounts in this IP group
+    const allCharsInGroup = groupConnections;
+
+    // Create associations between all cross-account pairs
+    for (let i = 0; i < allCharsInGroup.length; i++) {
+      for (let j = i + 1; j < allCharsInGroup.length; j++) {
+        const charA = allCharsInGroup[i];
+        const charB = allCharsInGroup[j];
+
+        // Skip if same account
+        if (charA.accountId === charB.accountId) {
+          continue;
+        }
+
+        // Check if association already exists (in either direction)
+        const existingAssoc = await prisma.characterAssociation.findFirst({
+          where: {
+            OR: [
+              { sourceCharacterId: charA.characterId, targetCharacterId: charB.characterId },
+              { sourceCharacterId: charB.characterId, targetCharacterId: charA.characterId }
+            ]
+          }
+        });
+
+        if (existingAssoc) {
+          skipped++;
+          continue;
+        }
+
+        // Create the association
+        try {
+          await prisma.characterAssociation.create({
+            data: {
+              sourceCharacterId: charA.characterId,
+              sourceCharacterName: charA.characterName,
+              targetCharacterId: charB.characterId,
+              targetCharacterName: charB.characterName,
+              targetAccountId: charB.accountId,
+              reason: `Same IP connection (${ip})`,
+              createdById: userId,
+              createdByName: userName
+            }
+          });
+          created++;
+        } catch (err) {
+          // Unique constraint violation - already exists
+          skipped++;
+        }
+      }
+    }
+  }
+
+  return { created, skipped };
+}

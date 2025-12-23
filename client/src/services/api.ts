@@ -4056,6 +4056,19 @@ export const api = {
    */
   async removeCharacterWatch(characterId: number): Promise<void> {
     await axios.delete(`/api/admin/character-watch/${characterId}`);
+  },
+
+  /**
+   * Syncs associations from IP groups (called when connections page loads).
+   */
+  async syncIpGroupAssociations(connections: Array<{
+    characterId: number;
+    characterName: string;
+    accountId: number;
+    ip: string;
+  }>): Promise<{ created: number; skipped: number }> {
+    const response = await axios.post('/api/admin/sync-ip-associations', { connections });
+    return response.data;
   }
 
 };

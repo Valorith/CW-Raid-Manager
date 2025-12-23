@@ -49,7 +49,9 @@ import {
   getAccountNotes,
   createAccountNote,
   updateAccountNote,
-  deleteAccountNote
+  deleteAccountNote,
+  syncIpGroupAssociations,
+  type ConnectionForSync
 } from '../services/characterAdminService.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
@@ -1286,6 +1288,55 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to remove character from watch list.');
+      }
+    }
+  );
+
+  // Sync associations from IP groups (called by connections page)
+  server.post(
+    '/sync-ip-associations',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        connections: z.array(z.object({
+          characterId: z.number().int().positive(),
+          characterName: z.string().min(1),
+          accountId: z.number().int().positive(),
+          ip: z.string().min(1)
+        }))
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid request body.');
+      }
+
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const result = await syncIpGroupAssociations(
+          parsed.data.connections as ConnectionForSync[],
+          request.user.userId,
+          user.displayName
+        );
+
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to sync IP group associations.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to sync IP group associations.');
       }
     }
   );

@@ -320,10 +320,54 @@ async function loadConnections() {
     connections.value = response.connections;
     ipExemptions.value = response.ipExemptions;
     lastUpdated.value = new Date();
+
+    // Sync IP group associations in the background
+    syncIpAssociations(response.connections);
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
     loading.value = false;
+  }
+}
+
+async function syncIpAssociations(conns: typeof connections.value) {
+  // Only sync if there are multi-account IP groups
+  const ipGroups = new Map<string, typeof conns>();
+  for (const conn of conns) {
+    const existing = ipGroups.get(conn.ip);
+    if (existing) {
+      existing.push(conn);
+    } else {
+      ipGroups.set(conn.ip, [conn]);
+    }
+  }
+
+  // Check if any IP group has multiple accounts
+  let hasMultiAccountGroup = false;
+  for (const group of ipGroups.values()) {
+    const uniqueAccounts = new Set(group.map(c => c.accountId));
+    if (uniqueAccounts.size > 1) {
+      hasMultiAccountGroup = true;
+      break;
+    }
+  }
+
+  if (!hasMultiAccountGroup) {
+    return;
+  }
+
+  // Sync associations
+  try {
+    await api.syncIpGroupAssociations(
+      conns.map(c => ({
+        characterId: c.characterId,
+        characterName: c.characterName,
+        accountId: c.accountId,
+        ip: c.ip
+      }))
+    );
+  } catch (err) {
+    console.error('Failed to sync IP group associations:', err);
   }
 }
 
