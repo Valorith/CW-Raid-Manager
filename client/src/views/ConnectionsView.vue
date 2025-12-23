@@ -170,6 +170,7 @@ const DEFAULT_OUTSIDE_LIMIT = 2;
 
 // Watch list state
 const watchList = ref<CharacterWatch[]>([]);
+const watchedCharacterIds = computed(() => new Set(watchList.value.map(w => w.eqCharacterId)));
 const watchedAccountIds = computed(() => new Set(watchList.value.map(w => w.eqAccountId)));
 
 interface IpGroup {
@@ -284,9 +285,11 @@ function getIpLimit(ip: string): number {
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
   const classes: string[] = [];
 
-  // Check if watched
-  if (watchedAccountIds.value.has(conn.accountId)) {
+  // Check if directly watched (orange) or associated with watched (yellow)
+  if (watchedCharacterIds.value.has(conn.characterId)) {
     classes.push('row--watched');
+  } else if (watchedAccountIds.value.has(conn.accountId)) {
+    classes.push('row--watched-associated');
   }
 
   if (!isOutsideHome(conn)) {
@@ -665,6 +668,50 @@ onUnmounted(() => {
   50% {
     border-color: rgba(249, 115, 22, 0.8);
     box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+  }
+}
+
+/* Associated character styling - pulsing yellow border */
+.connections-table tbody tr.row--watched-associated {
+  position: relative;
+  animation: watchAssociatedPulse 2s ease-in-out infinite;
+}
+
+.connections-table tbody tr.row--watched-associated::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(234, 179, 8, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+  animation: watchAssociatedBorderPulse 2s ease-in-out infinite;
+}
+
+/* When associated and has other status, show a left indicator instead */
+.connections-table tbody tr.row--watched-associated.row--warning::before,
+.connections-table tbody tr.row--watched-associated.row--danger::before {
+  border: none;
+  border-left: 4px solid rgba(234, 179, 8, 0.8);
+  border-radius: 0;
+}
+
+@keyframes watchAssociatedPulse {
+  0%, 100% {
+    background-color: rgba(234, 179, 8, 0.08);
+  }
+  50% {
+    background-color: rgba(234, 179, 8, 0.15);
+  }
+}
+
+@keyframes watchAssociatedBorderPulse {
+  0%, 100% {
+    border-color: rgba(234, 179, 8, 0.4);
+    box-shadow: 0 0 8px rgba(234, 179, 8, 0.2);
+  }
+  50% {
+    border-color: rgba(234, 179, 8, 0.8);
+    box-shadow: 0 0 12px rgba(234, 179, 8, 0.4);
   }
 }
 
