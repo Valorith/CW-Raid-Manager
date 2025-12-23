@@ -837,6 +837,7 @@ const roleLabels: Record<string, string> = {
   OFFICER: 'Officer',
   RAID_LEADER: 'Raid Leader',
   MEMBER: 'Member',
+  RECRUIT: 'Recruit',
   FRIENDS_FAMILY: 'Friends/Family',
   APPLICANT: 'Applicant'
 };
@@ -917,12 +918,14 @@ function availableRoles(member: GuildMemberEntry): GuildRole[] {
   }
 
   if (actor === 'LEADER') {
-    ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER', 'FRIENDS_FAMILY'].forEach((role) =>
+    ['LEADER', 'OFFICER', 'RAID_LEADER', 'MEMBER', 'RECRUIT', 'FRIENDS_FAMILY'].forEach((role) =>
       allowed.add(role as GuildRole)
     );
   } else if (actor === 'OFFICER') {
     if (member.role !== 'LEADER' && member.role !== 'OFFICER') {
-      ['RAID_LEADER', 'MEMBER', 'FRIENDS_FAMILY'].forEach((role) => allowed.add(role as GuildRole));
+      ['RAID_LEADER', 'MEMBER', 'RECRUIT', 'FRIENDS_FAMILY'].forEach((role) =>
+        allowed.add(role as GuildRole)
+      );
     }
   }
 

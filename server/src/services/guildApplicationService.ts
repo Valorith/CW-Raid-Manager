@@ -181,12 +181,12 @@ export async function approveApplication(applicationId: string, actorUserId: str
         }
       },
       update: {
-        role: GuildRole.MEMBER
+        role: GuildRole.RECRUIT
       },
       create: {
         guildId: application.guildId,
         userId: application.userId,
-        role: GuildRole.MEMBER
+        role: GuildRole.RECRUIT
       }
     });
 
