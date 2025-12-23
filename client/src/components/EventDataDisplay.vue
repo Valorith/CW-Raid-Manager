@@ -64,13 +64,21 @@
     <template v-else-if="event.eventTypeName === 'LEVEL_GAIN' || event.eventTypeName === 'LEVEL_LOSS'">
       <div class="data-row">
         <span class="data-label">From Level:</span>
-        <span class="data-value">{{ eventData.from || eventData.old_level || '?' }}</span>
+        <span class="data-value">{{ eventData.from_level || eventData.from || eventData.old_level || '?' }}</span>
       </div>
       <div class="data-row">
         <span class="data-label">To Level:</span>
         <span :class="['data-value', event.eventTypeName === 'LEVEL_GAIN' ? 'data-value--success' : 'data-value--danger']">
-          {{ eventData.to || eventData.new_level || '?' }}
+          {{ eventData.to_level || eventData.to || eventData.new_level || '?' }}
         </span>
+      </div>
+      <div v-if="eventData.levels_lost" class="data-row">
+        <span class="data-label">Levels Lost:</span>
+        <span class="data-value data-value--danger">{{ eventData.levels_lost }}</span>
+      </div>
+      <div v-if="eventData.levels_gained" class="data-row">
+        <span class="data-label">Levels Gained:</span>
+        <span class="data-value data-value--success">{{ eventData.levels_gained }}</span>
       </div>
     </template>
 
