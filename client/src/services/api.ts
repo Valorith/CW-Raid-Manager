@@ -1504,6 +1504,7 @@ export interface CharacterAssociate {
   sharedIp?: string;
   manualReason?: string;
   manualAssociationId?: string;
+  manualAssociationType?: 'direct' | 'indirect';
   createdByName?: string;
   createdAt?: string;
 }

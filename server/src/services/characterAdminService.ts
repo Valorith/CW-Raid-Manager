@@ -76,6 +76,7 @@ export interface CharacterAssociate {
   sharedIp?: string;
   manualReason?: string;
   manualAssociationId?: string;
+  manualAssociationType?: 'direct' | 'indirect'; // For manual associations: direct = same person, indirect = possible alt
   createdByName?: string;
   createdAt?: string;
 }
@@ -912,6 +913,7 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
           associationType: 'manual',
           manualReason: assoc.reason || undefined,
           manualAssociationId: assoc.id,
+          manualAssociationType: assoc.associationType as 'direct' | 'indirect',
           createdByName: assoc.createdByName,
           createdAt: assoc.createdAt.toISOString()
         });
@@ -928,6 +930,7 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
         associationType: 'manual',
         manualReason: assoc.reason || undefined,
         manualAssociationId: assoc.id,
+        manualAssociationType: assoc.associationType as 'direct' | 'indirect',
         createdByName: assoc.createdByName,
         createdAt: assoc.createdAt.toISOString()
       });

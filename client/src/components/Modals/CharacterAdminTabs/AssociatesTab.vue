@@ -104,6 +104,13 @@
               <span class="association-badge" :class="`badge--${associate.associationType}`">
                 {{ getAssociationLabel(associate.associationType) }}
               </span>
+              <span
+                v-if="associate.associationType === 'manual' && associate.manualAssociationType"
+                class="association-badge"
+                :class="`badge--manual-${associate.manualAssociationType}`"
+              >
+                {{ associate.manualAssociationType === 'direct' ? 'Direct' : 'Indirect' }}
+              </span>
             </div>
             <div class="associate-details">
               <span>Level {{ associate.level }} {{ associate.className }}</span>
@@ -574,6 +581,16 @@ function formatDate(dateStr: string): string {
   &.badge--manual {
     background: rgba(168, 85, 247, 0.2);
     color: #c084fc;
+  }
+
+  &.badge--manual-direct {
+    background: rgba(249, 115, 22, 0.2);
+    color: #fb923c;
+  }
+
+  &.badge--manual-indirect {
+    background: rgba(234, 179, 8, 0.2);
+    color: #facc15;
   }
 }
 
