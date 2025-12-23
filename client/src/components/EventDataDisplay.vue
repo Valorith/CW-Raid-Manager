@@ -312,6 +312,14 @@
         <span class="data-label">Task ID:</span>
         <span class="data-value muted">{{ eventData.task_id }}</span>
       </div>
+      <div v-if="eventData.activity_id !== undefined" class="data-row">
+        <span class="data-label">Activity ID:</span>
+        <span class="data-value muted">{{ eventData.activity_id }}</span>
+      </div>
+      <div v-if="eventData.done_count !== undefined" class="data-row">
+        <span class="data-label">Done Count:</span>
+        <span class="data-value data-value--success">{{ eventData.done_count }}</span>
+      </div>
     </template>
 
     <!-- GROUP_JOIN / GROUP_LEAVE / RAID_JOIN / RAID_LEAVE -->
