@@ -785,7 +785,7 @@ function getItemStackCount(item: GuildBankItem | null | undefined): number | nul
 
 .eq-bank-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* 4 columns for bank as requested */
+  grid-template-columns: repeat(8, 1fr); /* 8 columns for wider, less tall layout */
   gap: 0.5rem;
 }
 
