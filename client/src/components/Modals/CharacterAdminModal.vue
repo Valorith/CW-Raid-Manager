@@ -229,7 +229,8 @@ function close() {
   gap: 1rem 2rem;
   padding: 0.75rem 1.5rem;
   background: #0f172a;
-  border-bottom: 1px solid #334155;
+  border-bottom: none;
+  flex-shrink: 0;
 }
 
 .info-item {
@@ -250,9 +251,11 @@ function close() {
   display: flex;
   gap: 0;
   padding: 0 1.5rem;
-  background: #0f172a;
+  background: #1e293b;
   border-bottom: 1px solid #334155;
+  border-top: 1px solid #334155;
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
 .tab-button {
