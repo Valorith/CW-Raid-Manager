@@ -36,6 +36,7 @@ model User {
   npcFavorites         NpcFavorite[]
   accountNotes         AccountNote[] @relation("AccountNoteCreator")
   characterAssociations CharacterAssociation[] @relation("CharacterAssociationCreator")
+  characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
 }
 
 model Guild {
@@ -852,5 +853,21 @@ model CharacterAssociation {
   @@unique([sourceCharacterId, targetCharacterId])
   @@index([sourceCharacterId])
   @@index([targetCharacterId])
+  @@index([createdById])
+}
+
+// Character Watch List - characters flagged for monitoring
+model CharacterWatch {
+  id                  String   @id @default(cuid())
+  eqCharacterId       Int      // References character_data.id from EQ database
+  eqCharacterName     String   @db.VarChar(191)
+  eqAccountId         Int      // References account.id from EQ database
+  createdById         String
+  createdByName       String   @db.VarChar(191)
+  createdAt           DateTime @default(now())
+  createdBy           User     @relation("CharacterWatchCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([eqCharacterId])
+  @@index([eqAccountId])
   @@index([createdById])
 }

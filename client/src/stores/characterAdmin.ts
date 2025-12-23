@@ -11,7 +11,8 @@ import {
   type PlayerEventLog,
   type PlayerEventType,
   type PlayerEventZone,
-  type CharacterEventFilters
+  type CharacterEventFilters,
+  type CharacterWatch
 } from '../services/api';
 
 export type CharacterAdminTab = 'events' | 'associates' | 'account' | 'corpses' | 'notes' | 'inventory';
@@ -86,6 +87,11 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   const searchResults = ref<CharacterSearchResult[]>([]);
   const searchLoading = ref(false);
 
+  // Watch list
+  const isWatched = ref(false);
+  const watchLoading = ref(false);
+  const watchData = ref<CharacterWatch | null>(null);
+
   // Computed helpers
   const isOpen = computed(() => modalState.value.open);
   const activeTab = computed(() => modalState.value.activeTab);
@@ -149,6 +155,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
       }
     };
     searchResults.value = [];
+    isWatched.value = false;
+    watchData.value = null;
   }
 
   // Set active tab
@@ -170,6 +178,9 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
       character.value = await api.fetchCharacterByName(name);
       modalState.value.characterId = character.value.id;
       modalState.value.characterName = character.value.name;
+
+      // Check watch status
+      checkWatchStatus(character.value.id);
 
       // Load initial tab data
       await loadTabData(modalState.value.activeTab);
@@ -195,6 +206,9 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
       character.value = await api.fetchCharacterById(id);
       modalState.value.characterId = character.value.id;
       modalState.value.characterName = character.value.name;
+
+      // Check watch status
+      checkWatchStatus(character.value.id);
 
       // Load initial tab data
       await loadTabData(modalState.value.activeTab);
@@ -427,6 +441,47 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     }
   }
 
+  // Check watch status for a character
+  async function checkWatchStatus(characterId: number) {
+    try {
+      const result = await api.checkCharacterWatch(characterId);
+      isWatched.value = result.isWatched;
+      watchData.value = result.watch;
+    } catch (err) {
+      console.error('[CharacterAdminStore] Error checking watch status:', err);
+      isWatched.value = false;
+      watchData.value = null;
+    }
+  }
+
+  // Toggle watch status
+  async function toggleWatch() {
+    if (!character.value) return;
+
+    watchLoading.value = true;
+    try {
+      if (isWatched.value) {
+        // Remove from watch list
+        await api.removeCharacterWatch(character.value.id);
+        isWatched.value = false;
+        watchData.value = null;
+      } else {
+        // Add to watch list
+        const watch = await api.addCharacterWatch(
+          character.value.id,
+          character.value.name,
+          character.value.accountId
+        );
+        isWatched.value = true;
+        watchData.value = watch;
+      }
+    } catch (err) {
+      console.error('[CharacterAdminStore] Error toggling watch:', err);
+    } finally {
+      watchLoading.value = false;
+    }
+  }
+
   return {
     // State
     modalState,
@@ -446,6 +501,9 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     eventZones,
     searchResults,
     searchLoading,
+    isWatched,
+    watchLoading,
+    watchData,
 
     // Computed
     isOpen,
@@ -469,6 +527,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     removeAssociation,
     createNote,
     updateNote,
-    deleteNote
+    deleteNote,
+    toggleWatch
   };
 });

@@ -1518,6 +1518,16 @@ export interface AccountNote {
   updatedAt: string;
 }
 
+export interface CharacterWatch {
+  id: string;
+  eqCharacterId: number;
+  eqCharacterName: string;
+  eqAccountId: number;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface CharacterSearchResult {
   id: number;
   name: string;
@@ -4007,6 +4017,45 @@ export const api = {
   async searchCharacters(query: string): Promise<CharacterSearchResult[]> {
     const response = await axios.get(`/api/admin/characters/search?q=${encodeURIComponent(query)}`);
     return response.data.characters ?? [];
+  },
+
+  // ============================================
+  // Character Watch List
+  // ============================================
+
+  /**
+   * Fetches all watched characters.
+   */
+  async fetchCharacterWatchList(): Promise<CharacterWatch[]> {
+    const response = await axios.get('/api/admin/character-watch');
+    return response.data.watchList ?? [];
+  },
+
+  /**
+   * Checks if a character is on the watch list.
+   */
+  async checkCharacterWatch(characterId: number): Promise<{ isWatched: boolean; watch: CharacterWatch | null }> {
+    const response = await axios.get(`/api/admin/character-watch/${characterId}`);
+    return { isWatched: response.data.isWatched, watch: response.data.watch };
+  },
+
+  /**
+   * Adds a character to the watch list.
+   */
+  async addCharacterWatch(characterId: number, characterName: string, accountId: number): Promise<CharacterWatch> {
+    const response = await axios.post('/api/admin/character-watch', {
+      characterId,
+      characterName,
+      accountId
+    });
+    return response.data.watch;
+  },
+
+  /**
+   * Removes a character from the watch list.
+   */
+  async removeCharacterWatch(characterId: number): Promise<void> {
+    await axios.delete(`/api/admin/character-watch/${characterId}`);
   }
 
 };

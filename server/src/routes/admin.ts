@@ -1156,4 +1156,137 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // ============================================
+  // Character Watch List Endpoints
+  // ============================================
+
+  // Get all watched characters
+  server.get(
+    '/character-watch',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const watchList = await prisma.characterWatch.findMany({
+          orderBy: { createdAt: 'desc' }
+        });
+        return { watchList };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch character watch list.');
+        return reply.badRequest('Unable to fetch character watch list.');
+      }
+    }
+  );
+
+  // Check if a specific character is watched
+  server.get(
+    '/character-watch/:characterId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        characterId: z.coerce.number().int().positive()
+      });
+
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid character ID.');
+      }
+
+      try {
+        const watch = await prisma.characterWatch.findUnique({
+          where: { eqCharacterId: parsed.data.characterId }
+        });
+        return { isWatched: !!watch, watch };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to check character watch status.');
+        return reply.badRequest('Unable to check character watch status.');
+      }
+    }
+  );
+
+  // Add character to watch list
+  server.post(
+    '/character-watch',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        characterId: z.number().int().positive(),
+        characterName: z.string().min(1).max(191),
+        accountId: z.number().int().positive()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid request body.');
+      }
+
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const watch = await prisma.characterWatch.create({
+          data: {
+            eqCharacterId: parsed.data.characterId,
+            eqCharacterName: parsed.data.characterName,
+            eqAccountId: parsed.data.accountId,
+            createdById: request.user.userId,
+            createdByName: user.displayName
+          }
+        });
+
+        return { watch };
+      } catch (error) {
+        // Handle unique constraint violation (already watched)
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          return reply.badRequest('Character is already on the watch list.');
+        }
+        request.log.error({ error }, 'Failed to add character to watch list.');
+        return reply.badRequest('Unable to add character to watch list.');
+      }
+    }
+  );
+
+  // Remove character from watch list
+  server.delete(
+    '/character-watch/:characterId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        characterId: z.coerce.number().int().positive()
+      });
+
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid character ID.');
+      }
+
+      try {
+        await prisma.characterWatch.delete({
+          where: { eqCharacterId: parsed.data.characterId }
+        });
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to remove character from watch list.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to remove character from watch list.');
+      }
+    }
+  );
 }

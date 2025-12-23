@@ -163,10 +163,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
-import { api, type ServerConnection, type IpExemption } from '../services/api';
+import { api, type ServerConnection, type IpExemption, type CharacterWatch } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
+
+// Watch list state
+const watchList = ref<CharacterWatch[]>([]);
+const watchedAccountIds = computed(() => new Set(watchList.value.map(w => w.eqAccountId)));
 
 interface IpGroup {
   ip: string;
@@ -278,16 +282,26 @@ function getIpLimit(ip: string): number {
 }
 
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
+  const classes: string[] = [];
+
+  // Check if watched
+  if (watchedAccountIds.value.has(conn.accountId)) {
+    classes.push('row--watched');
+  }
+
   if (!isOutsideHome(conn)) {
-    return ''; // In home zone, no special styling
+    return classes.join(' '); // In home zone, only watched styling if applicable
   }
 
   const outsideCount = getOutsideHomeCount(group);
   const limit = getIpLimit(group.ip);
   if (outsideCount > limit) {
-    return 'row--danger'; // Red theme: exceeds limit for this IP
+    classes.push('row--danger'); // Red theme: exceeds limit for this IP
+  } else {
+    classes.push('row--warning'); // Green theme: within limit for this IP
   }
-  return 'row--warning'; // Green theme: within limit for this IP
+
+  return classes.join(' ');
 }
 
 function setPage(page: number) {
@@ -306,6 +320,14 @@ async function loadConnections() {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadWatchList() {
+  try {
+    watchList.value = await api.fetchCharacterWatchList();
+  } catch (err) {
+    console.error('Failed to load watch list:', err);
   }
 }
 
@@ -341,7 +363,7 @@ function stopAutoRefresh() {
 }
 
 onMounted(async () => {
-  await loadConnections();
+  await Promise.all([loadConnections(), loadWatchList()]);
   if (autoRefreshEnabled.value) {
     startAutoRefresh();
   }
@@ -600,6 +622,50 @@ onUnmounted(() => {
 
 .connections-table tbody tr.row--danger td {
   color: #fca5a5;
+}
+
+/* Watched character styling - pulsing orange border */
+.connections-table tbody tr.row--watched {
+  position: relative;
+  animation: watchPulse 2s ease-in-out infinite;
+}
+
+.connections-table tbody tr.row--watched::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(249, 115, 22, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+  animation: watchBorderPulse 2s ease-in-out infinite;
+}
+
+/* When watched and has other status, show a left indicator instead */
+.connections-table tbody tr.row--watched.row--warning::before,
+.connections-table tbody tr.row--watched.row--danger::before {
+  border: none;
+  border-left: 4px solid rgba(249, 115, 22, 0.8);
+  border-radius: 0;
+}
+
+@keyframes watchPulse {
+  0%, 100% {
+    background-color: rgba(249, 115, 22, 0.08);
+  }
+  50% {
+    background-color: rgba(249, 115, 22, 0.15);
+  }
+}
+
+@keyframes watchBorderPulse {
+  0%, 100% {
+    border-color: rgba(249, 115, 22, 0.4);
+    box-shadow: 0 0 8px rgba(249, 115, 22, 0.2);
+  }
+  50% {
+    border-color: rgba(249, 115, 22, 0.8);
+    box-shadow: 0 0 12px rgba(249, 115, 22, 0.4);
+  }
 }
 
 .connections-table tbody tr:last-child td {

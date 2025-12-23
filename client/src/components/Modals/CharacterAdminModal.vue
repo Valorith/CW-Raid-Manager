@@ -37,6 +37,17 @@
           <span class="info-label">Account ID:</span>
           <span class="info-value">{{ store.character.accountId }}</span>
         </div>
+        <div class="info-item info-item--watch">
+          <button
+            class="watch-toggle"
+            :class="{ 'watch-toggle--active': store.isWatched }"
+            :disabled="store.watchLoading"
+            @click="toggleWatch"
+          >
+            <span class="watch-icon">{{ store.isWatched ? '&#9733;' : '&#9734;' }}</span>
+            <span class="watch-label">{{ store.watchLoading ? 'Loading...' : (store.isWatched ? 'Watching' : 'Watch') }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- Tabs -->
@@ -149,6 +160,10 @@ const store = useCharacterAdminStore();
 function close() {
   store.close();
 }
+
+function toggleWatch() {
+  store.toggleWatch();
+}
 </script>
 
 <style scoped>
@@ -239,12 +254,62 @@ function close() {
   font-size: 0.875rem;
 }
 
+.info-item--watch {
+  margin-left: auto;
+}
+
 .info-label {
   color: #64748b;
 }
 
 .info-value {
   color: #e2e8f0;
+}
+
+.watch-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(100, 116, 139, 0.2);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 0.375rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.watch-toggle:hover:not(:disabled) {
+  background: rgba(249, 115, 22, 0.15);
+  border-color: rgba(249, 115, 22, 0.4);
+  color: #fb923c;
+}
+
+.watch-toggle--active {
+  background: rgba(249, 115, 22, 0.2);
+  border-color: rgba(249, 115, 22, 0.5);
+  color: #fb923c;
+}
+
+.watch-toggle--active:hover:not(:disabled) {
+  background: rgba(249, 115, 22, 0.3);
+  border-color: rgba(249, 115, 22, 0.6);
+}
+
+.watch-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.watch-icon {
+  font-size: 0.875rem;
+}
+
+.watch-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .modal__tabs {
