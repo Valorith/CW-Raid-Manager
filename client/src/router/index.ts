@@ -122,6 +122,12 @@ const router = createRouter({
       name: 'Connections',
       component: () => import('../views/ConnectionsView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/player-event-logs',
+      name: 'PlayerEventLogs',
+      component: () => import('../views/PlayerEventLogsView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });

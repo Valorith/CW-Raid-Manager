@@ -9,6 +9,9 @@
         <router-link to="/admin/connections" class="btn btn--accent">
           Server Connections
         </router-link>
+        <router-link to="/admin/player-event-logs" class="btn btn--accent">
+          Player Event Logs
+        </router-link>
         <router-link to="/admin/money-tracker" class="btn btn--outline">
           Money Tracker
         </router-link>

@@ -29,6 +29,12 @@ import {
   getLootManagementSummary
 } from '../services/lootManagementService.js';
 import { fetchServerConnections, fetchIpExemptions } from '../services/connectionsService.js';
+import {
+  fetchPlayerEventLogs,
+  getPlayerEventLogStats,
+  getEventTypes,
+  getEventLogZones
+} from '../services/playerEventLogsService.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
   try {
@@ -585,6 +591,96 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to fetch server connections.');
+      }
+    }
+  );
+
+  // Player Event Logs Routes
+  server.get(
+    '/player-event-logs',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(50),
+        characterName: z.string().optional(),
+        eventTypes: z.string().optional().transform((val) => {
+          if (!val) return undefined;
+          return val.split(',').map(Number).filter((n) => !Number.isNaN(n));
+        }),
+        zoneId: z.coerce.number().int().optional(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        sortBy: z.enum(['created_at', 'character_name', 'event_type_id', 'zone_id']).optional().default('created_at'),
+        sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
+        search: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        const result = await fetchPlayerEventLogs(parsed.data);
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch player event logs.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch player event logs.');
+      }
+    }
+  );
+
+  server.get(
+    '/player-event-logs/stats',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const stats = await getPlayerEventLogStats();
+        return { stats };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch player event log stats.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch player event log stats.');
+      }
+    }
+  );
+
+  server.get(
+    '/player-event-logs/event-types',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const eventTypes = getEventTypes();
+      return { eventTypes };
+    }
+  );
+
+  server.get(
+    '/player-event-logs/zones',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const zones = await getEventLogZones();
+        return { zones };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch player event log zones.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch player event log zones.');
       }
     }
   );
