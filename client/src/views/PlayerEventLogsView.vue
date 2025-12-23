@@ -245,7 +245,7 @@
                   <span class="date-display muted">{{ formatDate(event.createdAt) }}</span>
                 </td>
                 <td class="col-character">
-                  <CharacterLink :name="event.characterName" />
+                  <CharacterLink :name="event.characterName" :admin-mode="true" />
                 </td>
                 <td class="col-event">
                   <span :class="['event-badge', getEventBadgeClass(event.eventTypeName)]">

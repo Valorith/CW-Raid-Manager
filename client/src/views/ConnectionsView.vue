@@ -120,7 +120,7 @@
                     </div>
                   </td>
                   <td class="col-name">
-                    <CharacterLink :name="conn.characterName" />
+                    <CharacterLink :name="conn.characterName" :admin-mode="true" />
                   </td>
                   <td class="col-level">{{ conn.level }}</td>
                   <td class="col-zone">{{ conn.zoneName }}</td>
