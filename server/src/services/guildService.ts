@@ -67,23 +67,6 @@ export async function getGuildById(id: string, options?: { viewerUserId?: string
             }
           }
         }
-      },
-      characters: {
-        select: {
-          id: true,
-          name: true,
-          class: true,
-          level: true,
-          guildId: true,
-          isMain: true,
-          user: {
-            select: {
-              id: true,
-              displayName: true,
-              nickname: true
-            }
-          }
-        }
       }
     }
   });
@@ -117,12 +100,38 @@ export async function getGuildById(id: string, options?: { viewerUserId?: string
       }))
     : [];
 
-  const characters = canViewDetails
-    ? guild.characters.map((character) => ({
-        ...character,
-        user: withPreferredDisplayName(character.user)
-      }))
+  // Fetch characters from all guild members (based on membership, not character.guildId)
+  const memberUserIds = guild.members.map((m) => m.userId);
+  const memberCharacters = canViewDetails && memberUserIds.length > 0
+    ? await prisma.character.findMany({
+        where: {
+          userId: { in: memberUserIds }
+        },
+        select: {
+          id: true,
+          name: true,
+          class: true,
+          level: true,
+          guildId: true,
+          isMain: true,
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              nickname: true
+            }
+          }
+        },
+        orderBy: {
+          name: 'asc'
+        }
+      })
     : [];
+
+  const characters = memberCharacters.map((character) => ({
+    ...character,
+    user: withPreferredDisplayName(character.user)
+  }));
 
   const applicants = canManageMembers
     ? await prisma.guildApplication.findMany({
