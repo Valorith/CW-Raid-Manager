@@ -42,13 +42,46 @@
       <!-- Tabs -->
       <div class="modal__tabs">
         <button
-          v-for="tab in tabs"
-          :key="tab.id"
           class="tab-button"
-          :class="{ 'tab-button--active': store.activeTab === tab.id }"
-          @click="store.setActiveTab(tab.id)"
+          :class="{ 'tab-button--active': store.activeTab === 'events' }"
+          @click="store.setActiveTab('events')"
         >
-          {{ tab.label }}
+          Events
+        </button>
+        <button
+          class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'associates' }"
+          @click="store.setActiveTab('associates')"
+        >
+          Associates
+        </button>
+        <button
+          class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'account' }"
+          @click="store.setActiveTab('account')"
+        >
+          Account
+        </button>
+        <button
+          class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'corpses' }"
+          @click="store.setActiveTab('corpses')"
+        >
+          Corpses
+        </button>
+        <button
+          class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'notes' }"
+          @click="store.setActiveTab('notes')"
+        >
+          Notes
+        </button>
+        <button
+          class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'inventory' }"
+          @click="store.setActiveTab('inventory')"
+        >
+          Inventory
         </button>
       </div>
 
@@ -103,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { useCharacterAdminStore, type CharacterAdminTab } from '../../stores/characterAdmin';
+import { useCharacterAdminStore } from '../../stores/characterAdmin';
 import EventsTab from './CharacterAdminTabs/EventsTab.vue';
 import AssociatesTab from './CharacterAdminTabs/AssociatesTab.vue';
 import AccountTab from './CharacterAdminTabs/AccountTab.vue';
@@ -113,21 +146,12 @@ import InventoryTab from './CharacterAdminTabs/InventoryTab.vue';
 
 const store = useCharacterAdminStore();
 
-const tabs: { id: CharacterAdminTab; label: string }[] = [
-  { id: 'events', label: 'Events' },
-  { id: 'associates', label: 'Associates' },
-  { id: 'account', label: 'Account' },
-  { id: 'corpses', label: 'Corpses' },
-  { id: 'notes', label: 'Notes' },
-  { id: 'inventory', label: 'Inventory' }
-];
-
 function close() {
   store.close();
 }
 </script>
 
-<style scoped lang="scss">
+<style scoped>
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -160,27 +184,25 @@ function close() {
   background: #0f172a;
 }
 
-.modal__header-content {
-  .eyebrow {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #64748b;
-    margin: 0 0 0.25rem;
-  }
+.modal__header-content .eyebrow {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin: 0 0 0.25rem;
+}
 
-  h3 {
-    margin: 0;
-    font-size: 1.25rem;
-    color: #f8fafc;
-  }
+.modal__header-content h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #f8fafc;
+}
 
-  .character-meta {
-    font-size: 0.875rem;
-    color: #94a3b8;
-    font-weight: normal;
-    margin-left: 0.5rem;
-  }
+.character-meta {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  font-weight: normal;
+  margin-left: 0.5rem;
 }
 
 .icon-button {
@@ -191,14 +213,14 @@ function close() {
   padding: 0.25rem;
   font-size: 1.5rem;
   line-height: 1;
+}
 
-  &:hover {
-    color: #f8fafc;
-  }
+.icon-button:hover {
+  color: #f8fafc;
+}
 
-  &__glyph {
-    display: block;
-  }
+.icon-button__glyph {
+  display: block;
 }
 
 .character-info-bar {
@@ -244,16 +266,16 @@ function close() {
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   transition: all 0.15s ease;
+}
 
-  &:hover {
-    color: #e2e8f0;
-    background: rgba(255, 255, 255, 0.05);
-  }
+.tab-button:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.05);
+}
 
-  &--active {
-    color: #3b82f6;
-    border-bottom-color: #3b82f6;
-  }
+.tab-button--active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
 }
 
 .modal__body {
@@ -298,7 +320,7 @@ function close() {
   margin: 0;
 }
 
-// Responsive
+/* Responsive */
 @media (max-width: 768px) {
   .character-admin-modal {
     max-height: 100vh;
