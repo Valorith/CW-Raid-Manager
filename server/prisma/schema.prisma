@@ -547,6 +547,7 @@ enum GuildRole {
   OFFICER
   RAID_LEADER
   MEMBER
+  RECRUIT
   FRIENDS_FAMILY
 }
 

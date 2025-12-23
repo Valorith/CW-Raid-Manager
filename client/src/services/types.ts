@@ -1,4 +1,4 @@
-export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER' | 'FRIENDS_FAMILY';
+export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER' | 'RECRUIT' | 'FRIENDS_FAMILY';
 export type LootListType = 'WHITELIST' | 'BLACKLIST';
 
 export type QuestBlueprintVisibility = 'GUILD' | 'LINK_ONLY' | 'PRIVATE';
@@ -47,6 +47,7 @@ export const guildRoleOrder: GuildRole[] = [
   'OFFICER',
   'RAID_LEADER',
   'MEMBER',
+  'RECRUIT',
   'FRIENDS_FAMILY'
 ];
 export const lootListTypeOrder: LootListType[] = ['WHITELIST', 'BLACKLIST'];
