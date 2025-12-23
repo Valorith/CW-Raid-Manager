@@ -88,13 +88,29 @@
         <span class="data-label">AA:</span>
         <span class="data-value data-value--highlight">{{ eventData.aa_name }}</span>
       </div>
+      <div v-if="eventData.aa_id !== undefined" class="data-row">
+        <span class="data-label">AA ID:</span>
+        <span class="data-value data-value--highlight">{{ eventData.aa_id }}</span>
+      </div>
       <div v-if="eventData.points || eventData.amount" class="data-row">
         <span class="data-label">Points:</span>
         <span class="data-value data-value--success">+{{ eventData.points || eventData.amount }}</span>
       </div>
+      <div v-if="eventData.aa_cost !== undefined" class="data-row">
+        <span class="data-label">Cost:</span>
+        <span class="data-value">{{ eventData.aa_cost }}</span>
+      </div>
       <div v-if="eventData.total" class="data-row">
         <span class="data-label">Total:</span>
         <span class="data-value">{{ eventData.total }}</span>
+      </div>
+      <div v-if="eventData.aa_previous_id !== undefined && eventData.aa_previous_id !== -1" class="data-row">
+        <span class="data-label">Previous AA:</span>
+        <span class="data-value muted">{{ eventData.aa_previous_id }}</span>
+      </div>
+      <div v-if="eventData.aa_next_id !== undefined && eventData.aa_next_id !== -1" class="data-row">
+        <span class="data-label">Next AA:</span>
+        <span class="data-value muted">{{ eventData.aa_next_id }}</span>
       </div>
     </template>
 
