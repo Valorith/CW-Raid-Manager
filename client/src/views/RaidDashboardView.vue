@@ -1523,6 +1523,13 @@ watch(activeTab, () => {
   hideDayContextMenu();
 });
 
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = tab === 'history' ? 'history' : 'active';
+  }
+);
+
 onUnmounted(() => {
   window.removeEventListener('click', hideDayContextMenu);
   window.removeEventListener('scroll', hideDayContextMenu, true);
