@@ -63,7 +63,7 @@
             type="text"
             v-model="globalSearchQuery"
             placeholder="Search any character by name..."
-            class="input input--search character-search__input"
+            class="character-search__input"
             @input="handleGlobalSearch"
             @focus="showSearchResults = true"
           />
