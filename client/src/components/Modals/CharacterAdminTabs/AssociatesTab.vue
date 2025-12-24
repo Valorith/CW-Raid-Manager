@@ -96,6 +96,7 @@
           v-for="associate in store.associates"
           :key="associate.characterId"
           class="associate-card"
+          :class="{ 'associate-card--watched': isAssociateWatched(associate.characterId) }"
         >
           <div class="associate-info">
             <div class="associate-header">
@@ -148,11 +149,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
 import type { CharacterSearchResult } from '../../../services/api';
 
 const store = useCharacterAdminStore();
+
+// Compute set of watched character IDs for efficient lookups
+const watchedCharacterIds = computed(() =>
+  new Set(store.fullWatchList.map(w => w.eqCharacterId))
+);
+
+// Check if an associate is on the watch list
+function isAssociateWatched(characterId: number): boolean {
+  return watchedCharacterIds.value.has(characterId);
+}
 
 const searchQuery = ref('');
 const selectedCharacter = ref<CharacterSearchResult | null>(null);
@@ -530,6 +541,22 @@ function formatDate(dateStr: string): string {
   background: #0f172a;
   border-radius: 0.5rem;
   border: 1px solid #334155;
+
+  &--watched {
+    border: 2px solid rgba(249, 115, 22, 0.6);
+    animation: watchPulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes watchPulse {
+  0%, 100% {
+    background-color: rgba(249, 115, 22, 0.08);
+    border-color: rgba(249, 115, 22, 0.6);
+  }
+  50% {
+    background-color: rgba(249, 115, 22, 0.18);
+    border-color: rgba(249, 115, 22, 0.8);
+  }
 }
 
 .associate-info {
