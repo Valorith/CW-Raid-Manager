@@ -1212,8 +1212,8 @@ export async function syncIpGroupAssociations(
           associationType: 'indirect',
           source: 'auto',
           reason: `Same IP (${ip})`,
-          createdById: userId,
-          createdByName: userName
+          createdById: 'system',
+          createdByName: 'System'
         }
       });
       return true;
@@ -1589,8 +1589,8 @@ export async function autoLinkSharedIps(
             associationType: 'indirect',
             source: 'auto',
             reason: `Shared IP (${ip})`,
-            createdById: userId,
-            createdByName: userName
+            createdById: 'system',
+            createdByName: 'System'
           });
         }
       }
@@ -1847,8 +1847,8 @@ export async function* autoLinkSharedIpsStream(
             associationType: 'indirect',
             source: 'auto',
             reason: `Shared IP (${ip})`,
-            createdById: userId,
-            createdByName: userName
+            createdById: 'system',
+            createdByName: 'System'
           });
         }
       }
