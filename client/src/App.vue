@@ -64,30 +64,14 @@
           </Transition>
         </div>
 
-        <!-- Raids - With dropdown -->
-        <div
+        <!-- Raids - No dropdown -->
+        <RouterLink
           v-if="authStore.isAuthenticated"
-          class="nav__item nav__item--has-dropdown"
-          @mouseenter="openDropdown('raids')"
-          @mouseleave="closeDropdown('raids')"
+          to="/raids"
+          class="nav__link"
         >
-          <RouterLink to="/raids" class="nav__link">
-            Raids
-            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
-            </svg>
-          </RouterLink>
-          <Transition name="dropdown">
-            <div v-if="activeDropdown === 'raids'" class="nav__dropdown">
-              <RouterLink to="/raids" class="nav__dropdown-item">
-                Calendar
-              </RouterLink>
-              <RouterLink to="/raids?tab=history" class="nav__dropdown-item">
-                History
-              </RouterLink>
-            </div>
-          </Transition>
-        </div>
+          Raids
+        </RouterLink>
 
         <!-- Admin - With dropdown (different items for admin vs guide) -->
         <div
