@@ -31,6 +31,7 @@
           <Transition name="dropdown">
             <div v-if="primaryGuild && activeDropdown === 'guild'" class="nav__dropdown">
               <RouterLink
+                v-if="canManageGuildSettings"
                 :to="{ name: 'GuildSettings', params: { guildId: primaryGuild.id } }"
                 class="nav__dropdown-item"
               >
@@ -351,6 +352,11 @@ const guildNavTo = computed(() => {
   return primaryGuild.value
     ? { name: 'GuildDetail', params: { guildId: primaryGuild.value.id } }
     : { path: '/guilds' };
+});
+
+const canManageGuildSettings = computed(() => {
+  const role = primaryGuild.value?.role;
+  return role === 'LEADER' || role === 'OFFICER';
 });
 
 function loginWithGoogle() {
