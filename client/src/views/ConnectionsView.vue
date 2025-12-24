@@ -646,7 +646,6 @@ onUnmounted(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 0.5rem;
   width: 100%;
   max-width: 500px;
@@ -657,6 +656,7 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: rgba(148, 163, 184, 0.7);
+  text-align: center;
 }
 
 .search-input-wrapper {
