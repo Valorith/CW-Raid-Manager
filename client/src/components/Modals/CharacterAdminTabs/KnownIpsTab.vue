@@ -56,6 +56,12 @@ import { useCharacterAdminStore } from '../../../stores/characterAdmin';
 const store = useCharacterAdminStore();
 
 function formatDate(dateStr: string): string {
+  // The lastused column is a Unix timestamp in seconds, convert to milliseconds
+  const timestamp = parseInt(dateStr, 10);
+  if (!isNaN(timestamp)) {
+    return new Date(timestamp * 1000).toLocaleString();
+  }
+  // Fallback for other date formats
   return new Date(dateStr).toLocaleString();
 }
 </script>
