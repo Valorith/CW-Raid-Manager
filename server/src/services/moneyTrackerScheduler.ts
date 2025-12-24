@@ -11,6 +11,8 @@ import {
   getSettings,
   updateLastSnapshotTime
 } from './moneyTrackerService.js';
+import { autoLinkSharedIps } from './characterAdminService.js';
+import { prisma } from '../utils/prisma.js';
 
 type SchedulerLogger = {
   info: (...args: unknown[]) => void;
@@ -83,7 +85,7 @@ async function shouldRunSnapshot(): Promise<boolean> {
 }
 
 /**
- * Execute the scheduled snapshot
+ * Execute the scheduled snapshot and other daily tasks
  */
 async function executeScheduledSnapshot(): Promise<void> {
   const todayDate = new Date().toISOString().split('T')[0];
@@ -98,8 +100,44 @@ async function executeScheduledSnapshot(): Promise<void> {
     lastRunDate = todayDate;
 
     logger.info('[MoneyTrackerScheduler] Scheduled snapshot completed successfully.');
+
+    // Run auto-link for shared IPs (daily maintenance task)
+    await executeAutoLinkSharedIps();
   } catch (error) {
     logger.error('[MoneyTrackerScheduler] Failed to create scheduled snapshot:', error);
+  }
+}
+
+/**
+ * Execute auto-linking of accounts that share IPs
+ * Finds an admin user for audit trail purposes
+ */
+async function executeAutoLinkSharedIps(): Promise<void> {
+  if (!isEqDbConfigured()) {
+    return;
+  }
+
+  try {
+    // Find an admin user for the audit trail
+    const adminUser = await prisma.user.findFirst({
+      where: { isAdmin: true },
+      select: { id: true, displayName: true, nickname: true }
+    });
+
+    if (!adminUser) {
+      logger.info('[MoneyTrackerScheduler] No admin user found, skipping auto-link shared IPs.');
+      return;
+    }
+
+    const userName = adminUser.nickname || adminUser.displayName;
+
+    logger.info('[MoneyTrackerScheduler] Starting auto-link shared IPs...');
+    const result = await autoLinkSharedIps(adminUser.id, userName);
+    logger.info(
+      `[MoneyTrackerScheduler] Auto-link completed: ${result.created} created, ${result.skipped} skipped, ${result.sharedIpsFound} shared IPs found.`
+    );
+  } catch (error) {
+    logger.error('[MoneyTrackerScheduler] Failed to auto-link shared IPs:', error);
   }
 }
 

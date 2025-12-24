@@ -12,6 +12,15 @@
         <button
           type="button"
           class="btn btn--outline"
+          :disabled="autoLinkLoading"
+          :title="'Scan account_ip table for shared IPs and create associations'"
+          @click="runAutoLinkSharedIps"
+        >
+          {{ autoLinkLoading ? 'Linking...' : 'Auto-Link Shared IPs' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn--outline"
           :disabled="loading"
           @click="refreshConnections"
         >
@@ -194,6 +203,8 @@ const currentPage = ref(1);
 const itemsPerPage = 10; // Groups per page
 const autoRefreshEnabled = ref(true);
 const lastUpdated = ref<Date | null>(null);
+const autoLinkLoading = ref(false);
+const autoLinkResult = ref<{ created: number; skipped: number; sharedIpsFound: number } | null>(null);
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
@@ -386,6 +397,27 @@ async function syncIpAssociations(conns: typeof connections.value) {
 
 async function refreshConnections() {
   await loadConnections();
+}
+
+async function runAutoLinkSharedIps() {
+  autoLinkLoading.value = true;
+  autoLinkResult.value = null;
+  try {
+    const result = await api.autoLinkSharedIps();
+    autoLinkResult.value = result;
+    if (result.created > 0) {
+      alert(`Auto-link complete!\n\nShared IPs found: ${result.sharedIpsFound}\nAssociations created: ${result.created}\nAlready existing: ${result.skipped}`);
+    } else if (result.sharedIpsFound === 0) {
+      alert('No shared IPs found in account_ip table.');
+    } else {
+      alert(`Auto-link complete!\n\nShared IPs found: ${result.sharedIpsFound}\nAll associations already exist (${result.skipped} skipped).`);
+    }
+  } catch (err) {
+    console.error('Failed to auto-link shared IPs:', err);
+    alert('Failed to auto-link shared IPs. Check console for details.');
+  } finally {
+    autoLinkLoading.value = false;
+  }
 }
 
 function toggleAutoRefresh() {
