@@ -46,12 +46,8 @@
                 </span>
                 <!-- Location data -->
                 <div v-else-if="ipLocations.get(ip.ip)" class="location-info">
-                  <span class="location-flag" v-if="ipLocations.get(ip.ip)?.country_code2">
-                    <img
-                      :src="`https://flagcdn.com/16x12/${ipLocations.get(ip.ip)?.country_code2?.toLowerCase()}.png`"
-                      :alt="ipLocations.get(ip.ip)?.country_name"
-                      class="flag-icon"
-                    />
+                  <span class="location-emoji" v-if="ipLocations.get(ip.ip)?.location?.country_emoji">
+                    {{ ipLocations.get(ip.ip)?.location?.country_emoji }}
                   </span>
                   <span class="location-text">
                     {{ formatLocation(ipLocations.get(ip.ip)!) }}
@@ -145,10 +141,13 @@ function formatDate(dateStr: string): string {
 }
 
 function formatLocation(geo: IpGeolocation): string {
+  const loc = geo.location;
+  if (!loc) return 'Unknown';
+
   const parts: string[] = [];
-  if (geo.city) parts.push(geo.city);
-  if (geo.state_prov && geo.state_prov !== geo.city) parts.push(geo.state_prov);
-  if (geo.country_name) parts.push(geo.country_name);
+  if (loc.city) parts.push(loc.city);
+  if (loc.state_prov && loc.state_prov !== loc.city) parts.push(loc.state_prov);
+  if (loc.country_name) parts.push(loc.country_name);
   return parts.join(', ') || 'Unknown';
 }
 
@@ -328,11 +327,9 @@ async function fetchLocation(ip: string) {
   font-size: 0.75rem;
 }
 
-.flag-icon {
-  width: 16px;
-  height: 12px;
-  object-fit: cover;
-  border-radius: 1px;
+.location-emoji {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .location-text {
