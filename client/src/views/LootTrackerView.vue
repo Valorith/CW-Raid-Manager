@@ -2509,10 +2509,13 @@ async function broadcastLootCouncilState() {
 
 /**
  * Fetches the shared loot council state from the server and applies it to local state.
- * Called when loading the page if there's an active monitor session and user is not the owner.
+ * Called when loading the page if there's an active monitor session.
+ * For non-owners, this is always called. For owners, this is only called if they have
+ * no local loot council state (e.g., when opening a new tab while another tab owns the monitor).
+ * @param force - If true, fetch even if the user is the owner
  */
-async function fetchAndApplySharedLootCouncilState() {
-  if (monitorSession.value?.isOwner) {
+async function fetchAndApplySharedLootCouncilState(force = false) {
+  if (!force && monitorSession.value?.isOwner) {
     // Owner doesn't need to fetch - they are the source
     return;
   }
@@ -4118,6 +4121,11 @@ async function fetchMonitorStatus() {
       cleanupMonitorController();
     } else if (status.session.isOwner && status.session.sessionId) {
       startMonitorHeartbeat();
+      // If we're the owner but have no local loot council state, fetch from server.
+      // This handles the case where the user opens a new tab while another tab owns the monitor.
+      if (lootCouncilActiveItems.value.length === 0) {
+        void fetchAndApplySharedLootCouncilState(true);
+      }
     } else if (status.session && !status.session.isOwner) {
       // User is not the owner but there's an active session - fetch shared loot council state
       void fetchAndApplySharedLootCouncilState();
@@ -4137,7 +4145,10 @@ async function fetchMonitorStatus() {
 function startMonitorStatusPolling() {
   stopMonitorStatusPolling();
   monitorStatusPollId.value = window.setInterval(() => {
-    if (monitorSession.value?.isOwner) {
+    // Skip polling only if we're the owner AND we have an active file handle.
+    // If we're the owner but don't have a file handle, we're in a secondary tab
+    // and should poll for loot council state updates from the primary tab.
+    if (monitorSession.value?.isOwner && monitorController.fileHandle) {
       return;
     }
     fetchMonitorStatus();
