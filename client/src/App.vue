@@ -230,6 +230,8 @@
         </RouterLink>
         <template v-if="authStore.isAuthenticated">
           <span class="auth__user">Hi, {{ authStore.preferredName }}</span>
+          <span v-if="authStore.isAdmin" class="auth__badge auth__badge--admin">Admin</span>
+          <span v-else-if="authStore.isGuide" class="auth__badge auth__badge--guide">Guide</span>
           <button class="btn btn--outline" @click="logout">Log out</button>
         </template>
         <template v-else>
@@ -964,6 +966,30 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .auth__user {
   font-size: 0.95rem;
   color: #cbd5f5;
+}
+
+.auth__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 0.35rem;
+  white-space: nowrap;
+}
+
+.auth__badge--admin {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.auth__badge--guide {
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  color: #86efac;
 }
 
 .settings-link {
