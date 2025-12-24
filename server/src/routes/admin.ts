@@ -52,6 +52,7 @@ import {
   deleteAccountNote,
   syncIpGroupAssociations,
   getAccountKnownIps,
+  autoLinkSharedIps,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
 
@@ -1421,6 +1422,42 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to sync IP group associations.');
+      }
+    }
+  );
+
+  // Auto-link accounts that share IPs in the account_ip table
+  server.post(
+    '/auto-link-shared-ips',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true, nickname: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const userName = user.nickname || user.displayName;
+
+        const result = await autoLinkSharedIps(
+          request.user.userId,
+          userName
+        );
+
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to auto-link shared IPs.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to auto-link shared IPs.');
       }
     }
   );

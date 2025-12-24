@@ -1438,3 +1438,136 @@ export async function getAccountsByIp(ip: string): Promise<{ accountId: number; 
     return [];
   }
 }
+
+/**
+ * Auto-link accounts that share IP addresses in the account_ip table.
+ * This scans the entire account_ip table for IPs used by multiple accounts
+ * and creates indirect associations between all characters on those accounts.
+ */
+export async function autoLinkSharedIps(
+  userId: string,
+  userName: string
+): Promise<{ created: number; skipped: number; sharedIpsFound: number }> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured.');
+  }
+
+  let created = 0;
+  let skipped = 0;
+  let sharedIpsFound = 0;
+
+  try {
+    // Check if account_ip table exists
+    const tables = await queryEqDb<RowDataPacket[]>(`SHOW TABLES LIKE 'account_ip'`);
+    if (tables.length === 0) {
+      throw new Error('account_ip table does not exist in the EQ database.');
+    }
+
+    // Get character schema for looking up characters
+    const charSchema = await discoverCharacterDataSchema();
+    if (!charSchema) {
+      throw new Error('Could not discover character_data schema.');
+    }
+
+    // Find all IPs that are associated with more than one account
+    // This is the most efficient query - gets IPs with multiple accounts in one pass
+    const sharedIps = await queryEqDb<RowDataPacket[]>(`
+      SELECT ip, COUNT(DISTINCT accid) as accountCount
+      FROM account_ip
+      GROUP BY ip
+      HAVING COUNT(DISTINCT accid) > 1
+    `);
+
+    if (sharedIps.length === 0) {
+      return { created: 0, skipped: 0, sharedIpsFound: 0 };
+    }
+
+    sharedIpsFound = sharedIps.length;
+    console.log(`[CharacterAdmin] Found ${sharedIpsFound} shared IPs to process for auto-linking.`);
+
+    // Process each shared IP
+    for (const { ip } of sharedIps) {
+      // Get all account IDs that have used this IP
+      const accountsForIp = await queryEqDb<RowDataPacket[]>(
+        `SELECT DISTINCT accid as accountId FROM account_ip WHERE ip = ?`,
+        [ip]
+      );
+
+      const accountIds = accountsForIp.map(r => r.accountId as number);
+
+      if (accountIds.length < 2) {
+        continue; // Safety check
+      }
+
+      // Get all characters from these accounts in a single query
+      const characters = await queryEqDb<RowDataPacket[]>(`
+        SELECT
+          ${charSchema.idColumn} as id,
+          ${charSchema.nameColumn} as name,
+          ${charSchema.accountIdColumn} as accountId
+        FROM character_data
+        WHERE ${charSchema.accountIdColumn} IN (${accountIds.map(() => '?').join(',')})
+      `, accountIds);
+
+      if (characters.length < 2) {
+        continue; // Need at least 2 characters to create associations
+      }
+
+      // Create associations between all characters from different accounts
+      for (let i = 0; i < characters.length; i++) {
+        for (let j = i + 1; j < characters.length; j++) {
+          const charA = characters[i];
+          const charB = characters[j];
+
+          // Skip if same account (characters on same account are inherently associated)
+          if (charA.accountId === charB.accountId) {
+            continue;
+          }
+
+          // Check if association already exists (in either direction)
+          const existingAssoc = await prisma.characterAssociation.findFirst({
+            where: {
+              OR: [
+                { sourceCharacterId: charA.id, targetCharacterId: charB.id },
+                { sourceCharacterId: charB.id, targetCharacterId: charA.id }
+              ]
+            }
+          });
+
+          if (existingAssoc) {
+            skipped++;
+            continue;
+          }
+
+          // Create the association
+          try {
+            await prisma.characterAssociation.create({
+              data: {
+                sourceCharacterId: charA.id,
+                sourceCharacterName: charA.name,
+                targetCharacterId: charB.id,
+                targetCharacterName: charB.name,
+                targetAccountId: charB.accountId,
+                associationType: 'indirect',
+                source: 'auto',
+                reason: `Shared IP (${ip})`,
+                createdById: userId,
+                createdByName: userName
+              }
+            });
+            created++;
+          } catch (err) {
+            // Unique constraint violation - already exists
+            skipped++;
+          }
+        }
+      }
+    }
+
+    console.log(`[CharacterAdmin] Auto-link complete: ${created} created, ${skipped} skipped, ${sharedIpsFound} shared IPs processed.`);
+    return { created, skipped, sharedIpsFound };
+  } catch (err) {
+    console.error('[CharacterAdmin] Error in autoLinkSharedIps:', err);
+    throw err;
+  }
+}

@@ -4097,6 +4097,15 @@ export const api = {
   }>): Promise<{ created: number; skipped: number }> {
     const response = await axios.post('/api/admin/sync-ip-associations', { connections });
     return response.data;
+  },
+
+  /**
+   * Auto-links accounts that share IPs in the account_ip table.
+   * Scans for all IPs used by multiple accounts and creates indirect associations.
+   */
+  async autoLinkSharedIps(): Promise<{ created: number; skipped: number; sharedIpsFound: number }> {
+    const response = await axios.post('/api/admin/auto-link-shared-ips');
+    return response.data;
   }
 
 };
