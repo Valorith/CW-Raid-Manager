@@ -1441,8 +1441,7 @@ export async function getAccountsByIp(ip: string): Promise<{ accountId: number; 
 
 /**
  * Auto-link accounts that share IP addresses in the account_ip table.
- * This scans the entire account_ip table for IPs used by multiple accounts
- * and creates indirect associations between all characters on those accounts.
+ * Uses bulk operations for efficiency.
  */
 export async function autoLinkSharedIps(
   userId: string,
@@ -1454,7 +1453,6 @@ export async function autoLinkSharedIps(
 
   let created = 0;
   let skipped = 0;
-  let sharedIpsFound = 0;
 
   try {
     // Check if account_ip table exists
@@ -1463,102 +1461,162 @@ export async function autoLinkSharedIps(
       throw new Error('account_ip table does not exist in the EQ database.');
     }
 
-    // Get character schema for looking up characters
     const charSchema = await discoverCharacterDataSchema();
     if (!charSchema) {
       throw new Error('Could not discover character_data schema.');
     }
 
-    // Find all IPs that are associated with more than one account
-    // This is the most efficient query - gets IPs with multiple accounts in one pass
-    const sharedIps = await queryEqDb<RowDataPacket[]>(`
-      SELECT ip, COUNT(DISTINCT accid) as accountCount
+    // Find all IPs with multiple accounts - get IP and all account IDs in one query
+    const sharedIpData = await queryEqDb<RowDataPacket[]>(`
+      SELECT ip, GROUP_CONCAT(DISTINCT accid) as accountIds
       FROM account_ip
+      WHERE ip IN (
+        SELECT ip FROM account_ip
+        GROUP BY ip
+        HAVING COUNT(DISTINCT accid) > 1
+      )
       GROUP BY ip
-      HAVING COUNT(DISTINCT accid) > 1
     `);
 
-    if (sharedIps.length === 0) {
+    if (sharedIpData.length === 0) {
       return { created: 0, skipped: 0, sharedIpsFound: 0 };
     }
 
-    sharedIpsFound = sharedIps.length;
+    const sharedIpsFound = sharedIpData.length;
     console.log(`[CharacterAdmin] Found ${sharedIpsFound} shared IPs to process for auto-linking.`);
 
-    // Process each shared IP
-    for (const { ip } of sharedIps) {
-      // Get all account IDs that have used this IP
-      const accountsForIp = await queryEqDb<RowDataPacket[]>(
-        `SELECT DISTINCT accid as accountId FROM account_ip WHERE ip = ?`,
-        [ip]
-      );
+    // Collect all unique account IDs
+    const allAccountIds = new Set<number>();
+    const ipToAccounts = new Map<string, number[]>();
 
-      const accountIds = accountsForIp.map(r => r.accountId as number);
+    for (const row of sharedIpData) {
+      const accountIds = String(row.accountIds).split(',').map(id => parseInt(id, 10));
+      ipToAccounts.set(row.ip, accountIds);
+      accountIds.forEach(id => allAccountIds.add(id));
+    }
 
-      if (accountIds.length < 2) {
-        continue; // Safety check
+    // Bulk fetch all characters for all relevant accounts
+    const accountIdArray = Array.from(allAccountIds);
+    const allCharacters = await queryEqDb<RowDataPacket[]>(`
+      SELECT
+        ${charSchema.idColumn} as id,
+        ${charSchema.nameColumn} as name,
+        ${charSchema.accountIdColumn} as accountId
+      FROM character_data
+      WHERE ${charSchema.accountIdColumn} IN (${accountIdArray.map(() => '?').join(',')})
+    `, accountIdArray);
+
+    // Build account -> characters map
+    const accountToChars = new Map<number, Array<{ id: number; name: string; accountId: number }>>();
+    for (const char of allCharacters) {
+      const chars = accountToChars.get(char.accountId) || [];
+      chars.push({ id: char.id, name: char.name, accountId: char.accountId });
+      accountToChars.set(char.accountId, chars);
+    }
+
+    // Bulk fetch all existing associations for relevant characters
+    const allCharIds = allCharacters.map(c => c.id);
+    const existingAssocs = await prisma.characterAssociation.findMany({
+      where: {
+        OR: [
+          { sourceCharacterId: { in: allCharIds } },
+          { targetCharacterId: { in: allCharIds } }
+        ]
+      },
+      select: {
+        sourceCharacterId: true,
+        targetCharacterId: true
+      }
+    });
+
+    // Build set of existing pairs for O(1) lookup
+    const existingPairs = new Set<string>();
+    for (const assoc of existingAssocs) {
+      existingPairs.add(`${assoc.sourceCharacterId}-${assoc.targetCharacterId}`);
+      existingPairs.add(`${assoc.targetCharacterId}-${assoc.sourceCharacterId}`);
+    }
+
+    // Build list of new associations to create
+    const pendingCreates: Array<{
+      sourceCharacterId: number;
+      sourceCharacterName: string;
+      targetCharacterId: number;
+      targetCharacterName: string;
+      targetAccountId: number;
+      associationType: string;
+      source: string;
+      reason: string;
+      createdById: string;
+      createdByName: string;
+    }> = [];
+
+    for (const row of sharedIpData) {
+      const ip = row.ip;
+      const accountIds = ipToAccounts.get(ip) || [];
+
+      // Get all characters from these accounts
+      const charsForIp: Array<{ id: number; name: string; accountId: number }> = [];
+      for (const accId of accountIds) {
+        const chars = accountToChars.get(accId) || [];
+        charsForIp.push(...chars);
       }
 
-      // Get all characters from these accounts in a single query
-      const characters = await queryEqDb<RowDataPacket[]>(`
-        SELECT
-          ${charSchema.idColumn} as id,
-          ${charSchema.nameColumn} as name,
-          ${charSchema.accountIdColumn} as accountId
-        FROM character_data
-        WHERE ${charSchema.accountIdColumn} IN (${accountIds.map(() => '?').join(',')})
-      `, accountIds);
+      // Generate pairs between characters from different accounts
+      for (let i = 0; i < charsForIp.length; i++) {
+        for (let j = i + 1; j < charsForIp.length; j++) {
+          const charA = charsForIp[i];
+          const charB = charsForIp[j];
 
-      if (characters.length < 2) {
-        continue; // Need at least 2 characters to create associations
-      }
-
-      // Create associations between all characters from different accounts
-      for (let i = 0; i < characters.length; i++) {
-        for (let j = i + 1; j < characters.length; j++) {
-          const charA = characters[i];
-          const charB = characters[j];
-
-          // Skip if same account (characters on same account are inherently associated)
           if (charA.accountId === charB.accountId) {
             continue;
           }
 
-          // Check if association already exists (in either direction)
-          const existingAssoc = await prisma.characterAssociation.findFirst({
-            where: {
-              OR: [
-                { sourceCharacterId: charA.id, targetCharacterId: charB.id },
-                { sourceCharacterId: charB.id, targetCharacterId: charA.id }
-              ]
-            }
-          });
-
-          if (existingAssoc) {
+          const pairKey = `${charA.id}-${charB.id}`;
+          if (existingPairs.has(pairKey)) {
             skipped++;
             continue;
           }
 
-          // Create the association
-          try {
-            await prisma.characterAssociation.create({
-              data: {
-                sourceCharacterId: charA.id,
-                sourceCharacterName: charA.name,
-                targetCharacterId: charB.id,
-                targetCharacterName: charB.name,
-                targetAccountId: charB.accountId,
-                associationType: 'indirect',
-                source: 'auto',
-                reason: `Shared IP (${ip})`,
-                createdById: userId,
-                createdByName: userName
-              }
-            });
-            created++;
-          } catch (err) {
-            // Unique constraint violation - already exists
-            skipped++;
+          existingPairs.add(pairKey);
+          existingPairs.add(`${charB.id}-${charA.id}`);
+
+          pendingCreates.push({
+            sourceCharacterId: charA.id,
+            sourceCharacterName: charA.name,
+            targetCharacterId: charB.id,
+            targetCharacterName: charB.name,
+            targetAccountId: charB.accountId,
+            associationType: 'indirect',
+            source: 'auto',
+            reason: `Shared IP (${ip})`,
+            createdById: userId,
+            createdByName: userName
+          });
+        }
+      }
+    }
+
+    // Batch insert all new associations
+    if (pendingCreates.length > 0) {
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < pendingCreates.length; i += CHUNK_SIZE) {
+        const chunk = pendingCreates.slice(i, i + CHUNK_SIZE);
+        try {
+          const result = await prisma.characterAssociation.createMany({
+            data: chunk,
+            skipDuplicates: true
+          });
+          created += result.count;
+          skipped += chunk.length - result.count;
+        } catch (err) {
+          console.warn('[CharacterAdmin] createMany failed, using individual inserts:', err);
+          for (const data of chunk) {
+            try {
+              await prisma.characterAssociation.create({ data });
+              created++;
+            } catch {
+              skipped++;
+            }
           }
         }
       }
@@ -1591,7 +1649,7 @@ export interface AutoLinkProgress {
 
 /**
  * Streaming version of autoLinkSharedIps that yields progress updates.
- * Used for real-time progress display in the UI.
+ * Uses bulk operations for efficiency.
  */
 export async function* autoLinkSharedIpsStream(
   userId: string,
@@ -1621,7 +1679,6 @@ export async function* autoLinkSharedIpsStream(
 
     yield { type: 'phase', phase: 'Discovering character schema...' };
 
-    // Get character schema for looking up characters
     const charSchema = await discoverCharacterDataSchema();
     if (!charSchema) {
       yield { type: 'error', error: 'Could not discover character_data schema.' };
@@ -1630,15 +1687,19 @@ export async function* autoLinkSharedIpsStream(
 
     yield { type: 'phase', phase: 'Scanning for shared IPs...' };
 
-    // Find all IPs that are associated with more than one account
-    const sharedIps = await queryEqDb<RowDataPacket[]>(`
-      SELECT ip, COUNT(DISTINCT accid) as accountCount
+    // Find all IPs with multiple accounts - get IP and all account IDs in one query
+    const sharedIpData = await queryEqDb<RowDataPacket[]>(`
+      SELECT ip, GROUP_CONCAT(DISTINCT accid) as accountIds
       FROM account_ip
+      WHERE ip IN (
+        SELECT ip FROM account_ip
+        GROUP BY ip
+        HAVING COUNT(DISTINCT accid) > 1
+      )
       GROUP BY ip
-      HAVING COUNT(DISTINCT accid) > 1
     `);
 
-    if (sharedIps.length === 0) {
+    if (sharedIpData.length === 0) {
       yield {
         type: 'complete',
         stats: { sharedIpsFound: 0, ipsProcessed: 0, created: 0, skipped: 0 }
@@ -1646,113 +1707,207 @@ export async function* autoLinkSharedIpsStream(
       return;
     }
 
-    sharedIpsFound = sharedIps.length;
+    sharedIpsFound = sharedIpData.length;
+
+    // Collect all unique account IDs
+    const allAccountIds = new Set<number>();
+    const ipToAccounts = new Map<string, number[]>();
+
+    for (const row of sharedIpData) {
+      const accountIds = String(row.accountIds).split(',').map(id => parseInt(id, 10));
+      ipToAccounts.set(row.ip, accountIds);
+      accountIds.forEach(id => allAccountIds.add(id));
+    }
+
     yield {
       type: 'progress',
-      progress: 5,
-      message: `Found ${sharedIpsFound} shared IPs to process`,
+      progress: 10,
+      message: `Found ${sharedIpsFound} shared IPs across ${allAccountIds.size} accounts`,
       stats: getStats()
     };
 
-    yield { type: 'phase', phase: 'Processing shared IPs...' };
+    yield { type: 'phase', phase: 'Loading character data...' };
 
-    // Process each shared IP
-    for (let ipIndex = 0; ipIndex < sharedIps.length; ipIndex++) {
-      const { ip, accountCount } = sharedIps[ipIndex];
+    // Bulk fetch all characters for all relevant accounts
+    const accountIdArray = Array.from(allAccountIds);
+    const allCharacters = await queryEqDb<RowDataPacket[]>(`
+      SELECT
+        ${charSchema.idColumn} as id,
+        ${charSchema.nameColumn} as name,
+        ${charSchema.accountIdColumn} as accountId
+      FROM character_data
+      WHERE ${charSchema.accountIdColumn} IN (${accountIdArray.map(() => '?').join(',')})
+    `, accountIdArray);
+
+    // Build account -> characters map
+    const accountToChars = new Map<number, Array<{ id: number; name: string; accountId: number }>>();
+    for (const char of allCharacters) {
+      const chars = accountToChars.get(char.accountId) || [];
+      chars.push({ id: char.id, name: char.name, accountId: char.accountId });
+      accountToChars.set(char.accountId, chars);
+    }
+
+    yield {
+      type: 'progress',
+      progress: 20,
+      message: `Loaded ${allCharacters.length} characters from ${allAccountIds.size} accounts`,
+      stats: getStats()
+    };
+
+    yield { type: 'phase', phase: 'Loading existing associations...' };
+
+    // Bulk fetch all existing associations for relevant characters
+    const allCharIds = allCharacters.map(c => c.id);
+    const existingAssocs = await prisma.characterAssociation.findMany({
+      where: {
+        OR: [
+          { sourceCharacterId: { in: allCharIds } },
+          { targetCharacterId: { in: allCharIds } }
+        ]
+      },
+      select: {
+        sourceCharacterId: true,
+        targetCharacterId: true
+      }
+    });
+
+    // Build set of existing pairs for O(1) lookup
+    const existingPairs = new Set<string>();
+    for (const assoc of existingAssocs) {
+      // Store both directions
+      existingPairs.add(`${assoc.sourceCharacterId}-${assoc.targetCharacterId}`);
+      existingPairs.add(`${assoc.targetCharacterId}-${assoc.sourceCharacterId}`);
+    }
+
+    yield {
+      type: 'progress',
+      progress: 30,
+      message: `Found ${existingAssocs.length} existing associations`,
+      stats: getStats()
+    };
+
+    yield { type: 'phase', phase: 'Creating new associations...' };
+
+    // Process IPs in batches for progress updates
+    const BATCH_SIZE = 50;
+    const pendingCreates: Array<{
+      sourceCharacterId: number;
+      sourceCharacterName: string;
+      targetCharacterId: number;
+      targetCharacterName: string;
+      targetAccountId: number;
+      associationType: string;
+      source: string;
+      reason: string;
+      createdById: string;
+      createdByName: string;
+    }> = [];
+
+    for (let ipIndex = 0; ipIndex < sharedIpData.length; ipIndex++) {
+      const row = sharedIpData[ipIndex];
+      const ip = row.ip;
+      const accountIds = ipToAccounts.get(ip) || [];
       ipsProcessed = ipIndex + 1;
 
-      // Calculate progress (5% for setup, 95% for processing)
-      const progress = 5 + Math.round((ipsProcessed / sharedIpsFound) * 95);
-
-      yield {
-        type: 'progress',
-        progress,
-        message: `Processing IP ${ipsProcessed}/${sharedIpsFound} (${accountCount} accounts)`,
-        stats: getStats()
-      };
-
-      // Get all account IDs that have used this IP
-      const accountsForIp = await queryEqDb<RowDataPacket[]>(
-        `SELECT DISTINCT accid as accountId FROM account_ip WHERE ip = ?`,
-        [ip]
-      );
-
-      const accountIds = accountsForIp.map(r => r.accountId as number);
-
-      if (accountIds.length < 2) {
-        continue; // Safety check
+      // Get all characters from these accounts
+      const charsForIp: Array<{ id: number; name: string; accountId: number }> = [];
+      for (const accId of accountIds) {
+        const chars = accountToChars.get(accId) || [];
+        charsForIp.push(...chars);
       }
 
-      // Get all characters from these accounts in a single query
-      const characters = await queryEqDb<RowDataPacket[]>(`
-        SELECT
-          ${charSchema.idColumn} as id,
-          ${charSchema.nameColumn} as name,
-          ${charSchema.accountIdColumn} as accountId
-        FROM character_data
-        WHERE ${charSchema.accountIdColumn} IN (${accountIds.map(() => '?').join(',')})
-      `, accountIds);
+      // Generate pairs between characters from different accounts
+      for (let i = 0; i < charsForIp.length; i++) {
+        for (let j = i + 1; j < charsForIp.length; j++) {
+          const charA = charsForIp[i];
+          const charB = charsForIp[j];
 
-      if (characters.length < 2) {
-        continue; // Need at least 2 characters to create associations
-      }
-
-      // Create associations between all characters from different accounts
-      for (let i = 0; i < characters.length; i++) {
-        for (let j = i + 1; j < characters.length; j++) {
-          const charA = characters[i];
-          const charB = characters[j];
-
-          // Skip if same account
+          // Skip same account
           if (charA.accountId === charB.accountId) {
             continue;
           }
 
-          // Check if association already exists (in either direction)
-          const existingAssoc = await prisma.characterAssociation.findFirst({
-            where: {
-              OR: [
-                { sourceCharacterId: charA.id, targetCharacterId: charB.id },
-                { sourceCharacterId: charB.id, targetCharacterId: charA.id }
-              ]
-            }
-          });
-
-          if (existingAssoc) {
+          // Check if already exists (O(1) lookup)
+          const pairKey = `${charA.id}-${charB.id}`;
+          if (existingPairs.has(pairKey)) {
             skipped++;
             continue;
           }
 
-          // Create the association
-          try {
-            await prisma.characterAssociation.create({
-              data: {
-                sourceCharacterId: charA.id,
-                sourceCharacterName: charA.name,
-                targetCharacterId: charB.id,
-                targetCharacterName: charB.name,
-                targetAccountId: charB.accountId,
-                associationType: 'indirect',
-                source: 'auto',
-                reason: `Shared IP (${ip})`,
-                createdById: userId,
-                createdByName: userName
-              }
-            });
-            created++;
-          } catch {
-            // Unique constraint violation - already exists
-            skipped++;
-          }
+          // Mark as existing to prevent duplicates within this batch
+          existingPairs.add(pairKey);
+          existingPairs.add(`${charB.id}-${charA.id}`);
+
+          pendingCreates.push({
+            sourceCharacterId: charA.id,
+            sourceCharacterName: charA.name,
+            targetCharacterId: charB.id,
+            targetCharacterName: charB.name,
+            targetAccountId: charB.accountId,
+            associationType: 'indirect',
+            source: 'auto',
+            reason: `Shared IP (${ip})`,
+            createdById: userId,
+            createdByName: userName
+          });
         }
       }
 
-      // Yield updated stats after each IP
-      yield {
-        type: 'progress',
-        progress,
-        stats: getStats()
-      };
+      // Yield progress every BATCH_SIZE IPs or at the end
+      if (ipsProcessed % BATCH_SIZE === 0 || ipsProcessed === sharedIpsFound) {
+        const progress = 30 + Math.round((ipsProcessed / sharedIpsFound) * 60);
+        yield {
+          type: 'progress',
+          progress,
+          message: `Processed ${ipsProcessed}/${sharedIpsFound} IPs (${pendingCreates.length} pending)`,
+          stats: getStats()
+        };
+      }
+    }
+
+    yield { type: 'phase', phase: 'Saving associations to database...' };
+    yield {
+      type: 'progress',
+      progress: 92,
+      message: `Inserting ${pendingCreates.length} new associations...`,
+      stats: getStats()
+    };
+
+    // Batch insert all new associations
+    if (pendingCreates.length > 0) {
+      // Insert in chunks to avoid memory issues
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < pendingCreates.length; i += CHUNK_SIZE) {
+        const chunk = pendingCreates.slice(i, i + CHUNK_SIZE);
+        try {
+          const result = await prisma.characterAssociation.createMany({
+            data: chunk,
+            skipDuplicates: true
+          });
+          created += result.count;
+          skipped += chunk.length - result.count;
+        } catch (err) {
+          // If createMany fails, fall back to individual inserts for this chunk
+          console.warn('[CharacterAdmin] createMany failed, using individual inserts:', err);
+          for (const data of chunk) {
+            try {
+              await prisma.characterAssociation.create({ data });
+              created++;
+            } catch {
+              skipped++;
+            }
+          }
+        }
+
+        // Progress update during insertion
+        const insertProgress = 92 + Math.round(((i + chunk.length) / pendingCreates.length) * 8);
+        yield {
+          type: 'progress',
+          progress: insertProgress,
+          message: `Inserted ${Math.min(i + CHUNK_SIZE, pendingCreates.length)}/${pendingCreates.length}`,
+          stats: getStats()
+        };
+      }
     }
 
     console.log(`[CharacterAdmin] Auto-link complete: ${created} created, ${skipped} skipped, ${sharedIpsFound} shared IPs processed.`);
