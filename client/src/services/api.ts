@@ -4106,6 +4106,56 @@ export const api = {
   async autoLinkSharedIps(): Promise<{ created: number; skipped: number; sharedIpsFound: number }> {
     const response = await axios.post('/api/admin/auto-link-shared-ips');
     return response.data;
+  },
+
+  /**
+   * Get geolocation data for an IP address.
+   */
+  async getIpGeolocation(ip: string): Promise<IpGeolocation> {
+    const response = await axios.get(`/api/admin/ip-geolocation/${encodeURIComponent(ip)}`);
+    return response.data;
   }
 
 };
+
+/**
+ * IP Geolocation response from ipgeolocation.io API
+ */
+export interface IpGeolocation {
+  ip: string;
+  continent_code?: string;
+  continent_name?: string;
+  country_code2?: string;
+  country_code3?: string;
+  country_name?: string;
+  country_capital?: string;
+  state_prov?: string;
+  state_code?: string;
+  district?: string;
+  city?: string;
+  zipcode?: string;
+  latitude?: string;
+  longitude?: string;
+  is_eu?: boolean;
+  calling_code?: string;
+  country_tld?: string;
+  languages?: string;
+  country_flag?: string;
+  geoname_id?: string;
+  isp?: string;
+  connection_type?: string;
+  organization?: string;
+  currency?: {
+    code?: string;
+    name?: string;
+    symbol?: string;
+  };
+  time_zone?: {
+    name?: string;
+    offset?: number;
+    current_time?: string;
+    current_time_unix?: number;
+    is_dst?: boolean;
+    dst_savings?: number;
+  };
+}

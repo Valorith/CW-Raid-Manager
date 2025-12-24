@@ -1516,4 +1516,48 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // Get IP geolocation data
+  server.get(
+    '/ip-geolocation/:ip',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const { ip } = request.params as { ip: string };
+
+      // Validate IP format (basic validation)
+      const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+      const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+
+      if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
+        return reply.badRequest('Invalid IP address format.');
+      }
+
+      const apiKey = process.env.IPGEO_API_KEY;
+      if (!apiKey) {
+        return reply.status(503).send({ error: 'IP geolocation service not configured.' });
+      }
+
+      try {
+        const response = await fetch(
+          `https://api.ipgeolocation.io/v2/ipgeo?apiKey=${apiKey}&ip=${ip}`
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          request.log.error({ status: response.status, error: errorText }, 'IP geolocation API error');
+          return reply.status(response.status).send({
+            error: response.status === 423 ? 'API rate limit exceeded (1000/day).' : 'Failed to fetch geolocation data.'
+          });
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch IP geolocation.');
+        return reply.status(500).send({ error: 'Failed to fetch geolocation data.' });
+      }
+    }
+  );
 }

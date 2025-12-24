@@ -19,6 +19,7 @@
               <th>IP Address</th>
               <th>Login Count</th>
               <th>Last Used</th>
+              <th>Location</th>
             </tr>
           </thead>
           <tbody>
@@ -32,6 +33,42 @@
               <td class="col-lastused">
                 <span v-if="ip.lastUsed">{{ formatDate(ip.lastUsed) }}</span>
                 <span v-else class="no-data-text">-</span>
+              </td>
+              <td class="col-location">
+                <!-- Loading state -->
+                <span v-if="loadingIps.has(ip.ip)" class="location-loading">
+                  <span class="mini-spinner"></span>
+                  Loading...
+                </span>
+                <!-- Error state -->
+                <span v-else-if="ipErrors.get(ip.ip)" class="location-error" :title="ipErrors.get(ip.ip)">
+                  {{ ipErrors.get(ip.ip) }}
+                </span>
+                <!-- Location data -->
+                <div v-else-if="ipLocations.get(ip.ip)" class="location-info">
+                  <span class="location-flag" v-if="ipLocations.get(ip.ip)?.country_code2">
+                    <img
+                      :src="`https://flagcdn.com/16x12/${ipLocations.get(ip.ip)?.country_code2?.toLowerCase()}.png`"
+                      :alt="ipLocations.get(ip.ip)?.country_name"
+                      class="flag-icon"
+                    />
+                  </span>
+                  <span class="location-text">
+                    {{ formatLocation(ipLocations.get(ip.ip)!) }}
+                  </span>
+                  <span v-if="ipLocations.get(ip.ip)?.isp" class="location-isp" :title="ipLocations.get(ip.ip)?.isp">
+                    ({{ truncate(ipLocations.get(ip.ip)?.isp || '', 20) }})
+                  </span>
+                </div>
+                <!-- Get Location button -->
+                <button
+                  v-else
+                  class="btn-get-location"
+                  @click="fetchLocation(ip.ip)"
+                  title="Fetch geolocation data for this IP"
+                >
+                  Get Location
+                </button>
               </td>
             </tr>
           </tbody>
@@ -65,19 +102,25 @@
 
       <div class="info-note">
         <span class="info-icon">&#9432;</span>
-        <span>This data comes from the <code>account_ip</code> table and tracks all IP addresses this account has logged in from.</span>
+        <span>This data comes from the <code>account_ip</code> table. Location lookups use ipgeolocation.io (limited to 1000 requests/day).</span>
       </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, reactive } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
+import { api, type IpGeolocation } from '../../../services/api';
 
 const store = useCharacterAdminStore();
 const currentPage = ref(1);
 const ITEMS_PER_PAGE = 10;
+
+// Track location data, loading states, and errors per IP
+const ipLocations = reactive(new Map<string, IpGeolocation>());
+const loadingIps = reactive(new Set<string>());
+const ipErrors = reactive(new Map<string, string>());
 
 const totalPages = computed(() => Math.ceil(store.knownIps.length / ITEMS_PER_PAGE));
 
@@ -98,8 +141,39 @@ function goToPage(page: number) {
 }
 
 function formatDate(dateStr: string): string {
-  // Backend returns ISO string format
   return new Date(dateStr).toLocaleString();
+}
+
+function formatLocation(geo: IpGeolocation): string {
+  const parts: string[] = [];
+  if (geo.city) parts.push(geo.city);
+  if (geo.state_prov && geo.state_prov !== geo.city) parts.push(geo.state_prov);
+  if (geo.country_name) parts.push(geo.country_name);
+  return parts.join(', ') || 'Unknown';
+}
+
+function truncate(str: string, maxLen: number): string {
+  if (str.length <= maxLen) return str;
+  return str.substring(0, maxLen - 1) + '…';
+}
+
+async function fetchLocation(ip: string) {
+  if (loadingIps.has(ip) || ipLocations.has(ip)) return;
+
+  loadingIps.add(ip);
+  ipErrors.delete(ip);
+
+  try {
+    const data = await api.getIpGeolocation(ip);
+    ipLocations.set(ip, data);
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message :
+      (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+      'Failed to fetch location';
+    ipErrors.set(ip, errorMessage);
+  } finally {
+    loadingIps.delete(ip);
+  }
 }
 </script>
 
@@ -190,6 +264,10 @@ function formatDate(dateStr: string): string {
     color: #94a3b8;
     font-size: 0.75rem;
   }
+
+  .col-location {
+    min-width: 180px;
+  }
 }
 
 .no-data-text {
@@ -202,6 +280,68 @@ function formatDate(dateStr: string): string {
   color: #64748b;
   background: #0f172a;
   border-radius: 0.5rem;
+}
+
+.btn-get-location {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: #334155;
+    color: #e2e8f0;
+    border-color: #475569;
+  }
+}
+
+.location-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.mini-spinner {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid #334155;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.location-error {
+  color: #f87171;
+  font-size: 0.75rem;
+}
+
+.location-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.flag-icon {
+  width: 16px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 1px;
+}
+
+.location-text {
+  color: #e2e8f0;
+}
+
+.location-isp {
+  color: #64748b;
+  font-size: 0.7rem;
 }
 
 .pagination {
