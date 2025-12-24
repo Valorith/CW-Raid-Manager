@@ -1571,3 +1571,201 @@ export async function autoLinkSharedIps(
     throw err;
   }
 }
+
+/**
+ * Progress update types for streaming auto-link
+ */
+export interface AutoLinkProgress {
+  type: 'phase' | 'progress' | 'complete' | 'error';
+  phase?: string;
+  progress?: number;
+  message?: string;
+  stats?: {
+    sharedIpsFound: number;
+    ipsProcessed: number;
+    created: number;
+    skipped: number;
+  };
+  error?: string;
+}
+
+/**
+ * Streaming version of autoLinkSharedIps that yields progress updates.
+ * Used for real-time progress display in the UI.
+ */
+export async function* autoLinkSharedIpsStream(
+  userId: string,
+  userName: string
+): AsyncGenerator<AutoLinkProgress> {
+  if (!isEqDbConfigured()) {
+    yield { type: 'error', error: 'EQ database is not configured.' };
+    return;
+  }
+
+  let created = 0;
+  let skipped = 0;
+  let sharedIpsFound = 0;
+  let ipsProcessed = 0;
+
+  const getStats = () => ({ sharedIpsFound, ipsProcessed, created, skipped });
+
+  try {
+    yield { type: 'phase', phase: 'Checking database tables...' };
+
+    // Check if account_ip table exists
+    const tables = await queryEqDb<RowDataPacket[]>(`SHOW TABLES LIKE 'account_ip'`);
+    if (tables.length === 0) {
+      yield { type: 'error', error: 'account_ip table does not exist in the EQ database.' };
+      return;
+    }
+
+    yield { type: 'phase', phase: 'Discovering character schema...' };
+
+    // Get character schema for looking up characters
+    const charSchema = await discoverCharacterDataSchema();
+    if (!charSchema) {
+      yield { type: 'error', error: 'Could not discover character_data schema.' };
+      return;
+    }
+
+    yield { type: 'phase', phase: 'Scanning for shared IPs...' };
+
+    // Find all IPs that are associated with more than one account
+    const sharedIps = await queryEqDb<RowDataPacket[]>(`
+      SELECT ip, COUNT(DISTINCT accid) as accountCount
+      FROM account_ip
+      GROUP BY ip
+      HAVING COUNT(DISTINCT accid) > 1
+    `);
+
+    if (sharedIps.length === 0) {
+      yield {
+        type: 'complete',
+        stats: { sharedIpsFound: 0, ipsProcessed: 0, created: 0, skipped: 0 }
+      };
+      return;
+    }
+
+    sharedIpsFound = sharedIps.length;
+    yield {
+      type: 'progress',
+      progress: 5,
+      message: `Found ${sharedIpsFound} shared IPs to process`,
+      stats: getStats()
+    };
+
+    yield { type: 'phase', phase: 'Processing shared IPs...' };
+
+    // Process each shared IP
+    for (let ipIndex = 0; ipIndex < sharedIps.length; ipIndex++) {
+      const { ip, accountCount } = sharedIps[ipIndex];
+      ipsProcessed = ipIndex + 1;
+
+      // Calculate progress (5% for setup, 95% for processing)
+      const progress = 5 + Math.round((ipsProcessed / sharedIpsFound) * 95);
+
+      yield {
+        type: 'progress',
+        progress,
+        message: `Processing IP ${ipsProcessed}/${sharedIpsFound} (${accountCount} accounts)`,
+        stats: getStats()
+      };
+
+      // Get all account IDs that have used this IP
+      const accountsForIp = await queryEqDb<RowDataPacket[]>(
+        `SELECT DISTINCT accid as accountId FROM account_ip WHERE ip = ?`,
+        [ip]
+      );
+
+      const accountIds = accountsForIp.map(r => r.accountId as number);
+
+      if (accountIds.length < 2) {
+        continue; // Safety check
+      }
+
+      // Get all characters from these accounts in a single query
+      const characters = await queryEqDb<RowDataPacket[]>(`
+        SELECT
+          ${charSchema.idColumn} as id,
+          ${charSchema.nameColumn} as name,
+          ${charSchema.accountIdColumn} as accountId
+        FROM character_data
+        WHERE ${charSchema.accountIdColumn} IN (${accountIds.map(() => '?').join(',')})
+      `, accountIds);
+
+      if (characters.length < 2) {
+        continue; // Need at least 2 characters to create associations
+      }
+
+      // Create associations between all characters from different accounts
+      for (let i = 0; i < characters.length; i++) {
+        for (let j = i + 1; j < characters.length; j++) {
+          const charA = characters[i];
+          const charB = characters[j];
+
+          // Skip if same account
+          if (charA.accountId === charB.accountId) {
+            continue;
+          }
+
+          // Check if association already exists (in either direction)
+          const existingAssoc = await prisma.characterAssociation.findFirst({
+            where: {
+              OR: [
+                { sourceCharacterId: charA.id, targetCharacterId: charB.id },
+                { sourceCharacterId: charB.id, targetCharacterId: charA.id }
+              ]
+            }
+          });
+
+          if (existingAssoc) {
+            skipped++;
+            continue;
+          }
+
+          // Create the association
+          try {
+            await prisma.characterAssociation.create({
+              data: {
+                sourceCharacterId: charA.id,
+                sourceCharacterName: charA.name,
+                targetCharacterId: charB.id,
+                targetCharacterName: charB.name,
+                targetAccountId: charB.accountId,
+                associationType: 'indirect',
+                source: 'auto',
+                reason: `Shared IP (${ip})`,
+                createdById: userId,
+                createdByName: userName
+              }
+            });
+            created++;
+          } catch {
+            // Unique constraint violation - already exists
+            skipped++;
+          }
+        }
+      }
+
+      // Yield updated stats after each IP
+      yield {
+        type: 'progress',
+        progress,
+        stats: getStats()
+      };
+    }
+
+    console.log(`[CharacterAdmin] Auto-link complete: ${created} created, ${skipped} skipped, ${sharedIpsFound} shared IPs processed.`);
+
+    yield {
+      type: 'complete',
+      stats: getStats()
+    };
+  } catch (err) {
+    console.error('[CharacterAdmin] Error in autoLinkSharedIpsStream:', err);
+    yield {
+      type: 'error',
+      error: err instanceof Error ? err.message : 'Unknown error occurred'
+    };
+  }
+}

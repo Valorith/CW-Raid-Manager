@@ -53,6 +53,7 @@ import {
   syncIpGroupAssociations,
   getAccountKnownIps,
   autoLinkSharedIps,
+  autoLinkSharedIpsStream,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
 
@@ -1458,6 +1459,60 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to auto-link shared IPs.');
+      }
+    }
+  );
+
+  // Auto-link shared IPs with SSE streaming for real-time progress
+  server.get(
+    '/auto-link-shared-ips-stream',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true, nickname: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const userName = user.nickname || user.displayName;
+
+        // Set SSE headers
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no' // Disable nginx buffering
+        });
+
+        // Stream progress updates
+        const generator = autoLinkSharedIpsStream(request.user.userId, userName);
+
+        for await (const progress of generator) {
+          const data = JSON.stringify(progress);
+          reply.raw.write(`data: ${data}\n\n`);
+        }
+
+        reply.raw.end();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to stream auto-link shared IPs.');
+        // If headers haven't been sent, send error response
+        if (!reply.raw.headersSent) {
+          return reply.badRequest('Unable to auto-link shared IPs.');
+        }
+        // Otherwise, send error via SSE
+        const errorData = JSON.stringify({
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        reply.raw.write(`data: ${errorData}\n\n`);
+        reply.raw.end();
       }
     }
   );

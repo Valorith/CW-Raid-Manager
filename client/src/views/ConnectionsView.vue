@@ -12,11 +12,10 @@
         <button
           type="button"
           class="btn btn--outline"
-          :disabled="autoLinkLoading"
           :title="'Scan account_ip table for shared IPs and create associations'"
-          @click="runAutoLinkSharedIps"
+          @click="showAutoLinkConfirmation = true"
         >
-          {{ autoLinkLoading ? 'Linking...' : 'Auto-Link Shared IPs' }}
+          Auto-Link Shared IPs
         </button>
         <button
           type="button"
@@ -166,12 +165,31 @@
     <p v-if="lastUpdated" class="last-updated muted small">
       Last updated: {{ formatLastUpdated }}
     </p>
+
+    <!-- Confirmation Modal for Auto-Link -->
+    <ConfirmationModal
+      v-if="showAutoLinkConfirmation"
+      title="Auto-Link Shared IPs"
+      description="This will scan the account_ip table for IP addresses used by multiple accounts and create indirect associations between all characters on those accounts. This operation may take some time depending on the size of your database."
+      confirm-label="Start Scan"
+      cancel-label="Cancel"
+      @confirm="startAutoLink"
+      @cancel="showAutoLinkConfirmation = false"
+    />
+
+    <!-- Progress Modal for Auto-Link -->
+    <AutoLinkProgressModal
+      :is-open="showAutoLinkProgress"
+      @close="showAutoLinkProgress = false"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import ConfirmationModal from '../components/ConfirmationModal.vue';
+import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
@@ -203,8 +221,8 @@ const currentPage = ref(1);
 const itemsPerPage = 10; // Groups per page
 const autoRefreshEnabled = ref(true);
 const lastUpdated = ref<Date | null>(null);
-const autoLinkLoading = ref(false);
-const autoLinkResult = ref<{ created: number; skipped: number; sharedIpsFound: number } | null>(null);
+const showAutoLinkConfirmation = ref(false);
+const showAutoLinkProgress = ref(false);
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
@@ -399,25 +417,9 @@ async function refreshConnections() {
   await loadConnections();
 }
 
-async function runAutoLinkSharedIps() {
-  autoLinkLoading.value = true;
-  autoLinkResult.value = null;
-  try {
-    const result = await api.autoLinkSharedIps();
-    autoLinkResult.value = result;
-    if (result.created > 0) {
-      alert(`Auto-link complete!\n\nShared IPs found: ${result.sharedIpsFound}\nAssociations created: ${result.created}\nAlready existing: ${result.skipped}`);
-    } else if (result.sharedIpsFound === 0) {
-      alert('No shared IPs found in account_ip table.');
-    } else {
-      alert(`Auto-link complete!\n\nShared IPs found: ${result.sharedIpsFound}\nAll associations already exist (${result.skipped} skipped).`);
-    }
-  } catch (err) {
-    console.error('Failed to auto-link shared IPs:', err);
-    alert('Failed to auto-link shared IPs. Check console for details.');
-  } finally {
-    autoLinkLoading.value = false;
-  }
+function startAutoLink() {
+  showAutoLinkConfirmation.value = false;
+  showAutoLinkProgress.value = true;
 }
 
 function toggleAutoRefresh() {
