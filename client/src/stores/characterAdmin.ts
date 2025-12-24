@@ -7,6 +7,7 @@ import {
   type CharacterCorpse,
   type CharacterAssociate,
   type AccountNote,
+  type AccountKnownIp,
   type CharacterSearchResult,
   type PlayerEventLog,
   type PlayerEventType,
@@ -15,7 +16,7 @@ import {
   type CharacterWatch
 } from '../services/api';
 
-export type CharacterAdminTab = 'events' | 'associates' | 'account' | 'corpses' | 'notes' | 'inventory';
+export type CharacterAdminTab = 'events' | 'associates' | 'account' | 'corpses' | 'notes' | 'inventory' | 'knownips';
 
 interface CharacterAdminModalState {
   open: boolean;
@@ -63,6 +64,10 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   // Notes
   const notes = ref<AccountNote[]>([]);
   const notesLoading = ref(false);
+
+  // Known IPs
+  const knownIps = ref<AccountKnownIp[]>([]);
+  const knownIpsLoading = ref(false);
 
   // Events
   const eventsState = ref<EventsState>({
@@ -146,6 +151,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     corpses.value = [];
     associates.value = [];
     notes.value = [];
+    knownIps.value = [];
     eventsState.value = {
       events: [],
       total: 0,
@@ -248,6 +254,9 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         break;
       case 'notes':
         await loadNotes();
+        break;
+      case 'knownips':
+        await loadKnownIps();
         break;
       case 'inventory':
         // Inventory is handled by the existing inventory modal embedded in the tab
@@ -357,6 +366,20 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
       console.error('[CharacterAdminStore] Error loading notes:', err);
     } finally {
       notesLoading.value = false;
+    }
+  }
+
+  // Load known IPs
+  async function loadKnownIps() {
+    if (!character.value) return;
+
+    knownIpsLoading.value = true;
+    try {
+      knownIps.value = await api.fetchAccountKnownIps(character.value.accountId);
+    } catch (err) {
+      console.error('[CharacterAdminStore] Error loading known IPs:', err);
+    } finally {
+      knownIpsLoading.value = false;
     }
   }
 
@@ -519,6 +542,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     associatesLoading,
     notes,
     notesLoading,
+    knownIps,
+    knownIpsLoading,
     eventsState,
     eventTypes,
     eventZones,
@@ -548,6 +573,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     loadAccount,
     loadCorpses,
     loadNotes,
+    loadKnownIps,
     searchCharacters,
     clearSearchResults,
     addAssociation,

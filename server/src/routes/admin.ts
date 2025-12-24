@@ -51,6 +51,7 @@ import {
   updateAccountNote,
   deleteAccountNote,
   syncIpGroupAssociations,
+  getAccountKnownIps,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
 
@@ -1042,6 +1043,35 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to fetch account notes.');
+      }
+    }
+  );
+
+  // Get account known IPs
+  server.get(
+    '/accounts/:id/known-ips',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        id: z.coerce.number().int().positive()
+      });
+
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid account ID.');
+      }
+
+      try {
+        const knownIps = await getAccountKnownIps(parsed.data.id);
+        return { knownIps };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch account known IPs.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch account known IPs.');
       }
     }
   );

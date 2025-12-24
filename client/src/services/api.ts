@@ -1519,6 +1519,12 @@ export interface AccountNote {
   updatedAt: string;
 }
 
+export interface AccountKnownIp {
+  ip: string;
+  count: number;
+  lastUsed: string | null;
+}
+
 export interface CharacterWatch {
   id: string;
   eqCharacterId: number;
@@ -3996,6 +4002,14 @@ export const api = {
   async fetchAccountNotes(accountId: number): Promise<AccountNote[]> {
     const response = await axios.get(`/api/admin/accounts/${accountId}/notes`);
     return response.data.notes ?? [];
+  },
+
+  /**
+   * Fetches known IPs for an account from the account_ip table.
+   */
+  async fetchAccountKnownIps(accountId: number): Promise<AccountKnownIp[]> {
+    const response = await axios.get(`/api/admin/accounts/${accountId}/known-ips`);
+    return response.data.knownIps ?? [];
   },
 
   /**

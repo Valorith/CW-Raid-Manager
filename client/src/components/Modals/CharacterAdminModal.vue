@@ -89,6 +89,13 @@
         </button>
         <button
           class="tab-button"
+          :class="{ 'tab-button--active': store.activeTab === 'knownips' }"
+          @click="store.setActiveTab('knownips')"
+        >
+          Known IPs
+        </button>
+        <button
+          class="tab-button"
           :class="{ 'tab-button--active': store.activeTab === 'inventory' }"
           @click="store.setActiveTab('inventory')"
         >
@@ -136,6 +143,11 @@
             <NotesTab />
           </div>
 
+          <!-- Known IPs Tab -->
+          <div v-else-if="store.activeTab === 'knownips'" class="tab-panel">
+            <KnownIpsTab />
+          </div>
+
           <!-- Inventory Tab -->
           <div v-else-if="store.activeTab === 'inventory'" class="tab-panel">
             <InventoryTab />
@@ -153,6 +165,7 @@ import AssociatesTab from './CharacterAdminTabs/AssociatesTab.vue';
 import AccountTab from './CharacterAdminTabs/AccountTab.vue';
 import CorpsesTab from './CharacterAdminTabs/CorpsesTab.vue';
 import NotesTab from './CharacterAdminTabs/NotesTab.vue';
+import KnownIpsTab from './CharacterAdminTabs/KnownIpsTab.vue';
 import InventoryTab from './CharacterAdminTabs/InventoryTab.vue';
 
 const store = useCharacterAdminStore();

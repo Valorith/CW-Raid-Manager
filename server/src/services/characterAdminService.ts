@@ -1148,7 +1148,8 @@ export interface ConnectionForSync {
 
 /**
  * Sync associations from IP groups - ensures all characters in the same IP group
- * are associated with each other. Called from the connections page.
+ * are associated with each other. Also checks the account_ip table for historical
+ * IP associations. Called from the connections page.
  */
 export async function syncIpGroupAssociations(
   connections: ConnectionForSync[],
@@ -1169,7 +1170,54 @@ export async function syncIpGroupAssociations(
   let created = 0;
   let skipped = 0;
 
-  // For each IP group with multiple characters from different accounts
+  // Helper function to create an association
+  async function createAssociation(
+    charA: { characterId: number; characterName: string; accountId: number },
+    charB: { characterId: number; characterName: string; accountId: number },
+    ip: string
+  ): Promise<boolean> {
+    // Skip if same account
+    if (charA.accountId === charB.accountId) {
+      return false;
+    }
+
+    // Check if association already exists (in either direction)
+    const existingAssoc = await prisma.characterAssociation.findFirst({
+      where: {
+        OR: [
+          { sourceCharacterId: charA.characterId, targetCharacterId: charB.characterId },
+          { sourceCharacterId: charB.characterId, targetCharacterId: charA.characterId }
+        ]
+      }
+    });
+
+    if (existingAssoc) {
+      return false;
+    }
+
+    // Create the association (IP-based associations are always 'indirect')
+    try {
+      await prisma.characterAssociation.create({
+        data: {
+          sourceCharacterId: charA.characterId,
+          sourceCharacterName: charA.characterName,
+          targetCharacterId: charB.characterId,
+          targetCharacterName: charB.characterName,
+          targetAccountId: charB.accountId,
+          associationType: 'indirect',
+          reason: `Same IP (${ip})`,
+          createdById: userId,
+          createdByName: userName
+        }
+      });
+      return true;
+    } catch (err) {
+      // Unique constraint violation - already exists
+      return false;
+    }
+  }
+
+  // Phase 1: Sync current connections (characters on same IP right now)
   for (const [ip, groupConnections] of ipGroups) {
     // Get unique accounts in this IP group
     const accountMap = new Map<number, ConnectionForSync[]>();
@@ -1187,58 +1235,182 @@ export async function syncIpGroupAssociations(
       continue;
     }
 
-    // Get all characters from all accounts in this IP group
-    const allCharsInGroup = groupConnections;
-
     // Create associations between all cross-account pairs
-    for (let i = 0; i < allCharsInGroup.length; i++) {
-      for (let j = i + 1; j < allCharsInGroup.length; j++) {
-        const charA = allCharsInGroup[i];
-        const charB = allCharsInGroup[j];
+    for (let i = 0; i < groupConnections.length; i++) {
+      for (let j = i + 1; j < groupConnections.length; j++) {
+        const charA = groupConnections[i];
+        const charB = groupConnections[j];
 
-        // Skip if same account
-        if (charA.accountId === charB.accountId) {
-          continue;
-        }
-
-        // Check if association already exists (in either direction)
-        const existingAssoc = await prisma.characterAssociation.findFirst({
-          where: {
-            OR: [
-              { sourceCharacterId: charA.characterId, targetCharacterId: charB.characterId },
-              { sourceCharacterId: charB.characterId, targetCharacterId: charA.characterId }
-            ]
-          }
-        });
-
-        if (existingAssoc) {
-          skipped++;
-          continue;
-        }
-
-        // Create the association (IP-based associations are always 'indirect')
-        try {
-          await prisma.characterAssociation.create({
-            data: {
-              sourceCharacterId: charA.characterId,
-              sourceCharacterName: charA.characterName,
-              targetCharacterId: charB.characterId,
-              targetCharacterName: charB.characterName,
-              targetAccountId: charB.accountId,
-              associationType: 'indirect',
-              reason: `Same IP connection (${ip})`,
-              createdById: userId,
-              createdByName: userName
-            }
-          });
+        if (await createAssociation(charA, charB, ip)) {
           created++;
-        } catch (err) {
-          // Unique constraint violation - already exists
+        } else {
           skipped++;
         }
       }
     }
   }
 
+  // Phase 2: Check account_ip table for historical IP associations
+  if (!isEqDbConfigured()) {
+    return { created, skipped };
+  }
+
+  try {
+    // Check if account_ip table exists
+    const tables = await queryEqDb<RowDataPacket[]>(`SHOW TABLES LIKE 'account_ip'`);
+    if (tables.length === 0) {
+      return { created, skipped };
+    }
+
+    // Get character schema for looking up characters
+    const charSchema = await discoverCharacterDataSchema();
+    const accountSchema = await discoverAccountSchema();
+    if (!charSchema || !accountSchema) {
+      return { created, skipped };
+    }
+
+    // For each unique IP in the connections
+    const uniqueIps = new Set(connections.map(c => c.ip));
+    const connectionAccountIds = new Set(connections.map(c => c.accountId));
+
+    for (const ip of uniqueIps) {
+      // Get all accounts that have used this IP historically (from account_ip table)
+      const historicalAccounts = await queryEqDb<RowDataPacket[]>(
+        `SELECT accid as accountId FROM account_ip WHERE ip = ?`,
+        [ip]
+      );
+
+      // Filter to accounts NOT currently connected (those are handled in Phase 1)
+      const otherAccountIds = historicalAccounts
+        .map(r => r.accountId as number)
+        .filter(accId => !connectionAccountIds.has(accId));
+
+      if (otherAccountIds.length === 0) {
+        continue;
+      }
+
+      // Get all characters from those other accounts
+      const otherChars = await queryEqDb<RowDataPacket[]>(`
+        SELECT
+          ${charSchema.idColumn} as id,
+          ${charSchema.nameColumn} as name,
+          ${charSchema.accountIdColumn} as accountId
+        FROM character_data
+        WHERE ${charSchema.accountIdColumn} IN (${otherAccountIds.map(() => '?').join(',')})
+      `, otherAccountIds);
+
+      // Get the current connections on this IP
+      const currentConns = ipGroups.get(ip) || [];
+
+      // Create associations between current connections and historical account characters
+      for (const conn of currentConns) {
+        for (const otherChar of otherChars) {
+          if (await createAssociation(
+            conn,
+            { characterId: otherChar.id, characterName: otherChar.name, accountId: otherChar.accountId },
+            ip
+          )) {
+            created++;
+          } else {
+            skipped++;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[CharacterAdmin] Error checking account_ip table for associations:', err);
+  }
+
   return { created, skipped };
+}
+
+/**
+ * Interface for account IP records
+ */
+export interface AccountKnownIp {
+  ip: string;
+  count: number;
+  lastUsed: string | null;
+}
+
+/**
+ * Get all known IPs for an account from the account_ip table
+ */
+export async function getAccountKnownIps(accountId: number): Promise<AccountKnownIp[]> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured.');
+  }
+
+  try {
+    // Check if account_ip table exists
+    const tables = await queryEqDb<RowDataPacket[]>(
+      `SHOW TABLES LIKE 'account_ip'`
+    );
+
+    if (tables.length === 0) {
+      // Table doesn't exist
+      return [];
+    }
+
+    // Get columns to understand the table structure
+    const columns = await getTableColumns('account_ip');
+
+    // Build the query based on available columns
+    let selectFields = 'ip';
+    let orderBy = 'ip';
+
+    if (columns.includes('count')) {
+      selectFields += ', count';
+    }
+    if (columns.includes('lastused')) {
+      selectFields += ', lastused as lastUsed';
+      orderBy = 'lastused DESC';
+    }
+
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT ${selectFields} FROM account_ip WHERE accid = ? ORDER BY ${orderBy}`,
+      [accountId]
+    );
+
+    return rows.map(row => ({
+      ip: row.ip,
+      count: row.count || 0,
+      lastUsed: row.lastUsed ? new Date(row.lastUsed * 1000).toISOString() : null
+    }));
+  } catch (err) {
+    console.warn('[CharacterAdmin] Failed to fetch account IPs:', err);
+    return [];
+  }
+}
+
+/**
+ * Get all accounts that have used a specific IP (for association detection)
+ */
+export async function getAccountsByIp(ip: string): Promise<{ accountId: number; count: number }[]> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured.');
+  }
+
+  try {
+    const tables = await queryEqDb<RowDataPacket[]>(
+      `SHOW TABLES LIKE 'account_ip'`
+    );
+
+    if (tables.length === 0) {
+      return [];
+    }
+
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT accid as accountId, count FROM account_ip WHERE ip = ?`,
+      [ip]
+    );
+
+    return rows.map(row => ({
+      accountId: row.accountId,
+      count: row.count || 0
+    }));
+  } catch (err) {
+    console.warn('[CharacterAdmin] Failed to fetch accounts by IP:', err);
+    return [];
+  }
 }
