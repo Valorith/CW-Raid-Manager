@@ -22,7 +22,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="ip in store.knownIps" :key="ip.ip">
+            <tr v-for="ip in paginatedIps" :key="ip.ip">
               <td class="col-ip">
                 <code>{{ ip.ip }}</code>
               </td>
@@ -37,7 +37,28 @@
           </tbody>
         </table>
 
-        <div v-else class="no-data">
+        <!-- Pagination -->
+        <div v-if="totalPages > 1" class="pagination">
+          <button
+            class="pagination-btn"
+            :disabled="currentPage === 1"
+            @click="goToPage(currentPage - 1)"
+          >
+            &laquo; Prev
+          </button>
+          <span class="pagination-info">
+            Page {{ currentPage }} of {{ totalPages }}
+          </span>
+          <button
+            class="pagination-btn"
+            :disabled="currentPage === totalPages"
+            @click="goToPage(currentPage + 1)"
+          >
+            Next &raquo;
+          </button>
+        </div>
+
+        <div v-if="store.knownIps.length === 0" class="no-data">
           No known IPs found for this account
         </div>
       </div>
@@ -51,9 +72,30 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed, watch } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
 
 const store = useCharacterAdminStore();
+const currentPage = ref(1);
+const ITEMS_PER_PAGE = 10;
+
+const totalPages = computed(() => Math.ceil(store.knownIps.length / ITEMS_PER_PAGE));
+
+const paginatedIps = computed(() => {
+  const start = (currentPage.value - 1) * ITEMS_PER_PAGE;
+  return store.knownIps.slice(start, start + ITEMS_PER_PAGE);
+});
+
+// Reset to page 1 when data changes
+watch(() => store.knownIps, () => {
+  currentPage.value = 1;
+});
+
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page;
+  }
+}
 
 function formatDate(dateStr: string): string {
   // The lastused column is a Unix timestamp in seconds, convert to milliseconds
@@ -165,6 +207,41 @@ function formatDate(dateStr: string): string {
   color: #64748b;
   background: #0f172a;
   border-radius: 0.5rem;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.5rem;
+}
+
+.pagination-btn {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #334155;
+    color: #e2e8f0;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.pagination-info {
+  font-size: 0.75rem;
+  color: #94a3b8;
 }
 
 .info-note {
