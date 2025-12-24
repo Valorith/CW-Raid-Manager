@@ -638,32 +638,27 @@ onUnmounted(() => {
 
 /* Character Search Section */
 .character-search-section {
-  display: flex;
-  justify-content: center;
+  width: 100%;
 }
 
 .character-search {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
-  max-width: 500px;
+  width: 500px;
+  margin: 0 auto;
 }
 
 .character-search__label {
+  display: block;
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.15em;
   color: rgba(148, 163, 184, 0.7);
   text-align: center;
+  margin-bottom: 0.5rem;
 }
 
 .search-input-wrapper {
   position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
 }
 
 .character-search__input {
