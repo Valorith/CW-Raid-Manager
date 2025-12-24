@@ -93,7 +93,7 @@
 
       <div class="associates-list">
         <div
-          v-for="associate in store.associates"
+          v-for="associate in paginatedAssociates"
           :key="associate.characterId"
           class="associate-card"
           :class="{ 'associate-card--watched': isAssociateWatched(associate.characterId) }"
@@ -129,8 +129,22 @@
               <span v-if="associate.createdAt">on {{ formatDate(associate.createdAt) }}</span>
             </div>
           </div>
-          <div v-if="associate.associationType === 'manual'" class="associate-actions">
+          <div class="associate-actions">
             <button
+              class="watch-toggle"
+              :class="{ 'watch-toggle--active': isAssociateWatched(associate.characterId) }"
+              :disabled="togglingWatchId === associate.characterId"
+              @click="toggleAssociateWatch(associate)"
+            >
+              <span class="watch-icon">{{ isAssociateWatched(associate.characterId) ? '&#9733;' : '&#9734;' }}</span>
+              <span class="watch-label">{{
+                togglingWatchId === associate.characterId
+                  ? '...'
+                  : (isAssociateWatched(associate.characterId) ? 'Watching' : 'Watch')
+              }}</span>
+            </button>
+            <button
+              v-if="associate.associationType === 'manual'"
               class="btn btn--danger btn--small"
               @click="removeAssociation(associate.manualAssociationId!)"
               :disabled="removingId === associate.manualAssociationId"
@@ -144,16 +158,59 @@
           No associated characters found
         </div>
       </div>
+
+      <!-- Pagination -->
+      <div v-if="totalPages > 1" class="pagination">
+        <button
+          class="pagination-btn"
+          :disabled="currentPage === 1"
+          @click="goToPage(currentPage - 1)"
+        >
+          &laquo; Prev
+        </button>
+        <span class="pagination-info">
+          Page {{ currentPage }} of {{ totalPages }}
+        </span>
+        <button
+          class="pagination-btn"
+          :disabled="currentPage === totalPages"
+          @click="goToPage(currentPage + 1)"
+        >
+          Next &raquo;
+        </button>
+      </div>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
-import type { CharacterSearchResult } from '../../../services/api';
+import { api, type CharacterSearchResult } from '../../../services/api';
 
 const store = useCharacterAdminStore();
+
+// Pagination
+const currentPage = ref(1);
+const ITEMS_PER_PAGE = 10;
+
+const totalPages = computed(() => Math.ceil(store.associates.length / ITEMS_PER_PAGE));
+
+const paginatedAssociates = computed(() => {
+  const start = (currentPage.value - 1) * ITEMS_PER_PAGE;
+  return store.associates.slice(start, start + ITEMS_PER_PAGE);
+});
+
+// Reset to page 1 when associates list changes
+watch(() => store.associates, () => {
+  currentPage.value = 1;
+});
+
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page;
+  }
+}
 
 // Compute set of watched character IDs for efficient lookups
 const watchedCharacterIds = computed(() =>
@@ -163,6 +220,29 @@ const watchedCharacterIds = computed(() =>
 // Check if an associate is on the watch list
 function isAssociateWatched(characterId: number): boolean {
   return watchedCharacterIds.value.has(characterId);
+}
+
+// Watch toggle for associates
+const togglingWatchId = ref<number | null>(null);
+
+async function toggleAssociateWatch(associate: { characterId: number; characterName: string; accountId: number }) {
+  if (togglingWatchId.value === associate.characterId) return;
+
+  togglingWatchId.value = associate.characterId;
+  try {
+    const isCurrentlyWatched = isAssociateWatched(associate.characterId);
+    if (isCurrentlyWatched) {
+      await api.removeCharacterWatch(associate.characterId);
+    } else {
+      await api.addCharacterWatch(associate.characterId, associate.characterName, associate.accountId);
+    }
+    // Reload watch list to update UI
+    await store.loadWatchList();
+  } catch (err) {
+    console.error('Failed to toggle watch status:', err);
+  } finally {
+    togglingWatchId.value = null;
+  }
 }
 
 const searchQuery = ref('');
@@ -645,6 +725,91 @@ function formatDate(dateStr: string): string {
 
 .associate-actions {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.watch-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(100, 116, 139, 0.2);
+  border: 1px solid rgba(100, 116, 139, 0.4);
+  border-radius: 0.375rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(249, 115, 22, 0.15);
+    border-color: rgba(249, 115, 22, 0.4);
+    color: #fb923c;
+  }
+
+  &--active {
+    background: rgba(249, 115, 22, 0.2);
+    border-color: rgba(249, 115, 22, 0.5);
+    color: #fb923c;
+  }
+
+  &--active:hover:not(:disabled) {
+    background: rgba(249, 115, 22, 0.3);
+    border-color: rgba(249, 115, 22, 0.6);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.watch-icon {
+  font-size: 0.875rem;
+}
+
+.watch-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.5rem;
+}
+
+.pagination-btn {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: all 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #334155;
+    color: #e2e8f0;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.pagination-info {
+  font-size: 0.75rem;
+  color: #94a3b8;
 }
 
 .no-data {
