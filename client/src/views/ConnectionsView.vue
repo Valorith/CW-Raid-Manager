@@ -10,6 +10,7 @@
           Back to Admin
         </router-link>
         <button
+          v-if="authStore.isAdmin"
           type="button"
           class="btn btn--outline"
           :title="'Scan account_ip table for shared IPs and create associations'"
@@ -233,7 +234,10 @@ import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
+import { useAuthStore } from '../stores/auth';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
+
+const authStore = useAuthStore();
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
 
