@@ -903,6 +903,8 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
 
       if (charDetails.length > 0) {
         const char = charDetails[0];
+        // Use 'same_ip' for auto-created associations, 'manual' for admin-added ones
+        const isAuto = assoc.source === 'auto';
         associates.push({
           characterId: char.id,
           characterName: char.name,
@@ -910,16 +912,18 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
           accountName: char.account_name,
           level: char.level || 0,
           className: mapEqClassIdToName(char.class),
-          associationType: 'manual',
-          manualReason: assoc.reason || undefined,
+          associationType: isAuto ? 'same_ip' : 'manual',
+          sharedIp: isAuto ? assoc.reason?.replace('Same IP (', '').replace(')', '') : undefined,
+          manualReason: isAuto ? undefined : (assoc.reason || undefined),
           manualAssociationId: assoc.id,
-          manualAssociationType: assoc.associationType as 'direct' | 'indirect',
+          manualAssociationType: isAuto ? undefined : (assoc.associationType as 'direct' | 'indirect'),
           createdByName: assoc.createdByName,
           createdAt: assoc.createdAt.toISOString()
         });
       }
     } catch {
       // Character may no longer exist
+      const isAuto = assoc.source === 'auto';
       associates.push({
         characterId: otherCharId,
         characterName: otherCharName,
@@ -927,10 +931,11 @@ export async function getCharacterAssociates(characterId: number): Promise<Chara
         accountName: 'Unknown',
         level: 0,
         className: 'UNKNOWN',
-        associationType: 'manual',
-        manualReason: assoc.reason || undefined,
+        associationType: isAuto ? 'same_ip' : 'manual',
+        sharedIp: isAuto ? assoc.reason?.replace('Same IP (', '').replace(')', '') : undefined,
+        manualReason: isAuto ? undefined : (assoc.reason || undefined),
         manualAssociationId: assoc.id,
-        manualAssociationType: assoc.associationType as 'direct' | 'indirect',
+        manualAssociationType: isAuto ? undefined : (assoc.associationType as 'direct' | 'indirect'),
         createdByName: assoc.createdByName,
         createdAt: assoc.createdAt.toISOString()
       });
@@ -1195,7 +1200,7 @@ export async function syncIpGroupAssociations(
       return false;
     }
 
-    // Create the association (IP-based associations are always 'indirect')
+    // Create the association (IP-based associations are always 'indirect' and 'auto')
     try {
       await prisma.characterAssociation.create({
         data: {
@@ -1205,6 +1210,7 @@ export async function syncIpGroupAssociations(
           targetCharacterName: charB.characterName,
           targetAccountId: charB.accountId,
           associationType: 'indirect',
+          source: 'auto',
           reason: `Same IP (${ip})`,
           createdById: userId,
           createdByName: userName

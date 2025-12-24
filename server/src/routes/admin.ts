@@ -1399,17 +1399,19 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         // Get user info for audit trail
         const user = await prisma.user.findUnique({
           where: { id: request.user.userId },
-          select: { displayName: true }
+          select: { displayName: true, nickname: true }
         });
 
         if (!user) {
           return reply.badRequest('User not found.');
         }
 
+        const userName = user.nickname || user.displayName;
+
         const result = await syncIpGroupAssociations(
           parsed.data.connections as ConnectionForSync[],
           request.user.userId,
-          user.displayName
+          userName
         );
 
         return result;

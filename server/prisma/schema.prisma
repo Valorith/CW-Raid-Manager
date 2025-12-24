@@ -845,6 +845,8 @@ model CharacterAssociation {
   targetAccountId       Int      // References account.id from EQ database
   // Association type: 'direct' (orange) or 'indirect' (yellow)
   associationType       String   @default("indirect") @db.VarChar(20)
+  // Source: 'manual' (admin added) or 'auto' (IP sync)
+  source                String   @default("manual") @db.VarChar(20)
   // Metadata
   reason                String?  @db.VarChar(500)
   createdById           String
