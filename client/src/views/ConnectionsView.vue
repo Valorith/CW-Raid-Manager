@@ -54,6 +54,47 @@
       </div>
     </div>
 
+    <!-- Character Search -->
+    <div class="character-search-section">
+      <div class="character-search">
+        <label class="character-search__label">Global Character Search</label>
+        <div class="search-input-wrapper">
+          <input
+            type="text"
+            v-model="globalSearchQuery"
+            placeholder="Search any character by name..."
+            class="character-search__input"
+            @input="handleGlobalSearch"
+            @focus="showSearchResults = true"
+          />
+          <span v-if="characterAdminStore.searchLoading" class="search-spinner"></span>
+        </div>
+        <div
+          v-if="showSearchResults && (characterAdminStore.searchResults.length > 0 || globalSearchQuery.length >= 2)"
+          class="character-search__results"
+        >
+          <div
+            v-for="result in characterAdminStore.searchResults"
+            :key="result.id"
+            class="character-search__result"
+            @click="openCharacterAdmin(result)"
+          >
+            <span class="result-name">{{ result.name }}</span>
+            <span class="result-details">
+              Level {{ result.level }} {{ result.className }}
+              <span class="result-account">({{ result.accountName }})</span>
+            </span>
+          </div>
+          <div
+            v-if="characterAdminStore.searchResults.length === 0 && globalSearchQuery.length >= 2 && !characterAdminStore.searchLoading"
+            class="character-search__no-results"
+          >
+            No characters found
+          </div>
+        </div>
+      </div>
+    </div>
+
     <article class="card">
       <header class="card__header">
         <div>
@@ -223,6 +264,39 @@ const autoRefreshEnabled = ref(true);
 const lastUpdated = ref<Date | null>(null);
 const showAutoLinkConfirmation = ref(false);
 const showAutoLinkProgress = ref(false);
+
+// Global character search
+const globalSearchQuery = ref('');
+const showSearchResults = ref(false);
+let globalSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function handleGlobalSearch() {
+  if (globalSearchTimeout) clearTimeout(globalSearchTimeout);
+
+  if (globalSearchQuery.value.length < 2) {
+    characterAdminStore.clearSearchResults();
+    return;
+  }
+
+  globalSearchTimeout = setTimeout(() => {
+    characterAdminStore.searchCharacters(globalSearchQuery.value);
+  }, 300);
+}
+
+function openCharacterAdmin(result: { id: number; name: string }) {
+  characterAdminStore.openById(result.id);
+  globalSearchQuery.value = '';
+  showSearchResults.value = false;
+  characterAdminStore.clearSearchResults();
+}
+
+// Close search results when clicking outside
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest('.character-search')) {
+    showSearchResults.value = false;
+  }
+}
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null;
 const AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
@@ -458,10 +532,13 @@ onMounted(async () => {
   if (autoRefreshEnabled.value) {
     startAutoRefresh();
   }
+  // Add click outside listener for search results
+  document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
   stopAutoRefresh();
+  document.removeEventListener('click', handleClickOutside);
 });
 </script>
 
@@ -557,6 +634,124 @@ onUnmounted(() => {
 .stat-card__toggle:hover {
   background: rgba(59, 130, 246, 0.35);
   border-color: rgba(59, 130, 246, 0.6);
+}
+
+/* Character Search Section */
+.character-search-section {
+  width: 100%;
+}
+
+.character-search {
+  position: relative;
+  width: 500px;
+  margin: 0 auto;
+}
+
+.character-search__label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: rgba(148, 163, 184, 0.7);
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.search-input-wrapper {
+  position: relative;
+}
+
+.character-search__input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  padding-right: 2.5rem;
+  font-size: 0.95rem;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.75rem;
+  color: #f8fafc;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.character-search__input:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.character-search__input::placeholder {
+  color: rgba(148, 163, 184, 0.6);
+}
+
+.search-spinner {
+  position: absolute;
+  right: 1rem;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(148, 163, 184, 0.3);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.character-search__results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 0.5rem;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.75rem;
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.character-search__result {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  transition: background 0.15s ease;
+}
+
+.character-search__result:last-child {
+  border-bottom: none;
+}
+
+.character-search__result:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.character-search__result .result-name {
+  color: #f8fafc;
+  font-weight: 500;
+}
+
+.character-search__result .result-details {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.character-search__result .result-account {
+  color: #64748b;
+}
+
+.character-search__no-results {
+  padding: 1rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.875rem;
 }
 
 .card {
