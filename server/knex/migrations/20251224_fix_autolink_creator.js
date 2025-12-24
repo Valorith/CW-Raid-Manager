@@ -7,17 +7,25 @@
  * @returns { Promise<void> }
  */
 export async function up(knex) {
-  // Update all auto-created associations where createdByName is 'Valgor' to use 'System'
-  const result = await knex.raw(`
-    UPDATE \`CharacterAssociation\`
-    SET \`createdById\` = 'system',
-        \`createdByName\` = 'System'
-    WHERE \`source\` = 'auto'
-    AND \`createdByName\` = 'Valgor';
-  `);
+  // Temporarily disable foreign key checks since 'system' is not a real user ID
+  await knex.raw('SET FOREIGN_KEY_CHECKS = 0;');
 
-  const affectedRows = result[0]?.affectedRows || 0;
-  console.log(`[Migration] Fixed ${affectedRows} auto-linked associations from Valgor to System`);
+  try {
+    // Update all auto-created associations where createdByName is 'Valgor' to use 'System'
+    const result = await knex.raw(`
+      UPDATE \`CharacterAssociation\`
+      SET \`createdById\` = 'system',
+          \`createdByName\` = 'System'
+      WHERE \`source\` = 'auto'
+      AND \`createdByName\` = 'Valgor';
+    `);
+
+    const affectedRows = result[0]?.affectedRows || 0;
+    console.log(`[Migration] Fixed ${affectedRows} auto-linked associations from Valgor to System`);
+  } finally {
+    // Re-enable foreign key checks
+    await knex.raw('SET FOREIGN_KEY_CHECKS = 1;');
+  }
 }
 
 /**
