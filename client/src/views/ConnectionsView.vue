@@ -56,6 +56,7 @@
 
     <!-- Character Search -->
     <div class="character-search-section">
+      <label class="character-search__label">Global Character Search</label>
       <div class="character-search">
         <div class="search-input-wrapper">
           <input
@@ -638,7 +639,16 @@ onUnmounted(() => {
 /* Character Search Section */
 .character-search-section {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.character-search__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: rgba(148, 163, 184, 0.7);
 }
 
 .character-search {
