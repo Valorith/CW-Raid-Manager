@@ -82,7 +82,7 @@
               <RouterLink to="/raids" class="nav__dropdown-item">
                 Calendar
               </RouterLink>
-              <RouterLink to="/raids?filter=history" class="nav__dropdown-item">
+              <RouterLink to="/raids?tab=history" class="nav__dropdown-item">
                 History
               </RouterLink>
             </div>
