@@ -52,6 +52,8 @@ import {
   deleteAccountNote,
   syncIpGroupAssociations,
   getAccountKnownIps,
+  autoLinkSharedIps,
+  autoLinkSharedIpsStream,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
 
@@ -1421,6 +1423,140 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to sync IP group associations.');
+      }
+    }
+  );
+
+  // Auto-link accounts that share IPs in the account_ip table
+  server.post(
+    '/auto-link-shared-ips',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true, nickname: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const userName = user.nickname || user.displayName;
+
+        const result = await autoLinkSharedIps(
+          request.user.userId,
+          userName
+        );
+
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to auto-link shared IPs.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to auto-link shared IPs.');
+      }
+    }
+  );
+
+  // Auto-link shared IPs with SSE streaming for real-time progress
+  server.get(
+    '/auto-link-shared-ips-stream',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      try {
+        // Get user info for audit trail
+        const user = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: { displayName: true, nickname: true }
+        });
+
+        if (!user) {
+          return reply.badRequest('User not found.');
+        }
+
+        const userName = user.nickname || user.displayName;
+
+        // Set SSE headers
+        reply.raw.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no' // Disable nginx buffering
+        });
+
+        // Stream progress updates
+        const generator = autoLinkSharedIpsStream(request.user.userId, userName);
+
+        for await (const progress of generator) {
+          const data = JSON.stringify(progress);
+          reply.raw.write(`data: ${data}\n\n`);
+        }
+
+        reply.raw.end();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to stream auto-link shared IPs.');
+        // If headers haven't been sent, send error response
+        if (!reply.raw.headersSent) {
+          return reply.badRequest('Unable to auto-link shared IPs.');
+        }
+        // Otherwise, send error via SSE
+        const errorData = JSON.stringify({
+          type: 'error',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        reply.raw.write(`data: ${errorData}\n\n`);
+        reply.raw.end();
+      }
+    }
+  );
+
+  // Get IP geolocation data
+  server.get(
+    '/ip-geolocation/:ip',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const { ip } = request.params as { ip: string };
+
+      // Validate IP format (basic validation)
+      const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+      const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/;
+
+      if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
+        return reply.badRequest('Invalid IP address format.');
+      }
+
+      const apiKey = process.env.IPGEO_API_KEY;
+      if (!apiKey) {
+        return reply.status(503).send({ error: 'IP geolocation service not configured.' });
+      }
+
+      try {
+        const response = await fetch(
+          `https://api.ipgeolocation.io/v2/ipgeo?apiKey=${apiKey}&ip=${ip}`
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          request.log.error({ status: response.status, error: errorText }, 'IP geolocation API error');
+          return reply.status(response.status).send({
+            error: response.status === 423 ? 'API rate limit exceeded (1000/day).' : 'Failed to fetch geolocation data.'
+          });
+        }
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch IP geolocation.');
+        return reply.status(500).send({ error: 'Failed to fetch geolocation data.' });
       }
     }
   );

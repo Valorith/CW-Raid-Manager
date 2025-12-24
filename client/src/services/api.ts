@@ -4097,6 +4097,62 @@ export const api = {
   }>): Promise<{ created: number; skipped: number }> {
     const response = await axios.post('/api/admin/sync-ip-associations', { connections });
     return response.data;
+  },
+
+  /**
+   * Auto-links accounts that share IPs in the account_ip table.
+   * Scans for all IPs used by multiple accounts and creates indirect associations.
+   */
+  async autoLinkSharedIps(): Promise<{ created: number; skipped: number; sharedIpsFound: number }> {
+    const response = await axios.post('/api/admin/auto-link-shared-ips');
+    return response.data;
+  },
+
+  /**
+   * Get geolocation data for an IP address.
+   */
+  async getIpGeolocation(ip: string): Promise<IpGeolocation> {
+    const response = await axios.get(`/api/admin/ip-geolocation/${encodeURIComponent(ip)}`);
+    return response.data;
   }
 
 };
+
+/**
+ * IP Geolocation response from ipgeolocation.io v2 API
+ */
+export interface IpGeolocation {
+  ip: string;
+  location?: {
+    continent_code?: string;
+    continent_name?: string;
+    country_code2?: string;
+    country_code3?: string;
+    country_name?: string;
+    country_name_official?: string;
+    country_capital?: string;
+    state_prov?: string;
+    state_code?: string;
+    district?: string;
+    city?: string;
+    zipcode?: string;
+    latitude?: string;
+    longitude?: string;
+    is_eu?: boolean;
+    country_flag?: string;
+    geoname_id?: string;
+    country_emoji?: string;
+  };
+  country_metadata?: {
+    calling_code?: string;
+    tld?: string;
+    languages?: string[];
+  };
+  currency?: {
+    code?: string;
+    name?: string;
+    symbol?: string;
+  };
+  isp?: string;
+  organization?: string;
+}
