@@ -98,12 +98,7 @@ function goToPage(page: number) {
 }
 
 function formatDate(dateStr: string): string {
-  // The lastused column is a Unix timestamp in seconds, convert to milliseconds
-  const timestamp = parseInt(dateStr, 10);
-  if (!isNaN(timestamp)) {
-    return new Date(timestamp * 1000).toLocaleString();
-  }
-  // Fallback for other date formats
+  // Backend returns ISO string format
   return new Date(dateStr).toLocaleString();
 }
 </script>
