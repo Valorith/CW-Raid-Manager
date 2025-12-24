@@ -46,9 +46,12 @@
                 </span>
                 <!-- Location data -->
                 <div v-else-if="ipLocations.get(ip.ip)" class="location-info">
-                  <span class="location-emoji" v-if="ipLocations.get(ip.ip)?.location?.country_emoji">
-                    {{ ipLocations.get(ip.ip)?.location?.country_emoji }}
-                  </span>
+                  <img
+                    v-if="ipLocations.get(ip.ip)?.location?.country_code2"
+                    :src="`https://flagcdn.com/24x18/${ipLocations.get(ip.ip)?.location?.country_code2?.toLowerCase()}.png`"
+                    :alt="ipLocations.get(ip.ip)?.location?.country_name"
+                    class="flag-icon"
+                  />
                   <span class="location-text">
                     {{ formatLocation(ipLocations.get(ip.ip)!) }}
                   </span>
@@ -327,9 +330,12 @@ async function fetchLocation(ip: string) {
   font-size: 0.75rem;
 }
 
-.location-emoji {
-  font-size: 1rem;
-  line-height: 1;
+.flag-icon {
+  width: 24px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .location-text {
