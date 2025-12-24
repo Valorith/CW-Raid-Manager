@@ -2574,6 +2574,9 @@ async function fetchAndApplySharedLootCouncilState(force = false) {
     if (lootCouncilState.items.length > 0) {
       lootCouncilState.lastUpdatedAt = new Date();
       lootCouncilState.suppressed = false;
+      // Resolve any missing item icons - the shared state may have items with null iconIds
+      // if they weren't fully resolved before being broadcast
+      scheduleLootCouncilItemResolution();
     }
   } catch (error) {
     // Log but don't interrupt the user
