@@ -18,6 +18,7 @@ model User {
   nickname           String?
   defaultLogFileName String?            @db.VarChar(255)
   admin              Boolean?           @default(false)
+  guide              Boolean?           @default(false)
   createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
   createdLootListEntries GuildLootListEntry[] @relation("LootListCreator")
   characters         Character[]

@@ -377,7 +377,7 @@ function formatClass(className: string): string {
   return characterClassLabels[className as CharacterClass] ?? className;
 }
 
-const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar"];
+const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar", "Guild Hall"];
 
 function isOutsideHome(conn: ServerConnection): boolean {
   return !INACTIVE_ZONES.includes(conn.zoneName);

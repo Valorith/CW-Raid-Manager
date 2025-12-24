@@ -5,6 +5,7 @@
         <RouterLink to="/dashboard" class="brand__title">CW Raid Manager</RouterLink>
       </div>
       <nav class="nav">
+        <!-- Dashboard - No dropdown -->
         <RouterLink
           v-if="authStore.isAuthenticated"
           to="/dashboard"
@@ -12,13 +13,59 @@
         >
           Dashboard
         </RouterLink>
-        <RouterLink
+
+        <!-- Guild - With dropdown when guild is selected -->
+        <div
           v-if="authStore.isAuthenticated"
-          :to="guildNavTo"
-          class="nav__link"
+          class="nav__item"
+          :class="{ 'nav__item--has-dropdown': primaryGuild }"
+          @mouseenter="openDropdown('guild')"
+          @mouseleave="closeDropdown('guild')"
         >
-          {{ guildNavLabel }}
-        </RouterLink>
+          <RouterLink :to="guildNavTo" class="nav__link">
+            {{ guildNavLabel }}
+            <svg v-if="primaryGuild" class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </RouterLink>
+          <Transition name="dropdown">
+            <div v-if="primaryGuild && activeDropdown === 'guild'" class="nav__dropdown">
+              <RouterLink
+                v-if="canManageGuildSettings"
+                :to="{ name: 'GuildSettings', params: { guildId: primaryGuild.id } }"
+                class="nav__dropdown-item"
+              >
+                Settings
+              </RouterLink>
+              <RouterLink
+                :to="{ name: 'GuildMetrics', params: { guildId: primaryGuild.id } }"
+                class="nav__dropdown-item"
+              >
+                Metrics
+              </RouterLink>
+              <RouterLink
+                :to="{ name: 'GuildBank', params: { guildId: primaryGuild.id } }"
+                class="nav__dropdown-item"
+              >
+                Bank
+              </RouterLink>
+              <RouterLink
+                :to="{ name: 'GuildQuestTracker', params: { guildId: primaryGuild.id } }"
+                class="nav__dropdown-item"
+              >
+                Quest Tracker
+              </RouterLink>
+              <RouterLink
+                :to="{ name: 'GuildNpcRespawn', params: { guildId: primaryGuild.id } }"
+                class="nav__dropdown-item"
+              >
+                NPC Respawn
+              </RouterLink>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Raids - No dropdown -->
         <RouterLink
           v-if="authStore.isAuthenticated"
           to="/raids"
@@ -26,7 +73,57 @@
         >
           Raids
         </RouterLink>
-        <RouterLink v-if="authStore.isAdmin" to="/admin" class="nav__link">Admin</RouterLink>
+
+        <!-- Admin - With dropdown (different items for admin vs guide) -->
+        <div
+          v-if="authStore.isAdminOrGuide"
+          class="nav__item nav__item--has-dropdown"
+          @mouseenter="openDropdown('admin')"
+          @mouseleave="closeDropdown('admin')"
+        >
+          <component
+            :is="authStore.isAdmin ? 'RouterLink' : 'span'"
+            :to="authStore.isAdmin ? '/admin' : undefined"
+            class="nav__link"
+            :class="{ 'nav__link--no-click': !authStore.isAdmin }"
+          >
+            Admin
+            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </component>
+          <Transition name="dropdown">
+            <div v-if="activeDropdown === 'admin'" class="nav__dropdown">
+              <RouterLink
+                v-if="authStore.isAdmin"
+                to="/admin/player-event-logs"
+                class="nav__dropdown-item"
+              >
+                Player Event Logs
+              </RouterLink>
+              <RouterLink
+                to="/admin/connections"
+                class="nav__dropdown-item"
+              >
+                Server Connections
+              </RouterLink>
+              <RouterLink
+                v-if="authStore.isAdmin"
+                to="/admin/money-tracker"
+                class="nav__dropdown-item"
+              >
+                Money Tracker
+              </RouterLink>
+              <RouterLink
+                v-if="authStore.isAdmin"
+                to="/admin/loot-management"
+                class="nav__dropdown-item"
+              >
+                ML Diagnostics
+              </RouterLink>
+            </div>
+          </Transition>
+        </div>
       </nav>
       <div class="nav-alerts">
         <GuildDonationsNotification />
@@ -118,6 +215,8 @@
         </RouterLink>
         <template v-if="authStore.isAuthenticated">
           <span class="auth__user">Hi, {{ authStore.preferredName }}</span>
+          <span v-if="authStore.isAdmin" class="auth__badge auth__badge--admin">Admin</span>
+          <span v-else-if="authStore.isGuide" class="auth__badge auth__badge--guide">Guide</span>
           <button class="btn btn--outline" @click="logout">Log out</button>
         </template>
         <template v-else>
@@ -192,6 +291,29 @@ const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
 
+// Dropdown state for nav menu
+const activeDropdown = ref<string | null>(null);
+let dropdownTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function openDropdown(name: string) {
+  if (dropdownTimeout) {
+    clearTimeout(dropdownTimeout);
+    dropdownTimeout = null;
+  }
+  activeDropdown.value = name;
+}
+
+function closeDropdown(name: string) {
+  if (dropdownTimeout) {
+    clearTimeout(dropdownTimeout);
+  }
+  dropdownTimeout = setTimeout(() => {
+    if (activeDropdown.value === name) {
+      activeDropdown.value = null;
+    }
+  }, 150);
+}
+
 // Computed for NPC notifications
 const npcNotifications = computed(() => npcRespawnStore.activeNotifications);
 
@@ -230,6 +352,11 @@ const guildNavTo = computed(() => {
   return primaryGuild.value
     ? { name: 'GuildDetail', params: { guildId: primaryGuild.value.id } }
     : { path: '/guilds' };
+});
+
+const canManageGuildSettings = computed(() => {
+  const role = primaryGuild.value?.role;
+  return role === 'LEADER' || role === 'OFFICER';
 });
 
 function loginWithGoogle() {
@@ -473,7 +600,18 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .nav {
   display: flex;
-  gap: 1.25rem;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.nav__item {
+  position: relative;
+}
+
+.nav__item--has-dropdown .nav__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .nav-alerts {
@@ -550,10 +688,109 @@ function hasRaidStarted(raid: RaidEventSummary) {
   color: #e2e8f0;
   text-decoration: none;
   font-weight: 500;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.5rem;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.nav__link:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #38bdf8;
 }
 
 .nav__link.router-link-active {
   color: #38bdf8;
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.nav__link--no-click {
+  cursor: default;
+}
+
+.nav__chevron {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  opacity: 0.6;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.nav__item:hover .nav__chevron {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+.nav__dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 180px;
+  background: rgba(15, 23, 42, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.75rem;
+  padding: 0.5rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 1px rgba(148, 163, 184, 0.3);
+  z-index: 1000;
+}
+
+.nav__dropdown::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 12px;
+  height: 12px;
+  background: rgba(15, 23, 42, 0.98);
+  border-left: 1px solid rgba(148, 163, 184, 0.2);
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.nav__dropdown-item {
+  display: block;
+  padding: 0.6rem 0.85rem;
+  color: #e2e8f0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: 0.45rem;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+
+.nav__dropdown-item:hover {
+  background: rgba(59, 130, 246, 0.18);
+  color: #38bdf8;
+  transform: translateX(3px);
+}
+
+.nav__dropdown-item.router-link-active {
+  background: rgba(59, 130, 246, 0.22);
+  color: #38bdf8;
+}
+
+/* Dropdown animation */
+.dropdown-enter-active {
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropdown-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.dropdown-enter-from {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px) scale(0.96);
+}
+
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-4px) scale(0.98);
 }
 
 .nav-monitor {
@@ -719,6 +956,30 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .auth__user {
   font-size: 0.95rem;
   color: #cbd5f5;
+}
+
+.auth__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 0.35rem;
+  white-space: nowrap;
+}
+
+.auth__badge--admin {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
+.auth__badge--guide {
+  background: rgba(74, 222, 128, 0.2);
+  border: 1px solid rgba(74, 222, 128, 0.5);
+  color: #86efac;
 }
 
 .settings-link {
@@ -894,8 +1155,23 @@ function hasRaidStarted(raid: RaidEventSummary) {
     order: 3;
     flex-wrap: wrap;
     justify-content: flex-start;
-    gap: 0.75rem;
+    gap: 0.5rem;
     width: 100%;
+  }
+
+  .nav__dropdown {
+    left: 0;
+    transform: none;
+  }
+
+  .nav__dropdown::before {
+    left: 24px;
+    transform: rotate(45deg);
+  }
+
+  .dropdown-enter-from,
+  .dropdown-leave-to {
+    transform: translateY(-8px) scale(0.96);
   }
 
   .nav-alerts {

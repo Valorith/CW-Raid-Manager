@@ -10,6 +10,7 @@ import {
   deleteUserByAdmin,
   detachGuildCharacterByAdmin,
   ensureAdmin,
+  ensureGuideOrAdmin,
   getGuildDetailForAdmin,
   getRaidEventForAdmin,
   listGuildsForAdmin,
@@ -66,6 +67,15 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promi
   }
 }
 
+async function requireGuideOrAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
+  try {
+    await ensureGuideOrAdmin(request.user.userId);
+  } catch (error) {
+    request.log.warn({ error }, 'Non-guide/admin attempted to access restricted route.');
+    return reply.forbidden('Guide or Administrator privileges required.');
+  }
+}
+
 export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/users',
@@ -92,6 +102,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const bodySchema = z
         .object({
           admin: z.boolean().optional(),
+          guide: z.boolean().optional(),
           displayName: z.string().min(1).max(120).optional(),
           nickname: z.string().max(120).nullable().optional(),
           email: z.string().email().optional()
@@ -593,11 +604,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  // Server Connections Route
+  // Server Connections Route (accessible by Guides and Admins)
   server.get(
     '/connections',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       try {

@@ -10,6 +10,7 @@ export interface AuthenticatedUser {
   nickname?: string | null;
   defaultLogFileName?: string | null;
   isAdmin: boolean;
+  isGuide: boolean;
   guilds: UserGuildSummary[];
   pendingApplication: PendingGuildApplication | null;
 }
@@ -40,6 +41,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.user,
     preferredName: (state) => state.user?.nickname ?? state.user?.displayName ?? null,
     isAdmin: (state) => state.user?.isAdmin ?? false,
+    isGuide: (state) => state.user?.isGuide ?? false,
+    isAdminOrGuide: (state) => (state.user?.isAdmin ?? false) || (state.user?.isGuide ?? false),
     primaryGuild: (state) => state.user?.guilds?.[0] ?? null,
     pendingApplication: (state) => state.user?.pendingApplication ?? null
   },
@@ -61,6 +64,7 @@ export const useAuthStore = defineStore('auth', {
             nickname: response.data.user.nickname ?? null,
             defaultLogFileName: response.data.user.defaultLogFileName ?? null,
             isAdmin: Boolean(response.data.user.isAdmin),
+            isGuide: Boolean(response.data.user.isGuide),
             guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
             pendingApplication: response.data.user.pendingApplication ?? null
           };

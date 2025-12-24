@@ -30,6 +30,10 @@
         <span class="stat-card__label">Administrators</span>
         <strong class="stat-card__value">{{ adminSummary.totalAdmins }}</strong>
       </div>
+      <div class="stat-card stat-card--guide">
+        <span class="stat-card__label">Guides</span>
+        <strong class="stat-card__value">{{ adminSummary.totalGuides }}</strong>
+      </div>
       <div class="stat-card">
         <span class="stat-card__label">Guilds</span>
         <strong class="stat-card__value">{{ adminSummary.totalGuilds }}</strong>
@@ -104,20 +108,20 @@
               >
                 {{ deletingUserId === user.id ? 'Deleting…' : 'Delete' }}
               </button>
-              <button
-                class="btn btn--outline btn--small"
-                :class="{ 'btn--accent': !user.isAdmin }"
+              <select
+                class="select select--role"
+                :class="{
+                  'select--admin': user.isAdmin,
+                  'select--guide': user.isGuide && !user.isAdmin
+                }"
+                :value="getUserRole(user)"
                 :disabled="updatingUserId === user.id || deletingUserId === user.id"
-                @click="toggleAdmin(user)"
+                @change="setUserRole(user, ($event.target as HTMLSelectElement).value as UserRole)"
               >
-                {{
-                  updatingUserId === user.id
-                    ? 'Saving…'
-                    : user.isAdmin
-                      ? 'Revoke Admin'
-                      : 'Make Admin'
-                }}
-              </button>
+                <option value="member">Member</option>
+                <option value="guide">Guide</option>
+                <option value="admin">Admin</option>
+              </select>
             </div>
           </li>
         </ul>
@@ -609,6 +613,8 @@ import {
 import type { GuildRole } from '../services/types';
 import { characterClassLabels, guildRoleOrder } from '../services/types';
 
+type UserRole = 'member' | 'guide' | 'admin';
+
 const loadingUsers = ref(false);
 const loadingGuilds = ref(false);
 const loadingGuildDetail = ref(false);
@@ -722,6 +728,7 @@ const availableUsersForGuild = computed(() => {
 const adminSummary = computed(() => {
   const totalUsers = users.value.length;
   const totalAdmins = users.value.filter((user) => user.isAdmin).length;
+  const totalGuides = users.value.filter((user) => user.isGuide && !user.isAdmin).length;
   const totalGuilds = guilds.value.length;
   const totalGuildMembers = guilds.value.reduce((sum, guild) => sum + guild.memberCount, 0);
   const totalRaids = raids.value.length;
@@ -730,6 +737,7 @@ const adminSummary = computed(() => {
   return {
     totalUsers,
     totalAdmins,
+    totalGuides,
     totalGuilds,
     totalGuildMembers,
     totalRaids,
@@ -1000,18 +1008,43 @@ function closeUserModal() {
   savingUser.value = false;
 }
 
-async function toggleAdmin(user: AdminUserSummary) {
+function getUserRole(user: AdminUserSummary): UserRole {
+  if (user.isAdmin) return 'admin';
+  if (user.isGuide) return 'guide';
+  return 'member';
+}
+
+async function setUserRole(user: AdminUserSummary, role: UserRole) {
   if (updatingUserId.value) {
+    return;
+  }
+
+  const currentRole = getUserRole(user);
+  if (currentRole === role) {
     return;
   }
 
   updatingUserId.value = user.id;
   try {
-    const updated = await api.updateAdminUser(user.id, { admin: !user.isAdmin });
+    let payload: { admin?: boolean; guide?: boolean } = {};
+
+    switch (role) {
+      case 'admin':
+        payload = { admin: true, guide: false };
+        break;
+      case 'guide':
+        payload = { admin: false, guide: true };
+        break;
+      case 'member':
+        payload = { admin: false, guide: false };
+        break;
+    }
+
+    const updated = await api.updateAdminUser(user.id, payload);
     users.value = users.value.map((existing) => (existing.id === updated.id ? updated : existing));
   } catch (error) {
-    console.error('Failed to update admin flag.', error);
-    window.alert('Unable to update admin status. Please try again.');
+    console.error('Failed to update user role.', error);
+    window.alert('Unable to update user role. Please try again.');
   } finally {
     updatingUserId.value = null;
   }
@@ -1489,6 +1522,10 @@ onMounted(async () => {
   background: linear-gradient(160deg, rgba(59, 130, 246, 0.22), rgba(99, 102, 241, 0.18));
 }
 
+.stat-card--guide {
+  background: linear-gradient(160deg, rgba(34, 197, 94, 0.22), rgba(16, 185, 129, 0.18));
+}
+
 .stat-card__label {
   font-size: 0.75rem;
   text-transform: uppercase;
@@ -1836,6 +1873,33 @@ onMounted(async () => {
     url('data:image/svg+xml,%3Csvg width="10" height="6" viewBox="0 0 10 6" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath fill="%23cbd5f5" d="M5 6 0 0h10L5 6Z"/%3E%3C/svg%3E')
     no-repeat right 0.75rem center/10px 6px;
   padding-right: 2.5rem;
+}
+
+.select--role {
+  min-width: 100px;
+  padding: 0.4rem 2rem 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.select--role:hover:not(:disabled) {
+  border-color: rgba(148, 163, 184, 0.55);
+}
+
+.select--role.select--admin {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #bae6fd;
+}
+
+.select--role.select--guide {
+  background-color: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #bbf7d0;
 }
 
 .tag {

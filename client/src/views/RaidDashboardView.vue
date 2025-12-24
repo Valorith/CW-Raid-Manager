@@ -694,7 +694,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import RaidModal from '../components/RaidModal.vue';
 
@@ -760,7 +760,8 @@ const loadingRaids = ref(false);
 const showRaidModal = ref(false);
 const scheduledStartDate = ref<string | null>(null);
 const router = useRouter();
-const activeTab = ref<'active' | 'history'>('active');
+const route = useRoute();
+const activeTab = ref<'active' | 'history'>(route.query.tab === 'history' ? 'history' : 'active');
 const copyingRaidId = ref<string | null>(null);
 const sharingRaidId = ref<string | null>(null);
 const calendarViewRef = ref<HTMLElement | null>(null);
@@ -1521,6 +1522,13 @@ watch(calendarViewDate, () => {
 watch(activeTab, () => {
   hideDayContextMenu();
 });
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = tab === 'history' ? 'history' : 'active';
+  }
+);
 
 onUnmounted(() => {
   window.removeEventListener('click', hideDayContextMenu);

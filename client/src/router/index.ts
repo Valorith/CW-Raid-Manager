@@ -121,7 +121,7 @@ const router = createRouter({
       path: '/admin/connections',
       name: 'Connections',
       component: () => import('../views/ConnectionsView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true }
+      meta: { requiresAuth: true, requiresGuideOrAdmin: true }
     },
     {
       path: '/admin/player-event-logs',
@@ -143,6 +143,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
+    return { path: '/dashboard' };
+  }
+
+  if (to.meta.requiresGuideOrAdmin && !authStore.isAdminOrGuide) {
     return { path: '/dashboard' };
   }
 
