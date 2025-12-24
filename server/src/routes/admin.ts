@@ -690,7 +690,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/player-event-logs/event-types',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async () => {
       const eventTypes = getEventTypes();
@@ -701,7 +701,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/player-event-logs/zones',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       try {
