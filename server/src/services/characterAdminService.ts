@@ -1378,11 +1378,29 @@ export async function getAccountKnownIps(accountId: number): Promise<AccountKnow
       [accountId]
     );
 
-    return rows.map(row => ({
-      ip: row.ip,
-      count: row.count || 0,
-      lastUsed: row.lastUsed ? new Date(row.lastUsed * 1000).toISOString() : null
-    }));
+    return rows.map(row => {
+      let lastUsed: string | null = null;
+      if (row.lastUsed) {
+        // Handle different formats the database might return
+        if (row.lastUsed instanceof Date) {
+          lastUsed = row.lastUsed.toISOString();
+        } else if (typeof row.lastUsed === 'number') {
+          // Check if it's seconds (small number) or milliseconds (large number)
+          // Unix timestamps in seconds for years 2000-2100 are between 946684800 and 4102444800
+          // Milliseconds would be 1000x larger
+          const ts = row.lastUsed < 10000000000 ? row.lastUsed * 1000 : row.lastUsed;
+          lastUsed = new Date(ts).toISOString();
+        } else {
+          // String or other - try to parse directly
+          lastUsed = new Date(row.lastUsed).toISOString();
+        }
+      }
+      return {
+        ip: row.ip,
+        count: row.count || 0,
+        lastUsed
+      };
+    });
   } catch (err) {
     console.warn('[CharacterAdmin] Failed to fetch account IPs:', err);
     return [];
