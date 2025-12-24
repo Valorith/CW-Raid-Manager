@@ -1315,6 +1315,7 @@ export interface AdminUserSummary {
   displayName: string;
   nickname?: string | null;
   isAdmin: boolean;
+  isGuide: boolean;
   createdAt: string;
   updatedAt: string;
   guildMemberships: AdminUserGuildMembership[];
@@ -3410,7 +3411,7 @@ export const api = {
 
   async updateAdminUser(
     userId: string,
-    payload: { admin?: boolean; displayName?: string; nickname?: string | null; email?: string }
+    payload: { admin?: boolean; guide?: boolean; displayName?: string; nickname?: string | null; email?: string }
   ): Promise<AdminUserSummary> {
     const response = await axios.patch(`/api/admin/users/${userId}`, payload);
     return response.data.user;

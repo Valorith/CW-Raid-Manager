@@ -80,6 +80,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         nickname: true,
         defaultLogFileName: true,
         admin: true,
+        guide: true,
         guildMemberships: {
           select: {
             role: true,
@@ -130,6 +131,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         nickname: user.nickname ?? null,
         defaultLogFileName: user.defaultLogFileName ?? null,
         isAdmin: user.admin,
+        isGuide: user.guide,
         guilds: user.guildMemberships.map((membership) => ({
           id: membership.guild.id,
           name: membership.guild.name,
