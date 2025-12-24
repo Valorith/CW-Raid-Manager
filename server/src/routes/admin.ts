@@ -717,13 +717,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
-  // Character Admin Routes
+  // Character Admin Routes (accessible by Guides and Admins)
 
   // Search characters (for adding manual associations)
   server.get(
     '/characters/search',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const querySchema = z.object({
@@ -752,7 +752,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/characters/:name',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -784,7 +784,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/characters/id/:id',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -816,7 +816,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/characters/id/:id/events',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -863,7 +863,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/characters/id/:id/associates',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -892,7 +892,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.post(
     '/characters/id/:id/associates',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -945,7 +945,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/characters/id/:id/corpses',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -974,7 +974,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.delete(
     '/character-associations/:id',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1003,7 +1003,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/accounts/:id',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1035,7 +1035,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/accounts/:id/notes',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1064,7 +1064,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/accounts/:id/known-ips',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1093,7 +1093,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.post(
     '/accounts/:id/notes',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1142,7 +1142,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.patch(
     '/account-notes/:id',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1179,7 +1179,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.delete(
     '/account-notes/:id',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1205,14 +1205,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   );
 
   // ============================================
-  // Character Watch List Endpoints
+  // Character Watch List Endpoints (accessible by Guides and Admins)
   // ============================================
 
   // Get all watched characters (with their associated character IDs)
   server.get(
     '/character-watch',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       try {
@@ -1281,7 +1281,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/character-watch/:characterId',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1309,7 +1309,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.post(
     '/character-watch',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const bodySchema = z.object({
@@ -1360,7 +1360,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.delete(
     '/character-watch/:characterId',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const paramsSchema = z.object({
@@ -1532,7 +1532,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
   server.get(
     '/ip-geolocation/:ip',
     {
-      preHandler: [authenticate, requireAdmin]
+      preHandler: [authenticate, requireGuideOrAdmin]
     },
     async (request, reply) => {
       const { ip } = request.params as { ip: string };
