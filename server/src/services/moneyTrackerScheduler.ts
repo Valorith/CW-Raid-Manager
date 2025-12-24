@@ -120,7 +120,7 @@ async function executeAutoLinkSharedIps(): Promise<void> {
   try {
     // Find an admin user for the audit trail
     const adminUser = await prisma.user.findFirst({
-      where: { isAdmin: true },
+      where: { admin: true },
       select: { id: true, displayName: true, nickname: true }
     });
 
