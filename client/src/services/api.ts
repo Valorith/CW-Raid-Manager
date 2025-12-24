@@ -1435,6 +1435,132 @@ export interface PlayerEventZone {
   zoneName: string;
 }
 
+// Character Admin Types
+export interface CharacterAdminDetails {
+  id: number;
+  accountId: number;
+  name: string;
+  level: number;
+  className: string;
+  classId: number;
+  zoneName: string;
+  zoneId: number;
+  race: string;
+  raceId: number;
+  gender: string;
+  guildName: string | null;
+  lastLogin: string | null;
+  timePlayedMinutes: number;
+  createdAt: string | null;
+}
+
+export interface AccountInfo {
+  id: number;
+  name: string;
+  charname: string | null;
+  status: number;
+  lsAccountId: number | null;
+  gmSpeed: number;
+  hideme: number;
+  suspendedReason: string | null;
+  suspendedUntil: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  timeCreation: number;
+  ipExemptions: number;
+  characterCount: number;
+}
+
+export interface CharacterCorpse {
+  id: number;
+  characterId: number;
+  characterName: string;
+  zoneName: string;
+  zoneId: number;
+  instanceId: number;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  timeofdeath: string;
+  isBuried: boolean;
+  isRezzed: boolean;
+  wasAtGraveyard: boolean;
+  itemCount: number;
+  platinum: number;
+  gold: number;
+  silver: number;
+  copper: number;
+}
+
+export interface CharacterAssociate {
+  characterId: number;
+  characterName: string;
+  accountId: number;
+  accountName: string;
+  level: number;
+  className: string;
+  associationType: 'same_account' | 'same_ip' | 'manual';
+  sharedIp?: string;
+  manualReason?: string;
+  manualAssociationId?: string;
+  manualAssociationType?: 'direct' | 'indirect';
+  createdByName?: string;
+  createdAt?: string;
+}
+
+export interface AccountNote {
+  id: string;
+  eqAccountId: number;
+  content: string;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AccountKnownIp {
+  ip: string;
+  count: number;
+  lastUsed: string | null;
+}
+
+export interface CharacterWatch {
+  id: string;
+  eqCharacterId: number;
+  eqCharacterName: string;
+  eqAccountId: number;
+  createdById: string;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface CharacterWatchListResponse {
+  watchList: CharacterWatch[];
+  directAssociatedCharacterIds: number[];
+  indirectAssociatedCharacterIds: number[];
+}
+
+export interface CharacterSearchResult {
+  id: number;
+  name: string;
+  level: number;
+  className: string;
+  accountId: number;
+  accountName: string;
+}
+
+export interface CharacterEventFilters {
+  page?: number;
+  pageSize?: number;
+  eventTypes?: number[];
+  zoneId?: number;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: 'created_at' | 'character_name' | 'event_type_id' | 'zone_id';
+  sortOrder?: 'asc' | 'desc';
+}
+
 // Loot Management Types
 export interface LootManagementSummary {
   lootMasterCount: number;
@@ -3777,6 +3903,200 @@ export const api = {
   async fetchPlayerEventZones(): Promise<PlayerEventZone[]> {
     const response = await axios.get('/api/admin/player-event-logs/zones');
     return response.data.zones ?? [];
+  },
+
+  // Character Admin APIs
+
+  /**
+   * Fetches character details by name.
+   */
+  async fetchCharacterByName(name: string): Promise<CharacterAdminDetails> {
+    const response = await axios.get(`/api/admin/characters/${encodeURIComponent(name)}`);
+    return response.data.character;
+  },
+
+  /**
+   * Fetches character details by ID.
+   */
+  async fetchCharacterById(id: number): Promise<CharacterAdminDetails> {
+    const response = await axios.get(`/api/admin/characters/id/${id}`);
+    return response.data.character;
+  },
+
+  /**
+   * Fetches events for a specific character.
+   */
+  async fetchCharacterEvents(
+    characterId: number,
+    filters: CharacterEventFilters = {}
+  ): Promise<PlayerEventLogResponse> {
+    const params = new URLSearchParams();
+    if (filters.page) params.append('page', String(filters.page));
+    if (filters.pageSize) params.append('pageSize', String(filters.pageSize));
+    if (filters.eventTypes && filters.eventTypes.length > 0) {
+      params.append('eventTypes', filters.eventTypes.join(','));
+    }
+    if (filters.zoneId !== undefined) params.append('zoneId', String(filters.zoneId));
+    if (filters.startDate) params.append('startDate', filters.startDate);
+    if (filters.endDate) params.append('endDate', filters.endDate);
+    if (filters.sortBy) params.append('sortBy', filters.sortBy);
+    if (filters.sortOrder) params.append('sortOrder', filters.sortOrder);
+
+    const response = await axios.get(
+      `/api/admin/characters/id/${characterId}/events?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  /**
+   * Fetches associates for a character.
+   */
+  async fetchCharacterAssociates(characterId: number): Promise<CharacterAssociate[]> {
+    const response = await axios.get(`/api/admin/characters/id/${characterId}/associates`);
+    return response.data.associates ?? [];
+  },
+
+  /**
+   * Adds a manual association between characters.
+   * @param associationType - 'direct' (orange border) or 'indirect' (yellow border)
+   */
+  async addCharacterAssociation(
+    sourceCharacterId: number,
+    targetCharacterId: number,
+    associationType: 'direct' | 'indirect' = 'indirect',
+    reason?: string
+  ): Promise<void> {
+    await axios.post(`/api/admin/characters/id/${sourceCharacterId}/associates`, {
+      targetCharacterId,
+      associationType,
+      reason
+    });
+  },
+
+  /**
+   * Removes a manual association.
+   */
+  async removeCharacterAssociation(associationId: string): Promise<void> {
+    await axios.delete(`/api/admin/character-associations/${associationId}`);
+  },
+
+  /**
+   * Fetches account information by ID.
+   */
+  async fetchAccountInfo(accountId: number): Promise<AccountInfo> {
+    const response = await axios.get(`/api/admin/accounts/${accountId}`);
+    return response.data.account;
+  },
+
+  /**
+   * Fetches corpses for a character.
+   */
+  async fetchCharacterCorpses(characterId: number): Promise<CharacterCorpse[]> {
+    const response = await axios.get(`/api/admin/characters/id/${characterId}/corpses`);
+    return response.data.corpses ?? [];
+  },
+
+  /**
+   * Fetches notes for an account.
+   */
+  async fetchAccountNotes(accountId: number): Promise<AccountNote[]> {
+    const response = await axios.get(`/api/admin/accounts/${accountId}/notes`);
+    return response.data.notes ?? [];
+  },
+
+  /**
+   * Fetches known IPs for an account from the account_ip table.
+   */
+  async fetchAccountKnownIps(accountId: number): Promise<AccountKnownIp[]> {
+    const response = await axios.get(`/api/admin/accounts/${accountId}/known-ips`);
+    return response.data.knownIps ?? [];
+  },
+
+  /**
+   * Creates a note for an account.
+   */
+  async createAccountNote(accountId: number, content: string): Promise<AccountNote> {
+    const response = await axios.post(`/api/admin/accounts/${accountId}/notes`, { content });
+    return response.data.note;
+  },
+
+  /**
+   * Updates a note.
+   */
+  async updateAccountNote(noteId: string, content: string): Promise<AccountNote> {
+    const response = await axios.patch(`/api/admin/account-notes/${noteId}`, { content });
+    return response.data.note;
+  },
+
+  /**
+   * Deletes a note.
+   */
+  async deleteAccountNote(noteId: string): Promise<void> {
+    await axios.delete(`/api/admin/account-notes/${noteId}`);
+  },
+
+  /**
+   * Searches for characters by name.
+   */
+  async searchCharacters(query: string): Promise<CharacterSearchResult[]> {
+    const response = await axios.get(`/api/admin/characters/search?q=${encodeURIComponent(query)}`);
+    return response.data.characters ?? [];
+  },
+
+  // ============================================
+  // Character Watch List
+  // ============================================
+
+  /**
+   * Fetches all watched characters with their associated character IDs.
+   */
+  async fetchCharacterWatchList(): Promise<CharacterWatchListResponse> {
+    const response = await axios.get('/api/admin/character-watch');
+    return {
+      watchList: response.data.watchList ?? [],
+      directAssociatedCharacterIds: response.data.directAssociatedCharacterIds ?? [],
+      indirectAssociatedCharacterIds: response.data.indirectAssociatedCharacterIds ?? []
+    };
+  },
+
+  /**
+   * Checks if a character is on the watch list.
+   */
+  async checkCharacterWatch(characterId: number): Promise<{ isWatched: boolean; watch: CharacterWatch | null }> {
+    const response = await axios.get(`/api/admin/character-watch/${characterId}`);
+    return { isWatched: response.data.isWatched, watch: response.data.watch };
+  },
+
+  /**
+   * Adds a character to the watch list.
+   */
+  async addCharacterWatch(characterId: number, characterName: string, accountId: number): Promise<CharacterWatch> {
+    const response = await axios.post('/api/admin/character-watch', {
+      characterId,
+      characterName,
+      accountId
+    });
+    return response.data.watch;
+  },
+
+  /**
+   * Removes a character from the watch list.
+   */
+  async removeCharacterWatch(characterId: number): Promise<void> {
+    await axios.delete(`/api/admin/character-watch/${characterId}`);
+  },
+
+  /**
+   * Syncs associations from IP groups (called when connections page loads).
+   */
+  async syncIpGroupAssociations(connections: Array<{
+    characterId: number;
+    characterName: string;
+    accountId: number;
+    ip: string;
+  }>): Promise<{ created: number; skipped: number }> {
+    const response = await axios.post('/api/admin/sync-ip-associations', { connections });
+    return response.data;
   }
 
 };

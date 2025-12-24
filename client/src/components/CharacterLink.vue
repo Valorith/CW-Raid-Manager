@@ -1,5 +1,6 @@
 <template>
   <a
+    v-if="!adminMode"
     :href="href"
     class="character-link"
     target="_blank"
@@ -10,18 +11,37 @@
   >
     <slot>{{ name }}</slot>
   </a>
+  <button
+    v-else
+    class="character-link character-link--admin"
+    @click.stop="openAdminModal"
+    @keydown.enter.stop="openAdminModal"
+    @keydown.space.stop.prevent="openAdminModal"
+  >
+    <slot>{{ name }}</slot>
+  </button>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useCharacterAdminStore } from '../stores/characterAdmin';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   name: string;
-}>();
+  adminMode?: boolean;
+}>(), {
+  adminMode: false
+});
+
+const characterAdminStore = useCharacterAdminStore();
 
 const href = computed(
   () => `https://magelo.clumsysworld.com/index.php?page=character&char=${encodeURIComponent(props.name.trim())}`
 );
+
+function openAdminModal() {
+  characterAdminStore.openByName(props.name.trim());
+}
 </script>
 
 <style scoped>
@@ -36,5 +56,13 @@ const href = computed(
 .character-link:focus-visible {
   color: #f8fafc;
   text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+}
+
+.character-link--admin {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
 }
 </style>

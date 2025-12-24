@@ -619,7 +619,7 @@ function getItemStackCount(item: GuildBankItem | null | undefined): number | nul
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 120;
+  z-index: 130;
   backdrop-filter: blur(2px);
 }
 
@@ -785,7 +785,7 @@ function getItemStackCount(item: GuildBankItem | null | undefined): number | nul
 
 .eq-bank-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* 4 columns for bank as requested */
+  grid-template-columns: repeat(8, 1fr); /* 8 columns for wider, less tall layout */
   gap: 0.5rem;
 }
 

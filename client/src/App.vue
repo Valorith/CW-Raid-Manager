@@ -158,6 +158,7 @@
       </RouterView>
     </main>
     <CharacterInventoryModal />
+    <CharacterAdminModal />
     <ItemTooltip />
     <GuildDonationsModal />
     <NpcNotificationModal
@@ -178,6 +179,7 @@ import { useAttentionStore } from './stores/attention';
 import { useNpcRespawnStore } from './stores/npcRespawn';
 import { playLootAlertChime } from './utils/audio';
 import CharacterInventoryModal from './components/CharacterInventoryModal.vue';
+import CharacterAdminModal from './components/Modals/CharacterAdminModal.vue';
 import ItemTooltip from './components/ItemTooltip.vue';
 import GuildDonationsNotification from './components/GuildDonationsNotification.vue';
 import GuildDonationsModal from './components/GuildDonationsModal.vue';

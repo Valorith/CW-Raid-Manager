@@ -34,6 +34,9 @@ model User {
   personalBankCharacters GuildBankCharacter[]
   calendarAvailability CalendarAvailability[]
   npcFavorites         NpcFavorite[]
+  accountNotes         AccountNote[] @relation("AccountNoteCreator")
+  characterAssociations CharacterAssociation[] @relation("CharacterAssociationCreator")
+  characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
 }
 
 model Guild {
@@ -813,4 +816,62 @@ model MoneySnapshot {
   createdById         String?
 
   @@index([snapshotDate])
+}
+
+// Character Admin - Notes tied to EQ accounts
+model AccountNote {
+  id              String   @id @default(cuid())
+  eqAccountId     Int      // References account.id from EQ database
+  content         String   @db.Text
+  createdById     String
+  createdByName   String   @db.VarChar(191)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       User     @relation("AccountNoteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([eqAccountId])
+  @@index([createdById])
+}
+
+// Character Admin - Manual associations between characters/accounts
+model CharacterAssociation {
+  id                    String   @id @default(cuid())
+  // Source character (from EQ database)
+  sourceCharacterId     Int      // References character_data.id from EQ database
+  sourceCharacterName   String   @db.VarChar(191)
+  // Associated character (from EQ database)
+  targetCharacterId     Int      // References character_data.id from EQ database
+  targetCharacterName   String   @db.VarChar(191)
+  targetAccountId       Int      // References account.id from EQ database
+  // Association type: 'direct' (orange) or 'indirect' (yellow)
+  associationType       String   @default("indirect") @db.VarChar(20)
+  // Source: 'manual' (admin added) or 'auto' (IP sync)
+  source                String   @default("manual") @db.VarChar(20)
+  // Metadata
+  reason                String?  @db.VarChar(500)
+  createdById           String
+  createdByName         String   @db.VarChar(191)
+  createdAt             DateTime @default(now())
+  createdBy             User     @relation("CharacterAssociationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([sourceCharacterId, targetCharacterId])
+  @@index([sourceCharacterId])
+  @@index([targetCharacterId])
+  @@index([createdById])
+}
+
+// Character Watch List - characters flagged for monitoring
+model CharacterWatch {
+  id                  String   @id @default(cuid())
+  eqCharacterId       Int      // References character_data.id from EQ database
+  eqCharacterName     String   @db.VarChar(191)
+  eqAccountId         Int      // References account.id from EQ database
+  createdById         String
+  createdByName       String   @db.VarChar(191)
+  createdAt           DateTime @default(now())
+  createdBy           User     @relation("CharacterWatchCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([eqCharacterId])
+  @@index([eqAccountId])
+  @@index([createdById])
 }

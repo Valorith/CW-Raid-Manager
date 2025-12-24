@@ -120,7 +120,7 @@
                     </div>
                   </td>
                   <td class="col-name">
-                    <CharacterLink :name="conn.characterName" />
+                    <CharacterLink :name="conn.characterName" :admin-mode="true" />
                   </td>
                   <td class="col-level">{{ conn.level }}</td>
                   <td class="col-zone">{{ conn.zoneName }}</td>
@@ -165,8 +165,20 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
+import { useCharacterAdminStore } from '../stores/characterAdmin';
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
+
+// Use shared watch list from characterAdmin store
+const characterAdminStore = useCharacterAdminStore();
+// Orange border: directly watched characters
+const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
+// Orange border: characters on the same account as watched characters
+const watchedAccountIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqAccountId)));
+// Orange border: characters with direct associations to watched characters
+const directAssociatedIds = computed(() => new Set(characterAdminStore.directAssociatedCharacterIds));
+// Yellow border: characters with indirect associations to watched characters
+const indirectAssociatedIds = computed(() => new Set(characterAdminStore.indirectAssociatedCharacterIds));
 
 interface IpGroup {
   ip: string;
@@ -278,16 +290,34 @@ function getIpLimit(ip: string): number {
 }
 
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
+  const classes: string[] = [];
+
+  // Check watch status:
+  // Orange: directly watched OR same account as watched OR direct association
+  // Yellow: indirect association (IP-based)
+  if (
+    watchedCharacterIds.value.has(conn.characterId) ||
+    watchedAccountIds.value.has(conn.accountId) ||
+    directAssociatedIds.value.has(conn.characterId)
+  ) {
+    classes.push('row--watched');
+  } else if (indirectAssociatedIds.value.has(conn.characterId)) {
+    classes.push('row--watched-associated');
+  }
+
   if (!isOutsideHome(conn)) {
-    return ''; // In home zone, no special styling
+    return classes.join(' '); // In home zone, only watched styling if applicable
   }
 
   const outsideCount = getOutsideHomeCount(group);
   const limit = getIpLimit(group.ip);
   if (outsideCount > limit) {
-    return 'row--danger'; // Red theme: exceeds limit for this IP
+    classes.push('row--danger'); // Red theme: exceeds limit for this IP
+  } else {
+    classes.push('row--warning'); // Green theme: within limit for this IP
   }
-  return 'row--warning'; // Green theme: within limit for this IP
+
+  return classes.join(' ');
 }
 
 function setPage(page: number) {
@@ -302,12 +332,57 @@ async function loadConnections() {
     connections.value = response.connections;
     ipExemptions.value = response.ipExemptions;
     lastUpdated.value = new Date();
+
+    // Sync IP group associations in the background
+    syncIpAssociations(response.connections);
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
     loading.value = false;
   }
 }
+
+async function syncIpAssociations(conns: typeof connections.value) {
+  // Only sync if there are multi-account IP groups
+  const ipGroups = new Map<string, typeof conns>();
+  for (const conn of conns) {
+    const existing = ipGroups.get(conn.ip);
+    if (existing) {
+      existing.push(conn);
+    } else {
+      ipGroups.set(conn.ip, [conn]);
+    }
+  }
+
+  // Check if any IP group has multiple accounts
+  let hasMultiAccountGroup = false;
+  for (const group of ipGroups.values()) {
+    const uniqueAccounts = new Set(group.map(c => c.accountId));
+    if (uniqueAccounts.size > 1) {
+      hasMultiAccountGroup = true;
+      break;
+    }
+  }
+
+  if (!hasMultiAccountGroup) {
+    return;
+  }
+
+  // Sync associations
+  try {
+    await api.syncIpGroupAssociations(
+      conns.map(c => ({
+        characterId: c.characterId,
+        characterName: c.characterName,
+        accountId: c.accountId,
+        ip: c.ip
+      }))
+    );
+  } catch (err) {
+    console.error('Failed to sync IP group associations:', err);
+  }
+}
+
 
 async function refreshConnections() {
   await loadConnections();
@@ -341,7 +416,11 @@ function stopAutoRefresh() {
 }
 
 onMounted(async () => {
-  await loadConnections();
+  // Load connections and watch list (from shared store)
+  await Promise.all([
+    loadConnections(),
+    characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
+  ]);
   if (autoRefreshEnabled.value) {
     startAutoRefresh();
   }
@@ -600,6 +679,58 @@ onUnmounted(() => {
 
 .connections-table tbody tr.row--danger td {
   color: #fca5a5;
+}
+
+/* Watched character styling - pulsing orange (using box-shadow for table compatibility) */
+.connections-table tbody tr.row--watched {
+  animation: watchPulse 2s ease-in-out infinite;
+}
+
+.connections-table tbody tr.row--watched td {
+  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
+}
+
+.connections-table tbody tr.row--watched td:first-child {
+  box-shadow: inset 3px 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
+}
+
+.connections-table tbody tr.row--watched td:last-child {
+  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset -3px -2px 0 rgba(249, 115, 22, 0.6);
+}
+
+@keyframes watchPulse {
+  0%, 100% {
+    background-color: rgba(249, 115, 22, 0.08);
+  }
+  50% {
+    background-color: rgba(249, 115, 22, 0.18);
+  }
+}
+
+/* Associated character styling - pulsing yellow */
+.connections-table tbody tr.row--watched-associated {
+  animation: watchAssociatedPulse 2s ease-in-out infinite;
+}
+
+.connections-table tbody tr.row--watched-associated td {
+  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+}
+
+.connections-table tbody tr.row--watched-associated td:first-child {
+  box-shadow: inset 3px 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+}
+
+.connections-table tbody tr.row--watched-associated td:last-child {
+  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset -3px -2px 0 rgba(234, 179, 8, 0.6);
+}
+
+@keyframes watchAssociatedPulse {
+  0%, 100% {
+    background-color: rgba(234, 179, 8, 0.08);
+  }
+  50% {
+    background-color: rgba(234, 179, 8, 0.18);
+  }
 }
 
 .connections-table tbody tr:last-child td {
