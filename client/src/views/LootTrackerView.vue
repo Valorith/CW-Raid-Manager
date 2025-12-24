@@ -1351,6 +1351,8 @@ import {
   type GuildLootParserSettings,
   type GuildLootListEntry,
   type GuildLootListSummary,
+  type LootCouncilState,
+  type LootCouncilStateItem,
   type PendingInstanceClarification,
   type PendingZoneClarification,
   type RaidDetail,
@@ -2376,6 +2378,7 @@ function clearLootCouncilItem(itemKey: string) {
     }
     lootCouncilState.suppressed = false;
     appendDebugLog('All loot council items cleared manually');
+    scheduleLootCouncilStateBroadcast();
     return;
   }
   const index = lootCouncilState.items.findIndex((item) => item.key === itemKey);
@@ -2388,6 +2391,7 @@ function clearLootCouncilItem(itemKey: string) {
   if (lootCouncilState.items.length === 0) {
     lootCouncilState.suppressed = false;
   }
+  scheduleLootCouncilStateBroadcast();
 }
 
 function handleLootCouncilEvents(events: LootCouncilEvent[]) {
@@ -2425,6 +2429,8 @@ function handleLootCouncilEvents(events: LootCouncilEvent[]) {
       lootCouncilState.suppressed = false;
     }
     scheduleLootCouncilItemResolution();
+    // Broadcast the updated state to the server so other users can see it
+    scheduleLootCouncilStateBroadcast();
   }
 }
 
@@ -2436,6 +2442,140 @@ function scheduleLootCouncilItemResolution() {
     itemResolutionDebounceId = null;
     void resolveLootCouncilItemIds();
   }, 200);
+}
+
+// Debounce ID for broadcasting loot council state
+let lootCouncilBroadcastDebounceId: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Broadcasts the current loot council state to the server so other users can see it.
+ * Only called when the current user is the log monitor owner.
+ */
+function scheduleLootCouncilStateBroadcast() {
+  if (!monitorSession.value?.isOwner) {
+    return;
+  }
+
+  if (lootCouncilBroadcastDebounceId !== null) {
+    clearTimeout(lootCouncilBroadcastDebounceId);
+  }
+
+  lootCouncilBroadcastDebounceId = setTimeout(() => {
+    lootCouncilBroadcastDebounceId = null;
+    void broadcastLootCouncilState();
+  }, 500); // Debounce broadcasts by 500ms to avoid too many requests
+}
+
+async function broadcastLootCouncilState() {
+  if (!monitorSession.value?.isOwner) {
+    return;
+  }
+
+  try {
+    // Convert local state to API format
+    const items: LootCouncilStateItem[] = lootCouncilState.items.map((item) => ({
+      key: item.key,
+      nameKey: item.nameKey,
+      instanceId: item.instanceId,
+      itemName: item.itemName,
+      itemId: item.itemId ?? null,
+      itemIconId: item.itemIconId ?? null,
+      ordinal: item.ordinal ?? null,
+      startedAt: item.startedAt.toISOString(),
+      lastUpdatedAt: item.lastUpdatedAt.toISOString(),
+      status: item.status,
+      awardedTo: item.awardedTo ?? null,
+      interests: item.interests.map((interest) => ({
+        playerKey: interest.playerKey,
+        playerName: interest.playerName,
+        replacing: interest.replacing ?? null,
+        replacingItemId: interest.replacingItemId ?? null,
+        replacingItemIconId: interest.replacingItemIconId ?? null,
+        mode: interest.mode,
+        votes: interest.votes ?? null,
+        lastUpdatedAt: interest.lastUpdatedAt.toISOString(),
+        source: interest.source,
+        voters: interest.voters,
+        classHint: interest.classHint ?? null
+      }))
+    }));
+
+    await api.updateLootCouncilState(raidId, items);
+  } catch (error) {
+    // Log but don't interrupt the user - this is a background sync
+    appendDebugLog('Failed to broadcast loot council state', { error: String(error) });
+  }
+}
+
+/**
+ * Fetches the shared loot council state from the server and applies it to local state.
+ * Called when loading the page if there's an active monitor session and user is not the owner.
+ */
+async function fetchAndApplySharedLootCouncilState() {
+  if (monitorSession.value?.isOwner) {
+    // Owner doesn't need to fetch - they are the source
+    return;
+  }
+
+  try {
+    const state = await api.fetchLootCouncilState(raidId);
+
+    if (!state.items || state.items.length === 0) {
+      return;
+    }
+
+    // Apply the shared state to local state
+    for (const item of state.items) {
+      // Check if we already have this item
+      const existingIndex = lootCouncilState.items.findIndex((i) => i.key === item.key);
+
+      const convertedItem: LootCouncilItemState = {
+        key: item.key,
+        nameKey: item.nameKey,
+        instanceId: item.instanceId,
+        itemName: item.itemName,
+        itemId: item.itemId ?? undefined,
+        itemIconId: item.itemIconId ?? undefined,
+        ordinal: item.ordinal ?? undefined,
+        startedAt: new Date(item.startedAt),
+        lastUpdatedAt: new Date(item.lastUpdatedAt),
+        status: item.status,
+        awardedTo: item.awardedTo ?? undefined,
+        interests: item.interests.map((interest) => ({
+          playerKey: interest.playerKey,
+          playerName: interest.playerName,
+          replacing: interest.replacing ?? undefined,
+          replacingItemId: interest.replacingItemId ?? undefined,
+          replacingItemIconId: interest.replacingItemIconId ?? undefined,
+          mode: interest.mode,
+          votes: interest.votes ?? undefined,
+          lastUpdatedAt: new Date(interest.lastUpdatedAt),
+          source: interest.source,
+          voters: interest.voters,
+          classHint: (interest.classHint as CharacterClass) ?? undefined
+        }))
+      };
+
+      if (existingIndex >= 0) {
+        // Update existing item if the shared one is newer
+        const existing = lootCouncilState.items[existingIndex];
+        if (convertedItem.lastUpdatedAt > existing.lastUpdatedAt) {
+          lootCouncilState.items[existingIndex] = convertedItem;
+        }
+      } else {
+        // Add new item
+        lootCouncilState.items.push(convertedItem);
+      }
+    }
+
+    if (lootCouncilState.items.length > 0) {
+      lootCouncilState.lastUpdatedAt = new Date();
+      lootCouncilState.suppressed = false;
+    }
+  } catch (error) {
+    // Log but don't interrupt the user
+    appendDebugLog('Failed to fetch shared loot council state', { error: String(error) });
+  }
 }
 
 async function resolveLootCouncilItemIds() {
@@ -3978,6 +4118,9 @@ async function fetchMonitorStatus() {
       cleanupMonitorController();
     } else if (status.session.isOwner && status.session.sessionId) {
       startMonitorHeartbeat();
+    } else if (status.session && !status.session.isOwner) {
+      // User is not the owner but there's an active session - fetch shared loot council state
+      void fetchAndApplySharedLootCouncilState();
     }
   } catch (error) {
     // If raid was deleted (404), stop polling and redirect
@@ -6270,6 +6413,10 @@ function reconcileLootCouncilWithAssignments() {
   }
   if (changed && lootCouncilState.items.length === 0) {
     lootCouncilState.suppressed = false;
+  }
+  if (changed) {
+    // Broadcast the updated state to other viewers
+    scheduleLootCouncilStateBroadcast();
   }
 }
 

@@ -1237,6 +1237,41 @@ export interface RaidLogMonitorStatus {
   timeoutMs: number;
 }
 
+// Loot council state types for shared state between log monitor owner and viewers
+export interface LootCouncilStateInterest {
+  playerKey: string;
+  playerName: string;
+  replacing?: string | null;
+  replacingItemId?: number | null;
+  replacingItemIconId?: number | null;
+  mode: 'REPLACING' | 'NOT_REPLACING';
+  votes?: number | null;
+  lastUpdatedAt: string;
+  source: 'LIVE' | 'SYNC';
+  voters: string[];
+  classHint?: string | null;
+}
+
+export interface LootCouncilStateItem {
+  key: string;
+  nameKey: string;
+  instanceId: number;
+  itemName: string;
+  itemId?: number | null;
+  itemIconId?: number | null;
+  ordinal?: number | null;
+  startedAt: string;
+  lastUpdatedAt: string;
+  status: 'ACTIVE' | 'AWARDED' | 'REMOVED';
+  awardedTo?: string | null;
+  interests: LootCouncilStateInterest[];
+}
+
+export interface LootCouncilState {
+  items: LootCouncilStateItem[];
+  lastUpdatedAt: string | null;
+}
+
 export interface RecentLootEntry {
   id: string;
   itemName: string;
@@ -2922,6 +2957,25 @@ export const api = {
 
   async stopRaidLogMonitor(raidId: string, payload: { sessionId?: string; force?: boolean }) {
     await axios.post(`/api/raids/${raidId}/log-monitor/stop`, payload);
+  },
+
+  /**
+   * Fetches loot council state shared by the log monitor owner.
+   * Returns items currently being considered with their interests.
+   * Used to populate the loot council modal for users who load the page after
+   * a loot council session has already started.
+   */
+  async fetchLootCouncilState(raidId: string): Promise<LootCouncilState> {
+    const response = await axios.get(`/api/raids/${raidId}/loot-council-state`);
+    return response.data.state ?? { items: [], lastUpdatedAt: null };
+  },
+
+  /**
+   * Updates loot council state on the server (called by log monitor owner).
+   * This allows other users to see the loot council modal.
+   */
+  async updateLootCouncilState(raidId: string, items: LootCouncilStateItem[]): Promise<void> {
+    await axios.post(`/api/raids/${raidId}/loot-council-state`, { items });
   },
 
   async fetchRaidLoot(raidId: string): Promise<RaidLootEvent[]> {

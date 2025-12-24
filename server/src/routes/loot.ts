@@ -26,7 +26,10 @@ import {
   LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
   LOOT_MONITOR_SESSION_TTL_MS,
   startLootMonitorSession,
-  stopLootMonitorSession
+  stopLootMonitorSession,
+  getLootCouncilState,
+  updateLootCouncilState,
+  type LootCouncilStateItem
 } from '../services/logMonitorService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
@@ -223,6 +226,85 @@ export async function lootRoutes(server: FastifyInstance) {
       heartbeatIntervalMs: LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
       timeoutMs: LOOT_MONITOR_SESSION_TTL_MS
     };
+  });
+
+  // Fetch active loot council state shared by the log monitor owner
+  // Returns items currently being considered with their interests
+  server.get('/raids/:raidId/loot-council-state', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ raidId: z.string() });
+    const { raidId } = paramsSchema.parse(request.params);
+
+    const raid = await getRaidEventById(raidId);
+    if (!raid) {
+      return reply.notFound('Raid not found.');
+    }
+
+    try {
+      await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+    } catch {
+      return reply.forbidden('You are not a member of this guild.');
+    }
+
+    const state = getLootCouncilState(raidId);
+    return { state };
+  });
+
+  // Update loot council state (called by the log monitor owner)
+  server.post('/raids/:raidId/loot-council-state', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ raidId: z.string() });
+    const { raidId } = paramsSchema.parse(request.params);
+
+    const bodySchema = z.object({
+      items: z.array(
+        z.object({
+          key: z.string(),
+          nameKey: z.string(),
+          instanceId: z.number(),
+          itemName: z.string(),
+          itemId: z.number().nullable().optional(),
+          itemIconId: z.number().nullable().optional(),
+          ordinal: z.number().nullable().optional(),
+          startedAt: z.string(),
+          lastUpdatedAt: z.string(),
+          status: z.enum(['ACTIVE', 'AWARDED', 'REMOVED']),
+          awardedTo: z.string().nullable().optional(),
+          interests: z.array(
+            z.object({
+              playerKey: z.string(),
+              playerName: z.string(),
+              replacing: z.string().nullable().optional(),
+              replacingItemId: z.number().nullable().optional(),
+              replacingItemIconId: z.number().nullable().optional(),
+              mode: z.enum(['REPLACING', 'NOT_REPLACING']),
+              votes: z.number().nullable().optional(),
+              lastUpdatedAt: z.string(),
+              source: z.enum(['LIVE', 'SYNC']),
+              voters: z.array(z.string()),
+              classHint: z.string().nullable().optional()
+            })
+          )
+        })
+      )
+    });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.badRequest('Invalid loot council state payload.');
+    }
+
+    const raid = await getRaidEventById(raidId);
+    if (!raid) {
+      return reply.notFound('Raid not found.');
+    }
+
+    // Only the log monitor owner can update the loot council state
+    const session = getActiveLootMonitorSession(raidId);
+    if (!session || session.userId !== request.user.userId) {
+      return reply.forbidden('Only the active log monitor owner can update loot council state.');
+    }
+
+    updateLootCouncilState(raidId, parsed.data.items as LootCouncilStateItem[]);
+    return { success: true };
   });
 
   server.post('/raids/:raidId/loot', { preHandler: [authenticate] }, async (request, reply) => {
