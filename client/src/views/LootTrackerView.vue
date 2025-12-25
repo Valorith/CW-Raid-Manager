@@ -4124,9 +4124,10 @@ async function fetchMonitorStatus() {
       cleanupMonitorController();
     } else if (status.session.isOwner && status.session.sessionId) {
       startMonitorHeartbeat();
-      // If we're the owner but have no local loot council state, fetch from server.
-      // This handles the case where the user opens a new tab while another tab owns the monitor.
-      if (lootCouncilActiveItems.value.length === 0) {
+      // If we're the owner but don't have a file handle (secondary owner tab),
+      // always fetch loot council state to receive vote updates from the primary tab.
+      // If we have no items yet, also fetch to get initial state.
+      if (!monitorController.fileHandle || lootCouncilActiveItems.value.length === 0) {
         void fetchAndApplySharedLootCouncilState(true);
       }
     } else if (status.session && !status.session.isOwner) {
