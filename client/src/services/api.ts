@@ -3391,6 +3391,16 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/webhooks/${webhookId}`);
   },
 
+  async fetchWebhookDebugMode(guildId: string): Promise<boolean> {
+    const response = await axios.get(`/api/guilds/${guildId}/webhooks/debug`);
+    return response.data.debugMode ?? false;
+  },
+
+  async setWebhookDebugMode(guildId: string, enabled: boolean): Promise<boolean> {
+    const response = await axios.put(`/api/guilds/${guildId}/webhooks/debug`, { enabled });
+    return response.data.debugMode ?? false;
+  },
+
   async fetchMyGuildApplication(): Promise<GuildApplicationSummary | null> {
     const response = await axios.get('/api/guilds/applications/me');
     return response.data.application ?? null;

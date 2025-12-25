@@ -498,6 +498,15 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
   payload: DiscordWebhookPayloadMap[K]
 ): Promise<void> {
   try {
+    // Check if debug mode is enabled for this guild
+    const guild = await prisma.guild.findUnique({
+      where: { id: guildId },
+      select: { webhookDebugMode: true, name: true }
+    });
+
+    const isDebugMode = guild?.webhookDebugMode ?? false;
+    const guildName = guild?.name ?? 'Unknown Guild';
+
     const records = await prisma.guildDiscordWebhook.findMany({
       where: {
         guildId,
@@ -517,6 +526,10 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
       return;
     }
 
+    // Find the event label for display purposes
+    const eventDefinition = DISCORD_WEBHOOK_EVENT_DEFINITIONS.find((def) => def.key === event);
+    const eventLabel = eventDefinition?.label ?? event;
+
     const deliveries = records.map(async (record) => {
       const settings = normalizeWebhook(record);
       if (!settings.webhookUrl || !settings.eventSubscriptions[event]) {
@@ -531,6 +544,13 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
         ...(settings.avatarUrl ? { avatar_url: settings.avatarUrl } : {}),
         allowed_mentions: mentionData?.allowedMentions ?? { parse: [] }
       };
+
+      // If debug mode is enabled, broadcast to connected admins instead of sending to Discord
+      if (isDebugMode) {
+        const { broadcastDebugWebhook } = await import('./webhookDebugService.js');
+        broadcastDebugWebhook(guildId, guildName, event, eventLabel, settings.label, body);
+        return;
+      }
 
       await sendDiscordWebhook(settings.webhookUrl, body);
     });
