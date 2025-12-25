@@ -18,7 +18,7 @@
 
         <p v-if="characterError" class="character-error">{{ characterError }}</p>
 
-        <GlobalLoadingSpinner v-if="loadingCharacters" />
+        <GlobalLoadingSpinner v-if="showLoadingCharacters" />
         <p v-else-if="characters.length === 0" class="muted">
           You have not registered any characters yet.
         </p>
@@ -79,7 +79,7 @@
         <header class="card__header">
           <h2>Recent Raid Attendance</h2>
         </header>
-        <GlobalLoadingSpinner v-if="loadingAttendance" />
+        <GlobalLoadingSpinner v-if="showLoadingAttendance" />
         <p v-else-if="attendanceError" class="error">{{ attendanceError }}</p>
         <p v-else-if="recentAttendance.length === 0" class="muted">
           Attendance analytics will appear here as raid events are logged.
@@ -175,7 +175,7 @@
             <p class="muted">Latest drops earned by your registered characters.</p>
           </div>
         </header>
-        <GlobalLoadingSpinner v-if="loadingLoot" />
+        <GlobalLoadingSpinner v-if="showLoadingLoot" />
         <p v-else-if="lootError" class="error">{{ lootError }}</p>
         <p v-else-if="characters.length === 0" class="muted">Add a character to start tracking loot history.</p>
         <p v-else-if="recentLoot.length === 0" class="muted">Loot earned by your characters will show up here.</p>
@@ -261,6 +261,7 @@ import { RouterLink } from 'vue-router';
 import CharacterModal from '../components/CharacterModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import { api, type GuildSummary, type RecentAttendanceEntry, type RecentLootEntry, type UserCharacter } from '../services/api';
@@ -287,10 +288,12 @@ type RecentLootDisplay = RecentLootEntry & {
 const characters = ref<UserCharacter[]>([]);
 const guilds = ref<GuildSummary[]>([]);
 const loadingCharacters = ref(false);
+const showLoadingCharacters = useMinimumLoading(loadingCharacters);
 const showCharacterForm = ref(false);
 const editingCharacter = ref<EditableCharacter | null>(null);
 const recentAttendance = ref<RecentAttendanceEntry[]>([]);
 const loadingAttendance = ref(false);
+const showLoadingAttendance = useMinimumLoading(loadingAttendance);
 const attendanceError = ref<string | null>(null);
 const attendancePage = ref(1);
 const attendancePerPage = 5;
@@ -299,6 +302,7 @@ const updatingCharacterId = ref<string | null>(null);
 const characterError = ref<string | null>(null);
 const recentLoot = ref<RecentLootDisplay[]>([]);
 const loadingLoot = ref(false);
+const showLoadingLoot = useMinimumLoading(loadingLoot);
 const lootError = ref<string | null>(null);
 const lootPage = ref(1);
 const lootTotalPages = ref(1);

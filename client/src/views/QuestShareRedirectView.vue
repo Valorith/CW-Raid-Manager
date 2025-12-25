@@ -1,6 +1,6 @@
 <template>
   <div class="quest-share-redirect">
-    <GlobalLoadingSpinner v-if="loading" />
+    <GlobalLoadingSpinner v-if="showLoading" />
     <div v-else-if="error" class="quest-share-redirect__error">
       <h2>Unable to Load Quest</h2>
       <p>{{ error }}</p>
@@ -13,12 +13,14 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api } from '../services/api';
 
 const route = useRoute();
 const router = useRouter();
 
 const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 
 onMounted(async () => {

@@ -35,7 +35,7 @@
       />
     </div>
 
-    <GlobalLoadingSpinner v-if="loading && definitions.length === 0" />
+    <GlobalLoadingSpinner v-if="showLoading && definitions.length === 0" />
 
     <div v-else-if="paginatedDefinitions.length === 0" class="empty-state">
       <div class="empty-icon">
@@ -408,6 +408,7 @@ import { NPC_CONTENT_FLAGS } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
@@ -478,6 +479,7 @@ function minutesToTimeInputs(totalMinutes: number | null): { days: number | null
 
 // Computed
 const loading = computed(() => store.loading);
+const showLoading = useMinimumLoading(loading);
 const definitions = computed(() => store.definitions);
 const canManage = computed(() => store.canManage);
 const enabledContentFlags = computed(() => store.enabledContentFlags);

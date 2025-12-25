@@ -86,7 +86,7 @@
             Next
           </button>
         </div>
-        <GlobalLoadingSpinner v-if="loadingLootMaster" />
+        <GlobalLoadingSpinner v-if="showLoadingLootMaster" />
         <p v-else-if="lootMasterResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -172,7 +172,7 @@
             Next
           </button>
         </div>
-        <GlobalLoadingSpinner v-if="loadingLcItems" />
+        <GlobalLoadingSpinner v-if="showLoadingLcItems" />
         <p v-else-if="lcItemsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -264,7 +264,7 @@
             Next
           </button>
         </div>
-        <GlobalLoadingSpinner v-if="loadingLcRequests" />
+        <GlobalLoadingSpinner v-if="showLoadingLcRequests" />
         <p v-else-if="lcRequestsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -348,7 +348,7 @@
             Next
           </button>
         </div>
-        <GlobalLoadingSpinner v-if="loadingLcVotes" />
+        <GlobalLoadingSpinner v-if="showLoadingLcVotes" />
         <p v-else-if="lcVotesResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -405,6 +405,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
   api,
   type LootManagementSummary,
@@ -445,6 +446,7 @@ const pageSize = 25;
 
 // Loot Master state
 const loadingLootMaster = ref(false);
+const showLoadingLootMaster = useMinimumLoading(loadingLootMaster);
 const lootMasterPage = ref(1);
 const lootMasterSearch = ref('');
 const lootMasterResult = ref<PaginatedLootResult<LootMasterEntry>>({
@@ -457,6 +459,7 @@ const lootMasterResult = ref<PaginatedLootResult<LootMasterEntry>>({
 
 // LC Items state
 const loadingLcItems = ref(false);
+const showLoadingLcItems = useMinimumLoading(loadingLcItems);
 const lcItemsPage = ref(1);
 const lcItemsSearch = ref('');
 const lcItemsResult = ref<PaginatedLootResult<LcItemEntry>>({
@@ -469,6 +472,7 @@ const lcItemsResult = ref<PaginatedLootResult<LcItemEntry>>({
 
 // LC Requests state
 const loadingLcRequests = ref(false);
+const showLoadingLcRequests = useMinimumLoading(loadingLcRequests);
 const lcRequestsPage = ref(1);
 const lcRequestsSearch = ref('');
 const lcRequestsResult = ref<PaginatedLootResult<LcRequestEntry>>({
@@ -481,6 +485,7 @@ const lcRequestsResult = ref<PaginatedLootResult<LcRequestEntry>>({
 
 // LC Votes state
 const loadingLcVotes = ref(false);
+const showLoadingLcVotes = useMinimumLoading(loadingLcVotes);
 const lcVotesPage = ref(1);
 const lcVotesSearch = ref('');
 const lcVotesResult = ref<PaginatedLootResult<LcVoteEntry>>({

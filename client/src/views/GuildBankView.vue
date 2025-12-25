@@ -294,7 +294,7 @@
           <p class="alert__body">{{ snapshotError }}</p>
         </div>
 
-        <GlobalLoadingSpinner v-else-if="loadingSnapshot && groupedItems.length === 0" />
+        <GlobalLoadingSpinner v-else-if="showLoadingSnapshot && groupedItems.length === 0" />
 
         <div v-else-if="groupedItems.length === 0" class="guild-bank__empty">
           <p class="muted">No items discovered yet.</p>
@@ -590,6 +590,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef } from 'vu
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api, type GuildBankSnapshot, type GuildBankItem } from '../services/api';
 import { getCharacterClassIcon, type CharacterClass, type GuildRole } from '../services/types';
 import { getLootIconSrc } from '../utils/itemIcons';
@@ -649,6 +650,7 @@ const guildRole = ref<GuildRole | null>(null);
 
 const snapshot = computed(() => store.snapshot);
 const loadingSnapshot = computed(() => store.loading);
+const showLoadingSnapshot = useMinimumLoading(loadingSnapshot);
 const snapshotError = computed(() => store.error);
 const lastFetchedAt = computed(() => store.lastFetchedAt);
 

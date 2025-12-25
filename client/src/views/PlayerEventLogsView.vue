@@ -194,7 +194,7 @@
         </div>
       </div>
 
-      <GlobalLoadingSpinner v-if="loading && events.length === 0" />
+      <GlobalLoadingSpinner v-if="showLoading && events.length === 0" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -333,6 +333,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch, nextTick } from
 import CharacterLink from '../components/CharacterLink.vue';
 import EventDataDisplay from '../components/EventDataDisplay.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
   api,
   type PlayerEventLog,
@@ -342,6 +343,7 @@ import {
 } from '../services/api';
 
 const loading = ref(false);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const events = ref<PlayerEventLog[]>([]);
 const total = ref(0);

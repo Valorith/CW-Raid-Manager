@@ -110,7 +110,7 @@
         />
       </header>
 
-      <GlobalLoadingSpinner v-if="loading && connections.length === 0" />
+      <GlobalLoadingSpinner v-if="showLoading && connections.length === 0" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -231,6 +231,7 @@ import CharacterLink from '../components/CharacterLink.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
@@ -259,6 +260,7 @@ interface IpGroup {
 const connections = ref<ServerConnection[]>([]);
 const ipExemptions = ref<IpExemption[]>([]);
 const loading = ref(false);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const searchQuery = ref('');
 const currentPage = ref(1);

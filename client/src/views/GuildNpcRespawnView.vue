@@ -197,7 +197,7 @@
       </div>
     </div>
 
-    <GlobalLoadingSpinner v-if="loading && npcs.length === 0" />
+    <GlobalLoadingSpinner v-if="showLoading && npcs.length === 0" />
 
     <div v-else-if="paginatedNpcs.length === 0" class="empty-state">
       <div class="empty-icon">
@@ -585,6 +585,7 @@ import { api, type NpcRespawnTrackerEntry, type NpcRespawnStatus, type PendingNp
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
@@ -633,6 +634,7 @@ const contextMenuNpc = ref<NpcRespawnTrackerEntry | null>(null);
 
 // Computed
 const loading = computed(() => store.loading);
+const showLoading = useMinimumLoading(loading);
 const error = computed(() => store.error);
 const npcs = computed(() => store.npcs);
 const canManage = computed(() => store.canManage);
