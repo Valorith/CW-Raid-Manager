@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 
 import { appConfig } from '../config/appConfig.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { upsertGoogleUser } from '../services/authService.js';
+import { upsertDiscordUser, upsertGoogleUser } from '../services/authService.js';
 import { prisma } from '../utils/prisma.js';
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
@@ -68,6 +68,76 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     });
   } else {
     server.log.warn('Google OAuth plugin unavailable. Skipping Google callback route registration.');
+  }
+
+  if (server.hasDecorator('discordOAuth2') && server.discordOAuth2) {
+    server.get('/discord/callback', async (request, reply) => {
+      try {
+        const token = await server.discordOAuth2?.getAccessTokenFromAuthorizationCodeFlow(request);
+        const accessToken = token?.token.access_token;
+
+        if (!accessToken) {
+          request.log.error('Missing Discord access token in OAuth callback response.');
+          return reply.internalServerError('Unable to complete Discord sign-in.');
+        }
+
+        const discordUserResponse = await fetch('https://discord.com/api/users/@me', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        });
+
+        if (!discordUserResponse.ok) {
+          request.log.error(
+            { status: discordUserResponse.status, statusText: discordUserResponse.statusText },
+            'Failed to fetch Discord user profile'
+          );
+          return reply.internalServerError('Unable to complete Discord sign-in.');
+        }
+
+        const profile = (await discordUserResponse.json()) as {
+          id: string;
+          email: string;
+          username: string;
+          global_name?: string;
+          verified?: boolean;
+        };
+
+        if (!profile.email) {
+          request.log.error('Discord profile missing email. User may not have granted email scope.');
+          return reply.badRequest('Discord account must have a verified email address.');
+        }
+
+        const user = await upsertDiscordUser(profile);
+        const jwt = await reply.jwtSign(
+          {
+            userId: user.id,
+            email: user.email
+          },
+          {
+            sign: {
+              expiresIn: '7d'
+            }
+          }
+        );
+
+        reply.setCookie('cwraid_token', jwt, {
+          signed: true,
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: appConfig.nodeEnv === 'production',
+          path: '/',
+          maxAge: 60 * 60 * 24 * 7
+        });
+
+        return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
+      } catch (error) {
+        request.log.error({ error }, 'Error during Discord OAuth callback');
+        return reply.internalServerError('Unable to complete Discord sign-in.');
+      }
+    });
+  } else {
+    server.log.warn('Discord OAuth plugin unavailable. Skipping Discord callback route registration.');
   }
 
   server.get('/me', { preHandler: [authenticate] }, async (request) => {
