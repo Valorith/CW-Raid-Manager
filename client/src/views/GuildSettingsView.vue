@@ -1,5 +1,6 @@
 <template>
-  <section v-if="guild" class="guild-settings">
+  <GlobalLoadingSpinner v-if="showLoading" />
+  <section v-else-if="guild" class="guild-settings">
     <header class="section-header">
       <RouterLink
         class="back-link"
@@ -305,7 +306,6 @@
       @close="handleDiscordModalClose"
     />
   </section>
-  <GlobalLoadingSpinner v-else-if="showLoading" />
 </template>
 
 <script setup lang="ts">
