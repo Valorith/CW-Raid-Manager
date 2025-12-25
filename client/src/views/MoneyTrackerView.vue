@@ -14,9 +14,7 @@
       <p>EQ Database is not configured. Please set EQ_DB_* environment variables.</p>
     </div>
 
-    <div v-else-if="loading" class="money-tracker__loading">
-      <p class="muted">Loading money tracker data...</p>
-    </div>
+    <GlobalLoadingSpinner v-else-if="showLoading" />
 
     <div v-else class="money-tracker__content">
       <!-- Summary Stats -->
@@ -338,9 +336,7 @@
         </header>
 
         <div class="modal__body">
-          <div v-if="loadingAllSnapshots" class="modal__loading">
-            <p class="muted">Loading snapshots...</p>
-          </div>
+          <GlobalLoadingSpinner v-if="showLoadingAllSnapshots" />
           <div v-else-if="allSnapshots.length === 0" class="modal__empty">
             <p class="muted">No snapshots found.</p>
           </div>
@@ -461,6 +457,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 import axios from 'axios';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
 import { useToastBus } from '../components/ToastBus';
 
@@ -603,6 +601,7 @@ function getTimezoneAbbreviation(): string {
 
 // State
 const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const isConfigured = ref(true);
 const creatingSnapshot = ref(false);
 const refreshingLive = ref(false);
@@ -627,6 +626,7 @@ const snapshots = ref<MoneySnapshot[]>([]);
 const allSnapshots = ref<MoneySnapshot[]>([]);
 const showSnapshotHistory = ref(false);
 const loadingAllSnapshots = ref(false);
+const showLoadingAllSnapshots = useMinimumLoading(loadingAllSnapshots);
 const snapshotHistoryPage = ref(1);
 const snapshotHistoryPageSize = 10;
 const liveData = ref<LiveData | null>(null);

@@ -194,9 +194,7 @@
         </div>
       </div>
 
-      <p v-if="loading && events.length === 0" class="muted loading-message">
-        Loading events...
-      </p>
+      <GlobalLoadingSpinner v-if="showLoading" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -334,6 +332,8 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch, nextTick } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import EventDataDisplay from '../components/EventDataDisplay.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
   api,
   type PlayerEventLog,
@@ -342,7 +342,8 @@ import {
   type PlayerEventZone
 } from '../services/api';
 
-const loading = ref(false);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const events = ref<PlayerEventLog[]>([]);
 const total = ref(0);
@@ -582,7 +583,7 @@ function clearFilters() {
   filters.sortOrder = 'desc';
   dateRange.value = 'all';
   page.value = 1;
-  loadEvents();
+  loadEvents(true);
 }
 
 function sortBy(column: typeof filters.sortBy) {
@@ -597,12 +598,12 @@ function sortBy(column: typeof filters.sortBy) {
 
 function setPage(newPage: number) {
   page.value = Math.min(Math.max(1, newPage), totalPages.value);
-  loadEvents();
+  loadEvents(true);
 }
 
 function applyFilters() {
   page.value = 1;
-  loadEvents();
+  loadEvents(true);
 }
 
 function debouncedSearch() {
@@ -614,8 +615,10 @@ function debouncedSearch() {
   }, 300);
 }
 
-async function loadEvents() {
-  loading.value = true;
+async function loadEvents(isRefresh = false) {
+  if (isRefresh) {
+    loading.value = true;
+  }
   error.value = null;
   // Reset expanded state when loading new events to prevent stale references
   expandedEventId.value = null;
@@ -642,7 +645,9 @@ async function loadEvents() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load player event logs.';
   } finally {
-    loading.value = false;
+    if (isRefresh) {
+      loading.value = false;
+    }
   }
 }
 
@@ -667,8 +672,8 @@ async function loadMetadata() {
   }
 }
 
-async function refreshData() {
-  await Promise.all([loadEvents(), loadStats()]);
+async function refreshData(isRefresh = false) {
+  await Promise.all([loadEvents(isRefresh), loadStats()]);
 }
 
 function toggleAutoRefresh() {
@@ -686,7 +691,7 @@ function startAutoRefresh() {
   }
   refreshInterval = setInterval(() => {
     if (!loading.value) {
-      refreshData();
+      refreshData(true);
     }
   }, AUTO_REFRESH_INTERVAL);
 }
@@ -704,8 +709,12 @@ watch(() => filters.pageSize, () => {
 
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
-  await loadMetadata();
-  await refreshData();
+  try {
+    await loadMetadata();
+    await refreshData();
+  } finally {
+    loading.value = false;
+  }
 });
 
 onUnmounted(() => {

@@ -1,5 +1,6 @@
 <template>
-  <section class="admin">
+  <GlobalLoadingSpinner v-if="showLoading" />
+  <section v-else class="admin">
     <header class="section-header">
       <div class="section-header__titles">
         <h1>Admin Console</h1>
@@ -601,6 +602,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 
 import {
   api,
@@ -615,6 +618,8 @@ import { characterClassLabels, guildRoleOrder } from '../services/types';
 
 type UserRole = 'member' | 'guide' | 'admin';
 
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const loadingUsers = ref(false);
 const loadingGuilds = ref(false);
 const loadingGuildDetail = ref(false);
@@ -1455,9 +1460,13 @@ watch(raids, (list) => {
 });
 
 onMounted(async () => {
-  await Promise.all([loadUsers(), loadGuilds(), loadAdminRaids()]);
-  if (selectedGuildId.value) {
-    await loadGuildDetail(selectedGuildId.value);
+  try {
+    await Promise.all([loadUsers(), loadGuilds(), loadAdminRaids()]);
+    if (selectedGuildId.value) {
+      await loadGuildDetail(selectedGuildId.value);
+    }
+  } finally {
+    loading.value = false;
   }
 });
 </script>

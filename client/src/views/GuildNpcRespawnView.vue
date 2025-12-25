@@ -197,10 +197,7 @@
       </div>
     </div>
 
-    <div v-if="loading && npcs.length === 0" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading NPC data...</p>
-    </div>
+    <GlobalLoadingSpinner v-if="showLoading" />
 
     <div v-else-if="paginatedNpcs.length === 0" class="empty-state">
       <div class="empty-icon">
@@ -587,6 +584,8 @@ import { useNpcRespawnStore } from '../stores/npcRespawn';
 import { api, type NpcRespawnTrackerEntry, type NpcRespawnStatus, type PendingNpcKillClarification } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();
@@ -633,7 +632,9 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuNpc = ref<NpcRespawnTrackerEntry | null>(null);
 
-// Computed
+// Loading state - use local ref for minimum loading, track initial load
+const initialLoading = ref(true);
+const showLoading = useMinimumLoading(initialLoading);
 const loading = computed(() => store.loading);
 const error = computed(() => store.error);
 const npcs = computed(() => store.npcs);
@@ -1073,12 +1074,16 @@ function formatClarificationTime(isoString: string) {
 
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([
-    store.fetchRespawnTracker(guildId),
-    store.fetchSubscriptions(guildId),
-    loadPendingClarifications()
-  ]);
-  store.startAutoRefresh(guildId);
+  try {
+    await Promise.all([
+      store.fetchRespawnTracker(guildId),
+      store.fetchSubscriptions(guildId),
+      loadPendingClarifications()
+    ]);
+    store.startAutoRefresh(guildId);
+  } finally {
+    initialLoading.value = false;
+  }
 });
 
 onUnmounted(() => {

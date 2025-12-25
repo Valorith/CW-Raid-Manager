@@ -110,9 +110,7 @@
         />
       </header>
 
-      <p v-if="loading && connections.length === 0" class="muted loading-message">
-        Loading connections...
-      </p>
+      <GlobalLoadingSpinner v-if="showLoading" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -232,6 +230,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
@@ -259,7 +259,8 @@ interface IpGroup {
 
 const connections = ref<ServerConnection[]>([]);
 const ipExemptions = ref<IpExemption[]>([]);
-const loading = ref(false);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const searchQuery = ref('');
 const currentPage = ref(1);
@@ -431,8 +432,10 @@ function setPage(page: number) {
   currentPage.value = Math.min(Math.max(1, page), totalPages.value);
 }
 
-async function loadConnections() {
-  loading.value = true;
+async function loadConnections(isRefresh = false) {
+  if (isRefresh) {
+    loading.value = true;
+  }
   error.value = null;
   try {
     const response = await api.fetchAdminConnections();
@@ -445,7 +448,9 @@ async function loadConnections() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
-    loading.value = false;
+    if (isRefresh) {
+      loading.value = false;
+    }
   }
 }
 
@@ -492,7 +497,7 @@ async function syncIpAssociations(conns: typeof connections.value) {
 
 
 async function refreshConnections() {
-  await loadConnections();
+  await loadConnections(true);
 }
 
 function startAutoLink() {
@@ -515,7 +520,7 @@ function startAutoRefresh() {
   }
   refreshInterval = setInterval(() => {
     if (!loading.value) {
-      loadConnections();
+      loadConnections(true);
     }
   }, AUTO_REFRESH_INTERVAL);
 }
@@ -528,13 +533,17 @@ function stopAutoRefresh() {
 }
 
 onMounted(async () => {
-  // Load connections and watch list (from shared store)
-  await Promise.all([
-    loadConnections(),
-    characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
-  ]);
-  if (autoRefreshEnabled.value) {
-    startAutoRefresh();
+  try {
+    // Load connections and watch list (from shared store)
+    await Promise.all([
+      loadConnections(),
+      characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
+    ]);
+    if (autoRefreshEnabled.value) {
+      startAutoRefresh();
+    }
+  } finally {
+    loading.value = false;
   }
   // Add click outside listener for search results
   document.addEventListener('click', handleClickOutside);

@@ -5,9 +5,7 @@
       <p class="muted">Customize how other players see your name across the app.</p>
     </header>
 
-    <div v-if="loading" class="card card--center">
-      <p class="muted">Loading your profile…</p>
-    </div>
+    <GlobalLoadingSpinner v-if="showLoading" />
 
     <div v-else-if="!profile" class="card card--center">
       <p class="muted">We couldn’t load your account details. Please reload and try again.</p>
@@ -112,6 +110,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api, type AccountProfile } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import {
@@ -123,6 +123,7 @@ import {
 const authStore = useAuthStore();
 
 const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const saving = ref(false);
 const profile = ref<AccountProfile | null>(null);
 const nickname = ref('');

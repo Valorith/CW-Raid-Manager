@@ -311,7 +311,7 @@ function closeDropdown(name: string) {
     if (activeDropdown.value === name) {
       activeDropdown.value = null;
     }
-  }, 150);
+  }, 300);
 }
 
 // Computed for NPC notifications
@@ -582,6 +582,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   gap: 1rem;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 10000;
 }
 
 .brand__title {
@@ -725,7 +727,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .nav__dropdown {
   position: absolute;
-  top: calc(100% + 0.5rem);
+  top: calc(100% + 0.35rem);
   left: 50%;
   transform: translateX(-50%);
   min-width: 180px;
@@ -735,7 +737,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-radius: 0.75rem;
   padding: 0.5rem;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 1px rgba(148, 163, 184, 0.3);
-  z-index: 1000;
+  z-index: 10000;
 }
 
 .nav__dropdown::before {
@@ -749,6 +751,17 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background: rgba(15, 23, 42, 0.98);
   border-left: 1px solid rgba(148, 163, 184, 0.2);
   border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Invisible hit area to bridge the gap between nav link and dropdown */
+.nav__dropdown::after {
+  content: '';
+  position: absolute;
+  top: -1rem;
+  left: -1rem;
+  right: -1rem;
+  height: 1.5rem;
+  pointer-events: auto;
 }
 
 .nav__dropdown-item {

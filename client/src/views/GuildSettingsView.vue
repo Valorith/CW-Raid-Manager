@@ -1,5 +1,6 @@
 <template>
-  <section v-if="guild" class="guild-settings">
+  <GlobalLoadingSpinner v-if="showLoading" />
+  <section v-else-if="guild" class="guild-settings">
     <header class="section-header">
       <RouterLink
         class="back-link"
@@ -305,13 +306,14 @@
       @close="handleDiscordModalClose"
     />
   </section>
-  <p v-else class="muted">Loading guild settings…</p>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import type { GuildDetail, GuildLootListEntry, GuildLootParserSettings } from '../services/api';
 import { api } from '../services/api';
 import { useAuthStore } from '../stores/auth';
@@ -325,6 +327,8 @@ const route = useRoute();
 const router = useRouter();
 const guildId = route.params.guildId as string;
 const guild = ref<GuildDetail | null>(null);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const saving = ref(false);
 
 const form = reactive({
@@ -381,7 +385,11 @@ const blacklistSpells = ref(false);
 const blacklistSpellsSaving = ref(false);
 
 onMounted(async () => {
-  await loadGuild();
+  try {
+    await loadGuild();
+  } finally {
+    loading.value = false;
+  }
 });
 
 watch(

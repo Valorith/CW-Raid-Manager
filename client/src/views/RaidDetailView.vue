@@ -1187,7 +1187,7 @@
     </div>
 
       </section>
-  <p v-else class="muted">Loading raid…</p>
+  <GlobalLoadingSpinner v-else-if="showLoading" />
 
   <RosterPreviewModal
     v-if="rosterPreview && showRosterModal"
@@ -2084,8 +2084,10 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 import AttendanceEventModal from '../components/AttendanceEventModal.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { api, type PendingInstanceClarification, type PendingZoneClarification } from '../services/api';
 import {
   characterClassLabels,
@@ -2153,6 +2155,8 @@ const guildBankStore = useGuildBankStore();
 const tooltipStore = useItemTooltipStore();
 
 const raid = ref<RaidDetail | null>(null);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const attendanceEvents = ref<AttendanceEventSummary[]>([]);
 const guildMainCharacterNames = ref<Set<string>>(new Set());
 const deletingAttendanceId = ref<string | null>(null);
@@ -4386,36 +4390,40 @@ function handleSignupSearchBlur() {
 }
 
 async function loadRaid() {
-  const previousGuildId = raid.value?.guild?.id ?? null;
-  const data = await api.fetchRaid(raidId);
-  raid.value = data;
-  if (data.guild?.id !== previousGuildId) {
-    npcNotesLoaded.value = false;
-    npcNotes.value = [];
-    npcNotesState.selectedName = '';
-    npcNotesState.search = '';
-    npcNotesState.canEdit = false;
-    npcNotesState.canApproveDeletion = false;
-    npcNotesState.viewerRole = null;
-    npcNotesState.deletionStatus = '';
-    trackedNpcsLoaded.value = false;
-    trackedNpcs.value = [];
+  try {
+    const previousGuildId = raid.value?.guild?.id ?? null;
+    const data = await api.fetchRaid(raidId);
+    raid.value = data;
+    if (data.guild?.id !== previousGuildId) {
+      npcNotesLoaded.value = false;
+      npcNotes.value = [];
+      npcNotesState.selectedName = '';
+      npcNotesState.search = '';
+      npcNotesState.canEdit = false;
+      npcNotesState.canApproveDeletion = false;
+      npcNotesState.viewerRole = null;
+      npcNotesState.deletionStatus = '';
+      trackedNpcsLoaded.value = false;
+      trackedNpcs.value = [];
+    }
+    if (data.guild?.id) {
+      loadGuildMainCharacters(data.guild.id);
+    }
+    setTimingInputs(data);
+    setRecurrenceSettings(data);
+    notesInput.value = data.notes ?? '';
+    initialNotes.value = notesInput.value;
+    notesError.value = null;
+    notesPanelExpanded.value = false;
+    targetsPanelExpanded.value = false;
+    actionError.value = null;
+    recurrenceError.value = null;
+    await refreshLootListSummary();
+    await ensureNpcNotesLoaded();
+    await ensureTrackedNpcsLoaded();
+  } finally {
+    loading.value = false;
   }
-  if (data.guild?.id) {
-    loadGuildMainCharacters(data.guild.id);
-  }
-  setTimingInputs(data);
-  setRecurrenceSettings(data);
-  notesInput.value = data.notes ?? '';
-  initialNotes.value = notesInput.value;
-  notesError.value = null;
-  notesPanelExpanded.value = false;
-  targetsPanelExpanded.value = false;
-  actionError.value = null;
-  recurrenceError.value = null;
-  await refreshLootListSummary();
-  await ensureNpcNotesLoaded();
-  await ensureTrackedNpcsLoaded();
 }
 
 function triggerKillLogUpload() {
