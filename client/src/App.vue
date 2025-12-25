@@ -264,6 +264,7 @@
       :notifications="npcNotifications"
       @dismiss="handleDismissNpcNotifications"
     />
+    <DiscordWebhookDebugModal v-if="authStore.isAdmin" />
   </div>
 </template>
 
@@ -283,8 +284,11 @@ import ItemTooltip from './components/ItemTooltip.vue';
 import GuildDonationsNotification from './components/GuildDonationsNotification.vue';
 import GuildDonationsModal from './components/GuildDonationsModal.vue';
 import NpcNotificationModal from './components/NpcNotificationModal.vue';
+import DiscordWebhookDebugModal from './components/DiscordWebhookDebugModal.vue';
+import { useWebhookDebugStore } from './stores/webhookDebug';
 
 const authStore = useAuthStore();
+const webhookDebugStore = useWebhookDebugStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
 const router = useRouter();
 const monitorStore = useMonitorStore();
@@ -478,6 +482,10 @@ onMounted(async () => {
     await loadActiveRaid(primaryGuild.value.id);
     // Start NPC respawn monitoring for notifications
     await startNpcRespawnMonitoring(primaryGuild.value.id);
+    // Initialize webhook debug store for admins
+    if (authStore.isAdmin) {
+      await webhookDebugStore.initialize(primaryGuild.value.id);
+    }
   }
 
   window.addEventListener('active-raid-updated', handleActiveRaidEvent);
@@ -497,6 +505,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('show-toast', handleShowToast as EventListener);
   // Stop NPC respawn monitoring when app unmounts
   stopNpcRespawnMonitoring();
+  // Cleanup webhook debug store
+  webhookDebugStore.cleanup();
 });
 
 watch(
@@ -508,10 +518,16 @@ watch(
       if (guildId !== oldGuildId) {
         stopNpcRespawnMonitoring();
         await startNpcRespawnMonitoring(guildId);
+        // Initialize webhook debug store for admins
+        if (authStore.isAdmin) {
+          webhookDebugStore.cleanup();
+          await webhookDebugStore.initialize(guildId);
+        }
       }
     } else {
       activeRaid.value = null;
       stopNpcRespawnMonitoring();
+      webhookDebugStore.cleanup();
     }
   }
 );

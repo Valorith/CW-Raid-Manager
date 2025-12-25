@@ -55,6 +55,7 @@ model Guild {
   discordWidgetTheme   DiscordWidgetTheme?     @default(DARK)
   discordWidgetEnabled Boolean                 @default(false)
   blacklistSpells      Boolean                 @default(false)
+  webhookDebugMode     Boolean                 @default(false)
   characters           Character[]
   createdBy            User                     @relation("GuildCreator", fields: [createdById], references: [id])
   applications         GuildApplication[]

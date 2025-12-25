@@ -38,6 +38,40 @@
                   Disable All
                 </button>
               </div>
+
+              <!-- Debug Mode Panel (Admin Only) -->
+              <div v-if="authStore.isAdmin" class="webhook-debug-panel">
+                <div class="webhook-debug-panel__header">
+                  <span class="webhook-debug-panel__title">Debug Mode</span>
+                  <span
+                    v-if="webhookDebugStore.isConnected"
+                    class="webhook-debug-panel__status webhook-debug-panel__status--connected"
+                  >
+                    Connected
+                  </span>
+                </div>
+                <label class="toggle-field toggle-field--debug">
+                  <input
+                    type="checkbox"
+                    :checked="webhookDebugStore.debugModeEnabled"
+                    :disabled="webhookDebugStore.loading"
+                    @change="handleDebugModeToggle"
+                  />
+                  <span>Intercept all webhooks</span>
+                </label>
+                <p class="webhook-debug-panel__hint">
+                  When enabled, webhooks are previewed instead of being sent to Discord.
+                </p>
+                <button
+                  v-if="webhookDebugStore.hasMessages"
+                  class="btn btn--outline btn--small btn--debug"
+                  type="button"
+                  @click="webhookDebugStore.showModal"
+                >
+                  View {{ webhookDebugStore.messageCount }} Message{{ webhookDebugStore.messageCount !== 1 ? 's' : '' }}
+                </button>
+              </div>
+
               <p v-if="webhooks.length === 0" class="muted small">No webhooks yet.</p>
               <ul class="webhook-sidebar__list">
                 <li v-for="webhook in webhooks" :key="webhook.id">
@@ -213,9 +247,14 @@ import {
   type DiscordWebhookEventDefinition,
   type GuildDiscordWebhookSettings
 } from '../services/api';
+import { useAuthStore } from '../stores/auth';
+import { useWebhookDebugStore } from '../stores/webhookDebug';
 
 const props = defineProps<{ guildId: string }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', webhook: GuildDiscordWebhookSettings): void }>();
+
+const authStore = useAuthStore();
+const webhookDebugStore = useWebhookDebugStore();
 
 interface EditableWebhook extends GuildDiscordWebhookSettings {
   isNew?: boolean;
@@ -614,8 +653,18 @@ function generateTempId() {
   return `temp-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-onMounted(() => {
+async function handleDebugModeToggle(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const enabled = target.checked;
+  await webhookDebugStore.setDebugMode(props.guildId, enabled);
+}
+
+onMounted(async () => {
   loadWebhooks();
+  // Initialize webhook debug store for admins
+  if (authStore.isAdmin) {
+    await webhookDebugStore.initialize(props.guildId);
+  }
 });
 </script>
 
@@ -995,5 +1044,71 @@ onMounted(() => {
     width: 100%;
     max-height: 240px;
   }
+}
+
+/* Debug Mode Panel */
+.webhook-debug-panel {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.15), rgba(88, 101, 242, 0.08));
+  border: 1px solid rgba(88, 101, 242, 0.35);
+  border-radius: 0.75rem;
+}
+
+.webhook-debug-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.webhook-debug-panel__title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #a5b4fc;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.webhook-debug-panel__status {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.webhook-debug-panel__status--connected {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.toggle-field--debug {
+  margin-bottom: 0.35rem;
+}
+
+.toggle-field--debug span {
+  font-size: 0.85rem;
+  color: #e2e8f0;
+}
+
+.webhook-debug-panel__hint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin: 0 0 0.5rem;
+  line-height: 1.4;
+}
+
+.btn--debug {
+  width: 100%;
+  margin-top: 0.5rem;
+  background: rgba(88, 101, 242, 0.2);
+  border-color: rgba(88, 101, 242, 0.5);
+  color: #a5b4fc;
+}
+
+.btn--debug:hover:not(:disabled) {
+  background: rgba(88, 101, 242, 0.35);
+  border-color: rgba(88, 101, 242, 0.7);
 }
 </style>
