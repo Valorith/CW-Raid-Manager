@@ -31,6 +31,9 @@ export const discordOAuthPlugin = fp(async (fastify) => {
         authorizePath: '/oauth2/authorize',
         tokenHost: 'https://discord.com',
         tokenPath: '/api/oauth2/token'
+      },
+      options: {
+        authorizationMethod: 'body'
       }
     },
     startRedirectPath: '/api/auth/discord',
