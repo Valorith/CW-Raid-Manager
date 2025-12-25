@@ -197,7 +197,7 @@
       </div>
     </div>
 
-    <GlobalLoadingSpinner v-if="showLoading && npcs.length === 0" />
+    <GlobalLoadingSpinner v-if="showLoading" />
 
     <div v-else-if="paginatedNpcs.length === 0" class="empty-state">
       <div class="empty-icon">
@@ -632,9 +632,10 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuNpc = ref<NpcRespawnTrackerEntry | null>(null);
 
-// Computed
+// Loading state - use local ref for minimum loading, track initial load
+const initialLoading = ref(true);
+const showLoading = useMinimumLoading(initialLoading);
 const loading = computed(() => store.loading);
-const showLoading = useMinimumLoading(loading);
 const error = computed(() => store.error);
 const npcs = computed(() => store.npcs);
 const canManage = computed(() => store.canManage);
@@ -1073,12 +1074,16 @@ function formatClarificationTime(isoString: string) {
 
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([
-    store.fetchRespawnTracker(guildId),
-    store.fetchSubscriptions(guildId),
-    loadPendingClarifications()
-  ]);
-  store.startAutoRefresh(guildId);
+  try {
+    await Promise.all([
+      store.fetchRespawnTracker(guildId),
+      store.fetchSubscriptions(guildId),
+      loadPendingClarifications()
+    ]);
+    store.startAutoRefresh(guildId);
+  } finally {
+    initialLoading.value = false;
+  }
 });
 
 onUnmounted(() => {

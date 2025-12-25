@@ -110,7 +110,7 @@
         />
       </header>
 
-      <GlobalLoadingSpinner v-if="showLoading && connections.length === 0" />
+      <GlobalLoadingSpinner v-if="showLoading" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -259,7 +259,7 @@ interface IpGroup {
 
 const connections = ref<ServerConnection[]>([]);
 const ipExemptions = ref<IpExemption[]>([]);
-const loading = ref(false);
+const loading = ref(true);
 const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const searchQuery = ref('');
@@ -432,8 +432,10 @@ function setPage(page: number) {
   currentPage.value = Math.min(Math.max(1, page), totalPages.value);
 }
 
-async function loadConnections() {
-  loading.value = true;
+async function loadConnections(isRefresh = false) {
+  if (isRefresh) {
+    loading.value = true;
+  }
   error.value = null;
   try {
     const response = await api.fetchAdminConnections();
@@ -446,7 +448,9 @@ async function loadConnections() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to load server connections.';
   } finally {
-    loading.value = false;
+    if (isRefresh) {
+      loading.value = false;
+    }
   }
 }
 
@@ -493,7 +497,7 @@ async function syncIpAssociations(conns: typeof connections.value) {
 
 
 async function refreshConnections() {
-  await loadConnections();
+  await loadConnections(true);
 }
 
 function startAutoLink() {
@@ -516,7 +520,7 @@ function startAutoRefresh() {
   }
   refreshInterval = setInterval(() => {
     if (!loading.value) {
-      loadConnections();
+      loadConnections(true);
     }
   }, AUTO_REFRESH_INTERVAL);
 }
@@ -529,13 +533,17 @@ function stopAutoRefresh() {
 }
 
 onMounted(async () => {
-  // Load connections and watch list (from shared store)
-  await Promise.all([
-    loadConnections(),
-    characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
-  ]);
-  if (autoRefreshEnabled.value) {
-    startAutoRefresh();
+  try {
+    // Load connections and watch list (from shared store)
+    await Promise.all([
+      loadConnections(),
+      characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
+    ]);
+    if (autoRefreshEnabled.value) {
+      startAutoRefresh();
+    }
+  } finally {
+    loading.value = false;
   }
   // Add click outside listener for search results
   document.addEventListener('click', handleClickOutside);
