@@ -63,8 +63,11 @@ export function registerDebugClient(
   reply: FastifyReply
 ): void {
   if (!isAdmin) {
+    console.log(`[WebhookDebug] Non-admin user ${userId} tried to register for guild ${guildId}`);
     return;
   }
+
+  console.log(`[WebhookDebug] Admin ${userId} connected for guild ${guildId}`);
 
   const client: ConnectedClient = { guildId, userId, reply, isAdmin };
 
@@ -75,6 +78,7 @@ export function registerDebugClient(
   // Send any pending messages to the newly connected client
   const pending = pendingMessages.get(guildId) ?? [];
   if (pending.length > 0) {
+    console.log(`[WebhookDebug] Sending ${pending.length} pending messages to ${userId}`);
     for (const message of pending) {
       sendToClient(client, message);
     }
@@ -87,6 +91,8 @@ export function registerDebugClient(
  * Unregister an SSE client connection
  */
 export function unregisterDebugClient(guildId: string, userId: string): void {
+  console.log(`[WebhookDebug] Client ${userId} disconnected from guild ${guildId}`);
+
   const guildClients = connectedClients.get(guildId);
   if (!guildClients) {
     return;
@@ -156,9 +162,13 @@ export function broadcastDebugWebhook(
   };
 
   const guildClients = connectedClients.get(guildId);
+  const clientCount = guildClients?.length ?? 0;
+
+  console.log(`[WebhookDebug] Broadcasting ${event} for guild ${guildId}, ${clientCount} clients connected`);
 
   // If no clients connected, queue the message
   if (!guildClients || guildClients.length === 0) {
+    console.log(`[WebhookDebug] No clients connected, queueing message`);
     queuePendingMessage(guildId, message);
     return false;
   }
@@ -167,6 +177,7 @@ export function broadcastDebugWebhook(
   let sentToAny = false;
   for (const client of guildClients) {
     if (client.isAdmin) {
+      console.log(`[WebhookDebug] Sending to admin client ${client.userId}`);
       sendToClient(client, message);
       sentToAny = true;
     }
@@ -174,6 +185,7 @@ export function broadcastDebugWebhook(
 
   // If no admin clients were connected, queue the message
   if (!sentToAny) {
+    console.log(`[WebhookDebug] No admin clients, queueing message`);
     queuePendingMessage(guildId, message);
   }
 
@@ -203,8 +215,10 @@ function queuePendingMessage(guildId: string, message: DebugWebhookMessage): voi
 function sendToClient(client: ConnectedClient, message: DebugWebhookMessage): void {
   try {
     const data = JSON.stringify(message);
-    client.reply.raw.write(`data: ${data}\n\n`);
-  } catch {
+    const written = client.reply.raw.write(`data: ${data}\n\n`);
+    console.log(`[WebhookDebug] Sent message ${message.id} to client ${client.userId}, write result: ${written}`);
+  } catch (err) {
+    console.error(`[WebhookDebug] Failed to send to client ${client.userId}:`, err);
     // Client might have disconnected, remove them
     unregisterDebugClient(client.guildId, client.userId);
   }

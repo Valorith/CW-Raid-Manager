@@ -389,6 +389,9 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
       return reply.forbidden('Only administrators can access webhook debug stream.');
     }
 
+    // Tell Fastify we're taking over the response
+    reply.hijack();
+
     // Set up SSE headers
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',

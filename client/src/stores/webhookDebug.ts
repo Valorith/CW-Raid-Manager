@@ -104,28 +104,34 @@ export const useWebhookDebugStore = defineStore('webhookDebug', () => {
     // Disconnect any existing connection
     disconnect();
 
+    console.log('[WebhookDebug] Connecting to SSE stream for guild:', guildId);
+
     try {
       eventSource = new EventSource(`/api/guilds/${guildId}/webhooks/debug/stream`, {
         withCredentials: true
       });
 
       eventSource.onopen = () => {
+        console.log('[WebhookDebug] SSE connection opened');
         isConnected.value = true;
         connectedGuildId.value = guildId;
         error.value = null;
       };
 
       eventSource.onmessage = (event) => {
+        console.log('[WebhookDebug] Received SSE message:', event.data);
         try {
           const data = JSON.parse(event.data);
 
           // Handle connection confirmation
           if (data.type === 'connected') {
+            console.log('[WebhookDebug] Connection confirmed');
             return;
           }
 
           // Handle debug webhook message
           if (data.id && data.payload) {
+            console.log('[WebhookDebug] Adding webhook message:', data.id);
             const message: DebugWebhookMessage = data;
             messages.value.unshift(message);
 
@@ -142,7 +148,8 @@ export const useWebhookDebugStore = defineStore('webhookDebug', () => {
         }
       };
 
-      eventSource.onerror = () => {
+      eventSource.onerror = (err) => {
+        console.error('[WebhookDebug] SSE error:', err);
         isConnected.value = false;
         error.value = 'Connection lost. Attempting to reconnect...';
 
