@@ -579,9 +579,7 @@
       </section>
     </div>
 
-    <div v-else-if="loading" class="metrics-state">
-      <p>Loading metrics…</p>
-    </div>
+    <GlobalLoadingSpinner v-else-if="showLoading" />
 
     <div v-else-if="error" class="metrics-state metrics-state--error">
       <p>{{ error }}</p>
@@ -852,6 +850,8 @@ import { useRoute } from 'vue-router';
 
 import CharacterInspector from '../components/CharacterInspector.vue';
 import CharacterLink from '../components/CharacterLink.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import {
@@ -948,7 +948,8 @@ function hideItemTooltip() {
   tooltipStore.hideTooltip();
 }
 
-const loading = ref(false);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
 const metrics = ref<GuildMetrics | null>(null);
 const memberDisplayMap = ref<Map<string, string>>(new Map());

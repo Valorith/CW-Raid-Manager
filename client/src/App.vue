@@ -735,7 +735,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-radius: 0.75rem;
   padding: 0.5rem;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 1px rgba(148, 163, 184, 0.3);
-  z-index: 1000;
+  z-index: 10000;
 }
 
 .nav__dropdown::before {

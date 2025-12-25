@@ -1033,12 +1033,7 @@
     </div>
   </div>
 
-  <div v-else class="quest-loading quest-loading--fullscreen" aria-live="polite">
-    <div class="quest-loading__inner">
-      <span class="quest-loading__spinner" role="status" aria-label="Loading quest tracker"></span>
-      <p>Loading quest tracker…</p>
-    </div>
-  </div>
+  <GlobalLoadingSpinner v-else-if="showLoading" />
 
 <div v-if="showCreateModal" class="quest-modal">
   <div class="quest-modal__content">
@@ -1478,6 +1473,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useAuthStore } from '../stores/auth';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 
@@ -1524,6 +1521,7 @@ const summary = ref<QuestTrackerSummary | null>(null);
 const summaryError = ref<string | null>(null);
 const detail = ref<QuestBlueprintDetailPayload | null>(null);
 const loadingSummary = ref(true);
+const showLoading = useMinimumLoading(loadingSummary);
 const loadingDetail = ref(false);
 const savingGraph = ref(false);
 const creatingBlueprint = ref(false);
