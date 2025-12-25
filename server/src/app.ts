@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 import { appConfig } from './config/appConfig.js';
+import { discordOAuthPlugin } from './plugins/discordOAuth.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
 import { registerRoutes } from './routes/index.js';
 
@@ -90,6 +91,7 @@ export function buildServer(): FastifyInstance {
   });
   server.register(fastifySensible);
   server.register(googleOAuthPlugin);
+  server.register(discordOAuthPlugin);
 
   registerRoutes(server);
 
