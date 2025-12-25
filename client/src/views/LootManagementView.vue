@@ -86,7 +86,7 @@
             Next
           </button>
         </div>
-        <p v-if="loadingLootMaster" class="muted">Loading loot master data...</p>
+        <GlobalLoadingSpinner v-if="loadingLootMaster" />
         <p v-else-if="lootMasterResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -172,7 +172,7 @@
             Next
           </button>
         </div>
-        <p v-if="loadingLcItems" class="muted">Loading LC items data...</p>
+        <GlobalLoadingSpinner v-if="loadingLcItems" />
         <p v-else-if="lcItemsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -264,7 +264,7 @@
             Next
           </button>
         </div>
-        <p v-if="loadingLcRequests" class="muted">Loading LC requests data...</p>
+        <GlobalLoadingSpinner v-if="loadingLcRequests" />
         <p v-else-if="lcRequestsResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -348,7 +348,7 @@
             Next
           </button>
         </div>
-        <p v-if="loadingLcVotes" class="muted">Loading LC votes data...</p>
+        <GlobalLoadingSpinner v-if="loadingLcVotes" />
         <p v-else-if="lcVotesResult.data.length === 0" class="muted">No entries found.</p>
         <div v-else class="table-wrapper">
           <table class="data-table">
@@ -404,6 +404,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import {
   api,
   type LootManagementSummary,

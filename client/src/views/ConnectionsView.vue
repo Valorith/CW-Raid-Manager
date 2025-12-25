@@ -110,9 +110,7 @@
         />
       </header>
 
-      <p v-if="loading && connections.length === 0" class="muted loading-message">
-        Loading connections...
-      </p>
+      <GlobalLoadingSpinner v-if="loading && connections.length === 0" />
       <p v-else-if="error" class="error-message">
         {{ error }}
       </p>
@@ -232,6 +230,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { api, type ServerConnection, type IpExemption } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';

@@ -35,10 +35,7 @@
       />
     </div>
 
-    <div v-if="loading && definitions.length === 0" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading NPCs...</p>
-    </div>
+    <GlobalLoadingSpinner v-if="loading && definitions.length === 0" />
 
     <div v-else-if="paginatedDefinitions.length === 0" class="empty-state">
       <div class="empty-icon">
@@ -410,6 +407,7 @@ import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../servi
 import { NPC_CONTENT_FLAGS } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useErrorModal } from '../composables/useErrorModal';
 
 const route = useRoute();

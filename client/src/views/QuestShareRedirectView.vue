@@ -1,9 +1,6 @@
 <template>
   <div class="quest-share-redirect">
-    <div v-if="loading" class="quest-share-redirect__loading">
-      <div class="quest-share-redirect__spinner"></div>
-      <p>Loading quest progress...</p>
-    </div>
+    <GlobalLoadingSpinner v-if="loading" />
     <div v-else-if="error" class="quest-share-redirect__error">
       <h2>Unable to Load Quest</h2>
       <p>{{ error }}</p>
@@ -15,6 +12,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { api } from '../services/api';
 
 const route = useRoute();

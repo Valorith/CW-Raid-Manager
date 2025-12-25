@@ -8,7 +8,7 @@
       <button class="btn btn--create" @click="showCreateModal = true">Create Guild</button>
     </header>
 
-    <p v-if="loading" class="muted">Loading guilds…</p>
+    <GlobalLoadingSpinner v-if="loading" />
     <p v-else-if="guilds.length === 0" class="muted">No guilds found yet.</p>
 
     <div class="grid">
@@ -103,6 +103,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { api, type GuildSummary } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 

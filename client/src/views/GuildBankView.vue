@@ -294,11 +294,7 @@
           <p class="alert__body">{{ snapshotError }}</p>
         </div>
 
-        <div v-else-if="loadingSnapshot && groupedItems.length === 0" class="guild-bank__empty">
-          <div class="skeleton skeleton--headline"></div>
-          <div class="skeleton skeleton--row"></div>
-          <div class="skeleton skeleton--row"></div>
-        </div>
+        <GlobalLoadingSpinner v-else-if="loadingSnapshot && groupedItems.length === 0" />
 
         <div v-else-if="groupedItems.length === 0" class="guild-bank__empty">
           <p class="muted">No items discovered yet.</p>
@@ -593,6 +589,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { api, type GuildBankSnapshot, type GuildBankItem } from '../services/api';
 import { getCharacterClassIcon, type CharacterClass, type GuildRole } from '../services/types';
 import { getLootIconSrc } from '../utils/itemIcons';

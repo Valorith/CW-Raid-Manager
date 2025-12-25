@@ -139,6 +139,37 @@ export function getCharacterClassIcon(characterClass?: CharacterClass | null): s
   return characterClassIcons[characterClass] ?? null;
 }
 
+/**
+ * All playable character classes (excludes UNKNOWN)
+ */
+export const playableCharacterClasses: CharacterClass[] = [
+  'BARD',
+  'BEASTLORD',
+  'BERSERKER',
+  'CLERIC',
+  'DRUID',
+  'ENCHANTER',
+  'MAGICIAN',
+  'MONK',
+  'NECROMANCER',
+  'PALADIN',
+  'RANGER',
+  'ROGUE',
+  'SHADOWKNIGHT',
+  'SHAMAN',
+  'WARRIOR',
+  'WIZARD'
+];
+
+/**
+ * Get a random animated class icon URL (GIF format)
+ * Used for loading spinners and animations
+ */
+export function getRandomAnimatedClassIcon(): string {
+  const randomClass = playableCharacterClasses[Math.floor(Math.random() * playableCharacterClasses.length)];
+  return `/assets/icons/${randomClass.toLowerCase()}.gif`;
+}
+
 export type RaidRoleCategory = 'TANK' | 'HEALER' | 'SUPPORT' | 'DPS';
 
 export const roleCategoryOrder: RaidRoleCategory[] = ['TANK', 'HEALER', 'SUPPORT', 'DPS'];
