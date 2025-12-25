@@ -14,7 +14,7 @@
     </header>
 
     <div v-if="selectedGuildId">
-      <p v-if="loadingRaids" class="muted">Loading raids…</p>
+      <GlobalLoadingSpinner v-if="showLoadingRaids" />
 
       <div v-else>
         <div class="tabs">
@@ -696,7 +696,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RaidModal from '../components/RaidModal.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 
 import { api, type RaidEventSummary, type CalendarAvailabilityEntry, type AvailabilityStatus, type AvailabilitySummary, type AvailabilityUserDetail } from '../services/api';
 import type { GuildRole } from '../services/types';
@@ -757,6 +759,7 @@ const raidStatus = computed(() => {
 const authStore = useAuthStore();
 const selectedGuildId = ref('');
 const loadingRaids = ref(false);
+const showLoadingRaids = useMinimumLoading(loadingRaids);
 const showRaidModal = ref(false);
 const scheduledStartDate = ref<string | null>(null);
 const router = useRouter();

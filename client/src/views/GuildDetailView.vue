@@ -415,15 +415,17 @@
       </div>
     </div>
   </section>
-  <p v-else class="muted">Loading guild…</p>
+  <GlobalLoadingSpinner v-else-if="showLoading" />
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router';
 
+import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RaidModal from '../components/RaidModal.vue';
 import CharacterModal from '../components/CharacterModal.vue';
+import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
   api,
   type GuildDetail,
@@ -467,6 +469,8 @@ type EditableCharacter = {
 };
 
 const guild = ref<GuildDetail | null>(null);
+const loading = ref(true);
+const showLoading = useMinimumLoading(loading);
 const guildBankDisplayName = computed(() => getGuildBankDisplayName(guild.value?.name ?? null));
 
 function normalizeLooterNameValue(value?: string | null): string {
@@ -1269,9 +1273,13 @@ onMounted(async () => {
     }
   }
 
-  await loadGuild();
-  if (canViewDetails.value) {
-    await loadRaids();
+  try {
+    await loadGuild();
+    if (canViewDetails.value) {
+      await loadRaids();
+    }
+  } finally {
+    loading.value = false;
   }
 });
 

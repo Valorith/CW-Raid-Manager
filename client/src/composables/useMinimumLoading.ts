@@ -8,7 +8,7 @@ import { ref, watch, type Ref } from 'vue';
  * @param minimumMs - Minimum duration in milliseconds (default: 2000)
  * @returns A ref that stays true until both loading is complete AND minimum time has passed
  */
-export function useMinimumLoading(isLoading: Ref<boolean>, minimumMs = 2000): Ref<boolean> {
+export function useMinimumLoading(isLoading: Ref<boolean>, minimumMs = 1500): Ref<boolean> {
   const showLoading = ref(false);
   let loadingStartTime: number | null = null;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
