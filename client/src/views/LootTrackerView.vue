@@ -2527,47 +2527,54 @@ async function fetchAndApplySharedLootCouncilState(force = false) {
       return;
     }
 
-    // Apply the shared state to local state
-    for (const item of state.items) {
-      // Check if we already have this item
-      const existingIndex = lootCouncilState.items.findIndex((i) => i.key === item.key);
+    // Convert server items to local state format
+    const convertedItems: LootCouncilItemState[] = state.items.map((item) => ({
+      key: item.key,
+      nameKey: item.nameKey,
+      instanceId: item.instanceId,
+      itemName: item.itemName,
+      itemId: item.itemId ?? undefined,
+      itemIconId: item.itemIconId ?? undefined,
+      ordinal: item.ordinal ?? undefined,
+      startedAt: new Date(item.startedAt),
+      lastUpdatedAt: new Date(item.lastUpdatedAt),
+      status: item.status,
+      awardedTo: item.awardedTo ?? undefined,
+      interests: item.interests.map((interest) => ({
+        playerKey: interest.playerKey,
+        playerName: interest.playerName,
+        replacing: interest.replacing ?? undefined,
+        replacingItemId: interest.replacingItemId ?? undefined,
+        replacingItemIconId: interest.replacingItemIconId ?? undefined,
+        mode: interest.mode,
+        votes: interest.votes ?? undefined,
+        lastUpdatedAt: new Date(interest.lastUpdatedAt),
+        source: interest.source,
+        voters: interest.voters,
+        classHint: (interest.classHint as CharacterClass) ?? undefined
+      }))
+    }));
 
-      const convertedItem: LootCouncilItemState = {
-        key: item.key,
-        nameKey: item.nameKey,
-        instanceId: item.instanceId,
-        itemName: item.itemName,
-        itemId: item.itemId ?? undefined,
-        itemIconId: item.itemIconId ?? undefined,
-        ordinal: item.ordinal ?? undefined,
-        startedAt: new Date(item.startedAt),
-        lastUpdatedAt: new Date(item.lastUpdatedAt),
-        status: item.status,
-        awardedTo: item.awardedTo ?? undefined,
-        interests: item.interests.map((interest) => ({
-          playerKey: interest.playerKey,
-          playerName: interest.playerName,
-          replacing: interest.replacing ?? undefined,
-          replacingItemId: interest.replacingItemId ?? undefined,
-          replacingItemIconId: interest.replacingItemIconId ?? undefined,
-          mode: interest.mode,
-          votes: interest.votes ?? undefined,
-          lastUpdatedAt: new Date(interest.lastUpdatedAt),
-          source: interest.source,
-          voters: interest.voters,
-          classHint: (interest.classHint as CharacterClass) ?? undefined
-        }))
-      };
+    // For secondary tabs (no file handle), the server is the source of truth.
+    // Replace local state entirely to avoid duplicate items from key mismatches.
+    // This is safe because secondary tabs don't generate items - they only receive them.
+    if (!monitorController.fileHandle) {
+      lootCouncilState.items.splice(0, lootCouncilState.items.length, ...convertedItems);
+    } else {
+      // For primary tab with file handle, merge carefully to preserve local state
+      for (const convertedItem of convertedItems) {
+        const existingIndex = lootCouncilState.items.findIndex((i) => i.key === convertedItem.key);
 
-      if (existingIndex >= 0) {
-        // Update existing item if the shared one is newer
-        const existing = lootCouncilState.items[existingIndex];
-        if (convertedItem.lastUpdatedAt > existing.lastUpdatedAt) {
-          lootCouncilState.items[existingIndex] = convertedItem;
+        if (existingIndex >= 0) {
+          // Update existing item if the shared one is newer
+          const existing = lootCouncilState.items[existingIndex];
+          if (convertedItem.lastUpdatedAt > existing.lastUpdatedAt) {
+            lootCouncilState.items[existingIndex] = convertedItem;
+          }
+        } else {
+          // Add new item
+          lootCouncilState.items.push(convertedItem);
         }
-      } else {
-        // Add new item
-        lootCouncilState.items.push(convertedItem);
       }
     }
 
