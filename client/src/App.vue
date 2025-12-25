@@ -311,7 +311,7 @@ function closeDropdown(name: string) {
     if (activeDropdown.value === name) {
       activeDropdown.value = null;
     }
-  }, 150);
+  }, 200);
 }
 
 // Computed for NPC notifications
@@ -749,6 +749,16 @@ function hasRaidStarted(raid: RaidEventSummary) {
   background: rgba(15, 23, 42, 0.98);
   border-left: 1px solid rgba(148, 163, 184, 0.2);
   border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+/* Invisible hit area to bridge the gap between nav link and dropdown */
+.nav__dropdown::after {
+  content: '';
+  position: absolute;
+  top: -0.5rem;
+  left: 0;
+  right: 0;
+  height: 0.5rem;
 }
 
 .nav__dropdown-item {
