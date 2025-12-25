@@ -520,7 +520,7 @@ function startAutoRefresh() {
   }
   refreshInterval = setInterval(() => {
     if (!loading.value) {
-      loadConnections(true);
+      loadConnections();
     }
   }, AUTO_REFRESH_INTERVAL);
 }
