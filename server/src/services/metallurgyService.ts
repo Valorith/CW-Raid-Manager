@@ -314,15 +314,22 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
 
   const rows = await queryEqDb<RowDataPacket[]>(query);
 
+  // Log raw values for debugging
+  console.log('[metallurgyService] Raw weight values from database:',
+    rows.slice(0, 5).map(r => ({ name: r.characterName, raw: r.rawWeight, type: typeof r.rawWeight }))
+  );
+
   // Convert raw values to numbers and filter/sort in JavaScript
   const results = rows
     .map((row) => ({
       characterId: Number(row.characterId),
       characterName: row.characterName as string,
-      weight: Math.round(parseFloat(row.rawWeight) || 0)
+      weight: parseFloat(row.rawWeight) || 0
     }))
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight);
+
+  console.log('[metallurgyService] Parsed weights:', results.slice(0, 5));
 
   return results;
 }
