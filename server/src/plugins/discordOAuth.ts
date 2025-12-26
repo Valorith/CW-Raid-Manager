@@ -39,4 +39,6 @@ export const discordOAuthPlugin = fp(async (fastify) => {
     startRedirectPath: '/api/auth/discord',
     callbackUri: appConfig.discord.callbackUrl
   });
+
+  fastify.log.info('Discord OAuth plugin registered successfully.');
 });
