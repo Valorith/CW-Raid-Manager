@@ -302,15 +302,15 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     SELECT
       cd.id as characterId,
       cd.name as characterName,
-      CAST(db.value AS DECIMAL(20, 4)) as weight
+      CAST(db.value AS SIGNED) as weight
     FROM data_buckets db
     INNER JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
       AND db.value != '0'
-      AND CAST(db.value AS DECIMAL(20, 4)) > 0
-    ORDER BY CAST(db.value AS DECIMAL(20, 4)) DESC
+      AND CAST(db.value AS SIGNED) > 0
+    ORDER BY CAST(db.value AS SIGNED) DESC
   `;
 
   const rows = await queryEqDb<RowDataPacket[]>(query);

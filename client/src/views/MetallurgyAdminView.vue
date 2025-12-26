@@ -243,9 +243,9 @@ watch(weightSearch, () => {
   weightPage.value = 1;
 });
 
-// Format weight as kg
+// Format weight as kg (raw value, no decimal conversion)
 function formatWeight(weight: number): string {
-  return `${weight.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} kg`;
+  return `${Math.round(weight).toLocaleString()} kg`;
 }
 
 // Toggle ore expansion
