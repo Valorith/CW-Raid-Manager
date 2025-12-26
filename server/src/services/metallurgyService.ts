@@ -289,39 +289,21 @@ export async function fetchMetallurgyOreData(): Promise<OreInventorySummary[]> {
 
 /**
  * Fetch metallurgy weight data from data_buckets table
- * Keys are stored as "{characterId}-metallurgy"
+ * Keys are stored as "{accountId}-metallurgy"
  */
 export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // Debug: Check which database we're connected to and find Vayle
-  const dbInfo = await queryEqDb<RowDataPacket[]>(`SELECT DATABASE() as currentDb`);
-  console.log('[metallurgyService] Debug - connected to database:', dbInfo[0]?.currentDb);
-
-  // Find Vayle in character_data - what is the actual ID?
-  const vayleCheck = await queryEqDb<RowDataPacket[]>(`
-    SELECT id, name FROM character_data WHERE name = 'Vayle'
-  `);
-  console.log('[metallurgyService] Debug - Vayle in character_data:', vayleCheck);
-
-  // Find the metallurgy entry for value 11.58 (Vayle's weight)
-  const vayleWeight = await queryEqDb<RowDataPacket[]>(`
-    SELECT \`key\`, value FROM data_buckets
-    WHERE \`key\` LIKE '%-metallurgy'
-    AND CAST(value AS DECIMAL(10,2)) BETWEEN 11.5 AND 11.7
-  `);
-  console.log('[metallurgyService] Debug - metallurgy entry ~11.58kg:', vayleWeight);
-
-  // Query data_buckets for metallurgy keys and join with character_data
+  // Query data_buckets for metallurgy keys and join with account table
   const query = `
     SELECT
-      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as characterId,
-      cd.name as characterName,
+      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as accountId,
+      a.name as accountName,
       db.value as rawWeight
     FROM data_buckets db
-    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
+    LEFT JOIN account a ON a.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
@@ -331,11 +313,11 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   const rows = await queryEqDb<RowDataPacket[]>(query);
 
   // Convert raw values to numbers and filter/sort in JavaScript
-  // Use character ID as fallback name for deleted characters
+  // Use account ID as fallback name if account not found
   const results = rows
     .map((row) => ({
-      characterId: Number(row.characterId),
-      characterName: row.characterName ? (row.characterName as string) : `Character #${row.characterId}`,
+      characterId: Number(row.accountId),
+      characterName: row.accountName ? (row.accountName as string) : `Account #${row.accountId}`,
       weight: parseFloat(row.rawWeight) || 0
     }))
     .filter((r) => r.weight > 0)

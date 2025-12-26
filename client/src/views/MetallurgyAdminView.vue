@@ -24,7 +24,7 @@
           <strong class="stat-card__value">{{ totalOreItems.toLocaleString() }}</strong>
         </div>
         <div class="stat-card">
-          <span class="stat-card__label">Characters with Weight</span>
+          <span class="stat-card__label">Accounts with Weight</span>
           <strong class="stat-card__value">{{ data?.weights.length ?? 0 }}</strong>
         </div>
         <div class="stat-card">
@@ -106,7 +106,7 @@
           <header class="metallurgy-admin__card-header">
             <div>
               <h2>Metallurgy Weight</h2>
-              <span class="muted small">Characters sorted by weight (highest first)</span>
+              <span class="muted small">Accounts sorted by weight (highest first)</span>
             </div>
           </header>
 
@@ -116,12 +116,12 @@
               v-model="weightSearch"
               type="search"
               class="input input--search"
-              placeholder="Search by character name..."
+              placeholder="Search by account name..."
             />
           </div>
 
           <div v-if="filteredWeights.length === 0" class="metallurgy-admin__empty">
-            <p class="muted">{{ data?.weights.length === 0 ? 'No characters have metallurgy weight.' : 'No matching characters found.' }}</p>
+            <p class="muted">{{ data?.weights.length === 0 ? 'No accounts have metallurgy weight.' : 'No matching accounts found.' }}</p>
           </div>
 
           <div v-else class="metallurgy-admin__table-wrapper">
@@ -129,7 +129,7 @@
               <thead>
                 <tr>
                   <th class="metallurgy-admin__th--rank">#</th>
-                  <th class="metallurgy-admin__th--name">Character</th>
+                  <th class="metallurgy-admin__th--name">Account</th>
                   <th class="metallurgy-admin__th--weight">Weight</th>
                 </tr>
               </thead>
