@@ -296,18 +296,35 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // The data_buckets keys use an ID with an offset of 89078 from the actual character_data.id
-  // e.g., Vayle has character_data.id = 1575, but data_buckets key = '90653-metallurgy' (90653 - 89078 = 1575)
-  const CHARACTER_ID_OFFSET = 89078;
+  // Debug: Check what character-related tables exist in the database
+  const tablesDebug = await queryEqDb<RowDataPacket[]>(`
+    SELECT TABLE_NAME
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME LIKE '%character%'
+    ORDER BY TABLE_NAME
+  `);
+  console.log('[metallurgyService] Debug - character tables in database:', tablesDebug.map(r => r.TABLE_NAME));
 
-  // Query data_buckets for metallurgy keys and join with character_data using the offset
+  // Check if there's a 'character_' table with different IDs
+  const charTableCheck = await queryEqDb<RowDataPacket[]>(`
+    SELECT TABLE_NAME, COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME IN ('character_', 'characters')
+      AND COLUMN_NAME IN ('id', 'charid', 'char_id', 'name')
+    ORDER BY TABLE_NAME, COLUMN_NAME
+  `);
+  console.log('[metallurgyService] Debug - character_ table columns:', charTableCheck);
+
+  // Query data_buckets for metallurgy keys and join with character_data
   const query = `
     SELECT
-      (CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) - ${CHARACTER_ID_OFFSET}) as characterId,
+      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as characterId,
       cd.name as characterName,
       db.value as rawWeight
     FROM data_buckets db
-    LEFT JOIN character_data cd ON cd.id = (CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) - ${CHARACTER_ID_OFFSET})
+    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
