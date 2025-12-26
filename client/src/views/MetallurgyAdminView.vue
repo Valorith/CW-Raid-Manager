@@ -625,9 +625,7 @@ onMounted(async () => {
 
 /* Table Styles */
 .metallurgy-admin__table-wrapper {
-  overflow-x: auto;
-  max-height: 500px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 .metallurgy-admin__table {
@@ -731,7 +729,7 @@ onMounted(async () => {
   left: 100%;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 100;
+  z-index: 9999;
   min-width: 220px;
   max-width: 300px;
   background: rgba(15, 23, 42, 0.98);
