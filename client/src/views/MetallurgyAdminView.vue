@@ -16,8 +16,8 @@
       <!-- Summary Stats -->
       <div class="metallurgy-admin__stats">
         <div class="stat-card">
-          <span class="stat-card__label">Total Ore Owners</span>
-          <strong class="stat-card__value">{{ totalOreOwners }}</strong>
+          <span class="stat-card__label">Total Snapshots</span>
+          <strong class="stat-card__value">{{ summary?.totalSnapshots ?? 0 }}</strong>
         </div>
         <div class="stat-card stat-card--accent">
           <span class="stat-card__label">Total Ore Items</span>
@@ -38,12 +38,62 @@
         <button
           type="button"
           class="btn btn--accent"
+          :disabled="creatingSnapshot"
+          @click="takeSnapshot"
+        >
+          {{ creatingSnapshot ? 'Creating Snapshot...' : 'Take Snapshot Now' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn--outline"
           :disabled="refreshing"
           @click="refreshData"
         >
-          {{ refreshing ? 'Refreshing...' : 'Refresh Data' }}
+          {{ refreshing ? 'Refreshing...' : 'Refresh Live Data' }}
         </button>
       </div>
+
+      <!-- Date Range Filter -->
+      <div class="metallurgy-admin__filters">
+        <label class="metallurgy-admin__filter">
+          <span>Date Range:</span>
+          <select v-model="dateRange" class="input">
+            <option value="30">Last 30 Days</option>
+            <option value="60">Last 60 Days</option>
+            <option value="90">Last 90 Days</option>
+            <option value="180">Last 6 Months</option>
+            <option value="365">Last Year</option>
+            <option value="all">All Time</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Chart Section -->
+      <article class="metallurgy-admin__chart-card">
+        <header class="metallurgy-admin__chart-header">
+          <div>
+            <h2>Metallurgy Trends Over Time</h2>
+            <span class="muted small">Total weight and ore counts</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn--outline btn--sm"
+            @click="openSnapshotHistory"
+          >
+            View All Snapshots
+          </button>
+        </header>
+        <div class="metallurgy-admin__chart">
+          <Line
+            v-if="hasChartData"
+            :data="chartData"
+            :options="chartOptions"
+          />
+          <p v-else class="metallurgy-admin__chart-empty muted">
+            No snapshots available. Click "Take Snapshot Now" to create your first snapshot.
+          </p>
+        </div>
+      </article>
 
       <!-- Main Content Grid -->
       <div class="metallurgy-admin__grid">
@@ -191,19 +241,175 @@
         </article>
       </div>
     </div>
+
+    <!-- Snapshot History Modal -->
+    <div v-if="showSnapshotHistory" class="modal-backdrop" @click.self="closeSnapshotHistory">
+      <div class="modal modal--wide">
+        <header class="modal__header">
+          <div>
+            <h2 class="modal__title">Snapshot History</h2>
+            <p class="muted">All recorded metallurgy snapshots</p>
+          </div>
+          <button class="icon-button" @click="closeSnapshotHistory">✕</button>
+        </header>
+
+        <div class="modal__body">
+          <GlobalLoadingSpinner v-if="showLoadingAllSnapshots" />
+          <div v-else-if="allSnapshots.length === 0" class="modal__empty">
+            <p class="muted">No snapshots found.</p>
+          </div>
+          <div v-else class="modal__table-wrapper">
+            <table class="snapshot-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Taken At</th>
+                  <th>Total Weight</th>
+                  <th>Accounts</th>
+                  <th>Tin</th>
+                  <th>Copper</th>
+                  <th>Iron</th>
+                  <th>Zinc</th>
+                  <th>Nickel</th>
+                  <th>Cobalt</th>
+                  <th>Manganese</th>
+                  <th>Tungsten</th>
+                  <th>Chromium</th>
+                  <th class="snapshot-history-table__th-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="snapshot in paginatedHistorySnapshots" :key="snapshot.id">
+                  <td class="snapshot-history-table__date">
+                    {{ formatSnapshotDate(snapshot.snapshotDate) }}
+                  </td>
+                  <td class="snapshot-history-table__time">
+                    {{ formatSnapshotTime(snapshot.createdAt) }}
+                  </td>
+                  <td class="snapshot-history-table__weight">
+                    {{ formatWeight(snapshot.totalWeight) }}
+                  </td>
+                  <td>{{ snapshot.accountCount }}</td>
+                  <td>{{ snapshot.tinOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.copperOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.ironOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.zincOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.nickelOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.cobaltOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.manganeseOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.tungstenOreCount.toLocaleString() }}</td>
+                  <td>{{ snapshot.chromiumOreCount.toLocaleString() }}</td>
+                  <td class="snapshot-history-table__actions">
+                    <button
+                      type="button"
+                      class="btn btn--danger btn--sm"
+                      :disabled="deletingSnapshotId === snapshot.id"
+                      @click="confirmDeleteSnapshot(snapshot)"
+                    >
+                      {{ deletingSnapshotId === snapshot.id ? 'Deleting...' : 'Delete' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <!-- Pagination Controls -->
+            <div v-if="snapshotHistoryTotalPages > 1" class="snapshot-history-pagination">
+              <button
+                class="pagination__button"
+                :disabled="snapshotHistoryPage === 1"
+                @click="snapshotHistoryPage = snapshotHistoryPage - 1"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">
+                Page {{ snapshotHistoryPage }} of {{ snapshotHistoryTotalPages }}
+              </span>
+              <button
+                class="pagination__button"
+                :disabled="snapshotHistoryPage === snapshotHistoryTotalPages"
+                @click="snapshotHistoryPage = snapshotHistoryPage + 1"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="closeSnapshotHistory">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div v-if="showDeleteConfirm" class="modal-backdrop" @click.self="cancelDelete">
+      <div class="modal modal--sm">
+        <header class="modal__header">
+          <h2 class="modal__title">Delete Snapshot?</h2>
+          <button class="icon-button" @click="cancelDelete">✕</button>
+        </header>
+        <div class="modal__body">
+          <p>Are you sure you want to delete the snapshot from <strong>{{ snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : '' }}</strong>?</p>
+          <p class="muted small">This action cannot be undone.</p>
+        </div>
+        <footer class="modal__actions">
+          <button class="btn btn--outline" @click="cancelDelete">Cancel</button>
+          <button
+            class="btn btn--danger"
+            :disabled="deletingSnapshotId !== null"
+            @click="executeDeleteSnapshot"
+          >
+            {{ deletingSnapshotId ? 'Deleting...' : 'Delete' }}
+          </button>
+        </footer>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { Line } from 'vue-chartjs';
+
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type MetallurgyData, type MetallurgyWeight } from '../services/api';
+import { ensureChartJsRegistered } from '../utils/registerCharts';
+import {
+  api,
+  type MetallurgyData,
+  type MetallurgyWeight,
+  type MetallurgySnapshot,
+  type MetallurgySummary
+} from '../services/api';
 
+ensureChartJsRegistered();
+
+// Loading state
 const loading = ref(false);
 const showLoading = useMinimumLoading(loading);
 const refreshing = ref(false);
+const creatingSnapshot = ref(false);
+
+// Data
 const data = ref<MetallurgyData | null>(null);
+const snapshots = ref<MetallurgySnapshot[]>([]);
+const allSnapshots = ref<MetallurgySnapshot[]>([]);
+const summary = ref<MetallurgySummary | null>(null);
+
+// Date range filter
+const dateRange = ref('90');
+
+// Snapshot history modal
+const showSnapshotHistory = ref(false);
+const loadingAllSnapshots = ref(false);
+const showLoadingAllSnapshots = useMinimumLoading(loadingAllSnapshots);
+const snapshotHistoryPage = ref(1);
+const snapshotHistoryPageSize = 10;
+
+// Delete state
+const showDeleteConfirm = ref(false);
+const snapshotToDelete = ref<MetallurgySnapshot | null>(null);
+const deletingSnapshotId = ref<string | null>(null);
 
 // Tooltip refs for scroll handling
 const tooltipRefs = new Map<string, HTMLElement | null>();
@@ -226,21 +432,6 @@ const expandedOres = ref<Set<number>>(new Set());
 const weightSearch = ref('');
 const weightPage = ref(1);
 const weightsPerPage = 10;
-
-// Computed: Total unique ore owners (across all ore types)
-const totalOreOwners = computed(() => {
-  if (!data.value) return 0;
-  const ownerSet = new Set<string>();
-  for (const ore of data.value.ores) {
-    for (const owner of ore.owners) {
-      const key = owner.source === 'character'
-        ? `char-${owner.characterId}`
-        : `acct-${owner.accountId}`;
-      ownerSet.add(key);
-    }
-  }
-  return ownerSet.size;
-});
 
 // Computed: Total ore items
 const totalOreItems = computed(() => {
@@ -265,7 +456,7 @@ const filteredWeights = computed<MetallurgyWeight[]>(() => {
   );
 });
 
-// Computed: Pagination
+// Computed: Pagination for weights
 const totalWeightPages = computed(() =>
   Math.max(1, Math.ceil(filteredWeights.value.length / weightsPerPage))
 );
@@ -277,14 +468,233 @@ const paginatedWeights = computed(() => {
   return filteredWeights.value.slice(start, start + weightsPerPage);
 });
 
+// Computed: Pagination for snapshot history
+const snapshotHistoryTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(allSnapshots.value.length / snapshotHistoryPageSize));
+});
+
+const paginatedHistorySnapshots = computed(() => {
+  const startIndex = (snapshotHistoryPage.value - 1) * snapshotHistoryPageSize;
+  const endIndex = startIndex + snapshotHistoryPageSize;
+  return allSnapshots.value.slice(startIndex, endIndex);
+});
+
+// Computed: Chart data availability
+const hasChartData = computed(() => snapshots.value.length > 0);
+
+// Computed: Chart data with multiple datasets
+const chartData = computed(() => {
+  const labels = snapshots.value.map((s) => {
+    const date = new Date(s.snapshotDate);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  });
+
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'Total Weight (kg)',
+        data: snapshots.value.map((s) => s.totalWeight),
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(96, 165, 250, 0.1)',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yWeight'
+      },
+      {
+        label: 'Tin Ore',
+        data: snapshots.value.map((s) => s.tinOreCount),
+        borderColor: '#4ade80',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Copper Ore',
+        data: snapshots.value.map((s) => s.copperOreCount),
+        borderColor: '#f97316',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Iron Ore',
+        data: snapshots.value.map((s) => s.ironOreCount),
+        borderColor: '#a3a3a3',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Zinc Ore',
+        data: snapshots.value.map((s) => s.zincOreCount),
+        borderColor: '#a78bfa',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Nickel Ore',
+        data: snapshots.value.map((s) => s.nickelOreCount),
+        borderColor: '#22d3d8',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Cobalt Ore',
+        data: snapshots.value.map((s) => s.cobaltOreCount),
+        borderColor: '#3b82f6',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Manganese Ore',
+        data: snapshots.value.map((s) => s.manganeseOreCount),
+        borderColor: '#ec4899',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Tungsten Ore',
+        data: snapshots.value.map((s) => s.tungstenOreCount),
+        borderColor: '#eab308',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      },
+      {
+        label: 'Chromium Ore',
+        data: snapshots.value.map((s) => s.chromiumOreCount),
+        borderColor: '#ef4444',
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0.35,
+        yAxisID: 'yOre',
+        hidden: true
+      }
+    ]
+  };
+});
+
+// Computed: Chart options
+const chartOptions = computed(() => {
+  return {
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    scales: {
+      yWeight: {
+        type: 'linear' as const,
+        position: 'left' as const,
+        title: {
+          display: true,
+          text: 'Weight (kg)'
+        },
+        ticks: {
+          callback: (value: number) => `${value.toFixed(1)} kg`
+        }
+      },
+      yOre: {
+        type: 'linear' as const,
+        position: 'right' as const,
+        title: {
+          display: true,
+          text: 'Ore Count'
+        },
+        grid: {
+          drawOnChartArea: false
+        },
+        ticks: {
+          callback: (value: number) => value.toLocaleString()
+        }
+      },
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 0
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+        labels: {
+          usePointStyle: true,
+          padding: 15
+        }
+      },
+      tooltip: {
+        callbacks: {
+          title: (context: { dataIndex: number }[]) => {
+            if (context.length === 0) return '';
+            const snapshot = snapshots.value[context[0].dataIndex];
+            if (!snapshot) return '';
+            const snapshotDate = formatSnapshotDate(snapshot.snapshotDate);
+            const createdTime = formatSnapshotTime(snapshot.createdAt);
+            return [snapshotDate, `Taken: ${createdTime}`];
+          }
+        }
+      }
+    }
+  };
+});
+
 // Reset page when search changes
 watch(weightSearch, () => {
   weightPage.value = 1;
 });
 
+// Watch date range changes and reload snapshots
+watch(dateRange, async () => {
+  await loadSnapshots();
+});
+
 // Format weight as kg with 2 decimal places
 function formatWeight(weight: number): string {
   return `${weight.toFixed(2)} kg`;
+}
+
+// Format snapshot date
+function formatSnapshotDate(dateStr: string | Date | null | undefined): string {
+  if (!dateStr) return 'Never';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC'
+  });
+}
+
+// Format snapshot time
+function formatSnapshotTime(dateStr: string | Date | null | undefined): string {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 // Toggle ore expansion
@@ -296,11 +706,17 @@ function toggleOreExpanded(itemId: number) {
   }
 }
 
-// Load data
+// Load live data
 async function loadData() {
   loading.value = true;
   try {
-    data.value = await api.fetchMetallurgyData();
+    const [metallurgyData, snapshotSummary] = await Promise.all([
+      api.fetchMetallurgyData(),
+      api.fetchMetallurgySummary()
+    ]);
+    data.value = metallurgyData;
+    summary.value = snapshotSummary;
+    await loadSnapshots();
   } catch (error) {
     console.error('Failed to load metallurgy data:', error);
     window.alert('Failed to load metallurgy data. Please try again.');
@@ -309,7 +725,19 @@ async function loadData() {
   }
 }
 
-// Refresh data
+// Load snapshots based on date range
+async function loadSnapshots() {
+  try {
+    const options = dateRange.value === 'all'
+      ? undefined
+      : { days: parseInt(dateRange.value, 10) };
+    snapshots.value = await api.fetchMetallurgySnapshots(options);
+  } catch (error) {
+    console.error('Failed to load snapshots:', error);
+  }
+}
+
+// Refresh live data
 async function refreshData() {
   refreshing.value = true;
   try {
@@ -319,6 +747,82 @@ async function refreshData() {
     window.alert('Failed to refresh metallurgy data. Please try again.');
   } finally {
     refreshing.value = false;
+  }
+}
+
+// Take a new snapshot
+async function takeSnapshot() {
+  creatingSnapshot.value = true;
+  try {
+    await api.createMetallurgySnapshot();
+    // Reload snapshots and summary
+    const [snapshotSummary] = await Promise.all([
+      api.fetchMetallurgySummary(),
+      loadSnapshots()
+    ]);
+    summary.value = snapshotSummary;
+  } catch (error) {
+    console.error('Failed to create snapshot:', error);
+    window.alert('Failed to create snapshot. Please try again.');
+  } finally {
+    creatingSnapshot.value = false;
+  }
+}
+
+// Open snapshot history modal
+async function openSnapshotHistory() {
+  showSnapshotHistory.value = true;
+  snapshotHistoryPage.value = 1;
+  loadingAllSnapshots.value = true;
+  try {
+    allSnapshots.value = await api.fetchMetallurgySnapshots();
+    // Sort by date descending for history view
+    allSnapshots.value.sort((a, b) =>
+      new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime()
+    );
+  } catch (error) {
+    console.error('Failed to load all snapshots:', error);
+  } finally {
+    loadingAllSnapshots.value = false;
+  }
+}
+
+// Close snapshot history modal
+function closeSnapshotHistory() {
+  showSnapshotHistory.value = false;
+}
+
+// Confirm delete snapshot
+function confirmDeleteSnapshot(snapshot: MetallurgySnapshot) {
+  snapshotToDelete.value = snapshot;
+  showDeleteConfirm.value = true;
+}
+
+// Cancel delete
+function cancelDelete() {
+  showDeleteConfirm.value = false;
+  snapshotToDelete.value = null;
+}
+
+// Execute delete snapshot
+async function executeDeleteSnapshot() {
+  if (!snapshotToDelete.value) return;
+
+  deletingSnapshotId.value = snapshotToDelete.value.id;
+  try {
+    await api.deleteMetallurgySnapshot(snapshotToDelete.value.id);
+    // Remove from lists
+    allSnapshots.value = allSnapshots.value.filter((s) => s.id !== snapshotToDelete.value?.id);
+    snapshots.value = snapshots.value.filter((s) => s.id !== snapshotToDelete.value?.id);
+    // Update summary
+    summary.value = await api.fetchMetallurgySummary();
+    showDeleteConfirm.value = false;
+    snapshotToDelete.value = null;
+  } catch (error) {
+    console.error('Failed to delete snapshot:', error);
+    window.alert('Failed to delete snapshot. Please try again.');
+  } finally {
+    deletingSnapshotId.value = null;
   }
 }
 
@@ -389,6 +893,60 @@ onMounted(async () => {
 .metallurgy-admin__actions {
   display: flex;
   gap: 1rem;
+}
+
+/* Filters */
+.metallurgy-admin__filters {
+  display: flex;
+  gap: 1rem;
+}
+
+.metallurgy-admin__filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.metallurgy-admin__filter .input {
+  padding: 0.5rem 0.75rem;
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  color: inherit;
+  font-size: 0.875rem;
+}
+
+/* Chart Card */
+.metallurgy-admin__chart-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+.metallurgy-admin__chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.metallurgy-admin__chart-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.metallurgy-admin__chart {
+  height: 400px;
+}
+
+.metallurgy-admin__chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
 }
 
 /* Main Grid */
@@ -784,6 +1342,148 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
+/* Modal Styles */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: rgb(15, 23, 42);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal--wide {
+  max-width: 1200px;
+}
+
+.modal--sm {
+  max-width: 400px;
+}
+
+.modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.modal__title {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.modal__body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal__empty {
+  text-align: center;
+  padding: 2rem;
+}
+
+.modal__table-wrapper {
+  overflow-x: auto;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.icon-button {
+  background: transparent;
+  border: none;
+  color: var(--color-muted, #94a3b8);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.icon-button:hover {
+  color: #fff;
+}
+
+/* Snapshot History Table */
+.snapshot-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.snapshot-history-table th,
+.snapshot-history-table td {
+  padding: 0.625rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border, #334155);
+  white-space: nowrap;
+}
+
+.snapshot-history-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #94a3b8);
+  position: sticky;
+  top: 0;
+  background: rgb(15, 23, 42);
+}
+
+.snapshot-history-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.snapshot-history-table__date {
+  font-weight: 500;
+}
+
+.snapshot-history-table__time {
+  color: var(--color-muted, #94a3b8);
+}
+
+.snapshot-history-table__weight {
+  font-weight: 600;
+  color: var(--color-accent, #60a5fa);
+}
+
+.snapshot-history-table__th-actions {
+  width: 80px;
+}
+
+.snapshot-history-table__actions {
+  text-align: right;
+}
+
+.snapshot-history-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid var(--color-border, #334155);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .metallurgy-admin {
@@ -792,6 +1492,10 @@ onMounted(async () => {
 
   .metallurgy-admin__stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .metallurgy-admin__chart {
+    height: 300px;
   }
 
   .ore-item__header {

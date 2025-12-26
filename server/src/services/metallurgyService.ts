@@ -1,5 +1,6 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
+import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 
 // Metallurgy ore item IDs (ordered from most rare to least rare)
@@ -408,4 +409,198 @@ export async function fetchAllMetallurgyData(): Promise<MetallurgyData> {
   ]);
 
   return { ores, weights };
+}
+
+// ============================================================================
+// Snapshot Functions
+// ============================================================================
+
+export interface MetallurgySnapshotData {
+  id: string;
+  snapshotDate: Date;
+  totalWeight: number;
+  accountCount: number;
+  tinOreCount: number;
+  copperOreCount: number;
+  ironOreCount: number;
+  zincOreCount: number;
+  nickelOreCount: number;
+  cobaltOreCount: number;
+  manganeseOreCount: number;
+  tungstenOreCount: number;
+  chromiumOreCount: number;
+  createdAt: Date;
+  createdById: string | null;
+}
+
+/**
+ * Create a new metallurgy snapshot with current ore counts and weight totals
+ */
+export async function createMetallurgySnapshot(createdById?: string): Promise<MetallurgySnapshotData> {
+  if (!isEqDbConfigured()) {
+    throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
+  }
+
+  // Fetch current data in parallel
+  const [ores, weights] = await Promise.all([
+    fetchMetallurgyOreData(),
+    fetchMetallurgyWeights()
+  ]);
+
+  // Calculate totals
+  const totalWeight = weights.reduce((sum, w) => sum + w.weight, 0);
+  const accountCount = weights.length;
+
+  // Build ore count map by item ID for quick lookup
+  const oreCountMap = new Map<number, number>();
+  for (const ore of ores) {
+    oreCountMap.set(ore.itemId, ore.totalQuantity);
+  }
+
+  // Create snapshot with current date (UTC)
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const snapshot = await prisma.metallurgySnapshot.create({
+    data: {
+      snapshotDate: today,
+      totalWeight,
+      accountCount,
+      // Tier 1
+      tinOreCount: oreCountMap.get(150789) ?? 0,
+      copperOreCount: oreCountMap.get(150790) ?? 0,
+      ironOreCount: oreCountMap.get(150791) ?? 0,
+      // Tier 2
+      zincOreCount: oreCountMap.get(150792) ?? 0,
+      nickelOreCount: oreCountMap.get(150793) ?? 0,
+      cobaltOreCount: oreCountMap.get(150794) ?? 0,
+      // Tier 3
+      manganeseOreCount: oreCountMap.get(150795) ?? 0,
+      tungstenOreCount: oreCountMap.get(150796) ?? 0,
+      chromiumOreCount: oreCountMap.get(150797) ?? 0,
+      createdById: createdById ?? null
+    }
+  });
+
+  return {
+    id: snapshot.id,
+    snapshotDate: snapshot.snapshotDate,
+    totalWeight: Number(snapshot.totalWeight),
+    accountCount: snapshot.accountCount,
+    tinOreCount: snapshot.tinOreCount,
+    copperOreCount: snapshot.copperOreCount,
+    ironOreCount: snapshot.ironOreCount,
+    zincOreCount: snapshot.zincOreCount,
+    nickelOreCount: snapshot.nickelOreCount,
+    cobaltOreCount: snapshot.cobaltOreCount,
+    manganeseOreCount: snapshot.manganeseOreCount,
+    tungstenOreCount: snapshot.tungstenOreCount,
+    chromiumOreCount: snapshot.chromiumOreCount,
+    createdAt: snapshot.createdAt,
+    createdById: snapshot.createdById
+  };
+}
+
+/**
+ * Fetch metallurgy snapshots within a date range
+ */
+export async function fetchMetallurgySnapshots(
+  startDate?: Date,
+  endDate?: Date
+): Promise<MetallurgySnapshotData[]> {
+  const where: { snapshotDate?: { gte?: Date; lte?: Date } } = {};
+
+  if (startDate || endDate) {
+    where.snapshotDate = {};
+    if (startDate) where.snapshotDate.gte = startDate;
+    if (endDate) where.snapshotDate.lte = endDate;
+  }
+
+  const snapshots = await prisma.metallurgySnapshot.findMany({
+    where,
+    orderBy: { snapshotDate: 'asc' }
+  });
+
+  return snapshots.map((s) => ({
+    id: s.id,
+    snapshotDate: s.snapshotDate,
+    totalWeight: Number(s.totalWeight),
+    accountCount: s.accountCount,
+    tinOreCount: s.tinOreCount,
+    copperOreCount: s.copperOreCount,
+    ironOreCount: s.ironOreCount,
+    zincOreCount: s.zincOreCount,
+    nickelOreCount: s.nickelOreCount,
+    cobaltOreCount: s.cobaltOreCount,
+    manganeseOreCount: s.manganeseOreCount,
+    tungstenOreCount: s.tungstenOreCount,
+    chromiumOreCount: s.chromiumOreCount,
+    createdAt: s.createdAt,
+    createdById: s.createdById
+  }));
+}
+
+/**
+ * Get the latest metallurgy snapshot
+ */
+export async function getLatestMetallurgySnapshot(): Promise<MetallurgySnapshotData | null> {
+  const snapshot = await prisma.metallurgySnapshot.findFirst({
+    orderBy: { snapshotDate: 'desc' }
+  });
+
+  if (!snapshot) return null;
+
+  return {
+    id: snapshot.id,
+    snapshotDate: snapshot.snapshotDate,
+    totalWeight: Number(snapshot.totalWeight),
+    accountCount: snapshot.accountCount,
+    tinOreCount: snapshot.tinOreCount,
+    copperOreCount: snapshot.copperOreCount,
+    ironOreCount: snapshot.ironOreCount,
+    zincOreCount: snapshot.zincOreCount,
+    nickelOreCount: snapshot.nickelOreCount,
+    cobaltOreCount: snapshot.cobaltOreCount,
+    manganeseOreCount: snapshot.manganeseOreCount,
+    tungstenOreCount: snapshot.tungstenOreCount,
+    chromiumOreCount: snapshot.chromiumOreCount,
+    createdAt: snapshot.createdAt,
+    createdById: snapshot.createdById
+  };
+}
+
+/**
+ * Delete a metallurgy snapshot by ID
+ */
+export async function deleteMetallurgySnapshot(snapshotId: string): Promise<void> {
+  await prisma.metallurgySnapshot.delete({
+    where: { id: snapshotId }
+  });
+}
+
+/**
+ * Get metallurgy snapshot summary (count and date range)
+ */
+export async function getMetallurgySnapshotSummary(): Promise<{
+  totalSnapshots: number;
+  firstSnapshotDate: Date | null;
+  lastSnapshotDate: Date | null;
+}> {
+  const [countResult, firstSnapshot, lastSnapshot] = await Promise.all([
+    prisma.metallurgySnapshot.count(),
+    prisma.metallurgySnapshot.findFirst({
+      orderBy: { snapshotDate: 'asc' },
+      select: { snapshotDate: true }
+    }),
+    prisma.metallurgySnapshot.findFirst({
+      orderBy: { snapshotDate: 'desc' },
+      select: { snapshotDate: true }
+    })
+  ]);
+
+  return {
+    totalSnapshots: countResult,
+    firstSnapshotDate: firstSnapshot?.snapshotDate ?? null,
+    lastSnapshotDate: lastSnapshot?.snapshotDate ?? null
+  };
 }

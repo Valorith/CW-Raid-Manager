@@ -4236,6 +4236,51 @@ export const api = {
   async fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     const response = await axios.get('/api/admin/metallurgy/weights');
     return response.data.weights;
+  },
+
+  /**
+   * Fetch metallurgy snapshots with optional date range
+   */
+  async fetchMetallurgySnapshots(options?: { days?: number; startDate?: string; endDate?: string }): Promise<MetallurgySnapshot[]> {
+    const params = new URLSearchParams();
+    if (options?.days) params.set('days', String(options.days));
+    if (options?.startDate) params.set('startDate', options.startDate);
+    if (options?.endDate) params.set('endDate', options.endDate);
+    const queryString = params.toString();
+    const url = queryString ? `/api/admin/metallurgy/snapshots?${queryString}` : '/api/admin/metallurgy/snapshots';
+    const response = await axios.get(url);
+    return response.data.snapshots;
+  },
+
+  /**
+   * Get the latest metallurgy snapshot
+   */
+  async fetchLatestMetallurgySnapshot(): Promise<MetallurgySnapshot | null> {
+    const response = await axios.get('/api/admin/metallurgy/snapshots/latest');
+    return response.data.snapshot;
+  },
+
+  /**
+   * Create a new metallurgy snapshot manually
+   */
+  async createMetallurgySnapshot(): Promise<MetallurgySnapshot> {
+    const response = await axios.post('/api/admin/metallurgy/snapshots');
+    return response.data.snapshot;
+  },
+
+  /**
+   * Delete a metallurgy snapshot by ID
+   */
+  async deleteMetallurgySnapshot(snapshotId: string): Promise<void> {
+    await axios.delete(`/api/admin/metallurgy/snapshots/${snapshotId}`);
+  },
+
+  /**
+   * Get metallurgy snapshot summary
+   */
+  async fetchMetallurgySummary(): Promise<MetallurgySummary> {
+    const response = await axios.get('/api/admin/metallurgy/summary');
+    return response.data.summary;
   }
 
 };
@@ -4277,6 +4322,30 @@ export interface MetallurgyWeight {
 export interface MetallurgyData {
   ores: OreInventorySummary[];
   weights: MetallurgyWeight[];
+}
+
+export interface MetallurgySnapshot {
+  id: string;
+  snapshotDate: string;
+  totalWeight: number;
+  accountCount: number;
+  tinOreCount: number;
+  copperOreCount: number;
+  ironOreCount: number;
+  zincOreCount: number;
+  nickelOreCount: number;
+  cobaltOreCount: number;
+  manganeseOreCount: number;
+  tungstenOreCount: number;
+  chromiumOreCount: number;
+  createdAt: string;
+  createdById: string | null;
+}
+
+export interface MetallurgySummary {
+  totalSnapshots: number;
+  firstSnapshotDate: string | null;
+  lastSnapshotDate: string | null;
 }
 
 /**
