@@ -34,15 +34,45 @@ export interface OreInventorySummary {
   owners: OreOwner[];
 }
 
+export interface AccountCharacter {
+  name: string;
+  level: number;
+  className: string;
+}
+
 export interface MetallurgyWeight {
-  characterId: number;
-  characterName: string;
+  accountId: number;
+  accountName: string;
   weight: number;
+  characters: AccountCharacter[];
 }
 
 export interface MetallurgyData {
   ores: OreInventorySummary[];
   weights: MetallurgyWeight[];
+}
+
+// Class ID to name mapping
+function mapEqClassIdToName(classId: number): string {
+  switch (classId) {
+    case 1: return 'Warrior';
+    case 2: return 'Cleric';
+    case 3: return 'Paladin';
+    case 4: return 'Ranger';
+    case 5: return 'Shadow Knight';
+    case 6: return 'Druid';
+    case 7: return 'Monk';
+    case 8: return 'Bard';
+    case 9: return 'Rogue';
+    case 10: return 'Shaman';
+    case 11: return 'Necromancer';
+    case 12: return 'Wizard';
+    case 13: return 'Magician';
+    case 14: return 'Enchanter';
+    case 15: return 'Beastlord';
+    case 16: return 'Berserker';
+    default: return 'Unknown';
+  }
 }
 
 // Slot ranges for inventory categories (from guildBankService)
@@ -297,7 +327,7 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   }
 
   // Query data_buckets for metallurgy keys and join with account table
-  const query = `
+  const weightsQuery = `
     SELECT
       CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as accountId,
       a.name as accountName,
@@ -310,16 +340,57 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
       AND db.value != '0'
   `;
 
-  const rows = await queryEqDb<RowDataPacket[]>(query);
+  const weightRows = await queryEqDb<RowDataPacket[]>(weightsQuery);
 
-  // Convert raw values to numbers and filter/sort in JavaScript
-  // Use account ID as fallback name if account not found
-  const results = rows
-    .map((row) => ({
-      characterId: Number(row.accountId),
-      characterName: row.accountName ? (row.accountName as string) : `Account #${row.accountId}`,
-      weight: parseFloat(row.rawWeight) || 0
-    }))
+  // Get all account IDs that have metallurgy weight
+  const accountIds = weightRows
+    .map((row) => Number(row.accountId))
+    .filter((id) => id > 0);
+
+  if (accountIds.length === 0) {
+    return [];
+  }
+
+  // Fetch all characters for these accounts
+  const placeholders = accountIds.map(() => '?').join(', ');
+  const charactersQuery = `
+    SELECT
+      cd.account_id as accountId,
+      cd.name,
+      cd.level,
+      cd.class as classId
+    FROM character_data cd
+    WHERE cd.account_id IN (${placeholders})
+    ORDER BY cd.account_id, cd.level DESC
+  `;
+
+  const characterRows = await queryEqDb<RowDataPacket[]>(charactersQuery, accountIds);
+
+  // Build a map of accountId -> characters
+  const charactersByAccount = new Map<number, AccountCharacter[]>();
+  for (const row of characterRows) {
+    const accountId = Number(row.accountId);
+    if (!charactersByAccount.has(accountId)) {
+      charactersByAccount.set(accountId, []);
+    }
+    charactersByAccount.get(accountId)!.push({
+      name: row.name as string,
+      level: Number(row.level) || 0,
+      className: mapEqClassIdToName(Number(row.classId) || 0)
+    });
+  }
+
+  // Build final results with characters included
+  const results = weightRows
+    .map((row) => {
+      const accountId = Number(row.accountId);
+      return {
+        accountId,
+        accountName: row.accountName ? (row.accountName as string) : `Account #${accountId}`,
+        weight: parseFloat(row.rawWeight) || 0,
+        characters: charactersByAccount.get(accountId) || []
+      };
+    })
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight);
 

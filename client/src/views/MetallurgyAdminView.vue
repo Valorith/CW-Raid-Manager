@@ -134,10 +134,29 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(char, index) in paginatedWeights" :key="char.characterId">
+                <tr v-for="(account, index) in paginatedWeights" :key="account.accountId">
                   <td class="metallurgy-admin__td--rank">{{ weightStartIndex + index + 1 }}</td>
-                  <td class="metallurgy-admin__td--name">{{ char.characterName }}</td>
-                  <td class="metallurgy-admin__td--weight">{{ formatWeight(char.weight) }}</td>
+                  <td class="metallurgy-admin__td--name account-cell">
+                    <span class="account-name">{{ account.accountName }}</span>
+                    <div v-if="account.characters.length > 0" class="character-tooltip">
+                      <div class="character-tooltip__header">
+                        Characters ({{ account.characters.length }})
+                      </div>
+                      <div class="character-tooltip__list">
+                        <div
+                          v-for="char in account.characters"
+                          :key="char.name"
+                          class="character-tooltip__item"
+                        >
+                          <span class="character-tooltip__name">{{ char.name }}</span>
+                          <span class="character-tooltip__details">
+                            Lv{{ char.level }} {{ char.className }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="metallurgy-admin__td--weight">{{ formatWeight(account.weight) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -216,13 +235,14 @@ const totalWeight = computed(() => {
   return data.value.weights.reduce((sum, w) => sum + w.weight, 0);
 });
 
-// Computed: Filtered weights by search
+// Computed: Filtered weights by search (searches account name and character names)
 const filteredWeights = computed<MetallurgyWeight[]>(() => {
   if (!data.value) return [];
   const query = weightSearch.value.trim().toLowerCase();
   if (!query) return data.value.weights;
   return data.value.weights.filter((w) =>
-    w.characterName.toLowerCase().includes(query)
+    w.accountName.toLowerCase().includes(query) ||
+    w.characters.some((c) => c.name.toLowerCase().includes(query))
   );
 });
 
@@ -673,6 +693,75 @@ onMounted(async () => {
 .pagination__label {
   font-size: 0.875rem;
   color: var(--color-muted, #94a3b8);
+}
+
+/* Account Cell with Tooltip */
+.account-cell {
+  position: relative;
+}
+
+.account-name {
+  cursor: help;
+  border-bottom: 1px dotted var(--color-muted, #94a3b8);
+}
+
+.character-tooltip {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: 100%;
+  z-index: 100;
+  min-width: 220px;
+  max-width: 300px;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  margin-top: 0.25rem;
+}
+
+.account-cell:hover .character-tooltip {
+  display: block;
+}
+
+.character-tooltip__header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #94a3b8);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.character-tooltip__list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.character-tooltip__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.character-tooltip__item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.character-tooltip__name {
+  font-weight: 500;
+  color: #fff;
+}
+
+.character-tooltip__details {
+  font-size: 0.75rem;
+  color: var(--color-muted, #94a3b8);
+  white-space: nowrap;
 }
 
 /* Responsive */

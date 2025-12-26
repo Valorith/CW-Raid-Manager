@@ -4261,10 +4261,17 @@ export interface OreInventorySummary {
   owners: OreOwner[];
 }
 
+export interface AccountCharacter {
+  name: string;
+  level: number;
+  className: string;
+}
+
 export interface MetallurgyWeight {
-  characterId: number;
-  characterName: string;
+  accountId: number;
+  accountName: string;
   weight: number;
+  characters: AccountCharacter[];
 }
 
 export interface MetallurgyData {
