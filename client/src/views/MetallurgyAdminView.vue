@@ -184,7 +184,7 @@ const expandedOres = ref<Set<number>>(new Set());
 // Weight search and pagination
 const weightSearch = ref('');
 const weightPage = ref(1);
-const weightsPerPage = 20;
+const weightsPerPage = 10;
 
 // Computed: Total unique ore owners (across all ore types)
 const totalOreOwners = computed(() => {
