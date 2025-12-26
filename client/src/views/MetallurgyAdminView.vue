@@ -144,7 +144,7 @@
           </div>
 
           <!-- Pagination -->
-          <div v-if="totalWeightPages > 1" class="metallurgy-admin__pagination">
+          <div v-if="filteredWeights.length > 0" class="metallurgy-admin__pagination">
             <button
               class="pagination__button"
               :disabled="weightPage === 1"
@@ -152,7 +152,10 @@
             >
               Previous
             </button>
-            <span class="pagination__label">Page {{ weightPage }} of {{ totalWeightPages }}</span>
+            <span class="pagination__label">
+              Page {{ weightPage }} of {{ totalWeightPages }}
+              ({{ filteredWeights.length }} total)
+            </span>
             <button
               class="pagination__button"
               :disabled="weightPage === totalWeightPages"
