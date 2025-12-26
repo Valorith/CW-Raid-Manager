@@ -326,6 +326,21 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   `);
   console.log('[metallurgyService] Debug - checking specific IDs in character_data:', specificIdCheck);
 
+  // Debug: Find Vayle in character_data and matching metallurgy entry
+  const vayleDebug = await queryEqDb<RowDataPacket[]>(`
+    SELECT id, name FROM character_data WHERE name = 'Vayle'
+  `);
+  console.log('[metallurgyService] Debug - Vayle in character_data:', vayleDebug);
+
+  // Find any metallurgy entry with value around 11.58
+  const weightDebug = await queryEqDb<RowDataPacket[]>(`
+    SELECT db.\`key\`, db.value
+    FROM data_buckets db
+    WHERE db.\`key\` LIKE '%-metallurgy'
+      AND CAST(db.value AS DECIMAL(10,2)) BETWEEN 11.5 AND 11.7
+  `);
+  console.log('[metallurgyService] Debug - metallurgy entries around 11.58kg:', weightDebug);
+
   // Query data_buckets for metallurgy keys and LEFT join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
   // LEFT JOIN ensures we get all entries even if character was deleted
