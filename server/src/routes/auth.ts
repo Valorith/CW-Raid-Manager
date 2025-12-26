@@ -72,15 +72,59 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
   if (server.hasDecorator('discordOAuth2') && server.discordOAuth2) {
     server.get('/discord/callback', async (request, reply) => {
+      // Step 1: Exchange authorization code for access token
+      let accessToken: string;
       try {
-        const token = await server.discordOAuth2?.getAccessTokenFromAuthorizationCodeFlow(request);
-        const accessToken = token?.token.access_token;
-
-        if (!accessToken) {
-          request.log.error('Missing Discord access token in OAuth callback response.');
+        // Log diagnostic info for debugging OAuth issues
+        const queryParams = request.query as { code?: string; state?: string; error?: string };
+        if (queryParams.error) {
+          request.log.error(
+            { error: queryParams.error },
+            'Discord OAuth returned an error in callback'
+          );
           return reply.internalServerError('Unable to complete Discord sign-in.');
         }
 
+        request.log.info(
+          {
+            hasCode: Boolean(queryParams.code),
+            hasState: Boolean(queryParams.state),
+            hasStateCookie: Boolean(request.cookies?.['oauth2-redirect-state'])
+          },
+          'Discord OAuth callback received'
+        );
+
+        const token = await server.discordOAuth2?.getAccessTokenFromAuthorizationCodeFlow(request);
+        if (!token?.token.access_token) {
+          request.log.error('Missing Discord access token in OAuth callback response.');
+          return reply.internalServerError('Unable to complete Discord sign-in.');
+        }
+        accessToken = token.token.access_token as string;
+      } catch (tokenError) {
+        const errorMessage =
+          tokenError instanceof Error ? tokenError.message : 'Unknown token exchange error';
+        const errorDetails = tokenError instanceof Error ? tokenError.stack : String(tokenError);
+        request.log.error(
+          {
+            error: tokenError,
+            errorMessage,
+            errorDetails,
+            callbackUrl: appConfig.discord?.callbackUrl
+          },
+          'Discord OAuth token exchange failed'
+        );
+        return reply.internalServerError('Unable to complete Discord sign-in.');
+      }
+
+      // Step 2: Fetch Discord user profile
+      let profile: {
+        id: string;
+        email: string;
+        username: string;
+        global_name?: string;
+        verified?: boolean;
+      };
+      try {
         const discordUserResponse = await fetch('https://discord.com/api/users/@me', {
           headers: {
             Authorization: `Bearer ${accessToken}`
@@ -95,20 +139,29 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           return reply.internalServerError('Unable to complete Discord sign-in.');
         }
 
-        const profile = (await discordUserResponse.json()) as {
-          id: string;
-          email: string;
-          username: string;
-          global_name?: string;
-          verified?: boolean;
-        };
+        profile = (await discordUserResponse.json()) as typeof profile;
+      } catch (fetchError) {
+        request.log.error({ error: fetchError }, 'Error fetching Discord user profile');
+        return reply.internalServerError('Unable to complete Discord sign-in.');
+      }
 
-        if (!profile.email) {
-          request.log.error('Discord profile missing email. User may not have granted email scope.');
-          return reply.badRequest('Discord account must have a verified email address.');
-        }
+      // Step 3: Validate email exists
+      if (!profile.email) {
+        request.log.error('Discord profile missing email. User may not have granted email scope.');
+        return reply.badRequest('Discord account must have a verified email address.');
+      }
 
-        const user = await upsertDiscordUser(profile);
+      // Step 4: Create or update user in database
+      let user;
+      try {
+        user = await upsertDiscordUser(profile);
+      } catch (dbError) {
+        request.log.error({ error: dbError, discordId: profile.id }, 'Failed to upsert Discord user');
+        return reply.internalServerError('Unable to complete Discord sign-in.');
+      }
+
+      // Step 5: Create JWT and set cookie
+      try {
         const jwt = await reply.jwtSign(
           {
             userId: user.id,
@@ -131,8 +184,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         });
 
         return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
-      } catch (error) {
-        request.log.error({ error }, 'Error during Discord OAuth callback');
+      } catch (jwtError) {
+        request.log.error({ error: jwtError }, 'Failed to sign JWT for Discord user');
         return reply.internalServerError('Unable to complete Discord sign-in.');
       }
     });
