@@ -296,61 +296,18 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // Debug: Check if the high-value character IDs exist in character_data
-  const debugQuery = `
-    SELECT
-      db.\`key\`,
-      db.value,
-      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as extractedId,
-      cd.id as foundCharId,
-      cd.name as foundCharName
-    FROM data_buckets db
-    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
-    WHERE db.\`key\` LIKE '%-metallurgy'
-    ORDER BY CAST(db.value AS DECIMAL(20,10)) DESC
-    LIMIT 10
-  `;
-  const debugRows = await queryEqDb<RowDataPacket[]>(debugQuery);
-  console.log('[metallurgyService] Debug - checking character ID extraction and JOIN:', debugRows);
+  // The data_buckets keys use an ID with an offset of 89078 from the actual character_data.id
+  // e.g., Vayle has character_data.id = 1575, but data_buckets key = '90653-metallurgy' (90653 - 89078 = 1575)
+  const CHARACTER_ID_OFFSET = 89078;
 
-  // Debug: Check what IDs exist in character_data and their range
-  const charDataDebug = await queryEqDb<RowDataPacket[]>(`
-    SELECT MIN(id) as minId, MAX(id) as maxId, COUNT(*) as totalChars
-    FROM character_data
-  `);
-  console.log('[metallurgyService] Debug - character_data stats:', charDataDebug);
-
-  // Debug: Check if specific IDs exist
-  const specificIdCheck = await queryEqDb<RowDataPacket[]>(`
-    SELECT id, name FROM character_data WHERE id IN (91073, 91071, 92818, 3745) ORDER BY id
-  `);
-  console.log('[metallurgyService] Debug - checking specific IDs in character_data:', specificIdCheck);
-
-  // Debug: Find Vayle in character_data and matching metallurgy entry
-  const vayleDebug = await queryEqDb<RowDataPacket[]>(`
-    SELECT id, name FROM character_data WHERE name = 'Vayle'
-  `);
-  console.log('[metallurgyService] Debug - Vayle in character_data:', vayleDebug);
-
-  // Find any metallurgy entry with value around 11.58
-  const weightDebug = await queryEqDb<RowDataPacket[]>(`
-    SELECT db.\`key\`, db.value
-    FROM data_buckets db
-    WHERE db.\`key\` LIKE '%-metallurgy'
-      AND CAST(db.value AS DECIMAL(10,2)) BETWEEN 11.5 AND 11.7
-  `);
-  console.log('[metallurgyService] Debug - metallurgy entries around 11.58kg:', weightDebug);
-
-  // Query data_buckets for metallurgy keys and LEFT join with character_data for names
-  // Using LIKE pattern to match keys ending with '-metallurgy'
-  // LEFT JOIN ensures we get all entries even if character was deleted
+  // Query data_buckets for metallurgy keys and join with character_data using the offset
   const query = `
     SELECT
-      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as characterId,
+      (CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) - ${CHARACTER_ID_OFFSET}) as characterId,
       cd.name as characterName,
       db.value as rawWeight
     FROM data_buckets db
-    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
+    LEFT JOIN character_data cd ON cd.id = (CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) - ${CHARACTER_ID_OFFSET})
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
