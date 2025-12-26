@@ -508,8 +508,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Copper Ore',
@@ -518,8 +517,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Iron Ore',
@@ -528,8 +526,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Zinc Ore',
@@ -538,8 +535,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Nickel Ore',
@@ -548,8 +544,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Cobalt Ore',
@@ -558,8 +553,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Manganese Ore',
@@ -568,8 +562,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Tungsten Ore',
@@ -578,8 +571,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       },
       {
         label: 'Chromium Ore',
@@ -588,8 +580,7 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre',
-        hidden: true
+        yAxisID: 'yOre'
       }
     ]
   };
