@@ -34,7 +34,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           request.log.error('Missing Google access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`
             );
           }
           return reply.internalServerError('Unable to complete Google sign-in.');
@@ -53,7 +53,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
             );
           }
           return reply.internalServerError('Unable to complete Google sign-in.');
@@ -70,12 +70,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         if (linkingUserId) {
           try {
             await linkGoogleToUser(linkingUserId, profile);
-            return reply.redirect(`${appConfig.clientUrl}/account?linked=google`);
+            return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=google`);
           } catch (linkError) {
             const message = linkError instanceof Error ? linkError.message : 'Failed to link Google account.';
             request.log.error({ error: linkError }, 'Error linking Google account');
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent(message)}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`
             );
           }
         }
@@ -140,7 +140,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -161,7 +161,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           request.log.error('Missing Discord access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -182,7 +182,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         );
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
+            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
           );
         }
         return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -210,7 +210,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
+              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -221,7 +221,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         request.log.error({ error: fetchError }, 'Error fetching Discord user profile');
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
+            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
           );
         }
         return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -232,7 +232,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         request.log.error('Discord profile missing email. User may not have granted email scope.');
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
+            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
           );
         }
         return reply.badRequest('Discord account must have a verified email address.');
@@ -242,12 +242,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       if (linkingUserId) {
         try {
           await linkDiscordToUser(linkingUserId, profile);
-          return reply.redirect(`${appConfig.clientUrl}/account?linked=discord`);
+          return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=discord`);
         } catch (linkError) {
           const message = linkError instanceof Error ? linkError.message : 'Failed to link Discord account.';
           request.log.error({ error: linkError }, 'Error linking Discord account');
           return reply.redirect(
-            `${appConfig.clientUrl}/account?error=${encodeURIComponent(message)}`
+            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`
           );
         }
       }
