@@ -4208,9 +4208,145 @@ export const api = {
   async getIpGeolocation(ip: string): Promise<IpGeolocation> {
     const response = await axios.get(`/api/admin/ip-geolocation/${encodeURIComponent(ip)}`);
     return response.data;
+  },
+
+  // ============================================================================
+  // Metallurgy Admin
+  // ============================================================================
+
+  /**
+   * Fetch all metallurgy data (ore inventories and character weights)
+   */
+  async fetchMetallurgyData(): Promise<MetallurgyData> {
+    const response = await axios.get('/api/admin/metallurgy');
+    return response.data.data;
+  },
+
+  /**
+   * Fetch metallurgy ore inventory data only
+   */
+  async fetchMetallurgyOres(): Promise<OreInventorySummary[]> {
+    const response = await axios.get('/api/admin/metallurgy/ores');
+    return response.data.ores;
+  },
+
+  /**
+   * Fetch metallurgy weight data only
+   */
+  async fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
+    const response = await axios.get('/api/admin/metallurgy/weights');
+    return response.data.weights;
+  },
+
+  /**
+   * Fetch metallurgy snapshots with optional date range
+   */
+  async fetchMetallurgySnapshots(options?: { days?: number; startDate?: string; endDate?: string }): Promise<MetallurgySnapshot[]> {
+    const params = new URLSearchParams();
+    if (options?.days) params.set('days', String(options.days));
+    if (options?.startDate) params.set('startDate', options.startDate);
+    if (options?.endDate) params.set('endDate', options.endDate);
+    const queryString = params.toString();
+    const url = queryString ? `/api/admin/metallurgy/snapshots?${queryString}` : '/api/admin/metallurgy/snapshots';
+    const response = await axios.get(url);
+    return response.data.snapshots;
+  },
+
+  /**
+   * Get the latest metallurgy snapshot
+   */
+  async fetchLatestMetallurgySnapshot(): Promise<MetallurgySnapshot | null> {
+    const response = await axios.get('/api/admin/metallurgy/snapshots/latest');
+    return response.data.snapshot;
+  },
+
+  /**
+   * Create a new metallurgy snapshot manually
+   */
+  async createMetallurgySnapshot(): Promise<MetallurgySnapshot> {
+    const response = await axios.post('/api/admin/metallurgy/snapshots');
+    return response.data.snapshot;
+  },
+
+  /**
+   * Delete a metallurgy snapshot by ID
+   */
+  async deleteMetallurgySnapshot(snapshotId: string): Promise<void> {
+    await axios.delete(`/api/admin/metallurgy/snapshots/${snapshotId}`);
+  },
+
+  /**
+   * Get metallurgy snapshot summary
+   */
+  async fetchMetallurgySummary(): Promise<MetallurgySummary> {
+    const response = await axios.get('/api/admin/metallurgy/summary');
+    return response.data.summary;
   }
 
 };
+
+// ============================================================================
+// Metallurgy Types
+// ============================================================================
+
+export interface OreOwner {
+  name: string;
+  quantity: number;
+  source: 'character' | 'sharedbank';
+  characterId?: number;
+  accountId?: number;
+}
+
+export interface OreInventorySummary {
+  itemId: number;
+  name: string;
+  tier: number;
+  totalOwners: number;
+  totalQuantity: number;
+  owners: OreOwner[];
+}
+
+export interface AccountCharacter {
+  name: string;
+  level: number;
+  className: string;
+}
+
+export interface MetallurgyWeight {
+  accountId: number;
+  accountName: string;
+  weight: number;
+  characters: AccountCharacter[];
+}
+
+export interface MetallurgyData {
+  ores: OreInventorySummary[];
+  weights: MetallurgyWeight[];
+}
+
+export interface MetallurgySnapshot {
+  id: string;
+  snapshotDate: string;
+  totalWeight: number;
+  accountCount: number;
+  tinOreCount: number;
+  copperOreCount: number;
+  ironOreCount: number;
+  zincOreCount: number;
+  nickelOreCount: number;
+  cobaltOreCount: number;
+  manganeseOreCount: number;
+  tungstenOreCount: number;
+  chromiumOreCount: number;
+  createdAt: string;
+  createdById: string | null;
+}
+
+export interface MetallurgySummary {
+  totalSnapshots: number;
+  firstSnapshotDate: string | null;
+  lastSnapshotDate: string | null;
+}
 
 /**
  * IP Geolocation response from ipgeolocation.io v2 API

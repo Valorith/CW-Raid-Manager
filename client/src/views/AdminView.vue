@@ -6,20 +6,6 @@
         <h1>Admin Console</h1>
         <p class="muted">Centralize user and guild management for the platform.</p>
       </div>
-      <div class="section-header__actions">
-        <router-link to="/admin/connections" class="btn btn--accent">
-          Server Connections
-        </router-link>
-        <router-link to="/admin/player-event-logs" class="btn btn--accent">
-          Player Event Logs
-        </router-link>
-        <router-link to="/admin/money-tracker" class="btn btn--outline">
-          Money Tracker
-        </router-link>
-        <router-link to="/admin/loot-management" class="btn btn--outline">
-          Master Loot Diagnostics
-        </router-link>
-      </div>
     </header>
 
     <div class="admin-stats">

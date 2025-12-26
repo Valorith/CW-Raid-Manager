@@ -19,6 +19,7 @@ import { guildBankRoutes } from './guildBank.js';
 import { guildDonationRoutes } from './guildDonations.js';
 import { itemRoutes } from './items.js';
 import { moneyTrackerRoutes } from './moneyTracker.js';
+import { metallurgyRoutes } from './metallurgy.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -40,4 +41,5 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(adminRoutes, { prefix: '/api/admin' });
   server.register(itemRoutes, { prefix: '/api' });
   server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });
+  server.register(metallurgyRoutes, { prefix: '/api/admin/metallurgy' });
 }

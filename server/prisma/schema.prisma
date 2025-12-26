@@ -821,6 +821,33 @@ model MoneySnapshot {
   @@index([snapshotDate])
 }
 
+// Metallurgy Tracker - Daily snapshots for ore counts and weight trends
+model MetallurgySnapshot {
+  id                String   @id @default(cuid())
+  snapshotDate      DateTime @db.Date
+  // Total metallurgy weight across all accounts
+  totalWeight       Decimal  @default(0) @db.Decimal(10, 2)
+  // Number of accounts with metallurgy weight
+  accountCount      Int      @default(0)
+  // Ore counts (Tier 1)
+  tinOreCount       Int      @default(0)
+  copperOreCount    Int      @default(0)
+  ironOreCount      Int      @default(0)
+  // Ore counts (Tier 2)
+  zincOreCount      Int      @default(0)
+  nickelOreCount    Int      @default(0)
+  cobaltOreCount    Int      @default(0)
+  // Ore counts (Tier 3)
+  manganeseOreCount Int      @default(0)
+  tungstenOreCount  Int      @default(0)
+  chromiumOreCount  Int      @default(0)
+  // Metadata
+  createdAt         DateTime @default(now())
+  createdById       String?
+
+  @@index([snapshotDate])
+}
+
 // Character Admin - Notes tied to EQ accounts
 model AccountNote {
   id              String   @id @default(cuid())

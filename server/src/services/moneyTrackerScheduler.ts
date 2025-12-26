@@ -11,6 +11,7 @@ import {
   getSettings,
   updateLastSnapshotTime
 } from './moneyTrackerService.js';
+import { createMetallurgySnapshot } from './metallurgyService.js';
 import { autoLinkSharedIps } from './characterAdminService.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -101,10 +102,31 @@ async function executeScheduledSnapshot(): Promise<void> {
 
     logger.info('[MoneyTrackerScheduler] Scheduled snapshot completed successfully.');
 
+    // Create metallurgy snapshot alongside the money snapshot
+    await executeMetallurgySnapshot();
+
     // Run auto-link for shared IPs (daily maintenance task)
     await executeAutoLinkSharedIps();
   } catch (error) {
     logger.error('[MoneyTrackerScheduler] Failed to create scheduled snapshot:', error);
+  }
+}
+
+/**
+ * Execute metallurgy snapshot creation
+ * Runs independently so money tracker continues even if this fails
+ */
+async function executeMetallurgySnapshot(): Promise<void> {
+  if (!isEqDbConfigured()) {
+    return;
+  }
+
+  try {
+    logger.info('[MoneyTrackerScheduler] Creating metallurgy snapshot...');
+    await createMetallurgySnapshot();
+    logger.info('[MoneyTrackerScheduler] Metallurgy snapshot completed successfully.');
+  } catch (error) {
+    logger.error('[MoneyTrackerScheduler] Failed to create metallurgy snapshot:', error);
   }
 }
 

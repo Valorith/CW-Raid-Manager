@@ -116,6 +116,13 @@
               </RouterLink>
               <RouterLink
                 v-if="authStore.isAdmin"
+                to="/admin/metallurgy"
+                class="nav__dropdown-item"
+              >
+                Metallurgy Tracker
+              </RouterLink>
+              <RouterLink
+                v-if="authStore.isAdmin"
                 to="/admin/loot-management"
                 class="nav__dropdown-item"
               >
