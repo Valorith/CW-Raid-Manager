@@ -1300,6 +1300,11 @@ export interface AccountProfile {
   defaultLogFileName: string | null;
 }
 
+export interface LinkedProviders {
+  google: boolean;
+  discord: boolean;
+}
+
 export interface AdminUserGuildMembership {
   guild: {
     id: string;
@@ -3253,6 +3258,30 @@ export const api = {
       displayName: profile.displayName,
       nickname: profile.nickname ?? null,
       defaultLogFileName: profile.defaultLogFileName ?? null
+    };
+  },
+
+  async fetchLinkedProviders(): Promise<LinkedProviders> {
+    const response = await axios.get('/api/account/linked-providers');
+    return {
+      google: Boolean(response.data.providers?.google),
+      discord: Boolean(response.data.providers?.discord)
+    };
+  },
+
+  async unlinkGoogle(): Promise<LinkedProviders> {
+    const response = await axios.post('/api/account/unlink/google');
+    return {
+      google: Boolean(response.data.providers?.google),
+      discord: Boolean(response.data.providers?.discord)
+    };
+  },
+
+  async unlinkDiscord(): Promise<LinkedProviders> {
+    const response = await axios.post('/api/account/unlink/discord');
+    return {
+      google: Boolean(response.data.providers?.google),
+      discord: Boolean(response.data.providers?.discord)
     };
   },
 
