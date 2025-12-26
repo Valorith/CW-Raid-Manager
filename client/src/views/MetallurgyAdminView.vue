@@ -150,7 +150,7 @@
                         >
                           <span class="character-tooltip__name">{{ char.name }}</span>
                           <span class="character-tooltip__details">
-                            Lv{{ char.level }} {{ char.className }}
+                            {{ char.level }} {{ char.className }}
                           </span>
                         </div>
                       </div>
