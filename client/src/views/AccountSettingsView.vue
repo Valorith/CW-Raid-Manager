@@ -102,14 +102,14 @@
             </div>
             <button
               v-if="linkedProviders.google"
-              class="btn btn--outline btn--small"
+              class="btn btn--danger btn--small"
               :disabled="unlinkingGoogle || !canUnlinkGoogle"
               :title="canUnlinkGoogle ? '' : 'You must have at least one login method'"
               @click="handleUnlinkGoogle"
             >
               {{ unlinkingGoogle ? 'Unlinking...' : 'Unlink' }}
             </button>
-            <a v-else href="/api/auth/google/link" class="btn btn--small">Link Google</a>
+            <a v-else href="/api/auth/google/link" class="btn btn--success btn--small">Link Google</a>
           </div>
 
           <div class="provider-card">
@@ -133,14 +133,14 @@
             </div>
             <button
               v-if="linkedProviders.discord"
-              class="btn btn--outline btn--small"
+              class="btn btn--danger btn--small"
               :disabled="unlinkingDiscord || !canUnlinkDiscord"
               :title="canUnlinkDiscord ? '' : 'You must have at least one login method'"
               @click="handleUnlinkDiscord"
             >
               {{ unlinkingDiscord ? 'Unlinking...' : 'Unlink' }}
             </button>
-            <a v-else href="/api/auth/discord/link" class="btn btn--small">Link Discord</a>
+            <a v-else href="/api/auth/discord/link" class="btn btn--success btn--small">Link Discord</a>
           </div>
         </div>
 
@@ -790,6 +790,42 @@ onMounted(() => {
 .btn--small {
   padding: 0.4rem 0.85rem;
   font-size: 0.85rem;
+}
+
+.btn--success {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  color: #ffffff;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+  transition: all 0.2s ease;
+}
+
+.btn--success:hover {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn--danger {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+  transition: all 0.2s ease;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn--danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .default-log {
