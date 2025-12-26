@@ -296,6 +296,23 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
+  // Debug: Check if the high-value character IDs exist in character_data
+  const debugQuery = `
+    SELECT
+      db.\`key\`,
+      db.value,
+      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as extractedId,
+      cd.id as foundCharId,
+      cd.name as foundCharName
+    FROM data_buckets db
+    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
+    WHERE db.\`key\` LIKE '%-metallurgy'
+    ORDER BY CAST(db.value AS DECIMAL(20,10)) DESC
+    LIMIT 10
+  `;
+  const debugRows = await queryEqDb<RowDataPacket[]>(debugQuery);
+  console.log('[metallurgyService] Debug - checking character ID extraction and JOIN:', debugRows);
+
   // Query data_buckets for metallurgy keys and LEFT join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
   // LEFT JOIN ensures we get all entries even if character was deleted
