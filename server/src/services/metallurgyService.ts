@@ -296,15 +296,16 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // Debug: First, let's see what metallurgy keys exist in data_buckets
-  const debugKeysQuery = `
+  // Debug: First query data_buckets directly without join to see raw values
+  const debugQuery = `
     SELECT db.\`key\`, db.value
     FROM data_buckets db
-    WHERE db.\`key\` LIKE '%metallurgy%'
+    WHERE db.\`key\` LIKE '%-metallurgy'
+    ORDER BY CAST(db.value AS DECIMAL(20,10)) DESC
     LIMIT 20
   `;
-  const debugKeys = await queryEqDb<RowDataPacket[]>(debugKeysQuery);
-  console.log('[metallurgyService] All metallurgy keys in data_buckets:', debugKeys);
+  const debugRows = await queryEqDb<RowDataPacket[]>(debugQuery);
+  console.log('[metallurgyService] Raw data_buckets entries (top 20 by value):', debugRows);
 
   // Query data_buckets for metallurgy keys and join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
@@ -323,14 +324,6 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   `;
 
   const rows = await queryEqDb<RowDataPacket[]>(query);
-
-  // Debug: Log raw database values
-  console.log('[metallurgyService] Raw data_buckets rows:', rows.slice(0, 10).map((row) => ({
-    characterId: row.characterId,
-    characterName: row.characterName,
-    rawWeight: row.rawWeight,
-    rawWeightType: typeof row.rawWeight
-  })));
 
   // Convert raw values to numbers and filter/sort in JavaScript
   const results = rows
