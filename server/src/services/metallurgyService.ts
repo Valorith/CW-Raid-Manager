@@ -61,13 +61,118 @@ const INVENTORY_SLOT_RANGES = {
   ]
 };
 
-// Build WHERE clause for inventory slot filtering
-const ALL_INVENTORY_RANGES = [...INVENTORY_SLOT_RANGES.personal, ...INVENTORY_SLOT_RANGES.bank];
-const SLOT_WHERE_CLAUSE = ALL_INVENTORY_RANGES.map((range) =>
-  range.start === range.end
-    ? `slotid = ${range.start}`
-    : `(slotid BETWEEN ${range.start} AND ${range.end})`
-).join(' OR ');
+// Column name cache for inventory table
+let cachedInventoryCharIdColumn: string | null = null;
+let cachedInventorySlotColumn: string | null = null;
+let cachedInventoryItemIdColumn: string | null = null;
+let cachedInventoryChargesColumn: string | null = null;
+
+// Column name cache for sharedbank table
+let cachedSharedBankItemIdColumn: string | null = null;
+let cachedSharedBankChargesColumn: string | null = null;
+let cachedSharedBankAcctIdColumn: string | null = null;
+
+/**
+ * Resolve inventory table column names dynamically
+ */
+async function resolveInventoryColumns(): Promise<{
+  charIdColumn: string;
+  slotColumn: string;
+  itemIdColumn: string;
+  chargesColumn: string;
+}> {
+  if (cachedInventoryCharIdColumn && cachedInventorySlotColumn &&
+      cachedInventoryItemIdColumn && cachedInventoryChargesColumn) {
+    return {
+      charIdColumn: cachedInventoryCharIdColumn,
+      slotColumn: cachedInventorySlotColumn,
+      itemIdColumn: cachedInventoryItemIdColumn,
+      chargesColumn: cachedInventoryChargesColumn
+    };
+  }
+
+  const rows = await queryEqDb<RowDataPacket[]>(
+    `SELECT COLUMN_NAME as columnName
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'inventory'`
+  );
+
+  const columns = rows.map((r) => (r.columnName as string).toLowerCase());
+
+  // Resolve character ID column
+  const charIdOptions = ['charid', 'char_id', 'character_id'];
+  cachedInventoryCharIdColumn = charIdOptions.find((c) => columns.includes(c)) || 'charid';
+
+  // Resolve slot column
+  const slotOptions = ['slotid', 'slot_id', 'slot'];
+  cachedInventorySlotColumn = slotOptions.find((c) => columns.includes(c)) || 'slotid';
+
+  // Resolve item ID column
+  const itemIdOptions = ['itemid', 'item_id'];
+  cachedInventoryItemIdColumn = itemIdOptions.find((c) => columns.includes(c)) || 'itemid';
+
+  // Resolve charges column
+  const chargesOptions = ['charges', 'stacksize', 'stack_size'];
+  cachedInventoryChargesColumn = chargesOptions.find((c) => columns.includes(c)) || 'charges';
+
+  return {
+    charIdColumn: cachedInventoryCharIdColumn,
+    slotColumn: cachedInventorySlotColumn,
+    itemIdColumn: cachedInventoryItemIdColumn,
+    chargesColumn: cachedInventoryChargesColumn
+  };
+}
+
+/**
+ * Resolve sharedbank table column names dynamically
+ */
+async function resolveSharedBankColumns(): Promise<{
+  itemIdColumn: string;
+  chargesColumn: string;
+  acctIdColumn: string;
+}> {
+  if (cachedSharedBankItemIdColumn && cachedSharedBankChargesColumn && cachedSharedBankAcctIdColumn) {
+    return {
+      itemIdColumn: cachedSharedBankItemIdColumn,
+      chargesColumn: cachedSharedBankChargesColumn,
+      acctIdColumn: cachedSharedBankAcctIdColumn
+    };
+  }
+
+  const rows = await queryEqDb<RowDataPacket[]>(
+    `SELECT COLUMN_NAME as columnName
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'sharedbank'`
+  );
+
+  const columns = rows.map((r) => (r.columnName as string).toLowerCase());
+
+  // Resolve item ID column
+  const itemIdOptions = ['itemid', 'item_id'];
+  cachedSharedBankItemIdColumn = itemIdOptions.find((c) => columns.includes(c)) || 'itemid';
+
+  // Resolve charges column
+  const chargesOptions = ['charges', 'stacksize', 'stack_size'];
+  cachedSharedBankChargesColumn = chargesOptions.find((c) => columns.includes(c)) || 'charges';
+
+  // Resolve account ID column
+  const acctIdOptions = ['acctid', 'acct_id', 'account_id', 'accountid'];
+  cachedSharedBankAcctIdColumn = acctIdOptions.find((c) => columns.includes(c)) || 'acctid';
+
+  console.log('[metallurgyService] Resolved sharedbank columns:', {
+    itemIdColumn: cachedSharedBankItemIdColumn,
+    chargesColumn: cachedSharedBankChargesColumn,
+    acctIdColumn: cachedSharedBankAcctIdColumn
+  });
+
+  return {
+    itemIdColumn: cachedSharedBankItemIdColumn,
+    chargesColumn: cachedSharedBankChargesColumn,
+    acctIdColumn: cachedSharedBankAcctIdColumn
+  };
+}
 
 /**
  * Fetch all metallurgy ore inventory data from character inventories and shared banks
@@ -77,35 +182,45 @@ export async function fetchMetallurgyOreData(): Promise<OreInventorySummary[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
+  // Resolve column names dynamically
+  const invCols = await resolveInventoryColumns();
+  const sbCols = await resolveSharedBankColumns();
+
+  // Build slot WHERE clause with resolved column name
+  const ALL_INVENTORY_RANGES = [...INVENTORY_SLOT_RANGES.personal, ...INVENTORY_SLOT_RANGES.bank];
+  const slotWhereClause = ALL_INVENTORY_RANGES.map((range) =>
+    range.start === range.end
+      ? `inv.\`${invCols.slotColumn}\` = ${range.start}`
+      : `(inv.\`${invCols.slotColumn}\` BETWEEN ${range.start} AND ${range.end})`
+  ).join(' OR ');
+
   const itemIdPlaceholders = ORE_ITEM_IDS.map(() => '?').join(', ');
 
   // Query 1: Get ore counts from character inventories (personal + bank)
-  // Using SUM of charges for stackable items, with GREATEST to ensure minimum of 1
   const characterInventoryQuery = `
     SELECT
       cd.id as characterId,
       cd.name as characterName,
-      inv.itemid as itemId,
-      SUM(GREATEST(COALESCE(inv.charges, 1), 1)) as quantity
+      inv.\`${invCols.itemIdColumn}\` as itemId,
+      SUM(GREATEST(COALESCE(inv.\`${invCols.chargesColumn}\`, 1), 1)) as quantity
     FROM inventory inv
-    INNER JOIN character_data cd ON cd.id = inv.charid
-    WHERE inv.itemid IN (${itemIdPlaceholders})
-      AND (${SLOT_WHERE_CLAUSE})
-    GROUP BY cd.id, cd.name, inv.itemid
+    INNER JOIN character_data cd ON cd.id = inv.\`${invCols.charIdColumn}\`
+    WHERE inv.\`${invCols.itemIdColumn}\` IN (${itemIdPlaceholders})
+      AND (${slotWhereClause})
+    GROUP BY cd.id, cd.name, inv.\`${invCols.itemIdColumn}\`
   `;
 
   // Query 2: Get ore counts from shared banks (account level)
-  // Shared bank uses 'charges' for stack count
   const sharedBankQuery = `
     SELECT
       a.id as accountId,
       a.name as accountName,
-      sb.itemid as itemId,
-      SUM(GREATEST(COALESCE(sb.charges, 1), 1)) as quantity
+      sb.\`${sbCols.itemIdColumn}\` as itemId,
+      SUM(GREATEST(COALESCE(sb.\`${sbCols.chargesColumn}\`, 1), 1)) as quantity
     FROM sharedbank sb
-    INNER JOIN account a ON a.id = sb.acctid
-    WHERE sb.itemid IN (${itemIdPlaceholders})
-    GROUP BY a.id, a.name, sb.itemid
+    INNER JOIN account a ON a.id = sb.\`${sbCols.acctIdColumn}\`
+    WHERE sb.\`${sbCols.itemIdColumn}\` IN (${itemIdPlaceholders})
+    GROUP BY a.id, a.name, sb.\`${sbCols.itemIdColumn}\`
   `;
 
   // Execute both queries in parallel
