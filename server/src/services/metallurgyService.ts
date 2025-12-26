@@ -296,27 +296,16 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // Debug: First query data_buckets directly without join to see raw values
-  const debugQuery = `
-    SELECT db.\`key\`, db.value
-    FROM data_buckets db
-    WHERE db.\`key\` LIKE '%-metallurgy'
-    ORDER BY CAST(db.value AS DECIMAL(20,10)) DESC
-    LIMIT 20
-  `;
-  const debugRows = await queryEqDb<RowDataPacket[]>(debugQuery);
-  console.log('[metallurgyService] Raw data_buckets entries (top 20 by value):', debugRows);
-
-  // Query data_buckets for metallurgy keys and join with character_data for names
+  // Query data_buckets for metallurgy keys and LEFT join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
-  // Read the raw value and handle conversion in JavaScript to avoid SQL casting issues
+  // LEFT JOIN ensures we get all entries even if character was deleted
   const query = `
     SELECT
-      cd.id as characterId,
+      CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED) as characterId,
       cd.name as characterName,
       db.value as rawWeight
     FROM data_buckets db
-    INNER JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
+    LEFT JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
@@ -326,16 +315,15 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   const rows = await queryEqDb<RowDataPacket[]>(query);
 
   // Convert raw values to numbers and filter/sort in JavaScript
+  // Use character ID as fallback name for deleted characters
   const results = rows
     .map((row) => ({
       characterId: Number(row.characterId),
-      characterName: row.characterName as string,
+      characterName: row.characterName ? (row.characterName as string) : `Character #${row.characterId}`,
       weight: parseFloat(row.rawWeight) || 0
     }))
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight);
-
-  console.log('[metallurgyService] Parsed weights (first 10):', results.slice(0, 10));
 
   return results;
 }
