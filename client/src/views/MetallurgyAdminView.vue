@@ -140,27 +140,26 @@
                     <span
                       class="account-name"
                       @wheel.prevent="(e) => handleTooltipScroll(e, `tooltip-${account.accountId}`)"
-                    >{{ account.accountName }}</span>
-                    <div v-if="account.characters.length > 0" class="character-tooltip">
-                      <div class="character-tooltip__header">
-                        Characters ({{ account.characters.length }})
-                      </div>
-                      <div
-                        :ref="(el) => setTooltipRef(`tooltip-${account.accountId}`, el)"
-                        class="character-tooltip__list"
-                      >
-                        <div
-                          v-for="char in account.characters"
-                          :key="char.name"
-                          class="character-tooltip__item"
-                        >
-                          <span class="character-tooltip__name">{{ char.name }}</span>
-                          <span class="character-tooltip__details">
-                            {{ char.level }} {{ char.className }}
-                          </span>
+                    >{{ account.accountName }}<div v-if="account.characters.length > 0" class="character-tooltip">
+                        <div class="character-tooltip__header">
+                          Characters ({{ account.characters.length }})
                         </div>
-                      </div>
-                    </div>
+                        <div
+                          :ref="(el) => setTooltipRef(`tooltip-${account.accountId}`, el)"
+                          class="character-tooltip__list"
+                        >
+                          <div
+                            v-for="char in account.characters"
+                            :key="char.name"
+                            class="character-tooltip__item"
+                          >
+                            <span class="character-tooltip__name">{{ char.name }}</span>
+                            <span class="character-tooltip__details">
+                              {{ char.level }} {{ char.className }}
+                            </span>
+                          </div>
+                        </div>
+                      </div></span>
                   </td>
                   <td class="metallurgy-admin__td--weight">{{ formatWeight(account.weight) }}</td>
                 </tr>
@@ -717,10 +716,11 @@ onMounted(async () => {
 
 /* Account Cell with Tooltip */
 .account-cell {
-  position: relative;
+  overflow: visible;
 }
 
 .account-name {
+  position: relative;
   cursor: help;
   border-bottom: 1px dotted var(--color-muted, #94a3b8);
 }
@@ -742,7 +742,7 @@ onMounted(async () => {
   pointer-events: none;
 }
 
-.account-cell:hover .character-tooltip {
+.account-name:hover .character-tooltip {
   display: block;
 }
 
