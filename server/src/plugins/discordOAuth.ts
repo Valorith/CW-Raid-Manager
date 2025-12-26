@@ -18,7 +18,9 @@ export const discordOAuthPlugin = fp(async (fastify) => {
     return;
   }
 
-  fastify.register(oauthPlugin, {
+  // Type assertion needed because @fastify/oauth2 types don't include cookie option
+  // but the runtime supports it (added in v6.x)
+  const oauthOptions = {
     name: 'discordOAuth2',
     scope: ['identify', 'email'],
     credentials: {
@@ -37,8 +39,16 @@ export const discordOAuthPlugin = fp(async (fastify) => {
       }
     },
     startRedirectPath: '/api/auth/discord',
-    callbackUri: appConfig.discord.callbackUrl
-  });
+    callbackUri: appConfig.discord.callbackUrl,
+    cookie: {
+      secure: appConfig.nodeEnv === 'production',
+      sameSite: 'lax',
+      path: '/',
+      httpOnly: true
+    }
+  } as FastifyOAuth2Options;
+
+  fastify.register(oauthPlugin, oauthOptions);
 
   fastify.log.info('Discord OAuth plugin registered successfully.');
 });
