@@ -4208,9 +4208,69 @@ export const api = {
   async getIpGeolocation(ip: string): Promise<IpGeolocation> {
     const response = await axios.get(`/api/admin/ip-geolocation/${encodeURIComponent(ip)}`);
     return response.data;
+  },
+
+  // ============================================================================
+  // Metallurgy Admin
+  // ============================================================================
+
+  /**
+   * Fetch all metallurgy data (ore inventories and character weights)
+   */
+  async fetchMetallurgyData(): Promise<MetallurgyData> {
+    const response = await axios.get('/api/admin/metallurgy');
+    return response.data.data;
+  },
+
+  /**
+   * Fetch metallurgy ore inventory data only
+   */
+  async fetchMetallurgyOres(): Promise<OreInventorySummary[]> {
+    const response = await axios.get('/api/admin/metallurgy/ores');
+    return response.data.ores;
+  },
+
+  /**
+   * Fetch metallurgy weight data only
+   */
+  async fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
+    const response = await axios.get('/api/admin/metallurgy/weights');
+    return response.data.weights;
   }
 
 };
+
+// ============================================================================
+// Metallurgy Types
+// ============================================================================
+
+export interface OreOwner {
+  name: string;
+  quantity: number;
+  source: 'character' | 'sharedbank';
+  characterId?: number;
+  accountId?: number;
+}
+
+export interface OreInventorySummary {
+  itemId: number;
+  name: string;
+  tier: number;
+  totalOwners: number;
+  totalQuantity: number;
+  owners: OreOwner[];
+}
+
+export interface MetallurgyWeight {
+  characterId: number;
+  characterName: string;
+  weight: number;
+}
+
+export interface MetallurgyData {
+  ores: OreInventorySummary[];
+  weights: MetallurgyWeight[];
+}
 
 /**
  * IP Geolocation response from ipgeolocation.io v2 API

@@ -16,6 +16,9 @@
         <router-link to="/admin/money-tracker" class="btn btn--outline">
           Money Tracker
         </router-link>
+        <router-link to="/admin/metallurgy" class="btn btn--outline">
+          Metallurgy Tracker
+        </router-link>
         <router-link to="/admin/loot-management" class="btn btn--outline">
           Master Loot Diagnostics
         </router-link>

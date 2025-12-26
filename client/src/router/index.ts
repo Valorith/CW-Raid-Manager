@@ -128,6 +128,12 @@ const router = createRouter({
       name: 'PlayerEventLogs',
       component: () => import('../views/PlayerEventLogsView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/metallurgy',
+      name: 'Metallurgy',
+      component: () => import('../views/MetallurgyAdminView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });
