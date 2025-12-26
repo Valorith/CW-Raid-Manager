@@ -243,9 +243,9 @@ watch(weightSearch, () => {
   weightPage.value = 1;
 });
 
-// Format weight as kg (show raw value for debugging)
+// Format weight as kg with 2 decimal places
 function formatWeight(weight: number): string {
-  return `${weight} kg`;
+  return `${weight.toFixed(2)} kg`;
 }
 
 // Toggle ore expansion
