@@ -313,6 +313,19 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
   const debugRows = await queryEqDb<RowDataPacket[]>(debugQuery);
   console.log('[metallurgyService] Debug - checking character ID extraction and JOIN:', debugRows);
 
+  // Debug: Check what IDs exist in character_data and their range
+  const charDataDebug = await queryEqDb<RowDataPacket[]>(`
+    SELECT MIN(id) as minId, MAX(id) as maxId, COUNT(*) as totalChars
+    FROM character_data
+  `);
+  console.log('[metallurgyService] Debug - character_data stats:', charDataDebug);
+
+  // Debug: Check if specific IDs exist
+  const specificIdCheck = await queryEqDb<RowDataPacket[]>(`
+    SELECT id, name FROM character_data WHERE id IN (91073, 91071, 92818, 3745) ORDER BY id
+  `);
+  console.log('[metallurgyService] Debug - checking specific IDs in character_data:', specificIdCheck);
+
   // Query data_buckets for metallurgy keys and LEFT join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
   // LEFT JOIN ensures we get all entries even if character was deleted
