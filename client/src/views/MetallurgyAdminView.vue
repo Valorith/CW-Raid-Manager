@@ -137,12 +137,18 @@
                 <tr v-for="(account, index) in paginatedWeights" :key="account.accountId">
                   <td class="metallurgy-admin__td--rank">{{ weightStartIndex + index + 1 }}</td>
                   <td class="metallurgy-admin__td--name account-cell">
-                    <span class="account-name">{{ account.accountName }}</span>
+                    <span
+                      class="account-name"
+                      @wheel.prevent="(e) => handleTooltipScroll(e, `tooltip-${account.accountId}`)"
+                    >{{ account.accountName }}</span>
                     <div v-if="account.characters.length > 0" class="character-tooltip">
                       <div class="character-tooltip__header">
                         Characters ({{ account.characters.length }})
                       </div>
-                      <div class="character-tooltip__list">
+                      <div
+                        :ref="(el) => setTooltipRef(`tooltip-${account.accountId}`, el)"
+                        class="character-tooltip__list"
+                      >
                         <div
                           v-for="char in account.characters"
                           :key="char.name"
@@ -199,6 +205,20 @@ const loading = ref(false);
 const showLoading = useMinimumLoading(loading);
 const refreshing = ref(false);
 const data = ref<MetallurgyData | null>(null);
+
+// Tooltip refs for scroll handling
+const tooltipRefs = new Map<string, HTMLElement | null>();
+
+function setTooltipRef(key: string, el: unknown) {
+  tooltipRefs.set(key, el as HTMLElement | null);
+}
+
+function handleTooltipScroll(event: WheelEvent, tooltipKey: string) {
+  const tooltipList = tooltipRefs.get(tooltipKey);
+  if (tooltipList) {
+    tooltipList.scrollTop += event.deltaY;
+  }
+}
 
 // Expanded ore items
 const expandedOres = ref<Set<number>>(new Set());
@@ -708,8 +728,9 @@ onMounted(async () => {
 .character-tooltip {
   display: none;
   position: absolute;
-  left: 0;
-  top: 100%;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 100;
   min-width: 220px;
   max-width: 300px;
@@ -717,7 +738,8 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 0.5rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  margin-top: 0.25rem;
+  margin-left: 0.75rem;
+  pointer-events: none;
 }
 
 .account-cell:hover .character-tooltip {
