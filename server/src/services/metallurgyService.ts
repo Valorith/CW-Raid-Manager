@@ -351,7 +351,7 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     return [];
   }
 
-  // Fetch all characters for these accounts
+  // Fetch all characters for these accounts (excluding deleted characters)
   const placeholders = accountIds.map(() => '?').join(', ');
   const charactersQuery = `
     SELECT
@@ -361,6 +361,7 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
       cd.class as classId
     FROM character_data cd
     WHERE cd.account_id IN (${placeholders})
+      AND cd.name NOT LIKE '%-deleted-%'
     ORDER BY cd.account_id, cd.level DESC
   `;
 
