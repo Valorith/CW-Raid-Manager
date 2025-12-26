@@ -296,26 +296,23 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
     throw new Error('EQ database is not configured. Set EQ_DB_* environment variables.');
   }
 
-  // Debug: Check what character-related tables exist in the database
-  const tablesDebug = await queryEqDb<RowDataPacket[]>(`
-    SELECT TABLE_NAME
-    FROM INFORMATION_SCHEMA.TABLES
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME LIKE '%character%'
-    ORDER BY TABLE_NAME
-  `);
-  console.log('[metallurgyService] Debug - character tables in database:', tablesDebug.map(r => r.TABLE_NAME));
+  // Debug: Check which database we're connected to and find Vayle
+  const dbInfo = await queryEqDb<RowDataPacket[]>(`SELECT DATABASE() as currentDb`);
+  console.log('[metallurgyService] Debug - connected to database:', dbInfo[0]?.currentDb);
 
-  // Check if there's a 'character_' table with different IDs
-  const charTableCheck = await queryEqDb<RowDataPacket[]>(`
-    SELECT TABLE_NAME, COLUMN_NAME
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME IN ('character_', 'characters')
-      AND COLUMN_NAME IN ('id', 'charid', 'char_id', 'name')
-    ORDER BY TABLE_NAME, COLUMN_NAME
+  // Find Vayle in character_data - what is the actual ID?
+  const vayleCheck = await queryEqDb<RowDataPacket[]>(`
+    SELECT id, name FROM character_data WHERE name = 'Vayle'
   `);
-  console.log('[metallurgyService] Debug - character_ table columns:', charTableCheck);
+  console.log('[metallurgyService] Debug - Vayle in character_data:', vayleCheck);
+
+  // Find the metallurgy entry for value 11.58 (Vayle's weight)
+  const vayleWeight = await queryEqDb<RowDataPacket[]>(`
+    SELECT \`key\`, value FROM data_buckets
+    WHERE \`key\` LIKE '%-metallurgy'
+    AND CAST(value AS DECIMAL(10,2)) BETWEEN 11.5 AND 11.7
+  `);
+  console.log('[metallurgyService] Debug - metallurgy entry ~11.58kg:', vayleWeight);
 
   // Query data_buckets for metallurgy keys and join with character_data
   const query = `
