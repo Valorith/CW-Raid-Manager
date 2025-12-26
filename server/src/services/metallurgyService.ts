@@ -298,28 +298,33 @@ export async function fetchMetallurgyWeights(): Promise<MetallurgyWeight[]> {
 
   // Query data_buckets for metallurgy keys and join with character_data for names
   // Using LIKE pattern to match keys ending with '-metallurgy'
+  // Read the raw value and handle conversion in JavaScript to avoid SQL casting issues
   const query = `
     SELECT
       cd.id as characterId,
       cd.name as characterName,
-      CAST(db.value AS SIGNED) as weight
+      db.value as rawWeight
     FROM data_buckets db
     INNER JOIN character_data cd ON cd.id = CAST(SUBSTRING_INDEX(db.\`key\`, '-', 1) AS UNSIGNED)
     WHERE db.\`key\` LIKE '%-metallurgy'
       AND db.value IS NOT NULL
       AND db.value != ''
       AND db.value != '0'
-      AND CAST(db.value AS SIGNED) > 0
-    ORDER BY CAST(db.value AS SIGNED) DESC
   `;
 
   const rows = await queryEqDb<RowDataPacket[]>(query);
 
-  return rows.map((row) => ({
-    characterId: Number(row.characterId),
-    characterName: row.characterName,
-    weight: Number(row.weight)
-  }));
+  // Convert raw values to numbers and filter/sort in JavaScript
+  const results = rows
+    .map((row) => ({
+      characterId: Number(row.characterId),
+      characterName: row.characterName as string,
+      weight: Math.round(parseFloat(row.rawWeight) || 0)
+    }))
+    .filter((r) => r.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+
+  return results;
 }
 
 /**
