@@ -137,6 +137,35 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     await loadCharacterById(id);
   }
 
+  // Open the modal by character ID with a pre-applied event type filter
+  async function openByIdWithEventFilter(id: number, eventTypeName: string) {
+    modalState.value = {
+      open: true,
+      characterName: null,
+      characterId: id,
+      activeTab: 'events'
+    };
+
+    // Reset all data
+    resetData();
+
+    // Load character details and filter data in parallel
+    await Promise.all([
+      loadCharacterById(id),
+      filterDataLoaded.value ? Promise.resolve() : loadFilterData()
+    ]);
+
+    // Find the event type by name and apply filter
+    const eventType = eventTypes.value.find(t => t.name === eventTypeName);
+    if (eventType) {
+      eventsState.value.filters = {
+        ...eventsState.value.filters,
+        eventTypes: [eventType.id]
+      };
+      await loadEvents();
+    }
+  }
+
   // Close the modal
   function close() {
     modalState.value.open = false;
@@ -564,6 +593,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     // Actions
     openByName,
     openById,
+    openByIdWithEventFilter,
     close,
     setActiveTab,
     loadEvents,

@@ -201,9 +201,14 @@
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-hack-count">
-                    <span v-if="conn.hackCount > 0" class="hack-count-badge">
+                    <button
+                      v-if="conn.hackCount > 0"
+                      class="hack-count-badge hack-count-badge--clickable"
+                      @click="openHackEvents(conn.characterId)"
+                      :title="`View ${conn.hackCount} hack event${conn.hackCount !== 1 ? 's' : ''}`"
+                    >
                       {{ conn.hackCount }}
-                    </span>
+                    </button>
                     <span v-else class="muted">0</span>
                   </td>
                 </tr>
@@ -324,6 +329,10 @@ function openCharacterAdmin(result: { id: number; name: string }) {
   globalSearchQuery.value = '';
   showSearchResults.value = false;
   characterAdminStore.clearSearchResults();
+}
+
+function openHackEvents(characterId: number) {
+  characterAdminStore.openByIdWithEventFilter(characterId, 'POSSIBLE_HACK');
 }
 
 // Close search results when clicking outside
@@ -1193,6 +1202,22 @@ onUnmounted(() => {
   background-color: rgba(239, 68, 68, 0.15);
   color: #f87171;
   border-radius: 4px;
+  border: none;
+  font-family: inherit;
+}
+
+.hack-count-badge--clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.hack-count-badge--clickable:hover {
+  background-color: rgba(239, 68, 68, 0.3);
+  transform: scale(1.05);
+}
+
+.hack-count-badge--clickable:active {
+  transform: scale(0.95);
 }
 
 .last-kill {
