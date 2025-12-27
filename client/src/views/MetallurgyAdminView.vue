@@ -504,7 +504,7 @@ const chartData = computed(() => {
       {
         label: 'Total Weight (kg)',
         data: snapshots.value.map((s) => s.totalWeight),
-        borderColor: '#3b82f6',
+        borderColor: '#22c55e',
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.4,
@@ -513,7 +513,7 @@ const chartData = computed(() => {
         pointRadius: 6,
         pointHoverRadius: 9,
         pointBackgroundColor: '#ffffff',
-        pointBorderColor: '#3b82f6',
+        pointBorderColor: '#22c55e',
         pointBorderWidth: 3,
         borderCapStyle: 'round',
         borderJoinStyle: 'round',
