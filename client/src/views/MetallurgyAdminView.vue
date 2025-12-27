@@ -1109,11 +1109,14 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.5rem;
   max-height: 500px;
-  overflow-y: auto;
+  overflow-y: scroll;
   padding-right: 0.5rem;
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) rgba(30, 41, 59, 0.5);
 }
 
-/* Custom scrollbar for ore list */
+/* Custom scrollbar for ore list - WebKit/Chrome */
 .ore-list::-webkit-scrollbar {
   width: 8px;
 }
@@ -1126,7 +1129,6 @@ onMounted(async () => {
 .ore-list::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.4);
   border-radius: 4px;
-  transition: background 0.2s ease;
 }
 
 .ore-list::-webkit-scrollbar-thumb:hover {
@@ -1227,10 +1229,13 @@ onMounted(async () => {
   gap: 0.375rem;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
   max-height: 300px;
-  overflow-y: auto;
+  overflow-y: scroll;
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) rgba(30, 41, 59, 0.3);
 }
 
-/* Custom scrollbar for owners list */
+/* Custom scrollbar for owners list - WebKit/Chrome */
 .ore-item__owners-list::-webkit-scrollbar {
   width: 6px;
 }
