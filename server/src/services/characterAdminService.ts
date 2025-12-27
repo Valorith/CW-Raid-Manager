@@ -104,7 +104,7 @@ export interface CharacterSearchResult {
 let schemaCache: {
   characterData: { idColumn: string; nameColumn: string; accountIdColumn: string } | null;
   account: { idColumn: string; nameColumn: string } | null;
-  zone: { idColumn: string; longNameColumn: string } | null;
+  zone: { idColumn: string; longNameColumn: string; hasVersionColumn: boolean } | null;
   characterCorpses: { exists: boolean } | null;
 } = {
   characterData: null,
@@ -240,7 +240,10 @@ async function discoverZoneSchema() {
   const longNameCandidates = ['long_name', 'longname', 'long'];
   const longNameColumn = longNameCandidates.find(c => columns.includes(c)) || 'long_name';
 
-  schemaCache.zone = { idColumn, longNameColumn };
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
+  schemaCache.zone = { idColumn, longNameColumn, hasVersionColumn };
   return schemaCache.zone;
 }
 
@@ -296,9 +299,17 @@ export async function getCharacterByName(characterName: string): Promise<Charact
   `;
 
   if (zoneSchema) {
-    query += `
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)
+    `;
+    } else {
+      query += `
     LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
     `;
+    }
   }
 
   query += `
@@ -392,9 +403,17 @@ export async function getCharacterById(characterId: number): Promise<CharacterDe
   `;
 
   if (zoneSchema) {
-    query += `
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)
+    `;
+    } else {
+      query += `
     LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
     `;
+    }
   }
 
   query += `
@@ -451,34 +470,18 @@ export async function getCharacterById(characterId: number): Promise<CharacterDe
  */
 export async function getCharacterEvents(
   characterId: number,
-  filters: Omit<PlayerEventLogFilters, 'characterName' | 'search'> = {}
+  filters: Omit<PlayerEventLogFilters, 'characterId' | 'characterName' | 'search'> = {}
 ): Promise<PlayerEventLogResponse> {
   // Use the existing playerEventLogsService but filter by character_id directly
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured.');
   }
 
-  const charSchema = await discoverCharacterDataSchema();
-  if (!charSchema) {
-    throw new Error('Could not discover character_data schema.');
-  }
-
-  // Get character name first
-  const charRows = await queryEqDb<RowDataPacket[]>(
-    `SELECT ${charSchema.nameColumn} as name FROM character_data WHERE ${charSchema.idColumn} = ?`,
-    [characterId]
-  );
-
-  if (charRows.length === 0) {
-    return { events: [], total: 0, page: 1, pageSize: filters.pageSize || 25, totalPages: 0 };
-  }
-
-  const characterName = charRows[0].name;
-
-  // Use the existing fetchPlayerEventLogs with character name filter
+  // Use characterId for exact matching - avoids issues with similar names
+  // (e.g., "Spellhold" and "Spellholdtwo" would both match a LIKE search)
   return fetchPlayerEventLogs({
     ...filters,
-    characterName
+    characterId
   });
 }
 
@@ -599,9 +602,17 @@ export async function getCharacterCorpses(characterId: number): Promise<Characte
   `;
 
   if (zoneSchema) {
-    query += `
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cc.zone_id)
+    `;
+    } else {
+      query += `
     LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}
     `;
+    }
   }
 
   query += `

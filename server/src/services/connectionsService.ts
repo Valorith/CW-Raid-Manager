@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { getItemIconId } from './eqItemService.js';
 
 export interface ServerConnection {
   connectId: number;
@@ -14,6 +15,20 @@ export interface ServerConnection {
   zoneName: string;
   zoneShortName: string;
   guildName: string | null;
+  lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
+  hackCount: number;
+  lastHackAt: string | null;
+  // Trader-specific fields (for characters in The Bazaar with no kills)
+  lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
 }
 
 export interface IpExemption {
@@ -59,7 +74,7 @@ function mapEqClassIdToName(classId: number): string {
 
 // Cache for schema discovery
 let schemaCache: {
-  zoneTable: { exists: boolean; idColumn: string | null; longNameColumn: string | null; shortNameColumn: string | null } | null;
+  zoneTable: { exists: boolean; idColumn: string | null; longNameColumn: string | null; shortNameColumn: string | null; hasVersionColumn: boolean } | null;
   guildsTable: { exists: boolean; idColumn: string | null; nameColumn: string | null } | null;
   guildMembersTable: { exists: boolean; charIdColumn: string | null; guildIdColumn: string | null } | null;
 } = {
@@ -88,7 +103,7 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
 
   const columns = await getTableColumns('zone');
   if (columns.length === 0) {
-    schemaCache.zoneTable = { exists: false, idColumn: null, longNameColumn: null, shortNameColumn: null };
+    schemaCache.zoneTable = { exists: false, idColumn: null, longNameColumn: null, shortNameColumn: null, hasVersionColumn: false };
     return schemaCache.zoneTable;
   }
 
@@ -105,11 +120,15 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
   const shortNameCandidates = ['short_name', 'shortname', 'short'];
   const shortNameColumn = shortNameCandidates.find(c => columns.includes(c)) || null;
 
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
   schemaCache.zoneTable = {
     exists: true,
     idColumn,
     longNameColumn,
-    shortNameColumn
+    shortNameColumn,
+    hasVersionColumn
   };
   return schemaCache.zoneTable;
 }
@@ -216,9 +235,11 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       NULL as zone_short_name`;
     }
     // Try joining on zoneidnumber first, if that's not the id column, also try id
-    if (zoneSchema.idColumn === 'zoneidnumber') {
+    // Use MIN(version) subquery to avoid duplicates and handle zones that only have version > 0
+    if (zoneSchema.hasVersionColumn) {
       joins += `
-    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber`;
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)`;
     } else {
       joins += `
     LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}`;
@@ -260,7 +281,21 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       classId: row.class || 0,
       zoneName: row.zone_long_name || row.zone_short_name || `Zone ${row.zone_id || 0}`,
       zoneShortName: row.zone_short_name || '',
-      guildName: row.guild_name || null
+      guildName: row.guild_name || null,
+      // Trader fields - populated later by fetchCharacterLastActivity
+      lastActionAt: null,
+      lastActionEventTypeId: null,
+      lastKillNpcName: null,
+      lastKillAt: null,
+      hackCount: 0,
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
     }));
   } catch (error) {
     console.error('[connectionsService] Full query failed, trying simplified query:', error);
@@ -293,7 +328,21 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       classId: row.class || 0,
       zoneName: `Zone ${row.zone_id || 0}`,
       zoneShortName: '',
-      guildName: null
+      guildName: null,
+      // Trader fields - populated later by fetchCharacterLastActivity
+      lastActionAt: null,
+      lastActionEventTypeId: null,
+      lastKillNpcName: null,
+      lastKillAt: null,
+      hackCount: 0,
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
     }));
   }
 }
@@ -332,4 +381,276 @@ export async function fetchIpExemptions(): Promise<IpExemption[]> {
     // Table may not exist, return empty array
     return [];
   }
+}
+
+/**
+ * Last activity data for a character
+ */
+export interface CharacterLastActivity {
+  characterId: number;
+  lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
+  hackCount: number;
+  lastHackAt: string | null;
+  // Trader-specific fields
+  lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
+}
+
+type LastActionRow = RowDataPacket & {
+  character_id: number;
+  last_action_at: string;
+  event_type_id: number;
+};
+
+type LastKillRow = RowDataPacket & {
+  character_id: number;
+  npc_name: string | null;
+  killed_at: string;
+};
+
+type HackCountRow = RowDataPacket & {
+  character_id: number;
+  hack_count: number;
+  last_hack_at: string | null;
+};
+
+type LastSaleRow = RowDataPacket & {
+  character_id: number;
+  item_name: string | null;
+  price: number | null;
+  sold_at: string;
+};
+
+type TotalSalesRow = RowDataPacket & {
+  character_id: number;
+  total_amount: number;
+  total_count: number;
+};
+
+/**
+ * Fetch last activity data for a batch of character IDs
+ * Returns last action timestamp and last kill info for each character
+ */
+export async function fetchCharacterLastActivity(characterIds: number[]): Promise<Map<number, CharacterLastActivity>> {
+  const result = new Map<number, CharacterLastActivity>();
+
+  if (!isEqDbConfigured() || characterIds.length === 0) {
+    return result;
+  }
+
+  // Initialize all characters with null/zero values
+  for (const charId of characterIds) {
+    result.set(charId, {
+      characterId: charId,
+      lastActionAt: null,
+      lastActionEventTypeId: null,
+      lastKillNpcName: null,
+      lastKillAt: null,
+      hackCount: 0,
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
+    });
+  }
+
+  const placeholders = characterIds.map(() => '?').join(',');
+
+  try {
+    // Query 1: Get last action timestamp and event type for each character
+    // Using a subquery approach for better performance with indexes
+    const lastActionQuery = `
+      SELECT pel.character_id, pel.created_at as last_action_at, pel.event_type_id
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+      GROUP BY pel.character_id
+    `;
+
+    const lastActionRows = await queryEqDb<LastActionRow[]>(
+      lastActionQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    for (const row of lastActionRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastActionAt = row.last_action_at;
+        activity.lastActionEventTypeId = row.event_type_id;
+      }
+    }
+
+    // Query 2: Get last kill info for each character
+    // Kill event types: 44 (KILLED_NPC), 45 (KILLED_NAMED_NPC), 46 (KILLED_RAID_NPC)
+    const lastKillQuery = `
+      SELECT pel.character_id, pel.event_data, pel.created_at as killed_at
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+          AND event_type_id IN (44, 45, 46)
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+        AND pel.event_type_id IN (44, 45, 46)
+      GROUP BY pel.character_id
+    `;
+
+    const lastKillRows = await queryEqDb<LastKillRow[]>(
+      lastKillQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    for (const row of lastKillRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastKillAt = row.killed_at;
+
+        // Parse event_data to get NPC name
+        if (row.npc_name) {
+          activity.lastKillNpcName = row.npc_name;
+        } else {
+          // event_data is stored as JSON, try to extract npc_name
+          try {
+            const eventData = JSON.parse((row as RowDataPacket).event_data || '{}');
+            activity.lastKillNpcName = eventData.npc_name || eventData.npcName || null;
+          } catch {
+            activity.lastKillNpcName = null;
+          }
+        }
+      }
+    }
+
+    // Query 3: Get hack count and most recent hack timestamp for each character
+    // Event type 43 = POSSIBLE_HACK
+    const hackCountQuery = `
+      SELECT character_id, COUNT(*) as hack_count, MAX(created_at) as last_hack_at
+      FROM player_event_logs
+      WHERE character_id IN (${placeholders})
+        AND event_type_id = 43
+      GROUP BY character_id
+    `;
+
+    const hackCountRows = await queryEqDb<HackCountRow[]>(
+      hackCountQuery,
+      characterIds
+    );
+
+    for (const row of hackCountRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.hackCount = row.hack_count;
+        activity.lastHackAt = row.last_hack_at;
+      }
+    }
+
+    // Query 4: Get last sale for each character (TRADER_SELL = event_type_id 39)
+    const lastSaleQuery = `
+      SELECT pel.character_id, pel.event_data, pel.created_at as sold_at
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+          AND event_type_id = 39
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+        AND pel.event_type_id = 39
+      GROUP BY pel.character_id
+    `;
+
+    const lastSaleRows = await queryEqDb<LastSaleRow[]>(
+      lastSaleQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    // Track items that need icon lookups
+    const iconLookups: Array<{ activity: CharacterLastActivity; itemId: number }> = [];
+
+    for (const row of lastSaleRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastSaleAt = row.sold_at;
+        // Parse event_data to get item name, id, icon, and price
+        try {
+          const eventData = JSON.parse((row as RowDataPacket).event_data || '{}');
+          activity.lastSaleItemName = eventData.item_name || eventData.itemName || null;
+          activity.lastSaleItemId = eventData.item_id ?? eventData.itemId ?? null;
+          activity.lastSaleItemIconId = eventData.item_icon ?? eventData.itemIcon ?? eventData.icon ?? null;
+          activity.lastSalePrice = eventData.total_cost ?? eventData.totalCost ?? eventData.price ?? null;
+
+          // If we have an item_id but no icon, queue for lookup from items table
+          if (activity.lastSaleItemId && !activity.lastSaleItemIconId) {
+            iconLookups.push({ activity, itemId: activity.lastSaleItemId });
+          }
+        } catch {
+          activity.lastSaleItemName = null;
+          activity.lastSaleItemId = null;
+          activity.lastSaleItemIconId = null;
+          activity.lastSalePrice = null;
+        }
+      }
+    }
+
+    // Look up icons from items table for items that didn't have icons in event_data
+    if (iconLookups.length > 0) {
+      const iconResults = await Promise.all(
+        iconLookups.map(async ({ activity, itemId }) => {
+          const iconId = await getItemIconId(itemId);
+          return { activity, iconId };
+        })
+      );
+      for (const { activity, iconId } of iconResults) {
+        activity.lastSaleItemIconId = iconId;
+      }
+    }
+
+    // Query 5: Get total sales for each character (sum of total_cost and count)
+    const totalSalesQuery = `
+      SELECT character_id, SUM(
+        CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.total_cost')) AS UNSIGNED)
+      ) as total_amount, COUNT(*) as total_count
+      FROM player_event_logs
+      WHERE character_id IN (${placeholders})
+        AND event_type_id = 39
+      GROUP BY character_id
+    `;
+
+    const totalSalesRows = await queryEqDb<TotalSalesRow[]>(
+      totalSalesQuery,
+      characterIds
+    );
+
+    for (const row of totalSalesRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.totalSalesAmount = row.total_amount || 0;
+        activity.totalSalesCount = row.total_count || 0;
+      }
+    }
+  } catch (error) {
+    console.error('[connectionsService] Error fetching character last activity:', error);
+    // Return partial results or empty map on error
+  }
+
+  return result;
 }

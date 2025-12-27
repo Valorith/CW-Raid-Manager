@@ -30,7 +30,7 @@ import {
   fetchLootMaster,
   getLootManagementSummary
 } from '../services/lootManagementService.js';
-import { fetchServerConnections, fetchIpExemptions } from '../services/connectionsService.js';
+import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity } from '../services/connectionsService.js';
 import {
   fetchPlayerEventLogs,
   getPlayerEventLogStats,
@@ -612,10 +612,36 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       try {
-        const [connections, ipExemptions] = await Promise.all([
+        const [baseConnections, ipExemptions] = await Promise.all([
           fetchServerConnections(),
           fetchIpExemptions()
         ]);
+
+        // Fetch last activity data for all connected characters in a single batch query
+        const characterIds = baseConnections.map(c => c.characterId);
+        const activityMap = await fetchCharacterLastActivity(characterIds);
+
+        // Merge activity data into connections
+        const connections = baseConnections.map(conn => {
+          const activity = activityMap.get(conn.characterId);
+          return {
+            ...conn,
+            lastActionAt: activity?.lastActionAt || null,
+            lastActionEventTypeId: activity?.lastActionEventTypeId || null,
+            lastKillNpcName: activity?.lastKillNpcName || null,
+            lastKillAt: activity?.lastKillAt || null,
+            hackCount: activity?.hackCount || 0,
+            lastHackAt: activity?.lastHackAt || null,
+            lastSaleItemName: activity?.lastSaleItemName || null,
+            lastSaleItemId: activity?.lastSaleItemId || null,
+            lastSaleItemIconId: activity?.lastSaleItemIconId || null,
+            lastSalePrice: activity?.lastSalePrice || null,
+            lastSaleAt: activity?.lastSaleAt || null,
+            totalSalesAmount: activity?.totalSalesAmount || null,
+            totalSalesCount: activity?.totalSalesCount || null
+          };
+        });
+
         return { connections, ipExemptions };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch server connections.');

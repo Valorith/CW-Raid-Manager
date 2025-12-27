@@ -126,6 +126,7 @@ export interface PlayerEventLog {
 export interface PlayerEventLogFilters {
   page?: number;
   pageSize?: number;
+  characterId?: number;
   characterName?: string;
   eventTypes?: number[];
   zoneId?: number;
@@ -173,6 +174,7 @@ let zoneSchemaCache: {
   exists: boolean;
   idColumn: string | null;
   longNameColumn: string | null;
+  hasVersionColumn: boolean;
 } | null = null;
 
 // Cache for character data schema discovery
@@ -220,7 +222,7 @@ async function discoverZoneSchema(): Promise<typeof zoneSchemaCache> {
 
   const columns = await getTableColumns('zone');
   if (columns.length === 0) {
-    zoneSchemaCache = { exists: false, idColumn: null, longNameColumn: null };
+    zoneSchemaCache = { exists: false, idColumn: null, longNameColumn: null, hasVersionColumn: false };
     return zoneSchemaCache;
   }
 
@@ -230,10 +232,14 @@ async function discoverZoneSchema(): Promise<typeof zoneSchemaCache> {
   const longNameCandidates = ['long_name', 'longname', 'long'];
   const longNameColumn = longNameCandidates.find(c => columns.includes(c)) || null;
 
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
   zoneSchemaCache = {
     exists: true,
     idColumn,
-    longNameColumn
+    longNameColumn,
+    hasVersionColumn
   };
   return zoneSchemaCache;
 }
@@ -278,6 +284,7 @@ export async function fetchPlayerEventLogs(
   const {
     page = 1,
     pageSize: requestedPageSize = 25,
+    characterId,
     characterName,
     eventTypes,
     zoneId,
@@ -325,12 +332,16 @@ export async function fetchPlayerEventLogs(
   }
 
   // Add zone join if available
+  // Note: Zone table may have multiple entries per zoneidnumber (for different versions)
+  // We use MIN(version) subquery to get one entry per zone and avoid duplicates
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
     selectFields += `,
     z.${zoneSchema.longNameColumn} as zone_name`;
-    if (zoneSchema.idColumn === 'zoneidnumber') {
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
       joins += `
-    LEFT JOIN zone z ON pel.zone_id = z.zoneidnumber`;
+    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = pel.zone_id)`;
     } else {
       joins += `
     LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}`;
@@ -341,7 +352,12 @@ export async function fetchPlayerEventLogs(
   }
 
   // Apply filters
-  if (characterName) {
+  // Use exact character_id match when available (preferred - no ambiguity)
+  if (characterId !== undefined) {
+    whereConditions.push(`pel.character_id = ?`);
+    params.push(characterId);
+  } else if (characterName) {
+    // Fall back to name-based LIKE search only when no ID is provided
     if (characterSchema?.exists && characterSchema.nameColumn) {
       whereConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
       params.push(`%${characterName}%`);
@@ -560,9 +576,14 @@ export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneNa
 
   let query: string;
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
-    const joinCondition = zoneSchema.idColumn === 'zoneidnumber'
-      ? 'pel.zone_id = z.zoneidnumber'
-      : `pel.zone_id = z.${zoneSchema.idColumn}`;
+    let joinCondition: string;
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone
+      joinCondition = `pel.zone_id = z.${zoneSchema.idColumn}
+        AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = pel.zone_id)`;
+    } else {
+      joinCondition = `pel.zone_id = z.${zoneSchema.idColumn}`;
+    }
 
     // Use subquery with LIMIT for better performance on large tables
     query = `

@@ -12,7 +12,7 @@
       </div>
       <div v-if="eventData.npc_name || eventData.corpse_name" class="data-row">
         <span class="data-label">From:</span>
-        <span class="data-value">{{ formatCorpseName(eventData.npc_name || eventData.corpse_name) }}</span>
+        <span class="data-value">{{ formatNpcName(eventData.npc_name || eventData.corpse_name) }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -28,7 +28,7 @@
     <template v-else-if="event.eventTypeName === 'DEATH'">
       <div class="data-row">
         <span class="data-label">Killed by:</span>
-        <span class="data-value data-value--danger">{{ eventData.killer_name || eventData.killed_by || 'Unknown' }}</span>
+        <span class="data-value data-value--danger">{{ formatNpcName(eventData.killer_name || eventData.killed_by || 'Unknown') }}</span>
       </div>
       <div v-if="eventData.spell_name" class="data-row">
         <span class="data-label">Spell:</span>
@@ -48,7 +48,7 @@
     <template v-else-if="['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'].includes(event.eventTypeName)">
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--combat">{{ eventData.npc_name || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--combat">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -210,7 +210,7 @@
       </div>
       <div v-if="eventData.merchant_name" class="data-row">
         <span class="data-label">Merchant:</span>
-        <span class="data-value">{{ eventData.merchant_name }}</span>
+        <span class="data-value">{{ formatNpcName(eventData.merchant_name) }}</span>
       </div>
       <div v-if="eventData.quantity" class="data-row">
         <span class="data-label">Quantity:</span>
@@ -222,11 +222,91 @@
       </div>
     </template>
 
+    <!-- TRADER_SELL -->
+    <template v-else-if="event.eventTypeName === 'TRADER_SELL'">
+      <div v-if="eventData.item_name" class="data-row">
+        <span class="data-label">Item:</span>
+        <span class="data-value data-value--highlight">{{ eventData.item_name }}</span>
+      </div>
+      <div v-if="eventData.item_id" class="data-row">
+        <span class="data-label">Item ID:</span>
+        <span class="data-value muted">{{ eventData.item_id }}</span>
+      </div>
+      <div v-if="eventData.buyer_name" class="data-row">
+        <span class="data-label">Buyer:</span>
+        <span class="data-value data-value--social">{{ eventData.buyer_name }}</span>
+      </div>
+      <div v-if="eventData.buyer_id" class="data-row">
+        <span class="data-label">Buyer ID:</span>
+        <span class="data-value muted">{{ eventData.buyer_id }}</span>
+      </div>
+      <div v-if="eventData.quantity && eventData.quantity > 1" class="data-row">
+        <span class="data-label">Quantity:</span>
+        <span class="data-value">{{ eventData.quantity }}</span>
+      </div>
+      <div v-if="eventData.charges" class="data-row">
+        <span class="data-label">Charges:</span>
+        <span class="data-value">{{ eventData.charges }}</span>
+      </div>
+      <div v-if="eventData.price !== undefined" class="data-row">
+        <span class="data-label">Price:</span>
+        <span class="data-value data-value--success">{{ formatMoney(eventData.price) }}</span>
+      </div>
+      <div v-if="eventData.total_cost !== undefined" class="data-row">
+        <span class="data-label">Total Earned:</span>
+        <span class="data-value data-value--success">{{ formatMoney(eventData.total_cost) }}</span>
+      </div>
+      <div v-if="eventData.player_money_balance !== undefined" class="data-row">
+        <span class="data-label">New Balance:</span>
+        <span class="data-value">{{ formatMoney(eventData.player_money_balance) }}</span>
+      </div>
+    </template>
+
+    <!-- TRADER_PURCHASE -->
+    <template v-else-if="event.eventTypeName === 'TRADER_PURCHASE'">
+      <div v-if="eventData.item_name" class="data-row">
+        <span class="data-label">Item:</span>
+        <span class="data-value data-value--highlight">{{ eventData.item_name }}</span>
+      </div>
+      <div v-if="eventData.item_id" class="data-row">
+        <span class="data-label">Item ID:</span>
+        <span class="data-value muted">{{ eventData.item_id }}</span>
+      </div>
+      <div v-if="eventData.seller_name || eventData.trader_name" class="data-row">
+        <span class="data-label">Seller:</span>
+        <span class="data-value data-value--social">{{ eventData.seller_name || eventData.trader_name }}</span>
+      </div>
+      <div v-if="eventData.seller_id || eventData.trader_id" class="data-row">
+        <span class="data-label">Seller ID:</span>
+        <span class="data-value muted">{{ eventData.seller_id || eventData.trader_id }}</span>
+      </div>
+      <div v-if="eventData.quantity && eventData.quantity > 1" class="data-row">
+        <span class="data-label">Quantity:</span>
+        <span class="data-value">{{ eventData.quantity }}</span>
+      </div>
+      <div v-if="eventData.charges" class="data-row">
+        <span class="data-label">Charges:</span>
+        <span class="data-value">{{ eventData.charges }}</span>
+      </div>
+      <div v-if="eventData.price !== undefined" class="data-row">
+        <span class="data-label">Price:</span>
+        <span class="data-value data-value--danger">{{ formatMoney(eventData.price) }}</span>
+      </div>
+      <div v-if="eventData.total_cost !== undefined" class="data-row">
+        <span class="data-label">Total Cost:</span>
+        <span class="data-value data-value--danger">{{ formatMoney(eventData.total_cost) }}</span>
+      </div>
+      <div v-if="eventData.player_money_balance !== undefined" class="data-row">
+        <span class="data-label">New Balance:</span>
+        <span class="data-value">{{ formatMoney(eventData.player_money_balance) }}</span>
+      </div>
+    </template>
+
     <!-- NPC_HANDIN -->
     <template v-else-if="event.eventTypeName === 'NPC_HANDIN'">
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--social">{{ eventData.npc_name || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--social">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -418,7 +498,7 @@
     <template v-else>
       <div v-for="(value, key) in displayableData" :key="key" class="data-row">
         <span class="data-label">{{ formatKey(key) }}:</span>
-        <span class="data-value">{{ formatValue(value) }}</span>
+        <span class="data-value">{{ formatValue(value, key) }}</span>
       </div>
     </template>
   </div>
@@ -459,9 +539,24 @@ function formatKey(key: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatValue(value: unknown): string {
+// Field names that should be formatted as money (copper values)
+const MONEY_FIELD_PATTERNS = [
+  'price', 'cost', 'total_cost', 'money', 'balance', 'money_balance',
+  'player_money_balance', 'platinum', 'gold', 'silver', 'copper'
+];
+
+function isMoneyField(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return MONEY_FIELD_PATTERNS.some(pattern => lowerKey.includes(pattern));
+}
+
+function formatValue(value: unknown, key?: string): string {
   if (value === null || value === undefined) {
     return '-';
+  }
+  // Check if this is a money-related field and format accordingly
+  if (key && isMoneyField(key) && typeof value === 'number') {
+    return formatMoney(value);
   }
   if (typeof value === 'object') {
     return JSON.stringify(value);
@@ -477,7 +572,7 @@ function formatMoney(value: unknown): string {
     const copper = value % 10;
 
     const parts: string[] = [];
-    if (platinum > 0) parts.push(`${platinum}p`);
+    if (platinum > 0) parts.push(`${platinum.toLocaleString()}p`);
     if (gold > 0) parts.push(`${gold}g`);
     if (silver > 0) parts.push(`${silver}s`);
     if (copper > 0 || parts.length === 0) parts.push(`${copper}c`);
@@ -487,7 +582,7 @@ function formatMoney(value: unknown): string {
   if (typeof value === 'object' && value !== null) {
     const m = value as { platinum?: number; gold?: number; silver?: number; copper?: number };
     const parts: string[] = [];
-    if (m.platinum) parts.push(`${m.platinum}p`);
+    if (m.platinum) parts.push(`${m.platinum.toLocaleString()}p`);
     if (m.gold) parts.push(`${m.gold}g`);
     if (m.silver) parts.push(`${m.silver}s`);
     if (m.copper) parts.push(`${m.copper}c`);
@@ -526,6 +621,43 @@ function formatCorpseName(name: unknown): string {
   if (typeof name !== 'string') return String(name);
   // Replace underscores with spaces and clean up the name
   return name.replace(/_/g, ' ');
+}
+
+/**
+ * Smartly insert spaces into concatenated NPC names
+ * e.g., "PrinceThirnegthePetulant" -> "Prince Thirneg the Petulant"
+ */
+function formatNpcName(name: unknown): string {
+  if (typeof name !== 'string') return String(name);
+
+  // If the name already has spaces, return as-is (just clean up underscores)
+  if (name.includes(' ')) {
+    return name.replace(/_/g, ' ');
+  }
+
+  // Replace underscores with spaces first
+  let result = name.replace(/_/g, ' ');
+
+  // Insert space before uppercase letters that follow lowercase letters
+  // This handles PascalCase like "PrinceThirneg" -> "Prince Thirneg"
+  result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+  // Handle common lowercase words that got stuck to previous words
+  // e.g., "Thirnegthe Petulant" -> "Thirneg the Petulant"
+  result = result.replace(/([a-z])(the)(\s|$)/gi, '$1 the$3');
+  result = result.replace(/([a-z])(of)(\s|$)/gi, '$1 of$3');
+  result = result.replace(/([a-z])(and)(\s|$)/gi, '$1 and$3');
+
+  // Handle cases where common words are stuck between two capitalized words
+  // e.g., "XtheY" -> "X the Y"
+  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/g, '$1 the $3');
+  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/g, '$1 of $3');
+  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/g, '$1 and $3');
+
+  // Clean up any double spaces
+  result = result.replace(/\s+/g, ' ').trim();
+
+  return result;
 }
 
 function formatHandinItem(item: unknown): string {

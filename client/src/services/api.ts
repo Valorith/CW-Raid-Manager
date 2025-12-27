@@ -1405,6 +1405,20 @@ export interface ServerConnection {
   zoneName: string;
   zoneShortName: string;
   guildName: string | null;
+  lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
+  hackCount: number;
+  lastHackAt: string | null;
+  // Trader-specific fields
+  lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
 }
 
 export interface IpExemption {
