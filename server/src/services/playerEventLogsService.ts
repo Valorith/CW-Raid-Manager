@@ -126,6 +126,7 @@ export interface PlayerEventLog {
 export interface PlayerEventLogFilters {
   page?: number;
   pageSize?: number;
+  characterId?: number;
   characterName?: string;
   eventTypes?: number[];
   zoneId?: number;
@@ -283,6 +284,7 @@ export async function fetchPlayerEventLogs(
   const {
     page = 1,
     pageSize: requestedPageSize = 25,
+    characterId,
     characterName,
     eventTypes,
     zoneId,
@@ -350,7 +352,12 @@ export async function fetchPlayerEventLogs(
   }
 
   // Apply filters
-  if (characterName) {
+  // Use exact character_id match when available (preferred - no ambiguity)
+  if (characterId !== undefined) {
+    whereConditions.push(`pel.character_id = ?`);
+    params.push(characterId);
+  } else if (characterName) {
+    // Fall back to name-based LIKE search only when no ID is provided
     if (characterSchema?.exists && characterSchema.nameColumn) {
       whereConditions.push(`cd.${characterSchema.nameColumn} LIKE ?`);
       params.push(`%${characterName}%`);

@@ -470,34 +470,18 @@ export async function getCharacterById(characterId: number): Promise<CharacterDe
  */
 export async function getCharacterEvents(
   characterId: number,
-  filters: Omit<PlayerEventLogFilters, 'characterName' | 'search'> = {}
+  filters: Omit<PlayerEventLogFilters, 'characterId' | 'characterName' | 'search'> = {}
 ): Promise<PlayerEventLogResponse> {
   // Use the existing playerEventLogsService but filter by character_id directly
   if (!isEqDbConfigured()) {
     throw new Error('EQ database is not configured.');
   }
 
-  const charSchema = await discoverCharacterDataSchema();
-  if (!charSchema) {
-    throw new Error('Could not discover character_data schema.');
-  }
-
-  // Get character name first
-  const charRows = await queryEqDb<RowDataPacket[]>(
-    `SELECT ${charSchema.nameColumn} as name FROM character_data WHERE ${charSchema.idColumn} = ?`,
-    [characterId]
-  );
-
-  if (charRows.length === 0) {
-    return { events: [], total: 0, page: 1, pageSize: filters.pageSize || 25, totalPages: 0 };
-  }
-
-  const characterName = charRows[0].name;
-
-  // Use the existing fetchPlayerEventLogs with character name filter
+  // Use characterId for exact matching - avoids issues with similar names
+  // (e.g., "Spellhold" and "Spellholdtwo" would both match a LIKE search)
   return fetchPlayerEventLogs({
     ...filters,
-    characterName
+    characterId
   });
 }
 
