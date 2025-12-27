@@ -331,17 +331,18 @@ export async function fetchPlayerEventLogs(
 
   // Add zone join if available
   // Note: Zone table may have multiple entries per zoneidnumber (for different versions)
-  // We filter by version = 0 to get the base zone entry and avoid duplicates
+  // We use MIN(version) subquery to get one entry per zone and avoid duplicates
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
     selectFields += `,
     z.${zoneSchema.longNameColumn} as zone_name`;
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    if (zoneSchema.idColumn === 'zoneidnumber') {
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
       joins += `
-    LEFT JOIN zone z ON pel.zone_id = z.zoneidnumber${versionFilter}`;
+    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = pel.zone_id)`;
     } else {
       joins += `
-    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
+    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}`;
     }
   } else {
     selectFields += `,
@@ -568,10 +569,14 @@ export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneNa
 
   let query: string;
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    const joinCondition = zoneSchema.idColumn === 'zoneidnumber'
-      ? `pel.zone_id = z.zoneidnumber${versionFilter}`
-      : `pel.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
+    let joinCondition: string;
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone
+      joinCondition = `pel.zone_id = z.${zoneSchema.idColumn}
+        AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = pel.zone_id)`;
+    } else {
+      joinCondition = `pel.zone_id = z.${zoneSchema.idColumn}`;
+    }
 
     // Use subquery with LIMIT for better performance on large tables
     query = `

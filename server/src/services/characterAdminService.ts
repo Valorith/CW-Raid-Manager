@@ -299,10 +299,17 @@ export async function getCharacterByName(characterName: string): Promise<Charact
   `;
 
   if (zoneSchema) {
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    query += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)
     `;
+    } else {
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+    `;
+    }
   }
 
   query += `
@@ -396,10 +403,17 @@ export async function getCharacterById(characterId: number): Promise<CharacterDe
   `;
 
   if (zoneSchema) {
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    query += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)
     `;
+    } else {
+      query += `
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+    `;
+    }
   }
 
   query += `
@@ -604,10 +618,17 @@ export async function getCharacterCorpses(characterId: number): Promise<Characte
   `;
 
   if (zoneSchema) {
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    query += `
-    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}${versionFilter}
+    if (zoneSchema.hasVersionColumn) {
+      // Use subquery to get the minimum version for each zone (handles zones that only have version > 0)
+      query += `
+    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cc.zone_id)
     `;
+    } else {
+      query += `
+    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}
+    `;
+    }
   }
 
   query += `

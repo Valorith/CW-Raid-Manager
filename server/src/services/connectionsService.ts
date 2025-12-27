@@ -226,14 +226,14 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       NULL as zone_short_name`;
     }
     // Try joining on zoneidnumber first, if that's not the id column, also try id
-    // Add version filter to avoid duplicates if zone table has multiple entries per zone
-    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
-    if (zoneSchema.idColumn === 'zoneidnumber') {
+    // Use MIN(version) subquery to avoid duplicates and handle zones that only have version > 0
+    if (zoneSchema.hasVersionColumn) {
       joins += `
-    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber${versionFilter}`;
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+      AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)`;
     } else {
       joins += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}`;
     }
   } else {
     selectFields += `,
