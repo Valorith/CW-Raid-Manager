@@ -104,7 +104,7 @@ export interface CharacterSearchResult {
 let schemaCache: {
   characterData: { idColumn: string; nameColumn: string; accountIdColumn: string } | null;
   account: { idColumn: string; nameColumn: string } | null;
-  zone: { idColumn: string; longNameColumn: string } | null;
+  zone: { idColumn: string; longNameColumn: string; hasVersionColumn: boolean } | null;
   characterCorpses: { exists: boolean } | null;
 } = {
   characterData: null,
@@ -240,7 +240,10 @@ async function discoverZoneSchema() {
   const longNameCandidates = ['long_name', 'longname', 'long'];
   const longNameColumn = longNameCandidates.find(c => columns.includes(c)) || 'long_name';
 
-  schemaCache.zone = { idColumn, longNameColumn };
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
+  schemaCache.zone = { idColumn, longNameColumn, hasVersionColumn };
   return schemaCache.zone;
 }
 
@@ -296,8 +299,9 @@ export async function getCharacterByName(characterName: string): Promise<Charact
   `;
 
   if (zoneSchema) {
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     query += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}
     `;
   }
 
@@ -392,8 +396,9 @@ export async function getCharacterById(characterId: number): Promise<CharacterDe
   `;
 
   if (zoneSchema) {
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     query += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}
     `;
   }
 
@@ -599,8 +604,9 @@ export async function getCharacterCorpses(characterId: number): Promise<Characte
   `;
 
   if (zoneSchema) {
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     query += `
-    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}
+    LEFT JOIN zone z ON cc.zone_id = z.${zoneSchema.idColumn}${versionFilter}
     `;
   }
 

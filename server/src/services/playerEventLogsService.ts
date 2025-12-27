@@ -173,6 +173,7 @@ let zoneSchemaCache: {
   exists: boolean;
   idColumn: string | null;
   longNameColumn: string | null;
+  hasVersionColumn: boolean;
 } | null = null;
 
 // Cache for character data schema discovery
@@ -220,7 +221,7 @@ async function discoverZoneSchema(): Promise<typeof zoneSchemaCache> {
 
   const columns = await getTableColumns('zone');
   if (columns.length === 0) {
-    zoneSchemaCache = { exists: false, idColumn: null, longNameColumn: null };
+    zoneSchemaCache = { exists: false, idColumn: null, longNameColumn: null, hasVersionColumn: false };
     return zoneSchemaCache;
   }
 
@@ -230,10 +231,14 @@ async function discoverZoneSchema(): Promise<typeof zoneSchemaCache> {
   const longNameCandidates = ['long_name', 'longname', 'long'];
   const longNameColumn = longNameCandidates.find(c => columns.includes(c)) || null;
 
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
   zoneSchemaCache = {
     exists: true,
     idColumn,
-    longNameColumn
+    longNameColumn,
+    hasVersionColumn
   };
   return zoneSchemaCache;
 }
@@ -325,15 +330,18 @@ export async function fetchPlayerEventLogs(
   }
 
   // Add zone join if available
+  // Note: Zone table may have multiple entries per zoneidnumber (for different versions)
+  // We filter by version = 0 to get the base zone entry and avoid duplicates
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
     selectFields += `,
     z.${zoneSchema.longNameColumn} as zone_name`;
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     if (zoneSchema.idColumn === 'zoneidnumber') {
       joins += `
-    LEFT JOIN zone z ON pel.zone_id = z.zoneidnumber`;
+    LEFT JOIN zone z ON pel.zone_id = z.zoneidnumber${versionFilter}`;
     } else {
       joins += `
-    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}`;
+    LEFT JOIN zone z ON pel.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
     }
   } else {
     selectFields += `,
@@ -560,9 +568,10 @@ export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneNa
 
   let query: string;
   if (zoneSchema?.exists && zoneSchema.idColumn && zoneSchema.longNameColumn) {
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     const joinCondition = zoneSchema.idColumn === 'zoneidnumber'
-      ? 'pel.zone_id = z.zoneidnumber'
-      : `pel.zone_id = z.${zoneSchema.idColumn}`;
+      ? `pel.zone_id = z.zoneidnumber${versionFilter}`
+      : `pel.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
 
     // Use subquery with LIMIT for better performance on large tables
     query = `

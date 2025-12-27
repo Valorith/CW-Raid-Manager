@@ -65,7 +65,7 @@ function mapEqClassIdToName(classId: number): string {
 
 // Cache for schema discovery
 let schemaCache: {
-  zoneTable: { exists: boolean; idColumn: string | null; longNameColumn: string | null; shortNameColumn: string | null } | null;
+  zoneTable: { exists: boolean; idColumn: string | null; longNameColumn: string | null; shortNameColumn: string | null; hasVersionColumn: boolean } | null;
   guildsTable: { exists: boolean; idColumn: string | null; nameColumn: string | null } | null;
   guildMembersTable: { exists: boolean; charIdColumn: string | null; guildIdColumn: string | null } | null;
 } = {
@@ -94,7 +94,7 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
 
   const columns = await getTableColumns('zone');
   if (columns.length === 0) {
-    schemaCache.zoneTable = { exists: false, idColumn: null, longNameColumn: null, shortNameColumn: null };
+    schemaCache.zoneTable = { exists: false, idColumn: null, longNameColumn: null, shortNameColumn: null, hasVersionColumn: false };
     return schemaCache.zoneTable;
   }
 
@@ -111,11 +111,15 @@ async function discoverZoneSchema(): Promise<typeof schemaCache.zoneTable> {
   const shortNameCandidates = ['short_name', 'shortname', 'short'];
   const shortNameColumn = shortNameCandidates.find(c => columns.includes(c)) || null;
 
+  // Check if version column exists (zone table often has multiple entries per zone for different versions)
+  const hasVersionColumn = columns.includes('version');
+
   schemaCache.zoneTable = {
     exists: true,
     idColumn,
     longNameColumn,
-    shortNameColumn
+    shortNameColumn,
+    hasVersionColumn
   };
   return schemaCache.zoneTable;
 }
@@ -222,12 +226,14 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       NULL as zone_short_name`;
     }
     // Try joining on zoneidnumber first, if that's not the id column, also try id
+    // Add version filter to avoid duplicates if zone table has multiple entries per zone
+    const versionFilter = zoneSchema.hasVersionColumn ? ' AND z.version = 0' : '';
     if (zoneSchema.idColumn === 'zoneidnumber') {
       joins += `
-    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber`;
+    LEFT JOIN zone z ON cd.zone_id = z.zoneidnumber${versionFilter}`;
     } else {
       joins += `
-    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}`;
+    LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}${versionFilter}`;
     }
   } else {
     selectFields += `,
