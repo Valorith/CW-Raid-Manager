@@ -1452,8 +1452,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(234, 179, 8, 0.08);
-  border-bottom: 1px solid rgba(234, 179, 8, 0.15);
+  background: rgba(45, 212, 191, 0.08);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.15);
 }
 
 .trader-subgroup__label {
@@ -1461,7 +1461,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #fbbf24;
+  color: #2dd4bf;
 }
 
 .trader-subgroup__count {
@@ -1469,12 +1469,12 @@ onUnmounted(() => {
   font-weight: 600;
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
-  background: rgba(234, 179, 8, 0.2);
-  color: #fbbf24;
+  background: rgba(45, 212, 191, 0.2);
+  color: #2dd4bf;
 }
 
 .connections-table--traders th {
-  background: rgba(234, 179, 8, 0.05);
+  background: rgba(45, 212, 191, 0.05);
 }
 
 .col-last-sale {
@@ -1511,7 +1511,7 @@ onUnmounted(() => {
 
 .last-sale-price {
   font-size: 0.75rem;
-  color: #fbbf24;
+  color: #2dd4bf;
   font-weight: 500;
 }
 
@@ -1540,7 +1540,7 @@ onUnmounted(() => {
 }
 
 .total-sales-cell--clickable:hover {
-  background-color: rgba(234, 179, 8, 0.15);
+  background-color: rgba(45, 212, 191, 0.15);
 }
 
 .total-sales-cell--clickable:active {
@@ -1548,7 +1548,7 @@ onUnmounted(() => {
 }
 
 .total-sales-amount {
-  color: #fbbf24;
+  color: #2dd4bf;
   font-weight: 600;
 }
 
