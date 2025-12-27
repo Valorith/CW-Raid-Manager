@@ -127,26 +127,24 @@
                   <span class="ore-item__expand">{{ expandedOres.has(ore.itemId) ? '−' : '+' }}</span>
                 </div>
               </button>
-              <Transition name="expand">
-                <div v-if="expandedOres.has(ore.itemId)" class="ore-item__owners-list">
-                  <div v-if="ore.owners.length === 0" class="ore-item__empty">
-                    No owners found
-                  </div>
-                  <div
-                    v-for="owner in ore.owners"
-                    :key="`${owner.source}-${owner.characterId ?? owner.accountId}`"
-                    class="ore-owner"
-                  >
-                    <div class="ore-owner__info">
-                      <span class="ore-owner__name">{{ owner.name }}</span>
-                      <span class="ore-owner__source" :class="`ore-owner__source--${owner.source}`">
-                        {{ owner.source === 'sharedbank' ? 'Shared Bank' : 'Character' }}
-                      </span>
-                    </div>
-                    <span class="ore-owner__quantity">{{ owner.quantity.toLocaleString() }}</span>
-                  </div>
+              <div v-if="expandedOres.has(ore.itemId)" class="ore-item__owners-list">
+                <div v-if="ore.owners.length === 0" class="ore-item__empty">
+                  No owners found
                 </div>
-              </Transition>
+                <div
+                  v-for="owner in ore.owners"
+                  :key="`${owner.source}-${owner.characterId ?? owner.accountId}`"
+                  class="ore-owner"
+                >
+                  <div class="ore-owner__info">
+                    <span class="ore-owner__name">{{ owner.name }}</span>
+                    <span class="ore-owner__source" :class="`ore-owner__source--${owner.source}`">
+                      {{ owner.source === 'sharedbank' ? 'Shared Bank' : 'Character' }}
+                    </span>
+                  </div>
+                  <span class="ore-owner__quantity">{{ owner.quantity.toLocaleString() }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </article>
@@ -1105,11 +1103,36 @@ onMounted(async () => {
 
 /* Ore List Styles */
 .ore-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-height: 600px;
-  overflow-y: auto;
+  display: block;
+  height: 500px;
+  overflow-y: scroll;
+  padding-right: 0.5rem;
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) rgba(30, 41, 59, 0.5);
+}
+
+.ore-list > * + * {
+  margin-top: 0.5rem;
+}
+
+/* Custom scrollbar for ore list - WebKit/Chrome */
+.ore-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ore-list::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 4px;
+}
+
+.ore-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+.ore-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
 .ore-item {
@@ -1206,7 +1229,29 @@ onMounted(async () => {
   gap: 0.375rem;
   border-top: 1px solid rgba(148, 163, 184, 0.1);
   max-height: 300px;
-  overflow-y: auto;
+  overflow-y: scroll;
+  /* Firefox scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) rgba(30, 41, 59, 0.3);
+}
+
+/* Custom scrollbar for owners list - WebKit/Chrome */
+.ore-item__owners-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.3);
+  border-radius: 3px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }
 
 .ore-item__empty {
