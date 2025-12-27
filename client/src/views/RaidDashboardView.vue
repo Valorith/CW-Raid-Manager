@@ -730,10 +730,14 @@ const raidStatus = computed(() => {
     let label: string;
     let variant: RaidStatusVariant;
 
+    const canceled = raidHasCanceled(raid);
     const ended = raidHasEnded(raid);
     const started = raidHasStarted(raid);
 
-    if (latest?.eventType === 'RESTART') {
+    if (canceled) {
+      label = 'Canceled';
+      variant = 'badge--negative';
+    } else if (latest?.eventType === 'RESTART') {
       label = 'Restarted';
       variant = 'badge--positive';
     } else if (latest?.eventType === 'START' && started) {
@@ -1395,6 +1399,13 @@ function raidHasStarted(raid: RaidEventSummary) {
     return false;
   }
   return new Date(raid.startedAt).getTime() <= Date.now();
+}
+
+function raidHasCanceled(raid: RaidEventSummary) {
+  if (!raid.canceledAt) {
+    return false;
+  }
+  return new Date(raid.canceledAt).getTime() <= Date.now();
 }
 
 function isHistoryRaid(raid: RaidEventSummary) {
