@@ -189,9 +189,10 @@
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-last-kill">
-                    <span v-if="conn.lastKillNpcName" class="last-kill" :title="formatLastKillTooltip(conn)">
-                      {{ formatNpcName(conn.lastKillNpcName) }}
-                    </span>
+                    <div v-if="conn.lastKillNpcName" class="last-kill-cell" :title="formatLastKillTooltip(conn)">
+                      <span class="last-kill-name">{{ formatNpcName(conn.lastKillNpcName) }}</span>
+                      <span v-if="conn.lastKillAt" class="last-kill-time">{{ formatRelativeTime(conn.lastKillAt) }}</span>
+                    </div>
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-last-action">
@@ -268,8 +269,13 @@
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-last-sale">
-                      <div v-if="trader.lastSaleItemName" class="last-sale-cell" :title="formatLastSaleTooltip(trader)">
-                        <div class="last-sale-header">
+                      <div v-if="trader.lastSaleItemName" class="last-sale-cell">
+                        <div
+                          class="last-sale-header"
+                          @mouseenter="showTraderItemTooltip($event, trader)"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
+                        >
                           <span v-if="hasValidIconId(trader.lastSaleItemIconId)" class="last-sale-icon">
                             <img
                               :src="getLootIconSrc(trader.lastSaleItemIconId!)"
@@ -370,6 +376,7 @@ import { api, type ServerConnection, type IpExemption, type AutoLinkSettings } f
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
+import { useItemTooltipStore } from '../stores/itemTooltip';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 
 const authStore = useAuthStore();
@@ -378,6 +385,7 @@ const DEFAULT_OUTSIDE_LIMIT = 2;
 
 // Use shared watch list from characterAdmin store
 const characterAdminStore = useCharacterAdminStore();
+const tooltipStore = useItemTooltipStore();
 // Orange border: directly watched characters
 const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
 // Orange border: characters on the same account as watched characters
@@ -443,6 +451,27 @@ function openHackEvents(characterId: number) {
 
 function openTraderSales(characterId: number) {
   characterAdminStore.openByIdWithEventFilter(characterId, 'TRADER_SELL');
+}
+
+// Item tooltip handlers for trader items
+function showTraderItemTooltip(event: MouseEvent, trader: ServerConnection) {
+  if (!trader.lastSaleItemId) return;
+  tooltipStore.showTooltip(
+    {
+      itemId: trader.lastSaleItemId,
+      itemName: trader.lastSaleItemName || 'Unknown',
+      itemIconId: trader.lastSaleItemIconId ?? undefined
+    },
+    { x: event.clientX, y: event.clientY }
+  );
+}
+
+function updateTooltipPosition(event: MouseEvent) {
+  tooltipStore.updatePosition({ x: event.clientX, y: event.clientY });
+}
+
+function hideItemTooltip() {
+  tooltipStore.hideTooltip();
 }
 
 // Close search results when clicking outside
@@ -1445,13 +1474,25 @@ onUnmounted(() => {
   transform: scale(0.95);
 }
 
-.last-kill {
+.last-kill-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  cursor: help;
+}
+
+.last-kill-name {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
-  cursor: help;
+  color: #e2e8f0;
+}
+
+.last-kill-time {
+  font-size: 0.7rem;
+  color: #64748b;
 }
 
 /* Trader Sub-group Styles */
@@ -1892,9 +1933,13 @@ onUnmounted(() => {
     font-size: 0.6rem;
   }
 
-  .last-kill {
+  .last-kill-name {
     max-width: 120px;
     font-size: 0.7rem;
+  }
+
+  .last-kill-time {
+    font-size: 0.6rem;
   }
 
   .event-type-badge {
