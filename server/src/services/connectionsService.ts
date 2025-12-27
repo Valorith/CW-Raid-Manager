@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { getItemIconId } from './eqItemService.js';
 
 export interface ServerConnection {
   connectId: number;
@@ -280,7 +281,21 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       classId: row.class || 0,
       zoneName: row.zone_long_name || row.zone_short_name || `Zone ${row.zone_id || 0}`,
       zoneShortName: row.zone_short_name || '',
-      guildName: row.guild_name || null
+      guildName: row.guild_name || null,
+      // Trader fields - populated later by fetchCharacterLastActivity
+      lastActionAt: null,
+      lastActionEventTypeId: null,
+      lastKillNpcName: null,
+      lastKillAt: null,
+      hackCount: 0,
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
     }));
   } catch (error) {
     console.error('[connectionsService] Full query failed, trying simplified query:', error);
@@ -313,7 +328,21 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       classId: row.class || 0,
       zoneName: `Zone ${row.zone_id || 0}`,
       zoneShortName: '',
-      guildName: null
+      guildName: null,
+      // Trader fields - populated later by fetchCharacterLastActivity
+      lastActionAt: null,
+      lastActionEventTypeId: null,
+      lastKillNpcName: null,
+      lastKillAt: null,
+      hackCount: 0,
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
     }));
   }
 }
@@ -554,6 +583,9 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       [...characterIds, ...characterIds]
     );
 
+    // Track items that need icon lookups
+    const iconLookups: Array<{ activity: CharacterLastActivity; itemId: number }> = [];
+
     for (const row of lastSaleRows) {
       const activity = result.get(row.character_id);
       if (activity) {
@@ -565,12 +597,30 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
           activity.lastSaleItemId = eventData.item_id ?? eventData.itemId ?? null;
           activity.lastSaleItemIconId = eventData.item_icon ?? eventData.itemIcon ?? eventData.icon ?? null;
           activity.lastSalePrice = eventData.total_cost ?? eventData.totalCost ?? eventData.price ?? null;
+
+          // If we have an item_id but no icon, queue for lookup from items table
+          if (activity.lastSaleItemId && !activity.lastSaleItemIconId) {
+            iconLookups.push({ activity, itemId: activity.lastSaleItemId });
+          }
         } catch {
           activity.lastSaleItemName = null;
           activity.lastSaleItemId = null;
           activity.lastSaleItemIconId = null;
           activity.lastSalePrice = null;
         }
+      }
+    }
+
+    // Look up icons from items table for items that didn't have icons in event_data
+    if (iconLookups.length > 0) {
+      const iconResults = await Promise.all(
+        iconLookups.map(async ({ activity, itemId }) => {
+          const iconId = await getItemIconId(itemId);
+          return { activity, iconId };
+        })
+      );
+      for (const { activity, iconId } of iconResults) {
+        activity.lastSaleItemIconId = iconId;
       }
     }
 
