@@ -273,10 +273,15 @@
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-total-sales">
-                      <div v-if="trader.totalSalesCount && trader.totalSalesCount > 0" class="total-sales-cell">
+                      <button
+                        v-if="trader.totalSalesCount && trader.totalSalesCount > 0"
+                        class="total-sales-cell total-sales-cell--clickable"
+                        @click="openTraderSales(trader.characterId)"
+                        :title="`View ${trader.totalSalesCount} sale${trader.totalSalesCount !== 1 ? 's' : ''}`"
+                      >
                         <span class="total-sales-amount">{{ formatMoney(trader.totalSalesAmount) }}</span>
                         <span class="total-sales-count">({{ trader.totalSalesCount }} item{{ trader.totalSalesCount !== 1 ? 's' : '' }})</span>
-                      </div>
+                      </button>
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-hack-count">
@@ -419,6 +424,10 @@ function openCharacterAdmin(result: { id: number; name: string }) {
 
 function openHackEvents(characterId: number) {
   characterAdminStore.openByIdWithEventFilter(characterId, 'POSSIBLE_HACK');
+}
+
+function openTraderSales(characterId: number) {
+  characterAdminStore.openByIdWithEventFilter(characterId, 'TRADER_SELL');
 }
 
 // Close search results when clicking outside
@@ -1469,6 +1478,27 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
+.total-sales-cell--clickable {
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  margin: -0.2rem -0.4rem;
+  border-radius: 0.25rem;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.total-sales-cell--clickable:hover {
+  background-color: rgba(234, 179, 8, 0.15);
+}
+
+.total-sales-cell--clickable:active {
+  transform: scale(0.98);
 }
 
 .total-sales-amount {
