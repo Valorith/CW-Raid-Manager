@@ -12,7 +12,7 @@
       </div>
       <div v-if="eventData.npc_name || eventData.corpse_name" class="data-row">
         <span class="data-label">From:</span>
-        <span class="data-value">{{ formatCorpseName(eventData.npc_name || eventData.corpse_name) }}</span>
+        <span class="data-value">{{ formatNpcName(eventData.npc_name || eventData.corpse_name) }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -28,7 +28,7 @@
     <template v-else-if="event.eventTypeName === 'DEATH'">
       <div class="data-row">
         <span class="data-label">Killed by:</span>
-        <span class="data-value data-value--danger">{{ eventData.killer_name || eventData.killed_by || 'Unknown' }}</span>
+        <span class="data-value data-value--danger">{{ formatNpcName(eventData.killer_name || eventData.killed_by || 'Unknown') }}</span>
       </div>
       <div v-if="eventData.spell_name" class="data-row">
         <span class="data-label">Spell:</span>
@@ -48,7 +48,7 @@
     <template v-else-if="['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'].includes(event.eventTypeName)">
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--combat">{{ eventData.npc_name || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--combat">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -210,7 +210,7 @@
       </div>
       <div v-if="eventData.merchant_name" class="data-row">
         <span class="data-label">Merchant:</span>
-        <span class="data-value">{{ eventData.merchant_name }}</span>
+        <span class="data-value">{{ formatNpcName(eventData.merchant_name) }}</span>
       </div>
       <div v-if="eventData.quantity" class="data-row">
         <span class="data-label">Quantity:</span>
@@ -306,7 +306,7 @@
     <template v-else-if="event.eventTypeName === 'NPC_HANDIN'">
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--social">{{ eventData.npc_name || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--social">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -621,6 +621,44 @@ function formatCorpseName(name: unknown): string {
   if (typeof name !== 'string') return String(name);
   // Replace underscores with spaces and clean up the name
   return name.replace(/_/g, ' ');
+}
+
+/**
+ * Smartly insert spaces into concatenated NPC names
+ * e.g., "PrinceThirnegthePetulant" -> "Prince Thirneg the Petulant"
+ */
+function formatNpcName(name: unknown): string {
+  if (typeof name !== 'string') return String(name);
+
+  // If the name already has spaces, return as-is (just clean up underscores)
+  if (name.includes(' ')) {
+    return name.replace(/_/g, ' ');
+  }
+
+  // Replace underscores with spaces first
+  let result = name.replace(/_/g, ' ');
+
+  // Insert space before uppercase letters that follow lowercase letters
+  // This handles PascalCase like "PrinceThirneg" -> "Prince Thirneg"
+  result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+  // Handle common lowercase words that should be separated
+  // Match patterns like "Xthe" where X is uppercase and split to "X the"
+  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/gi, '$1 the $3');
+  result = result.replace(/([a-z])(the)([A-Z])/gi, '$1 the $3');
+
+  // Handle "of" similarly
+  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/gi, '$1 of $3');
+  result = result.replace(/([a-z])(of)([A-Z])/gi, '$1 of $3');
+
+  // Handle "and" similarly
+  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/gi, '$1 and $3');
+  result = result.replace(/([a-z])(and)([A-Z])/gi, '$1 and $3');
+
+  // Clean up any double spaces
+  result = result.replace(/\s+/g, ' ').trim();
+
+  return result;
 }
 
 function formatHandinItem(item: unknown): string {

@@ -190,7 +190,7 @@
                   </td>
                   <td class="col-last-kill">
                     <span v-if="conn.lastKillNpcName" class="last-kill" :title="formatLastKillTooltip(conn)">
-                      {{ conn.lastKillNpcName }}
+                      {{ formatNpcName(conn.lastKillNpcName) }}
                     </span>
                     <span v-else class="muted">-</span>
                   </td>
@@ -572,7 +572,7 @@ function formatFullDate(dateString: string): string {
 
 function formatLastKillTooltip(conn: ServerConnection): string {
   if (!conn.lastKillAt) return '';
-  return `Killed ${conn.lastKillNpcName} on ${formatFullDate(conn.lastKillAt)}`;
+  return `Killed ${formatNpcName(conn.lastKillNpcName)} on ${formatFullDate(conn.lastKillAt)}`;
 }
 
 function formatLastSaleTooltip(conn: ServerConnection): string {
@@ -596,6 +596,36 @@ function formatMoney(copper: number | null): string {
 
 function getTotalGroupCount(group: IpGroup): number {
   return group.connections.length + group.traders.length;
+}
+
+/**
+ * Smartly insert spaces into concatenated NPC names
+ * e.g., "PrinceThirnegthePetulant" -> "Prince Thirneg the Petulant"
+ */
+function formatNpcName(name: string | null): string {
+  if (!name) return '';
+
+  // If the name already has spaces, return as-is (just clean up underscores)
+  if (name.includes(' ')) {
+    return name.replace(/_/g, ' ');
+  }
+
+  // Replace underscores with spaces first
+  let result = name.replace(/_/g, ' ');
+
+  // Insert space before uppercase letters that follow lowercase letters
+  result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+  // Handle common lowercase words that should be separated
+  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/gi, '$1 the $3');
+  result = result.replace(/([a-z])(the)([A-Z])/gi, '$1 the $3');
+  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/gi, '$1 of $3');
+  result = result.replace(/([a-z])(of)([A-Z])/gi, '$1 of $3');
+  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/gi, '$1 and $3');
+  result = result.replace(/([a-z])(and)([A-Z])/gi, '$1 and $3');
+
+  // Clean up any double spaces
+  return result.replace(/\s+/g, ' ').trim();
 }
 
 const EVENT_TYPE_LABELS: Record<number, string> = {
