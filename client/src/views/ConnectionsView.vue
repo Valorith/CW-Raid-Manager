@@ -234,6 +234,7 @@
                     <th class="col-class">Class</th>
                     <th class="col-name">Character</th>
                     <th class="col-level">Level</th>
+                    <th class="col-zone">Zone</th>
                     <th class="col-guild">Guild</th>
                     <th class="col-last-sale">Last Sale</th>
                     <th class="col-total-sales">Total Sales</th>
@@ -261,6 +262,7 @@
                       <CharacterLink :name="trader.characterName" :admin-mode="true" />
                     </td>
                     <td class="col-level">{{ trader.level }}</td>
+                    <td class="col-zone">{{ trader.zoneName }}</td>
                     <td class="col-guild">
                       <span v-if="trader.guildName" class="guild-tag">{{ trader.guildName }}</span>
                       <span v-else class="muted">-</span>
