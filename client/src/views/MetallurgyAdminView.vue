@@ -120,6 +120,16 @@
                     T{{ ore.tier }}
                   </span>
                   <span class="ore-item__name">{{ ore.name }}</span>
+                  <span
+                    v-if="getOreChangeIndicator(ore.name, ore.totalQuantity) === 'up'"
+                    class="ore-item__change ore-item__change--up"
+                    title="Increased since last snapshot"
+                  >▲</span>
+                  <span
+                    v-else-if="getOreChangeIndicator(ore.name, ore.totalQuantity) === 'down'"
+                    class="ore-item__change ore-item__change--down"
+                    title="Decreased since last snapshot"
+                  >▼</span>
                 </div>
                 <div class="ore-item__stats">
                   <span class="ore-item__owners">{{ ore.totalOwners }} owner{{ ore.totalOwners !== 1 ? 's' : '' }}</span>
@@ -393,6 +403,7 @@ const data = ref<MetallurgyData | null>(null);
 const snapshots = ref<MetallurgySnapshot[]>([]);
 const allSnapshots = ref<MetallurgySnapshot[]>([]);
 const summary = ref<MetallurgySummary | null>(null);
+const latestSnapshot = ref<MetallurgySnapshot | null>(null);
 
 // Date range filter
 const dateRange = ref('90');
@@ -695,16 +706,50 @@ function toggleOreExpanded(itemId: number) {
   }
 }
 
+// Get the ore count from snapshot for a given ore name
+function getSnapshotOreCount(oreName: string): number | null {
+  if (!latestSnapshot.value) return null;
+
+  const fieldMap: Record<string, keyof MetallurgySnapshot> = {
+    'Tin': 'tinOreCount',
+    'Copper': 'copperOreCount',
+    'Iron': 'ironOreCount',
+    'Zinc': 'zincOreCount',
+    'Nickel': 'nickelOreCount',
+    'Cobalt': 'cobaltOreCount',
+    'Manganese': 'manganeseOreCount',
+    'Tungsten': 'tungstenOreCount',
+    'Chromium': 'chromiumOreCount'
+  };
+
+  const field = fieldMap[oreName];
+  if (!field) return null;
+
+  return latestSnapshot.value[field] as number;
+}
+
+// Get the ore change indicator: 'up', 'down', or null (no change or no snapshot)
+function getOreChangeIndicator(oreName: string, currentQuantity: number): 'up' | 'down' | null {
+  const snapshotCount = getSnapshotOreCount(oreName);
+  if (snapshotCount === null) return null;
+
+  if (currentQuantity > snapshotCount) return 'up';
+  if (currentQuantity < snapshotCount) return 'down';
+  return null;
+}
+
 // Load live data
 async function loadData() {
   loading.value = true;
   try {
-    const [metallurgyData, snapshotSummary] = await Promise.all([
+    const [metallurgyData, snapshotSummary, latest] = await Promise.all([
       api.fetchMetallurgyData(),
-      api.fetchMetallurgySummary()
+      api.fetchMetallurgySummary(),
+      api.fetchLatestMetallurgySnapshot()
     ]);
     data.value = metallurgyData;
     summary.value = snapshotSummary;
+    latestSnapshot.value = latest;
     await loadSnapshots();
   } catch (error) {
     console.error('Failed to load metallurgy data:', error);
@@ -744,12 +789,14 @@ async function takeSnapshot() {
   creatingSnapshot.value = true;
   try {
     await api.createMetallurgySnapshot();
-    // Reload snapshots and summary
-    const [snapshotSummary] = await Promise.all([
+    // Reload snapshots, summary, and latest snapshot
+    const [snapshotSummary, latest] = await Promise.all([
       api.fetchMetallurgySummary(),
+      api.fetchLatestMetallurgySnapshot(),
       loadSnapshots()
     ]);
     summary.value = snapshotSummary;
+    latestSnapshot.value = latest;
   } catch (error) {
     console.error('Failed to create snapshot:', error);
     window.alert('Failed to create snapshot. Please try again.');
@@ -1198,6 +1245,20 @@ onMounted(async () => {
 
 .ore-item__name {
   font-weight: 600;
+}
+
+.ore-item__change {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-left: 0.25rem;
+}
+
+.ore-item__change--up {
+  color: #4ade80;
+}
+
+.ore-item__change--down {
+  color: #f87171;
 }
 
 .ore-item__stats {
