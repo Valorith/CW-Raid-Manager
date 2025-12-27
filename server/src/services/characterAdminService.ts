@@ -1912,6 +1912,22 @@ export async function* autoLinkSharedIpsStream(
 
     console.log(`[CharacterAdmin] Auto-link complete: ${created} created, ${skipped} skipped, ${sharedIpsFound} shared IPs processed.`);
 
+    // Update the last run time in settings
+    await prisma.autoLinkSettings.upsert({
+      where: { id: 'singleton' },
+      update: {
+        lastRunAt: new Date(),
+        lastRunById: userId,
+        lastRunByName: userName
+      },
+      create: {
+        id: 'singleton',
+        lastRunAt: new Date(),
+        lastRunById: userId,
+        lastRunByName: userName
+      }
+    });
+
     yield {
       type: 'complete',
       stats: getStats()

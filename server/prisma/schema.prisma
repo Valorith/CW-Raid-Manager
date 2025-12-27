@@ -782,6 +782,15 @@ model MoneyTrackerSettings {
   updatedById         String?
 }
 
+// Auto-Link Settings - tracks last run time for auto-link shared IPs feature
+model AutoLinkSettings {
+  id              String    @id @default("singleton")
+  lastRunAt       DateTime?
+  lastRunById     String?
+  lastRunByName   String?   @db.VarChar(191)
+  updatedAt       DateTime  @updatedAt
+}
+
 // Money Tracker - daily snapshots of server currency
 model MoneySnapshot {
   id                  String   @id @default(cuid())
