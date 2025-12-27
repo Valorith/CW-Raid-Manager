@@ -268,7 +268,10 @@
                     <td class="col-last-sale">
                       <div v-if="trader.lastSaleItemName" class="last-sale-cell" :title="formatLastSaleTooltip(trader)">
                         <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
-                        <span class="last-sale-price">{{ formatMoney(trader.lastSalePrice) }}</span>
+                        <div class="last-sale-details">
+                          <span class="last-sale-price">{{ formatMoney(trader.lastSalePrice) }}</span>
+                          <span class="last-sale-time">{{ formatRelativeTime(trader.lastSaleAt!) }}</span>
+                        </div>
                       </div>
                       <span v-else class="muted">-</span>
                     </td>
@@ -1468,10 +1471,21 @@ onUnmounted(() => {
   color: #e2e8f0;
 }
 
+.last-sale-details {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .last-sale-price {
   font-size: 0.75rem;
   color: #fbbf24;
   font-weight: 500;
+}
+
+.last-sale-time {
+  font-size: 0.7rem;
+  color: #64748b;
 }
 
 .total-sales-cell {
@@ -1780,6 +1794,10 @@ onUnmounted(() => {
 
   .last-sale-price {
     font-size: 0.65rem;
+  }
+
+  .last-sale-time {
+    font-size: 0.6rem;
   }
 
   .total-sales-amount {
