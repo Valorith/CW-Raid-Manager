@@ -10,8 +10,8 @@
           Back to Admin
         </router-link>
         <div v-if="authStore.isAdmin" class="auto-link-wrapper">
-          <span v-if="lastAutoLinkDate" class="auto-link-label">
-            Last: {{ formatAutoLinkDate }}
+          <span class="auto-link-label">
+            Last: {{ lastAutoLinkDate ? formatAutoLinkDate : 'Never' }}
           </span>
           <button
             type="button"
