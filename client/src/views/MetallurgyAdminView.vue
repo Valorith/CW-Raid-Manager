@@ -1108,8 +1108,29 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  max-height: 600px;
+  max-height: 500px;
   overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+/* Custom scrollbar for ore list */
+.ore-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ore-list::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 4px;
+}
+
+.ore-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.ore-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
 .ore-item {
@@ -1207,6 +1228,25 @@ onMounted(async () => {
   border-top: 1px solid rgba(148, 163, 184, 0.1);
   max-height: 300px;
   overflow-y: auto;
+}
+
+/* Custom scrollbar for owners list */
+.ore-item__owners-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.3);
+  border-radius: 3px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+
+.ore-item__owners-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
 }
 
 .ore-item__empty {
