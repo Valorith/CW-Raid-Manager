@@ -1059,6 +1059,9 @@ onMounted(async () => {
   flex-direction: column;
   gap: 1rem;
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.35);
+  min-height: 0; /* Required for nested flex scroll to work */
+  max-height: 650px; /* Constrain card height */
+  overflow: hidden;
 }
 
 .metallurgy-admin__card-header {
@@ -1109,8 +1112,10 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.5rem;
   max-height: 500px;
+  min-height: 0; /* Required for flex children to respect max-height */
   overflow-y: scroll;
   padding-right: 0.5rem;
+  flex: 1 1 auto;
   /* Firefox scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(148, 163, 184, 0.4) rgba(30, 41, 59, 0.5);
