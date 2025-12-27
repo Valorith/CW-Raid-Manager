@@ -15,6 +15,7 @@ export interface ServerConnection {
   zoneShortName: string;
   guildName: string | null;
   lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
   lastKillNpcName: string | null;
   lastKillAt: string | null;
 }
@@ -343,6 +344,7 @@ export async function fetchIpExemptions(): Promise<IpExemption[]> {
 export interface CharacterLastActivity {
   characterId: number;
   lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
   lastKillNpcName: string | null;
   lastKillAt: string | null;
 }
@@ -350,6 +352,7 @@ export interface CharacterLastActivity {
 type LastActionRow = RowDataPacket & {
   character_id: number;
   last_action_at: string;
+  event_type_id: number;
 };
 
 type LastKillRow = RowDataPacket & {
@@ -374,6 +377,7 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
     result.set(charId, {
       characterId: charId,
       lastActionAt: null,
+      lastActionEventTypeId: null,
       lastKillNpcName: null,
       lastKillAt: null
     });
@@ -382,10 +386,10 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
   const placeholders = characterIds.map(() => '?').join(',');
 
   try {
-    // Query 1: Get last action timestamp for each character
+    // Query 1: Get last action timestamp and event type for each character
     // Using a subquery approach for better performance with indexes
     const lastActionQuery = `
-      SELECT pel.character_id, pel.created_at as last_action_at
+      SELECT pel.character_id, pel.created_at as last_action_at, pel.event_type_id
       FROM player_event_logs pel
       INNER JOIN (
         SELECT character_id, MAX(created_at) as max_created_at
@@ -406,6 +410,7 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       const activity = result.get(row.character_id);
       if (activity) {
         activity.lastActionAt = row.last_action_at;
+        activity.lastActionEventTypeId = row.event_type_id;
       }
     }
 

@@ -1406,6 +1406,7 @@ export interface ServerConnection {
   zoneShortName: string;
   guildName: string | null;
   lastActionAt: string | null;
+  lastActionEventTypeId: number | null;
   lastKillNpcName: string | null;
   lastKillAt: string | null;
 }

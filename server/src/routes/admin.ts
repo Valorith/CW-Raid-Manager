@@ -627,6 +627,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return {
             ...conn,
             lastActionAt: activity?.lastActionAt || null,
+            lastActionEventTypeId: activity?.lastActionEventTypeId || null,
             lastKillNpcName: activity?.lastKillNpcName || null,
             lastKillAt: activity?.lastKillAt || null
           };

@@ -189,9 +189,14 @@
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-last-action">
-                    <span v-if="conn.lastActionAt" :title="formatFullDate(conn.lastActionAt)">
-                      {{ formatRelativeTime(conn.lastActionAt) }}
-                    </span>
+                    <div v-if="conn.lastActionAt" class="last-action-cell">
+                      <span :title="formatFullDate(conn.lastActionAt)">
+                        {{ formatRelativeTime(conn.lastActionAt) }}
+                      </span>
+                      <span class="event-type-badge" :title="formatFullDate(conn.lastActionAt)">
+                        {{ getEventTypeLabel(conn.lastActionEventTypeId) }}
+                      </span>
+                    </div>
                     <span v-else class="muted">-</span>
                   </td>
                 </tr>
@@ -442,6 +447,61 @@ function formatFullDate(dateString: string): string {
 function formatLastKillTooltip(conn: ServerConnection): string {
   if (!conn.lastKillAt) return '';
   return `Killed ${conn.lastKillNpcName} on ${formatFullDate(conn.lastKillAt)}`;
+}
+
+const EVENT_TYPE_LABELS: Record<number, string> = {
+  1: 'GM Cmd',
+  2: 'Zone',
+  3: 'AA Gain',
+  4: 'AA Buy',
+  5: 'Forage',
+  6: 'Forage',
+  7: 'Fish',
+  8: 'Fish',
+  9: 'Destroy',
+  10: 'Online',
+  11: 'Offline',
+  12: 'Level',
+  13: 'Level',
+  14: 'Loot',
+  15: 'Buy',
+  16: 'Sell',
+  17: 'Group',
+  18: 'Group',
+  19: 'Raid',
+  20: 'Raid',
+  21: 'Pickup',
+  22: 'Handin',
+  23: 'Skill',
+  24: 'Task',
+  25: 'Task',
+  26: 'Task',
+  27: 'Trade',
+  28: 'Give',
+  29: 'Say',
+  30: 'Rez',
+  31: 'Death',
+  32: 'Combine',
+  33: 'Combine',
+  34: 'Drop',
+  35: 'Split',
+  36: 'DZ',
+  37: 'DZ',
+  38: 'Trader',
+  39: 'Trader',
+  40: 'Bandolier',
+  41: 'Bandolier',
+  42: 'Discover',
+  43: 'Hack',
+  44: 'Kill',
+  45: 'Kill',
+  46: 'Kill',
+  47: 'Create'
+};
+
+function getEventTypeLabel(eventTypeId: number | null): string {
+  if (!eventTypeId) return '';
+  return EVENT_TYPE_LABELS[eventTypeId] || 'Event';
 }
 
 const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar", "Guild Hall"];
@@ -1115,6 +1175,25 @@ onUnmounted(() => {
   cursor: help;
 }
 
+.last-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.event-type-badge {
+  display: inline-block;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
 .class-cell {
   display: flex;
   align-items: center;
@@ -1348,6 +1427,11 @@ onUnmounted(() => {
   .last-kill {
     max-width: 120px;
     font-size: 0.7rem;
+  }
+
+  .event-type-badge {
+    padding: 0.1rem 0.25rem;
+    font-size: 0.55rem;
   }
 
   .guild-tag {
