@@ -9,15 +9,19 @@
         <router-link to="/admin" class="btn btn--outline">
           Back to Admin
         </router-link>
-        <button
-          v-if="authStore.isAdmin"
-          type="button"
-          class="btn btn--outline"
-          :title="'Scan account_ip table for shared IPs and create associations'"
-          @click="showAutoLinkConfirmation = true"
-        >
-          Auto-Link Shared IPs
-        </button>
+        <div v-if="authStore.isAdmin" class="auto-link-wrapper">
+          <span class="auto-link-label">
+            Last: {{ lastAutoLinkDate ? formatAutoLinkDate : 'Never' }}
+          </span>
+          <button
+            type="button"
+            class="btn btn--outline"
+            :title="'Scan account_ip table for shared IPs and create associations'"
+            @click="showAutoLinkConfirmation = true"
+          >
+            Auto-Link Shared IPs
+          </button>
+        </div>
         <button
           type="button"
           class="btn btn--outline"
@@ -220,7 +224,7 @@
     <!-- Progress Modal for Auto-Link -->
     <AutoLinkProgressModal
       :is-open="showAutoLinkProgress"
-      @close="showAutoLinkProgress = false"
+      @close="handleAutoLinkClose"
     />
   </section>
 </template>
@@ -232,7 +236,7 @@ import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type ServerConnection, type IpExemption } from '../services/api';
+import { api, type ServerConnection, type IpExemption, type AutoLinkSettings } from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
@@ -269,6 +273,7 @@ const autoRefreshEnabled = ref(true);
 const lastUpdated = ref<Date | null>(null);
 const showAutoLinkConfirmation = ref(false);
 const showAutoLinkProgress = ref(false);
+const lastAutoLinkDate = ref<Date | null>(null);
 
 // Global character search
 const globalSearchQuery = ref('');
@@ -372,6 +377,17 @@ const formatLastUpdated = computed(() => {
     second: '2-digit',
     hour12: true
   }).format(lastUpdated.value);
+});
+
+const formatAutoLinkDate = computed(() => {
+  if (!lastAutoLinkDate.value) return '';
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(lastAutoLinkDate.value);
 });
 
 function getClassIcon(className: string): string | null {
@@ -500,9 +516,26 @@ async function refreshConnections() {
   await loadConnections(true);
 }
 
+async function loadAutoLinkSettings() {
+  try {
+    const settings = await api.getAutoLinkSettings();
+    if (settings?.lastRunAt) {
+      lastAutoLinkDate.value = new Date(settings.lastRunAt);
+    }
+  } catch (err) {
+    console.error('Failed to load auto-link settings:', err);
+  }
+}
+
 function startAutoLink() {
   showAutoLinkConfirmation.value = false;
   showAutoLinkProgress.value = true;
+}
+
+function handleAutoLinkClose() {
+  showAutoLinkProgress.value = false;
+  // Reload settings to get the updated last run time
+  loadAutoLinkSettings();
 }
 
 function toggleAutoRefresh() {
@@ -534,10 +567,11 @@ function stopAutoRefresh() {
 
 onMounted(async () => {
   try {
-    // Load connections and watch list (from shared store)
+    // Load connections, watch list (from shared store), and auto-link settings
     await Promise.all([
       loadConnections(),
-      characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList()
+      characterAdminStore.watchListLoaded ? Promise.resolve() : characterAdminStore.loadWatchList(),
+      loadAutoLinkSettings()
     ]);
     if (autoRefreshEnabled.value) {
       startAutoRefresh();
@@ -583,6 +617,22 @@ onUnmounted(() => {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.auto-link-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.auto-link-label {
+  font-size: 0.65rem;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .connections-stats {

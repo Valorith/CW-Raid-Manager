@@ -4210,6 +4210,14 @@ export const api = {
     return response.data;
   },
 
+  /**
+   * Get auto-link settings (last run time).
+   */
+  async getAutoLinkSettings(): Promise<AutoLinkSettings | null> {
+    const response = await axios.get('/api/admin/auto-link-settings');
+    return response.data.settings;
+  },
+
   // ============================================================================
   // Metallurgy Admin
   // ============================================================================
@@ -4385,4 +4393,15 @@ export interface IpGeolocation {
   };
   isp?: string;
   organization?: string;
+}
+
+/**
+ * Auto-link settings for tracking last run time
+ */
+export interface AutoLinkSettings {
+  id: string;
+  lastRunAt: string | null;
+  lastRunById: string | null;
+  lastRunByName: string | null;
+  updatedAt: string;
 }

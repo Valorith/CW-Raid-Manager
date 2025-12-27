@@ -1571,4 +1571,23 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
     }
   );
+
+  // Get auto-link settings (last run time)
+  server.get(
+    '/auto-link-settings',
+    {
+      preHandler: [authenticate, requireGuideOrAdmin]
+    },
+    async (request, reply) => {
+      try {
+        const settings = await prisma.autoLinkSettings.findUnique({
+          where: { id: 'singleton' }
+        });
+        return { settings };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch auto-link settings.');
+        return reply.badRequest('Unable to fetch auto-link settings.');
+      }
+    }
+  );
 }
