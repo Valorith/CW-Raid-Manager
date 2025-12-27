@@ -616,13 +616,16 @@ function formatNpcName(name: string | null): string {
   // Insert space before uppercase letters that follow lowercase letters
   result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
 
-  // Handle common lowercase words that should be separated
-  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/gi, '$1 the $3');
-  result = result.replace(/([a-z])(the)([A-Z])/gi, '$1 the $3');
-  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/gi, '$1 of $3');
-  result = result.replace(/([a-z])(of)([A-Z])/gi, '$1 of $3');
-  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/gi, '$1 and $3');
-  result = result.replace(/([a-z])(and)([A-Z])/gi, '$1 and $3');
+  // Handle common lowercase words that got stuck to previous words
+  // e.g., "Thirnegthe Petulant" -> "Thirneg the Petulant"
+  result = result.replace(/([a-z])(the)(\s|$)/gi, '$1 the$3');
+  result = result.replace(/([a-z])(of)(\s|$)/gi, '$1 of$3');
+  result = result.replace(/([a-z])(and)(\s|$)/gi, '$1 and$3');
+
+  // Handle cases where common words are stuck between two capitalized words
+  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/g, '$1 the $3');
+  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/g, '$1 of $3');
+  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/g, '$1 and $3');
 
   // Clean up any double spaces
   return result.replace(/\s+/g, ' ').trim();

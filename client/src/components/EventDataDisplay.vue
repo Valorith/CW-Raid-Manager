@@ -642,18 +642,17 @@ function formatNpcName(name: unknown): string {
   // This handles PascalCase like "PrinceThirneg" -> "Prince Thirneg"
   result = result.replace(/([a-z])([A-Z])/g, '$1 $2');
 
-  // Handle common lowercase words that should be separated
-  // Match patterns like "Xthe" where X is uppercase and split to "X the"
-  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/gi, '$1 the $3');
-  result = result.replace(/([a-z])(the)([A-Z])/gi, '$1 the $3');
+  // Handle common lowercase words that got stuck to previous words
+  // e.g., "Thirnegthe Petulant" -> "Thirneg the Petulant"
+  result = result.replace(/([a-z])(the)(\s|$)/gi, '$1 the$3');
+  result = result.replace(/([a-z])(of)(\s|$)/gi, '$1 of$3');
+  result = result.replace(/([a-z])(and)(\s|$)/gi, '$1 and$3');
 
-  // Handle "of" similarly
-  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/gi, '$1 of $3');
-  result = result.replace(/([a-z])(of)([A-Z])/gi, '$1 of $3');
-
-  // Handle "and" similarly
-  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/gi, '$1 and $3');
-  result = result.replace(/([a-z])(and)([A-Z])/gi, '$1 and $3');
+  // Handle cases where common words are stuck between two capitalized words
+  // e.g., "XtheY" -> "X the Y"
+  result = result.replace(/([A-Z][a-z]+)(the)([A-Z])/g, '$1 the $3');
+  result = result.replace(/([A-Z][a-z]+)(of)([A-Z])/g, '$1 of $3');
+  result = result.replace(/([A-Z][a-z]+)(and)([A-Z])/g, '$1 and $3');
 
   // Clean up any double spaces
   result = result.replace(/\s+/g, ' ').trim();
