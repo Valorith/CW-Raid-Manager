@@ -631,7 +631,12 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             lastKillNpcName: activity?.lastKillNpcName || null,
             lastKillAt: activity?.lastKillAt || null,
             hackCount: activity?.hackCount || 0,
-            lastHackAt: activity?.lastHackAt || null
+            lastHackAt: activity?.lastHackAt || null,
+            lastSaleItemName: activity?.lastSaleItemName || null,
+            lastSalePrice: activity?.lastSalePrice || null,
+            lastSaleAt: activity?.lastSaleAt || null,
+            totalSalesAmount: activity?.totalSalesAmount || null,
+            totalSalesCount: activity?.totalSalesCount || null
           };
         });
 

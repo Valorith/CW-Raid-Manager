@@ -135,7 +135,7 @@
           <div class="ip-group__header">
             <div class="ip-group__left">
               <code class="ip-address">{{ group.ip }}</code>
-              <span class="ip-group__count">{{ group.connections.length }} character{{ group.connections.length !== 1 ? 's' : '' }}</span>
+              <span class="ip-group__count">{{ getTotalGroupCount(group) }} character{{ getTotalGroupCount(group) !== 1 ? 's' : '' }}</span>
             </div>
             <span
               class="ip-group__outside-count"
@@ -147,7 +147,8 @@
               Active: {{ getOutsideHomeCount(group) }}/{{ getIpLimit(group.ip) }}
             </span>
           </div>
-          <div class="table-wrapper">
+          <!-- Regular Connections Table -->
+          <div v-if="group.connections.length > 0" class="table-wrapper">
             <table class="connections-table">
               <thead>
                 <tr>
@@ -218,6 +219,81 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Trader Sub-group -->
+          <div v-if="group.traders.length > 0" class="trader-subgroup">
+            <div class="trader-subgroup__header">
+              <span class="trader-subgroup__label">Traders</span>
+              <span class="trader-subgroup__count">{{ group.traders.length }}</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="connections-table connections-table--traders">
+                <thead>
+                  <tr>
+                    <th class="col-class">Class</th>
+                    <th class="col-name">Character</th>
+                    <th class="col-level">Level</th>
+                    <th class="col-guild">Guild</th>
+                    <th class="col-last-sale">Last Sale</th>
+                    <th class="col-total-sales">Total Sales</th>
+                    <th class="col-hack-count">Hacks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(trader, index) in group.traders"
+                    :key="`trader-${trader.connectId}-${index}`"
+                    :class="getRowClass(trader, group)"
+                  >
+                    <td class="col-class">
+                      <div class="class-cell">
+                        <img
+                          v-if="getClassIcon(trader.className)"
+                          :src="getClassIcon(trader.className) ?? undefined"
+                          :alt="formatClass(trader.className)"
+                          class="class-icon"
+                        />
+                        <span class="class-label">{{ formatClass(trader.className) }}</span>
+                      </div>
+                    </td>
+                    <td class="col-name">
+                      <CharacterLink :name="trader.characterName" :admin-mode="true" />
+                    </td>
+                    <td class="col-level">{{ trader.level }}</td>
+                    <td class="col-guild">
+                      <span v-if="trader.guildName" class="guild-tag">{{ trader.guildName }}</span>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-last-sale">
+                      <div v-if="trader.lastSaleItemName" class="last-sale-cell" :title="formatLastSaleTooltip(trader)">
+                        <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
+                        <span class="last-sale-price">{{ formatMoney(trader.lastSalePrice) }}</span>
+                      </div>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-total-sales">
+                      <div v-if="trader.totalSalesCount && trader.totalSalesCount > 0" class="total-sales-cell">
+                        <span class="total-sales-amount">{{ formatMoney(trader.totalSalesAmount) }}</span>
+                        <span class="total-sales-count">({{ trader.totalSalesCount }} item{{ trader.totalSalesCount !== 1 ? 's' : '' }})</span>
+                      </div>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-hack-count">
+                      <button
+                        v-if="trader.hackCount > 0"
+                        class="hack-count-badge hack-count-badge--clickable"
+                        @click="openHackEvents(trader.characterId)"
+                        :title="`View ${trader.hackCount} hack event${trader.hackCount !== 1 ? 's' : ''}`"
+                      >
+                        {{ trader.hackCount }}
+                      </button>
+                      <span v-else class="muted">0</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -294,6 +370,12 @@ const indirectAssociatedIds = computed(() => new Set(characterAdminStore.indirec
 interface IpGroup {
   ip: string;
   connections: ServerConnection[];
+  traders: ServerConnection[];
+}
+
+// A trader is a character in The Bazaar with no kill history
+function isTrader(conn: ServerConnection): boolean {
+  return conn.zoneName === 'The Bazaar' && !conn.lastKillNpcName;
 }
 
 const connections = ref<ServerConnection[]>([]);
@@ -367,23 +449,33 @@ const filteredConnections = computed(() => {
 });
 
 const filteredIpGroups = computed((): IpGroup[] => {
-  const groupMap = new Map<string, ServerConnection[]>();
+  const groupMap = new Map<string, { connections: ServerConnection[]; traders: ServerConnection[] }>();
 
   for (const conn of filteredConnections.value) {
     const existing = groupMap.get(conn.ip);
     if (existing) {
-      existing.push(conn);
+      if (isTrader(conn)) {
+        existing.traders.push(conn);
+      } else {
+        existing.connections.push(conn);
+      }
     } else {
-      groupMap.set(conn.ip, [conn]);
+      if (isTrader(conn)) {
+        groupMap.set(conn.ip, { connections: [], traders: [conn] });
+      } else {
+        groupMap.set(conn.ip, { connections: [conn], traders: [] });
+      }
     }
   }
 
-  // Sort groups by number of connections (descending), then by IP
+  // Sort groups by total count (descending), then by IP
   return Array.from(groupMap.entries())
-    .map(([ip, conns]) => ({ ip, connections: conns }))
+    .map(([ip, { connections, traders }]) => ({ ip, connections, traders }))
     .sort((a, b) => {
-      if (b.connections.length !== a.connections.length) {
-        return b.connections.length - a.connections.length;
+      const totalA = a.connections.length + a.traders.length;
+      const totalB = b.connections.length + b.traders.length;
+      if (totalB !== totalA) {
+        return totalB - totalA;
       }
       return a.ip.localeCompare(b.ip);
     });
@@ -469,6 +561,29 @@ function formatLastKillTooltip(conn: ServerConnection): string {
   return `Killed ${conn.lastKillNpcName} on ${formatFullDate(conn.lastKillAt)}`;
 }
 
+function formatLastSaleTooltip(conn: ServerConnection): string {
+  if (!conn.lastSaleAt) return '';
+  return `Sold ${conn.lastSaleItemName} on ${formatFullDate(conn.lastSaleAt)}`;
+}
+
+function formatMoney(copper: number | null): string {
+  if (copper === null || copper === 0) return '0c';
+  const platinum = Math.floor(copper / 1000);
+  const gold = Math.floor((copper % 1000) / 100);
+  const silver = Math.floor((copper % 100) / 10);
+  const copperRemainder = copper % 10;
+  const parts: string[] = [];
+  if (platinum > 0) parts.push(`${platinum.toLocaleString()}p`);
+  if (gold > 0) parts.push(`${gold}g`);
+  if (silver > 0) parts.push(`${silver}s`);
+  if (copperRemainder > 0 || parts.length === 0) parts.push(`${copperRemainder}c`);
+  return parts.join(' ');
+}
+
+function getTotalGroupCount(group: IpGroup): number {
+  return group.connections.length + group.traders.length;
+}
+
 const EVENT_TYPE_LABELS: Record<number, string> = {
   1: 'GM Command',
   2: 'Zoning',
@@ -531,6 +646,7 @@ function isOutsideHome(conn: ServerConnection): boolean {
 }
 
 function getOutsideHomeCount(group: IpGroup): number {
+  // Traders are in The Bazaar (inactive zone), so only count regular connections
   return group.connections.filter(isOutsideHome).length;
 }
 
@@ -547,7 +663,9 @@ function getIpGroupHackStatus(group: IpGroup): 'critical' | 'warning' | null {
   let hasCritical = false;
   let hasWarning = false;
 
-  for (const conn of group.connections) {
+  // Check both regular connections and traders
+  const allConnections = [...group.connections, ...group.traders];
+  for (const conn of allConnections) {
     if (conn.lastHackAt) {
       const hackTime = new Date(conn.lastHackAt);
       if (hackTime >= oneHourAgo) {
@@ -1279,6 +1397,90 @@ onUnmounted(() => {
   cursor: help;
 }
 
+/* Trader Sub-group Styles */
+.trader-subgroup {
+  margin-top: 0.5rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+}
+
+.trader-subgroup__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(234, 179, 8, 0.08);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.trader-subgroup__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #fbbf24;
+}
+
+.trader-subgroup__count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+}
+
+.connections-table--traders th {
+  background: rgba(234, 179, 8, 0.05);
+}
+
+.col-last-sale {
+  width: 200px;
+  overflow: hidden;
+}
+
+.col-total-sales {
+  width: 160px;
+  white-space: nowrap;
+}
+
+.last-sale-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  cursor: help;
+}
+
+.last-sale-item {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+  color: #e2e8f0;
+}
+
+.last-sale-price {
+  font-size: 0.75rem;
+  color: #fbbf24;
+  font-weight: 500;
+}
+
+.total-sales-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.total-sales-amount {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.total-sales-count {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
 .last-action-cell {
   display: flex;
   align-items: center;
@@ -1532,6 +1734,32 @@ onUnmounted(() => {
     width: 50px;
   }
 
+  .col-last-sale {
+    min-width: 120px;
+    max-width: 160px;
+  }
+
+  .col-total-sales {
+    width: 100px;
+  }
+
+  .last-sale-item {
+    max-width: 100px;
+    font-size: 0.7rem;
+  }
+
+  .last-sale-price {
+    font-size: 0.65rem;
+  }
+
+  .total-sales-amount {
+    font-size: 0.75rem;
+  }
+
+  .total-sales-count {
+    font-size: 0.6rem;
+  }
+
   .last-kill {
     max-width: 120px;
     font-size: 0.7rem;
@@ -1632,7 +1860,9 @@ onUnmounted(() => {
   .col-guild,
   .col-last-kill,
   .col-last-action,
-  .col-hack-count {
+  .col-hack-count,
+  .col-last-sale,
+  .col-total-sales {
     display: none;
   }
 

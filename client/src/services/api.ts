@@ -1411,6 +1411,12 @@ export interface ServerConnection {
   lastKillAt: string | null;
   hackCount: number;
   lastHackAt: string | null;
+  // Trader-specific fields
+  lastSaleItemName: string | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
 }
 
 export interface IpExemption {

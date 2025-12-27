@@ -20,6 +20,12 @@ export interface ServerConnection {
   lastKillAt: string | null;
   hackCount: number;
   lastHackAt: string | null;
+  // Trader-specific fields (for characters in The Bazaar with no kills)
+  lastSaleItemName: string | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
 }
 
 export interface IpExemption {
@@ -357,6 +363,12 @@ export interface CharacterLastActivity {
   lastKillAt: string | null;
   hackCount: number;
   lastHackAt: string | null;
+  // Trader-specific fields
+  lastSaleItemName: string | null;
+  lastSalePrice: number | null;
+  lastSaleAt: string | null;
+  totalSalesAmount: number | null;
+  totalSalesCount: number | null;
 }
 
 type LastActionRow = RowDataPacket & {
@@ -375,6 +387,19 @@ type HackCountRow = RowDataPacket & {
   character_id: number;
   hack_count: number;
   last_hack_at: string | null;
+};
+
+type LastSaleRow = RowDataPacket & {
+  character_id: number;
+  item_name: string | null;
+  price: number | null;
+  sold_at: string;
+};
+
+type TotalSalesRow = RowDataPacket & {
+  character_id: number;
+  total_amount: number;
+  total_count: number;
 };
 
 /**
@@ -397,7 +422,12 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       lastKillNpcName: null,
       lastKillAt: null,
       hackCount: 0,
-      lastHackAt: null
+      lastHackAt: null,
+      lastSaleItemName: null,
+      lastSalePrice: null,
+      lastSaleAt: null,
+      totalSalesAmount: null,
+      totalSalesCount: null
     });
   }
 
@@ -494,6 +524,67 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       if (activity) {
         activity.hackCount = row.hack_count;
         activity.lastHackAt = row.last_hack_at;
+      }
+    }
+
+    // Query 4: Get last sale for each character (TRADER_SELL = event_type_id 39)
+    const lastSaleQuery = `
+      SELECT pel.character_id, pel.event_data, pel.created_at as sold_at
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+          AND event_type_id = 39
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+        AND pel.event_type_id = 39
+      GROUP BY pel.character_id
+    `;
+
+    const lastSaleRows = await queryEqDb<LastSaleRow[]>(
+      lastSaleQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    for (const row of lastSaleRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastSaleAt = row.sold_at;
+        // Parse event_data to get item name and price
+        try {
+          const eventData = JSON.parse((row as RowDataPacket).event_data || '{}');
+          activity.lastSaleItemName = eventData.item_name || eventData.itemName || null;
+          activity.lastSalePrice = eventData.total_cost ?? eventData.totalCost ?? eventData.price ?? null;
+        } catch {
+          activity.lastSaleItemName = null;
+          activity.lastSalePrice = null;
+        }
+      }
+    }
+
+    // Query 5: Get total sales for each character (sum of total_cost and count)
+    const totalSalesQuery = `
+      SELECT character_id, SUM(
+        CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.total_cost')) AS UNSIGNED)
+      ) as total_amount, COUNT(*) as total_count
+      FROM player_event_logs
+      WHERE character_id IN (${placeholders})
+        AND event_type_id = 39
+      GROUP BY character_id
+    `;
+
+    const totalSalesRows = await queryEqDb<TotalSalesRow[]>(
+      totalSalesQuery,
+      characterIds
+    );
+
+    for (const row of totalSalesRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.totalSalesAmount = row.total_amount || 0;
+        activity.totalSalesCount = row.total_count || 0;
       }
     }
   } catch (error) {
