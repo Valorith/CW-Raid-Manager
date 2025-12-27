@@ -508,7 +508,11 @@ const chartData = computed(() => {
         backgroundColor: 'rgba(96, 165, 250, 0.1)',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yWeight'
+        yAxisID: 'yWeight',
+        borderWidth: 5,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        order: 0
       },
       {
         label: 'Tin Ore',
@@ -517,7 +521,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Copper Ore',
@@ -526,7 +534,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Iron Ore',
@@ -535,7 +547,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Zinc Ore',
@@ -544,7 +560,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Nickel Ore',
@@ -553,7 +573,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Cobalt Ore',
@@ -562,7 +586,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Manganese Ore',
@@ -571,7 +599,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Tungsten Ore',
@@ -580,7 +612,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       },
       {
         label: 'Chromium Ore',
@@ -589,7 +625,11 @@ const chartData = computed(() => {
         backgroundColor: 'transparent',
         fill: false,
         tension: 0.35,
-        yAxisID: 'yOre'
+        yAxisID: 'yOre',
+        borderWidth: 1.5,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        order: 1
       }
     ]
   };
