@@ -18,6 +18,7 @@ export interface ServerConnection {
   lastActionEventTypeId: number | null;
   lastKillNpcName: string | null;
   lastKillAt: string | null;
+  hackCount: number;
 }
 
 export interface IpExemption {
@@ -347,6 +348,7 @@ export interface CharacterLastActivity {
   lastActionEventTypeId: number | null;
   lastKillNpcName: string | null;
   lastKillAt: string | null;
+  hackCount: number;
 }
 
 type LastActionRow = RowDataPacket & {
@@ -361,6 +363,11 @@ type LastKillRow = RowDataPacket & {
   killed_at: string;
 };
 
+type HackCountRow = RowDataPacket & {
+  character_id: number;
+  hack_count: number;
+};
+
 /**
  * Fetch last activity data for a batch of character IDs
  * Returns last action timestamp and last kill info for each character
@@ -372,14 +379,15 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
     return result;
   }
 
-  // Initialize all characters with null values
+  // Initialize all characters with null/zero values
   for (const charId of characterIds) {
     result.set(charId, {
       characterId: charId,
       lastActionAt: null,
       lastActionEventTypeId: null,
       lastKillNpcName: null,
-      lastKillAt: null
+      lastKillAt: null,
+      hackCount: 0
     });
   }
 
@@ -453,6 +461,28 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
             activity.lastKillNpcName = null;
           }
         }
+      }
+    }
+
+    // Query 3: Get hack count for each character
+    // Event type 43 = POSSIBLE_HACK
+    const hackCountQuery = `
+      SELECT character_id, COUNT(*) as hack_count
+      FROM player_event_logs
+      WHERE character_id IN (${placeholders})
+        AND event_type_id = 43
+      GROUP BY character_id
+    `;
+
+    const hackCountRows = await queryEqDb<HackCountRow[]>(
+      hackCountQuery,
+      characterIds
+    );
+
+    for (const row of hackCountRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.hackCount = row.hack_count;
       }
     }
   } catch (error) {

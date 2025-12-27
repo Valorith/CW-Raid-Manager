@@ -154,6 +154,7 @@
                   <th class="col-guild">Guild</th>
                   <th class="col-last-kill">Last Kill</th>
                   <th class="col-last-action">Last Action</th>
+                  <th class="col-hack-count">Hacks</th>
                 </tr>
               </thead>
               <tbody>
@@ -198,6 +199,12 @@
                       </span>
                     </div>
                     <span v-else class="muted">-</span>
+                  </td>
+                  <td class="col-hack-count">
+                    <span v-if="conn.hackCount > 0" class="hack-count-badge">
+                      {{ conn.hackCount }}
+                    </span>
+                    <span v-else class="muted">0</span>
                   </td>
                 </tr>
               </tbody>
@@ -1027,6 +1034,7 @@ onUnmounted(() => {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 }
 
 .connections-table th,
@@ -1136,34 +1144,55 @@ onUnmounted(() => {
 }
 
 .col-class {
-  width: 90px;
+  width: 100px;
 }
 
 .col-name {
-  min-width: 140px;
+  width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .col-level {
-  width: 70px;
+  width: 60px;
   text-align: center;
 }
 
 .col-zone {
-  min-width: 180px;
+  width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .col-guild {
-  min-width: 140px;
+  width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .col-last-kill {
-  min-width: 140px;
-  max-width: 200px;
+  width: 150px;
+  overflow: hidden;
 }
 
 .col-last-action {
-  min-width: 100px;
+  width: 140px;
   white-space: nowrap;
+}
+
+.col-hack-count {
+  width: 60px;
+  text-align: center;
+}
+
+.hack-count-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-radius: 4px;
 }
 
 .last-kill {
@@ -1421,7 +1450,11 @@ onUnmounted(() => {
   }
 
   .col-last-action {
-    min-width: 80px;
+    width: 120px;
+  }
+
+  .col-hack-count {
+    width: 50px;
   }
 
   .last-kill {
@@ -1432,6 +1465,11 @@ onUnmounted(() => {
   .event-type-badge {
     padding: 0.1rem 0.25rem;
     font-size: 0.55rem;
+  }
+
+  .hack-count-badge {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.7rem;
   }
 
   .guild-tag {
@@ -1518,7 +1556,8 @@ onUnmounted(() => {
 
   .col-guild,
   .col-last-kill,
-  .col-last-action {
+  .col-last-action,
+  .col-hack-count {
     display: none;
   }
 
