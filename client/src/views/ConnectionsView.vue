@@ -127,6 +127,10 @@
           v-for="group in paginatedIpGroups"
           :key="group.ip"
           class="ip-group"
+          :class="{
+            'ip-group--hack-warning': getIpGroupHackStatus(group) === 'warning',
+            'ip-group--hack-critical': getIpGroupHackStatus(group) === 'critical'
+          }"
         >
           <div class="ip-group__header">
             <div class="ip-group__left">
@@ -533,6 +537,31 @@ function getOutsideHomeCount(group: IpGroup): number {
 function getIpLimit(ip: string): number {
   const exemption = ipExemptions.value.find((e) => e.ip === ip);
   return exemption ? exemption.exemptionAmount : DEFAULT_OUTSIDE_LIMIT;
+}
+
+function getIpGroupHackStatus(group: IpGroup): 'critical' | 'warning' | null {
+  const now = new Date();
+  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  let hasCritical = false;
+  let hasWarning = false;
+
+  for (const conn of group.connections) {
+    if (conn.lastHackAt) {
+      const hackTime = new Date(conn.lastHackAt);
+      if (hackTime >= oneHourAgo) {
+        hasCritical = true;
+        break; // Critical is highest priority
+      } else if (hackTime >= twentyFourHoursAgo) {
+        hasWarning = true;
+      }
+    }
+  }
+
+  if (hasCritical) return 'critical';
+  if (hasWarning) return 'warning';
+  return null;
 }
 
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
@@ -990,6 +1019,27 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 0.75rem;
   overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ip-group--hack-warning {
+  border: 2px solid rgba(249, 115, 22, 0.7);
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.25);
+}
+
+.ip-group--hack-critical {
+  border: 2px solid rgba(239, 68, 68, 0.8);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
+  animation: hackCriticalPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes hackCriticalPulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.5);
+  }
 }
 
 .ip-group__header {

@@ -1410,6 +1410,7 @@ export interface ServerConnection {
   lastKillNpcName: string | null;
   lastKillAt: string | null;
   hackCount: number;
+  lastHackAt: string | null;
 }
 
 export interface IpExemption {

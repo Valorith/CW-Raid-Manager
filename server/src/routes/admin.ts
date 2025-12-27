@@ -630,7 +630,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             lastActionEventTypeId: activity?.lastActionEventTypeId || null,
             lastKillNpcName: activity?.lastKillNpcName || null,
             lastKillAt: activity?.lastKillAt || null,
-            hackCount: activity?.hackCount || 0
+            hackCount: activity?.hackCount || 0,
+            lastHackAt: activity?.lastHackAt || null
           };
         });
 

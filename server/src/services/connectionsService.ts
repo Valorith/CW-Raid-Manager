@@ -19,6 +19,7 @@ export interface ServerConnection {
   lastKillNpcName: string | null;
   lastKillAt: string | null;
   hackCount: number;
+  lastHackAt: string | null;
 }
 
 export interface IpExemption {
@@ -349,6 +350,7 @@ export interface CharacterLastActivity {
   lastKillNpcName: string | null;
   lastKillAt: string | null;
   hackCount: number;
+  lastHackAt: string | null;
 }
 
 type LastActionRow = RowDataPacket & {
@@ -366,6 +368,7 @@ type LastKillRow = RowDataPacket & {
 type HackCountRow = RowDataPacket & {
   character_id: number;
   hack_count: number;
+  last_hack_at: string | null;
 };
 
 /**
@@ -387,7 +390,8 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       lastActionEventTypeId: null,
       lastKillNpcName: null,
       lastKillAt: null,
-      hackCount: 0
+      hackCount: 0,
+      lastHackAt: null
     });
   }
 
@@ -464,10 +468,10 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       }
     }
 
-    // Query 3: Get hack count for each character
+    // Query 3: Get hack count and most recent hack timestamp for each character
     // Event type 43 = POSSIBLE_HACK
     const hackCountQuery = `
-      SELECT character_id, COUNT(*) as hack_count
+      SELECT character_id, COUNT(*) as hack_count, MAX(created_at) as last_hack_at
       FROM player_event_logs
       WHERE character_id IN (${placeholders})
         AND event_type_id = 43
@@ -483,6 +487,7 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       const activity = result.get(row.character_id);
       if (activity) {
         activity.hackCount = row.hack_count;
+        activity.lastHackAt = row.last_hack_at;
       }
     }
   } catch (error) {
