@@ -14,6 +14,9 @@ export interface ServerConnection {
   zoneName: string;
   zoneShortName: string;
   guildName: string | null;
+  lastActionAt: string | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
 }
 
 export interface IpExemption {
@@ -332,4 +335,125 @@ export async function fetchIpExemptions(): Promise<IpExemption[]> {
     // Table may not exist, return empty array
     return [];
   }
+}
+
+/**
+ * Last activity data for a character
+ */
+export interface CharacterLastActivity {
+  characterId: number;
+  lastActionAt: string | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
+}
+
+type LastActionRow = RowDataPacket & {
+  character_id: number;
+  last_action_at: string;
+};
+
+type LastKillRow = RowDataPacket & {
+  character_id: number;
+  npc_name: string | null;
+  killed_at: string;
+};
+
+/**
+ * Fetch last activity data for a batch of character IDs
+ * Returns last action timestamp and last kill info for each character
+ */
+export async function fetchCharacterLastActivity(characterIds: number[]): Promise<Map<number, CharacterLastActivity>> {
+  const result = new Map<number, CharacterLastActivity>();
+
+  if (!isEqDbConfigured() || characterIds.length === 0) {
+    return result;
+  }
+
+  // Initialize all characters with null values
+  for (const charId of characterIds) {
+    result.set(charId, {
+      characterId: charId,
+      lastActionAt: null,
+      lastKillNpcName: null,
+      lastKillAt: null
+    });
+  }
+
+  const placeholders = characterIds.map(() => '?').join(',');
+
+  try {
+    // Query 1: Get last action timestamp for each character
+    // Using a subquery approach for better performance with indexes
+    const lastActionQuery = `
+      SELECT pel.character_id, pel.created_at as last_action_at
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+      GROUP BY pel.character_id
+    `;
+
+    const lastActionRows = await queryEqDb<LastActionRow[]>(
+      lastActionQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    for (const row of lastActionRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastActionAt = row.last_action_at;
+      }
+    }
+
+    // Query 2: Get last kill info for each character
+    // Kill event types: 44 (KILLED_NPC), 45 (KILLED_NAMED_NPC), 46 (KILLED_RAID_NPC)
+    const lastKillQuery = `
+      SELECT pel.character_id, pel.event_data, pel.created_at as killed_at
+      FROM player_event_logs pel
+      INNER JOIN (
+        SELECT character_id, MAX(created_at) as max_created_at
+        FROM player_event_logs
+        WHERE character_id IN (${placeholders})
+          AND event_type_id IN (44, 45, 46)
+        GROUP BY character_id
+      ) latest ON pel.character_id = latest.character_id AND pel.created_at = latest.max_created_at
+      WHERE pel.character_id IN (${placeholders})
+        AND pel.event_type_id IN (44, 45, 46)
+      GROUP BY pel.character_id
+    `;
+
+    const lastKillRows = await queryEqDb<LastKillRow[]>(
+      lastKillQuery,
+      [...characterIds, ...characterIds]
+    );
+
+    for (const row of lastKillRows) {
+      const activity = result.get(row.character_id);
+      if (activity) {
+        activity.lastKillAt = row.killed_at;
+
+        // Parse event_data to get NPC name
+        if (row.npc_name) {
+          activity.lastKillNpcName = row.npc_name;
+        } else {
+          // event_data is stored as JSON, try to extract npc_name
+          try {
+            const eventData = JSON.parse((row as RowDataPacket).event_data || '{}');
+            activity.lastKillNpcName = eventData.npc_name || eventData.npcName || null;
+          } catch {
+            activity.lastKillNpcName = null;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[connectionsService] Error fetching character last activity:', error);
+    // Return partial results or empty map on error
+  }
+
+  return result;
 }

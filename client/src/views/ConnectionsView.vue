@@ -152,6 +152,8 @@
                   <th class="col-level">Level</th>
                   <th class="col-zone">Zone</th>
                   <th class="col-guild">Guild</th>
+                  <th class="col-last-kill">Last Kill</th>
+                  <th class="col-last-action">Last Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,6 +180,18 @@
                   <td class="col-zone">{{ conn.zoneName }}</td>
                   <td class="col-guild">
                     <span v-if="conn.guildName" class="guild-tag">{{ conn.guildName }}</span>
+                    <span v-else class="muted">-</span>
+                  </td>
+                  <td class="col-last-kill">
+                    <span v-if="conn.lastKillNpcName" class="last-kill" :title="formatLastKillTooltip(conn)">
+                      {{ conn.lastKillNpcName }}
+                    </span>
+                    <span v-else class="muted">-</span>
+                  </td>
+                  <td class="col-last-action">
+                    <span v-if="conn.lastActionAt" :title="formatFullDate(conn.lastActionAt)">
+                      {{ formatRelativeTime(conn.lastActionAt) }}
+                    </span>
                     <span v-else class="muted">-</span>
                   </td>
                 </tr>
@@ -396,6 +410,38 @@ function getClassIcon(className: string): string | null {
 
 function formatClass(className: string): string {
   return characterClassLabels[className as CharacterClass] ?? className;
+}
+
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffSec < 60) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHour < 24) return `${diffHour}h ago`;
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatFullDate(dateString: string): string {
+  return new Date(dateString).toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
+}
+
+function formatLastKillTooltip(conn: ServerConnection): string {
+  if (!conn.lastKillAt) return '';
+  return `Killed ${conn.lastKillNpcName} on ${formatFullDate(conn.lastKillAt)}`;
 }
 
 const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar", "Guild Hall"];
@@ -1050,6 +1096,25 @@ onUnmounted(() => {
   min-width: 140px;
 }
 
+.col-last-kill {
+  min-width: 140px;
+  max-width: 200px;
+}
+
+.col-last-action {
+  min-width: 100px;
+  white-space: nowrap;
+}
+
+.last-kill {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+  cursor: help;
+}
+
 .class-cell {
   display: flex;
   align-items: center;
@@ -1271,6 +1336,20 @@ onUnmounted(() => {
     min-width: 100px;
   }
 
+  .col-last-kill {
+    min-width: 100px;
+    max-width: 140px;
+  }
+
+  .col-last-action {
+    min-width: 80px;
+  }
+
+  .last-kill {
+    max-width: 120px;
+    font-size: 0.7rem;
+  }
+
   .guild-tag {
     font-size: 0.65rem;
     padding: 0.15rem 0.4rem;
@@ -1353,7 +1432,9 @@ onUnmounted(() => {
     font-size: 0.6rem;
   }
 
-  .col-guild {
+  .col-guild,
+  .col-last-kill,
+  .col-last-action {
     display: none;
   }
 

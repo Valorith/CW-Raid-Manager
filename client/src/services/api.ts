@@ -1405,6 +1405,9 @@ export interface ServerConnection {
   zoneName: string;
   zoneShortName: string;
   guildName: string | null;
+  lastActionAt: string | null;
+  lastKillNpcName: string | null;
+  lastKillAt: string | null;
 }
 
 export interface IpExemption {
