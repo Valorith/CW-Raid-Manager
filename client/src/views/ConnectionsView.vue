@@ -269,7 +269,16 @@
                     </td>
                     <td class="col-last-sale">
                       <div v-if="trader.lastSaleItemName" class="last-sale-cell" :title="formatLastSaleTooltip(trader)">
-                        <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
+                        <div class="last-sale-header">
+                          <span v-if="hasValidIconId(trader.lastSaleItemIconId)" class="last-sale-icon">
+                            <img
+                              :src="getLootIconSrc(trader.lastSaleItemIconId!)"
+                              :alt="trader.lastSaleItemName"
+                              loading="lazy"
+                            />
+                          </span>
+                          <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
+                        </div>
                         <div class="last-sale-details">
                           <span class="last-sale-price">{{ formatMoney(trader.lastSalePrice) }}</span>
                           <span class="last-sale-time">{{ formatRelativeTime(trader.lastSaleAt!) }}</span>
@@ -361,6 +370,7 @@ import { api, type ServerConnection, type IpExemption, type AutoLinkSettings } f
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
+import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 
 const authStore = useAuthStore();
 
@@ -1497,12 +1507,36 @@ onUnmounted(() => {
   cursor: help;
 }
 
+.last-sale-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.last-sale-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 3px;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.last-sale-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
 .last-sale-item {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 180px;
+  max-width: 160px;
   color: #e2e8f0;
 }
 
@@ -1510,6 +1544,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding-left: 24px;
 }
 
 .last-sale-price {
@@ -1822,9 +1857,23 @@ onUnmounted(() => {
     width: 100px;
   }
 
+  .last-sale-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .last-sale-icon img {
+    width: 14px;
+    height: 14px;
+  }
+
   .last-sale-item {
-    max-width: 100px;
+    max-width: 80px;
     font-size: 0.7rem;
+  }
+
+  .last-sale-details {
+    padding-left: 20px;
   }
 
   .last-sale-price {

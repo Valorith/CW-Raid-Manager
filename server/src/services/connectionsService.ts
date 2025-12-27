@@ -22,6 +22,8 @@ export interface ServerConnection {
   lastHackAt: string | null;
   // Trader-specific fields (for characters in The Bazaar with no kills)
   lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
   lastSalePrice: number | null;
   lastSaleAt: string | null;
   totalSalesAmount: number | null;
@@ -365,6 +367,8 @@ export interface CharacterLastActivity {
   lastHackAt: string | null;
   // Trader-specific fields
   lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
   lastSalePrice: number | null;
   lastSaleAt: string | null;
   totalSalesAmount: number | null;
@@ -424,6 +428,8 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       hackCount: 0,
       lastHackAt: null,
       lastSaleItemName: null,
+      lastSaleItemId: null,
+      lastSaleItemIconId: null,
       lastSalePrice: null,
       lastSaleAt: null,
       totalSalesAmount: null,
@@ -552,13 +558,17 @@ export async function fetchCharacterLastActivity(characterIds: number[]): Promis
       const activity = result.get(row.character_id);
       if (activity) {
         activity.lastSaleAt = row.sold_at;
-        // Parse event_data to get item name and price
+        // Parse event_data to get item name, id, icon, and price
         try {
           const eventData = JSON.parse((row as RowDataPacket).event_data || '{}');
           activity.lastSaleItemName = eventData.item_name || eventData.itemName || null;
+          activity.lastSaleItemId = eventData.item_id ?? eventData.itemId ?? null;
+          activity.lastSaleItemIconId = eventData.item_icon ?? eventData.itemIcon ?? eventData.icon ?? null;
           activity.lastSalePrice = eventData.total_cost ?? eventData.totalCost ?? eventData.price ?? null;
         } catch {
           activity.lastSaleItemName = null;
+          activity.lastSaleItemId = null;
+          activity.lastSaleItemIconId = null;
           activity.lastSalePrice = null;
         }
       }

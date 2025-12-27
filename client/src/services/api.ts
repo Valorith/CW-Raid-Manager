@@ -1413,6 +1413,8 @@ export interface ServerConnection {
   lastHackAt: string | null;
   // Trader-specific fields
   lastSaleItemName: string | null;
+  lastSaleItemId: number | null;
+  lastSaleItemIconId: number | null;
   lastSalePrice: number | null;
   lastSaleAt: string | null;
   totalSalesAmount: number | null;
