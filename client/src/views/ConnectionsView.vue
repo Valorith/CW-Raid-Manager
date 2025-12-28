@@ -503,9 +503,9 @@ function isTrader(conn: ServerConnection): boolean {
   return conn.zoneName === 'The Bazaar' && !conn.lastKillNpcName;
 }
 
-// A fighter is a character that has combat history (has killed something)
+// A fighter is any character that is not a trader
 function isFighter(conn: ServerConnection): boolean {
-  return !!conn.lastKillNpcName;
+  return !isTrader(conn);
 }
 
 const connections = ref<ServerConnection[]>([]);
@@ -611,18 +611,14 @@ const filteredIpGroups = computed((): IpGroup[] => {
     if (existing) {
       if (isTrader(conn)) {
         existing.traders.push(conn);
-      } else if (isFighter(conn)) {
-        existing.fighters.push(conn);
       } else {
-        existing.connections.push(conn);
+        existing.fighters.push(conn);
       }
     } else {
       if (isTrader(conn)) {
         groupMap.set(conn.ip, { connections: [], traders: [conn], fighters: [] });
-      } else if (isFighter(conn)) {
-        groupMap.set(conn.ip, { connections: [], traders: [], fighters: [conn] });
       } else {
-        groupMap.set(conn.ip, { connections: [conn], traders: [], fighters: [] });
+        groupMap.set(conn.ip, { connections: [], traders: [], fighters: [conn] });
       }
     }
   }
