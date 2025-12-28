@@ -1537,12 +1537,12 @@ onUnmounted(() => {
 }
 
 .col-last-kill {
-  width: 150px;
+  width: 175px;
   overflow: hidden;
 }
 
 .col-last-action {
-  width: 140px;
+  width: 150px;
   white-space: nowrap;
 }
 
@@ -1686,12 +1686,12 @@ onUnmounted(() => {
 }
 
 .col-last-sale {
-  width: 200px;
+  width: 175px;
   overflow: hidden;
 }
 
 .col-total-sales {
-  width: 160px;
+  width: 150px;
   white-space: nowrap;
 }
 
@@ -2032,11 +2032,11 @@ onUnmounted(() => {
 
   .col-last-kill {
     min-width: 100px;
-    max-width: 140px;
+    max-width: 150px;
   }
 
   .col-last-action {
-    width: 120px;
+    width: 130px;
   }
 
   .col-hack-count {
@@ -2044,12 +2044,12 @@ onUnmounted(() => {
   }
 
   .col-last-sale {
-    min-width: 120px;
-    max-width: 160px;
+    min-width: 100px;
+    max-width: 150px;
   }
 
   .col-total-sales {
-    width: 100px;
+    width: 130px;
   }
 
   .last-sale-icon {
