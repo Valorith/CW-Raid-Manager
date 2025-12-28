@@ -1326,10 +1326,11 @@ onUnmounted(() => {
 
 .ip-group {
   background: rgba(30, 41, 59, 0.3);
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  border: 2px solid rgba(100, 116, 139, 0.5);
   border-radius: 0.75rem;
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.1);
 }
 
 .ip-group--hack-warning {
