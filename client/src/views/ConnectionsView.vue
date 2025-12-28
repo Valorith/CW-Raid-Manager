@@ -225,6 +225,11 @@
           <!-- Trader Sub-group -->
           <div v-if="group.traders.length > 0" class="trader-subgroup">
             <div class="trader-subgroup__header">
+              <svg class="subgroup-icon subgroup-icon--trader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <path d="M16 10a4 4 0 0 1-8 0"></path>
+              </svg>
               <span class="trader-subgroup__label">Traders</span>
               <span class="trader-subgroup__count">{{ group.traders.length }}</span>
             </div>
@@ -320,6 +325,97 @@
               </table>
             </div>
           </div>
+
+          <!-- Fighter Sub-group -->
+          <div v-if="group.fighters.length > 0" class="fighter-subgroup">
+            <div class="fighter-subgroup__header">
+              <svg class="subgroup-icon subgroup-icon--fighter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14.5 17.5L3 6V3h3l11.5 11.5"></path>
+                <path d="M13 19l6-6"></path>
+                <path d="M16 16l4 4"></path>
+                <path d="M19 21l2-2"></path>
+                <path d="M9.5 6.5L21 18v3h-3L6.5 9.5"></path>
+                <path d="M11 5l-6 6"></path>
+                <path d="M8 8L4 4"></path>
+                <path d="M5 3L3 5"></path>
+              </svg>
+              <span class="fighter-subgroup__label">Fighters</span>
+              <span class="fighter-subgroup__count">{{ group.fighters.length }}</span>
+            </div>
+            <div class="table-wrapper">
+              <table class="connections-table connections-table--fighters">
+                <thead>
+                  <tr>
+                    <th class="col-class">Class</th>
+                    <th class="col-name">Character</th>
+                    <th class="col-level">Level</th>
+                    <th class="col-zone">Zone</th>
+                    <th class="col-guild">Guild</th>
+                    <th class="col-last-kill">Last Kill</th>
+                    <th class="col-last-action">Last Action</th>
+                    <th class="col-hack-count">Hacks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(fighter, index) in group.fighters"
+                    :key="`fighter-${fighter.connectId}-${index}`"
+                    :class="getRowClass(fighter, group)"
+                  >
+                    <td class="col-class">
+                      <div class="class-cell">
+                        <img
+                          v-if="getClassIcon(fighter.className)"
+                          :src="getClassIcon(fighter.className) ?? undefined"
+                          :alt="formatClass(fighter.className)"
+                          class="class-icon"
+                        />
+                        <span class="class-label">{{ formatClass(fighter.className) }}</span>
+                      </div>
+                    </td>
+                    <td class="col-name">
+                      <CharacterLink :name="fighter.characterName" :admin-mode="true" />
+                    </td>
+                    <td class="col-level">{{ fighter.level }}</td>
+                    <td class="col-zone">{{ fighter.zoneName }}</td>
+                    <td class="col-guild">
+                      <span v-if="fighter.guildName" class="guild-tag">{{ fighter.guildName }}</span>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-last-kill">
+                      <div v-if="fighter.lastKillNpcName" class="last-kill-cell" :title="formatLastKillTooltip(fighter)">
+                        <span class="last-kill-name">{{ formatNpcName(fighter.lastKillNpcName) }}</span>
+                        <span v-if="fighter.lastKillAt" class="last-kill-time">{{ formatRelativeTime(fighter.lastKillAt) }}</span>
+                      </div>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-last-action">
+                      <div v-if="fighter.lastActionAt" class="last-action-cell">
+                        <span :title="formatFullDate(fighter.lastActionAt)">
+                          {{ formatRelativeTime(fighter.lastActionAt) }}
+                        </span>
+                        <span class="event-type-badge" :title="formatFullDate(fighter.lastActionAt)">
+                          {{ getEventTypeLabel(fighter.lastActionEventTypeId) }}
+                        </span>
+                      </div>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td class="col-hack-count">
+                      <button
+                        v-if="fighter.hackCount > 0"
+                        class="hack-count-badge hack-count-badge--clickable"
+                        @click="openHackEvents(fighter.characterId)"
+                        :title="`View ${fighter.hackCount} hack event${fighter.hackCount !== 1 ? 's' : ''}`"
+                      >
+                        {{ fighter.hackCount }}
+                      </button>
+                      <span v-else class="muted">0</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -399,11 +495,17 @@ interface IpGroup {
   ip: string;
   connections: ServerConnection[];
   traders: ServerConnection[];
+  fighters: ServerConnection[];
 }
 
 // A trader is a character in The Bazaar with no kill history
 function isTrader(conn: ServerConnection): boolean {
   return conn.zoneName === 'The Bazaar' && !conn.lastKillNpcName;
+}
+
+// A fighter is any character that is not a trader
+function isFighter(conn: ServerConnection): boolean {
+  return !isTrader(conn);
 }
 
 const connections = ref<ServerConnection[]>([]);
@@ -502,7 +604,7 @@ const filteredConnections = computed(() => {
 });
 
 const filteredIpGroups = computed((): IpGroup[] => {
-  const groupMap = new Map<string, { connections: ServerConnection[]; traders: ServerConnection[] }>();
+  const groupMap = new Map<string, { connections: ServerConnection[]; traders: ServerConnection[]; fighters: ServerConnection[] }>();
 
   for (const conn of filteredConnections.value) {
     const existing = groupMap.get(conn.ip);
@@ -510,23 +612,23 @@ const filteredIpGroups = computed((): IpGroup[] => {
       if (isTrader(conn)) {
         existing.traders.push(conn);
       } else {
-        existing.connections.push(conn);
+        existing.fighters.push(conn);
       }
     } else {
       if (isTrader(conn)) {
-        groupMap.set(conn.ip, { connections: [], traders: [conn] });
+        groupMap.set(conn.ip, { connections: [], traders: [conn], fighters: [] });
       } else {
-        groupMap.set(conn.ip, { connections: [conn], traders: [] });
+        groupMap.set(conn.ip, { connections: [], traders: [], fighters: [conn] });
       }
     }
   }
 
   // Sort groups by total count (descending), then by IP
   return Array.from(groupMap.entries())
-    .map(([ip, { connections, traders }]) => ({ ip, connections, traders }))
+    .map(([ip, { connections, traders, fighters }]) => ({ ip, connections, traders, fighters }))
     .sort((a, b) => {
-      const totalA = a.connections.length + a.traders.length;
-      const totalB = b.connections.length + b.traders.length;
+      const totalA = a.connections.length + a.traders.length + a.fighters.length;
+      const totalB = b.connections.length + b.traders.length + b.fighters.length;
       if (totalB !== totalA) {
         return totalB - totalA;
       }
@@ -634,7 +736,7 @@ function formatMoney(copper: number | null): string {
 }
 
 function getTotalGroupCount(group: IpGroup): number {
-  return group.connections.length + group.traders.length;
+  return group.connections.length + group.traders.length + group.fighters.length;
 }
 
 /**
@@ -1220,10 +1322,11 @@ onUnmounted(() => {
 
 .ip-group {
   background: rgba(30, 41, 59, 0.3);
-  border: 1px solid rgba(148, 163, 184, 0.15);
+  border: 2px solid rgba(100, 116, 139, 0.5);
   border-radius: 0.75rem;
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.1);
 }
 
 .ip-group--hack-warning {
@@ -1434,12 +1537,12 @@ onUnmounted(() => {
 }
 
 .col-last-kill {
-  width: 150px;
+  width: 175px;
   overflow: hidden;
 }
 
 .col-last-action {
-  width: 140px;
+  width: 150px;
   white-space: nowrap;
 }
 
@@ -1499,6 +1602,7 @@ onUnmounted(() => {
 .trader-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  background: rgba(45, 212, 191, 0.04);
 }
 
 .trader-subgroup__header {
@@ -1531,13 +1635,65 @@ onUnmounted(() => {
   background: rgba(45, 212, 191, 0.05);
 }
 
+/* Sub-group Icon Styles */
+.subgroup-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.subgroup-icon--trader {
+  color: #2dd4bf;
+}
+
+.subgroup-icon--fighter {
+  color: #f87171;
+}
+
+/* Fighter Sub-group Styles */
+.fighter-subgroup {
+  margin-top: 0.5rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  background: rgba(248, 113, 113, 0.04);
+}
+
+.fighter-subgroup__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(248, 113, 113, 0.08);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.15);
+}
+
+.fighter-subgroup__label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #f87171;
+}
+
+.fighter-subgroup__count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+}
+
+.connections-table--fighters th {
+  background: rgba(248, 113, 113, 0.05);
+}
+
 .col-last-sale {
-  width: 200px;
+  width: 175px;
   overflow: hidden;
 }
 
 .col-total-sales {
-  width: 160px;
+  width: 150px;
   white-space: nowrap;
 }
 
@@ -1878,11 +2034,11 @@ onUnmounted(() => {
 
   .col-last-kill {
     min-width: 100px;
-    max-width: 140px;
+    max-width: 150px;
   }
 
   .col-last-action {
-    width: 120px;
+    width: 130px;
   }
 
   .col-hack-count {
@@ -1890,12 +2046,12 @@ onUnmounted(() => {
   }
 
   .col-last-sale {
-    min-width: 120px;
-    max-width: 160px;
+    min-width: 100px;
+    max-width: 150px;
   }
 
   .col-total-sales {
-    width: 100px;
+    width: 130px;
   }
 
   .last-sale-icon {
