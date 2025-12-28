@@ -834,8 +834,8 @@ function isOutsideHome(conn: ServerConnection): boolean {
 }
 
 function getOutsideHomeCount(group: IpGroup): number {
-  // Traders are in The Bazaar (inactive zone), so only count regular connections
-  return group.connections.filter(isOutsideHome).length;
+  // Traders are in The Bazaar (inactive zone), so only count fighters and regular connections
+  return [...group.connections, ...group.fighters].filter(isOutsideHome).length;
 }
 
 function getIpLimit(ip: string): number {
@@ -851,8 +851,8 @@ function getIpGroupHackStatus(group: IpGroup): 'critical' | 'warning' | null {
   let hasCritical = false;
   let hasWarning = false;
 
-  // Check both regular connections and traders
-  const allConnections = [...group.connections, ...group.traders];
+  // Check all connections: regular, traders, and fighters
+  const allConnections = [...group.connections, ...group.traders, ...group.fighters];
   for (const conn of allConnections) {
     if (conn.lastHackAt) {
       const hackTime = new Date(conn.lastHackAt);
