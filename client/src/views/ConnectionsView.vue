@@ -1602,6 +1602,7 @@ onUnmounted(() => {
 .trader-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  background: rgba(45, 212, 191, 0.04);
 }
 
 .trader-subgroup__header {
@@ -1653,6 +1654,7 @@ onUnmounted(() => {
 .fighter-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
+  background: rgba(248, 113, 113, 0.04);
 }
 
 .fighter-subgroup__header {
