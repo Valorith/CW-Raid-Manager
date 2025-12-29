@@ -1,0 +1,435 @@
+/**
+ * NPC Respawn Notification Service
+ *
+ * This service handles checking NPC respawn status and sending Discord webhook
+ * notifications when raid targets enter their respawn window or become "up".
+ *
+ * Called by the cron job (cronSnapshot.ts) on a regular interval (e.g., every 5 minutes).
+ */
+
+import { prisma } from '../utils/prisma.js';
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+
+// Logger for this service
+const logger = {
+  info: (message: string, ...args: unknown[]) => console.log(`[NpcRespawnNotification] ${message}`, ...args),
+  error: (message: string, ...args: unknown[]) => console.error(`[NpcRespawnNotification] ${message}`, ...args),
+  debug: (message: string, ...args: unknown[]) => console.log(`[NpcRespawnNotification] ${message}`, ...args)
+};
+
+type RespawnStatus = 'unknown' | 'up' | 'window' | 'down';
+
+interface NpcWithRespawnData {
+  npcDefinitionId: string;
+  npcName: string;
+  zoneName: string | null;
+  respawnMinMinutes: number | null;
+  respawnMaxMinutes: number | null;
+  isInstanceVariant: boolean;
+  lastKillRecordId: string | null;
+  killedAt: Date | null;
+  guildId: string;
+  guildName: string;
+}
+
+interface RespawnStatusResult {
+  respawnStatus: RespawnStatus;
+  respawnMinTime: Date | null;
+  respawnMaxTime: Date | null;
+}
+
+/**
+ * Calculate respawn status for an NPC based on last kill time and respawn timers.
+ * Mirrors the logic in npcRespawnService.ts
+ */
+function calculateRespawnStatus(
+  killedAt: Date | null,
+  respawnMinMinutes: number | null,
+  respawnMaxMinutes: number | null,
+  now: Date = new Date()
+): RespawnStatusResult {
+  let respawnStatus: RespawnStatus = 'unknown';
+  let respawnMinTime: Date | null = null;
+  let respawnMaxTime: Date | null = null;
+
+  if (killedAt && respawnMinMinutes !== null) {
+    const killedTime = killedAt.getTime();
+    respawnMinTime = new Date(killedTime + respawnMinMinutes * 60 * 1000);
+
+    if (respawnMaxMinutes !== null) {
+      respawnMaxTime = new Date(killedTime + respawnMaxMinutes * 60 * 1000);
+    }
+
+    if (now >= (respawnMaxTime ?? respawnMinTime)) {
+      respawnStatus = 'up';
+    } else if (now >= respawnMinTime) {
+      respawnStatus = 'window';
+    } else {
+      respawnStatus = 'down';
+    }
+  }
+
+  return { respawnStatus, respawnMinTime, respawnMaxTime };
+}
+
+/**
+ * Check all guilds for NPC respawn notifications and send webhooks.
+ * This is the main entry point called by the cron job.
+ */
+export async function checkAndSendRespawnNotifications(): Promise<void> {
+  const now = new Date();
+
+  // Find all guilds that have at least one webhook subscribed to respawn events
+  const guildsWithRespawnWebhooks = await prisma.guild.findMany({
+    where: {
+      discordWebhooks: {
+        some: {
+          isEnabled: true,
+          webhookUrl: { not: null }
+        }
+      }
+    },
+    select: {
+      id: true,
+      name: true,
+      discordWebhooks: {
+        where: {
+          isEnabled: true,
+          webhookUrl: { not: null }
+        },
+        select: {
+          eventSubscriptions: true
+        }
+      }
+    }
+  });
+
+  // Filter to guilds that actually have respawn event subscriptions
+  const guildsToProcess = guildsWithRespawnWebhooks.filter((guild) => {
+    return guild.discordWebhooks.some((webhook) => {
+      const subs = webhook.eventSubscriptions as Record<string, boolean> | null;
+      return subs?.['respawn.windowOpen'] === true || subs?.['respawn.up'] === true;
+    });
+  });
+
+  if (guildsToProcess.length === 0) {
+    logger.debug('No guilds with respawn webhook subscriptions found.');
+    return;
+  }
+
+  logger.info(`Processing respawn notifications for ${guildsToProcess.length} guild(s)...`);
+
+  for (const guild of guildsToProcess) {
+    try {
+      await processGuildRespawnNotifications(guild.id, guild.name, now);
+    } catch (error) {
+      logger.error(`Error processing guild ${guild.id}:`, error);
+    }
+  }
+
+  logger.info('Respawn notification check complete.');
+}
+
+/**
+ * Process respawn notifications for a single guild.
+ */
+async function processGuildRespawnNotifications(
+  guildId: string,
+  guildName: string,
+  now: Date
+): Promise<void> {
+  // Get all raid target NPCs with respawn times configured
+  const npcDefinitions = await prisma.npcDefinition.findMany({
+    where: {
+      guildId,
+      isRaidTarget: true,
+      respawnMinMinutes: { not: null }
+    },
+    select: {
+      id: true,
+      npcName: true,
+      zoneName: true,
+      respawnMinMinutes: true,
+      respawnMaxMinutes: true,
+      hasInstanceVersion: true,
+      killRecords: {
+        orderBy: { killedAt: 'desc' },
+        take: 10, // Get recent kills to handle both instance and overworld
+        select: {
+          id: true,
+          killedAt: true,
+          isInstance: true
+        }
+      }
+    }
+  });
+
+  if (npcDefinitions.length === 0) {
+    return;
+  }
+
+  // Build list of NPCs to check (handling instance variants separately)
+  const npcsToCheck: NpcWithRespawnData[] = [];
+
+  for (const def of npcDefinitions) {
+    if (def.hasInstanceVersion) {
+      // Separate overworld and instance kills
+      const lastOverworldKill = def.killRecords.find((k) => !k.isInstance) ?? null;
+      const lastInstanceKill = def.killRecords.find((k) => k.isInstance) ?? null;
+
+      // Overworld variant
+      npcsToCheck.push({
+        npcDefinitionId: def.id,
+        npcName: def.npcName,
+        zoneName: def.zoneName,
+        respawnMinMinutes: def.respawnMinMinutes,
+        respawnMaxMinutes: def.respawnMaxMinutes,
+        isInstanceVariant: false,
+        lastKillRecordId: lastOverworldKill?.id ?? null,
+        killedAt: lastOverworldKill?.killedAt ?? null,
+        guildId,
+        guildName
+      });
+
+      // Instance variant
+      npcsToCheck.push({
+        npcDefinitionId: def.id,
+        npcName: def.npcName,
+        zoneName: def.zoneName,
+        respawnMinMinutes: def.respawnMinMinutes,
+        respawnMaxMinutes: def.respawnMaxMinutes,
+        isInstanceVariant: true,
+        lastKillRecordId: lastInstanceKill?.id ?? null,
+        killedAt: lastInstanceKill?.killedAt ?? null,
+        guildId,
+        guildName
+      });
+    } else {
+      // Regular NPC
+      const lastKill = def.killRecords[0] ?? null;
+      npcsToCheck.push({
+        npcDefinitionId: def.id,
+        npcName: def.npcName,
+        zoneName: def.zoneName,
+        respawnMinMinutes: def.respawnMinMinutes,
+        respawnMaxMinutes: def.respawnMaxMinutes,
+        isInstanceVariant: false,
+        lastKillRecordId: lastKill?.id ?? null,
+        killedAt: lastKill?.killedAt ?? null,
+        guildId,
+        guildName
+      });
+    }
+  }
+
+  // Filter to only NPCs with a kill record (we can't track respawn without knowing when it died)
+  const npcsWithKills = npcsToCheck.filter((npc) => npc.killedAt !== null && npc.lastKillRecordId !== null);
+
+  if (npcsWithKills.length === 0) {
+    return;
+  }
+
+  // Get existing notification tracking records
+  const existingNotifications = await prisma.npcRespawnNotification.findMany({
+    where: {
+      npcDefinitionId: { in: npcsWithKills.map((n) => n.npcDefinitionId) }
+    }
+  });
+
+  const notificationMap = new Map(
+    existingNotifications.map((n) => [`${n.npcDefinitionId}:${n.isInstanceVariant}`, n])
+  );
+
+  // Check each NPC for state transitions
+  const windowOpenNpcs: NpcWithRespawnData[] = [];
+  const upNpcs: NpcWithRespawnData[] = [];
+
+  for (const npc of npcsWithKills) {
+    const key = `${npc.npcDefinitionId}:${npc.isInstanceVariant}`;
+    const existing = notificationMap.get(key);
+    const status = calculateRespawnStatus(
+      npc.killedAt,
+      npc.respawnMinMinutes,
+      npc.respawnMaxMinutes,
+      now
+    );
+
+    // Check if this is a new kill cycle (different kill record than what we tracked)
+    const isNewKillCycle = existing?.lastKillRecordId !== npc.lastKillRecordId;
+
+    if (status.respawnStatus === 'window') {
+      // Check if we should send window notification
+      const shouldNotify = !existing || isNewKillCycle || !existing.windowNotifiedAt;
+      if (shouldNotify) {
+        windowOpenNpcs.push(npc);
+      }
+    } else if (status.respawnStatus === 'up') {
+      // Check if we should send up notification
+      const shouldNotify = !existing || isNewKillCycle || !existing.upNotifiedAt;
+      if (shouldNotify) {
+        upNpcs.push(npc);
+      }
+    }
+  }
+
+  // Send window open notifications
+  if (windowOpenNpcs.length > 0) {
+    const windowPayloadNpcs = windowOpenNpcs.map((npc) => {
+      const status = calculateRespawnStatus(
+        npc.killedAt,
+        npc.respawnMinMinutes,
+        npc.respawnMaxMinutes,
+        now
+      );
+      return {
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        isInstance: npc.isInstanceVariant,
+        killedAt: npc.killedAt!,
+        windowOpenTime: status.respawnMinTime!,
+        windowCloseTime: status.respawnMaxTime
+      };
+    });
+
+    await emitDiscordWebhookEvent(guildId, 'respawn.windowOpen', {
+      guildId,
+      guildName,
+      npcs: windowPayloadNpcs
+    });
+
+    // Update notification tracking
+    for (const npc of windowOpenNpcs) {
+      await upsertNotificationTracking(
+        npc.npcDefinitionId,
+        npc.isInstanceVariant,
+        npc.lastKillRecordId!,
+        { windowNotifiedAt: now }
+      );
+    }
+
+    logger.info(`Sent window open notification for ${windowOpenNpcs.length} NPC(s) in guild ${guildId}`);
+  }
+
+  // Send up notifications
+  if (upNpcs.length > 0) {
+    const upPayloadNpcs = upNpcs.map((npc) => {
+      const status = calculateRespawnStatus(
+        npc.killedAt,
+        npc.respawnMinMinutes,
+        npc.respawnMaxMinutes,
+        now
+      );
+      return {
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        isInstance: npc.isInstanceVariant,
+        killedAt: npc.killedAt!,
+        upSinceTime: status.respawnMaxTime ?? status.respawnMinTime!
+      };
+    });
+
+    await emitDiscordWebhookEvent(guildId, 'respawn.up', {
+      guildId,
+      guildName,
+      npcs: upPayloadNpcs
+    });
+
+    // Update notification tracking
+    for (const npc of upNpcs) {
+      await upsertNotificationTracking(
+        npc.npcDefinitionId,
+        npc.isInstanceVariant,
+        npc.lastKillRecordId!,
+        { upNotifiedAt: now }
+      );
+    }
+
+    logger.info(`Sent up notification for ${upNpcs.length} NPC(s) in guild ${guildId}`);
+  }
+}
+
+/**
+ * Upsert notification tracking record.
+ */
+async function upsertNotificationTracking(
+  npcDefinitionId: string,
+  isInstanceVariant: boolean,
+  lastKillRecordId: string,
+  updates: { windowNotifiedAt?: Date; upNotifiedAt?: Date }
+): Promise<void> {
+  const existing = await prisma.npcRespawnNotification.findUnique({
+    where: {
+      npcDefinitionId_isInstanceVariant: {
+        npcDefinitionId,
+        isInstanceVariant
+      }
+    }
+  });
+
+  if (existing) {
+    // Check if we need to reset due to new kill cycle
+    if (existing.lastKillRecordId !== lastKillRecordId) {
+      // New kill - reset all notification times
+      await prisma.npcRespawnNotification.update({
+        where: { id: existing.id },
+        data: {
+          lastKillRecordId,
+          windowNotifiedAt: updates.windowNotifiedAt ?? null,
+          upNotifiedAt: updates.upNotifiedAt ?? null
+        }
+      });
+    } else {
+      // Same kill cycle - just update the specific notification time
+      await prisma.npcRespawnNotification.update({
+        where: { id: existing.id },
+        data: updates
+      });
+    }
+  } else {
+    // Create new tracking record
+    await prisma.npcRespawnNotification.create({
+      data: {
+        npcDefinitionId,
+        isInstanceVariant,
+        lastKillRecordId,
+        windowNotifiedAt: updates.windowNotifiedAt ?? null,
+        upNotifiedAt: updates.upNotifiedAt ?? null
+      }
+    });
+  }
+}
+
+/**
+ * Reset notification tracking when a new kill is recorded.
+ * Called from the npcRespawn routes when a kill is added.
+ */
+export async function resetRespawnNotification(
+  npcDefinitionId: string,
+  isInstanceVariant: boolean,
+  newKillRecordId: string
+): Promise<void> {
+  try {
+    await prisma.npcRespawnNotification.upsert({
+      where: {
+        npcDefinitionId_isInstanceVariant: {
+          npcDefinitionId,
+          isInstanceVariant
+        }
+      },
+      create: {
+        npcDefinitionId,
+        isInstanceVariant,
+        lastKillRecordId: newKillRecordId,
+        windowNotifiedAt: null,
+        upNotifiedAt: null
+      },
+      update: {
+        lastKillRecordId: newKillRecordId,
+        windowNotifiedAt: null,
+        upNotifiedAt: null
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to reset respawn notification tracking:', error);
+  }
+}

@@ -1,20 +1,17 @@
 /**
- * Cron Snapshot Trigger
+ * Cron Job Trigger
  *
  * This script is designed to be run by Railway's cron job feature.
- * It checks if an auto-snapshot should be taken and executes it if needed.
+ * It handles multiple scheduled tasks:
+ * 1. Money/Metallurgy snapshots (if enabled and at scheduled time)
+ * 2. NPC respawn notifications (always runs to check for respawn events)
  *
  * Usage: node build/cronSnapshot.js
- * Recommended cron schedule: 0 * * * * (every hour)
+ * Recommended cron schedule: every 5 minutes
  *
- * The script will:
- * 1. Check if auto-snapshot is enabled in settings
- * 2. Check if the configured snapshot time has passed for today
- * 3. Create a snapshot if conditions are met
- * 4. Exit with code 0 on success, 1 on error
- *
- * After creating a snapshot, lastSnapshotAt is updated so subsequent runs
- * today will skip (since lastSnapshotAt >= scheduledTimeToday).
+ * Exit codes:
+ * - 0: Success
+ * - 1: Error
  */
 
 import 'dotenv/config';
@@ -22,13 +19,31 @@ import 'dotenv/config';
 import { prisma } from './utils/prisma.js';
 import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
+import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
 
 async function main(): Promise<void> {
-  console.log('[CronSnapshot] Starting scheduled snapshot check...');
+  console.log('[CronJob] Starting scheduled tasks...');
 
+  // Task 1: Check and send NPC respawn notifications
+  // This runs every time the cron job fires (every 5 minutes)
+  console.log('[CronJob] Checking NPC respawn notifications...');
+  try {
+    await checkAndSendRespawnNotifications();
+    console.log('[CronJob] NPC respawn notification check complete.');
+  } catch (error) {
+    console.error('[CronJob] Error checking respawn notifications:', error);
+    // Continue with other tasks even if this fails
+  }
+
+  // Task 2: Check if money/metallurgy snapshot should be taken
+  // This only runs if EQ database is configured and conditions are met
+  await checkAndCreateSnapshot();
+}
+
+async function checkAndCreateSnapshot(): Promise<void> {
   // Check if EQ database is configured
   if (!isEqDbConfigured()) {
-    console.log('[CronSnapshot] EQ database not configured. Exiting.');
+    console.log('[CronJob] EQ database not configured. Skipping snapshot check.');
     return;
   }
 
@@ -37,7 +52,7 @@ async function main(): Promise<void> {
 
   // Check if auto-snapshot is enabled
   if (!settings.autoSnapshotEnabled) {
-    console.log('[CronSnapshot] Auto-snapshot is disabled. Exiting.');
+    console.log('[CronJob] Auto-snapshot is disabled. Skipping snapshot check.');
     return;
   }
 
@@ -46,12 +61,12 @@ async function main(): Promise<void> {
   const scheduledTimeToday = new Date(now);
   scheduledTimeToday.setUTCHours(settings.snapshotHour, settings.snapshotMinute, 0, 0);
 
-  console.log(`[CronSnapshot] Current time (UTC): ${now.toISOString()}`);
-  console.log(`[CronSnapshot] Scheduled time today (UTC): ${scheduledTimeToday.toISOString()}`);
+  console.log(`[CronJob] Current time (UTC): ${now.toISOString()}`);
+  console.log(`[CronJob] Scheduled snapshot time today (UTC): ${scheduledTimeToday.toISOString()}`);
 
   // Check if the scheduled time has passed
   if (now < scheduledTimeToday) {
-    console.log('[CronSnapshot] Scheduled time has not yet passed for today. Exiting.');
+    console.log('[CronJob] Scheduled snapshot time has not yet passed for today.');
     return;
   }
 
@@ -60,16 +75,16 @@ async function main(): Promise<void> {
   if (settings.lastSnapshotAt) {
     const lastSnapshot = new Date(settings.lastSnapshotAt);
     if (lastSnapshot >= scheduledTimeToday) {
-      console.log('[CronSnapshot] Snapshot already taken after scheduled time today. Exiting.');
+      console.log('[CronJob] Snapshot already taken after scheduled time today.');
       return;
     }
   }
 
   // Create the snapshot
-  console.log('[CronSnapshot] Scheduled time has passed. Creating snapshot...');
+  console.log('[CronJob] Scheduled time has passed. Creating snapshot...');
   await createMoneySnapshot();
   await updateLastSnapshotTime();
-  console.log('[CronSnapshot] Snapshot created successfully.');
+  console.log('[CronJob] Snapshot created successfully.');
 }
 
 // Run and handle cleanup
