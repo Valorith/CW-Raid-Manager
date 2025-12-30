@@ -589,7 +589,7 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
       // If debug mode is enabled, broadcast to connected admins instead of sending to Discord
       if (isDebugMode) {
         const { broadcastDebugWebhook } = await import('./webhookDebugService.js');
-        broadcastDebugWebhook(guildId, guildName, event, eventLabel, settings.label, body);
+        await broadcastDebugWebhook(guildId, guildName, event, eventLabel, settings.label, body);
         return;
       }
 
