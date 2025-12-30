@@ -603,6 +603,7 @@ export async function emitDiscordWebhookEvent<K extends DiscordWebhookEvent>(
 }
 
 interface DiscordWebhookBody {
+  [key: string]: unknown;
   content?: string;
   embeds?: Array<{
     title?: string;

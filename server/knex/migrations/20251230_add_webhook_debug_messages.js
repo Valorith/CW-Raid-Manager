@@ -10,8 +10,8 @@
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.up = function (knex) {
-  return knex.schema.createTable('WebhookDebugMessage', (table) => {
+export async function up(knex) {
+  await knex.schema.createTable('WebhookDebugMessage', (table) => {
     table.string('id', 191).notNullable().primary();
     table.string('guildId', 191).notNullable();
     table.string('event', 100).notNullable();
@@ -22,12 +22,12 @@ exports.up = function (knex) {
 
     table.index(['guildId', 'createdAt'], 'WebhookDebugMessage_guildId_createdAt_idx');
   });
-};
+}
 
 /**
  * @param { import("knex").Knex } knex
  * @returns { Promise<void> }
  */
-exports.down = function (knex) {
-  return knex.schema.dropTableIfExists('WebhookDebugMessage');
-};
+export async function down(knex) {
+  await knex.schema.dropTableIfExists('WebhookDebugMessage');
+}
