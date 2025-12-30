@@ -403,8 +403,8 @@ export async function guildRoutes(server: FastifyInstance): Promise<void> {
     // Send initial connection message
     reply.raw.write(`data: ${JSON.stringify({ type: 'connected', guildId })}\n\n`);
 
-    // Register this client for debug messages
-    registerDebugClient(guildId, request.user.userId, isAdmin, reply);
+    // Register this client for debug messages and deliver any pending messages from database
+    await registerDebugClient(guildId, request.user.userId, isAdmin, reply);
 
     // Handle client disconnect
     request.raw.on('close', () => {

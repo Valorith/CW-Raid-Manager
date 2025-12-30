@@ -1,5 +1,6 @@
 import type { FastifyReply } from 'fastify';
 import { prisma } from '../utils/prisma.js';
+import { createId } from '@paralleldrive/cuid2';
 
 export interface DebugWebhookMessage {
   id: string;
@@ -41,27 +42,18 @@ interface ConnectedClient {
 // Map of guildId -> array of connected admin clients
 const connectedClients: Map<string, ConnectedClient[]> = new Map();
 
-// Queue of pending debug messages per guild (for when no admin is connected)
-const pendingMessages: Map<string, DebugWebhookMessage[]> = new Map();
-
-// Maximum number of pending messages to queue per guild
+// Maximum number of pending messages to store per guild
 const MAX_PENDING_MESSAGES = 50;
-
-let messageIdCounter = 0;
-
-function generateMessageId(): string {
-  return `debug-${Date.now()}-${++messageIdCounter}`;
-}
 
 /**
  * Register an SSE client connection for webhook debugging
  */
-export function registerDebugClient(
+export async function registerDebugClient(
   guildId: string,
   userId: string,
   isAdmin: boolean,
   reply: FastifyReply
-): void {
+): Promise<void> {
   if (!isAdmin) {
     console.log(`[WebhookDebug] Non-admin user ${userId} tried to register for guild ${guildId}`);
     return;
@@ -75,15 +67,46 @@ export function registerDebugClient(
   guildClients.push(client);
   connectedClients.set(guildId, guildClients);
 
-  // Send any pending messages to the newly connected client
-  const pending = pendingMessages.get(guildId) ?? [];
-  if (pending.length > 0) {
-    console.log(`[WebhookDebug] Sending ${pending.length} pending messages to ${userId}`);
-    for (const message of pending) {
-      sendToClient(client, message);
+  // Fetch and send any pending messages from the database
+  try {
+    const guild = await prisma.guild.findUnique({
+      where: { id: guildId },
+      select: { name: true }
+    });
+    const guildName = guild?.name ?? 'Unknown Guild';
+
+    const pendingRecords = await prisma.webhookDebugMessage.findMany({
+      where: { guildId },
+      orderBy: { createdAt: 'asc' },
+      take: MAX_PENDING_MESSAGES
+    });
+
+    if (pendingRecords.length > 0) {
+      console.log(`[WebhookDebug] Sending ${pendingRecords.length} pending messages from database to ${userId}`);
+      for (const record of pendingRecords) {
+        const message: DebugWebhookMessage = {
+          id: record.id,
+          guildId: record.guildId,
+          guildName,
+          event: record.event,
+          eventLabel: record.eventLabel,
+          webhookLabel: record.webhookLabel,
+          payload: record.payload as DiscordWebhookBody,
+          timestamp: record.createdAt.toISOString()
+        };
+        sendToClient(client, message);
+      }
+
+      // Delete delivered messages from the database
+      await prisma.webhookDebugMessage.deleteMany({
+        where: {
+          id: { in: pendingRecords.map((r) => r.id) }
+        }
+      });
+      console.log(`[WebhookDebug] Deleted ${pendingRecords.length} delivered messages from database`);
     }
-    // Clear pending messages after sending
-    pendingMessages.delete(guildId);
+  } catch (error) {
+    console.error(`[WebhookDebug] Error fetching pending messages from database:`, error);
   }
 }
 
@@ -139,19 +162,20 @@ export async function getWebhookDebugMode(guildId: string): Promise<boolean> {
 }
 
 /**
- * Broadcast a debug webhook message to all connected admin clients for a guild
- * Returns true if the message was sent to at least one client
+ * Broadcast a debug webhook message to all connected admin clients for a guild.
+ * If no clients are connected, stores the message in the database for later delivery.
+ * Returns true if the message was sent to at least one client.
  */
-export function broadcastDebugWebhook(
+export async function broadcastDebugWebhook(
   guildId: string,
   guildName: string,
   event: string,
   eventLabel: string,
   webhookLabel: string,
   payload: DiscordWebhookBody
-): boolean {
+): Promise<boolean> {
   const message: DebugWebhookMessage = {
-    id: generateMessageId(),
+    id: createId(),
     guildId,
     guildName,
     event,
@@ -166,10 +190,10 @@ export function broadcastDebugWebhook(
 
   console.log(`[WebhookDebug] Broadcasting ${event} for guild ${guildId}, ${clientCount} clients connected`);
 
-  // If no clients connected, queue the message
+  // If no clients connected, queue the message in the database
   if (!guildClients || guildClients.length === 0) {
-    console.log(`[WebhookDebug] No clients connected, queueing message`);
-    queuePendingMessage(guildId, message);
+    console.log(`[WebhookDebug] No clients connected, storing message in database for later delivery`);
+    await queuePendingMessage(guildId, message);
     return false;
   }
 
@@ -183,30 +207,51 @@ export function broadcastDebugWebhook(
     }
   }
 
-  // If no admin clients were connected, queue the message
+  // If no admin clients were connected, queue the message in the database
   if (!sentToAny) {
-    console.log(`[WebhookDebug] No admin clients, queueing message`);
-    queuePendingMessage(guildId, message);
+    console.log(`[WebhookDebug] No admin clients, storing message in database for later delivery`);
+    await queuePendingMessage(guildId, message);
   }
 
   return sentToAny;
 }
 
 /**
- * Queue a message for later delivery when an admin connects
+ * Queue a message for later delivery when an admin connects.
+ * Stores in the database so messages persist across processes (e.g., cron jobs).
  */
-function queuePendingMessage(guildId: string, message: DebugWebhookMessage): void {
-  const pending = pendingMessages.get(guildId) ?? [];
+async function queuePendingMessage(guildId: string, message: DebugWebhookMessage): Promise<void> {
+  try {
+    // Store the message in the database
+    await prisma.webhookDebugMessage.create({
+      data: {
+        id: message.id,
+        guildId,
+        event: message.event,
+        eventLabel: message.eventLabel,
+        webhookLabel: message.webhookLabel,
+        payload: message.payload
+      }
+    });
 
-  // Add the new message
-  pending.push(message);
-
-  // Trim to max size (remove oldest messages first)
-  while (pending.length > MAX_PENDING_MESSAGES) {
-    pending.shift();
+    // Clean up old messages if there are too many
+    const count = await prisma.webhookDebugMessage.count({ where: { guildId } });
+    if (count > MAX_PENDING_MESSAGES) {
+      const toDelete = await prisma.webhookDebugMessage.findMany({
+        where: { guildId },
+        orderBy: { createdAt: 'asc' },
+        take: count - MAX_PENDING_MESSAGES,
+        select: { id: true }
+      });
+      if (toDelete.length > 0) {
+        await prisma.webhookDebugMessage.deleteMany({
+          where: { id: { in: toDelete.map((r) => r.id) } }
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`[WebhookDebug] Error storing pending message in database:`, error);
   }
-
-  pendingMessages.set(guildId, pending);
 }
 
 /**

@@ -934,3 +934,17 @@ model CharacterWatch {
   @@index([eqAccountId])
   @@index([createdById])
 }
+
+// Webhook Debug Messages - stores debug webhook messages for cross-process delivery
+// Used when cron jobs need to send debug messages to SSE clients connected to web server
+model WebhookDebugMessage {
+  id            String   @id @default(cuid())
+  guildId       String
+  event         String   @db.VarChar(100)
+  eventLabel    String   @db.VarChar(200)
+  webhookLabel  String   @db.VarChar(200)
+  payload       Json
+  createdAt     DateTime @default(now())
+
+  @@index([guildId, createdAt])
+}
