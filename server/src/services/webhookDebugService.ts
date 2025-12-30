@@ -231,7 +231,7 @@ async function queuePendingMessage(guildId: string, message: DebugWebhookMessage
         event: message.event,
         eventLabel: message.eventLabel,
         webhookLabel: message.webhookLabel,
-        payload: message.payload
+        payload: message.payload as object
       }
     });
 
