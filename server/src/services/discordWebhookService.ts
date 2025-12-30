@@ -808,7 +808,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         embeds: [
           {
             title: targetKilledTitle,
-            color: DISCORD_COLORS.success,
+            color: DISCORD_COLORS.danger,
             fields: [
               {
                 name: 'Targets',
@@ -1256,8 +1256,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
 const DISCORD_COLORS = {
   primary: 0x5865f2,
   success: 0x57f287,
-  warning: 0xed4245,
-  danger: 0xdc2626,
+  warning: 0xfee75c,
+  danger: 0xed4245,
   info: 0x00b0f4
 };
 
