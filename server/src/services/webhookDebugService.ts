@@ -1,6 +1,6 @@
 import type { FastifyReply } from 'fastify';
+import { randomUUID } from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { createId } from '@paralleldrive/cuid2';
 
 export interface DebugWebhookMessage {
   id: string;
@@ -14,6 +14,7 @@ export interface DebugWebhookMessage {
 }
 
 interface DiscordWebhookBody {
+  [key: string]: unknown;
   content?: string;
   embeds?: Array<{
     title?: string;
@@ -175,7 +176,7 @@ export async function broadcastDebugWebhook(
   payload: DiscordWebhookBody
 ): Promise<boolean> {
   const message: DebugWebhookMessage = {
-    id: createId(),
+    id: randomUUID(),
     guildId,
     guildName,
     event,
@@ -283,6 +284,6 @@ export function getConnectedAdminCount(guildId: string): number {
 /**
  * Get pending message count for a guild
  */
-export function getPendingMessageCount(guildId: string): number {
-  return pendingMessages.get(guildId)?.length ?? 0;
+export async function getPendingMessageCount(guildId: string): Promise<number> {
+  return prisma.webhookDebugMessage.count({ where: { guildId } });
 }
