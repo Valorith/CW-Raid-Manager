@@ -21,6 +21,7 @@ import {
   NPC_CONTENT_FLAGS
 } from '../services/npcRespawnService.js';
 import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
+import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
 import { prisma } from '../utils/prisma.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 
@@ -265,6 +266,13 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         notes: data.notes ?? null,
         isInstance: data.isInstance ?? false
       });
+
+      // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+      await resetRespawnNotification(
+        data.npcDefinitionId,
+        data.isInstance ?? false,
+        record.id
+      );
 
       // Check if NPC is a raid target and trigger webhook (unless explicitly disabled)
       const shouldTriggerWebhook = data.triggerWebhook !== false;
@@ -515,6 +523,13 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
       notes: 'Resolved from pending clarification',
       isInstance: parsedBody.data.isInstance
     });
+
+    // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+    await resetRespawnNotification(
+      parsedBody.data.npcDefinitionId,
+      parsedBody.data.isInstance,
+      record.id
+    );
 
     // Mark the clarification as resolved
     // If it has a raidId, soft-delete (set resolvedAt) so re-scanning won't recreate it

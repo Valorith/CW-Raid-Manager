@@ -3,6 +3,7 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { resetRespawnNotification } from './npcRespawnNotificationService.js';
 
 // Valid content flags for NPC definitions
 export const NPC_CONTENT_FLAGS = ['Christmas', 'Halloween'] as const;
@@ -608,7 +609,7 @@ export async function recordKillForTrackedNpc(
     // This is used for continuous monitoring where we don't want to interrupt with dialogs
     if (options?.autoRecordAsOverworld) {
       console.log('[recordKillForTrackedNpc] Auto-recording as overworld (hasInstanceVersion=true, autoRecordAsOverworld=true)');
-      await prisma.npcKillRecord.create({
+      const killRecord = await prisma.npcKillRecord.create({
         data: {
           guildId,
           npcDefinitionId: definition.id,
@@ -619,6 +620,8 @@ export async function recordKillForTrackedNpc(
           isInstance: false
         }
       });
+      // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+      await resetRespawnNotification(definition.id, false, killRecord.id);
       return { recorded: true, needsInstanceClarification: false };
     }
 
@@ -650,7 +653,7 @@ export async function recordKillForTrackedNpc(
   }
 
   // Create the kill record (default to overworld for NPCs without instance tracking)
-  await prisma.npcKillRecord.create({
+  const killRecord = await prisma.npcKillRecord.create({
     data: {
       guildId,
       npcDefinitionId: definition.id,
@@ -661,6 +664,9 @@ export async function recordKillForTrackedNpc(
       isInstance: false
     }
   });
+
+  // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+  await resetRespawnNotification(definition.id, false, killRecord.id);
 
   return { recorded: true, needsInstanceClarification: false };
 }

@@ -21,12 +21,14 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
   'application.submitted',
   'application.approved',
   'application.denied',
-  'bank.requested'
+  'bank.requested',
+  'respawn.windowOpen',
+  'respawn.up'
 ] as const;
 
 export type DiscordWebhookEvent = (typeof DISCORD_WEBHOOK_EVENT_KEYS)[number];
 
-export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK';
+export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK' | 'RESPAWN';
 
 export interface DiscordWebhookEventDefinition {
   key: DiscordWebhookEvent;
@@ -131,6 +133,18 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS: DiscordWebhookEventDefinition[] 
     label: 'Guild Bank Request',
     description: 'Triggered when a guild member requests items from the guild bank.',
     category: 'BANK'
+  },
+  {
+    key: 'respawn.windowOpen',
+    label: 'Respawn Window Open',
+    description: 'Triggered when a raid target enters its respawn window.',
+    category: 'RESPAWN'
+  },
+  {
+    key: 'respawn.up',
+    label: 'NPC Is Up',
+    description: 'Triggered when a raid target is past its max respawn time.',
+    category: 'RESPAWN'
   }
 ];
 
@@ -150,7 +164,9 @@ export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS: Record<DiscordWebhookEvent, bo
   'application.submitted': false,
   'application.approved': true,
   'application.denied': true,
-  'bank.requested': false
+  'bank.requested': false,
+  'respawn.windowOpen': false,
+  'respawn.up': false
 });
 
 export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean> = Object.freeze({
@@ -169,7 +185,9 @@ export const DEFAULT_MENTION_SUBSCRIPTIONS: Record<DiscordWebhookEvent, boolean>
   'application.submitted': false,
   'application.approved': false,
   'application.denied': false,
-  'bank.requested': false
+  'bank.requested': false,
+  'respawn.windowOpen': false,
+  'respawn.up': false
 });
 
 export interface GuildDiscordWebhookSettings {
@@ -488,6 +506,29 @@ type DiscordWebhookPayloadMap = {
       itemIconId: number | null;
       quantity: number;
       sources: Array<{ characterName: string; location: string; quantity: number }>;
+    }>;
+  };
+  'respawn.windowOpen': {
+    guildId: string;
+    guildName: string;
+    npcs: Array<{
+      npcName: string;
+      zoneName: string | null;
+      isInstance: boolean;
+      killedAt: Date | string;
+      windowOpenTime: Date | string;
+      windowCloseTime: Date | string | null;
+    }>;
+  };
+  'respawn.up': {
+    guildId: string;
+    guildName: string;
+    npcs: Array<{
+      npcName: string;
+      zoneName: string | null;
+      isInstance: boolean;
+      killedAt: Date | string;
+      upSinceTime: Date | string;
     }>;
   };
 };
@@ -1141,6 +1182,67 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
             title: `📦 Guild Bank Request — ${bankRequestPayload.requestedByName}`,
             description: `Items requested for **${bankRequestPayload.guildName}**:\n\n${bankDescription}${bankOverflowLine}`,
             color: DISCORD_COLORS.info,
+            timestamp: nowIso
+          }
+        ]
+      };
+    case 'respawn.windowOpen':
+      const windowOpenPayload = payload as DiscordWebhookPayloadMap['respawn.windowOpen'];
+      if (!windowOpenPayload.npcs || windowOpenPayload.npcs.length === 0) {
+        return null;
+      }
+      const windowOpenLines = windowOpenPayload.npcs.slice(0, 10).map((npc) => {
+        const instanceLabel = npc.isInstance ? ' (Instance)' : '';
+        const zoneLabel = npc.zoneName ? ` — ${npc.zoneName}` : '';
+        const windowCloseLabel = npc.windowCloseTime
+          ? ` to ${formatDiscordTimestamp(npc.windowCloseTime)}`
+          : '';
+        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Window: ${formatDiscordTimestamp(npc.windowOpenTime)}${windowCloseLabel}`;
+      });
+      if (windowOpenPayload.npcs.length > 10) {
+        const remaining = windowOpenPayload.npcs.length - 10;
+        windowOpenLines.push(`_…and ${remaining} more target${remaining === 1 ? '' : 's'}_`);
+      }
+      const respawnTrackerUrlWindow = buildRespawnTrackerUrl(windowOpenPayload.guildId);
+      if (respawnTrackerUrlWindow) {
+        windowOpenLines.push(`\n[View Respawn Tracker](${respawnTrackerUrlWindow})`);
+      }
+      return {
+        embeds: [
+          {
+            title: `⏰ Respawn Window Open`,
+            description: windowOpenLines.join('\n'),
+            color: DISCORD_COLORS.warning,
+            footer: { text: windowOpenPayload.guildName },
+            timestamp: nowIso
+          }
+        ]
+      };
+    case 'respawn.up':
+      const upPayload = payload as DiscordWebhookPayloadMap['respawn.up'];
+      if (!upPayload.npcs || upPayload.npcs.length === 0) {
+        return null;
+      }
+      const upLines = upPayload.npcs.slice(0, 10).map((npc) => {
+        const instanceLabel = npc.isInstance ? ' (Instance)' : '';
+        const zoneLabel = npc.zoneName ? ` — ${npc.zoneName}` : '';
+        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Up since: ${formatDiscordTimestamp(npc.upSinceTime)}`;
+      });
+      if (upPayload.npcs.length > 10) {
+        const remaining = upPayload.npcs.length - 10;
+        upLines.push(`_…and ${remaining} more target${remaining === 1 ? '' : 's'}_`);
+      }
+      const respawnTrackerUrlUp = buildRespawnTrackerUrl(upPayload.guildId);
+      if (respawnTrackerUrlUp) {
+        upLines.push(`\n[View Respawn Tracker](${respawnTrackerUrlUp})`);
+      }
+      return {
+        embeds: [
+          {
+            title: `🔔 Raid Target Is Up!`,
+            description: upLines.join('\n'),
+            color: DISCORD_COLORS.success,
+            footer: { text: upPayload.guildName },
             timestamp: nowIso
           }
         ]

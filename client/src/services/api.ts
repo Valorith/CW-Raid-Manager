@@ -637,7 +637,7 @@ export interface GuildMetricsQuery {
   endDate?: string;
 }
 
-export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK';
+export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK' | 'RESPAWN';
 
 export interface DiscordWebhookEventDefinition {
   key: string;

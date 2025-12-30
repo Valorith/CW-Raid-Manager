@@ -691,6 +691,7 @@ model NpcDefinition {
   killRecords         NpcKillRecord[]
   subscriptions       NpcRespawnSubscription[]
   pendingClarifications PendingNpcKillClarification[]
+  respawnNotifications NpcRespawnNotification[]
 
   @@unique([guildId, npcNameNormalized, zoneName], map: "NpcDefinition_guild_npc_zone_unique")
   @@index([guildId])
@@ -709,6 +710,7 @@ model NpcKillRecord {
   updatedAt       DateTime      @updatedAt
   guild           Guild         @relation(fields: [guildId], references: [id], onDelete: Cascade)
   npcDefinition   NpcDefinition @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
+  respawnNotifications NpcRespawnNotification[]
 
   @@index([guildId])
   @@index([npcDefinitionId])
@@ -728,6 +730,24 @@ model NpcRespawnSubscription {
 
   @@unique([npcDefinitionId, userId, isInstanceVariant], map: "NpcRespawnSubscription_npcDef_user_variant_key")
   @@index([userId])
+}
+
+// NPC Respawn Notification tracking - tracks which Discord notifications have been sent for current respawn cycle
+model NpcRespawnNotification {
+  id                String         @id @default(cuid())
+  npcDefinitionId   String
+  isInstanceVariant Boolean        @default(false)
+  lastKillRecordId  String?
+  windowNotifiedAt  DateTime?
+  upNotifiedAt      DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  npcDefinition     NpcDefinition  @relation(fields: [npcDefinitionId], references: [id], onDelete: Cascade)
+  lastKillRecord    NpcKillRecord? @relation(fields: [lastKillRecordId], references: [id], onDelete: SetNull)
+
+  @@unique([npcDefinitionId, isInstanceVariant], map: "NpcRespawnNotification_npcDef_variant_key")
+  @@index([npcDefinitionId])
+  @@index([lastKillRecordId])
 }
 
 // Pending NPC kill clarifications that need user input

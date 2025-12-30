@@ -288,10 +288,11 @@ const categoryLabels: Record<DiscordWebhookEventCategory, string> = {
   RAID: 'Raid Events',
   ATTENDANCE: 'Attendance',
   APPLICATION: 'Applications',
-  BANK: 'Guild Bank'
+  BANK: 'Guild Bank',
+  RESPAWN: 'Respawn Tracker'
 };
 
-const categoryOrder: DiscordWebhookEventCategory[] = ['RAID', 'ATTENDANCE', 'APPLICATION', 'BANK'];
+const categoryOrder: DiscordWebhookEventCategory[] = ['RAID', 'ATTENDANCE', 'APPLICATION', 'BANK', 'RESPAWN'];
 
 const mentionTargetConfigured = computed(() => {
   if (form.mentionTarget === 'ROLE') {
@@ -310,7 +311,7 @@ const groupedEvents = computed(() => {
       acc[bucket]?.push(definition);
       return acc;
     },
-    { RAID: [], ATTENDANCE: [], APPLICATION: [], BANK: [] }
+    { RAID: [], ATTENDANCE: [], APPLICATION: [], BANK: [], RESPAWN: [] }
   );
 
   return categoryOrder
