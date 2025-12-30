@@ -78,6 +78,7 @@ function calculateRespawnStatus(
  */
 export async function checkAndSendRespawnNotifications(): Promise<void> {
   const now = new Date();
+  logger.info(`Starting respawn notification check at ${now.toISOString()}`);
 
   // Find all guilds that have at least one webhook subscribed to respawn events
   const guildsWithRespawnWebhooks = await prisma.guild.findMany({
@@ -104,16 +105,22 @@ export async function checkAndSendRespawnNotifications(): Promise<void> {
     }
   });
 
+  logger.debug(`Found ${guildsWithRespawnWebhooks.length} guild(s) with enabled webhooks`);
+
   // Filter to guilds that actually have respawn event subscriptions
   const guildsToProcess = guildsWithRespawnWebhooks.filter((guild) => {
     return guild.discordWebhooks.some((webhook) => {
       const subs = webhook.eventSubscriptions as Record<string, boolean> | null;
-      return subs?.['respawn.windowOpen'] === true || subs?.['respawn.up'] === true;
+      const hasRespawnSubs = subs?.['respawn.windowOpen'] === true || subs?.['respawn.up'] === true;
+      if (hasRespawnSubs) {
+        logger.debug(`Guild ${guild.name} has respawn webhook subscriptions`);
+      }
+      return hasRespawnSubs;
     });
   });
 
   if (guildsToProcess.length === 0) {
-    logger.debug('No guilds with respawn webhook subscriptions found.');
+    logger.info('No guilds with respawn webhook subscriptions found. Make sure you have enabled "Respawn Window Open" or "NPC Is Up" events in your Discord webhook settings.');
     return;
   }
 
@@ -164,7 +171,10 @@ async function processGuildRespawnNotifications(
     }
   });
 
+  logger.debug(`Found ${npcDefinitions.length} raid target NPC(s) with respawn times for guild ${guildName}`);
+
   if (npcDefinitions.length === 0) {
+    logger.debug(`No raid target NPCs with respawn times configured for guild ${guildName}`);
     return;
   }
 
@@ -225,7 +235,10 @@ async function processGuildRespawnNotifications(
   // Filter to only NPCs with a kill record (we can't track respawn without knowing when it died)
   const npcsWithKills = npcsToCheck.filter((npc) => npc.killedAt !== null && npc.lastKillRecordId !== null);
 
+  logger.debug(`${npcsWithKills.length} NPC(s) have kill records to check`);
+
   if (npcsWithKills.length === 0) {
+    logger.debug('No NPCs with kill records to process');
     return;
   }
 
@@ -257,20 +270,27 @@ async function processGuildRespawnNotifications(
     // Check if this is a new kill cycle (different kill record than what we tracked)
     const isNewKillCycle = existing?.lastKillRecordId !== npc.lastKillRecordId;
 
+    logger.debug(`NPC ${npc.npcName}: status=${status.respawnStatus}, killedAt=${npc.killedAt?.toISOString()}, minTime=${status.respawnMinTime?.toISOString()}, maxTime=${status.respawnMaxTime?.toISOString()}, now=${now.toISOString()}`);
+    logger.debug(`NPC ${npc.npcName}: isNewKillCycle=${isNewKillCycle}, hasExisting=${!!existing}, existingWindowNotified=${!!existing?.windowNotifiedAt}, existingUpNotified=${!!existing?.upNotifiedAt}`);
+
     if (status.respawnStatus === 'window') {
       // Check if we should send window notification
       const shouldNotify = !existing || isNewKillCycle || !existing.windowNotifiedAt;
+      logger.debug(`NPC ${npc.npcName}: window status - shouldNotify=${shouldNotify}`);
       if (shouldNotify) {
         windowOpenNpcs.push(npc);
       }
     } else if (status.respawnStatus === 'up') {
       // Check if we should send up notification
       const shouldNotify = !existing || isNewKillCycle || !existing.upNotifiedAt;
+      logger.debug(`NPC ${npc.npcName}: up status - shouldNotify=${shouldNotify}`);
       if (shouldNotify) {
         upNpcs.push(npc);
       }
     }
   }
+
+  logger.debug(`NPCs to notify: windowOpen=${windowOpenNpcs.length}, up=${upNpcs.length}`);
 
   // Send window open notifications
   if (windowOpenNpcs.length > 0) {
