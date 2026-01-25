@@ -178,9 +178,128 @@ export async function updateUserByAdmin(
   };
 }
 
-export async function deleteUserByAdmin(userId: string) {
-  await prisma.user.delete({
-    where: { id: userId }
+export async function deleteUserByAdmin(userId: string, performedById: string) {
+  if (userId === performedById) {
+    throw new Error('You cannot delete your own account.');
+  }
+
+  const [targetUser, performedBy] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true }
+    }),
+    prisma.user.findUnique({
+      where: { id: performedById },
+      select: { id: true }
+    })
+  ]);
+
+  if (!targetUser) {
+    throw new Error('User not found.');
+  }
+
+  if (!performedBy) {
+    throw new Error('Admin user not found.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.guild.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.raidEvent.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.attendanceEvent.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.raidEventSeries.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.questBlueprint.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.questBlueprintFolder.updateMany({
+      where: { createdById: userId },
+      data: { createdById: performedById }
+    });
+
+    await tx.guildLootListEntry.updateMany({
+      where: { createdById: userId },
+      data: { createdById: null }
+    });
+
+    await tx.raidLootEvent.updateMany({
+      where: { createdById: userId },
+      data: { createdById: null }
+    });
+
+    await tx.guildMembership.deleteMany({
+      where: { userId }
+    });
+
+    await tx.guildApplication.deleteMany({
+      where: { userId }
+    });
+
+    await tx.raidSignup.deleteMany({
+      where: { userId }
+    });
+
+    await tx.questAssignment.deleteMany({
+      where: { userId }
+    });
+
+    const characters = await tx.character.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+
+    const characterIds = characters.map((character) => character.id);
+    if (characterIds.length > 0) {
+      await tx.attendanceRecord.updateMany({
+        where: { characterId: { in: characterIds } },
+        data: { characterId: null }
+      });
+
+      await tx.questAssignment.updateMany({
+        where: { characterId: { in: characterIds } },
+        data: { characterId: null }
+      });
+
+      await tx.character.deleteMany({
+        where: { id: { in: characterIds } }
+      });
+    }
+
+    await tx.calendarAvailability.deleteMany({
+      where: { userId }
+    });
+
+    await tx.npcFavorite.deleteMany({
+      where: { userId }
+    });
+
+    await tx.npcRespawnSubscription.deleteMany({
+      where: { userId }
+    });
+
+    await tx.guildBankCharacter.deleteMany({
+      where: { userId }
+    });
+
+    await tx.user.delete({
+      where: { id: userId }
+    });
   });
 }
 

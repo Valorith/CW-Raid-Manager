@@ -591,6 +591,76 @@
       <button class="btn btn--outline" type="button" @click="reloadMetrics">Refresh</button>
     </div>
 
+    <div v-if="showMemberAttendanceModal" class="modal-backdrop">
+      <div class="modal metrics-modal">
+        <header class="modal__header">
+          <div>
+            <h2>{{ selectedMemberAttendanceLabel ?? 'Member Attendance' }}</h2>
+            <p class="muted small">Characters linked to this member in the current range.</p>
+          </div>
+          <button
+            type="button"
+            class="icon-button"
+            aria-label="Close member attendance details"
+            @click="closeMemberAttendanceModal"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <p v-if="selectedMemberCharacterDetails.length > 0" class="muted small">
+            Showing {{ selectedMemberCharacterDetails.length }} character<span
+              v-if="selectedMemberCharacterDetails.length !== 1"
+            >s</span>.
+          </p>
+          <div v-if="selectedMemberCharacterDetails.length > 0" class="metrics-modal__table-wrapper">
+            <table class="metrics-modal-table">
+              <thead>
+                <tr>
+                  <th scope="col">Character</th>
+                  <th scope="col">Class</th>
+                  <th scope="col">Participation %</th>
+                  <th scope="col">Present</th>
+                  <th scope="col">Late</th>
+                  <th scope="col">Left Early</th>
+                  <th scope="col">Absent</th>
+                  <th scope="col">Raids</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="entry in selectedMemberCharacterDetails" :key="entry.key">
+                  <td class="metrics-modal-table__character">
+                    <span
+                      class="clickable"
+                      role="button"
+                      tabindex="0"
+                      @click.stop="openInventory(entry.name, guildId)"
+                      @keydown.enter.stop="openInventory(entry.name, guildId)"
+                    >
+                      {{ entry.name }}
+                    </span>
+                  </td>
+                  <td>{{ resolveClassLabel(entry.class) ?? 'Unknown' }}</td>
+                  <td>{{ entry.participationPercent.toFixed(1) }}%</td>
+                  <td>{{ formatNumber(entry.presentEvents) }}</td>
+                  <td>{{ formatNumber(entry.lateRaids) }}</td>
+                  <td>{{ formatNumber(entry.leftEarlyRaids) }}</td>
+                  <td>{{ formatNumber(entry.absentRaids) }}</td>
+                  <td>{{ formatNumber(entry.totalRaids) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="muted small">No attendance data for this member within the current filters.</p>
+        </div>
+        <footer class="modal__footer">
+          <button type="button" class="btn btn--outline btn--small" @click="closeMemberAttendanceModal">
+            Close
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <div v-if="showUnknownMemberModal" class="modal-backdrop">
       <div class="modal metrics-modal">
         <header class="modal__header">
@@ -995,6 +1065,8 @@ const ignoreNextSearchQueryReset = ref(false);
 const globalSummary = ref<GuildMetricsSummary | null>(null);
 const globalTimeline = ref<{ minMs: number; markers: Map<string, TimelineMarker> } | null>(null);
 const maximizedCard = ref<MaximizableCard | null>(null);
+const showMemberAttendanceModal = ref(false);
+const selectedMemberAttendanceKey = ref<string | null>(null);
 const showUnknownMemberModal = ref(false);
 const assigningUnknownCharacterKey = ref<string | null>(null);
 const unknownAssignment = reactive<{ memberUserId: string }>({
@@ -1242,6 +1314,7 @@ const UNKNOWN_MEMBER_AGGREGATE_KEY = 'unknown';
 const UNKNOWN_MEMBER_ENTITY_KEY = 'member:unknown';
 const UNKNOWN_MEMBER_BAR_COLOR = '#991b1b';
 const UNKNOWN_MEMBER_BAR_BORDER = '#7f1d1d';
+const MISSING_MAIN_ICON = '⚠';
 
 const lastSubmittedQuery = ref<GuildMetricsQuery | undefined>(undefined);
 
@@ -1951,6 +2024,29 @@ function formatEntityLabel(
   }
 
   return includeMemberSuffix ? `${base}` : base;
+}
+
+function formatMemberAttendanceLabel(
+  option: MetricsEntityOption | undefined,
+  identity: EntityIdentity
+): string {
+  const base = formatEntityLabel(
+    option,
+    {
+      primaryName: identity.primaryName,
+      characterNames: identity.characterNames,
+      userDisplayName: identity.userDisplayName,
+      userId: identity.userId
+    },
+    false,
+    true
+  );
+
+  if (!option || option.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+    return base;
+  }
+
+  return option.isMain ? base : `${base} ${MISSING_MAIN_ICON}`;
 }
 
 function normalizeClassValue(value?: string | null): string | null {
@@ -2684,6 +2780,27 @@ function aggregateCharacterAttendanceForIdentity(
     normalizedNames.add(identity.normalizedPrimaryName.toLowerCase());
   }
 
+  const mainStatusByName = new Map<string, boolean>();
+  let hasMainCharacter = false;
+  if (identity.mode === 'member') {
+    for (const normalizedName of normalizedNames) {
+      const characterIdentity = resolveCharacterIdentityByNormalizedName(normalizedName);
+      if (!characterIdentity) {
+        continue;
+      }
+      const optionMatch =
+        characterEntityOptionLookup.value.get(characterIdentity.key) ??
+        (characterIdentity.normalizedPrimaryName
+          ? characterEntityOptionLookup.value.get(`name:${characterIdentity.normalizedPrimaryName}`)
+          : undefined);
+      const isMain = Boolean(optionMatch?.isMain);
+      mainStatusByName.set(normalizedName, isMain);
+      if (isMain) {
+        hasMainCharacter = true;
+      }
+    }
+  }
+
   let presentEvents = 0;
   let totalAttendanceEvents = 0;
   let lateRaids = 0;
@@ -2693,6 +2810,7 @@ function aggregateCharacterAttendanceForIdentity(
   for (const raidId of raidIds) {
     const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
     let raidHasPresence = false;
+    let raidHasMainPresence = false;
     let raidLate = false;
     let raidLeftEarly = false;
 
@@ -2708,22 +2826,31 @@ function aggregateCharacterAttendanceForIdentity(
       if (!snapshot || !snapshot.hasPresence) {
         continue;
       }
+      const isMainCharacter =
+        identity.mode === 'member' ? mainStatusByName.get(normalizedName) ?? false : true;
       raidHasPresence = true;
+      if (isMainCharacter) {
+        raidHasMainPresence = true;
+      }
       presentEvents += snapshot.presentEventIndices.size;
       totalAttendanceEvents += snapshot.totalEvents;
-      if (snapshot.wasLate) {
+      if (snapshot.wasLate && (identity.mode !== 'member' || isMainCharacter)) {
         raidLate = true;
       }
-      if (snapshot.leftEarly) {
+      if (snapshot.leftEarly && (identity.mode !== 'member' || isMainCharacter)) {
         raidLeftEarly = true;
       }
     }
 
     if (!raidHasPresence) {
-      if (!skipAbsent && raidEventCount > 0) {
+      if (!skipAbsent && raidEventCount > 0 && (identity.mode !== 'member' || hasMainCharacter)) {
         absentRaids += 1;
         totalAttendanceEvents += raidEventCount;
       }
+      continue;
+    }
+
+    if (identity.mode === 'member' && !raidHasMainPresence) {
       continue;
     }
 
@@ -2905,6 +3032,7 @@ interface AttendanceCharacterSummary {
   totalAttendanceEvents: number;
   totalRaids: number;
   userDisplayName: string | null;
+  missingMain: boolean;
 }
 
 interface LootParticipantSummary {
@@ -3553,17 +3681,20 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
       if (!initialClass && record.character.class && mode !== 'member') {
         initialClass = record.character.class;
       }
-      const displayName = formatEntityLabel(
-        option,
-        {
-          primaryName: identity.primaryName,
-          characterNames: identity.characterNames,
-          userDisplayName: identity.userDisplayName,
-          userId: identity.userId ?? null
-        },
-        false,
+      const displayName =
         mode === 'member'
-      );
+          ? formatMemberAttendanceLabel(option, identity)
+          : formatEntityLabel(
+              option,
+              {
+                primaryName: identity.primaryName,
+                characterNames: identity.characterNames,
+                userDisplayName: identity.userDisplayName,
+                userId: identity.userId ?? null
+              },
+              false,
+              false
+            );
       entry = {
         key,
         name: displayName,
@@ -3576,6 +3707,10 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
         totalAttendanceEvents: 0,
         totalRaids: 0,
         userDisplayName: option?.userDisplayName ?? identity.userDisplayName,
+        missingMain:
+          mode === 'member'
+            ? Boolean(option && option.key !== UNKNOWN_MEMBER_ENTITY_KEY && !option.isMain)
+            : false,
         identity,
         presentEventSet: new Set<string>()
       };
@@ -3584,20 +3719,28 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
 
     const optionForUpdate = entityMap.get(key);
     if (optionForUpdate) {
-      entry.name = formatEntityLabel(
-        optionForUpdate,
-        {
-          primaryName: identity.primaryName,
-          characterNames: identity.characterNames,
-          userDisplayName: identity.userDisplayName,
-          userId: identity.userId ?? null
-        },
-        false,
+      entry.name =
         mode === 'member'
-      );
+          ? formatMemberAttendanceLabel(optionForUpdate, identity)
+          : formatEntityLabel(
+              optionForUpdate,
+              {
+                primaryName: identity.primaryName,
+                characterNames: identity.characterNames,
+                userDisplayName: identity.userDisplayName,
+                userId: identity.userId ?? null
+              },
+              false,
+              false
+            );
     }
     if (mode === 'member' && optionForUpdate && optionForUpdate.classes.length === 1) {
       entry.class = optionForUpdate.classes[0];
+    }
+    if (mode === 'member') {
+      entry.missingMain = Boolean(
+        optionForUpdate && optionForUpdate.key !== UNKNOWN_MEMBER_ENTITY_KEY && !optionForUpdate.isMain
+      );
     }
     if (!entry.class && record.character.class && mode !== 'member') {
       entry.class = record.character.class;
@@ -3774,7 +3917,8 @@ const unknownMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(() 
       absentRaids: aggregated.absentRaids,
       totalAttendanceEvents: totalAttendanceEventsValue,
       totalRaids: raidIds.length,
-      userDisplayName: identity.userDisplayName
+      userDisplayName: identity.userDisplayName,
+      missingMain: false
     });
   }
 
@@ -3875,13 +4019,17 @@ const attendanceByCharacterChartOptions = computed(() => {
         return;
       }
       const entry = topAttendanceCharacters.value[element.index];
-      if (!entry || entry.key !== UNKNOWN_MEMBER_ENTITY_KEY) {
+      if (!entry) {
         return;
       }
-      if (unknownMemberCharacterDetails.value.length === 0) {
+      if (entry.key === UNKNOWN_MEMBER_ENTITY_KEY) {
+        if (unknownMemberCharacterDetails.value.length === 0) {
+          return;
+        }
+        openUnknownMemberModal();
         return;
       }
-      openUnknownMemberModal();
+      openMemberAttendanceModal(entry);
     },
     plugins: {
       legend: { display: false },
@@ -3896,7 +4044,7 @@ const attendanceByCharacterChartOptions = computed(() => {
             if (!entry) {
               return `${value.toFixed(1)}% participation`;
             }
-            return [
+            const rows = [
               `Participation: ${value.toFixed(1)}%`,
               `Present Events: ${entry.presentEvents}`,
               `Late Raids: ${entry.lateRaids}`,
@@ -3904,6 +4052,10 @@ const attendanceByCharacterChartOptions = computed(() => {
               `Absent Raids: ${entry.absentRaids}`,
               `Raids Considered: ${entry.totalRaids}`
             ];
+            if (entry.missingMain) {
+              rows.push('⚠ No main assigned');
+            }
+            return rows;
           }
         }
       }
@@ -3916,6 +4068,127 @@ const attendanceByCharacterHasData = computed(
     attendanceByCharacterChartData.value.datasets[0]?.data?.length &&
     attendanceByCharacterChartData.value.datasets[0].data.some((value) => Number(value) > 0)
 );
+
+const selectedMemberAttendanceLabel = computed(() => {
+  const key = selectedMemberAttendanceKey.value;
+  if (!key) {
+    return null;
+  }
+  const entry = attendanceByCharacterSummaries.value.find((summary) => summary.key === key);
+  if (entry?.name) {
+    return entry.name;
+  }
+  const option = memberEntityOptionLookup.value.get(key);
+  return option?.label ?? null;
+});
+
+const selectedMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(() => {
+  if (!isMemberMode.value) {
+    return [];
+  }
+  const selectedKey = selectedMemberAttendanceKey.value;
+  if (!selectedKey) {
+    return [];
+  }
+  const option = memberEntityOptionLookup.value.get(selectedKey);
+  if (!option) {
+    return [];
+  }
+
+  const identityMap = new Map<string, EntityIdentity>();
+
+  for (const characterId of option.characterIds) {
+    const identity = resolveEntityIdentity(`id:${characterId}`);
+    if (identity && identity.mode === 'character') {
+      identityMap.set(identity.key, identity);
+    }
+  }
+
+  for (const normalized of option.normalizedCharacterNames) {
+    if (!normalized) {
+      continue;
+    }
+    const identity = resolveCharacterIdentityByNormalizedName(normalized);
+    if (identity && identity.mode === 'character') {
+      identityMap.set(identity.key, identity);
+    }
+  }
+
+  for (const record of filteredAttendanceRecords.value) {
+    const memberIdentity = identityFromRecord(record, 'member');
+    if (memberIdentity.key !== selectedKey) {
+      continue;
+    }
+    const characterIdentity = identityFromRecord(record, 'character');
+    identityMap.set(characterIdentity.key, characterIdentity);
+  }
+
+  if (identityMap.size === 0) {
+    return [];
+  }
+
+  const raidIds = Array.from(filteredRaidIds.value);
+  const summaries: AttendanceCharacterSummary[] = [];
+
+  for (const identity of identityMap.values()) {
+    const aggregated = aggregateCharacterAttendanceForIdentity(identity, raidIds);
+    const totalAttendanceEventsValue =
+      aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
+    if (aggregated.presentEvents === 0 && totalAttendanceEventsValue === 0) {
+      continue;
+    }
+    const denominator = totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
+    const participationPercent = denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
+
+    const optionMatch =
+      characterEntityOptionLookup.value.get(identity.key) ??
+      (identity.normalizedPrimaryName
+        ? characterEntityOptionLookup.value.get(`name:${identity.normalizedPrimaryName}`)
+        : undefined);
+
+    let classValue = optionMatch?.class ?? null;
+    if (!classValue) {
+      const recordWithClass = filteredAttendanceRecords.value.find((entry) => {
+        if (!entry.character.class) {
+          return false;
+        }
+        const entryIdentity = identityFromRecord(entry, 'character');
+        return entryIdentity.key === identity.key;
+      });
+      if (recordWithClass?.character.class) {
+        classValue = normalizeCharacterClass(recordWithClass.character.class);
+      }
+    }
+
+    const nameLabel = optionMatch?.label ?? identity.primaryName;
+
+    summaries.push({
+      key: identity.key,
+      name: nameLabel,
+      class: classValue,
+      participationPercent,
+      presentEvents: aggregated.presentEvents,
+      lateRaids: aggregated.lateRaids,
+      leftEarlyRaids: aggregated.leftEarlyRaids,
+      absentRaids: aggregated.absentRaids,
+      totalAttendanceEvents: totalAttendanceEventsValue,
+      totalRaids: raidIds.length,
+      userDisplayName: identity.userDisplayName,
+      missingMain: false
+    });
+  }
+
+  return summaries.sort((a, b) => {
+    const diff = attendanceRateValue(b) - attendanceRateValue(a);
+    if (diff !== 0) {
+      return diff;
+    }
+    if (b.presentEvents !== a.presentEvents) {
+      return b.presentEvents - a.presentEvents;
+    }
+    return a.name.localeCompare(b.name);
+  });
+});
 
 const canAssignUnknownCharacters = computed(() => {
   const role = guildPermissions.value?.userRole ?? null;
@@ -3939,8 +4212,16 @@ const shouldShowUnknownMemberHint = computed(() => {
 
 watch(isMemberMode, (value) => {
   if (!value) {
+    showMemberAttendanceModal.value = false;
+    selectedMemberAttendanceKey.value = null;
     showUnknownMemberModal.value = false;
     resetUnknownAssignmentState();
+  }
+});
+
+watch(showMemberAttendanceModal, (visible) => {
+  if (!visible) {
+    selectedMemberAttendanceKey.value = null;
   }
 });
 
@@ -3989,6 +4270,19 @@ function openUnknownMemberModal() {
 function closeUnknownMemberModal() {
   resetUnknownAssignmentState();
   showUnknownMemberModal.value = false;
+}
+
+function openMemberAttendanceModal(entry: AttendanceCharacterSummary) {
+  if (!entry) {
+    return;
+  }
+  selectedMemberAttendanceKey.value = entry.key;
+  showMemberAttendanceModal.value = true;
+}
+
+function closeMemberAttendanceModal() {
+  showMemberAttendanceModal.value = false;
+  selectedMemberAttendanceKey.value = null;
 }
 
 function resetUnknownAssignmentState() {

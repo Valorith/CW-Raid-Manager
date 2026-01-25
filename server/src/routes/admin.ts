@@ -141,10 +141,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const { userId } = paramsSchema.parse(request.params);
 
       try {
-        await deleteUserByAdmin(userId);
+        await deleteUserByAdmin(userId, request.user.userId);
         return reply.code(204).send();
       } catch (error) {
         request.log.error({ error }, 'Failed to delete user.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
         return reply.badRequest('Unable to delete user.');
       }
     }
