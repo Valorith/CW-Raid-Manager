@@ -63,6 +63,7 @@ import {
   bulkMessageAction
 } from '../services/inboundWebhookService.js';
 import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
+import { inspectCrashReport } from '../services/geminiCrashReviewService.js';
 import {
   getCharacterByName,
   getCharacterById,
@@ -2242,6 +2243,37 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to merge messages.');
+      }
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Crash Report Inspector
+  // ============================================================================
+
+  server.post(
+    '/webhook-inbox/inspect-crash-report',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        crashReportText: z.string().min(10).max(500000)
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid request. Crash report text is required.');
+      }
+
+      try {
+        const result = await inspectCrashReport(parsed.data.crashReportText);
+        return reply.send(result);
+      } catch (error) {
+        request.log.error({ error }, 'Failed to inspect crash report.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to inspect crash report.');
       }
     }
   );

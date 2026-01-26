@@ -1099,3 +1099,173 @@ function buildFallbackFindings(reason: string, preview: string): CrashReviewFind
     rawModelNotes: `${reason} Raw response preview: ${sanitizedPreview}`
   };
 }
+
+// ============================================================================
+// Crash Report Inspector - Highlight notable sections
+// ============================================================================
+
+export type CrashHighlight = {
+  text: string;
+  comment: string;
+  severity: 'critical' | 'important' | 'info';
+  category: string;
+};
+
+export type CrashInspectionResult = {
+  highlights: Array<CrashHighlight & { startIndex: number; endIndex: number }>;
+  summary: string;
+  errorType: 'native_crash' | 'script_error' | 'unknown';
+};
+
+const INSPECTOR_PROMPT = `You are a crash report analysis expert for an EverQuest emulator server (zone.exe, world.exe, eqgame.exe).
+
+Analyze the crash report and identify SPECIFIC, NARROW sections that are notable for debugging. Return highlights that are as small and precise as possible - individual values, function names, addresses, or short phrases rather than entire lines or blocks.
+
+For each highlight, provide:
+- "text": The EXACT text from the report to highlight (must match exactly, case-sensitive)
+- "comment": A brief explanation of why this is notable (1-2 sentences max)
+- "severity": "critical" (root cause indicators), "important" (significant clues), or "info" (useful context)
+- "category": One of: "exception", "address", "module", "function", "stack_frame", "error_message", "script", "variable", "path", "other"
+
+RULES:
+1. Each "text" field MUST be an exact substring that appears in the crash report
+2. Keep highlights SHORT - prefer "EXCEPTION_ACCESS_VIOLATION" over the entire exception line
+3. Highlight specific memory addresses like "0x00007FF..."
+4. Highlight specific function names, module names, and file paths
+5. For stack traces, highlight individual notable frames, not the entire trace
+6. Aim for 5-15 highlights total, focusing on the most diagnostic information
+7. Do NOT highlight common boilerplate text or headers
+
+Return ONLY valid JSON in this exact format:
+{
+  "summary": "One sentence describing the crash type and likely cause",
+  "errorType": "native_crash" or "script_error" or "unknown",
+  "highlights": [
+    {"text": "exact text to highlight", "comment": "why this matters", "severity": "critical", "category": "exception"},
+    ...
+  ]
+}
+
+Crash report to analyze:
+`;
+
+export async function inspectCrashReport(crashReportText: string): Promise<CrashInspectionResult> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const trimmedInput = crashReportText.length > MAX_INPUT_CHARS
+    ? crashReportText.slice(0, MAX_INPUT_CHARS) + '\n...<truncated>'
+    : crashReportText;
+
+  const prompt = INSPECTOR_PROMPT + trimmedInput;
+
+  const response = await ai.models.generateContent({
+    model: MODEL_NAME,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      maxOutputTokens: 8192,
+      temperature: 0.1
+    }
+  });
+
+  const responseText = response.text ?? '';
+
+  // Extract JSON from response
+  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Failed to parse inspection response - no JSON found');
+  }
+
+  let parsed: { summary?: string; errorType?: string; highlights?: unknown[] };
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error('Failed to parse inspection response - invalid JSON');
+  }
+
+  const highlights: CrashInspectionResult['highlights'] = [];
+
+  if (Array.isArray(parsed.highlights)) {
+    for (const h of parsed.highlights) {
+      if (!h || typeof h !== 'object') continue;
+      const rawText = typeof h.text === 'string' ? h.text : '';
+      const comment = typeof h.comment === 'string' ? h.comment : '';
+      const severity = ['critical', 'important', 'info'].includes(h.severity) ? h.severity : 'info';
+      const category = typeof h.category === 'string' ? h.category : 'other';
+
+      if (!rawText || rawText.length < 2) continue;
+
+      // Try multiple matching strategies
+      let startIndex = -1;
+      let matchedText = rawText;
+
+      // Strategy 1: Exact match
+      startIndex = crashReportText.indexOf(rawText);
+      if (startIndex !== -1) {
+        matchedText = rawText;
+      }
+
+      // Strategy 2: Trimmed match
+      if (startIndex === -1) {
+        const trimmed = rawText.trim();
+        if (trimmed.length >= 2) {
+          startIndex = crashReportText.indexOf(trimmed);
+          if (startIndex !== -1) {
+            matchedText = trimmed;
+          }
+        }
+      }
+
+      // Strategy 3: Case-insensitive match
+      if (startIndex === -1) {
+        const lowerReport = crashReportText.toLowerCase();
+        const lowerText = rawText.toLowerCase().trim();
+        if (lowerText.length >= 2) {
+          const lowerIndex = lowerReport.indexOf(lowerText);
+          if (lowerIndex !== -1) {
+            startIndex = lowerIndex;
+            // Use the actual text from the crash report to preserve case
+            matchedText = crashReportText.slice(lowerIndex, lowerIndex + lowerText.length);
+          }
+        }
+      }
+
+      // Add highlight if found
+      if (startIndex !== -1 && startIndex < crashReportText.length) {
+        highlights.push({
+          text: matchedText,
+          comment,
+          severity: severity as 'critical' | 'important' | 'info',
+          category,
+          startIndex,
+          endIndex: startIndex + matchedText.length
+        });
+      }
+    }
+  }
+
+  // Sort highlights by position
+  highlights.sort((a, b) => a.startIndex - b.startIndex);
+
+  // Remove overlapping highlights (keep the first/higher priority one)
+  const filteredHighlights: typeof highlights = [];
+  for (const h of highlights) {
+    const overlaps = filteredHighlights.some(
+      (existing) => h.startIndex < existing.endIndex && h.endIndex > existing.startIndex
+    );
+    if (!overlaps) {
+      filteredHighlights.push(h);
+    }
+  }
+
+  return {
+    summary: typeof parsed.summary === 'string' ? parsed.summary : 'Crash report inspection complete.',
+    errorType: parsed.errorType === 'native_crash' || parsed.errorType === 'script_error'
+      ? parsed.errorType
+      : 'unknown',
+    highlights: filteredHighlights
+  };
+}

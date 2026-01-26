@@ -888,6 +888,14 @@
                 <button class="btn btn--outline btn--small" type="button" @click="copyReport">
                   Copy Report
                 </button>
+                <button
+                  class="btn btn--accent btn--small"
+                  type="button"
+                  @click="openCrashInspector"
+                  :disabled="!getCrashReportText(selectedMessage)"
+                >
+                  <span class="ai-icon" aria-hidden="true">✦</span> Inspect Report
+                </button>
               </div>
             </section>
 
@@ -1280,6 +1288,134 @@
         </div>
       </div>
     </div>
+
+    <!-- Crash Report Inspector Modal -->
+    <div v-if="showCrashInspector" class="modal-backdrop" @click.self="closeCrashInspector">
+      <div class="modal modal--wide modal--inspector" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <div class="modal__titles">
+            <h3><span class="ai-icon" aria-hidden="true">✦</span> Crash Report Inspector</h3>
+            <p v-if="inspectorResult" class="muted small">{{ inspectorResult.summary }}</p>
+            <p v-else-if="inspectorLoading" class="muted small">Analyzing crash report...</p>
+            <p v-else class="muted small">Click "Inspect with AI" to analyze the crash report</p>
+          </div>
+          <button class="icon-button" @click="closeCrashInspector" aria-label="Close">
+            ✕
+          </button>
+        </header>
+
+        <div class="modal__body inspector-body">
+          <!-- Loading state -->
+          <div v-if="inspectorLoading" class="inspector-loading">
+            <div class="ai-loading-animation">
+              <div class="ai-loading-rings">
+                <div class="ai-ring ai-ring--outer"></div>
+                <div class="ai-ring ai-ring--middle"></div>
+                <div class="ai-ring ai-ring--inner"></div>
+              </div>
+              <span class="ai-loading-icon">✦</span>
+            </div>
+            <div class="ai-loading-text">
+              <p class="ai-loading-title">Analyzing Crash Report</p>
+              <p class="ai-loading-subtitle">AI is identifying notable sections and potential issues...</p>
+            </div>
+            <div class="ai-loading-dots">
+              <span class="ai-dot"></span>
+              <span class="ai-dot"></span>
+              <span class="ai-dot"></span>
+            </div>
+          </div>
+
+          <!-- Error state -->
+          <div v-else-if="inspectorError" class="inspector-error">
+            <p class="error-text">{{ inspectorError }}</p>
+            <button class="btn btn--outline" type="button" @click="runCrashInspection">
+              Retry
+            </button>
+          </div>
+
+          <!-- Results state -->
+          <div v-else-if="inspectorResult" class="inspector-content">
+            <div class="inspector-legend">
+              <span class="legend-item">
+                <span class="highlight-sample highlight--critical"></span> Critical
+              </span>
+              <span class="legend-item">
+                <span class="highlight-sample highlight--important"></span> Important
+              </span>
+              <span class="legend-item">
+                <span class="highlight-sample highlight--info"></span> Info
+              </span>
+              <span class="legend-count">{{ inspectorResult.highlights.length }} highlights found</span>
+            </div>
+
+            <!-- Debug: Show highlight positions if none are rendering -->
+            <details v-if="inspectorResult.highlights.length > 0" class="inspector-debug">
+              <summary class="muted small">Debug: Highlight positions ({{ inspectorResult.highlights.length }} items)</summary>
+              <ul class="debug-list">
+                <li v-for="(h, idx) in inspectorResult.highlights" :key="idx" class="debug-item">
+                  <strong>{{ h.severity }}:</strong> "{{ h.text.slice(0, 50) }}{{ h.text.length > 50 ? '...' : '' }}"
+                  <span class="muted">[{{ h.startIndex }}-{{ h.endIndex }}]</span>
+                </li>
+              </ul>
+              <p class="muted small" style="margin-top: 0.5rem;">
+                HTML contains spans: {{ highlightedReportHtml.includes('inspector-highlight') ? 'YES' : 'NO' }}
+                | Crash text length: {{ inspectorCrashText.length }}
+              </p>
+              <details style="margin-top: 0.5rem;">
+                <summary class="muted small">Raw HTML preview (first 500 chars)</summary>
+                <pre style="font-size: 0.65rem; max-height: 100px; overflow: auto; background: #000; padding: 0.5rem;">{{ highlightedReportHtml.slice(0, 500) }}</pre>
+              </details>
+            </details>
+
+            <pre
+              ref="inspectorReportRef"
+              class="inspector-report"
+              v-html="highlightedReportHtml"
+              @mouseover="handleHighlightHover"
+              @mouseout="handleHighlightLeave"
+            ></pre>
+          </div>
+
+          <!-- Initial state - show raw crash report -->
+          <div v-else class="inspector-content">
+            <pre class="inspector-report">{{ inspectorCrashText }}</pre>
+          </div>
+        </div>
+
+        <!-- Tooltip element (outside scroll container to avoid clipping) -->
+        <div
+          v-if="inspectorTooltip.visible"
+          class="inspector-tooltip"
+          :class="`tooltip--${inspectorTooltip.severity}`"
+          :style="{ left: inspectorTooltip.x + 'px', top: inspectorTooltip.y + 'px' }"
+        >
+          <span class="tooltip-category">[{{ inspectorTooltip.category }}]</span>
+          {{ inspectorTooltip.text }}
+        </div>
+
+        <footer class="modal__footer modal__footer--centered">
+          <button
+            v-if="!inspectorResult && !inspectorLoading"
+            class="btn btn--accent"
+            type="button"
+            @click="runCrashInspection"
+            :disabled="inspectorLoading"
+          >
+            <span class="ai-icon" aria-hidden="true">✦</span> Inspect with AI
+          </button>
+          <button
+            v-if="inspectorResult"
+            class="btn btn--accent"
+            type="button"
+            @click="runCrashInspection"
+            :disabled="inspectorLoading"
+          >
+            <span class="ai-icon" aria-hidden="true">✦</span> Re-analyze
+          </button>
+        </footer>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -1294,7 +1430,9 @@ import {
   type InboundWebhookMessageStatus,
   type InboundWebhookRetentionPolicy,
   type AdminUserSummary,
-  type WebhookMessageLabel
+  type WebhookMessageLabel,
+  type CrashInspectionResult,
+  type CrashHighlight
 } from '../services/api';
 import { useToastBus } from '../components/ToastBus';
 
@@ -1354,6 +1492,24 @@ const unreadCount = ref(0);
 const bulkActionInProgress = ref(false);
 const labelToEdit = ref<WebhookMessageLabel | null>(null);
 const newLabelForm = reactive({ name: '', color: '#4a90d9' });
+
+// Crash Report Inspector
+const showCrashInspector = ref(false);
+const inspectorLoading = ref(false);
+const inspectorError = ref<string | null>(null);
+const inspectorResult = ref<CrashInspectionResult | null>(null);
+const inspectorCrashText = ref('');
+
+// Inspector tooltip (positioned via JS to escape overflow clipping)
+const inspectorTooltip = reactive({
+  visible: false,
+  text: '',
+  category: '',
+  severity: '',
+  x: 0,
+  y: 0
+});
+const inspectorReportRef = ref<HTMLElement | null>(null);
 
 const createForm = reactive({
   label: '',
@@ -2982,6 +3138,146 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleGlobalClick);
 });
 
+// ============================================================================
+// Crash Report Inspector
+// ============================================================================
+
+function openCrashInspector() {
+  if (!selectedMessage.value) return;
+  const crashText = getCrashReportText(selectedMessage.value);
+  if (!crashText) return;
+
+  inspectorCrashText.value = crashText;
+  inspectorResult.value = null;
+  inspectorError.value = null;
+  showCrashInspector.value = true;
+}
+
+function closeCrashInspector() {
+  showCrashInspector.value = false;
+  inspectorResult.value = null;
+  inspectorError.value = null;
+  inspectorCrashText.value = '';
+  inspectorTooltip.visible = false;
+}
+
+function handleHighlightHover(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.classList.contains('inspector-highlight')) {
+    return;
+  }
+
+  const tooltip = target.getAttribute('data-tooltip');
+  const category = target.getAttribute('data-category') || '';
+  const severity = target.classList.contains('highlight--critical')
+    ? 'critical'
+    : target.classList.contains('highlight--important')
+    ? 'important'
+    : 'info';
+
+  if (!tooltip) return;
+
+  // Get position of the highlight element
+  const rect = target.getBoundingClientRect();
+
+  // Position tooltip above the highlight, centered horizontally
+  inspectorTooltip.text = tooltip;
+  inspectorTooltip.category = category;
+  inspectorTooltip.severity = severity;
+  inspectorTooltip.x = rect.left + rect.width / 2;
+  inspectorTooltip.y = rect.top - 8;
+  inspectorTooltip.visible = true;
+}
+
+function handleHighlightLeave(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (target.classList.contains('inspector-highlight')) {
+    inspectorTooltip.visible = false;
+  }
+}
+
+async function runCrashInspection() {
+  if (!inspectorCrashText.value) return;
+
+  inspectorLoading.value = true;
+  inspectorError.value = null;
+
+  try {
+    const result = await api.inspectCrashReport(inspectorCrashText.value);
+    inspectorResult.value = result;
+  } catch (err) {
+    inspectorError.value = err instanceof Error ? err.message : 'Failed to inspect crash report';
+  } finally {
+    inspectorLoading.value = false;
+  }
+}
+
+const highlightedReportHtml = computed(() => {
+  if (!inspectorResult.value || !inspectorCrashText.value) {
+    return escapeHtml(inspectorCrashText.value || '');
+  }
+
+  const text = inspectorCrashText.value;
+  const highlights = inspectorResult.value.highlights;
+
+  if (highlights.length === 0) {
+    return escapeHtml(text);
+  }
+
+  // Sort highlights by startIndex to ensure proper ordering
+  const sortedHighlights = [...highlights].sort((a, b) => a.startIndex - b.startIndex);
+
+  // Build the highlighted HTML
+  const parts: string[] = [];
+  let lastIndex = 0;
+
+  for (const h of sortedHighlights) {
+    // Skip highlights with invalid positions
+    if (h.startIndex < 0 || h.startIndex >= text.length) {
+      console.warn('Invalid highlight position:', h);
+      continue;
+    }
+
+    // Skip if this highlight starts before where we've already processed
+    if (h.startIndex < lastIndex) {
+      console.warn('Overlapping highlight skipped:', h);
+      continue;
+    }
+
+    // Add text before this highlight
+    if (h.startIndex > lastIndex) {
+      parts.push(escapeHtml(text.slice(lastIndex, h.startIndex)));
+    }
+
+    // Add the highlighted span with tooltip
+    const highlightText = text.slice(h.startIndex, h.endIndex);
+    const escapedText = escapeHtml(highlightText);
+    const escapedComment = escapeHtml(h.comment).replace(/"/g, '&quot;');
+    const severityClass = `highlight--${h.severity}`;
+    parts.push(
+      `<span class="inspector-highlight ${severityClass}" data-tooltip="${escapedComment}" data-category="${h.category}">${escapedText}</span>`
+    );
+
+    lastIndex = h.endIndex;
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(escapeHtml(text.slice(lastIndex)));
+  }
+
+  return parts.join('');
+});
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 </script>
 
 <style scoped>
@@ -3013,16 +3309,24 @@ onBeforeUnmount(() => {
 }
 
 .webhook-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 1rem;
 }
 
 .stat-card {
-  padding: 1rem 1.25rem;
+  flex: 1 1 180px;
+  max-width: 220px;
+  padding: 1.25rem 1.5rem;
   border-radius: 1rem;
   background: linear-gradient(140deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.75));
   border: 1px solid rgba(148, 163, 184, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -3038,17 +3342,20 @@ onBeforeUnmount(() => {
 }
 
 .stat-card__label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: rgba(226, 232, 240, 0.8);
+  letter-spacing: 0.12em;
+  color: rgba(226, 232, 240, 0.7);
+  order: 2;
 }
 
 .stat-card__value {
-  font-size: 1.8rem;
+  font-size: 2rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   color: #f8fafc;
+  line-height: 1;
+  order: 1;
 }
 
 .tabs {
@@ -4483,4 +4790,359 @@ input[type='checkbox']:checked::after {
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
 }
+
+/* ============================================================================
+   Crash Report Inspector Modal
+   ============================================================================ */
+
+.modal--inspector {
+  max-width: 1000px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal--inspector .modal__footer {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.modal__footer--centered {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 400px;
+}
+
+.inspector-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 3rem;
+  flex: 1;
+  background: radial-gradient(ellipse at center, rgba(99, 102, 241, 0.05) 0%, transparent 70%);
+}
+
+.inspector-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 3rem;
+  flex: 1;
+}
+
+.inspector-error .error-text {
+  color: #f87171;
+  text-align: center;
+}
+
+/* Elaborate AI Loading Animation */
+.ai-loading-animation {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-loading-rings {
+  position: absolute;
+  inset: 0;
+}
+
+.ai-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid transparent;
+}
+
+.ai-ring--outer {
+  inset: 0;
+  border-top-color: rgba(99, 102, 241, 0.8);
+  border-right-color: rgba(99, 102, 241, 0.3);
+  animation: ring-spin 2s linear infinite;
+}
+
+.ai-ring--middle {
+  inset: 15px;
+  border-top-color: rgba(168, 85, 247, 0.8);
+  border-left-color: rgba(168, 85, 247, 0.3);
+  animation: ring-spin 1.5s linear infinite reverse;
+}
+
+.ai-ring--inner {
+  inset: 30px;
+  border-bottom-color: rgba(236, 72, 153, 0.8);
+  border-right-color: rgba(236, 72, 153, 0.3);
+  animation: ring-spin 1s linear infinite;
+}
+
+.ai-loading-icon {
+  font-size: 2rem;
+  color: #a78bfa;
+  animation: icon-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(167, 139, 250, 0.5));
+}
+
+@keyframes ring-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes icon-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
+}
+
+.ai-loading-text {
+  text-align: center;
+}
+
+.ai-loading-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin: 0 0 0.25rem;
+}
+
+.ai-loading-subtitle {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.ai-loading-dots {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #6366f1;
+  animation: dot-bounce 1.4s ease-in-out infinite;
+}
+
+.ai-dot:nth-child(1) { animation-delay: 0s; }
+.ai-dot:nth-child(2) { animation-delay: 0.2s; }
+.ai-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.inspector-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.inspector-legend {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  flex-shrink: 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.highlight-sample {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.highlight-sample.highlight--critical {
+  background-color: rgba(239, 68, 68, 0.4);
+  border: 1px solid rgba(239, 68, 68, 0.6);
+}
+
+.highlight-sample.highlight--important {
+  background-color: rgba(234, 179, 8, 0.4);
+  border: 1px solid rgba(234, 179, 8, 0.6);
+}
+
+.highlight-sample.highlight--info {
+  background-color: rgba(59, 130, 246, 0.4);
+  border: 1px solid rgba(59, 130, 246, 0.6);
+}
+
+.legend-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.inspector-debug {
+  padding: 0.5rem 1rem;
+  background: rgba(30, 41, 59, 0.3);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  font-size: 0.75rem;
+}
+
+.inspector-debug summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.debug-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.5rem;
+  list-style: disc;
+}
+
+.debug-item {
+  margin: 0.25rem 0;
+  font-family: monospace;
+}
+
+.inspector-report {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  margin: 0;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e2e8f0;
+  position: relative;
+}
+
+.inspector-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Highlight styles - use :deep() for v-html content in scoped styles */
+.inspector-report :deep(.inspector-highlight) {
+  position: relative;
+  cursor: help;
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: 0 -1px;
+  transition: filter 0.15s ease;
+  display: inline;
+}
+
+.inspector-report :deep(.inspector-highlight:hover) {
+  filter: brightness(1.3);
+}
+
+.inspector-report :deep(.inspector-highlight.highlight--critical) {
+  background-color: rgba(239, 68, 68, 0.4);
+  border-bottom: 2px solid rgba(239, 68, 68, 0.9);
+  color: #fca5a5;
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.3);
+}
+
+.inspector-report :deep(.inspector-highlight.highlight--important) {
+  background-color: rgba(234, 179, 8, 0.4);
+  border-bottom: 2px solid rgba(234, 179, 8, 0.9);
+  color: #fde047;
+  box-shadow: 0 0 4px rgba(234, 179, 8, 0.3);
+}
+
+.inspector-report :deep(.inspector-highlight.highlight--info) {
+  background-color: rgba(59, 130, 246, 0.4);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.9);
+  color: #93c5fd;
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+/* JS-positioned tooltip (renders outside scroll container) */
+.inspector-tooltip {
+  position: fixed;
+  transform: translateX(-50%) translateY(-100%);
+  padding: 0.5rem 0.75rem;
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #e2e8f0;
+  white-space: normal;
+  max-width: 300px;
+  min-width: 150px;
+  text-align: left;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 100000;
+  pointer-events: none;
+}
+
+.inspector-tooltip .tooltip-category {
+  color: #94a3b8;
+  font-weight: 500;
+  margin-right: 0.35rem;
+}
+
+.inspector-tooltip.tooltip--critical {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.inspector-tooltip.tooltip--critical .tooltip-category {
+  color: #fca5a5;
+}
+
+.inspector-tooltip.tooltip--important {
+  border-color: rgba(234, 179, 8, 0.6);
+}
+
+.inspector-tooltip.tooltip--important .tooltip-category {
+  color: #fde047;
+}
+
+.inspector-tooltip.tooltip--info {
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.inspector-tooltip.tooltip--info .tooltip-category {
+  color: #93c5fd;
+}
+
 </style>

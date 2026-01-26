@@ -1486,6 +1486,22 @@ export interface InboundWebhookMessage {
   mergedAt?: string | null;
 }
 
+// Crash Report Inspector Types
+export interface CrashHighlight {
+  text: string;
+  comment: string;
+  severity: 'critical' | 'important' | 'info';
+  category: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface CrashInspectionResult {
+  highlights: CrashHighlight[];
+  summary: string;
+  errorType: 'native_crash' | 'script_error' | 'unknown';
+}
+
 // Server Connection Types
 export interface ServerConnection {
   connectId: number;
@@ -3879,6 +3895,15 @@ export const api = {
   async mergeWebhookMessages(messageIds: string[], combinedText: string): Promise<InboundWebhookMessage> {
     const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds, combinedText });
     return response.data.message;
+  },
+
+  /**
+   * Inspects a crash report and returns highlighted sections with AI analysis.
+   * @param crashReportText - The crash report text to analyze
+   */
+  async inspectCrashReport(crashReportText: string): Promise<CrashInspectionResult> {
+    const response = await axios.post('/api/admin/webhook-inbox/inspect-crash-report', { crashReportText });
+    return response.data;
   },
 
   /**
