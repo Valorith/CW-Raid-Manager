@@ -2225,15 +2225,16 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const bodySchema = z.object({
-        messageIds: z.array(z.string()).min(2).max(20)
+        messageIds: z.array(z.string()).min(2).max(20),
+        combinedText: z.string().min(1)
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.badRequest('Invalid merge payload. At least 2 messages required.');
+        return reply.badRequest('Invalid merge payload. At least 2 messages and combined text required.');
       }
 
       try {
-        const message = await mergeWebhookMessages(parsed.data.messageIds);
+        const message = await mergeWebhookMessages(parsed.data.messageIds, parsed.data.combinedText);
         return reply.code(201).send({ message });
       } catch (error) {
         request.log.error({ error }, 'Failed to merge messages.');

@@ -3873,9 +3873,11 @@ export const api = {
   /**
    * Merges multiple webhook messages into a single message.
    * The original messages are deleted and a new merged message is created.
+   * @param messageIds - Array of message IDs in the desired merge order
+   * @param combinedText - The combined crash report text (no separators)
    */
-  async mergeWebhookMessages(messageIds: string[]): Promise<InboundWebhookMessage> {
-    const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds });
+  async mergeWebhookMessages(messageIds: string[], combinedText: string): Promise<InboundWebhookMessage> {
+    const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds, combinedText });
     return response.data.message;
   },
 

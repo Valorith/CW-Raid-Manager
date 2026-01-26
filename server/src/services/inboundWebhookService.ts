@@ -265,7 +265,9 @@ export async function listInboundWebhookMessages(options: {
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        webhook: true,
+        webhook: {
+          include: { actions: true }
+        },
         assignedAdmin: {
           select: { id: true, displayName: true, nickname: true, email: true }
         },
@@ -285,7 +287,9 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
   const message = await prisma.inboundWebhookMessage.findUnique({
     where: { id: messageId },
     include: {
-      webhook: true,
+      webhook: {
+        include: { actions: true }
+      },
       assignedAdmin: {
         select: { id: true, displayName: true, nickname: true, email: true }
       },
@@ -394,6 +398,44 @@ export async function retryCrashReviewForMessage(messageId: string) {
     const findingsRecord = findings as Record<string, unknown> | null;
     const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
     await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label);
+
+    // After successful AI review, trigger Discord action if configured
+    const discordAction = webhook.actions.find(
+      (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+    );
+    if (discordAction) {
+      const discordConfig = normalizeActionConfig(discordAction.config);
+      if (discordConfig.discordWebhookUrl) {
+        const discordStartedAt = Date.now();
+        try {
+          // Build enriched payload with crash review findings
+          const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts);
+          await sendDiscordRelay(discordConfig.discordWebhookUrl, enrichedPayload, discordConfig, messageId);
+          await prisma.inboundWebhookActionRun.create({
+            data: {
+              messageId,
+              actionId: discordAction.id,
+              status: 'SUCCESS',
+              durationMs: Date.now() - discordStartedAt
+            }
+          });
+          await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
+        } catch (discordError) {
+          await prisma.inboundWebhookActionRun.create({
+            data: {
+              messageId,
+              actionId: discordAction.id,
+              status: 'FAILED',
+              error: discordError instanceof Error ? discordError.message : 'Unknown Discord error',
+              durationMs: Date.now() - discordStartedAt
+            }
+          });
+          await updateActionSummary(messageId, discordAction.id, 'FAILED');
+          // Don't throw - Discord failure shouldn't fail the whole operation
+          console.error('Discord relay failed after AI review:', discordError);
+        }
+      }
+    }
   } catch (error) {
     await prisma.inboundWebhookActionRun.update({
       where: { id: run.id },
@@ -1094,25 +1136,45 @@ function detectQuestError(
   signature: { exception?: string | null; topFrame?: string | null } | undefined,
   summary: string
 ): boolean {
-  // Check signature exception for quest error indicators
   const exception = signature?.exception?.toLowerCase() ?? '';
-  if (exception.includes('[questerrors]') || exception.includes('script error')) {
+  const summaryLower = summary.toLowerCase();
+
+  // First, check if summary explicitly starts with the type prefix (most reliable)
+  if (summaryLower.startsWith('native crash:')) {
+    return false;
+  }
+  if (summaryLower.startsWith('script error:')) {
     return true;
   }
 
-  // Check summary for quest/script error indicators
-  const summaryLower = summary.toLowerCase();
-  if (
+  // Check for native crash indicators - these take precedence
+  const hasNativeCrashIndicators =
+    exception.includes('exception_access_violation') ||
+    exception.includes('exception_stack_overflow') ||
+    exception.includes('exception_') ||
+    exception.includes('0xc000') ||
+    exception.includes('syminit') ||
+    summaryLower.includes('native crash') ||
+    summaryLower.includes('access violation') ||
+    summaryLower.includes('memory access') ||
+    summaryLower.includes('null pointer') ||
+    summaryLower.includes('segmentation fault');
+
+  if (hasNativeCrashIndicators) {
+    return false;
+  }
+
+  // Check for script error indicators
+  const hasScriptErrorIndicators =
+    exception.includes('[questerrors]') ||
+    exception.includes('script error') ||
     summaryLower.includes('quest script') ||
     summaryLower.includes('perl script') ||
     summaryLower.includes('lua script') ||
     summaryLower.includes('script error') ||
-    summaryLower.includes('[questerrors]')
-  ) {
-    return true;
-  }
+    summaryLower.includes('[questerrors]');
 
-  return false;
+  return hasScriptErrorIndicators;
 }
 
 function getConfidenceBar(confidence: number): string {
@@ -1436,15 +1498,20 @@ async function autoLabelMessage(
 // Message Merging
 // ============================================================================
 
-export async function mergeWebhookMessages(messageIds: string[]) {
+export async function mergeWebhookMessages(messageIds: string[], combinedText: string) {
   if (messageIds.length < 2) {
     throw new Error('At least 2 messages are required to merge');
   }
 
   return prisma.$transaction(async (tx) => {
-    // 1. Fetch all messages
+    // 1. Fetch all messages with their labels
     const messages = await tx.inboundWebhookMessage.findMany({
-      where: { id: { in: messageIds } }
+      where: { id: { in: messageIds } },
+      include: {
+        labelAssignments: {
+          include: { label: true }
+        }
+      }
     });
 
     if (messages.length !== messageIds.length) {
@@ -1457,50 +1524,73 @@ export async function mergeWebhookMessages(messageIds: string[]) {
       throw new Error('All messages must belong to the same webhook');
     }
 
-    // 3. Order messages by the provided order (messageIds array)
-    const ordered = messageIds.map((id) => messages.find((m) => m.id === id)!);
+    // 3. Collect unique label IDs from all messages
+    const labelIds = new Set<string>();
+    for (const msg of messages) {
+      for (const la of msg.labelAssignments) {
+        labelIds.add(la.labelId);
+      }
+    }
 
-    // 4. Concatenate crash reports with separators
-    const combinedRawBody = ordered
-      .map((m, i) => {
-        const separator = '='.repeat(47);
-        const header = `\n${separator}\n=== Part ${i + 1} of ${ordered.length} | Received: ${m.receivedAt.toISOString()} ===\n${separator}\n`;
-        const content = m.rawBody || JSON.stringify(m.payload, null, 2);
-        return header + content;
-      })
-      .join('\n');
-
-    // 5. Create merged message
+    // 4. Create merged message using the client-provided combined text
+    // No actions are triggered - user must manually start AI review
+    const mergedId = generateCuid();
     const merged = await tx.inboundWebhookMessage.create({
       data: {
-        id: generateCuid(),
-        webhookId: ordered[0].webhookId,
+        id: mergedId,
+        webhookId: messages[0].webhookId,
         receivedAt: new Date(),
-        payload: { merged: true, partCount: ordered.length },
-        rawBody: combinedRawBody,
+        payload: { merged: true, partCount: messageIds.length, crashReportText: combinedText },
+        rawBody: combinedText,
         status: 'RECEIVED',
         mergedFromIds: messageIds,
         mergedAt: new Date(),
         headers: {}
-      },
+      }
+    });
+
+    // 5. Copy labels to merged message
+    if (labelIds.size > 0) {
+      await tx.webhookMessageLabelAssignment.createMany({
+        data: Array.from(labelIds).map((labelId) => ({
+          id: generateCuid(),
+          messageId: mergedId,
+          labelId
+        }))
+      });
+    }
+
+    // 6. Delete originals (this will cascade delete their label assignments)
+    await tx.inboundWebhookMessage.deleteMany({
+      where: { id: { in: messageIds } }
+    });
+
+    // 7. Fetch the complete merged message with all relations
+    const result = await tx.inboundWebhookMessage.findUniqueOrThrow({
+      where: { id: mergedId },
       include: {
-        webhook: true,
+        webhook: {
+          include: { actions: true }
+        },
         assignedAdmin: {
           select: { id: true, displayName: true, nickname: true, email: true }
         },
         actionRuns: {
           include: { action: true },
           orderBy: { createdAt: 'asc' }
+        },
+        labelAssignments: {
+          include: { label: true }
         }
       }
     });
 
-    // 6. Delete originals
-    await tx.inboundWebhookMessage.deleteMany({
-      where: { id: { in: messageIds } }
-    });
-
-    return merged;
+    // Transform to match expected response format
+    return {
+      ...result,
+      labels: result.labelAssignments.map((la) => la.label),
+      labelAssignments: undefined
+    };
   });
 }
 
@@ -1667,7 +1757,9 @@ export async function listInboundWebhookMessagesEnhanced(options: {
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        webhook: true,
+        webhook: {
+          include: { actions: true }
+        },
         assignedAdmin: {
           select: { id: true, displayName: true, nickname: true, email: true }
         },

@@ -685,15 +685,38 @@
                 </div>
               </td>
               <td class="actions-cell">
-                <div v-if="message.actionRuns?.length" class="action-pills">
+                <div v-if="message.actionRuns?.length || message.webhook?.actions?.length" class="action-pills">
+                  <!-- Show actions that have runs -->
+                  <template v-for="run in message.actionRuns || []" :key="run.id">
+                    <span
+                      v-if="run.status === 'PENDING_REVIEW'"
+                      class="action-pill-wrapper"
+                      :title="`${run.action?.type || 'Action'}: In Progress`"
+                    >
+                      <svg class="action-pill-border" viewBox="0 0 100 28" preserveAspectRatio="none">
+                        <rect x="1" y="1" width="98" height="26" rx="13" ry="13" />
+                      </svg>
+                      <span class="action-pill action-pill--pending">
+                        {{ getActionLabel(run.action?.type) }}
+                      </span>
+                    </span>
+                    <span
+                      v-else
+                      class="action-pill"
+                      :class="getActionPillClass(run.status)"
+                      :title="`${run.action?.type || 'Action'}: ${run.status}`"
+                    >
+                      {{ getActionLabel(run.action?.type) }}
+                    </span>
+                  </template>
+                  <!-- Show actions that haven't started yet (not in actionRuns) -->
                   <span
-                    v-for="run in message.actionRuns"
-                    :key="run.id"
-                    class="action-pill"
-                    :class="getActionPillClass(run.status)"
-                    :title="`${run.action?.type || 'Action'}: ${run.status}`"
+                    v-for="action in getNotStartedActions(message)"
+                    :key="'notstarted-' + action.id"
+                    class="action-pill action-pill--not-run"
+                    :title="`${action.type}: Not run`"
                   >
-                    {{ getActionLabel(run.action?.type) }}
+                    {{ getActionLabel(action.type) }}
                   </span>
                 </div>
                 <span v-else class="muted">-</span>
@@ -1009,12 +1032,22 @@
                     @click="retryCrashReview(selectedMessage)"
                     :disabled="isCrashReviewPending(selectedMessage)"
                   >
-                    Re-run AI Review
+                    <span class="ai-icon" aria-hidden="true">✦</span> Re-run AI Review
                   </button>
                 </div>
               </div>
 
-              <div v-else class="muted">No crash review results yet.</div>
+              <div v-else class="llm-empty">
+                <p class="muted">No AI review has been run yet.</p>
+                <button
+                  class="btn btn--accent"
+                  type="button"
+                  @click="retryCrashReview(selectedMessage)"
+                  :disabled="isCrashReviewPending(selectedMessage)"
+                >
+                  <span class="ai-icon" aria-hidden="true">✦</span> Run AI Review
+                </button>
+              </div>
             </section>
           </div>
 
@@ -1051,7 +1084,7 @@
 
     <!-- Merge Modal (outside tab sections) -->
     <div v-if="showMergeModal" class="modal-backdrop" @click.self="closeMergeModal">
-      <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal modal--wide" role="dialog" aria-modal="true">
         <header class="modal__header">
           <h3>Combine Messages</h3>
           <button class="icon-button" @click="closeMergeModal" aria-label="Close">
@@ -1065,31 +1098,56 @@
               v-for="(id, index) in mergeOrdering"
               :key="id"
               class="merge-item"
+              :class="{
+                'merge-item--dragging': draggedMergeIndex === index,
+                'merge-item--drag-over': dragOverMergeIndex === index && draggedMergeIndex !== index
+              }"
+              draggable="true"
+              @dragstart="onMergeDragStart($event, index)"
+              @dragover="onMergeDragOver($event, index)"
+              @dragleave="onMergeDragLeave"
+              @drop="onMergeDrop($event, index)"
+              @dragend="onMergeDragEnd"
             >
-              <div class="merge-item__info">
-                <strong>Part {{ index + 1 }}</strong>
-                <span class="muted small">{{ formatDate(getMergeMessage(id)?.receivedAt) }}</span>
-                <span class="muted small">{{ getMergeMessage(id)?.webhook?.label || 'Unknown' }}</span>
+              <div class="merge-item__handle" title="Drag to reorder">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <circle cx="9" cy="6" r="1.5"/>
+                  <circle cx="15" cy="6" r="1.5"/>
+                  <circle cx="9" cy="12" r="1.5"/>
+                  <circle cx="15" cy="12" r="1.5"/>
+                  <circle cx="9" cy="18" r="1.5"/>
+                  <circle cx="15" cy="18" r="1.5"/>
+                </svg>
               </div>
-              <div class="merge-item__actions">
-                <button
-                  class="icon-button"
-                  type="button"
-                  :disabled="index === 0"
-                  @click="moveMergeItem(index, 'up')"
-                  title="Move up"
-                >
-                  ↑
-                </button>
-                <button
-                  class="icon-button"
-                  type="button"
-                  :disabled="index === mergeOrdering.length - 1"
-                  @click="moveMergeItem(index, 'down')"
-                  title="Move down"
-                >
-                  ↓
-                </button>
+              <div class="merge-item__content">
+                <div class="merge-item__header">
+                  <div class="merge-item__info">
+                    <strong>Part {{ index + 1 }}</strong>
+                    <span class="muted small">{{ formatDate(getMergeMessage(id)?.receivedAt) }}</span>
+                    <span class="muted small">{{ getMergeMessage(id)?.webhook?.label || 'Unknown' }}</span>
+                  </div>
+                  <div class="merge-item__actions">
+                    <button
+                      class="icon-button"
+                      type="button"
+                      :disabled="index === 0"
+                      @click="moveMergeItem(index, 'up')"
+                      title="Move up"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      class="icon-button"
+                      type="button"
+                      :disabled="index === mergeOrdering.length - 1"
+                      @click="moveMergeItem(index, 'down')"
+                      title="Move down"
+                    >
+                      ↓
+                    </button>
+                  </div>
+                </div>
+                <pre class="merge-item__preview">{{ getMergePreviewText(id) }}</pre>
               </div>
             </div>
           </div>
@@ -1098,11 +1156,43 @@
           </p>
         </div>
         <footer class="modal__footer">
-          <button class="btn btn--outline" type="button" @click="closeMergeModal" :disabled="mergingMessages">
+          <button class="btn btn--outline" type="button" @click="closeMergeModal">
             Cancel
           </button>
-          <button class="btn btn--accent" type="button" @click="confirmMerge" :disabled="mergingMessages">
-            {{ mergingMessages ? 'Combining...' : 'Combine Messages' }}
+          <button class="btn btn--accent" type="button" @click="openMergePreview">
+            Preview Combined Report
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Merge Preview Modal -->
+    <div v-if="showMergePreview" class="modal-backdrop" @click.self="closeMergePreview">
+      <div class="modal modal--wide" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <h3>Preview Combined Report</h3>
+          <div class="modal__header-actions">
+            <button class="btn btn--outline btn--small" type="button" @click="copyMergedPreview">
+              Copy to Clipboard
+            </button>
+            <button class="icon-button" @click="closeMergePreview" aria-label="Close">
+              ✕
+            </button>
+          </div>
+        </header>
+        <div class="modal__body merge-preview-body">
+          <p class="muted small">Review the combined crash report below. The {{ mergeOrdering.length }} messages will be merged in this order.</p>
+          <pre class="merge-preview-content">{{ getMergedPreviewText() }}</pre>
+        </div>
+        <footer class="modal__footer merge-preview-footer">
+          <button class="btn btn--outline" type="button" @click="backToMergeOrder">
+            Back
+          </button>
+          <button class="btn btn--danger" type="button" @click="cancelMergeAll" :disabled="mergingMessages">
+            Cancel
+          </button>
+          <button class="btn btn--success" type="button" @click="confirmMerge" :disabled="mergingMessages">
+            {{ mergingMessages ? 'Combining...' : 'Accept & Combine' }}
           </button>
         </footer>
       </div>
@@ -1257,6 +1347,9 @@ const labelInputValue = ref('');
 const showMergeModal = ref(false);
 const mergeOrdering = ref<string[]>([]);
 const mergingMessages = ref(false);
+const showMergePreview = ref(false);
+const draggedMergeIndex = ref<number | null>(null);
+const dragOverMergeIndex = ref<number | null>(null);
 const unreadCount = ref(0);
 const bulkActionInProgress = ref(false);
 const labelToEdit = ref<WebhookMessageLabel | null>(null);
@@ -1875,6 +1968,8 @@ function getActionPillClass(status: string): string {
       return 'action-pill--pending';
     case 'SKIPPED':
       return 'action-pill--skipped';
+    case 'NOT_RUN':
+      return 'action-pill--not-run';
     default:
       return '';
   }
@@ -1889,6 +1984,14 @@ function getActionLabel(type?: string | null): string {
     default:
       return 'Action';
   }
+}
+
+function getNotStartedActions(message: InboundWebhookMessage) {
+  const webhookActions = message.webhook?.actions?.filter((a) => a.isEnabled) || [];
+  const startedActionTypes = new Set(
+    (message.actionRuns || []).map((run) => run.action?.type).filter(Boolean)
+  );
+  return webhookActions.filter((action) => !startedActionTypes.has(action.type));
 }
 
 function formatDate(value?: string | null) {
@@ -1982,6 +2085,10 @@ function getCrashRunModel(message: InboundWebhookMessage) {
 }
 
 function isCrashReviewPending(message: InboundWebhookMessage) {
+  // Check if we're currently triggering a retry for this message
+  if (retryingCrashId.value === message.id) {
+    return true;
+  }
   const run = getCrashRun(message);
   return run?.status === 'PENDING_REVIEW' && isPendingRunFresh(run);
 }
@@ -2562,17 +2669,109 @@ function moveMergeItem(index: number, direction: 'up' | 'down') {
   mergeOrdering.value = items;
 }
 
+function onMergeDragStart(event: DragEvent, index: number) {
+  draggedMergeIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', index.toString());
+  }
+}
+
+function onMergeDragOver(event: DragEvent, index: number) {
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move';
+  }
+  dragOverMergeIndex.value = index;
+}
+
+function onMergeDragLeave() {
+  dragOverMergeIndex.value = null;
+}
+
+function onMergeDrop(event: DragEvent, targetIndex: number) {
+  event.preventDefault();
+  const sourceIndex = draggedMergeIndex.value;
+  if (sourceIndex === null || sourceIndex === targetIndex) {
+    dragOverMergeIndex.value = null;
+    return;
+  }
+  const items = [...mergeOrdering.value];
+  const [removed] = items.splice(sourceIndex, 1);
+  items.splice(targetIndex, 0, removed);
+  mergeOrdering.value = items;
+  dragOverMergeIndex.value = null;
+}
+
+function onMergeDragEnd() {
+  draggedMergeIndex.value = null;
+  dragOverMergeIndex.value = null;
+}
+
 function getMergeMessage(id: string) {
   return inboxMessages.value.find((m) => m.id === id);
+}
+
+function getMergePreviewText(id: string): string {
+  const message = getMergeMessage(id);
+  if (!message) return '';
+  const text = getCrashReportText(message);
+  if (!text) return '(No crash report text)';
+  // Return first ~500 chars, preserving line breaks
+  const maxLen = 500;
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen) + '...';
+}
+
+function getMergedPreviewText(): string {
+  const parts: string[] = [];
+  mergeOrdering.value.forEach((id) => {
+    const message = getMergeMessage(id);
+    if (!message) return;
+    const text = getCrashReportText(message);
+    if (text) {
+      parts.push(text);
+    }
+  });
+  return parts.join('\n');
+}
+
+function openMergePreview() {
+  showMergeModal.value = false;
+  showMergePreview.value = true;
+}
+
+function closeMergePreview() {
+  showMergePreview.value = false;
+}
+
+function backToMergeOrder() {
+  showMergePreview.value = false;
+  showMergeModal.value = true;
+}
+
+function cancelMergeAll() {
+  showMergePreview.value = false;
+  showMergeModal.value = false;
+  mergeOrdering.value = [];
+}
+
+async function copyMergedPreview() {
+  const text = getMergedPreviewText();
+  await navigator.clipboard.writeText(text);
+  addToast({ title: 'Copied', message: 'Combined report copied to clipboard' });
 }
 
 async function confirmMerge() {
   if (mergeOrdering.value.length < 2) return;
   mergingMessages.value = true;
   try {
-    const merged = await api.mergeWebhookMessages(mergeOrdering.value);
+    const combinedText = getMergedPreviewText();
+    const merged = await api.mergeWebhookMessages(mergeOrdering.value, combinedText);
     addToast({ title: 'Success', message: `Combined ${mergeOrdering.value.length} messages` });
-    closeMergeModal();
+    showMergePreview.value = false;
+    showMergeModal.value = false;
+    mergeOrdering.value = [];
     clearSelection();
     await loadInbox();
     // Open the newly merged message
@@ -2924,6 +3123,12 @@ onBeforeUnmount(() => {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.9), rgba(244, 63, 94, 0.85));
   border-color: rgba(248, 113, 113, 0.7);
   color: #fff1f2;
+}
+
+.btn--success {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.9), rgba(22, 163, 74, 0.85));
+  border-color: rgba(34, 197, 94, 0.7);
+  color: #f0fdf4;
 }
 
 .btn--small {
@@ -3400,10 +3605,58 @@ input[type='checkbox']:checked::after {
   border: 1px solid rgba(234, 179, 8, 0.3);
 }
 
+/* Animated racing light border for pending actions */
+.action-pill-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.action-pill-wrapper .action-pill {
+  position: relative;
+  z-index: 2;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  background: rgba(234, 179, 8, 0.15);
+}
+
+.action-pill-border {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.action-pill-border rect {
+  fill: none;
+  stroke: #fef08a;
+  stroke-width: 2.5;
+  stroke-dasharray: 25 225;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px #facc15) drop-shadow(0 0 8px rgba(250, 204, 21, 0.6));
+  animation: dash-travel 2s linear infinite;
+}
+
+@keyframes dash-travel {
+  from {
+    stroke-dashoffset: 250;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 .action-pill--skipped {
   background-color: rgba(249, 115, 22, 0.2);
   color: #fb923c;
   border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.action-pill--not-run {
+  background-color: rgba(148, 163, 184, 0.15);
+  color: rgba(148, 163, 184, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .crash-summary-text {
@@ -3667,6 +3920,12 @@ input[type='checkbox']:checked::after {
   flex-shrink: 0;
 }
 
+.modal__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .modal__content {
   display: grid;
   gap: 1rem;
@@ -3725,6 +3984,16 @@ input[type='checkbox']:checked::after {
   align-items: center;
   gap: 1rem;
   padding: 1rem 0;
+}
+
+.llm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem 1rem;
+  flex: 1;
 }
 
 .spinner--large {
@@ -4036,18 +4305,78 @@ input[type='checkbox']:checked::after {
 
 .merge-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
   padding: 0.75rem 1rem;
   background: rgba(30, 41, 59, 0.6);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.5rem;
+  cursor: grab;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.merge-item:active {
+  cursor: grabbing;
+}
+
+.merge-item--dragging {
+  opacity: 0.5;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.merge-item--drag-over {
+  border-color: rgba(59, 130, 246, 0.8);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.merge-item__handle {
+  color: rgba(148, 163, 184, 0.6);
+  cursor: grab;
+  flex-shrink: 0;
+  padding-top: 0.2rem;
+}
+
+.merge-item__handle:active {
+  cursor: grabbing;
+}
+
+.merge-item:hover .merge-item__handle {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.merge-item__content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.merge-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .merge-item__info {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  align-items: center;
+  gap: 1rem;
+}
+
+.merge-item__preview {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: rgba(226, 232, 240, 0.7);
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
 }
 
 .merge-item__info strong {
@@ -4066,6 +4395,41 @@ input[type='checkbox']:checked::after {
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: 0.5rem;
   color: #fbbf24;
+}
+
+/* Merge preview modal */
+.merge-preview-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.75rem;
+}
+
+.merge-preview-content {
+  flex: 1;
+  overflow: auto;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: rgba(226, 232, 240, 0.85);
+  min-height: 300px;
+  max-height: calc(70vh - 10rem);
+}
+
+.merge-preview-footer {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.merge-preview-footer .btn--outline {
+  margin-right: auto;
 }
 
 /* Label manager modal */
