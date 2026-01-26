@@ -855,8 +855,7 @@
           </button>
         </header>
 
-        <div class="modal__content">
-          <div class="modal__content modal__content--split">
+        <div class="modal__content modal__content--split">
             <section class="payload-block crash-pane">
               <header class="panel-header">
                 <h4>Crash Report</h4>
@@ -1020,24 +1019,32 @@
           </div>
 
           <!-- Prompt Modal inside Message modal -->
-          <div v-if="showPromptModal" class="prompt-modal-overlay" @click.self="showPromptModal = false">
-            <div class="prompt-modal">
-              <header class="prompt-modal__header">
-                <h4>Prompt Sent to AI</h4>
-                <button class="icon-button" @click="showPromptModal = false" aria-label="Close">✕</button>
-              </header>
-              <pre class="prompt-modal__content">{{ getCrashRunPrompt(selectedMessage) }}</pre>
-              <div class="prompt-modal__actions">
-                <button
-                  class="btn btn--outline btn--small"
-                  type="button"
-                  @click="copyPromptJson"
-                >
-                  Copy Prompt JSON
+          <div v-if="showPromptModal" class="modal-backdrop" @click.self="showPromptModal = false">
+            <div class="modal modal--wide" role="dialog" aria-modal="true">
+              <header class="modal__header">
+                <div class="modal__titles">
+                  <h3>LLM Prompt Payload</h3>
+                  <p class="muted small">Sent to Gemini for analysis</p>
+                </div>
+                <button class="icon-button" @click="showPromptModal = false" aria-label="Close prompt">
+                  ✕
                 </button>
+              </header>
+              <div class="modal__content">
+                <section class="payload-block">
+                  <pre>{{ formatJson(getCrashRunPrompt(selectedMessage)) }}</pre>
+                  <div class="result-actions">
+                    <button
+                      class="btn btn--outline btn--small"
+                      type="button"
+                      @click="copyPromptJson"
+                    >
+                      Copy Prompt JSON
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
-          </div>
         </div>
       </div>
     </div>
@@ -3005,6 +3012,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
   gap: 1rem;
 }
 
@@ -3643,7 +3651,9 @@ input[type='checkbox']:checked::after {
   padding: 1.5rem;
   width: min(960px, 96vw);
   max-height: 90vh;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal--wide {
@@ -3654,17 +3664,23 @@ input[type='checkbox']:checked::after {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-shrink: 0;
 }
 
 .modal__content {
   display: grid;
   gap: 1rem;
   margin-top: 1rem;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .modal__content--split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
+  height: calc(90vh - 6rem);
+  overflow: hidden;
 }
 
 .payload-block {
@@ -3672,24 +3688,34 @@ input[type='checkbox']:checked::after {
   border-radius: 0.75rem;
   padding: 1rem;
   height: 100%;
-}
-
-.crash-pane,
-.llm-pane {
-  min-height: 420px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
-.crash-report {
+.crash-pane,
+.llm-pane {
+  min-height: 0;
+}
+
+.crash-pane .crash-report {
   white-space: pre-wrap;
   font-size: 0.85rem;
   flex: 1;
   overflow: auto;
+  min-height: 0;
+  max-height: none !important;
 }
 
-.crash-pane .result-actions {
-  margin-top: auto;
+.llm-content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.crash-pane .result-actions,
+.llm-pane .result-actions {
+  margin-top: 0.75rem;
   padding-top: 0.75rem;
   flex-shrink: 0;
 }
