@@ -2,6 +2,54 @@ import { createHash, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
 import { reviewCrashReport } from './geminiCrashReviewService.js';
+import { appConfig } from '../config/appConfig.js';
+
+// Resolve client base URL for building links
+const clientBaseUrl = resolveClientBaseUrl();
+
+function resolveClientBaseUrl(): string | null {
+  const candidates = [
+    appConfig.clientUrl,
+    process.env.CLIENT_URL,
+    process.env.PUBLIC_CLIENT_URL,
+    process.env.PUBLIC_URL,
+    process.env.WEB_URL,
+    process.env.APP_URL,
+    process.env.SITE_URL,
+    process.env.URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+    process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined,
+    process.env.RENDER_EXTERNAL_URL,
+    process.env.DEPLOYMENT_URL
+  ];
+
+  const normalizedCandidates = candidates
+    .map((value) => {
+      if (!value || typeof value !== 'string') return null;
+      const trimmed = value.trim();
+      if (!trimmed) return null;
+      const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+      try {
+        const url = new URL(withScheme);
+        return `${url.protocol}//${url.host}`.replace(/\/$/, '');
+      } catch {
+        return null;
+      }
+    })
+    .filter((value): value is string => Boolean(value));
+
+  const isLocalHost = (value: string): boolean => {
+    try {
+      const { hostname } = new URL(value);
+      return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('127.') || hostname.endsWith('.local');
+    } catch {
+      return false;
+    }
+  };
+
+  const nonLocal = normalizedCandidates.find((value) => !isLocalHost(value));
+  return nonLocal ?? normalizedCandidates[0] ?? null;
+}
 
 export interface InboundWebhookRetentionPolicy {
   mode: 'indefinite' | 'days' | 'maxCount';
@@ -233,8 +281,8 @@ export async function listInboundWebhookMessages(options: {
   return { messages, total };
 }
 
-export async function getInboundWebhookMessage(messageId: string) {
-  return prisma.inboundWebhookMessage.findUnique({
+export async function getInboundWebhookMessage(messageId: string, userId?: string) {
+  const message = await prisma.inboundWebhookMessage.findUnique({
     where: { id: messageId },
     include: {
       webhook: true,
@@ -244,9 +292,31 @@ export async function getInboundWebhookMessage(messageId: string) {
       actionRuns: {
         include: { action: true },
         orderBy: { createdAt: 'asc' }
-      }
+      },
+      labelAssignments: {
+        include: { label: true }
+      },
+      readStatuses: userId
+        ? { where: { userId }, take: 1 }
+        : false,
+      stars: userId
+        ? { where: { userId }, take: 1 }
+        : false
     }
   });
+
+  if (!message) return null;
+
+  // Transform to include computed fields for consistency with enhanced list
+  return {
+    ...message,
+    labels: message.labelAssignments.map((la) => la.label),
+    isRead: userId && message.readStatuses ? message.readStatuses.length > 0 : undefined,
+    isStarred: userId && message.stars ? message.stars.length > 0 : undefined,
+    labelAssignments: undefined,
+    readStatuses: undefined,
+    stars: undefined
+  };
 }
 
 export async function retryCrashReviewForMessage(messageId: string) {
@@ -319,6 +389,11 @@ export async function retryCrashReviewForMessage(messageId: string) {
         status: 'PROCESSED'
       }
     });
+
+    // Auto-label based on crash type (script error vs crash) and webhook source
+    const findingsRecord = findings as Record<string, unknown> | null;
+    const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
+    await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label);
   } catch (error) {
     await prisma.inboundWebhookActionRun.update({
       where: { id: run.id },
@@ -364,7 +439,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     data: { lastReceivedAt: new Date() }
   });
 
-  void runInboundWebhookActions(message.id, webhook.actions, input.payload);
+  void runInboundWebhookActions(message.id, webhook.actions, input.payload, webhook.label);
 
   return message;
 }
@@ -400,7 +475,7 @@ export async function createInboundWebhookMessageForAdmin(options: {
   });
 
   if (options.runActions !== false) {
-    void runInboundWebhookActions(message.id, webhook.actions, options.payload);
+    void runInboundWebhookActions(message.id, webhook.actions, options.payload, webhook.label);
   } else {
     await prisma.inboundWebhookMessage.update({
       where: { id: message.id },
@@ -422,7 +497,8 @@ async function runInboundWebhookActions(
     isEnabled: boolean;
     config: unknown;
   }>,
-  payload: unknown
+  payload: unknown,
+  webhookLabel?: string
 ) {
   let overallStatus: InboundWebhookMessageStatus = 'PROCESSED';
   const summary: Array<{ actionId: string; status: string }> = [];
@@ -445,7 +521,7 @@ async function runInboundWebhookActions(
         if (!config.discordWebhookUrl) {
           throw new Error('Discord webhook URL is missing.');
         }
-        await sendDiscordRelay(config.discordWebhookUrl, payloadForActions, config);
+        await sendDiscordRelay(config.discordWebhookUrl, payloadForActions, config, messageId);
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -505,6 +581,11 @@ async function runInboundWebhookActions(
           });
           summary.push({ actionId: action.id, status: 'SUCCESS' });
           payloadForActions = enrichPayloadWithCrashReview(payloadForActions, findings, attempts);
+
+          // Auto-label based on crash type (script error vs crash) and webhook source
+          const findingsRecord = findings as Record<string, unknown> | null;
+          const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
+          await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel);
         } catch (error) {
           overallStatus = 'FAILED';
           await prisma.inboundWebhookActionRun.update({
@@ -790,9 +871,10 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
 async function sendDiscordRelay(
   url: string,
   payload: unknown,
-  config: InboundWebhookActionConfig
+  config: InboundWebhookActionConfig,
+  messageId?: string
 ) {
-  const body = buildDiscordPayload(payload, config);
+  const body = buildDiscordPayload(payload, config, messageId);
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -805,13 +887,11 @@ async function sendDiscordRelay(
   }
 }
 
-function buildDiscordPayload(payload: unknown, config: InboundWebhookActionConfig) {
+function buildDiscordPayload(payload: unknown, config: InboundWebhookActionConfig, messageId?: string) {
   if (config.discordMode !== 'RAW' && payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
     if (record.crashReview && typeof record.crashReview === 'object') {
-      return {
-        content: formatDiscordCrashReviewContent(record.crashReview, config.discordTemplate)
-      };
+      return buildCrashReviewEmbed(record.crashReview, config.discordTemplate, messageId);
     }
   }
 
@@ -853,41 +933,197 @@ function formatDiscordContent(payload: unknown, template?: string) {
     .replace(/\{\{raw\}\}/g, raw);
 }
 
-function formatDiscordCrashReviewContent(findings: unknown, template?: string) {
+// Discord embed color palette (matches discordWebhookService.ts)
+const DISCORD_EMBED_COLORS = {
+  primary: 0x5865f2,
+  success: 0x57f287,
+  warning: 0xfee75c,
+  danger: 0xed4245,
+  info: 0x00b0f4
+};
+
+interface DiscordEmbed {
+  title?: string;
+  description?: string;
+  color?: number;
+  fields?: Array<{ name: string; value: string; inline?: boolean }>;
+  footer?: { text: string };
+  timestamp?: string;
+}
+
+interface DiscordEmbedPayload {
+  embeds: DiscordEmbed[];
+}
+
+function buildCrashReviewEmbed(findings: unknown, _template?: string, messageId?: string): DiscordEmbedPayload {
   const record = (findings ?? {}) as Record<string, unknown>;
-  const summary = typeof record.summary === 'string' ? record.summary : 'Crash review completed.';
+  const summary = typeof record.summary === 'string' ? record.summary : 'Crash analysis completed.';
   const hypotheses = Array.isArray(record.hypotheses) ? record.hypotheses : [];
-  const topHypotheses = hypotheses
-    .slice(0, 3)
-    .map((item) =>
-      typeof item?.title === 'string' ? `- ${item.title} (${item.confidence ?? 'n/a'})` : '- Hypothesis'
-    )
-    .join('\n');
-  const nextSteps = Array.isArray(record.recommendedNextSteps)
-    ? record.recommendedNextSteps.slice(0, 5).map((step) => `- ${step}`).join('\n')
-    : '';
-  const json = safeJson(record);
+  const recommendedNextSteps = Array.isArray(record.recommendedNextSteps) ? record.recommendedNextSteps : [];
+  const signature = record.signature as { exception?: string | null; topFrame?: string | null } | undefined;
+  const telemetry = record.telemetry as { model?: string; attempts?: number } | undefined;
 
-  const defaultContent = [
-    '**Crash Review Summary**',
-    summary,
-    topHypotheses ? `\n**Top Hypotheses**\n${topHypotheses}` : '',
-    nextSteps ? `\n**Next Steps**\n${nextSteps}` : '',
-    '\nSee Webhook Inbox for full JSON.'
-  ]
-    .filter(Boolean)
-    .join('\n');
+  // Detect if this is a quest/script error vs a crash report
+  const isQuestError = detectQuestError(signature, summary);
 
-  if (!template) {
-    return defaultContent.slice(0, 1500);
+  // Build link to webhook inbox for this message
+  const messageUrl = messageId && clientBaseUrl
+    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
+    : null;
+
+  // Always use polished embed format for crash reviews (template parameter is now ignored)
+  // Build polished embed
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+  // Exception signature (if available)
+  if (signature?.exception || signature?.topFrame) {
+    const exceptionParts: string[] = [];
+    if (signature.exception) {
+      exceptionParts.push(`**Type:** \`${truncateText(signature.exception, 100)}\``);
+    }
+    if (signature.topFrame) {
+      exceptionParts.push(`**Location:** \`${truncateText(signature.topFrame, 100)}\``);
+    }
+    fields.push({
+      name: '🔴 Exception',
+      value: exceptionParts.join('\n'),
+      inline: false
+    });
   }
 
-  return template
-    .replace(/\{\{summary\}\}/g, summary)
-    .replace(/\{\{hypotheses\}\}/g, topHypotheses)
-    .replace(/\{\{nextSteps\}\}/g, nextSteps)
-    .replace(/\{\{json\}\}/g, json)
-    .slice(0, 1500);
+  // Top hypotheses with confidence bars
+  if (hypotheses.length > 0) {
+    const hypothesesText = hypotheses
+      .slice(0, 3)
+      .map((h, idx) => {
+        const title = typeof h?.title === 'string' ? h.title : 'Unknown';
+        const confidence = typeof h?.confidence === 'number' ? h.confidence : 0;
+        const confidencePercent = Math.round(confidence * 100);
+        const confidenceBar = getConfidenceBar(confidence);
+        const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
+        return `${medal} **${truncateText(title, 80)}**\n${confidenceBar} ${confidencePercent}%`;
+      })
+      .join('\n\n');
+
+    fields.push({
+      name: '🔍 Root Cause Analysis',
+      value: hypothesesText || 'No hypotheses generated.',
+      inline: false
+    });
+
+    // Add evidence for top hypothesis if available
+    const topHypothesis = hypotheses[0];
+    if (topHypothesis && Array.isArray(topHypothesis.evidence) && topHypothesis.evidence.length > 0) {
+      const evidenceText = topHypothesis.evidence
+        .slice(0, 3)
+        .map((e: unknown) => `• ${truncateText(String(e), 120)}`)
+        .join('\n');
+      fields.push({
+        name: '📋 Supporting Evidence',
+        value: evidenceText,
+        inline: false
+      });
+    }
+  }
+
+  // Recommended next steps
+  if (recommendedNextSteps.length > 0) {
+    const stepsText = recommendedNextSteps
+      .slice(0, 4)
+      .map((step, idx) => `${idx + 1}. ${truncateText(String(step), 100)}`)
+      .join('\n');
+    fields.push({
+      name: '🛠️ Recommended Actions',
+      value: stepsText,
+      inline: false
+    });
+  }
+
+  // Determine embed color based on top hypothesis confidence
+  const topConfidence = hypotheses[0]?.confidence;
+  let embedColor = DISCORD_EMBED_COLORS.info;
+  if (typeof topConfidence === 'number') {
+    if (topConfidence >= 0.8) {
+      embedColor = DISCORD_EMBED_COLORS.success; // High confidence - likely found the issue
+    } else if (topConfidence >= 0.5) {
+      embedColor = DISCORD_EMBED_COLORS.warning; // Medium confidence
+    } else {
+      embedColor = DISCORD_EMBED_COLORS.danger; // Low confidence - needs more investigation
+    }
+  }
+
+  // Add link to view full report
+  if (messageUrl) {
+    fields.push({
+      name: '🔗 Full Report',
+      value: `[View in Webhook Inbox](${messageUrl})`,
+      inline: false
+    });
+  }
+
+  // Build footer with telemetry info
+  const footerParts: string[] = [];
+  if (telemetry?.model) {
+    footerParts.push(`Model: ${telemetry.model}`);
+  }
+  if (telemetry?.attempts && telemetry.attempts > 1) {
+    footerParts.push(`Attempts: ${telemetry.attempts}`);
+  }
+  if (footerParts.length === 0) {
+    footerParts.push(isQuestError ? 'AI-powered script analysis' : 'AI-powered crash analysis');
+  }
+
+  // Choose title based on error type
+  const embedTitle = isQuestError ? '📜 Script Error Analysis' : '💥 Crash Report Analysis';
+
+  return {
+    embeds: [
+      {
+        title: embedTitle,
+        description: summary,
+        color: embedColor,
+        fields,
+        footer: { text: footerParts.join(' • ') },
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+function detectQuestError(
+  signature: { exception?: string | null; topFrame?: string | null } | undefined,
+  summary: string
+): boolean {
+  // Check signature exception for quest error indicators
+  const exception = signature?.exception?.toLowerCase() ?? '';
+  if (exception.includes('[questerrors]') || exception.includes('script error')) {
+    return true;
+  }
+
+  // Check summary for quest/script error indicators
+  const summaryLower = summary.toLowerCase();
+  if (
+    summaryLower.includes('quest script') ||
+    summaryLower.includes('perl script') ||
+    summaryLower.includes('lua script') ||
+    summaryLower.includes('script error') ||
+    summaryLower.includes('[questerrors]')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getConfidenceBar(confidence: number): string {
+  const filled = Math.round(confidence * 10);
+  const empty = 10 - filled;
+  return '█'.repeat(filled) + '░'.repeat(empty);
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength - 3) + '...';
 }
 
 function safeJson(payload: unknown) {
@@ -996,6 +1232,76 @@ export async function createWebhookLabel(input: { name: string; color: string })
   });
 }
 
+// Standard label colors
+const STANDARD_LABEL_COLORS: Record<string, string> = {
+  'crash': '#dc2626',        // Red
+  'script error': '#ea580c', // Orange
+  'test': '#8b5cf6',         // Purple
+  'live': '#059669'          // Green
+};
+
+// Generate a consistent color based on label name (same name = same color)
+function generateColorFromName(name: string): string {
+  // Simple hash function for consistent color
+  let hash = 0;
+  const normalizedName = name.toLowerCase().trim();
+  for (let i = 0; i < normalizedName.length; i++) {
+    const char = normalizedName.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+
+  // Generate HSL color with good saturation and lightness for visibility
+  const hue = Math.abs(hash) % 360;
+  const saturation = 65 + (Math.abs(hash >> 8) % 20); // 65-85%
+  const lightness = 45 + (Math.abs(hash >> 16) % 15);  // 45-60%
+
+  // Convert HSL to hex
+  return hslToHex(hue, saturation, lightness);
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  s /= 100;
+  l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+export async function findOrCreateWebhookLabel(name: string) {
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    throw new Error('Label name is required');
+  }
+
+  // Try to find existing label (case-insensitive search via fetching all and filtering)
+  const allLabels = await prisma.webhookMessageLabel.findMany();
+  const existingLabel = allLabels.find(
+    (l) => l.name.toLowerCase() === trimmedName.toLowerCase()
+  );
+
+  if (existingLabel) {
+    return existingLabel;
+  }
+
+  // Determine color: use standard color if matching, otherwise generate consistent color
+  const lowerName = trimmedName.toLowerCase();
+  const color = STANDARD_LABEL_COLORS[lowerName] ?? generateColorFromName(trimmedName);
+
+  // Create new label
+  return prisma.webhookMessageLabel.create({
+    data: {
+      id: generateCuid(),
+      name: trimmedName,
+      color
+    }
+  });
+}
+
 export async function updateWebhookLabel(
   labelId: string,
   input: { name?: string; color?: string; sortOrder?: number }
@@ -1032,6 +1338,97 @@ export async function setMessageLabels(messageId: string, labelIds: string[]) {
         labelId
       }))
     });
+  }
+}
+
+// Default label definitions
+const DEFAULT_LABELS = {
+  CRASH: { name: 'Crash', color: '#dc2626' },           // Red
+  SCRIPT_ERROR: { name: 'Script Error', color: '#ea580c' }, // Orange
+  TEST: { name: 'Test', color: '#8b5cf6' },             // Purple
+  LIVE: { name: 'Live', color: '#059669' }              // Green
+} as const;
+
+// Get or create a default label
+async function getOrCreateDefaultLabel(type: keyof typeof DEFAULT_LABELS): Promise<string> {
+  const labelDef = DEFAULT_LABELS[type];
+
+  // Try to find existing label by name
+  let label = await prisma.webhookMessageLabel.findFirst({
+    where: { name: labelDef.name }
+  });
+
+  // Create if it doesn't exist
+  if (!label) {
+    label = await prisma.webhookMessageLabel.create({
+      data: {
+        id: generateCuid(),
+        name: labelDef.name,
+        color: labelDef.color,
+        sortOrder: type === 'CRASH' ? 1 : 2
+      }
+    });
+  }
+
+  return label.id;
+}
+
+// Auto-label a message based on crash review findings
+async function autoLabelMessage(
+  messageId: string,
+  findings: unknown,
+  signature: { exception?: string | null } | undefined,
+  webhookLabel?: string
+): Promise<void> {
+  try {
+    const labelsToAdd: string[] = [];
+
+    // Detect if this is a quest/script error vs crash
+    const isQuestError = detectQuestError(
+      signature as { exception?: string | null; topFrame?: string | null },
+      typeof (findings as Record<string, unknown>)?.summary === 'string'
+        ? (findings as Record<string, unknown>).summary as string
+        : ''
+    );
+
+    // Add crash type label (Crash or Script Error)
+    const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
+    labelsToAdd.push(crashLabelId);
+
+    // Check webhook label for Test/Live server indicators
+    if (webhookLabel) {
+      const lowerLabel = webhookLabel.toLowerCase();
+      if (lowerLabel.includes('test server')) {
+        const testLabelId = await getOrCreateDefaultLabel('TEST');
+        labelsToAdd.push(testLabelId);
+      } else if (lowerLabel.includes('live server')) {
+        const liveLabelId = await getOrCreateDefaultLabel('LIVE');
+        labelsToAdd.push(liveLabelId);
+      }
+    }
+
+    // Get existing labels for the message
+    const existingAssignments = await prisma.webhookMessageLabelAssignment.findMany({
+      where: { messageId },
+      select: { labelId: true }
+    });
+    const existingLabelIds = new Set(existingAssignments.map((a) => a.labelId));
+
+    // Add labels that aren't already present
+    for (const labelId of labelsToAdd) {
+      if (!existingLabelIds.has(labelId)) {
+        await prisma.webhookMessageLabelAssignment.create({
+          data: {
+            id: generateCuid(),
+            messageId,
+            labelId
+          }
+        });
+      }
+    }
+  } catch (error) {
+    // Don't fail the whole process if auto-labeling fails
+    console.error('Auto-labeling failed:', error);
   }
 }
 

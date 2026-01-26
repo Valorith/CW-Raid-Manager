@@ -89,7 +89,7 @@ watch(
   (newLength, oldLength) => {
     if (newLength > 0 && (oldLength === 0 || oldLength === undefined)) {
       startNpcAlarm();
-    } else if (newLength === 0 && oldLength > 0) {
+    } else if (newLength === 0 && oldLength !== undefined && oldLength > 0) {
       stopNpcAlarm();
     }
   },

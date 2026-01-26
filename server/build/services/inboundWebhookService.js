@@ -631,9 +631,7 @@ function buildDiscordPayload(payload, config) {
     if (config.discordMode !== 'RAW' && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const record = payload;
         if (record.crashReview && typeof record.crashReview === 'object') {
-            return {
-                content: formatDiscordCrashReviewContent(record.crashReview, config.discordTemplate)
-            };
+            return buildCrashReviewEmbed(record.crashReview, config.discordTemplate);
         }
     }
     if (config.discordMode === 'RAW') {
@@ -668,36 +666,142 @@ function formatDiscordContent(payload, template) {
         .replace(/\{\{json\}\}/g, trimmed)
         .replace(/\{\{raw\}\}/g, raw);
 }
-function formatDiscordCrashReviewContent(findings, template) {
+// Discord embed color palette (matches discordWebhookService.ts)
+const DISCORD_EMBED_COLORS = {
+    primary: 0x5865f2,
+    success: 0x57f287,
+    warning: 0xfee75c,
+    danger: 0xed4245,
+    info: 0x00b0f4
+};
+function buildCrashReviewEmbed(findings, template) {
     const record = (findings ?? {});
-    const summary = typeof record.summary === 'string' ? record.summary : 'Crash review completed.';
+    const summary = typeof record.summary === 'string' ? record.summary : 'Crash analysis completed.';
     const hypotheses = Array.isArray(record.hypotheses) ? record.hypotheses : [];
-    const topHypotheses = hypotheses
-        .slice(0, 3)
-        .map((item) => typeof item?.title === 'string' ? `- ${item.title} (${item.confidence ?? 'n/a'})` : '- Hypothesis')
-        .join('\n');
-    const nextSteps = Array.isArray(record.recommendedNextSteps)
-        ? record.recommendedNextSteps.slice(0, 5).map((step) => `- ${step}`).join('\n')
-        : '';
-    const json = safeJson(record);
-    const defaultContent = [
-        '**Crash Review Summary**',
-        summary,
-        topHypotheses ? `\n**Top Hypotheses**\n${topHypotheses}` : '',
-        nextSteps ? `\n**Next Steps**\n${nextSteps}` : '',
-        '\nSee Webhook Inbox for full JSON.'
-    ]
-        .filter(Boolean)
-        .join('\n');
-    if (!template) {
-        return defaultContent.slice(0, 1500);
+    const recommendedNextSteps = Array.isArray(record.recommendedNextSteps) ? record.recommendedNextSteps : [];
+    const signature = record.signature;
+    const telemetry = record.telemetry;
+    // If custom template is provided, fall back to plain text content
+    if (template) {
+        const topHypotheses = hypotheses
+            .slice(0, 3)
+            .map((item) => typeof item?.title === 'string' ? `- ${item.title} (${item.confidence ?? 'n/a'})` : '- Hypothesis')
+            .join('\n');
+        const nextStepsText = recommendedNextSteps.slice(0, 5).map((step) => `- ${step}`).join('\n');
+        const json = safeJson(record);
+        const content = template
+            .replace(/\{\{summary\}\}/g, summary)
+            .replace(/\{\{hypotheses\}\}/g, topHypotheses)
+            .replace(/\{\{nextSteps\}\}/g, nextStepsText)
+            .replace(/\{\{json\}\}/g, json)
+            .slice(0, 1900);
+        return { embeds: [{ description: content, color: DISCORD_EMBED_COLORS.danger }] };
     }
-    return template
-        .replace(/\{\{summary\}\}/g, summary)
-        .replace(/\{\{hypotheses\}\}/g, topHypotheses)
-        .replace(/\{\{nextSteps\}\}/g, nextSteps)
-        .replace(/\{\{json\}\}/g, json)
-        .slice(0, 1500);
+    // Build polished embed
+    const fields = [];
+    // Exception signature (if available)
+    if (signature?.exception || signature?.topFrame) {
+        const exceptionParts = [];
+        if (signature.exception) {
+            exceptionParts.push(`**Type:** \`${truncateText(signature.exception, 100)}\``);
+        }
+        if (signature.topFrame) {
+            exceptionParts.push(`**Location:** \`${truncateText(signature.topFrame, 100)}\``);
+        }
+        fields.push({
+            name: '🔴 Exception',
+            value: exceptionParts.join('\n'),
+            inline: false
+        });
+    }
+    // Top hypotheses with confidence bars
+    if (hypotheses.length > 0) {
+        const hypothesesText = hypotheses
+            .slice(0, 3)
+            .map((h, idx) => {
+            const title = typeof h?.title === 'string' ? h.title : 'Unknown';
+            const confidence = typeof h?.confidence === 'number' ? h.confidence : 0;
+            const confidencePercent = Math.round(confidence * 100);
+            const confidenceBar = getConfidenceBar(confidence);
+            const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉';
+            return `${medal} **${truncateText(title, 80)}**\n${confidenceBar} ${confidencePercent}%`;
+        })
+            .join('\n\n');
+        fields.push({
+            name: '🔍 Root Cause Analysis',
+            value: hypothesesText || 'No hypotheses generated.',
+            inline: false
+        });
+        // Add evidence for top hypothesis if available
+        const topHypothesis = hypotheses[0];
+        if (topHypothesis && Array.isArray(topHypothesis.evidence) && topHypothesis.evidence.length > 0) {
+            const evidenceText = topHypothesis.evidence
+                .slice(0, 3)
+                .map((e) => `• ${truncateText(String(e), 120)}`)
+                .join('\n');
+            fields.push({
+                name: '📋 Supporting Evidence',
+                value: evidenceText,
+                inline: false
+            });
+        }
+    }
+    // Recommended next steps
+    if (recommendedNextSteps.length > 0) {
+        const stepsText = recommendedNextSteps
+            .slice(0, 4)
+            .map((step, idx) => `${idx + 1}. ${truncateText(String(step), 100)}`)
+            .join('\n');
+        fields.push({
+            name: '🛠️ Recommended Actions',
+            value: stepsText,
+            inline: false
+        });
+    }
+    // Determine embed color based on top hypothesis confidence
+    const topConfidence = hypotheses[0]?.confidence;
+    let embedColor = DISCORD_EMBED_COLORS.info;
+    if (typeof topConfidence === 'number') {
+        if (topConfidence >= 0.8) {
+            embedColor = DISCORD_EMBED_COLORS.success; // High confidence - likely found the issue
+        }
+        else if (topConfidence >= 0.5) {
+            embedColor = DISCORD_EMBED_COLORS.warning; // Medium confidence
+        }
+        else {
+            embedColor = DISCORD_EMBED_COLORS.danger; // Low confidence - needs more investigation
+        }
+    }
+    // Build footer with telemetry info
+    const footerParts = ['View Webhook Inbox for full details'];
+    if (telemetry?.model) {
+        footerParts.push(`Model: ${telemetry.model}`);
+    }
+    if (telemetry?.attempts && telemetry.attempts > 1) {
+        footerParts.push(`Attempts: ${telemetry.attempts}`);
+    }
+    return {
+        embeds: [
+            {
+                title: '💥 Crash Report Analysis',
+                description: summary,
+                color: embedColor,
+                fields,
+                footer: { text: footerParts.join(' • ') },
+                timestamp: new Date().toISOString()
+            }
+        ]
+    };
+}
+function getConfidenceBar(confidence) {
+    const filled = Math.round(confidence * 10);
+    const empty = 10 - filled;
+    return '█'.repeat(filled) + '░'.repeat(empty);
+}
+function truncateText(text, maxLength) {
+    if (text.length <= maxLength)
+        return text;
+    return text.slice(0, maxLength - 3) + '...';
 }
 function safeJson(payload) {
     try {

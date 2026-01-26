@@ -1017,6 +1017,7 @@ export interface AttendanceEventSummary {
 export interface RaidNpcKillSummary {
   npcName: string;
   killCount: number;
+  zoneName?: string | null;
 }
 
 export interface RaidNpcKillEvent {
@@ -3817,6 +3818,15 @@ export const api = {
    */
   async createWebhookLabel(payload: { name: string; color: string }): Promise<WebhookMessageLabel> {
     const response = await axios.post('/api/admin/webhook-labels', payload);
+    return response.data.label;
+  },
+
+  /**
+   * Finds an existing label by name or creates a new one.
+   * Uses standard colors for known labels (Crash, Script Error) or generates a consistent color.
+   */
+  async findOrCreateWebhookLabel(name: string): Promise<WebhookMessageLabel> {
+    const response = await axios.post('/api/admin/webhook-labels/find-or-create', { name });
     return response.data.label;
   },
 

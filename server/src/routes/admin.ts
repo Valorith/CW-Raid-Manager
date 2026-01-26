@@ -55,6 +55,7 @@ import {
   toggleMessageStar,
   listWebhookLabels,
   createWebhookLabel,
+  findOrCreateWebhookLabel,
   updateWebhookLabel,
   deleteWebhookLabel,
   setMessageLabels,
@@ -1795,7 +1796,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const paramsSchema = z.object({ messageId: z.string() });
       const { messageId } = paramsSchema.parse(request.params);
 
-      const message = await getInboundWebhookMessage(messageId);
+      const message = await getInboundWebhookMessage(messageId, request.user.userId);
       if (!message) {
         return reply.notFound('Webhook message not found.');
       }
@@ -2060,6 +2061,25 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         }
         throw error;
       }
+    }
+  );
+
+  server.post(
+    '/webhook-labels/find-or-create',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        name: z.string().min(1).max(50)
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid label name.');
+      }
+
+      const label = await findOrCreateWebhookLabel(parsed.data.name);
+      return { label };
     }
   );
 

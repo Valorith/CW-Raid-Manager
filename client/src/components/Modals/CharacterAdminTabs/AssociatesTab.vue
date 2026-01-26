@@ -186,7 +186,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useCharacterAdminStore } from '../../../stores/characterAdmin';
-import { api, type CharacterSearchResult } from '../../../services/api';
+import { api, type AdminCharacterSearchResult } from '../../../services/api';
 
 const store = useCharacterAdminStore();
 
@@ -246,7 +246,7 @@ async function toggleAssociateWatch(associate: { characterId: number; characterN
 }
 
 const searchQuery = ref('');
-const selectedCharacter = ref<CharacterSearchResult | null>(null);
+const selectedCharacter = ref<AdminCharacterSearchResult | null>(null);
 const associationType = ref<'direct' | 'indirect'>('indirect');
 const associationReason = ref('');
 const addingAssociation = ref(false);
@@ -267,7 +267,7 @@ function handleSearch() {
   }, 300);
 }
 
-function selectCharacter(char: CharacterSearchResult) {
+function selectCharacter(char: AdminCharacterSearchResult) {
   // Don't allow selecting the current character or existing associates
   if (char.id === store.character?.id) {
     return;

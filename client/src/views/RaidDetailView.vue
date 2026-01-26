@@ -2106,7 +2106,7 @@ import {
 import type {
   AttendanceEventSummary,
   AttendanceRecordInput,
-  CharacterSearchResult,
+  RaidCharacterSearchResult,
   GuildLootListEntry,
   GuildLootListSummary,
   GuildNpcNote,
@@ -2817,7 +2817,7 @@ const signupContextMenu = reactive({
 // Signup search state
 const signupSearch = reactive({
   query: '',
-  results: [] as CharacterSearchResult[],
+  results: [] as RaidCharacterSearchResult[],
   loading: false,
   error: null as string | null,
   showDropdown: false
@@ -4389,7 +4389,7 @@ async function searchCharactersForSignup(query: string) {
   }
 }
 
-async function handleAddSignupFromSearch(character: CharacterSearchResult) {
+async function handleAddSignupFromSearch(character: RaidCharacterSearchResult) {
   if (!raid.value || character.isSignedUp) {
     return;
   }

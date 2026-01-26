@@ -515,8 +515,8 @@ const chartData = computed(() => {
         pointBackgroundColor: '#ffffff',
         pointBorderColor: '#22c55e',
         pointBorderWidth: 3,
-        borderCapStyle: 'round',
-        borderJoinStyle: 'round',
+        borderCapStyle: 'round' as const,
+        borderJoinStyle: 'round' as const,
         order: 0
       },
       {
@@ -663,7 +663,7 @@ const chartOptions = computed(() => {
           text: 'Weight (kg)'
         },
         ticks: {
-          callback: (value: number) => `${value.toFixed(1)} kg`
+          callback: (value: string | number) => typeof value === 'number' ? `${value.toFixed(1)} kg` : value
         }
       },
       yOre: {
@@ -677,7 +677,7 @@ const chartOptions = computed(() => {
           drawOnChartArea: false
         },
         ticks: {
-          callback: (value: number) => value.toLocaleString()
+          callback: (value: string | number) => typeof value === 'number' ? value.toLocaleString() : value
         }
       },
       x: {

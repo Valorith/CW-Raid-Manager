@@ -13,7 +13,7 @@
           type="button"
           class="btn btn--outline"
           :disabled="loading"
-          @click="refreshData"
+          @click="() => refreshData()"
         >
           {{ loading ? 'Refreshing...' : 'Refresh' }}
         </button>

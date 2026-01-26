@@ -842,7 +842,7 @@ const chartOptions = computed(() => {
         min: yMin,
         max: yMax,
         ticks: {
-          callback: (value: number) => formatPlatinum(value)
+          callback: (value: string | number) => typeof value === 'number' ? formatPlatinum(value) : value
         }
       },
       x: {
@@ -864,8 +864,8 @@ const chartOptions = computed(() => {
             const createdTime = formatScheduledTime(snapshot.createdAt);
             return [snapshotDate, `Taken: ${createdTime}`];
           },
-          label: (context: { parsed: { y: number } }) => {
-            return `Total: ${formatPlatinum(context.parsed.y)} PP`;
+          label: (context: { parsed: { y: number | null } }) => {
+            return `Total: ${formatPlatinum(context.parsed.y ?? 0)} PP`;
           }
         }
       }
@@ -1303,10 +1303,11 @@ function deleteFromContextMenu(): void {
 }
 
 function handleChartRightClick(event: MouseEvent): void {
-  if (!chartRef.value?.chart) return;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chartInstance = (chartRef.value as any)?.chart;
+  if (!chartInstance) return;
 
-  const chart = chartRef.value.chart;
-  const elements = chart.getElementsAtEventForMode(
+  const elements = chartInstance.getElementsAtEventForMode(
     event,
     'nearest',
     { intersect: true },

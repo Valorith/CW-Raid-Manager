@@ -684,28 +684,62 @@
                   </span>
                 </div>
               </td>
-              <td>
-                <span v-if="message.actionSummary?.length">
-                  {{ summarizeActions(message.actionSummary) }}
-                </span>
-                <span v-else class="muted">-</span>
-                <div v-if="getCrashSummary(message)" class="summary-line">
-                  {{ getCrashSummary(message) }}
-                </div>
-              </td>
-              <td>
-                <div class="label-chips" v-if="message.labels?.length">
+              <td class="actions-cell">
+                <div v-if="message.actionRuns?.length" class="action-pills">
                   <span
-                    v-for="label in message.labels"
-                    :key="label.id"
-                    class="label-chip"
-                    :style="{ backgroundColor: label.color }"
-                    :title="label.name"
+                    v-for="run in message.actionRuns"
+                    :key="run.id"
+                    class="action-pill"
+                    :class="getActionPillClass(run.status)"
+                    :title="`${run.action?.type || 'Action'}: ${run.status}`"
                   >
-                    {{ label.name }}
+                    {{ getActionLabel(run.action?.type) }}
                   </span>
                 </div>
                 <span v-else class="muted">-</span>
+                <p v-if="getCrashSummary(message)" class="crash-summary-text">
+                  {{ getCrashSummary(message) }}
+                </p>
+              </td>
+              <td class="labels-cell" @click.stop>
+                <div class="label-chips">
+                  <span
+                    v-for="label in sortedLabels(message.labels)"
+                    :key="label.id"
+                    class="label-chip"
+                    :style="getLabelStyle(label.color)"
+                    :title="label.name"
+                  >
+                    {{ label.name }}
+                    <button
+                      class="label-chip__remove"
+                      type="button"
+                      @click.stop="removeLabel(message, label.id)"
+                      aria-label="Remove label"
+                    >×</button>
+                  </span>
+                  <div class="label-add-wrapper">
+                    <button
+                      v-if="labelInputMessageId !== message.id"
+                      class="label-add-btn"
+                      type="button"
+                      @click.stop="showLabelInput(message.id)"
+                      title="Add label"
+                    >+</button>
+                    <input
+                      v-else
+                      :ref="(el) => el && (el as HTMLInputElement).focus()"
+                      v-model="labelInputValue"
+                      class="label-input"
+                      type="text"
+                      placeholder="Label name..."
+                      @keydown.enter.stop="submitLabelInput(message)"
+                      @keydown.escape.stop="closeLabelInput"
+                      @blur="closeLabelInput"
+                      @click.stop
+                    />
+                  </div>
+                </div>
               </td>
               <td>
                 <select
@@ -806,190 +840,161 @@
         </div>
       </article>
       </template>
+    </section>
 
-      <div v-if="selectedMessage" class="modal-backdrop" @click.self="closeMessage">
-        <div class="modal modal--wide" role="dialog" aria-modal="true">
-          <header class="modal__header">
-            <div class="modal__titles">
-              <h3>Webhook Payload</h3>
-              <p class="muted small">{{ selectedMessage.webhook?.label || selectedMessage.webhookId }}</p>
-            </div>
-            <button class="icon-button" @click="closeMessage" aria-label="Close message">
-              ✕
-            </button>
-          </header>
+    <!-- Message View Modal (outside tab sections) -->
+    <div v-if="selectedMessage" class="modal-backdrop" @click.self="closeMessage">
+      <div class="modal modal--wide" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <div class="modal__titles">
+            <h3>Webhook Payload</h3>
+            <p class="muted small">{{ selectedMessage.webhook?.label || selectedMessage.webhookId }}</p>
+          </div>
+          <button class="icon-button" @click="closeMessage" aria-label="Close message">
+            ✕
+          </button>
+        </header>
 
-          <div class="modal__content">
-            <div class="modal__content modal__content--split">
-              <section class="payload-block crash-pane">
-                <header class="panel-header">
-                  <h4>Crash Report</h4>
-                </header>
-                <pre class="crash-report">{{ getCrashReportText(selectedMessage) }}</pre>
+        <div class="modal__content">
+          <div class="modal__content modal__content--split">
+            <section class="payload-block crash-pane">
+              <header class="panel-header">
+                <h4>Crash Report</h4>
+              </header>
+              <pre class="crash-report">{{ getCrashReportText(selectedMessage) }}</pre>
+              <div class="result-actions">
+                <button class="btn btn--outline btn--small" type="button" @click="copyReport">
+                  Copy Report
+                </button>
+              </div>
+            </section>
+
+            <section class="payload-block llm-pane">
+              <header class="panel-header">
+                <div class="panel-title">
+                  <span class="ai-icon" aria-hidden="true">✦</span>
+                  <h4>AI Review</h4>
+                </div>
+                <div class="panel-badges">
+                  <span class="badge" :class="statusBadge(getCrashRunStatus(selectedMessage))">
+                    {{ getCrashRunStatus(selectedMessage) }}
+                  </span>
+                  <span v-if="getCrashRunModel(selectedMessage)" class="badge badge--neutral">
+                    {{ getCrashRunModel(selectedMessage) }}
+                  </span>
+                </div>
+              </header>
+
+              <div v-if="isCrashReviewPending(selectedMessage)" class="llm-loading">
+                <span class="spinner spinner--large"></span>
+                <p class="muted">
+                  Analyzing crash report...
+                  <span v-if="getPendingDuration(selectedMessage) > 0">
+                    Waiting {{ formatDuration(getPendingDuration(selectedMessage)) }}
+                  </span>
+                </p>
+              </div>
+
+              <div
+                v-else-if="getCrashRunStatus(selectedMessage) === 'SUCCESS' && getCrashRunResult(selectedMessage)"
+                class="llm-content"
+              >
+                <p class="llm-summary">{{ getCrashRunResult(selectedMessage)?.summary }}</p>
+
+                <!-- Token usage bar -->
+                <div v-if="getCrashRunTokenUsage(selectedMessage)" class="token-usage">
+                  <div class="token-usage__header">
+                    <span class="token-usage__title">Token Usage</span>
+                    <span
+                      v-if="getCrashRunTokenUsage(selectedMessage)?.finishReason === 'MAX_TOKENS'"
+                      class="token-usage__warning"
+                    >
+                      Truncated
+                    </span>
+                  </div>
+                  <div class="token-usage__bar-container">
+                    <div class="token-usage__bar">
+                      <div
+                        class="token-usage__segment token-usage__segment--thinking"
+                        :style="{
+                          width: `${(getCrashRunTokenUsage(selectedMessage)!.thinkingTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
+                        }"
+                        :title="`Thinking: ${getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString()} tokens`"
+                      ></div>
+                      <div
+                        class="token-usage__segment token-usage__segment--output"
+                        :style="{
+                          width: `${(getCrashRunTokenUsage(selectedMessage)!.outputTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
+                        }"
+                        :title="`Output: ${getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString()} tokens`"
+                      ></div>
+                    </div>
+                  </div>
+                  <div class="token-usage__details">
+                    <div class="token-usage__stat">
+                      <span class="token-usage__dot token-usage__dot--thinking"></span>
+                      <span>Thinking: {{ getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString() }}</span>
+                    </div>
+                    <div class="token-usage__stat">
+                      <span class="token-usage__dot token-usage__dot--output"></span>
+                      <span>Output: {{ getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString() }}</span>
+                    </div>
+                    <div class="token-usage__stat token-usage__stat--budget">
+                      <span>Budget: {{ getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens.toLocaleString() }}</span>
+                    </div>
+                  </div>
+                  <div class="token-usage__input-row">
+                    <span class="token-usage__input-label">Input (est):</span>
+                    <span>~{{ getCrashRunTokenUsage(selectedMessage)!.inputTokens.toLocaleString() }} tokens</span>
+                  </div>
+                </div>
+
+                <div v-if="getCrashRunResult(selectedMessage)?.hypotheses?.length" class="llm-section">
+                  <h5>Possible Causes</h5>
+                  <ol class="llm-list">
+                    <li v-for="item in getCrashRunResult(selectedMessage)?.hypotheses" :key="item.title">
+                      <strong>{{ item.title }}</strong>
+                      <span class="muted small">(confidence {{ item.confidence }}%)</span>
+                      <p>{{ item.evidence }}</p>
+                    </li>
+                  </ol>
+                </div>
+
+                <div v-if="getCrashRunResult(selectedMessage)?.missingInfo?.length" class="llm-section">
+                  <h5>Missing Information</h5>
+                  <ul class="llm-list">
+                    <li v-for="info in getCrashRunResult(selectedMessage)?.missingInfo" :key="info">
+                      {{ info }}
+                    </li>
+                  </ul>
+                </div>
+
+                <div v-if="getCrashRunResult(selectedMessage)?.recommendedNextSteps?.length" class="llm-section">
+                  <h5>Recommended Next Steps</h5>
+                  <ol class="llm-list llm-list--numbered">
+                    <li
+                      v-for="step in getCrashRunResult(selectedMessage)?.recommendedNextSteps"
+                      :key="step"
+                    >
+                      {{ step }}
+                    </li>
+                  </ol>
+                </div>
+
                 <div class="result-actions">
-                  <button class="btn btn--outline btn--small" type="button" @click="copyReport">
-                    Copy Report
-                  </button>
-                </div>
-              </section>
-
-              <section class="payload-block llm-pane">
-                <header class="panel-header">
-                  <div class="panel-title">
-                    <span class="ai-icon" aria-hidden="true">✦</span>
-                    <h4>AI Review</h4>
-                  </div>
-                  <div class="panel-badges">
-                    <span class="badge" :class="statusBadge(getCrashRunStatus(selectedMessage))">
-                      {{ getCrashRunStatus(selectedMessage) }}
-                    </span>
-                    <span v-if="getCrashRunModel(selectedMessage)" class="badge badge--neutral">
-                      {{ getCrashRunModel(selectedMessage) }}
-                    </span>
-                  </div>
-                </header>
-
-                <div v-if="isCrashReviewPending(selectedMessage)" class="llm-loading">
-                  <span class="spinner spinner--large"></span>
-                  <div>
-                    <strong>Analyzing crash report...</strong>
-                    <p class="muted small">
-                      Waiting {{ formatDuration(getPendingDuration(selectedMessage)) }}
-                    </p>
-                  </div>
-                </div>
-
-                <div
-                  v-else-if="getCrashRunStatus(selectedMessage) === 'SUCCESS' && getCrashRunResult(selectedMessage)"
-                  class="llm-results"
-                >
-                  <p class="llm-summary">{{ getCrashRunResult(selectedMessage).summary }}</p>
-
-                  <!-- Token Usage Visualization -->
-                  <div v-if="getCrashRunTokenUsage(selectedMessage)" class="token-usage">
-                    <div class="token-usage__header">
-                      <span class="token-usage__title">Token Usage</span>
-                      <span
-                        v-if="getCrashRunTokenUsage(selectedMessage)?.finishReason === 'MAX_TOKENS'"
-                        class="token-usage__warning"
-                      >
-                        Truncated
-                      </span>
-                    </div>
-                    <div class="token-usage__bar-container">
-                      <div class="token-usage__bar">
-                        <div
-                          class="token-usage__segment token-usage__segment--thinking"
-                          :style="{
-                            width: `${(getCrashRunTokenUsage(selectedMessage)!.thinkingTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
-                          }"
-                          :title="`Thinking: ${getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString()} tokens`"
-                        ></div>
-                        <div
-                          class="token-usage__segment token-usage__segment--output"
-                          :style="{
-                            width: `${(getCrashRunTokenUsage(selectedMessage)!.outputTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
-                          }"
-                          :title="`Output: ${getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString()} tokens`"
-                        ></div>
-                      </div>
-                    </div>
-                    <div class="token-usage__details">
-                      <div class="token-usage__stat">
-                        <span class="token-usage__dot token-usage__dot--thinking"></span>
-                        <span>Thinking: {{ getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString() }}</span>
-                      </div>
-                      <div class="token-usage__stat">
-                        <span class="token-usage__dot token-usage__dot--output"></span>
-                        <span>Output: {{ getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString() }}</span>
-                      </div>
-                      <div class="token-usage__stat token-usage__stat--budget">
-                        <span>Budget: {{ getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens.toLocaleString() }}</span>
-                      </div>
-                    </div>
-                    <div class="token-usage__input-row">
-                      <span class="token-usage__input-label">Input (est):</span>
-                      <span>~{{ getCrashRunTokenUsage(selectedMessage)!.inputTokens.toLocaleString() }} tokens</span>
-                    </div>
-                  </div>
-
-                  <div v-if="getCrashRunResult(selectedMessage).hypotheses?.length" class="llm-section">
-                    <h5>Hypotheses</h5>
-                    <ul>
-                      <li v-for="item in getCrashRunResult(selectedMessage).hypotheses" :key="item.title">
-                        <strong>{{ item.title }}</strong>
-                        <span class="muted small">(confidence {{ item.confidence }})</span>
-                        <ul class="llm-sublist">
-                          <li v-for="evidence in item.evidence" :key="evidence">{{ evidence }}</li>
-                        </ul>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div v-if="getCrashRunResult(selectedMessage).missingInfo?.length" class="llm-section">
-                    <h5>Missing Info</h5>
-                    <ul>
-                      <li v-for="info in getCrashRunResult(selectedMessage).missingInfo" :key="info">
-                        {{ info }}
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div v-if="getCrashRunResult(selectedMessage).recommendedNextSteps?.length" class="llm-section">
-                    <h5>Next Steps</h5>
-                    <ul>
-                      <li
-                        v-for="step in getCrashRunResult(selectedMessage).recommendedNextSteps"
-                        :key="step"
-                      >
-                        {{ step }}
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div class="result-actions">
-                    <button
-                      class="btn btn--outline btn--small"
-                      type="button"
-                      @click="copyFindings(getCrashRun(selectedMessage))"
-                    >
-                      Copy Findings
-                    </button>
-                    <button
-                      class="btn btn--outline btn--small"
-                      type="button"
-                      @click="copyFindingsJson(getCrashRun(selectedMessage))"
-                    >
-                      Copy JSON
-                    </button>
-                    <button
-                      v-if="getCrashRunPrompt(selectedMessage)"
-                      class="btn btn--outline btn--small"
-                      type="button"
-                      @click="showPromptModal = true"
-                    >
-                      See Prompt
-                    </button>
-                  </div>
-                </div>
-
-                <div v-else-if="getCrashRunStatus(selectedMessage) === 'FAILED'" class="llm-error">
-                  <p class="error">{{ getCrashRunError(selectedMessage) }}</p>
-                  <p class="muted small">Check rate limits, model settings, or retry later.</p>
                   <button
                     class="btn btn--outline btn--small"
                     type="button"
-                    @click="copyCrashError(selectedMessage)"
+                    @click="copyFindings(getCrashRun(selectedMessage))"
                   >
-                    Copy Error
+                    Copy AI Review
                   </button>
                   <button
                     class="btn btn--outline btn--small"
                     type="button"
-                    :disabled="retryingCrashId === selectedMessage.id"
-                    @click="retryCrashReview(selectedMessage)"
+                    @click="copyFindingsJson(getCrashRun(selectedMessage))"
                   >
-                    {{ retryingCrashId === selectedMessage.id ? 'Retrying...' : 'Retry' }}
+                    Copy JSON
                   </button>
                   <button
                     v-if="getCrashRunPrompt(selectedMessage)"
@@ -997,32 +1002,32 @@
                     type="button"
                     @click="showPromptModal = true"
                   >
-                    See Prompt
+                    View Prompt
+                  </button>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    @click="retryCrashReview(selectedMessage)"
+                    :disabled="isCrashReviewPending(selectedMessage)"
+                  >
+                    Re-run AI Review
                   </button>
                 </div>
+              </div>
 
-                <div v-else class="muted">No crash review results yet.</div>
-              </section>
-            </div>
-
+              <div v-else class="muted">No crash review results yet.</div>
+            </section>
           </div>
-        </div>
-      </div>
-      <div v-if="showPromptModal" class="modal-backdrop" @click.self="showPromptModal = false">
-        <div class="modal modal--wide" role="dialog" aria-modal="true">
-          <header class="modal__header">
-            <div class="modal__titles">
-              <h3>LLM Prompt Payload</h3>
-              <p class="muted small">Sent to Gemini for analysis</p>
-            </div>
-            <button class="icon-button" @click="showPromptModal = false" aria-label="Close prompt">
-              ✕
-            </button>
-          </header>
-          <div class="modal__content">
-            <section class="payload-block">
-              <pre>{{ formatJson(getCrashRunPrompt(selectedMessage)) }}</pre>
-              <div class="result-actions">
+
+          <!-- Prompt Modal inside Message modal -->
+          <div v-if="showPromptModal" class="prompt-modal-overlay" @click.self="showPromptModal = false">
+            <div class="prompt-modal">
+              <header class="prompt-modal__header">
+                <h4>Prompt Sent to AI</h4>
+                <button class="icon-button" @click="showPromptModal = false" aria-label="Close">✕</button>
+              </header>
+              <pre class="prompt-modal__content">{{ getCrashRunPrompt(selectedMessage) }}</pre>
+              <div class="prompt-modal__actions">
                 <button
                   class="btn btn--outline btn--small"
                   type="button"
@@ -1031,171 +1036,178 @@
                   Copy Prompt JSON
                 </button>
               </div>
-            </section>
+            </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- Merge Modal -->
-      <div v-if="showMergeModal" class="modal-backdrop" @click.self="closeMergeModal">
-        <div class="modal" role="dialog" aria-modal="true">
-          <header class="modal__header">
-            <h3>Combine Messages</h3>
-            <button class="icon-button" @click="closeMergeModal" aria-label="Close">
-              ✕
-            </button>
-          </header>
-          <div class="modal__body">
-            <p class="muted small">Drag to reorder. Messages will be combined in the order shown below.</p>
-            <div class="merge-list">
-              <div
-                v-for="(id, index) in mergeOrdering"
-                :key="id"
-                class="merge-item"
-              >
-                <div class="merge-item__info">
-                  <strong>Part {{ index + 1 }}</strong>
-                  <span class="muted small">{{ formatDate(getMergeMessage(id)?.receivedAt) }}</span>
-                  <span class="muted small">{{ getMergeMessage(id)?.webhook?.label || 'Unknown' }}</span>
-                </div>
-                <div class="merge-item__actions">
-                  <button
-                    class="icon-button"
-                    type="button"
-                    :disabled="index === 0"
-                    @click="moveMergeItem(index, 'up')"
-                    title="Move up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    class="icon-button"
-                    type="button"
-                    :disabled="index === mergeOrdering.length - 1"
-                    @click="moveMergeItem(index, 'down')"
-                    title="Move down"
-                  >
-                    ↓
-                  </button>
-                </div>
+    <!-- Merge Modal (outside tab sections) -->
+    <div v-if="showMergeModal" class="modal-backdrop" @click.self="closeMergeModal">
+      <div class="modal" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <h3>Combine Messages</h3>
+          <button class="icon-button" @click="closeMergeModal" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <p class="muted small">Drag to reorder. Messages will be combined in the order shown below.</p>
+          <div class="merge-list">
+            <div
+              v-for="(id, index) in mergeOrdering"
+              :key="id"
+              class="merge-item"
+            >
+              <div class="merge-item__info">
+                <strong>Part {{ index + 1 }}</strong>
+                <span class="muted small">{{ formatDate(getMergeMessage(id)?.receivedAt) }}</span>
+                <span class="muted small">{{ getMergeMessage(id)?.webhook?.label || 'Unknown' }}</span>
+              </div>
+              <div class="merge-item__actions">
+                <button
+                  class="icon-button"
+                  type="button"
+                  :disabled="index === 0"
+                  @click="moveMergeItem(index, 'up')"
+                  title="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  class="icon-button"
+                  type="button"
+                  :disabled="index === mergeOrdering.length - 1"
+                  @click="moveMergeItem(index, 'down')"
+                  title="Move down"
+                >
+                  ↓
+                </button>
               </div>
             </div>
-            <p class="muted small merge-warning">
-              This will create a new combined message and delete the {{ mergeOrdering.length }} original messages.
-            </p>
           </div>
-          <footer class="modal__footer">
-            <button class="btn btn--outline" type="button" @click="closeMergeModal" :disabled="mergingMessages">
-              Cancel
-            </button>
-            <button class="btn btn--accent" type="button" @click="confirmMerge" :disabled="mergingMessages">
-              {{ mergingMessages ? 'Combining...' : 'Combine Messages' }}
-            </button>
-          </footer>
+          <p class="muted small merge-warning">
+            This will create a new combined message and delete the {{ mergeOrdering.length }} original messages.
+          </p>
         </div>
+        <footer class="modal__footer">
+          <button class="btn btn--outline" type="button" @click="closeMergeModal" :disabled="mergingMessages">
+            Cancel
+          </button>
+          <button class="btn btn--accent" type="button" @click="confirmMerge" :disabled="mergingMessages">
+            {{ mergingMessages ? 'Combining...' : 'Combine Messages' }}
+          </button>
+        </footer>
       </div>
+    </div>
 
-      <!-- Label Manager Modal -->
-      <div v-if="showLabelManager" class="modal-backdrop" @click.self="showLabelManager = false">
-        <div class="modal" role="dialog" aria-modal="true">
-          <header class="modal__header">
-            <h3>Manage Labels</h3>
-            <button class="icon-button" @click="showLabelManager = false" aria-label="Close">
-              ✕
-            </button>
-          </header>
-          <div class="modal__body">
-            <div class="label-manager">
-              <div class="label-manager__list">
-                <div v-if="webhookLabels.length === 0" class="muted">No labels yet.</div>
-                <div
-                  v-for="label in webhookLabels"
-                  :key="label.id"
-                  class="label-manager__item"
-                >
-                  <template v-if="labelToEdit?.id === label.id">
-                    <input
-                      v-model="labelToEdit.name"
-                      class="input input--small"
-                      maxlength="50"
-                      @keyup.enter="updateLabel"
-                    />
-                    <input
-                      v-model="labelToEdit.color"
-                      type="color"
-                      class="color-picker"
-                    />
-                    <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
-                      Save
-                    </button>
-                    <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = null">
-                      Cancel
-                    </button>
-                  </template>
-                  <template v-else>
-                    <span
-                      class="label-chip"
-                      :style="{ backgroundColor: label.color }"
-                    >
-                      {{ label.name }}
-                    </span>
-                    <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = { ...label }">
-                      Edit
-                    </button>
-                    <button class="btn btn--small btn--danger" type="button" @click="deleteLabel(label)">
-                      Delete
-                    </button>
-                  </template>
-                </div>
-              </div>
-              <div class="label-manager__create">
-                <h4>Create New Label</h4>
-                <div class="form-row">
+    <!-- Label Manager Modal (outside tab sections) -->
+    <div v-if="showLabelManager" class="modal-backdrop" @click.self="showLabelManager = false">
+      <div class="modal" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <h3>Manage Labels</h3>
+          <button class="icon-button" @click="showLabelManager = false" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <div class="label-manager">
+            <div class="label-manager__list">
+              <div v-if="webhookLabels.length === 0" class="muted">No labels yet.</div>
+              <div
+                v-for="label in webhookLabels"
+                :key="label.id"
+                class="label-manager__item"
+              >
+                <template v-if="labelToEdit?.id === label.id">
                   <input
-                    v-model="newLabelForm.name"
-                    class="input"
-                    placeholder="Label name"
+                    v-model="labelToEdit.name"
+                    class="input input--small"
                     maxlength="50"
-                    @keyup.enter="createLabel"
+                    @keyup.enter="updateLabel"
                   />
                   <input
-                    v-model="newLabelForm.color"
+                    v-model="labelToEdit.color"
                     type="color"
                     class="color-picker"
                   />
-                  <button
-                    class="btn btn--accent"
-                    type="button"
-                    :disabled="!newLabelForm.name.trim()"
-                    @click="createLabel"
-                  >
-                    Create
+                  <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
+                    Save
                   </button>
-                </div>
+                  <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = null">
+                    Cancel
+                  </button>
+                </template>
+                <template v-else>
+                  <span
+                    class="label-chip"
+                    :style="{ backgroundColor: label.color }"
+                  >
+                    {{ label.name }}
+                  </span>
+                  <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = { ...label }">
+                    Edit
+                  </button>
+                  <button class="btn btn--small btn--danger" type="button" @click="deleteLabel(label)">
+                    Delete
+                  </button>
+                </template>
+              </div>
+            </div>
+            <div class="label-manager__create">
+              <h4>Create New Label</h4>
+              <div class="form-row">
+                <input
+                  v-model="newLabelForm.name"
+                  class="input"
+                  placeholder="Label name"
+                  maxlength="50"
+                  @keyup.enter="createLabel"
+                />
+                <input
+                  v-model="newLabelForm.color"
+                  type="color"
+                  class="color-picker"
+                />
+                <button
+                  class="btn btn--accent"
+                  type="button"
+                  :disabled="!newLabelForm.name.trim()"
+                  @click="createLabel"
+                >
+                  Create
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </section>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import {
   api,
   type InboundWebhook,
   type InboundWebhookAction,
   type InboundWebhookMessage,
   type InboundWebhookMessageStatus,
+  type InboundWebhookRetentionPolicy,
   type AdminUserSummary,
   type WebhookMessageLabel
 } from '../services/api';
 import { useToastBus } from '../components/ToastBus';
 
+const route = useRoute();
+const router = useRouter();
+
 const loading = ref(true);
+const componentReady = ref(false);
 const activeTab = ref<'endpoints' | 'inbox'>('inbox');
+const pendingMessageId = ref<string | null>(null);
 const { addToast } = useToastBus();
 
 const webhooks = ref<InboundWebhook[]>([]);
@@ -1233,6 +1245,8 @@ const selectedMessage = ref<InboundWebhookMessage | null>(null);
 const selectedMessageIds = ref<Set<string>>(new Set());
 const webhookLabels = ref<WebhookMessageLabel[]>([]);
 const showLabelManager = ref(false);
+const labelInputMessageId = ref<string | null>(null);
+const labelInputValue = ref('');
 const showMergeModal = ref(false);
 const mergeOrdering = ref<string[]>([]);
 const mergingMessages = ref(false);
@@ -1300,14 +1314,14 @@ const selectedWebhook = computed(() =>
   webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
 
-function buildRetentionPayload(draft: any) {
+function buildRetentionPayload(draft: any): InboundWebhookRetentionPolicy {
   if (draft.retentionMode === 'days') {
-    return { mode: 'days', days: draft.retentionDays || 30 };
+    return { mode: 'days' as const, days: draft.retentionDays || 30 };
   }
   if (draft.retentionMode === 'maxCount') {
-    return { mode: 'maxCount', maxCount: draft.retentionMaxCount || 5000 };
+    return { mode: 'maxCount' as const, maxCount: draft.retentionMaxCount || 5000 };
   }
-  return { mode: 'indefinite' };
+  return { mode: 'indefinite' as const };
 }
 
 function buildDraft(webhook: InboundWebhook) {
@@ -1429,12 +1443,31 @@ async function loadSelectedMessage(messageId: string) {
   }
 }
 
+function hasRecentMessages(): boolean {
+  const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+  return inboxMessages.value.some((message) => {
+    if (!message.receivedAt) return false;
+    return new Date(message.receivedAt).getTime() > twoMinutesAgo;
+  });
+}
+
 async function refreshPendingInboxMessages() {
-  const pending = inboxMessages.value.filter((message) => Boolean(getPendingRun(message)));
-  if (pending.length === 0) return;
+  // Poll messages that are either pending or recently received
+  const messagesToPoll = inboxMessages.value.filter((message) => {
+    // Always poll pending runs
+    if (getPendingRun(message)) return true;
+    // Also poll messages received in the last 2 minutes (may have status updates)
+    if (message.receivedAt) {
+      const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+      return new Date(message.receivedAt).getTime() > twoMinutesAgo;
+    }
+    return false;
+  });
+
+  if (messagesToPoll.length === 0) return;
 
   const updates = await Promise.all(
-    pending.map(async (message) => {
+    messagesToPoll.map(async (message) => {
       try {
         return await api.fetchInboundWebhookMessage(message.id);
       } catch {
@@ -1443,12 +1476,50 @@ async function refreshPendingInboxMessages() {
     })
   );
 
+  // Check for any changes and update only changed properties (prevents flickering)
+  let anyLabelsChanged = false;
+  const changedIds: string[] = [];
+
   for (const updated of updates) {
     if (!updated) continue;
     const inboxIndex = inboxMessages.value.findIndex((item) => item.id === updated.id);
     if (inboxIndex >= 0) {
-      inboxMessages.value[inboxIndex] = updated;
+      const existing = inboxMessages.value[inboxIndex];
+
+      // Detect and apply changes in-place (only update changed properties)
+      if (existing.status !== updated.status) {
+        existing.status = updated.status;
+        changedIds.push(updated.id);
+      }
+
+      // Update action runs if changed
+      const existingActionsJson = JSON.stringify(existing.actionRuns);
+      const updatedActionsJson = JSON.stringify(updated.actionRuns);
+      if (existingActionsJson !== updatedActionsJson) {
+        existing.actionRuns = updated.actionRuns;
+        if (!changedIds.includes(updated.id)) changedIds.push(updated.id);
+      }
+
+      // Update labels if changed
+      const existingLabelsJson = JSON.stringify(existing.labels);
+      const updatedLabelsJson = JSON.stringify(updated.labels);
+      if (existingLabelsJson !== updatedLabelsJson) {
+        existing.labels = updated.labels;
+        anyLabelsChanged = true;
+        if (!changedIds.includes(updated.id)) changedIds.push(updated.id);
+      }
     }
+  }
+
+  // Only refresh global labels list if any message labels changed
+  if (anyLabelsChanged) {
+    await loadLabels();
+  }
+
+  // Update selected message modal if it was one of the changed messages
+  if (selectedMessage.value && changedIds.includes(selectedMessage.value.id)) {
+    const refreshed = await api.fetchInboundWebhookMessage(selectedMessage.value.id);
+    selectedMessage.value = refreshed;
   }
 
   if (inboxFilters.status) {
@@ -1469,10 +1540,14 @@ function hasPendingSelectedRun() {
   return selectedMessage.value ? Boolean(getPendingRun(selectedMessage.value)) : false;
 }
 
+function shouldPollInbox(): boolean {
+  return hasPendingInboxRuns() || hasRecentMessages();
+}
+
 function startInboxPolling() {
   if (inboxPollTimer) return;
   inboxPollTimer = setInterval(() => {
-    if (hasPendingInboxRuns()) {
+    if (shouldPollInbox()) {
       if (inboxPollInFlight) return;
       inboxPollInFlight = true;
       refreshPendingInboxMessages().finally(() => {
@@ -1482,7 +1557,7 @@ function startInboxPolling() {
       clearInterval(inboxPollTimer);
       inboxPollTimer = null;
     }
-  }, 5000);
+  }, 1500);
 }
 
 function startMessagePolling(messageId: string) {
@@ -1499,7 +1574,7 @@ function startMessagePolling(messageId: string) {
       clearInterval(messagePollTimer as ReturnType<typeof setInterval>);
       messagePollTimer = null;
     }
-  }, 5000);
+  }, 1500);
 }
 
 function applyInboxFilters() {
@@ -1515,7 +1590,7 @@ async function refreshAll() {
   loading.value = true;
   try {
     await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount()]);
-    if (hasPendingInboxRuns()) {
+    if (shouldPollInbox()) {
       startInboxPolling();
     }
   } finally {
@@ -1746,7 +1821,7 @@ function setInboxPage(page: number) {
 watch(
   () => inboxMessages.value,
   () => {
-    if (hasPendingInboxRuns()) {
+    if (shouldPollInbox()) {
       startInboxPolling();
     }
   },
@@ -1783,15 +1858,30 @@ function statusBadge(status: string) {
   }
 }
 
-function summarizeActions(summary?: Array<{ actionId: string; status: string }> | null) {
-  if (!summary || summary.length === 0) return '—';
-  const counts = summary.reduce<Record<string, number>>((acc, item) => {
-    acc[item.status] = (acc[item.status] || 0) + 1;
-    return acc;
-  }, {});
-  return Object.entries(counts)
-    .map(([status, count]) => `${status}: ${count}`)
-    .join(' · ');
+function getActionPillClass(status: string): string {
+  switch (status) {
+    case 'SUCCESS':
+      return 'action-pill--success';
+    case 'FAILED':
+      return 'action-pill--failed';
+    case 'PENDING_REVIEW':
+      return 'action-pill--pending';
+    case 'SKIPPED':
+      return 'action-pill--skipped';
+    default:
+      return '';
+  }
+}
+
+function getActionLabel(type?: string | null): string {
+  switch (type) {
+    case 'CRASH_REVIEW':
+      return 'AI Review';
+    case 'DISCORD_RELAY':
+      return 'Discord';
+    default:
+      return 'Action';
+  }
 }
 
 function formatDate(value?: string | null) {
@@ -1924,7 +2014,8 @@ function getCrashRunTokenUsage(message: InboundWebhookMessage): TokenUsageData |
   // Estimate input tokens from the request payload if available
   const requestPayload = telemetry.requestPayload as Record<string, unknown> | undefined;
   const analysisPayload = requestPayload?.analysis as Record<string, unknown> | undefined;
-  const promptText = analysisPayload?.contents?.[0]?.parts?.[0]?.text as string | undefined;
+  const contents = analysisPayload?.contents as Array<{ parts?: Array<{ text?: string }> }> | undefined;
+  const promptText = contents?.[0]?.parts?.[0]?.text;
   // Rough estimate: ~4 chars per token for input
   const inputTokens = promptText ? Math.ceil(promptText.length / 4) : 0;
 
@@ -2364,6 +2455,78 @@ function getMessageLabelIds(message: InboundWebhookMessage): string[] {
   return message.labels?.map((l) => l.id) ?? [];
 }
 
+// ==================== Inline Label Management ====================
+
+function showLabelInput(messageId: string) {
+  labelInputMessageId.value = messageId;
+  labelInputValue.value = '';
+}
+
+function closeLabelInput() {
+  labelInputMessageId.value = null;
+  labelInputValue.value = '';
+}
+
+async function submitLabelInput(message: InboundWebhookMessage) {
+  const name = labelInputValue.value.trim();
+  if (!name) {
+    closeLabelInput();
+    return;
+  }
+
+  try {
+    // Find or create the label by name
+    const label = await api.findOrCreateWebhookLabel(name);
+
+    // Add label to message if not already present
+    const currentIds = getMessageLabelIds(message);
+    if (!currentIds.includes(label.id)) {
+      await setMessageLabels(message.id, [...currentIds, label.id]);
+    }
+
+    // Refresh labels list to include any newly created label
+    await loadLabels();
+  } catch (err) {
+    addToast({ title: 'Error', message: 'Failed to add label' });
+  }
+
+  closeLabelInput();
+}
+
+async function removeLabel(message: InboundWebhookMessage, labelId: string) {
+  const currentIds = getMessageLabelIds(message);
+  await setMessageLabels(message.id, currentIds.filter((id) => id !== labelId));
+}
+
+function sortedLabels(labels: WebhookMessageLabel[] | undefined): WebhookMessageLabel[] {
+  if (!labels) return [];
+  return [...labels].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getLabelStyle(color: string): Record<string, string> {
+  // Calculate perceived brightness to determine text color
+  const hex = color.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  // Perceived brightness formula
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  const textColor = brightness > 128 ? '#1e293b' : '#ffffff';
+
+  return {
+    backgroundColor: color,
+    color: textColor
+  };
+}
+
+// Close label input when clicking outside
+function handleGlobalClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  if (!target.closest('.label-add-wrapper')) {
+    closeLabelInput();
+  }
+}
+
 // ==================== Message Merging ====================
 
 function openMergeModal() {
@@ -2476,11 +2639,125 @@ watch(
   }
 );
 
+// Helper function to open a message by ID from URL
+let openingMessageId: string | null = null;
+
+async function openMessageFromUrl(messageId: string) {
+  // Prevent duplicate processing
+  if (openingMessageId === messageId) {
+    console.log('[Webhook Inbox] Already opening message:', messageId);
+    return;
+  }
+  // Don't reopen if already viewing this message
+  if (selectedMessage.value?.id === messageId) {
+    console.log('[Webhook Inbox] Already viewing message:', messageId);
+    return;
+  }
+
+  console.log('[Webhook Inbox] Opening message from URL:', messageId);
+  openingMessageId = messageId;
+  activeTab.value = 'inbox';
+  showPromptModal.value = false;
+
+  try {
+    // Fetch the message
+    const message = await api.fetchInboundWebhookMessage(messageId);
+    console.log('[Webhook Inbox] Fetched message:', message ? 'success' : 'null/undefined');
+
+    // Check if we're still trying to open this message (not cancelled)
+    if (openingMessageId !== messageId) {
+      console.log('[Webhook Inbox] Opening was cancelled for:', messageId);
+      return;
+    }
+
+    if (message) {
+      // Set the selected message
+      selectedMessage.value = message;
+      console.log('[Webhook Inbox] Set selectedMessage.value to:', selectedMessage.value?.id);
+
+      // Start polling if pending
+      if (getPendingRun(message)) {
+        startMessagePolling(message.id);
+      }
+
+      // Auto-mark as read (don't await to avoid blocking)
+      if (!message.isRead) {
+        api.markWebhookMessageRead(message.id, true).then(() => {
+          if (selectedMessage.value?.id === message.id) {
+            selectedMessage.value.isRead = true;
+          }
+          const index = inboxMessages.value.findIndex((m) => m.id === message.id);
+          if (index >= 0) {
+            inboxMessages.value[index].isRead = true;
+          }
+          unreadCount.value = Math.max(0, unreadCount.value - 1);
+        }).catch((err) => {
+          console.error('Failed to mark message as read:', err);
+        });
+      }
+
+      // Don't clear URL - let the messageId persist
+      await nextTick();
+      console.log('[Webhook Inbox] Modal should now be visible, selectedMessage:', selectedMessage.value?.id);
+    }
+  } catch (err) {
+    console.warn('[Webhook Inbox] Failed to load message from URL:', err);
+  } finally {
+    if (openingMessageId === messageId) {
+      openingMessageId = null;
+    }
+  }
+}
+
+// Watch for messageId query param changes
+let processingUrlMessage = false;
+watch(
+  () => route.query.messageId,
+  async (messageId, oldMessageId) => {
+    if (processingUrlMessage) {
+      console.log('[Webhook Inbox] Watcher: skipping, already processing');
+      return;
+    }
+
+    const id = Array.isArray(messageId) ? messageId[0] : messageId;
+    console.log('[Webhook Inbox] Watcher: messageId changed from', oldMessageId, 'to', messageId);
+
+    // Only open modal if there's a new messageId (not when clearing)
+    if (id && typeof id === 'string') {
+      console.log('[Webhook Inbox] Watcher detected messageId:', id, 'componentReady:', componentReady.value);
+      processingUrlMessage = true;
+      try {
+        if (componentReady.value) {
+          await openMessageFromUrl(id);
+        } else {
+          // Queue it for when component is ready
+          pendingMessageId.value = id;
+        }
+      } finally {
+        processingUrlMessage = false;
+      }
+    }
+  },
+  { immediate: true }
+);
+
 onMounted(async () => {
   await refreshAll();
   nowTimer = setInterval(() => {
     nowTs.value = Date.now();
   }, 1000);
+
+  // Add global click handler to close label dropdown
+  document.addEventListener('click', handleGlobalClick);
+
+  // Mark component as ready and process any pending messageId
+  componentReady.value = true;
+  if (pendingMessageId.value) {
+    const id = pendingMessageId.value;
+    pendingMessageId.value = null;
+    console.log('[Webhook Inbox] Processing pending messageId:', id);
+    await openMessageFromUrl(id);
+  }
 });
 
 onBeforeUnmount(() => {
@@ -2496,6 +2773,7 @@ onBeforeUnmount(() => {
     clearInterval(messagePollTimer);
     messagePollTimer = null;
   }
+  document.removeEventListener('click', handleGlobalClick);
 });
 
 </script>
@@ -3074,6 +3352,60 @@ input[type='checkbox']:checked::after {
   color: rgba(226, 232, 240, 0.9);
 }
 
+/* Actions Column */
+.actions-cell {
+  min-width: 200px;
+  max-width: 350px;
+}
+
+.action-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.action-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.action-pill--success {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.action-pill--failed {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.action-pill--pending {
+  background-color: rgba(234, 179, 8, 0.2);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.action-pill--skipped {
+  background-color: rgba(249, 115, 22, 0.2);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+.crash-summary-text {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: #e2e8f0;
+  width: 100%;
+}
+
 .result-actions {
   display: flex;
   gap: 0.5rem;
@@ -3356,6 +3688,12 @@ input[type='checkbox']:checked::after {
   overflow: auto;
 }
 
+.crash-pane .result-actions {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  flex-shrink: 0;
+}
+
 .llm-loading {
   display: flex;
   align-items: center;
@@ -3564,19 +3902,95 @@ input[type='checkbox']:checked::after {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
+  align-items: center;
 }
 
 .label-chip {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
   font-size: 0.7rem;
   font-weight: 500;
-  color: #fff;
   border-radius: 999px;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 120px;
   white-space: nowrap;
+}
+
+.label-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin-left: 0.1rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+  line-height: 1;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.15);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.label-chip__remove:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.label-add-wrapper {
+  position: relative;
+}
+
+.label-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.1);
+  border: 1px dashed #475569;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.label-add-btn:hover {
+  color: #94a3b8;
+  background: rgba(100, 116, 139, 0.2);
+  border-color: #64748b;
+}
+
+.label-input {
+  width: 100px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.7rem;
+  color: #e2e8f0;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 999px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.label-input:focus {
+  border-color: #60a5fa;
+}
+
+.label-input::placeholder {
+  color: #64748b;
+}
+
+.labels-cell {
+  min-width: 100px;
 }
 
 /* Badge for merged messages */
