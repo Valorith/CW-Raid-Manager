@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEventsForGuild, updateRaidEvent, startRaidEvent, endRaidEvent, restartRaidEvent, deleteRaidEvent, ensureCanManageRaid } from '../services/raidService.js';
+import { createRaidEvent, ensureUserCanViewGuild, getRaidEventById, listRaidEventsForGuild, updateRaidEvent, startRaidEvent, emitRaidCreatedWebhook, endRaidEvent, restartRaidEvent, cancelRaidEvent, uncancelRaidEvent, deleteRaidEvent, ensureCanManageRaid } from '../services/raidService.js';
 import { canManageGuild } from '../services/guildService.js';
 import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
-import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError, RaidSignupLockedError } from '../services/raidSignupService.js';
+import { listRaidSignups, replaceRaidSignupsForUser, RaidSignupLimitError, RaidSignupInvalidCharacterError, RaidSignupPermissionError, RaidSignupLockedError, RaidSignupNotFoundError, RaidSignupCharacterNotFoundError, RaidSignupAlreadyExistsError, updateSignupStatus, removeSignup, addSignupForCharacter, searchGuildCharactersForSignup } from '../services/raidSignupService.js';
 import { recordRaidNpcKills, deleteRaidNpcKillEvents } from '../services/raidNpcKillService.js';
 import { prisma } from '../utils/prisma.js';
 export async function raidsRoutes(server) {
@@ -30,7 +30,14 @@ export async function raidsRoutes(server) {
             request.log.warn({ error }, 'User attempted unauthorized raid access.');
             return reply.forbidden('You are not a member of this guild.');
         }
-        const raids = await listRaidEventsForGuild(guildId);
+        let raids;
+        try {
+            raids = await listRaidEventsForGuild(guildId);
+        }
+        catch (error) {
+            request.log.error({ error, guildId }, 'Failed to fetch raid events for guild');
+            return reply.internalServerError('Failed to fetch raid events. Please try again later.');
+        }
         const canManage = canManageGuild(membershipRole);
         const enrichedRaids = raids.map((raid) => {
             const session = getActiveLootMonitorSession(raid.id);
@@ -106,15 +113,19 @@ export async function raidsRoutes(server) {
             raidId: z.string()
         });
         const { raidId } = paramsSchema.parse(request.params);
+        const signupEntrySchema = z.object({
+            characterId: z.string(),
+            status: z.enum(['CONFIRMED', 'NOT_ATTENDING']).optional()
+        });
         const bodySchema = z.object({
-            characterIds: z.array(z.string())
+            signups: z.array(signupEntrySchema)
         });
         const parsed = bodySchema.safeParse(request.body);
         if (!parsed.success) {
             return reply.badRequest('Invalid signup payload.');
         }
         try {
-            const signups = await replaceRaidSignupsForUser(raidId, request.user.userId, parsed.data.characterIds);
+            const signups = await replaceRaidSignupsForUser(raidId, request.user.userId, parsed.data.signups);
             return { signups };
         }
         catch (error) {
@@ -137,6 +148,175 @@ export async function raidsRoutes(server) {
             return reply.internalServerError('Unable to update raid signups.');
         }
     });
+    // Admin: Update a signup's status
+    server.patch('/:raidId/signups/:signupId', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string(),
+            signupId: z.string()
+        });
+        const { raidId, signupId } = paramsSchema.parse(request.params);
+        const bodySchema = z.object({
+            status: z.enum(['CONFIRMED', 'NOT_ATTENDING'])
+        });
+        const parsed = bodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid status. Must be CONFIRMED or NOT_ATTENDING.');
+        }
+        // Verify admin permissions
+        const raid = await prisma.raidEvent.findUnique({
+            where: { id: raidId },
+            select: { guildId: true }
+        });
+        if (!raid) {
+            return reply.notFound('Raid event not found.');
+        }
+        try {
+            await ensureCanManageRaid(request.user.userId, raid.guildId);
+        }
+        catch (error) {
+            return reply.forbidden('You do not have permission to manage signups for this raid.');
+        }
+        try {
+            const signups = await updateSignupStatus(raidId, signupId, parsed.data.status);
+            return { signups };
+        }
+        catch (error) {
+            if (error instanceof RaidSignupNotFoundError) {
+                return reply.notFound(error.message);
+            }
+            if (error instanceof RaidSignupLockedError) {
+                return reply.badRequest(error.message);
+            }
+            request.log.warn({ error }, 'Failed to update signup status.');
+            return reply.internalServerError('Unable to update signup status.');
+        }
+    });
+    // Admin: Remove a signup
+    server.delete('/:raidId/signups/:signupId', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string(),
+            signupId: z.string()
+        });
+        const { raidId, signupId } = paramsSchema.parse(request.params);
+        // Verify admin permissions
+        const raid = await prisma.raidEvent.findUnique({
+            where: { id: raidId },
+            select: { guildId: true }
+        });
+        if (!raid) {
+            return reply.notFound('Raid event not found.');
+        }
+        try {
+            await ensureCanManageRaid(request.user.userId, raid.guildId);
+        }
+        catch (error) {
+            return reply.forbidden('You do not have permission to manage signups for this raid.');
+        }
+        try {
+            const signups = await removeSignup(raidId, signupId);
+            return { signups };
+        }
+        catch (error) {
+            if (error instanceof RaidSignupNotFoundError) {
+                return reply.notFound(error.message);
+            }
+            if (error instanceof RaidSignupLockedError) {
+                return reply.badRequest(error.message);
+            }
+            request.log.warn({ error }, 'Failed to remove signup.');
+            return reply.internalServerError('Unable to remove signup.');
+        }
+    });
+    // Admin: Add a character to a raid signup
+    server.post('/:raidId/signups', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        const bodySchema = z.object({
+            characterId: z.string(),
+            status: z.enum(['CONFIRMED', 'NOT_ATTENDING']).optional()
+        });
+        const parsed = bodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid request body.');
+        }
+        // Verify admin permissions
+        const raid = await prisma.raidEvent.findUnique({
+            where: { id: raidId },
+            select: { guildId: true }
+        });
+        if (!raid) {
+            return reply.notFound('Raid event not found.');
+        }
+        try {
+            await ensureCanManageRaid(request.user.userId, raid.guildId);
+        }
+        catch (error) {
+            return reply.forbidden('You do not have permission to manage signups for this raid.');
+        }
+        try {
+            const signups = await addSignupForCharacter(raidId, parsed.data.characterId, parsed.data.status ?? 'CONFIRMED');
+            return { signups };
+        }
+        catch (error) {
+            if (error instanceof RaidSignupCharacterNotFoundError) {
+                return reply.notFound(error.message);
+            }
+            if (error instanceof RaidSignupAlreadyExistsError) {
+                return reply.badRequest(error.message);
+            }
+            if (error instanceof RaidSignupLockedError) {
+                return reply.badRequest(error.message);
+            }
+            request.log.warn({ error }, 'Failed to add signup.');
+            return reply.internalServerError('Unable to add signup.');
+        }
+    });
+    // Admin: Search characters for signup
+    server.get('/:raidId/signups/search', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        const querySchema = z.object({
+            q: z.string().min(2).max(64)
+        });
+        const parsed = querySchema.safeParse(request.query);
+        if (!parsed.success) {
+            return reply.badRequest('Search query must be between 2 and 64 characters.');
+        }
+        // Verify admin permissions
+        const raid = await prisma.raidEvent.findUnique({
+            where: { id: raidId },
+            select: { guildId: true }
+        });
+        if (!raid) {
+            return reply.notFound('Raid event not found.');
+        }
+        try {
+            await ensureCanManageRaid(request.user.userId, raid.guildId);
+        }
+        catch (error) {
+            return reply.forbidden('You do not have permission to search characters for this raid.');
+        }
+        try {
+            const characters = await searchGuildCharactersForSignup(raid.guildId, raidId, parsed.data.q);
+            return { characters };
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to search characters.');
+            return reply.internalServerError('Unable to search characters.');
+        }
+    });
     server.post('/:raidId/npc-kills', {
         preHandler: [authenticate]
     }, async (request, reply) => {
@@ -148,7 +328,8 @@ export async function raidsRoutes(server) {
             npcName: z.string().min(2).max(191),
             occurredAt: z.string().datetime({ offset: true }),
             killerName: z.string().min(1).max(191).optional(),
-            rawLine: z.string().max(500).optional()
+            rawLine: z.string().max(500).optional(),
+            zoneName: z.string().max(191).nullable().optional()
         }));
         const bodySchema = z.object({
             kills: killsSchema.max(500)
@@ -182,7 +363,8 @@ export async function raidsRoutes(server) {
                 npcName,
                 occurredAt,
                 killerName: kill.killerName?.trim() ?? null,
-                rawLine: kill.rawLine ?? null
+                rawLine: kill.rawLine ?? null,
+                zoneName: kill.zoneName?.trim() ?? null
             };
         })
             .filter((kill) => Boolean(kill));
@@ -190,7 +372,11 @@ export async function raidsRoutes(server) {
             return { inserted: 0 };
         }
         const result = await recordRaidNpcKills(raidId, raid.guildId, normalizedKills, request.log);
-        return { inserted: result.inserted };
+        return {
+            inserted: result.inserted,
+            pendingClarifications: result.pendingClarifications,
+            pendingZoneClarifications: result.pendingZoneClarifications
+        };
     });
     server.delete('/:raidId/npc-kills', {
         preHandler: [authenticate]
@@ -363,6 +549,31 @@ export async function raidsRoutes(server) {
             return reply.badRequest('Unable to start raid.');
         }
     });
+    server.post('/:raidId/announce', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        try {
+            await emitRaidCreatedWebhook(raidId, request.user.userId);
+            return reply.code(204).send();
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to emit raid announcement.');
+            if (error instanceof Error) {
+                if (error.message === 'Raid event not found.') {
+                    return reply.notFound(error.message);
+                }
+                if (error.message.includes('Insufficient permissions')) {
+                    return reply.forbidden('You do not have permission to announce this raid.');
+                }
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to announce raid.');
+        }
+    });
     server.post('/:raidId/end', {
         preHandler: [authenticate]
     }, async (request, reply) => {
@@ -414,6 +625,59 @@ export async function raidsRoutes(server) {
                 return reply.badRequest(error.message);
             }
             return reply.badRequest('Unable to restart raid.');
+        }
+    });
+    server.post('/:raidId/cancel', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        try {
+            const raid = await cancelRaidEvent(raidId, request.user.userId);
+            return { raid };
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to cancel raid event.');
+            if (error instanceof Error) {
+                if (error.message === 'Raid event not found.') {
+                    return reply.notFound(error.message);
+                }
+                if (error.message.includes('Insufficient permissions')) {
+                    return reply.forbidden('You do not have permission to cancel this raid.');
+                }
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to cancel raid.');
+        }
+    });
+    server.post('/:raidId/uncancel', {
+        preHandler: [authenticate]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            raidId: z.string()
+        });
+        const { raidId } = paramsSchema.parse(request.params);
+        try {
+            const raid = await uncancelRaidEvent(raidId, request.user.userId);
+            return { raid };
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to uncancel raid event.');
+            if (error instanceof Error) {
+                if (error.message === 'Raid event not found.') {
+                    return reply.notFound(error.message);
+                }
+                if (error.message === 'Raid has not been canceled.') {
+                    return reply.badRequest('Raid must be canceled before it can be restored.');
+                }
+                if (error.message.includes('Insufficient permissions')) {
+                    return reply.forbidden('You do not have permission to restore this raid.');
+                }
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to restore raid.');
         }
     });
     server.delete('/:raidId', {

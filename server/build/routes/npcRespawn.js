@@ -1,0 +1,562 @@
+import { z } from 'zod';
+import { authenticate } from '../middleware/authenticate.js';
+import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
+import { listNpcDefinitions, getNpcDefinition, createNpcDefinition, updateNpcDefinition, deleteNpcDefinition, listKillRecords, listKillRecordsForNpc, createKillRecord, deleteKillRecord, getUserSubscriptions, upsertSubscription, deleteSubscription, getRespawnTrackerData, getEnabledContentFlags, NPC_CONTENT_FLAGS } from '../services/npcRespawnService.js';
+import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
+import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
+import { prisma } from '../utils/prisma.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+// Schema definitions
+const npcDefinitionBodySchema = z.object({
+    npcName: z.string().trim().min(1, 'NPC name is required').max(191),
+    zoneName: z.string().trim().max(191).nullable().optional(),
+    respawnMinMinutes: z.number().int().min(0).nullable().optional(),
+    respawnMaxMinutes: z.number().int().min(0).nullable().optional(),
+    isRaidTarget: z.boolean().optional(),
+    hasInstanceVersion: z.boolean().optional(),
+    contentFlag: z.enum(NPC_CONTENT_FLAGS).nullable().optional(),
+    notes: z.string().max(8000).nullable().optional(),
+    allaLink: z.string().max(512).nullable().optional()
+});
+const killRecordBodySchema = z.object({
+    npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
+    killedAt: z.string().datetime().or(z.date()),
+    killedByName: z.string().trim().max(191).nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+    isInstance: z.boolean().optional(),
+    triggerWebhook: z.boolean().optional()
+});
+const subscriptionBodySchema = z.object({
+    npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
+    notifyMinutes: z.number().int().min(0).max(1440).optional(),
+    isEnabled: z.boolean().optional(),
+    isInstanceVariant: z.boolean().optional()
+});
+async function resolveGuildMemberDisplayName(guildId, user) {
+    const membership = await prisma.guildMembership.findUnique({
+        where: {
+            guildId_userId: {
+                guildId,
+                userId: user.userId
+            }
+        },
+        include: {
+            user: {
+                select: {
+                    displayName: true,
+                    nickname: true
+                }
+            }
+        }
+    });
+    if (membership?.user) {
+        return withPreferredDisplayName(membership.user).displayName;
+    }
+    return (user.displayName ??
+        user.nickname ??
+        user.email ??
+        'Unknown');
+}
+export async function npcRespawnRoutes(server) {
+    // Get respawn tracker data (combined view with status calculations)
+    server.get('/:guildId/npc-respawn', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        const [allNpcs, enabledContentFlags] = await Promise.all([
+            getRespawnTrackerData(guildId),
+            getEnabledContentFlags()
+        ]);
+        // Filter NPCs: include if no contentFlag or if contentFlag is enabled
+        const npcs = allNpcs.filter((npc) => {
+            if (!npc.contentFlag) {
+                return true;
+            }
+            return enabledContentFlags.includes(npc.contentFlag);
+        });
+        return {
+            npcs,
+            enabledContentFlags,
+            canManage: roleCanEditRaid(role),
+            viewerRole: role
+        };
+    });
+    // List all NPC definitions for a guild
+    server.get('/:guildId/npc-definitions', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        const [definitions, enabledContentFlags] = await Promise.all([
+            listNpcDefinitions(guildId),
+            getEnabledContentFlags()
+        ]);
+        return {
+            definitions,
+            enabledContentFlags,
+            canManage: roleCanEditRaid(role),
+            viewerRole: role
+        };
+    });
+    // Get a single NPC definition
+    server.get('/:guildId/npc-definitions/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            npcDefinitionId: z.string()
+        });
+        const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const definition = await getNpcDefinition(guildId, npcDefinitionId);
+        if (!definition) {
+            return reply.notFound('NPC definition not found.');
+        }
+        return { definition };
+    });
+    // Create a new NPC definition (any guild member can create)
+    server.post('/:guildId/npc-definitions', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = npcDefinitionBodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid NPC definition payload: ' + parsedBody.error.message);
+        }
+        const creatorName = await resolveGuildMemberDisplayName(guildId, request.user);
+        try {
+            const definition = await createNpcDefinition(guildId, { userId: request.user.userId, displayName: creatorName }, parsedBody.data);
+            return { definition };
+        }
+        catch (error) {
+            return reply.badRequest(error instanceof Error ? error.message : 'Failed to create NPC definition.');
+        }
+    });
+    // Update an NPC definition (any guild member can edit)
+    server.put('/:guildId/npc-definitions/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            npcDefinitionId: z.string()
+        });
+        const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = npcDefinitionBodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid NPC definition payload: ' + parsedBody.error.message);
+        }
+        try {
+            const definition = await updateNpcDefinition(guildId, npcDefinitionId, parsedBody.data);
+            return { definition };
+        }
+        catch (error) {
+            return reply.badRequest(error instanceof Error ? error.message : 'Failed to update NPC definition.');
+        }
+    });
+    // Delete an NPC definition
+    server.delete('/:guildId/npc-definitions/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            npcDefinitionId: z.string()
+        });
+        const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        if (!roleCanEditRaid(role)) {
+            return reply.forbidden('You do not have permission to delete NPC definitions.');
+        }
+        await deleteNpcDefinition(guildId, npcDefinitionId);
+        return reply.code(204).send();
+    });
+    // List kill records for a guild
+    server.get('/:guildId/npc-kills', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const querySchema = z.object({
+            npcDefinitionId: z.string().optional(),
+            limit: z.coerce.number().int().min(1).max(100).optional()
+        });
+        const { guildId } = paramsSchema.parse(request.params);
+        const { npcDefinitionId, limit } = querySchema.parse(request.query ?? {});
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const records = npcDefinitionId
+            ? await listKillRecordsForNpc(guildId, npcDefinitionId, limit ?? 20)
+            : await listKillRecords(guildId, limit ?? 50);
+        return { records };
+    });
+    // Create a kill record
+    server.post('/:guildId/npc-kills', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = killRecordBodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid kill record payload: ' + parsedBody.error.message);
+        }
+        const data = parsedBody.data;
+        try {
+            const record = await createKillRecord(guildId, {
+                npcDefinitionId: data.npcDefinitionId,
+                killedAt: new Date(data.killedAt),
+                killedByName: data.killedByName ?? null,
+                killedById: request.user.userId,
+                notes: data.notes ?? null,
+                isInstance: data.isInstance ?? false
+            });
+            // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+            await resetRespawnNotification(data.npcDefinitionId, data.isInstance ?? false, record.id);
+            // Check if NPC is a raid target and trigger webhook (unless explicitly disabled)
+            const shouldTriggerWebhook = data.triggerWebhook !== false;
+            if (shouldTriggerWebhook) {
+                const npcDefinition = await prisma.npcDefinition.findUnique({
+                    where: { id: data.npcDefinitionId },
+                    include: { guild: { select: { name: true } } }
+                });
+                if (npcDefinition?.isRaidTarget) {
+                    // Emit raid target killed webhook
+                    await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+                        guildName: npcDefinition.guild?.name ?? 'Guild',
+                        guildId,
+                        kills: [{
+                                npcName: npcDefinition.npcName,
+                                killerName: data.killedByName ?? null,
+                                occurredAt: new Date(data.killedAt)
+                            }]
+                    });
+                }
+            }
+            return { record };
+        }
+        catch (error) {
+            return reply.badRequest(error instanceof Error ? error.message : 'Failed to create kill record.');
+        }
+    });
+    // Delete a kill record (any guild member can delete - needed for Up/Down status buttons)
+    server.delete('/:guildId/npc-kills/:killRecordId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            killRecordId: z.string()
+        });
+        const { guildId, killRecordId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        await deleteKillRecord(guildId, killRecordId);
+        return reply.code(204).send();
+    });
+    // Delete all kill records for a specific NPC definition + variant
+    // Used by "It's Up" / "It's Down" buttons to ensure clean state before recording new status
+    server.delete('/:guildId/npc-definitions/:npcDefinitionId/kills', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            npcDefinitionId: z.string()
+        });
+        const querySchema = z.object({
+            isInstance: z.enum(['true', 'false']).optional()
+        });
+        const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+        const { isInstance } = querySchema.parse(request.query);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        // Build where clause - always filter by guildId and npcDefinitionId
+        const whereClause = {
+            guildId,
+            npcDefinitionId
+        };
+        // If isInstance is specified, filter by variant
+        if (isInstance !== undefined) {
+            whereClause.isInstance = isInstance === 'true';
+        }
+        await prisma.npcKillRecord.deleteMany({
+            where: whereClause
+        });
+        return reply.code(204).send();
+    });
+    // Get user's subscriptions for a guild
+    server.get('/:guildId/npc-subscriptions', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const subscriptions = await getUserSubscriptions(request.user.userId, guildId);
+        return { subscriptions };
+    });
+    // Create or update a subscription
+    server.post('/:guildId/npc-subscriptions', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = subscriptionBodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid subscription payload: ' + parsedBody.error.message);
+        }
+        // Verify the NPC definition belongs to this guild
+        const npcDefinition = await prisma.npcDefinition.findFirst({
+            where: {
+                id: parsedBody.data.npcDefinitionId,
+                guildId
+            }
+        });
+        if (!npcDefinition) {
+            return reply.notFound('NPC definition not found in this guild.');
+        }
+        const subscription = await upsertSubscription(request.user.userId, parsedBody.data);
+        return { subscription };
+    });
+    // Delete a subscription
+    server.delete('/:guildId/npc-subscriptions/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            npcDefinitionId: z.string()
+        });
+        const querySchema = z.object({
+            isInstanceVariant: z.enum(['true', 'false']).transform(v => v === 'true').optional()
+        });
+        const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+        const { isInstanceVariant = false } = querySchema.parse(request.query);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        // Verify the NPC definition belongs to this guild before allowing deletion
+        const npcDefinition = await prisma.npcDefinition.findFirst({
+            where: {
+                id: npcDefinitionId,
+                guildId
+            }
+        });
+        if (!npcDefinition) {
+            return reply.notFound('NPC definition not found in this guild.');
+        }
+        await deleteSubscription(request.user.userId, npcDefinitionId, isInstanceVariant);
+        return reply.code(204).send();
+    });
+    // Search discovered items from EQEmu discovered_items table
+    server.get('/:guildId/discovered-items', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const querySchema = z.object({
+            q: z.string().trim().min(1).max(100).optional(),
+            limit: z.coerce.number().int().min(1).max(50).optional()
+        });
+        const { guildId } = paramsSchema.parse(request.params);
+        const { q: searchQuery, limit = 20 } = querySchema.parse(request.query ?? {});
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const { searchDiscoveredItems } = await import('../services/npcRespawnService.js');
+        const items = await searchDiscoveredItems(searchQuery ?? '', limit);
+        return { items };
+    });
+    // Get pending NPC kill clarifications for a guild
+    server.get('/:guildId/npc-pending-clarifications', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        // Only fetch unresolved clarifications (resolvedAt is null)
+        const clarifications = await prisma.pendingNpcKillClarification.findMany({
+            where: { guildId, resolvedAt: null },
+            include: {
+                npcDefinition: {
+                    select: {
+                        id: true,
+                        npcName: true,
+                        zoneName: true,
+                        hasInstanceVersion: true
+                    }
+                },
+                raidEvent: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        return {
+            clarifications: clarifications.map((c) => ({
+                id: c.id,
+                clarificationType: c.clarificationType,
+                npcName: c.npcName,
+                killedAt: c.killedAt.toISOString(),
+                killedByName: c.killedByName,
+                npcDefinitionId: c.npcDefinitionId,
+                npcDefinition: c.npcDefinition,
+                zoneOptions: c.zoneOptions,
+                raidId: c.raidId,
+                raidName: c.raidEvent?.name ?? null,
+                createdAt: c.createdAt.toISOString()
+            })),
+            canManage: roleCanEditRaid(role)
+        };
+    });
+    // Resolve a pending clarification (creates the kill record)
+    server.post('/:guildId/npc-pending-clarifications/:clarificationId/resolve', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            clarificationId: z.string()
+        });
+        const bodySchema = z.object({
+            npcDefinitionId: z.string().min(1),
+            isInstance: z.boolean()
+        });
+        const { guildId, clarificationId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        if (!roleCanEditRaid(role)) {
+            return reply.forbidden('You do not have permission to resolve clarifications.');
+        }
+        const parsedBody = bodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid request body: ' + parsedBody.error.message);
+        }
+        const clarification = await prisma.pendingNpcKillClarification.findFirst({
+            where: { id: clarificationId, guildId }
+        });
+        if (!clarification) {
+            return reply.notFound('Clarification not found.');
+        }
+        // Create the kill record
+        const record = await createKillRecord(guildId, {
+            npcDefinitionId: parsedBody.data.npcDefinitionId,
+            killedAt: clarification.killedAt,
+            killedByName: clarification.killedByName ?? null,
+            killedById: request.user.userId,
+            notes: 'Resolved from pending clarification',
+            isInstance: parsedBody.data.isInstance
+        });
+        // Reset respawn notification tracking for this NPC (new kill = new respawn cycle)
+        await resetRespawnNotification(parsedBody.data.npcDefinitionId, parsedBody.data.isInstance, record.id);
+        // Mark the clarification as resolved
+        // If it has a raidId, soft-delete (set resolvedAt) so re-scanning won't recreate it
+        // If no raidId, hard-delete since there's no raid lifecycle to trigger cleanup
+        if (clarification.raidId) {
+            await prisma.pendingNpcKillClarification.update({
+                where: { id: clarificationId },
+                data: {
+                    resolvedAt: new Date(),
+                    resolvedById: request.user.userId
+                }
+            });
+        }
+        else {
+            await prisma.pendingNpcKillClarification.delete({
+                where: { id: clarificationId }
+            });
+        }
+        // Check if NPC is a raid target and trigger webhook
+        const npcDefinition = await prisma.npcDefinition.findUnique({
+            where: { id: parsedBody.data.npcDefinitionId },
+            include: { guild: { select: { name: true } } }
+        });
+        if (npcDefinition?.isRaidTarget) {
+            await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
+                guildName: npcDefinition.guild?.name ?? 'Guild',
+                guildId,
+                kills: [{
+                        npcName: npcDefinition.npcName,
+                        killerName: clarification.killedByName ?? null,
+                        occurredAt: clarification.killedAt
+                    }]
+            });
+        }
+        return { record };
+    });
+    // Delete/dismiss a pending clarification without resolving
+    server.delete('/:guildId/npc-pending-clarifications/:clarificationId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            clarificationId: z.string()
+        });
+        const { guildId, clarificationId } = paramsSchema.parse(request.params);
+        const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+        if (!roleCanEditRaid(role)) {
+            return reply.forbidden('You do not have permission to dismiss clarifications.');
+        }
+        // Find the clarification to check if it has a raidId
+        const clarification = await prisma.pendingNpcKillClarification.findFirst({
+            where: { id: clarificationId, guildId, resolvedAt: null }
+        });
+        if (!clarification) {
+            // Already resolved or doesn't exist - return success
+            return reply.code(204).send();
+        }
+        // If it has a raidId, soft-delete so re-scanning won't recreate it
+        // If no raidId, hard-delete since there's no raid lifecycle to trigger cleanup
+        if (clarification.raidId) {
+            await prisma.pendingNpcKillClarification.update({
+                where: { id: clarificationId },
+                data: {
+                    resolvedAt: new Date(),
+                    resolvedById: request.user.userId
+                }
+            });
+        }
+        else {
+            await prisma.pendingNpcKillClarification.delete({
+                where: { id: clarificationId }
+            });
+        }
+        return reply.code(204).send();
+    });
+    // Get user's NPC favorites for a guild
+    server.get('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const favorites = await prisma.npcFavorite.findMany({
+            where: {
+                userId: request.user.userId,
+                guildId
+            }
+        });
+        return {
+            favorites: favorites.map((f) => ({
+                npcNameNormalized: f.npcNameNormalized,
+                isInstanceVariant: f.isInstanceVariant
+            }))
+        };
+    });
+    // Add an NPC to favorites
+    server.post('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const bodySchema = z.object({
+            npcNameNormalized: z.string().min(1).max(191),
+            isInstanceVariant: z.boolean()
+        });
+        const { guildId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = bodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid favorite payload: ' + parsedBody.error.message);
+        }
+        // Upsert the favorite (idempotent)
+        const favorite = await prisma.npcFavorite.upsert({
+            where: {
+                userId_guildId_npcNameNormalized_isInstanceVariant: {
+                    userId: request.user.userId,
+                    guildId,
+                    npcNameNormalized: parsedBody.data.npcNameNormalized,
+                    isInstanceVariant: parsedBody.data.isInstanceVariant
+                }
+            },
+            create: {
+                userId: request.user.userId,
+                guildId,
+                npcNameNormalized: parsedBody.data.npcNameNormalized,
+                isInstanceVariant: parsedBody.data.isInstanceVariant
+            },
+            update: {} // No update needed, just return existing
+        });
+        return {
+            favorite: {
+                npcNameNormalized: favorite.npcNameNormalized,
+                isInstanceVariant: favorite.isInstanceVariant
+            }
+        };
+    });
+    // Remove an NPC from favorites
+    server.delete('/:guildId/npc-favorites', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const querySchema = z.object({
+            npcNameNormalized: z.string().min(1).max(191),
+            isInstanceVariant: z.enum(['true', 'false'])
+        });
+        const { guildId } = paramsSchema.parse(request.params);
+        const { npcNameNormalized, isInstanceVariant } = querySchema.parse(request.query);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        await prisma.npcFavorite.deleteMany({
+            where: {
+                userId: request.user.userId,
+                guildId,
+                npcNameNormalized,
+                isInstanceVariant: isInstanceVariant === 'true'
+            }
+        });
+        return reply.code(204).send();
+    });
+}

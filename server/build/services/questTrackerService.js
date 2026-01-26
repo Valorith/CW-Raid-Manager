@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { GuildRole, QuestAssignmentStatus, QuestNodeProgressStatus } from '@prisma/client';
+import { CharacterClass, GuildRole, QuestAssignmentStatus, QuestNodeProgressStatus, QuestNodeType, QuestBlueprintFolderType } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
+import { loadEqTaskWithActivities } from './eqTaskService.js';
+import { staticZoneNameMap } from '../data/zoneNames.js';
 const ACTIVE_ASSIGNMENT_STATUSES = [
     QuestAssignmentStatus.ACTIVE,
     QuestAssignmentStatus.PAUSED
@@ -16,6 +18,86 @@ const CHARACTER_SUMMARY_FIELDS = {
     class: true
 };
 export const QUEST_BLUEPRINT_PERMISSION_ERROR = 'QUEST_BLUEPRINT_PERMISSION_DENIED';
+export const QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR = 'QUEST_BLUEPRINT_FOLDER_NOT_EMPTY';
+export const QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR = 'QUEST_BLUEPRINT_FOLDER_LOCKED';
+export const QUEST_BLUEPRINT_FOLDER_REORDER_ERROR = 'QUEST_BLUEPRINT_FOLDER_REORDER_ERROR';
+const CLASS_FOLDER_DEFINITIONS = [
+    { className: CharacterClass.WARRIOR, abbreviation: 'WAR', iconKey: 'Warrioricon.PNG.webp' },
+    { className: CharacterClass.SHADOWKNIGHT, abbreviation: 'SHD', iconKey: 'Skicon.PNG.webp' },
+    { className: CharacterClass.PALADIN, abbreviation: 'PAL', iconKey: 'Paladinicon.PNG.webp' },
+    { className: CharacterClass.RANGER, abbreviation: 'RNG', iconKey: 'Rangericon.PNG.webp' },
+    { className: CharacterClass.MONK, abbreviation: 'MNK', iconKey: 'Monkicon.PNG.webp' },
+    { className: CharacterClass.ROGUE, abbreviation: 'ROG', iconKey: 'Rogueicon.PNG.webp' },
+    { className: CharacterClass.BERSERKER, abbreviation: 'BER', iconKey: 'Berserkericon.PNG.webp' },
+    { className: CharacterClass.BARD, abbreviation: 'BRD', iconKey: 'Bardicon.PNG.webp' },
+    { className: CharacterClass.BEASTLORD, abbreviation: 'BST', iconKey: 'Beastlordicon.PNG.webp' },
+    { className: CharacterClass.CLERIC, abbreviation: 'CLR', iconKey: 'Clericicon.PNG.webp' },
+    { className: CharacterClass.DRUID, abbreviation: 'DRU', iconKey: 'Druidicon.PNG.webp' },
+    { className: CharacterClass.SHAMAN, abbreviation: 'SHM', iconKey: 'Shamanicon.PNG.webp' },
+    { className: CharacterClass.NECROMANCER, abbreviation: 'NEC', iconKey: 'Necromancericon.PNG.webp' },
+    { className: CharacterClass.WIZARD, abbreviation: 'WIZ', iconKey: 'Wizardicon.PNG.webp' },
+    { className: CharacterClass.MAGICIAN, abbreviation: 'MAG', iconKey: 'Magicianicon.PNG.webp' },
+    { className: CharacterClass.ENCHANTER, abbreviation: 'ENC', iconKey: 'Enchantericon.PNG.webp' }
+];
+async function ensureSystemBlueprintFolders(guildId, tx = prisma) {
+    const systemKeys = CLASS_FOLDER_DEFINITIONS.map((entry) => entry.abbreviation);
+    const existing = await tx.questBlueprintFolder.findMany({
+        where: {
+            guildId,
+            systemKey: { in: systemKeys }
+        },
+        select: { systemKey: true }
+    });
+    const existingKeys = new Set((existing ?? []).map((folder) => folder.systemKey).filter(Boolean));
+    const createData = CLASS_FOLDER_DEFINITIONS.filter((entry) => !existingKeys.has(entry.abbreviation)).map((entry) => ({
+        guildId,
+        title: entry.abbreviation,
+        iconKey: entry.iconKey,
+        type: QuestBlueprintFolderType.CLASS,
+        systemKey: entry.abbreviation,
+        sortOrder: CLASS_FOLDER_DEFINITIONS.findIndex((def) => def.abbreviation === entry.abbreviation) + 1
+    }));
+    if (!createData.length) {
+        return;
+    }
+    await tx.questBlueprintFolder.createMany({
+        data: createData,
+        skipDuplicates: true
+    });
+}
+function mapBlueprintFolder(folder) {
+    return {
+        id: folder.id,
+        title: folder.title,
+        iconKey: folder.iconKey ?? null,
+        type: folder.type,
+        systemKey: folder.systemKey ?? null,
+        sortOrder: folder.sortOrder
+    };
+}
+async function getNextBlueprintSortOrder(guildId, folderId, tx = prisma) {
+    const aggregate = await tx.questBlueprint.aggregate({
+        _max: {
+            folderSortOrder: true
+        },
+        where: {
+            guildId,
+            folderId: folderId ?? null
+        }
+    });
+    return (aggregate._max.folderSortOrder ?? 0) + 1;
+}
+async function getNextFolderSortOrder(guildId, tx = prisma) {
+    const aggregate = await tx.questBlueprintFolder.aggregate({
+        _max: {
+            sortOrder: true
+        },
+        where: {
+            guildId
+        }
+    });
+    return (aggregate._max.sortOrder ?? 0) + 1;
+}
 const QUEST_ASSIGNMENT_USER_SELECT = {
     id: true,
     displayName: true,
@@ -39,16 +121,14 @@ function isNextStepCondition(value) {
     return value === true;
 }
 async function loadBlueprintGraph(blueprintId, tx = prisma) {
-    const [nodes, links] = await Promise.all([
-        tx.questNode.findMany({
-            where: { blueprintId },
-            select: { id: true, metadata: true }
-        }),
-        tx.questNodeLink.findMany({
-            where: { blueprintId },
-            select: { parentNodeId: true, childNodeId: true, conditions: true }
-        })
-    ]);
+    const nodes = await tx.questNode.findMany({
+        where: { blueprintId },
+        select: { id: true, metadata: true }
+    });
+    const links = await tx.questNodeLink.findMany({
+        where: { blueprintId },
+        select: { parentNodeId: true, childNodeId: true, conditions: true }
+    });
     const nodeMeta = new Map(nodes.map((node) => {
         const normalized = normalizeJsonRecord(node.metadata);
         return [
@@ -61,6 +141,7 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
         ];
     }));
     const childMap = new Map();
+    const parentMap = new Map();
     const nextStepParentMap = new Map();
     const nextStepChildMap = new Map();
     for (const link of links) {
@@ -77,8 +158,11 @@ async function loadBlueprintGraph(blueprintId, tx = prisma) {
         const list = childMap.get(link.parentNodeId) ?? [];
         list.push(link.childNodeId);
         childMap.set(link.parentNodeId, list);
+        const parents = parentMap.get(link.childNodeId) ?? [];
+        parents.push(link.parentNodeId);
+        parentMap.set(link.childNodeId, parents);
     }
-    return { nodeMeta, childMap, nextStepParentMap, nextStepChildMap };
+    return { nodeMeta, childMap, parentMap, nextStepParentMap, nextStepChildMap };
 }
 function collectDescendantNodeIds(nodeId, childMap, cache) {
     if (cache.has(nodeId)) {
@@ -162,7 +246,10 @@ async function syncGroupProgressForAssignment(assignmentId, blueprintId, tx = pr
     const descendantCache = new Map();
     for (const [groupNodeId] of groupNodeEntries) {
         const groupRecord = progressMap.get(groupNodeId);
-        if (groupRecord?.isDisabled) {
+        if (!groupRecord) {
+            continue;
+        }
+        if (groupRecord.isDisabled) {
             await tx.questNodeProgress.update({
                 where: {
                     assignmentId_nodeId: {
@@ -180,9 +267,27 @@ async function syncGroupProgressForAssignment(assignmentId, blueprintId, tx = pr
             continue;
         }
         const descendantIds = collectDescendantNodeIds(groupNodeId, childMap, descendantCache);
-        const targetIds = descendantIds.filter((childId) => !(progressMap.get(childId)?.isDisabled));
+        const targetIds = descendantIds.filter((childId) => {
+            const childMeta = nodeMeta.get(childId);
+            if (childMeta?.isOptional) {
+                return false;
+            }
+            return !(progressMap.get(childId)?.isDisabled);
+        });
         const childStatuses = targetIds.map((childId) => progressMap.get(childId)?.status ?? QuestNodeProgressStatus.NOT_STARTED);
         const { status, completed } = deriveGroupNodeStatus(childStatuses);
+        const targetCount = targetIds.length;
+        if (groupRecord) {
+            const existingComplete = groupRecord.completedAt != null;
+            const needsUpdate = groupRecord.status !== status ||
+                groupRecord.progressCount !== completed ||
+                groupRecord.targetCount !== targetCount ||
+                (status === QuestNodeProgressStatus.COMPLETED && !existingComplete) ||
+                (status !== QuestNodeProgressStatus.COMPLETED && existingComplete);
+            if (!needsUpdate) {
+                continue;
+            }
+        }
         await tx.questNodeProgress.update({
             where: {
                 assignmentId_nodeId: {
@@ -193,8 +298,8 @@ async function syncGroupProgressForAssignment(assignmentId, blueprintId, tx = pr
             data: {
                 status,
                 progressCount: completed,
-                targetCount: targetIds.length,
-                completedAt: status === QuestNodeProgressStatus.COMPLETED ? new Date() : null
+                targetCount,
+                completedAt: status === QuestNodeProgressStatus.COMPLETED ? groupRecord?.completedAt ?? new Date() : null
             }
         });
     }
@@ -238,8 +343,14 @@ function buildProgressSummary(records, options) {
         if (record.isDisabled) {
             return false;
         }
-        if (options?.nodeMeta && options.nodeMeta.get(record.nodeId)?.isOptional) {
-            return false;
+        if (options?.nodeMeta) {
+            const meta = options.nodeMeta.get(record.nodeId);
+            if (!meta) {
+                return false;
+            }
+            if (meta.isOptional) {
+                return false;
+            }
         }
         return true;
     });
@@ -318,6 +429,8 @@ function mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssig
         createdAt: blueprint.createdAt,
         updatedAt: blueprint.updatedAt,
         lastEditedByName: blueprint.lastEditedByName ?? null,
+        folderId: blueprint.folderId ?? null,
+        folderSortOrder: blueprint.folderSortOrder ?? 0,
         nodeCount,
         assignmentCounts,
         viewerAssignment: primaryViewerAssignment,
@@ -388,7 +501,355 @@ function extractTargetCount(requirements) {
     }
     return 0;
 }
+function mapActivityTypeToNodeType(activityType) {
+    switch (activityType) {
+        case 1:
+            return QuestNodeType.DELIVER;
+        case 2:
+            return QuestNodeType.KILL;
+        case 3:
+            return QuestNodeType.LOOT;
+        case 4:
+            return QuestNodeType.SPEAK_WITH;
+        case 5:
+            return QuestNodeType.EXPLORE;
+        case 6:
+            return QuestNodeType.TRADESKILL;
+        case 7:
+            return QuestNodeType.FISH;
+        case 8:
+            return QuestNodeType.FORAGE;
+        case 9:
+        case 10:
+            return QuestNodeType.USE;
+        case 11:
+            return QuestNodeType.TOUCH;
+        case 100:
+            return QuestNodeType.GIVE_CASH;
+        default:
+            return QuestNodeType.EXPLORE;
+    }
+}
+function buildActivityRequirements(activity) {
+    const requirements = {};
+    if (activity.goalCount != null) {
+        requirements.count = activity.goalCount;
+    }
+    if (activity.goalId != null) {
+        requirements.goalId = activity.goalId;
+    }
+    if (activity.goalMethod != null) {
+        requirements.goalMethod = activity.goalMethod;
+    }
+    if (activity.goalMatchList) {
+        requirements.goalMatchList = activity.goalMatchList;
+    }
+    if (activity.targetName) {
+        requirements.targetName = activity.targetName;
+    }
+    if (activity.itemList) {
+        requirements.itemList = activity.itemList;
+    }
+    if (activity.skillList) {
+        requirements.skillList = activity.skillList;
+    }
+    if (activity.spellList) {
+        requirements.spellList = activity.spellList;
+    }
+    if (activity.zones) {
+        requirements.zones = activity.zones;
+    }
+    if (activity.zoneVersion != null) {
+        requirements.zoneVersion = activity.zoneVersion;
+    }
+    const hasBounds = activity.minX != null ||
+        activity.minY != null ||
+        activity.minZ != null ||
+        activity.maxX != null ||
+        activity.maxY != null ||
+        activity.maxZ != null;
+    if (hasBounds) {
+        requirements.bounds = {
+            minX: activity.minX,
+            minY: activity.minY,
+            minZ: activity.minZ,
+            maxX: activity.maxX,
+            maxY: activity.maxY,
+            maxZ: activity.maxZ
+        };
+    }
+    if (activity.listGroup != null) {
+        requirements.listGroup = activity.listGroup;
+    }
+    if (activity.requiredActivityId != null) {
+        requirements.requiredActivityId = activity.requiredActivityId;
+    }
+    return requirements;
+}
+function buildActivityMetadata(activity) {
+    const metadata = {
+        activityType: activity.activityType
+    };
+    if (activity.dzSwitchId != null) {
+        metadata.dzSwitchId = activity.dzSwitchId;
+    }
+    if (activity.optional) {
+        metadata.isOptional = true;
+    }
+    return metadata;
+}
+function describeActivity(activity) {
+    if (activity.descriptionOverride?.trim()) {
+        return activity.descriptionOverride.trim();
+    }
+    if (activity.targetName?.trim()) {
+        return activity.targetName.trim();
+    }
+    return null;
+}
+function extractZoneTokens(zones) {
+    if (!zones) {
+        return [];
+    }
+    const normalized = zones.replace(/^zones?:/i, '').trim();
+    return normalized
+        .split(/[,;|^]/)
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+}
+function buildZoneNameMap(tokens) {
+    const map = new Map();
+    if (!tokens.size) {
+        return map;
+    }
+    tokens.forEach((token) => {
+        const hit = staticZoneNameMap[token];
+        if (hit) {
+            map.set(token, hit);
+        }
+    });
+    return map;
+}
+function summarizeZone(activity, zoneNameMap) {
+    const tokens = extractZoneTokens(activity.zones);
+    if (!tokens.length) {
+        return null;
+    }
+    const labels = tokens
+        .map((token) => zoneNameMap?.get(token) ?? token)
+        .filter((entry) => entry && entry.trim().length > 0);
+    if (!labels.length) {
+        return null;
+    }
+    const unique = Array.from(new Set(labels));
+    return `Zones: ${unique.join(', ')}`;
+}
+async function attachZoneNamesToNodes(nodes) {
+    const tokens = new Set();
+    nodes.forEach((node) => {
+        const req = node.requirements ?? {};
+        const zonesValue = req.zones;
+        const description = node.description;
+        const collectTokens = (value) => {
+            if (typeof value === 'string') {
+                extractZoneTokens(value).forEach((token) => tokens.add(token));
+            }
+            else if (Array.isArray(value)) {
+                value
+                    .filter((entry) => typeof entry === 'string' || typeof entry === 'number')
+                    .map((entry) => String(entry))
+                    .forEach((token) => tokens.add(token.trim()));
+            }
+        };
+        collectTokens(zonesValue);
+        collectTokens(description);
+    });
+    if (!tokens.size) {
+        return;
+    }
+    const zoneNameMap = buildZoneNameMap(tokens);
+    nodes.forEach((node) => {
+        const req = node.requirements ?? {};
+        const zonesValue = req.zones;
+        const zoneTokens = [];
+        const collectTokens = (value) => {
+            if (typeof value === 'string') {
+                extractZoneTokens(value).forEach((token) => zoneTokens.push(token));
+            }
+            else if (Array.isArray(value)) {
+                value
+                    .filter((entry) => typeof entry === 'string' || typeof entry === 'number')
+                    .forEach((entry) => zoneTokens.push(String(entry).trim()));
+            }
+        };
+        collectTokens(zonesValue);
+        collectTokens(node.description);
+        if (!zoneTokens.length) {
+            return;
+        }
+        const labels = zoneTokens
+            .map((token) => zoneNameMap.get(token) ?? token)
+            .filter((label) => label && label.trim().length > 0);
+        if (!labels.length) {
+            return;
+        }
+        node.requirements.zoneNames = Array.from(new Set(labels));
+    });
+}
+async function buildTaskBlueprintGraph(task, activities) {
+    const sanitizeSummary = (raw) => {
+        if (!raw) {
+            return null;
+        }
+        const text = raw.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').trim();
+        if (!text) {
+            return null;
+        }
+        return text.length > 500 ? `${text.slice(0, 497)}...` : text;
+    };
+    const zoneTokens = new Set();
+    activities.forEach((activity) => {
+        extractZoneTokens(activity.zones).forEach((token) => zoneTokens.add(token));
+    });
+    const zoneNameMap = buildZoneNameMap(zoneTokens);
+    const nodes = [];
+    const links = [];
+    const grouped = new Map();
+    for (const activity of activities) {
+        const step = activity.step ?? 0;
+        const list = grouped.get(step) ?? [];
+        list.push(activity);
+        grouped.set(step, list);
+    }
+    const stepValues = [...grouped.keys()].sort((a, b) => a - b);
+    const STEP_SPACING = 360;
+    const CHILD_SPACING = 180;
+    const GROUP_Y = -80;
+    const GROUP_HEIGHT = 120;
+    const GROUP_CHILD_PADDING = 200;
+    let previousGroupId = null;
+    let sortCursor = 0;
+    stepValues.forEach((stepValue, stepIndex) => {
+        const activitiesForStep = grouped.get(stepValue) ?? [];
+        const hasMultipleActivities = activitiesForStep.length > 1;
+        let anchorId;
+        if (hasMultipleActivities) {
+            const groupId = randomUUID();
+            const groupTitle = `Step ${stepIndex + 1}`;
+            nodes.push({
+                id: groupId,
+                title: groupTitle,
+                description: stepValue > 0 ? `Complete Step ${stepIndex + 1}` : 'Intro Step',
+                nodeType: QuestNodeType.EXPLORE,
+                position: { x: stepIndex * STEP_SPACING, y: GROUP_Y },
+                sortOrder: sortCursor,
+                metadata: { isGroup: true, eqTaskId: task.id, step: stepValue },
+                requirements: { step: stepValue }
+            });
+            anchorId = groupId;
+            const childStartY = GROUP_Y + GROUP_HEIGHT + GROUP_CHILD_PADDING;
+            activitiesForStep.forEach((activity, index) => {
+                const nodeId = randomUUID();
+                const nodeType = mapActivityTypeToNodeType(activity.activityType);
+                const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
+                const description = summarizeZone(activity, zoneNameMap);
+                nodes.push({
+                    id: nodeId,
+                    title,
+                    description,
+                    nodeType,
+                    position: {
+                        x: stepIndex * STEP_SPACING,
+                        y: childStartY + index * CHILD_SPACING
+                    },
+                    sortOrder: sortCursor + index + 1,
+                    requirements: { ...buildActivityRequirements(activity), step: stepValue },
+                    metadata: buildActivityMetadata(activity),
+                    isOptional: activity.optional
+                });
+                links.push({
+                    id: randomUUID(),
+                    parentNodeId: groupId,
+                    childNodeId: nodeId,
+                    conditions: { step: stepValue }
+                });
+            });
+            sortCursor += Math.max(activitiesForStep.length + 1, 2) * 10;
+        }
+        else {
+            const activity = activitiesForStep[0];
+            const nodeId = randomUUID();
+            const nodeType = mapActivityTypeToNodeType(activity.activityType);
+            const title = describeActivity(activity) ?? `Activity ${activity.activityId}`;
+            const description = summarizeZone(activity, zoneNameMap);
+            nodes.push({
+                id: nodeId,
+                title,
+                description,
+                nodeType,
+                position: { x: stepIndex * STEP_SPACING, y: 0 },
+                sortOrder: sortCursor,
+                requirements: { ...buildActivityRequirements(activity), step: stepValue },
+                metadata: buildActivityMetadata(activity),
+                isOptional: activity.optional
+            });
+            anchorId = nodeId;
+            sortCursor += 10;
+        }
+        if (previousGroupId) {
+            links.push({
+                id: randomUUID(),
+                parentNodeId: previousGroupId,
+                childNodeId: anchorId,
+                conditions: { [NEXT_STEP_CONDITION_KEY]: true }
+            });
+        }
+        previousGroupId = anchorId;
+    });
+    if (nodes.length) {
+        const lastStep = stepValues[stepValues.length - 1] ?? 0;
+        const lastStepNodes = nodes.filter((node) => !node.isGroup && node.requirements?.step === lastStep);
+        for (const node of lastStepNodes) {
+            node.metadata = { ...(node.metadata ?? {}), isFinal: true };
+        }
+    }
+    const metadata = {
+        source: 'eq_task',
+        taskId: task.id,
+        taskType: task.type,
+        minLevel: task.minLevel,
+        maxLevel: task.maxLevel,
+        repeatable: task.repeatable,
+        duration: task.duration,
+        durationCode: task.durationCode,
+        completionEmote: task.completionEmote,
+        reward: {
+            text: task.reward,
+            itemId: task.rewardId,
+            method: task.rewardMethod,
+            cash: task.cashReward,
+            experience: task.xpReward
+        }
+    };
+    const summary = sanitizeSummary(task.description) ?? sanitizeSummary(task.completionEmote);
+    return {
+        title: task.title || `Task ${task.id}`,
+        summary,
+        metadata,
+        nodes,
+        links
+    };
+}
 export async function listGuildQuestTrackerSummary(options) {
+    await ensureSystemBlueprintFolders(options.guildId);
+    const folders = await prisma.questBlueprintFolder.findMany({
+        where: { guildId: options.guildId },
+        orderBy: [
+            { type: 'asc' },
+            { sortOrder: 'asc' },
+            { title: 'asc' }
+        ]
+    });
     const blueprints = await prisma.questBlueprint.findMany({
         where: { guildId: options.guildId },
         include: {
@@ -402,7 +863,7 @@ export async function listGuildQuestTrackerSummary(options) {
         ]
     });
     if (blueprints.length === 0) {
-        return { blueprints: [] };
+        return { blueprints: [], folders: folders.map(mapBlueprintFolder) };
     }
     const blueprintIds = blueprints.map((bp) => bp.id);
     const [blueprintNodes, blueprintLinks, assignmentGroups, viewerAssignments] = await Promise.all([
@@ -423,11 +884,13 @@ export async function listGuildQuestTrackerSummary(options) {
             where: {
                 blueprintId: { in: blueprintIds },
                 userId: options.viewerUserId,
-                status: { in: [
+                status: {
+                    in: [
                         QuestAssignmentStatus.ACTIVE,
                         QuestAssignmentStatus.PAUSED,
                         QuestAssignmentStatus.COMPLETED
-                    ] }
+                    ]
+                }
             },
             orderBy: [{ startedAt: 'desc' }],
             include: {
@@ -464,10 +927,11 @@ export async function listGuildQuestTrackerSummary(options) {
         }));
         return mapBlueprintSummary(blueprint, nodeCount, assignmentCounts, viewerAssignmentsPayload.length ? viewerAssignmentsPayload : undefined);
     });
-    return { blueprints: summaries };
+    return { blueprints: summaries, folders: folders.map(mapBlueprintFolder) };
 }
 export async function createQuestBlueprint(options) {
     const creatorName = await resolveUserDisplayName(options.creatorUserId);
+    const folderSortOrder = await getNextBlueprintSortOrder(options.guildId, null);
     const blueprint = await prisma.questBlueprint.create({
         data: {
             guildId: options.guildId,
@@ -476,7 +940,8 @@ export async function createQuestBlueprint(options) {
             summary: options.summary ?? null,
             visibility: options.visibility ?? 'GUILD',
             lastEditedById: options.creatorUserId,
-            lastEditedByName: creatorName
+            lastEditedByName: creatorName,
+            folderSortOrder
         },
         include: {
             createdBy: {
@@ -485,6 +950,207 @@ export async function createQuestBlueprint(options) {
         }
     });
     return mapBlueprintSummary(blueprint, 0, getDefaultAssignmentCounts(), undefined);
+}
+export async function importQuestBlueprintFromTask(options) {
+    const eqTask = await loadEqTaskWithActivities(options.taskId);
+    if (!eqTask) {
+        throw new Error('EQ task not found.');
+    }
+    const creatorName = await resolveUserDisplayName(options.actorUserId);
+    const folderSortOrder = await getNextBlueprintSortOrder(options.guildId, null);
+    const { title, summary, metadata, nodes, links } = await buildTaskBlueprintGraph(eqTask.task, eqTask.activities);
+    return prisma.$transaction(async (tx) => {
+        const blueprint = await tx.questBlueprint.create({
+            data: {
+                guildId: options.guildId,
+                createdById: options.actorUserId,
+                title,
+                summary: summary ?? null,
+                visibility: 'GUILD',
+                metadata: sanitizeJsonInput(metadata),
+                lastEditedById: options.actorUserId,
+                lastEditedByName: creatorName,
+                folderSortOrder
+            },
+            include: {
+                createdBy: { select: USER_NAME_FIELDS }
+            }
+        });
+        if (nodes.length) {
+            await tx.questNode.createMany({
+                data: nodes.map((node) => {
+                    const baseMetadata = sanitizeJsonInput(node.metadata);
+                    if (node.isGroup) {
+                        baseMetadata.isGroup = true;
+                    }
+                    if (baseMetadata.isOptional && !node.isOptional) {
+                        delete baseMetadata.isOptional;
+                    }
+                    else if (node.isOptional) {
+                        baseMetadata.isOptional = true;
+                    }
+                    return {
+                        id: node.id,
+                        blueprintId: blueprint.id,
+                        title: node.title,
+                        description: node.description ?? null,
+                        nodeType: node.nodeType,
+                        positionX: Math.round(node.position.x),
+                        positionY: Math.round(node.position.y),
+                        sortOrder: node.sortOrder,
+                        requirements: sanitizeJsonInput(node.requirements),
+                        metadata: baseMetadata
+                    };
+                })
+            });
+        }
+        if (links.length) {
+            await tx.questNodeLink.createMany({
+                data: links.map((link) => ({
+                    id: link.id,
+                    blueprintId: blueprint.id,
+                    parentNodeId: link.parentNodeId,
+                    childNodeId: link.childNodeId,
+                    conditions: sanitizeJsonInput(link.conditions)
+                }))
+            });
+        }
+        await refreshSummariesForBlueprint(blueprint.id, tx);
+        const stepCountMap = computeShortestPathMap([blueprint.id], nodes.map((node) => ({
+            id: node.id,
+            blueprintId: blueprint.id,
+            metadata: sanitizeJsonInput(node.metadata ?? {})
+        })), links.map((link) => ({
+            blueprintId: blueprint.id,
+            parentNodeId: link.parentNodeId,
+            childNodeId: link.childNodeId
+        })));
+        const nodeCount = stepCountMap.get(blueprint.id) ?? nodes.length;
+        return mapBlueprintSummary(blueprint, nodeCount, getDefaultAssignmentCounts(), undefined);
+    });
+}
+export async function createQuestBlueprintFolder(options) {
+    const title = options.title.trim();
+    if (!title) {
+        throw new Error('Folder title is required.');
+    }
+    const sortOrder = await getNextFolderSortOrder(options.guildId);
+    const folder = await prisma.questBlueprintFolder.create({
+        data: {
+            guildId: options.guildId,
+            title,
+            type: QuestBlueprintFolderType.CUSTOM,
+            createdById: options.actorUserId,
+            sortOrder
+        }
+    });
+    return mapBlueprintFolder(folder);
+}
+export async function updateQuestBlueprintFolder(options) {
+    if (!canManageQuestBlueprints(options.actorRole)) {
+        throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+    }
+    const folder = await prisma.questBlueprintFolder.findUnique({ where: { id: options.folderId } });
+    if (!folder || folder.guildId !== options.guildId) {
+        throw new Error('Quest folder not found.');
+    }
+    if (folder.type === QuestBlueprintFolderType.CLASS) {
+        throw new Error(QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR);
+    }
+    const title = options.title.trim();
+    if (!title) {
+        throw new Error('Folder title is required.');
+    }
+    const updated = await prisma.questBlueprintFolder.update({
+        where: { id: options.folderId },
+        data: { title }
+    });
+    return mapBlueprintFolder(updated);
+}
+export async function deleteQuestBlueprintFolder(options) {
+    if (!canManageQuestBlueprints(options.actorRole)) {
+        throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+    }
+    const folder = await prisma.questBlueprintFolder.findUnique({ where: { id: options.folderId } });
+    if (!folder || folder.guildId !== options.guildId) {
+        throw new Error('Quest folder not found.');
+    }
+    if (folder.type === QuestBlueprintFolderType.CLASS) {
+        throw new Error(QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR);
+    }
+    const blueprintCount = await prisma.questBlueprint.count({
+        where: {
+            folderId: folder.id
+        }
+    });
+    if (blueprintCount > 0) {
+        throw new Error(QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR);
+    }
+    await prisma.questBlueprintFolder.delete({
+        where: { id: folder.id }
+    });
+}
+export async function updateBlueprintFolderAssignments(options) {
+    if (!canManageQuestBlueprints(options.actorRole)) {
+        throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+    }
+    if (!options.updates.length) {
+        return;
+    }
+    const blueprintIds = options.updates.map((entry) => entry.blueprintId);
+    const blueprints = await prisma.questBlueprint.findMany({
+        where: { id: { in: blueprintIds } },
+        select: { id: true, guildId: true }
+    });
+    if (blueprints.length !== blueprintIds.length || blueprints.some((entry) => entry.guildId !== options.guildId)) {
+        throw new Error('Quest blueprint not found.');
+    }
+    const folderIds = options.updates.map((entry) => entry.folderId).filter((value) => Boolean(value));
+    if (folderIds.length) {
+        const uniqueFolderIds = Array.from(new Set(folderIds));
+        const folders = await prisma.questBlueprintFolder.findMany({
+            where: { id: { in: uniqueFolderIds } },
+            select: { id: true, guildId: true }
+        });
+        if (folders.length !== uniqueFolderIds.length || folders.some((folder) => folder.guildId !== options.guildId)) {
+            throw new Error('Quest folder not found.');
+        }
+    }
+    await prisma.$transaction(async (tx) => {
+        for (const update of options.updates) {
+            await tx.questBlueprint.update({
+                where: { id: update.blueprintId },
+                data: {
+                    folderId: update.folderId ?? null,
+                    folderSortOrder: update.sortOrder
+                }
+            });
+        }
+    });
+}
+export async function updateQuestFolderOrder(options) {
+    if (!canManageQuestBlueprints(options.actorRole)) {
+        throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+    }
+    if (!options.updates.length) {
+        return;
+    }
+    const folderIds = Array.from(new Set(options.updates.map((entry) => entry.folderId)));
+    const folders = await prisma.questBlueprintFolder.findMany({
+        where: { id: { in: folderIds } },
+        select: { id: true, guildId: true, type: true }
+    });
+    if (folders.length !== folderIds.length || folders.some((folder) => folder.guildId !== options.guildId)) {
+        throw new Error('Quest folder not found.');
+    }
+    await prisma.$transaction(async (tx) => {
+        for (const update of options.updates) {
+            await tx.questBlueprintFolder.update({
+                where: { id: update.folderId },
+                data: { sortOrder: update.sortOrder }
+            });
+        }
+    });
 }
 export async function updateQuestBlueprintMetadata(options) {
     const existing = await prisma.questBlueprint.findUnique({
@@ -544,6 +1210,20 @@ export async function updateQuestBlueprintMetadata(options) {
     const nodeCount = stepCountMap.get(updated.id) ?? blueprintNodes.length;
     return mapBlueprintSummary(updated, nodeCount, assignmentCounts, undefined);
 }
+export async function deleteQuestBlueprint(options) {
+    const blueprint = await prisma.questBlueprint.findUnique({
+        where: { id: options.blueprintId },
+        select: { id: true, guildId: true, createdById: true }
+    });
+    if (!blueprint || blueprint.guildId !== options.guildId) {
+        throw new Error('Quest blueprint not found.');
+    }
+    const canDelete = canManageQuestBlueprints(options.actorRole);
+    if (!canDelete) {
+        throw new Error(QUEST_BLUEPRINT_PERMISSION_ERROR);
+    }
+    await prisma.questBlueprint.delete({ where: { id: options.blueprintId } });
+}
 export async function getQuestBlueprintDetail(options) {
     const blueprint = await prisma.questBlueprint.findUnique({
         where: { id: options.blueprintId },
@@ -568,11 +1248,13 @@ export async function getQuestBlueprintDetail(options) {
             where: {
                 blueprintId: options.blueprintId,
                 userId: options.viewerUserId,
-                status: { in: [
+                status: {
+                    in: [
                         QuestAssignmentStatus.ACTIVE,
                         QuestAssignmentStatus.PAUSED,
                         QuestAssignmentStatus.COMPLETED
-                    ] }
+                    ]
+                }
             },
             orderBy: [{ startedAt: 'desc' }],
             include: {
@@ -633,6 +1315,7 @@ export async function getQuestBlueprintDetail(options) {
         childNodeId: link.childNodeId,
         conditions: normalizeJsonRecord(link.conditions)
     }));
+    await attachZoneNamesToNodes(nodes);
     const totalViewerSteps = computeShortestPathMap([blueprint.id], blueprint.nodes.map((node) => ({
         id: node.id,
         blueprintId: node.blueprintId,
@@ -705,6 +1388,7 @@ export async function upsertQuestBlueprintGraph(options) {
         const nodesToDelete = [...existingIds].filter((id) => !incomingIds.has(id));
         if (nodesToDelete.length) {
             await tx.questNode.deleteMany({ where: { id: { in: nodesToDelete } } });
+            await tx.questNodeProgress.deleteMany({ where: { nodeId: { in: nodesToDelete } } });
         }
         const newNodeIds = [];
         for (const node of options.nodes) {
@@ -972,7 +1656,7 @@ export async function applyAssignmentProgressUpdates(options) {
             throw new Error('You do not have permission to update this assignment.');
         }
         const progressMap = new Map(assignment.progress.map((record) => [record.nodeId, record]));
-        const { nodeMeta, childMap, nextStepParentMap, nextStepChildMap } = await loadBlueprintGraph(assignment.blueprintId, tx);
+        const { nodeMeta, childMap, parentMap, nextStepParentMap, nextStepChildMap } = await loadBlueprintGraph(assignment.blueprintId, tx);
         const groupNodeIds = new Set();
         const disabledNodeIds = new Set(assignment.progress.filter((record) => record.isDisabled).map((record) => record.nodeId));
         const finalNodeIds = new Set();
@@ -1083,7 +1767,8 @@ export async function applyAssignmentProgressUpdates(options) {
             });
             if (!nodeIsOptional && !optionsInternal.suppressHierarchyPropagation) {
                 const hierarchyStatus = resolveHierarchyStatus(update.status);
-                if (hierarchyStatus) {
+                // Only propagate COMPLETED status to parent group nodes, not NOT_STARTED
+                if (hierarchyStatus === QuestNodeProgressStatus.COMPLETED) {
                     const parents = nextStepParentMap.get(update.nodeId) ?? [];
                     parents.forEach((parentId) => queueHierarchyUpdate(parentId, hierarchyStatus));
                 }
@@ -1101,6 +1786,19 @@ export async function applyAssignmentProgressUpdates(options) {
                     queueStatusOverride(nodeId, QuestNodeProgressStatus.NOT_STARTED, groupNodeIds.has(nodeId));
                 }
             }
+            const shouldCompleteUpstream = !nodeIsOptional &&
+                update.status === QuestNodeProgressStatus.COMPLETED &&
+                previousStatus !== QuestNodeProgressStatus.COMPLETED;
+            if (shouldCompleteUpstream) {
+                const parents = parentMap.get(update.nodeId) ?? [];
+                for (const parentId of parents) {
+                    const record = progressMap.get(parentId);
+                    if (!record || record.isDisabled || record.status === QuestNodeProgressStatus.COMPLETED) {
+                        continue;
+                    }
+                    queueStatusOverride(parentId, QuestNodeProgressStatus.COMPLETED, groupNodeIds.has(parentId));
+                }
+            }
         };
         for (const update of options.updates) {
             await processUpdate(update);
@@ -1108,7 +1806,55 @@ export async function applyAssignmentProgressUpdates(options) {
         for (const [nodeId, entry] of pendingStatusOverrides) {
             await processUpdate({ nodeId, status: entry.status }, { suppressHierarchyPropagation: true, allowGroupStatus: entry.allowGroup });
         }
+        // Track group node statuses before sync
+        const groupStatusBefore = new Map();
+        for (const groupNodeId of groupNodeIds) {
+            const record = progressMap.get(groupNodeId);
+            if (record) {
+                groupStatusBefore.set(groupNodeId, record.status);
+            }
+        }
         await syncGroupProgressForAssignment(assignment.id, assignment.blueprintId, tx);
+        // After sync, check if any group nodes changed from COMPLETED to not COMPLETED
+        // If so, reset their downstream nodes (excluding the group's own children)
+        const updatedProgress = await tx.questNodeProgress.findMany({
+            where: { assignmentId: assignment.id }
+        });
+        const updatedProgressMap = new Map(updatedProgress.map((record) => [record.nodeId, record]));
+        for (const groupNodeId of groupNodeIds) {
+            const beforeRecord = progressMap.get(groupNodeId);
+            const afterRecord = updatedProgressMap.get(groupNodeId);
+            // Only reset downstream if the group actually went from COMPLETED to not COMPLETED
+            if (beforeRecord &&
+                beforeRecord.status === QuestNodeProgressStatus.COMPLETED &&
+                afterRecord &&
+                afterRecord.status !== QuestNodeProgressStatus.COMPLETED) {
+                // Get all downstream nodes
+                const downstreamNodes = collectDownstreamNodeIds(groupNodeId, childMap, nextStepChildMap, downstreamCache);
+                // Get children of this group (nodes within the group, not after it)
+                const childrenOfGroup = collectDescendantNodeIds(groupNodeId, childMap, descendantCache);
+                // Only reset nodes that are truly downstream (after the group), not children within the group
+                const trulyDownstream = downstreamNodes.filter(nodeId => !childrenOfGroup.includes(nodeId));
+                for (const nodeId of trulyDownstream) {
+                    const record = updatedProgressMap.get(nodeId);
+                    if (!record || record.isDisabled) {
+                        continue;
+                    }
+                    await tx.questNodeProgress.update({
+                        where: {
+                            assignmentId_nodeId: {
+                                assignmentId: assignment.id,
+                                nodeId
+                            }
+                        },
+                        data: {
+                            status: QuestNodeProgressStatus.NOT_STARTED,
+                            completedAt: null
+                        }
+                    });
+                }
+            }
+        }
         await refreshAssignmentSummary(assignment.id, assignment.blueprintId, tx);
         if (finalNodeIds.size) {
             const finalProgress = await tx.questNodeProgress.findMany({
@@ -1119,15 +1865,25 @@ export async function applyAssignmentProgressUpdates(options) {
                 select: { nodeId: true, status: true }
             });
             const shouldComplete = finalProgress.some((record) => record.status === QuestNodeProgressStatus.COMPLETED);
-            if (shouldComplete &&
-                assignment.status !== QuestAssignmentStatus.COMPLETED &&
-                assignment.status !== QuestAssignmentStatus.CANCELLED) {
+            if (shouldComplete) {
+                if (assignment.status !== QuestAssignmentStatus.COMPLETED &&
+                    assignment.status !== QuestAssignmentStatus.CANCELLED) {
+                    await tx.questAssignment.update({
+                        where: { id: assignment.id },
+                        data: {
+                            status: QuestAssignmentStatus.COMPLETED,
+                            completedAt: new Date(),
+                            cancelledAt: null
+                        }
+                    });
+                }
+            }
+            else if (assignment.status === QuestAssignmentStatus.COMPLETED) {
                 await tx.questAssignment.update({
                     where: { id: assignment.id },
                     data: {
-                        status: QuestAssignmentStatus.COMPLETED,
-                        completedAt: new Date(),
-                        cancelledAt: null
+                        status: QuestAssignmentStatus.ACTIVE,
+                        completedAt: null
                     }
                 });
             }
@@ -1154,118 +1910,18 @@ export async function applyAssignmentProgressUpdates(options) {
         return mapAssignment(refreshed, { includeUser: true });
     });
 }
-function computeShortestPathMap(blueprintIds, nodes, links) {
-    const nodesByBlueprint = new Map();
+function computeShortestPathMap(blueprintIds, nodes, _links) {
+    const result = new Map();
     for (const blueprintId of blueprintIds) {
-        nodesByBlueprint.set(blueprintId, []);
+        result.set(blueprintId, 0);
     }
     for (const node of nodes) {
         const metadata = normalizeJsonRecord(node.metadata);
-        const bucket = nodesByBlueprint.get(node.blueprintId);
-        if (!bucket) {
+        if (metadata.isOptional) {
             continue;
         }
-        bucket.push({
-            id: node.id,
-            isFinal: Boolean(metadata.isFinal),
-            isGroup: Boolean(metadata.isGroup),
-            isOptional: Boolean(metadata.isOptional)
-        });
-    }
-    const childMap = new Map();
-    const parentCounts = new Map();
-    for (const link of links) {
-        const adjacency = childMap.get(link.blueprintId) ?? new Map();
-        const children = adjacency.get(link.parentNodeId) ?? [];
-        children.push(link.childNodeId);
-        adjacency.set(link.parentNodeId, children);
-        childMap.set(link.blueprintId, adjacency);
-        const parentMap = parentCounts.get(link.blueprintId) ?? new Map();
-        parentMap.set(link.childNodeId, (parentMap.get(link.childNodeId) ?? 0) + 1);
-        parentCounts.set(link.blueprintId, parentMap);
-    }
-    const result = new Map();
-    for (const blueprintId of blueprintIds) {
-        const blueprintNodes = nodesByBlueprint.get(blueprintId) ?? [];
-        if (!blueprintNodes.length) {
-            result.set(blueprintId, 0);
-            continue;
-        }
-        const finals = new Set(blueprintNodes.filter((node) => node.isFinal).map((node) => node.id));
-        if (!finals.size) {
-            result.set(blueprintId, blueprintNodes.length);
-            continue;
-        }
-        const adjacency = childMap.get(blueprintId) ?? new Map();
-        const parentMap = parentCounts.get(blueprintId) ?? new Map();
-        const nodeMetaMap = new Map();
-        blueprintNodes.forEach((node) => {
-            nodeMetaMap.set(node.id, { isGroup: node.isGroup, isOptional: node.isOptional });
-        });
-        const roots = blueprintNodes
-            .map((node) => node.id)
-            .filter((nodeId) => !parentMap.has(nodeId));
-        const queue = [];
-        const visited = new Set();
-        const parentsLookup = new Map();
-        const nodeWeight = (nodeId) => (nodeMetaMap.get(nodeId)?.isOptional ? 0 : 1);
-        const enqueue = (nodeId, depth, parentId) => {
-            if (visited.has(nodeId)) {
-                return;
-            }
-            visited.add(nodeId);
-            parentsLookup.set(nodeId, parentId);
-            queue.push({ nodeId, depth });
-        };
-        if (roots.length) {
-            roots.forEach((rootId) => enqueue(rootId, nodeWeight(rootId), null));
-        }
-        else {
-            blueprintNodes.forEach((node) => enqueue(node.id, nodeWeight(node.id), null));
-        }
-        let shortest = blueprintNodes.length;
-        let finalNodeReached = null;
-        while (queue.length) {
-            const { nodeId, depth } = queue.shift();
-            if (finals.has(nodeId)) {
-                shortest = depth;
-                finalNodeReached = nodeId;
-                break;
-            }
-            const children = adjacency.get(nodeId) ?? [];
-            for (const childId of children) {
-                enqueue(childId, depth + nodeWeight(childId), nodeId);
-            }
-        }
-        if (!finalNodeReached) {
-            result.set(blueprintId, blueprintNodes.length);
-            continue;
-        }
-        const pathNodes = new Set();
-        let cursor = finalNodeReached;
-        while (cursor) {
-            pathNodes.add(cursor);
-            cursor = parentsLookup.get(cursor) ?? null;
-        }
-        const countedNodes = new Set();
-        const descendantCacheLocal = new Map();
-        for (const nodeId of pathNodes) {
-            const meta = nodeMetaMap.get(nodeId);
-            if (!meta?.isOptional) {
-                countedNodes.add(nodeId);
-            }
-            if (meta?.isGroup) {
-                const descendants = collectDescendantNodeIds(nodeId, adjacency, descendantCacheLocal);
-                for (const descendantId of descendants) {
-                    const descendantMeta = nodeMetaMap.get(descendantId);
-                    if (!descendantMeta?.isOptional) {
-                        countedNodes.add(descendantId);
-                    }
-                }
-            }
-        }
-        shortest = countedNodes.size || 0;
-        result.set(blueprintId, shortest);
+        const current = result.get(node.blueprintId) ?? 0;
+        result.set(node.blueprintId, current + 1);
     }
     return result;
 }
@@ -1279,5 +1935,5 @@ export function canEditQuestBlueprint(role, actorUserId, blueprintOwnerId) {
     return Boolean(actorUserId && blueprintOwnerId && actorUserId === blueprintOwnerId);
 }
 export function canViewGuildQuestBoard(role) {
-    return canManageQuestBlueprints(role);
+    return Boolean(role);
 }

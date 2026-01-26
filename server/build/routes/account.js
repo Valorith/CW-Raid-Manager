@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
+import { getLinkedProviders, unlinkDiscord, unlinkGoogle } from '../services/authService.js';
 import { prisma } from '../utils/prisma.js';
 const profileSchema = z.object({
     nickname: z
@@ -87,5 +88,40 @@ export async function accountRoutes(server) {
                 defaultLogFileName: user.defaultLogFileName ?? null
             }
         };
+    });
+    // Get linked OAuth providers
+    server.get('/linked-providers', { preHandler: [authenticate] }, async (request, reply) => {
+        try {
+            const providers = await getLinkedProviders(request.user.userId);
+            return { providers };
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to get linked providers.';
+            return reply.internalServerError(message);
+        }
+    });
+    // Unlink Google account
+    server.post('/unlink/google', { preHandler: [authenticate] }, async (request, reply) => {
+        try {
+            await unlinkGoogle(request.user.userId);
+            const providers = await getLinkedProviders(request.user.userId);
+            return { success: true, providers };
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to unlink Google.';
+            return reply.badRequest(message);
+        }
+    });
+    // Unlink Discord account
+    server.post('/unlink/discord', { preHandler: [authenticate] }, async (request, reply) => {
+        try {
+            await unlinkDiscord(request.user.userId);
+            const providers = await getLinkedProviders(request.user.userId);
+            return { success: true, providers };
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to unlink Discord.';
+            return reply.badRequest(message);
+        }
     });
 }

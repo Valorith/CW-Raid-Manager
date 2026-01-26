@@ -8,7 +8,9 @@ export const googleOAuthPlugin = fp(async (fastify) => {
         fastify.log.warn('Google OAuth credentials missing. Skipping Google OAuth plugin registration.');
         return;
     }
-    fastify.register(oauthPlugin, {
+    // Type assertion needed because @fastify/oauth2 types don't include cookie option
+    // but the runtime supports it (added in v6.x)
+    const oauthOptions = {
         name: 'googleOAuth2',
         scope: ['profile', 'email'],
         credentials: {
@@ -19,6 +21,13 @@ export const googleOAuthPlugin = fp(async (fastify) => {
             auth: googleConfiguration
         },
         startRedirectPath: '/api/auth/google',
-        callbackUri: appConfig.google.callbackUrl
-    });
+        callbackUri: appConfig.google.callbackUrl,
+        cookie: {
+            secure: appConfig.nodeEnv === 'production',
+            sameSite: 'lax',
+            path: '/',
+            httpOnly: true
+        }
+    };
+    fastify.register(oauthPlugin, oauthOptions);
 });

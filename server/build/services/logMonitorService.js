@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 const sessions = new Map();
+const lootCouncilStates = new Map();
 export const LOOT_MONITOR_HEARTBEAT_INTERVAL_MS = 10_000;
 export const LOOT_MONITOR_SESSION_TTL_MS = 30_000;
 function purgeExpiredSessions() {
@@ -51,5 +52,22 @@ export function stopLootMonitorSession(raidId) {
         return null;
     }
     sessions.delete(raidId);
+    // Also clear the loot council state when the monitor session stops
+    lootCouncilStates.delete(raidId);
     return session;
+}
+// Loot council state management
+export function getLootCouncilState(raidId) {
+    // Only return state if there's an active monitor session
+    const session = getActiveLootMonitorSession(raidId);
+    if (!session) {
+        return { items: [], lastUpdatedAt: null };
+    }
+    return lootCouncilStates.get(raidId) ?? { items: [], lastUpdatedAt: null };
+}
+export function updateLootCouncilState(raidId, items) {
+    lootCouncilStates.set(raidId, {
+        items,
+        lastUpdatedAt: new Date().toISOString()
+    });
 }

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { recordKillForTrackedNpc } from './npcRespawnService.js';
 function normalizeNpcName(name) {
     return name.replace(/\s+/g, ' ').trim();
 }
@@ -29,23 +30,6 @@ function chunkArray(items, size) {
     }
     return chunks;
 }
-function buildTargetLookup(targets) {
-    const lookup = new Map();
-    if (!Array.isArray(targets)) {
-        return lookup;
-    }
-    for (const target of targets) {
-        if (typeof target !== 'string') {
-            continue;
-        }
-        const normalized = normalizeNpcName(target);
-        if (!normalized) {
-            continue;
-        }
-        lookup.set(normalized.toLowerCase(), target.trim());
-    }
-    return lookup;
-}
 export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
     if (kills.length === 0) {
         return { inserted: 0 };
@@ -68,7 +52,8 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
             npcNameNormalized,
             killerName: normalizeKillerName(entry.killerName),
             occurredAt: entry.occurredAt,
-            logSignature: signature
+            logSignature: signature,
+            zoneName: entry.zoneName?.trim() || null
         };
     })
         .filter((entry) => Boolean(entry));
@@ -80,7 +65,6 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
         select: {
             id: true,
             name: true,
-            targetBosses: true,
             guild: {
                 select: {
                     id: true,
@@ -89,9 +73,29 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
             }
         }
     });
-    const targetLookup = buildTargetLookup(raidContext?.targetBosses);
+    // Build lookup of NPCs from the respawn tracker that are flagged as raid targets for webhook triggering
+    const raidTargetNpcs = await prisma.npcDefinition.findMany({
+        where: {
+            guildId,
+            isRaidTarget: true
+        },
+        select: {
+            npcName: true,
+            npcNameNormalized: true
+        }
+    });
+    const raidTargetNpcLookup = new Map();
+    for (const npc of raidTargetNpcs) {
+        raidTargetNpcLookup.set(npc.npcNameNormalized, npc.npcName);
+    }
     const signatures = prepared.map((entry) => entry.logSignature);
     let uniqueEntries = prepared;
+    console.log('[recordRaidNpcKills] Processing NPC kills:', {
+        raidId,
+        guildId,
+        preparedCount: prepared.length,
+        preparedKills: prepared.slice(0, 5).map(e => ({ npcName: e.npcName, signature: e.logSignature.substring(0, 8) }))
+    });
     if (signatures.length > 0) {
         const existing = await prisma.raidNpcKillEvent.findMany({
             where: {
@@ -102,6 +106,11 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
             },
             select: { logSignature: true }
         });
+        console.log('[recordRaidNpcKills] Duplicate check result:', {
+            raidId,
+            existingCount: existing.length,
+            existingSignatures: existing.slice(0, 5).map(e => e.logSignature.substring(0, 8))
+        });
         const seen = new Set(existing.map((item) => item.logSignature));
         uniqueEntries = [];
         for (const entry of prepared) {
@@ -111,56 +120,202 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
             seen.add(entry.logSignature);
             uniqueEntries.push(entry);
         }
+        console.log('[recordRaidNpcKills] After filtering duplicates:', {
+            uniqueCount: uniqueEntries.length
+        });
     }
-    if (uniqueEntries.length === 0) {
-        return { inserted: 0 };
-    }
+    // Also check total count in database for this raid
+    const totalInDb = await prisma.raidNpcKillEvent.count({ where: { raidId } });
+    console.log('[recordRaidNpcKills] Total kills in DB for this raid:', totalInDb);
     let inserted = 0;
-    const insertedEntries = [];
-    for (const chunk of chunkArray(uniqueEntries, 100)) {
-        try {
-            const result = await prisma.raidNpcKillEvent.createMany({
-                data: chunk,
-                skipDuplicates: true
-            });
-            inserted += result.count;
-            insertedEntries.push(...chunk);
-        }
-        catch (error) {
-            logger?.warn({ error }, 'Failed to persist NPC kill chunk.');
+    if (uniqueEntries.length > 0) {
+        for (const chunk of chunkArray(uniqueEntries, 100)) {
+            try {
+                const result = await prisma.raidNpcKillEvent.createMany({
+                    data: chunk,
+                    skipDuplicates: true
+                });
+                inserted += result.count;
+            }
+            catch (error) {
+                logger?.warn({ error, errorMessage: String(error) }, 'Failed to persist NPC kill chunk.');
+            }
         }
     }
-    if (insertedEntries.length > 0 && targetLookup.size > 0) {
-        const targetKills = insertedEntries
-            .filter((entry) => targetLookup.has(entry.npcNameNormalized))
+    // Record kills in the NPC Respawn Tracker for any tracked NPCs
+    // This happens regardless of Discord webhook settings
+    // IMPORTANT: Process ALL prepared kills, not just newly inserted ones!
+    // A kill might already be in RaidNpcKillEvent but not yet in the respawn tracker
+    // (e.g., if the respawn tracker recording failed or was skipped previously)
+    // The respawn tracker service has its own deduplication logic
+    const pendingClarifications = [];
+    const pendingZoneClarifications = [];
+    if (prepared.length > 0) {
+        logger?.info?.({ count: prepared.length }, 'Processing kills for respawn tracker');
+        for (const entry of prepared) {
+            try {
+                logger?.info?.({
+                    npcName: entry.npcName,
+                    npcNameNormalized: entry.npcNameNormalized,
+                    zoneName: entry.zoneName,
+                    killedAt: entry.occurredAt
+                }, 'Attempting to record kill in respawn tracker');
+                const result = await recordKillForTrackedNpc(guildId, {
+                    npcName: entry.npcName,
+                    npcNameNormalized: entry.npcNameNormalized,
+                    killedAt: entry.occurredAt,
+                    killedByName: entry.killerName,
+                    zoneName: entry.zoneName
+                });
+                logger?.info?.({
+                    npcName: entry.npcName,
+                    recorded: result.recorded,
+                    needsInstanceClarification: result.needsInstanceClarification,
+                    needsZoneClarification: result.needsZoneClarification
+                }, 'Respawn tracker result');
+                if (result.needsInstanceClarification && result.npcDefinitionId && result.npcName && result.killedAt) {
+                    const clarificationId = `${guildId}-${result.npcDefinitionId}-${result.killedAt.toISOString()}`;
+                    // Add to response array first (before database save which might fail)
+                    pendingClarifications.push({
+                        id: clarificationId,
+                        npcDefinitionId: result.npcDefinitionId,
+                        npcName: result.npcName,
+                        killedAt: result.killedAt.toISOString(),
+                        killedByName: result.killedByName ?? null
+                    });
+                    // Try to persist to database (non-blocking)
+                    try {
+                        await prisma.pendingNpcKillClarification.upsert({
+                            where: { id: clarificationId },
+                            create: {
+                                id: clarificationId,
+                                guildId,
+                                raidId,
+                                clarificationType: 'instance',
+                                npcName: result.npcName,
+                                killedAt: result.killedAt,
+                                killedByName: result.killedByName ?? null,
+                                npcDefinitionId: result.npcDefinitionId
+                            },
+                            update: {} // Don't update if already exists
+                        });
+                        // Limit to 2 most recent pending clarifications per NPC definition
+                        // This prevents the user from having to action many clarifications for the same NPC
+                        const existingClarifications = await prisma.pendingNpcKillClarification.findMany({
+                            where: {
+                                guildId,
+                                npcDefinitionId: result.npcDefinitionId,
+                                resolvedAt: null
+                            },
+                            orderBy: { killedAt: 'desc' },
+                            select: { id: true }
+                        });
+                        // If more than 2, soft-delete the older ones
+                        if (existingClarifications.length > 2) {
+                            const idsToResolve = existingClarifications.slice(2).map(c => c.id);
+                            await prisma.pendingNpcKillClarification.updateMany({
+                                where: { id: { in: idsToResolve } },
+                                data: { resolvedAt: new Date() }
+                            });
+                        }
+                    }
+                    catch (dbError) {
+                        logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending clarification to database');
+                    }
+                }
+                else if (result.needsZoneClarification && result.zoneOptions && result.npcName && result.killedAt) {
+                    const clarificationId = `${guildId}-zone-${result.npcName.toLowerCase()}-${result.killedAt.toISOString()}`;
+                    // Add to response array first (before database save which might fail)
+                    pendingZoneClarifications.push({
+                        id: clarificationId,
+                        npcName: result.npcName,
+                        killedAt: result.killedAt.toISOString(),
+                        killedByName: result.killedByName ?? null,
+                        zoneOptions: result.zoneOptions
+                    });
+                    // Try to persist to database (non-blocking)
+                    try {
+                        await prisma.pendingNpcKillClarification.upsert({
+                            where: { id: clarificationId },
+                            create: {
+                                id: clarificationId,
+                                guildId,
+                                raidId,
+                                clarificationType: 'zone',
+                                npcName: result.npcName,
+                                killedAt: result.killedAt,
+                                killedByName: result.killedByName ?? null,
+                                zoneOptions: result.zoneOptions
+                            },
+                            update: {} // Don't update if already exists
+                        });
+                        // Limit to 2 most recent pending zone clarifications per NPC name
+                        // This prevents the user from having to action many clarifications for the same NPC
+                        const existingZoneClarifications = await prisma.pendingNpcKillClarification.findMany({
+                            where: {
+                                guildId,
+                                npcName: result.npcName,
+                                clarificationType: 'zone',
+                                resolvedAt: null
+                            },
+                            orderBy: { killedAt: 'desc' },
+                            select: { id: true }
+                        });
+                        // If more than 2, soft-delete the older ones
+                        if (existingZoneClarifications.length > 2) {
+                            const idsToResolve = existingZoneClarifications.slice(2).map(c => c.id);
+                            await prisma.pendingNpcKillClarification.updateMany({
+                                where: { id: { in: idsToResolve } },
+                                data: { resolvedAt: new Date() }
+                            });
+                        }
+                    }
+                    catch (dbError) {
+                        logger?.warn?.({ error: dbError, npcName: entry.npcName }, 'Failed to persist pending zone clarification to database');
+                    }
+                }
+            }
+            catch (error) {
+                // Log error and continue - NPC may not be tracked in respawn tracker
+                logger?.warn?.({ error, npcName: entry.npcName }, 'Failed to record kill in respawn tracker');
+            }
+        }
+    }
+    // Emit Discord webhook for kills of NPCs that are flagged as raid targets in the respawn tracker
+    // Only emit for newly inserted kills to avoid duplicate notifications
+    if (uniqueEntries.length > 0 && raidTargetNpcLookup.size > 0) {
+        const raidTargetKills = uniqueEntries
+            .filter((entry) => raidTargetNpcLookup.has(entry.npcNameNormalized))
             .map((entry) => ({
-            npcName: targetLookup.get(entry.npcNameNormalized) ?? entry.npcName,
+            npcName: raidTargetNpcLookup.get(entry.npcNameNormalized) ?? entry.npcName,
             killerName: entry.killerName,
             occurredAt: entry.occurredAt
         }));
-        if (targetKills.length > 0) {
+        if (raidTargetKills.length > 0) {
             await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
                 guildName: raidContext?.guild?.name ?? 'Guild',
                 raidId,
                 raidName: raidContext?.name ?? 'Raid',
-                kills: targetKills
+                kills: raidTargetKills
             });
         }
     }
-    return { inserted };
+    return { inserted, pendingClarifications, pendingZoneClarifications };
 }
 export async function listRaidNpcKillSummary(raidId) {
     const grouped = await prisma.raidNpcKillEvent.groupBy({
-        by: ['npcName'],
+        by: ['npcName', 'zoneName'],
         where: { raidId },
         _count: { raidId: true },
         orderBy: [
             { _count: { raidId: 'desc' } },
-            { npcName: 'asc' }
+            { npcName: 'asc' },
+            { zoneName: 'asc' }
         ]
     });
     return grouped.map((row) => ({
         npcName: row.npcName,
+        zoneName: row.zoneName,
         killCount: row._count?.raidId ?? 0
     }));
 }

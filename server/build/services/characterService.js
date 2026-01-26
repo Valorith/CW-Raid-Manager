@@ -84,6 +84,25 @@ export async function updateCharacter(characterId, userId, data) {
     });
     return ensureCharacterGuildForUser(updated);
 }
+export async function deleteCharacter(characterId, userId) {
+    const character = await prisma.character.findFirst({
+        where: { id: characterId, userId }
+    });
+    if (!character) {
+        throw new Error('Character not found.');
+    }
+    await prisma.$transaction([
+        prisma.attendanceRecord.updateMany({
+            where: { characterId },
+            data: { characterId: null }
+        }),
+        prisma.questAssignment.updateMany({
+            where: { characterId },
+            data: { characterId: null }
+        }),
+        prisma.character.delete({ where: { id: characterId } })
+    ]);
+}
 async function assertMainCapacity(userId, excludeCharacterId) {
     const count = await prisma.character.count({
         where: {

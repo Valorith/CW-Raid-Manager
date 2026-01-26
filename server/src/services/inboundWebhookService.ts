@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import type { InboundWebhookActionType, InboundWebhookMessageStatus } from '@prisma/client';
+import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
 import { reviewCrashReport } from './geminiCrashReviewService.js';
 
 export interface InboundWebhookRetentionPolicy {
@@ -159,7 +159,7 @@ export async function createInboundWebhookAction(webhookId: string, input: Creat
       type: input.type,
       name: input.name.trim(),
       isEnabled: input.isEnabled ?? true,
-      config: input.config ?? {},
+      config: (input.config ?? {}) as Prisma.InputJsonValue,
       sortOrder: input.sortOrder ?? 0
     }
   });
@@ -298,7 +298,7 @@ export async function retryCrashReviewForMessage(messageId: string) {
 
     await prisma.inboundWebhookMessage.update({
       where: { id: messageId },
-      data: { payload: payloadCopy }
+      data: { payload: payloadCopy as Prisma.InputJsonValue }
     });
   }
 
@@ -308,7 +308,7 @@ export async function retryCrashReviewForMessage(messageId: string) {
       where: { id: run.id },
       data: {
         status: 'SUCCESS',
-        result: findings,
+        result: findings as Prisma.InputJsonValue,
         durationMs: Date.now() - new Date(run.createdAt).getTime()
       }
     });
@@ -352,8 +352,8 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     data: {
       webhookId: webhook.id,
       sourceIp: input.sourceIp ?? null,
-      headers: input.headers ?? {},
-      payload: normalizePayload(input.payload),
+      headers: (input.headers ?? {}) as Prisma.InputJsonValue,
+      payload: normalizePayload(input.payload) as Prisma.InputJsonValue,
       rawBody: input.rawBody ?? null,
       status: 'RECEIVED'
     }
@@ -387,8 +387,8 @@ export async function createInboundWebhookMessageForAdmin(options: {
     data: {
       webhookId: webhook.id,
       sourceIp: 'admin-test',
-      headers: { source: 'admin-test' },
-      payload: normalizePayload(options.payload),
+      headers: { source: 'admin-test' } as Prisma.InputJsonValue,
+      payload: normalizePayload(options.payload) as Prisma.InputJsonValue,
       rawBody: null,
       status: 'RECEIVED'
     }
@@ -489,7 +489,7 @@ async function runInboundWebhookActions(
 
           await prisma.inboundWebhookMessage.update({
             where: { id: messageId },
-            data: { payload: payloadCopy }
+            data: { payload: payloadCopy as Prisma.InputJsonValue }
           });
         }
 
@@ -499,7 +499,7 @@ async function runInboundWebhookActions(
             where: { id: run.id },
             data: {
               status: 'SUCCESS',
-              result: findings,
+              result: findings as Prisma.InputJsonValue,
               durationMs: Date.now() - startedAt
             }
           });
@@ -580,8 +580,10 @@ async function updateActionSummary(
     select: { actionSummary: true }
   });
 
-  const summary = Array.isArray(message?.actionSummary) ? [...message.actionSummary] : [];
-  const index = summary.findIndex((item) => item.actionId === actionId);
+  const summary = Array.isArray(message?.actionSummary)
+    ? ([...message.actionSummary] as Array<{ actionId: string; status: string }>)
+    : [];
+  const index = summary.findIndex((item) => item?.actionId === actionId);
   if (index >= 0) {
     summary[index] = { actionId, status };
   } else {
@@ -590,7 +592,7 @@ async function updateActionSummary(
 
   await prisma.inboundWebhookMessage.update({
     where: { id: messageId },
-    data: { actionSummary: summary }
+    data: { actionSummary: summary as Prisma.InputJsonValue }
   });
 }
 

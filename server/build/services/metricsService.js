@@ -85,61 +85,127 @@ export async function getGuildMetrics(options) {
     const uniqueRaids = new Map();
     const uniqueLooters = new Map();
     const attendanceCharacterKeys = new Set();
+    const guildMains = await prisma.character.findMany({
+        where: {
+            guildId,
+            isMain: true
+        },
+        select: {
+            id: true,
+            name: true,
+            class: true,
+            isMain: true,
+            userId: true,
+            user: {
+                select: {
+                    displayName: true
+                }
+            }
+        }
+    });
+    const mainByUserId = new Map();
+    for (const main of guildMains) {
+        if (!main.userId) {
+            continue;
+        }
+        const list = mainByUserId.get(main.userId) ?? [];
+        list.push(main);
+        mainByUserId.set(main.userId, list);
+    }
+    const missingIds = Array.from(new Set(attendanceRecordsRaw
+        .filter((record) => !record.characterId)
+        .map((record) => record.characterName?.trim().toLowerCase())
+        .filter(Boolean)));
+    const resolvedCharactersByName = missingIds.length > 0
+        ? await prisma.character.findMany({
+            where: {
+                guildId,
+                name: { in: missingIds }
+            },
+            select: {
+                id: true,
+                name: true,
+                class: true,
+                isMain: true,
+                userId: true,
+                user: {
+                    select: {
+                        displayName: true
+                    }
+                }
+            }
+        })
+        : [];
+    const resolvedCharacterMap = new Map();
+    for (const character of resolvedCharactersByName) {
+        resolvedCharacterMap.set(character.name.toLowerCase(), character);
+    }
+    const resolveUserMains = (userId) => {
+        if (!userId) {
+            return [];
+        }
+        return mainByUserId.get(userId) ?? [];
+    };
+    const registerCharacter = (entry, key) => {
+        const existing = uniqueCharacters.get(key);
+        if (existing) {
+            uniqueCharacters.set(key, {
+                ...existing,
+                class: existing.class ?? entry.class,
+                userId: existing.userId ?? entry.userId,
+                userDisplayName: existing.userDisplayName ?? entry.userDisplayName,
+                isMain: existing.isMain || entry.isMain
+            });
+        }
+        else {
+            uniqueCharacters.set(key, entry);
+        }
+        attendanceCharacterKeys.add(key);
+    };
+    const pushAttendanceRecord = (record) => {
+        attendanceRecords.push(record);
+    };
     for (const record of attendanceRecordsRaw) {
         const raid = record.attendanceEvent.raid;
         if (raid) {
             uniqueRaids.set(raid.id, { id: raid.id, name: raid.name });
         }
-        const resolvedClass = record.class ?? record.character?.class ?? null;
+        const resolvedByName = !record.characterId && record.characterName
+            ? resolvedCharacterMap.get(record.characterName.trim().toLowerCase())
+            : null;
+        const resolvedClass = record.class ?? record.character?.class ?? resolvedByName?.class ?? null;
         if (resolvedClass) {
             uniqueClasses.add(resolvedClass);
         }
-        const characterId = record.character?.id ?? record.characterId ?? null;
-        const characterName = record.character?.name ?? record.characterName;
-        const isMainValue = Boolean(record.character?.isMain);
+        const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
+        const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
+        const isMainValue = resolvedByName?.isMain ?? Boolean(record.character?.isMain);
+        const resolvedUserId = record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
+        const resolvedDisplayName = record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
+        const resolvedClassFinal = resolvedClass ?? resolvedByName?.class ?? null;
+        const fallbackMains = resolveUserMains(resolvedUserId);
+        const fallbackMain = fallbackMains.length ? fallbackMains[0] : null;
+        const effectiveCharacterId = characterId ?? fallbackMain?.id ?? null;
+        const effectiveCharacterName = characterName || fallbackMain?.name || '';
+        const effectiveUserId = resolvedUserId ?? fallbackMain?.userId ?? null;
+        const effectiveDisplayName = resolvedDisplayName ?? fallbackMain?.user?.displayName ?? null;
+        const effectiveClass = resolvedClassFinal ?? fallbackMain?.class ?? null;
+        const effectiveIsMain = isMainValue || Boolean(fallbackMain?.isMain);
         const characterEntry = {
-            id: characterId,
-            name: characterName,
-            class: resolvedClass,
-            userId: record.character?.userId ?? record.character?.user?.id ?? null,
-            userDisplayName: record.character?.user?.displayName ?? null,
-            isMain: isMainValue
+            id: effectiveCharacterId,
+            name: effectiveCharacterName,
+            class: effectiveClass,
+            userId: effectiveUserId,
+            userDisplayName: effectiveDisplayName,
+            isMain: effectiveIsMain
         };
-        if (characterId) {
-            const key = `id:${characterId}`;
-            const existing = uniqueCharacters.get(key);
-            if (existing) {
-                uniqueCharacters.set(key, {
-                    ...existing,
-                    class: existing.class ?? characterEntry.class,
-                    userId: existing.userId ?? characterEntry.userId,
-                    userDisplayName: existing.userDisplayName ?? characterEntry.userDisplayName,
-                    isMain: existing.isMain || characterEntry.isMain
-                });
-            }
-            else {
-                uniqueCharacters.set(key, characterEntry);
-            }
-            attendanceCharacterKeys.add(`id:${characterId}`);
+        if (effectiveCharacterId) {
+            registerCharacter(characterEntry, `id:${effectiveCharacterId}`);
         }
         else {
-            const key = `name:${characterName.toLowerCase()}`;
-            const existing = uniqueCharacters.get(key);
-            if (existing) {
-                uniqueCharacters.set(key, {
-                    ...existing,
-                    class: existing.class ?? characterEntry.class,
-                    userId: existing.userId ?? characterEntry.userId,
-                    userDisplayName: existing.userDisplayName ?? characterEntry.userDisplayName,
-                    isMain: existing.isMain || characterEntry.isMain
-                });
-            }
-            else {
-                uniqueCharacters.set(key, characterEntry);
-            }
-            attendanceCharacterKeys.add(key);
+            registerCharacter(characterEntry, `name:${characterName.toLowerCase()}`);
         }
-        attendanceRecords.push({
+        pushAttendanceRecord({
             id: record.id,
             status: record.status,
             timestamp: record.attendanceEvent.createdAt.toISOString(),
@@ -150,14 +216,48 @@ export async function getGuildMetrics(options) {
                 startTime: toIsoString(raid?.startTime)
             },
             character: {
-                id: characterId,
-                name: characterName,
-                class: resolvedClass,
-                isMain: record.character?.isMain ?? null,
-                userId: record.character?.userId ?? record.character?.user?.id ?? null,
-                userDisplayName: record.character?.user?.displayName ?? null
+                id: effectiveCharacterId,
+                name: effectiveCharacterName,
+                class: effectiveClass,
+                isMain: effectiveIsMain ? true : record.character?.isMain ?? null,
+                userId: effectiveUserId,
+                userDisplayName: effectiveDisplayName
             }
         });
+        const allMains = resolveUserMains(resolvedUserId);
+        for (const main of allMains) {
+            if (main.id === effectiveCharacterId) {
+                continue;
+            }
+            const mainKey = main.id ? `id:${main.id}` : `name:${main.name.toLowerCase()}`;
+            registerCharacter({
+                id: main.id,
+                name: main.name,
+                class: main.class,
+                userId: main.userId,
+                userDisplayName: main.user?.displayName ?? null,
+                isMain: true
+            }, mainKey);
+            pushAttendanceRecord({
+                id: `${record.id}:main:${main.id ?? main.name}`,
+                status: record.status,
+                timestamp: record.attendanceEvent.createdAt.toISOString(),
+                eventType: record.attendanceEvent.eventType,
+                raid: {
+                    id: raid?.id ?? '',
+                    name: raid?.name ?? 'Unknown Raid',
+                    startTime: toIsoString(raid?.startTime)
+                },
+                character: {
+                    id: main.id,
+                    name: main.name,
+                    class: main.class,
+                    isMain: true,
+                    userId: main.userId,
+                    userDisplayName: main.user?.displayName ?? null
+                }
+            });
+        }
     }
     for (const event of lootEventsRaw) {
         const normalizedLooter = event.looterName?.trim().toLowerCase();

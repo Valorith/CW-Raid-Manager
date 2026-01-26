@@ -2,7 +2,9 @@ import { QuestAssignmentStatus, QuestNodeProgressStatus, QuestNodeType, QuestBlu
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { getUserGuildRole } from '../services/guildService.js';
-import { applyAssignmentProgressUpdates, canManageQuestBlueprints, canEditQuestBlueprint, canViewGuildQuestBoard, createQuestBlueprint, getQuestBlueprintDetail, listGuildQuestTrackerSummary, startQuestAssignment, updateAssignmentStatus, updateQuestBlueprintMetadata, upsertQuestBlueprintGraph, QUEST_BLUEPRINT_PERMISSION_ERROR } from '../services/questTrackerService.js';
+import { applyAssignmentProgressUpdates, canManageQuestBlueprints, canEditQuestBlueprint, canViewGuildQuestBoard, createQuestBlueprint, createQuestBlueprintFolder, importQuestBlueprintFromTask, deleteQuestBlueprint, deleteQuestBlueprintFolder, getQuestBlueprintDetail, listGuildQuestTrackerSummary, startQuestAssignment, updateAssignmentStatus, updateBlueprintFolderAssignments, updateQuestBlueprintFolder, updateQuestBlueprintMetadata, upsertQuestBlueprintGraph, QUEST_BLUEPRINT_PERMISSION_ERROR, QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR, QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR, updateQuestFolderOrder } from '../services/questTrackerService.js';
+import { searchEqTasks } from '../services/eqTaskService.js';
+import { prisma } from '../utils/prisma.js';
 export async function questTrackerRoutes(server) {
     const guildIdParams = z.object({ guildId: z.string() });
     server.get('/:guildId/quest-tracker', { preHandler: [authenticate] }, async (request, reply) => {
@@ -48,6 +50,249 @@ export async function questTrackerRoutes(server) {
             visibility: parsedBody.data.visibility
         });
         return reply.code(201).send({ blueprint });
+    });
+    server.get('/:guildId/quest-tracker/eq-tasks', { preHandler: [authenticate] }, async (request, reply) => {
+        const { guildId } = guildIdParams.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to view EQ tasks.');
+        }
+        const user = await prisma.user.findUnique({
+            where: { id: request.user.userId },
+            select: { admin: true }
+        });
+        if (!user?.admin) {
+            return reply.forbidden('Only admins can search EQ tasks.');
+        }
+        const querySchema = z.object({
+            q: z.string().max(120).optional(),
+            page: z.coerce.number().int().min(1).max(500).optional(),
+            pageSize: z.coerce.number().int().min(1).max(50).optional()
+        });
+        const parsedQuery = querySchema.safeParse(request.query);
+        if (!parsedQuery.success) {
+            return reply.badRequest('Invalid EQ task search parameters.');
+        }
+        try {
+            const result = await searchEqTasks({
+                query: parsedQuery.data.q,
+                page: parsedQuery.data.page,
+                pageSize: parsedQuery.data.pageSize
+            });
+            return result;
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to search EQ tasks');
+            if (error instanceof Error && error.message.includes('not configured')) {
+                return reply.code(503).send({ message: 'EQ content database is not configured.' });
+            }
+            return reply.badRequest('Unable to search EQ tasks.');
+        }
+    });
+    server.post('/:guildId/quest-tracker/blueprints/import-task', { preHandler: [authenticate] }, async (request, reply) => {
+        const { guildId } = guildIdParams.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to import quest blueprints.');
+        }
+        const user = await prisma.user.findUnique({
+            where: { id: request.user.userId },
+            select: { admin: true }
+        });
+        if (!user?.admin) {
+            return reply.forbidden('Only admins can import EQ tasks.');
+        }
+        const bodySchema = z.object({
+            taskId: z.number().int().positive()
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid EQ task import payload.');
+        }
+        try {
+            const blueprint = await importQuestBlueprintFromTask({
+                guildId,
+                actorUserId: request.user.userId,
+                actorRole: membership.role,
+                taskId: parsedBody.data.taskId
+            });
+            return reply.code(201).send({ blueprint });
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to import EQ task into quest blueprint');
+            if (error instanceof Error && error.message === 'EQ task not found.') {
+                return reply.notFound('EQ task not found.');
+            }
+            if (error instanceof Error && error.message.includes('not configured')) {
+                return reply.code(503).send({ message: 'EQ content database is not configured.' });
+            }
+            return reply.badRequest('Unable to import EQ task.');
+        }
+    });
+    server.post('/:guildId/quest-tracker/folders', { preHandler: [authenticate] }, async (request, reply) => {
+        const { guildId } = guildIdParams.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to manage quest folders.');
+        }
+        const bodySchema = z.object({
+            title: z.string().min(2).max(191)
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Folder title must be between 2 and 191 characters.');
+        }
+        try {
+            const folder = await createQuestBlueprintFolder({
+                guildId,
+                actorUserId: request.user.userId,
+                title: parsedBody.data.title
+            });
+            return reply.code(201).send({ folder });
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to create quest folder');
+            return reply.badRequest('Unable to create folder.');
+        }
+    });
+    server.patch('/:guildId/quest-tracker/folders/:folderId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = guildIdParams.extend({ folderId: z.string() });
+        const { guildId, folderId } = paramsSchema.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to manage quest folders.');
+        }
+        const bodySchema = z.object({
+            title: z.string().min(2).max(191)
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Folder title must be between 2 and 191 characters.');
+        }
+        try {
+            const folder = await updateQuestBlueprintFolder({
+                guildId,
+                folderId,
+                actorRole: membership.role,
+                actorUserId: request.user.userId,
+                title: parsedBody.data.title
+            });
+            return { folder };
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                if (error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                    return reply.forbidden('Only guild leaders or officers can edit folders.');
+                }
+                if (error.message === QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR) {
+                    return reply.badRequest('System folders cannot be renamed.');
+                }
+            }
+            request.log.error({ error }, 'Failed to update quest folder');
+            return reply.notFound('Quest folder not found.');
+        }
+    });
+    server.delete('/:guildId/quest-tracker/folders/:folderId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = guildIdParams.extend({ folderId: z.string() });
+        const { guildId, folderId } = paramsSchema.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to manage quest folders.');
+        }
+        try {
+            await deleteQuestBlueprintFolder({
+                guildId,
+                folderId,
+                actorRole: membership.role,
+                actorUserId: request.user.userId
+            });
+            return reply.code(204).send();
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                if (error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                    return reply.forbidden('Only guild leaders or officers can delete folders.');
+                }
+                if (error.message === QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR) {
+                    return reply.badRequest('System folders cannot be deleted.');
+                }
+                if (error.message === QUEST_BLUEPRINT_FOLDER_NOT_EMPTY_ERROR) {
+                    return reply.badRequest('Remove blueprints from this folder before deleting it.');
+                }
+            }
+            request.log.error({ error }, 'Failed to delete quest folder');
+            return reply.notFound('Quest folder not found.');
+        }
+    });
+    server.post('/:guildId/quest-tracker/folders/reorder', { preHandler: [authenticate] }, async (request, reply) => {
+        const { guildId } = guildIdParams.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to manage quest folders.');
+        }
+        const bodySchema = z.object({
+            updates: z
+                .array(z.object({
+                folderId: z.string(),
+                sortOrder: z.number().int()
+            }))
+                .min(1)
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid folder reorder payload.');
+        }
+        try {
+            await updateQuestFolderOrder({
+                guildId,
+                actorRole: membership.role,
+                updates: parsedBody.data.updates
+            });
+            return reply.code(204).send();
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                return reply.forbidden('Only guild leaders or officers can reorder folders.');
+            }
+            request.log.error({ error }, 'Failed to reorder quest folders');
+            return reply.badRequest('Unable to reorder folders.');
+        }
+    });
+    server.post('/:guildId/quest-tracker/blueprints/reorder', { preHandler: [authenticate] }, async (request, reply) => {
+        const { guildId } = guildIdParams.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to manage quest blueprints.');
+        }
+        const bodySchema = z.object({
+            updates: z
+                .array(z.object({
+                blueprintId: z.string(),
+                folderId: z.string().optional().nullable(),
+                sortOrder: z.number().int()
+            }))
+                .min(1)
+        });
+        const parsedBody = bodySchema.safeParse(request.body);
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid blueprint reorder payload.');
+        }
+        try {
+            await updateBlueprintFolderAssignments({
+                guildId,
+                actorRole: membership.role,
+                actorUserId: request.user.userId,
+                updates: parsedBody.data.updates
+            });
+            return reply.code(204).send();
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                return reply.forbidden('Only guild leaders or officers can reorder blueprints.');
+            }
+            request.log.error({ error }, 'Failed to reorder quest blueprints');
+            return reply.badRequest('Unable to reorder blueprints.');
+        }
     });
     server.get('/:guildId/quest-tracker/blueprints/:blueprintId', { preHandler: [authenticate] }, async (request, reply) => {
         const paramsSchema = guildIdParams.extend({ blueprintId: z.string() });
@@ -112,6 +357,30 @@ export async function questTrackerRoutes(server) {
                 return reply.forbidden('Only the creator or guild leaders/officers can edit this quest blueprint.');
             }
             request.log.error({ error }, 'Failed to update quest blueprint');
+            return reply.notFound('Quest blueprint not found.');
+        }
+    });
+    server.delete('/:guildId/quest-tracker/blueprints/:blueprintId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = guildIdParams.extend({ blueprintId: z.string() });
+        const { guildId, blueprintId } = paramsSchema.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership) {
+            return reply.forbidden('You must be a guild member to delete quest blueprints.');
+        }
+        try {
+            await deleteQuestBlueprint({
+                guildId,
+                blueprintId,
+                actorUserId: request.user.userId,
+                actorRole: membership.role
+            });
+            return reply.code(204).send();
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === QUEST_BLUEPRINT_PERMISSION_ERROR) {
+                return reply.forbidden('Only guild leaders or officers can delete this quest blueprint.');
+            }
+            request.log.error({ error }, 'Failed to delete quest blueprint');
             return reply.notFound('Quest blueprint not found.');
         }
     });

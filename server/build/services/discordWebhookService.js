@@ -5,16 +5,21 @@ export const DISCORD_WEBHOOK_EVENT_KEYS = [
     'raid.created',
     'raid.started',
     'raid.ended',
+    'raid.canceled',
     'raid.targetKilled',
     'raid.deleted',
     'raid.signup',
+    'raid.signup.not_attending',
     'raid.withdraw',
     'loot.assigned',
     'attendance.logged',
     'attendance.updated',
     'application.submitted',
     'application.approved',
-    'application.denied'
+    'application.denied',
+    'bank.requested',
+    'respawn.windowOpen',
+    'respawn.up'
 ];
 export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
     {
@@ -36,6 +41,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         category: 'RAID'
     },
     {
+        key: 'raid.canceled',
+        label: 'Raid Canceled',
+        description: 'Sent when a raid is canceled.',
+        category: 'RAID'
+    },
+    {
         key: 'raid.targetKilled',
         label: 'Raid Target Killed',
         description: 'Triggered when a tracked raid target boss is killed.',
@@ -51,6 +62,12 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         key: 'raid.signup',
         label: 'Raid Signup',
         description: 'Announces when a character signs up for a raid.',
+        category: 'RAID'
+    },
+    {
+        key: 'raid.signup.not_attending',
+        label: 'Raid Not Attending',
+        description: 'Announces when a character marks themselves as not attending a raid.',
         category: 'RAID'
     },
     {
@@ -94,37 +111,65 @@ export const DISCORD_WEBHOOK_EVENT_DEFINITIONS = [
         label: 'Application Denied',
         description: 'Sent when an application is denied or withdrawn by staff.',
         category: 'APPLICATION'
+    },
+    {
+        key: 'bank.requested',
+        label: 'Guild Bank Request',
+        description: 'Triggered when a guild member requests items from the guild bank.',
+        category: 'BANK'
+    },
+    {
+        key: 'respawn.windowOpen',
+        label: 'Respawn Window Open',
+        description: 'Triggered when a raid target enters its respawn window.',
+        category: 'RESPAWN'
+    },
+    {
+        key: 'respawn.up',
+        label: 'NPC Is Up',
+        description: 'Triggered when a raid target is past its max respawn time.',
+        category: 'RESPAWN'
     }
 ];
 export const DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS = Object.freeze({
     'raid.created': true,
     'raid.started': true,
     'raid.ended': true,
+    'raid.canceled': true,
     'raid.targetKilled': true,
     'raid.deleted': false,
     'raid.signup': true,
+    'raid.signup.not_attending': true,
     'raid.withdraw': true,
     'loot.assigned': true,
     'attendance.logged': true,
     'attendance.updated': true,
     'application.submitted': false,
     'application.approved': true,
-    'application.denied': true
+    'application.denied': true,
+    'bank.requested': false,
+    'respawn.windowOpen': false,
+    'respawn.up': false
 });
 export const DEFAULT_MENTION_SUBSCRIPTIONS = Object.freeze({
     'raid.created': true,
     'raid.started': true,
     'raid.ended': true,
+    'raid.canceled': true,
     'raid.targetKilled': true,
     'raid.deleted': false,
     'raid.signup': false,
+    'raid.signup.not_attending': false,
     'raid.withdraw': false,
     'loot.assigned': false,
     'attendance.logged': false,
     'attendance.updated': false,
     'application.submitted': false,
     'application.approved': false,
-    'application.denied': false
+    'application.denied': false,
+    'bank.requested': false,
+    'respawn.windowOpen': false,
+    'respawn.up': false
 });
 export async function listGuildDiscordWebhooks(guildId) {
     const records = await prisma.guildDiscordWebhook.findMany({
@@ -229,6 +274,13 @@ export async function isDiscordWebhookEventEnabled(guildId, event) {
 }
 export async function emitDiscordWebhookEvent(guildId, event, payload) {
     try {
+        // Check if debug mode is enabled for this guild
+        const guild = await prisma.guild.findUnique({
+            where: { id: guildId },
+            select: { webhookDebugMode: true, name: true }
+        });
+        const isDebugMode = guild?.webhookDebugMode ?? false;
+        const guildName = guild?.name ?? 'Unknown Guild';
         const records = await prisma.guildDiscordWebhook.findMany({
             where: {
                 guildId,
@@ -245,6 +297,9 @@ export async function emitDiscordWebhookEvent(guildId, event, payload) {
         if (!message) {
             return;
         }
+        // Find the event label for display purposes
+        const eventDefinition = DISCORD_WEBHOOK_EVENT_DEFINITIONS.find((def) => def.key === event);
+        const eventLabel = eventDefinition?.label ?? event;
         const deliveries = records.map(async (record) => {
             const settings = normalizeWebhook(record);
             if (!settings.webhookUrl || !settings.eventSubscriptions[event]) {
@@ -258,6 +313,12 @@ export async function emitDiscordWebhookEvent(guildId, event, payload) {
                 ...(settings.avatarUrl ? { avatar_url: settings.avatarUrl } : {}),
                 allowed_mentions: mentionData?.allowedMentions ?? { parse: [] }
             };
+            // If debug mode is enabled, broadcast to connected admins instead of sending to Discord
+            if (isDebugMode) {
+                const { broadcastDebugWebhook } = await import('./webhookDebugService.js');
+                await broadcastDebugWebhook(guildId, guildName, event, eventLabel, settings.label, body);
+                return;
+            }
             await sendDiscordWebhook(settings.webhookUrl, body);
         });
         await Promise.allSettled(deliveries);
@@ -314,6 +375,13 @@ function buildWebhookMessage(event, payload) {
         case 'raid.started':
             const raidStartedPayload = payload;
             const raidStartedUrl = buildRaidUrl(raidStartedPayload.raidId);
+            const raidStartedLootUrl = buildRaidLootUrl(raidStartedPayload.raidId);
+            const raidStartedLinks = [
+                raidStartedUrl ? `[View Raid](${raidStartedUrl})` : null,
+                raidStartedLootUrl ? `[View Loot](${raidStartedLootUrl})` : null
+            ]
+                .filter(Boolean)
+                .join(' • ');
             return {
                 embeds: [
                     {
@@ -326,11 +394,11 @@ function buildWebhookMessage(event, payload) {
                                 value: formatDiscordTimestamp(raidStartedPayload.startedAt),
                                 inline: true
                             },
-                            ...(raidStartedUrl
+                            ...(raidStartedLinks
                                 ? [
                                     {
                                         name: 'Links',
-                                        value: `[View Raid](${raidStartedUrl})`,
+                                        value: raidStartedLinks,
                                         inline: false
                                     }
                                 ]
@@ -382,12 +450,40 @@ function buildWebhookMessage(event, payload) {
                     }
                 ]
             };
+        case 'raid.canceled':
+            const raidCanceledPayload = payload;
+            const raidCanceledUrl = buildRaidUrl(raidCanceledPayload.raidId);
+            return {
+                embeds: [
+                    {
+                        title: `🚫 Raid Canceled: ${raidCanceledPayload.raidName}`,
+                        description: 'This raid has been canceled.',
+                        color: DISCORD_COLORS.danger,
+                        fields: [
+                            {
+                                name: 'Canceled',
+                                value: formatDiscordTimestamp(raidCanceledPayload.canceledAt),
+                                inline: true
+                            },
+                            ...(raidCanceledUrl
+                                ? [
+                                    {
+                                        name: 'Links',
+                                        value: `[View Raid](${raidCanceledUrl})`,
+                                        inline: false
+                                    }
+                                ]
+                                : [])
+                        ],
+                        timestamp: nowIso
+                    }
+                ]
+            };
         case 'raid.targetKilled':
             const raidTargetPayload = payload;
             if (!Array.isArray(raidTargetPayload.kills) || raidTargetPayload.kills.length === 0) {
                 return null;
             }
-            const raidTargetUrl = buildRaidUrl(raidTargetPayload.raidId);
             const killLines = raidTargetPayload.kills.slice(0, 10).map((kill) => {
                 return `• **${kill.npcName}** — ${formatDiscordTimestamp(kill.occurredAt)}`;
             });
@@ -395,14 +491,28 @@ function buildWebhookMessage(event, payload) {
                 const remaining = raidTargetPayload.kills.length - 10;
                 killLines.push(`…and ${remaining} more target${remaining === 1 ? '' : 's'}.`);
             }
-            if (raidTargetUrl) {
-                killLines.push(`[View Raid](${raidTargetUrl})`);
+            // Add link - prefer raid if available, otherwise respawn tracker
+            if (raidTargetPayload.raidId) {
+                const raidTargetUrl = buildRaidUrl(raidTargetPayload.raidId);
+                if (raidTargetUrl) {
+                    killLines.push(`[View Raid](${raidTargetUrl})`);
+                }
             }
+            else if (raidTargetPayload.guildId) {
+                const respawnTrackerUrl = buildRespawnTrackerUrl(raidTargetPayload.guildId);
+                if (respawnTrackerUrl) {
+                    killLines.push(`[View Respawn Tracker](${respawnTrackerUrl})`);
+                }
+            }
+            // Use raid name if available, otherwise show just "Raid Target Killed"
+            const targetKilledTitle = raidTargetPayload.raidName
+                ? `🎯 Raid Target Killed: ${raidTargetPayload.raidName}`
+                : `🎯 Raid Target Killed`;
             return {
                 embeds: [
                     {
-                        title: `🎯 Raid Target Killed: ${raidTargetPayload.raidName}`,
-                        color: DISCORD_COLORS.success,
+                        title: targetKilledTitle,
+                        color: DISCORD_COLORS.danger,
                         fields: [
                             {
                                 name: 'Targets',
@@ -465,6 +575,46 @@ function buildWebhookMessage(event, payload) {
                     }
                 ]
             };
+        case 'raid.signup.not_attending':
+            const notAttendingPayload = payload;
+            const notAttendingUrl = buildRaidUrl(notAttendingPayload.raidId);
+            const notAttendingEntries = notAttendingPayload.entries ?? [];
+            if (notAttendingEntries.length === 0) {
+                return null;
+            }
+            if (notAttendingEntries.length === 1) {
+                const entry = notAttendingEntries[0];
+                return {
+                    embeds: [
+                        {
+                            title: `❌ ${entry.characterName} (${entry.characterClassLabel}) marked as not attending`,
+                            description: formatRaidSignupDescription(notAttendingPayload.raidName, notAttendingPayload.userDisplayName, notAttendingUrl, notAttendingPayload.raidStartTime),
+                            color: DISCORD_COLORS.danger,
+                            footer: { text: notAttendingPayload.guildName },
+                            timestamp: new Date(notAttendingPayload.signedAt).toISOString()
+                        }
+                    ]
+                };
+            }
+            return {
+                embeds: [
+                    {
+                        title: `❌ ${notAttendingPayload.userDisplayName} marked ${notAttendingEntries.length} characters as not attending`,
+                        description: formatRaidSignupDescription(notAttendingPayload.raidName, notAttendingPayload.userDisplayName, notAttendingUrl, notAttendingPayload.raidStartTime),
+                        color: DISCORD_COLORS.danger,
+                        fields: [
+                            {
+                                name: 'Characters',
+                                value: notAttendingEntries
+                                    .map((entry) => `• **${entry.characterName}** (${entry.characterClassLabel})`)
+                                    .join('\n')
+                            }
+                        ],
+                        footer: { text: notAttendingPayload.guildName },
+                        timestamp: new Date(notAttendingPayload.signedAt).toISOString()
+                    }
+                ]
+            };
         case 'raid.withdraw':
             const raidWithdrawPayload = payload;
             const raidWithdrawUrl = buildRaidUrl(raidWithdrawPayload.raidId);
@@ -485,6 +635,11 @@ function buildWebhookMessage(event, payload) {
                 return null;
             }
             const lootAssignments = lootAssignedPayload.assignments.slice(0, 15);
+            // Find the first assignment with an icon to use as embed thumbnail
+            const firstIconId = lootAssignments.find((a) => a.itemIconId != null)?.itemIconId;
+            const lootThumbnailUrl = firstIconId != null
+                ? `${clientBaseUrl}/api/loot-icons/${firstIconId}?format=png`
+                : null;
             const lootDescription = lootAssignments
                 .map((assignment) => {
                 const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
@@ -509,7 +664,8 @@ function buildWebhookMessage(event, payload) {
                         title: `📦 Loot Assigned — ${lootAssignedPayload.raidName}`,
                         description: `${lootDescription}${metaLine}${linkLine}${overflowLine}`,
                         color: DISCORD_COLORS.success,
-                        timestamp: nowIso
+                        timestamp: nowIso,
+                        ...(lootThumbnailUrl && { thumbnail: { url: lootThumbnailUrl } })
                     }
                 ]
             };
@@ -662,6 +818,101 @@ function buildWebhookMessage(event, payload) {
                     }
                 ]
             };
+        case 'bank.requested':
+            const bankRequestPayload = payload;
+            if (!bankRequestPayload.items || bankRequestPayload.items.length === 0) {
+                return null;
+            }
+            const bankEntries = bankRequestPayload.items.slice(0, 15);
+            const bankOverflow = Math.max(bankRequestPayload.items.length - bankEntries.length, 0);
+            const bankDescription = bankEntries
+                .map((item) => {
+                const itemUrl = item.itemId != null ? buildAllaItemUrl(item.itemName, item.itemId) : null;
+                const itemLabel = itemUrl
+                    ? `[**${item.itemName}**](${itemUrl})`
+                    : `**${item.itemName}**`;
+                const sourceLines = item.sources && item.sources.length
+                    ? item.sources
+                        .map((src) => `　• ${src.characterName} ×${src.quantity}`)
+                        .join('\n')
+                    : '　• Source unknown';
+                return `📦 ${itemLabel} ×${item.quantity}\n${sourceLines}`;
+            })
+                .join('\n');
+            const bankOverflowLine = bankOverflow > 0
+                ? `\n_${bankOverflow} additional item${bankOverflow === 1 ? '' : 's'} not shown_`
+                : '';
+            return {
+                embeds: [
+                    {
+                        title: `📦 Guild Bank Request — ${bankRequestPayload.requestedByName}`,
+                        description: `Items requested for **${bankRequestPayload.guildName}**:\n\n${bankDescription}${bankOverflowLine}`,
+                        color: DISCORD_COLORS.info,
+                        timestamp: nowIso
+                    }
+                ]
+            };
+        case 'respawn.windowOpen':
+            const windowOpenPayload = payload;
+            if (!windowOpenPayload.npcs || windowOpenPayload.npcs.length === 0) {
+                return null;
+            }
+            const windowOpenLines = windowOpenPayload.npcs.slice(0, 10).map((npc) => {
+                const instanceLabel = npc.isInstance ? ' (Instance)' : '';
+                const zoneLabel = npc.zoneName ? ` — ${npc.zoneName}` : '';
+                const windowCloseLabel = npc.windowCloseTime
+                    ? ` to ${formatDiscordTimestamp(npc.windowCloseTime)}`
+                    : '';
+                return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Window: ${formatDiscordTimestamp(npc.windowOpenTime)}${windowCloseLabel}`;
+            });
+            if (windowOpenPayload.npcs.length > 10) {
+                const remaining = windowOpenPayload.npcs.length - 10;
+                windowOpenLines.push(`_…and ${remaining} more target${remaining === 1 ? '' : 's'}_`);
+            }
+            const respawnTrackerUrlWindow = buildRespawnTrackerUrl(windowOpenPayload.guildId);
+            if (respawnTrackerUrlWindow) {
+                windowOpenLines.push(`\n[View Respawn Tracker](${respawnTrackerUrlWindow})`);
+            }
+            return {
+                embeds: [
+                    {
+                        title: `⏰ Respawn Window Open`,
+                        description: windowOpenLines.join('\n'),
+                        color: DISCORD_COLORS.warning,
+                        footer: { text: windowOpenPayload.guildName },
+                        timestamp: nowIso
+                    }
+                ]
+            };
+        case 'respawn.up':
+            const upPayload = payload;
+            if (!upPayload.npcs || upPayload.npcs.length === 0) {
+                return null;
+            }
+            const upLines = upPayload.npcs.slice(0, 10).map((npc) => {
+                const instanceLabel = npc.isInstance ? ' (Instance)' : '';
+                const zoneLabel = npc.zoneName ? ` — ${npc.zoneName}` : '';
+                return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Up since: ${formatDiscordTimestamp(npc.upSinceTime)}`;
+            });
+            if (upPayload.npcs.length > 10) {
+                const remaining = upPayload.npcs.length - 10;
+                upLines.push(`_…and ${remaining} more target${remaining === 1 ? '' : 's'}_`);
+            }
+            const respawnTrackerUrlUp = buildRespawnTrackerUrl(upPayload.guildId);
+            if (respawnTrackerUrlUp) {
+                upLines.push(`\n[View Respawn Tracker](${respawnTrackerUrlUp})`);
+            }
+            return {
+                embeds: [
+                    {
+                        title: `🔔 Raid Target Is Up!`,
+                        description: upLines.join('\n'),
+                        color: DISCORD_COLORS.success,
+                        footer: { text: upPayload.guildName },
+                        timestamp: nowIso
+                    }
+                ]
+            };
         default:
             return null;
     }
@@ -669,11 +920,17 @@ function buildWebhookMessage(event, payload) {
 const DISCORD_COLORS = {
     primary: 0x5865f2,
     success: 0x57f287,
-    warning: 0xed4245,
+    warning: 0xfee75c,
+    danger: 0xed4245,
     info: 0x00b0f4
 };
 const ALLA_ITEM_SEARCH_BASE = 'https://alla.clumsysworld.com/?a=items_search&&a=items&iclass=0&irace=0&islot=0&istat1=&istat1comp=%3E%3D&istat1value=&istat2=&istat2comp=%3E%3D&istat2value=&iresists=&iresistscomp=%3E%3D&iresistsvalue=&iheroics=&iheroicscomp=%3E%3D&iheroicsvalue=&imod=&imodcomp=%3E%3D&imodvalue=&itype=-1&iaugslot=0&ieffect=&iminlevel=0&ireqlevel=0&inodrop=0&iavailability=0&iavaillevel=0&ideity=0&isearch=1';
-function buildAllaItemUrl(itemName) {
+function buildAllaItemUrl(itemName, itemId) {
+    // Prefer direct item ID lookup if available
+    if (itemId != null) {
+        return `https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`;
+    }
+    // Fall back to name search
     if (!itemName) {
         return null;
     }
@@ -791,11 +1048,23 @@ function buildRaidUrl(raidId) {
     }
     return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}`;
 }
+function buildRaidLootUrl(raidId) {
+    if (!clientBaseUrl) {
+        return null;
+    }
+    return `${clientBaseUrl}/raids/${encodeURIComponent(raidId)}/loot`;
+}
 function buildGuildApplicantsUrl(guildId) {
     if (!clientBaseUrl) {
         return null;
     }
     return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}?members=APPLICANT`;
+}
+function buildRespawnTrackerUrl(guildId) {
+    if (!clientBaseUrl) {
+        return null;
+    }
+    return `${clientBaseUrl}/guilds/${encodeURIComponent(guildId)}/npc-respawn`;
 }
 function buildAttendanceEventUrl(raidId, attendanceEventId) {
     const raidUrl = buildRaidUrl(raidId);

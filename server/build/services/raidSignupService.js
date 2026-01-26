@@ -83,6 +83,7 @@ export async function listRaidSignups(raidId) {
             characterClass: signup.characterClass,
             characterLevel: signup.characterLevel,
             isMain: signup.isMain,
+            status: signup.status,
             createdAt: signup.createdAt,
             updatedAt: signup.updatedAt,
             user: {
@@ -113,7 +114,6 @@ export async function syncRaidSignupsWithAttendance(raidId) {
         }
     });
     if (attendanceRecords.length === 0) {
-        await prisma.raidSignup.deleteMany({ where: { raidId } });
         return;
     }
     const characterIds = new Set();
@@ -164,53 +164,48 @@ export async function syncRaidSignupsWithAttendance(raidId) {
         characterMap.set(character.id, character);
     });
     if (characterMap.size === 0) {
-        await prisma.raidSignup.deleteMany({ where: { raidId } });
         return;
     }
     const characters = Array.from(characterMap.values());
-    await prisma.$transaction([
-        prisma.raidSignup.deleteMany({
-            where: {
+    await prisma.$transaction(characters.map((character) => prisma.raidSignup.upsert({
+        where: {
+            raidId_characterId: {
                 raidId,
-                characterId: {
-                    notIn: characters.map((character) => character.id)
-                }
+                characterId: character.id
             }
-        }),
-        ...characters.map((character) => prisma.raidSignup.upsert({
-            where: {
-                raidId_characterId: {
-                    raidId,
-                    characterId: character.id
-                }
-            },
-            update: {
-                userId: character.userId,
-                characterName: character.name,
-                characterClass: character.class,
-                characterLevel: character.level,
-                isMain: character.isMain
-            },
-            create: {
-                raidId,
-                userId: character.userId,
-                characterId: character.id,
-                characterName: character.name,
-                characterClass: character.class,
-                characterLevel: character.level,
-                isMain: character.isMain
-            }
-        }))
-    ]);
+        },
+        update: {
+            userId: character.userId,
+            characterName: character.name,
+            characterClass: character.class,
+            characterLevel: character.level,
+            isMain: character.isMain
+        },
+        create: {
+            raidId,
+            userId: character.userId,
+            characterId: character.id,
+            characterName: character.name,
+            characterClass: character.class,
+            characterLevel: character.level,
+            isMain: character.isMain
+        }
+    })));
 }
-export async function replaceRaidSignupsForUser(raidId, userId, characterIds) {
-    const normalizedIds = Array.from(new Set(characterIds
-        .filter((id) => typeof id === 'string')
-        .map((id) => id.trim())
-        .filter((id) => id.length > 0)));
-    if (normalizedIds.length > 2) {
+export async function replaceRaidSignupsForUser(raidId, userId, signupEntries) {
+    const normalizedEntries = signupEntries
+        .filter((entry) => entry != null && typeof entry.characterId === 'string')
+        .map((entry) => ({
+        characterId: entry.characterId.trim(),
+        status: entry.status ?? 'CONFIRMED'
+    }))
+        .filter((entry) => entry.characterId.length > 0);
+    const uniqueEntries = Array.from(new Map(normalizedEntries.map((entry) => [entry.characterId, entry])).values());
+    if (uniqueEntries.length > 2) {
         throw new RaidSignupLimitError();
     }
+    const normalizedIds = uniqueEntries.map((entry) => entry.characterId);
+    const statusMap = new Map(uniqueEntries.map((entry) => [entry.characterId, entry.status]));
     const raid = await prisma.raidEvent.findUnique({
         where: { id: raidId },
         select: {
@@ -248,7 +243,8 @@ export async function replaceRaidSignupsForUser(raidId, userId, characterIds) {
             select: {
                 characterId: true,
                 characterName: true,
-                characterClass: true
+                characterClass: true,
+                status: true
             }
         }),
         prisma.user.findUnique({
@@ -340,7 +336,8 @@ export async function replaceRaidSignupsForUser(raidId, userId, characterIds) {
                 characterName: character.name,
                 characterClass: character.class,
                 characterLevel: character.level,
-                isMain: character.isMain
+                isMain: character.isMain,
+                status: statusMap.get(character.id) ?? 'CONFIRMED'
             },
             create: {
                 raidId,
@@ -349,13 +346,18 @@ export async function replaceRaidSignupsForUser(raidId, userId, characterIds) {
                 characterName: character.name,
                 characterClass: character.class,
                 characterLevel: character.level,
-                isMain: character.isMain
+                isMain: character.isMain,
+                status: statusMap.get(character.id) ?? 'CONFIRMED'
             }
         }))
     ]);
     const updatedSignups = await listRaidSignups(raidId);
     if (additions.length > 0 || removals.length > 0) {
-        await emitSignupNotifications(eventContext, preferredUser.displayName, additions.map((character) => ({ name: character.name, class: character.class })), removals.map((signup) => ({
+        await emitSignupNotifications(eventContext, preferredUser.displayName, additions.map((character) => ({
+            name: character.name,
+            class: character.class,
+            status: statusMap.get(character.id) ?? 'CONFIRMED'
+        })), removals.map((signup) => ({
             characterName: signup.characterName,
             characterClass: signup.characterClass
         })));
@@ -369,13 +371,31 @@ function getCharacterClassAbbreviation(characterClass) {
 async function emitSignupNotifications(context, userDisplayName, additions, removals) {
     const tasks = [];
     const now = new Date();
-    if (additions.length > 0) {
+    const confirmedAdditions = additions.filter((a) => a.status === 'CONFIRMED');
+    const notAttendingAdditions = additions.filter((a) => a.status === 'NOT_ATTENDING');
+    if (confirmedAdditions.length > 0) {
         tasks.push(emitDiscordWebhookEvent(context.guildId, 'raid.signup', {
             guildId: context.guildId,
             guildName: context.guildName,
             raidId: context.raidId,
             raidName: context.raidName,
-            entries: additions.map((character) => ({
+            entries: confirmedAdditions.map((character) => ({
+                characterName: character.name,
+                characterClass: character.class,
+                characterClassLabel: getCharacterClassAbbreviation(character.class)
+            })),
+            userDisplayName,
+            signedAt: now,
+            raidStartTime: context.raidStartTime
+        }));
+    }
+    if (notAttendingAdditions.length > 0) {
+        tasks.push(emitDiscordWebhookEvent(context.guildId, 'raid.signup.not_attending', {
+            guildId: context.guildId,
+            guildName: context.guildName,
+            raidId: context.raidId,
+            raidName: context.raidName,
+            entries: notAttendingAdditions.map((character) => ({
                 characterName: character.name,
                 characterClass: character.class,
                 characterClassLabel: getCharacterClassAbbreviation(character.class)
@@ -401,4 +421,225 @@ async function emitSignupNotifications(context, userDisplayName, additions, remo
     if (tasks.length > 0) {
         await Promise.allSettled(tasks);
     }
+}
+export class RaidSignupNotFoundError extends Error {
+    constructor() {
+        super('Raid signup not found.');
+        this.name = 'RaidSignupNotFoundError';
+    }
+}
+export class RaidSignupCharacterNotFoundError extends Error {
+    constructor() {
+        super('Character not found or does not belong to the guild.');
+        this.name = 'RaidSignupCharacterNotFoundError';
+    }
+}
+export class RaidSignupAlreadyExistsError extends Error {
+    constructor() {
+        super('This character is already signed up for the raid.');
+        this.name = 'RaidSignupAlreadyExistsError';
+    }
+}
+/**
+ * Update signup status for a specific signup (admin only)
+ * @param raidId - The raid ID to verify the signup belongs to (prevents cross-raid attacks)
+ * @param signupId - The signup to update
+ * @param status - The new status
+ */
+export async function updateSignupStatus(raidId, signupId, status) {
+    const signup = await prisma.raidSignup.findUnique({
+        where: { id: signupId },
+        select: {
+            id: true,
+            raidId: true,
+            userId: true,
+            characterId: true,
+            characterName: true,
+            characterClass: true,
+            status: true,
+            raid: {
+                select: {
+                    startedAt: true
+                }
+            }
+        }
+    });
+    if (!signup) {
+        throw new RaidSignupNotFoundError();
+    }
+    // Security: Verify the signup belongs to the specified raid
+    if (signup.raidId !== raidId) {
+        throw new RaidSignupNotFoundError();
+    }
+    if (signup.raid.startedAt) {
+        throw new RaidSignupLockedError();
+    }
+    await prisma.raidSignup.update({
+        where: { id: signupId },
+        data: { status }
+    });
+    return listRaidSignups(signup.raidId);
+}
+/**
+ * Remove a signup from a raid (admin only)
+ * @param raidId - The raid ID to verify the signup belongs to (prevents cross-raid attacks)
+ * @param signupId - The signup to remove
+ */
+export async function removeSignup(raidId, signupId) {
+    const signup = await prisma.raidSignup.findUnique({
+        where: { id: signupId },
+        select: {
+            id: true,
+            raidId: true,
+            raid: {
+                select: {
+                    startedAt: true
+                }
+            }
+        }
+    });
+    if (!signup) {
+        throw new RaidSignupNotFoundError();
+    }
+    // Security: Verify the signup belongs to the specified raid
+    if (signup.raidId !== raidId) {
+        throw new RaidSignupNotFoundError();
+    }
+    if (signup.raid.startedAt) {
+        throw new RaidSignupLockedError();
+    }
+    await prisma.raidSignup.delete({
+        where: { id: signupId }
+    });
+    return listRaidSignups(signup.raidId);
+}
+/**
+ * Add a character to a raid signup (admin only)
+ */
+export async function addSignupForCharacter(raidId, characterId, status = 'CONFIRMED') {
+    const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        select: {
+            id: true,
+            guildId: true,
+            startedAt: true
+        }
+    });
+    if (!raid) {
+        throw new Error('Raid event not found.');
+    }
+    if (raid.startedAt) {
+        throw new RaidSignupLockedError();
+    }
+    // Find character and ensure they belong to a guild member
+    const character = await prisma.character.findFirst({
+        where: {
+            id: characterId,
+            user: {
+                guildMemberships: {
+                    some: {
+                        guildId: raid.guildId
+                    }
+                }
+            }
+        },
+        select: {
+            id: true,
+            name: true,
+            class: true,
+            level: true,
+            isMain: true,
+            userId: true
+        }
+    });
+    if (!character) {
+        throw new RaidSignupCharacterNotFoundError();
+    }
+    // Check if already signed up
+    const existing = await prisma.raidSignup.findUnique({
+        where: {
+            raidId_characterId: {
+                raidId,
+                characterId
+            }
+        }
+    });
+    if (existing) {
+        throw new RaidSignupAlreadyExistsError();
+    }
+    await prisma.raidSignup.create({
+        data: {
+            raidId,
+            userId: character.userId,
+            characterId: character.id,
+            characterName: character.name,
+            characterClass: character.class,
+            characterLevel: character.level,
+            isMain: character.isMain,
+            status
+        }
+    });
+    return listRaidSignups(raidId);
+}
+/**
+ * Search for characters in a guild that can be added to a raid
+ */
+export async function searchGuildCharactersForSignup(guildId, raidId, query, limit = 10) {
+    const trimmedQuery = query.trim().toLowerCase();
+    if (trimmedQuery.length < 2) {
+        return [];
+    }
+    // Get all guild members' characters that match the query
+    // Note: MySQL default collation is case-insensitive, so we don't need mode: 'insensitive'
+    const characters = await prisma.character.findMany({
+        where: {
+            name: {
+                contains: trimmedQuery
+            },
+            user: {
+                guildMemberships: {
+                    some: {
+                        guildId
+                    }
+                }
+            }
+        },
+        select: {
+            id: true,
+            name: true,
+            class: true,
+            level: true,
+            isMain: true,
+            userId: true,
+            user: {
+                select: {
+                    displayName: true,
+                    nickname: true
+                }
+            }
+        },
+        orderBy: {
+            name: 'asc'
+        },
+        take: limit
+    });
+    // Get existing signups for this raid
+    const existingSignups = await prisma.raidSignup.findMany({
+        where: { raidId },
+        select: { characterId: true }
+    });
+    const signedUpIds = new Set(existingSignups.map(s => s.characterId));
+    return characters.map(c => ({
+        id: c.id,
+        name: c.name,
+        class: c.class,
+        level: c.level,
+        isMain: c.isMain,
+        userId: c.userId,
+        userDisplayName: withPreferredDisplayName({
+            displayName: c.user.displayName,
+            nickname: c.user.nickname
+        }).displayName,
+        isSignedUp: signedUpIds.has(c.id)
+    }));
 }

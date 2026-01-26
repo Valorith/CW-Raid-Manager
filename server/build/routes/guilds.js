@@ -7,6 +7,8 @@ import { prisma } from '../utils/prisma.js';
 import { applyToGuild, withdrawApplication, listPendingApplicationsForGuild, approveApplication, denyApplication, getPendingApplicationForUser } from '../services/guildApplicationService.js';
 import { createCharacter, detachUserCharactersFromGuild } from '../services/characterService.js';
 import { DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS, DEFAULT_MENTION_SUBSCRIPTIONS, DISCORD_WEBHOOK_EVENT_DEFINITIONS, DISCORD_WEBHOOK_EVENT_KEYS, listGuildDiscordWebhooks, createGuildDiscordWebhook, updateGuildDiscordWebhook, deleteGuildDiscordWebhook } from '../services/discordWebhookService.js';
+import { getWebhookDebugMode, setWebhookDebugMode, registerDebugClient, unregisterDebugClient } from '../services/webhookDebugService.js';
+import { ensureAdmin } from '../services/adminService.js';
 export async function guildRoutes(server) {
     server.get('/', async () => {
         const guilds = await listGuilds();
@@ -258,6 +260,81 @@ export async function guildRoutes(server) {
             throw error;
         }
     });
+    // Get webhook debug mode status
+    server.get('/:guildId/webhooks/debug', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        const membership = await getUserGuildRole(request.user.userId, guildId);
+        if (!membership || !(membership.role === GuildRole.LEADER || membership.role === GuildRole.OFFICER)) {
+            return reply.forbidden('Only guild leaders or officers can view webhook debug settings.');
+        }
+        const enabled = await getWebhookDebugMode(guildId);
+        return { debugMode: enabled };
+    });
+    // Toggle webhook debug mode (admin only)
+    server.put('/:guildId/webhooks/debug', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        // Only global admins can toggle debug mode
+        try {
+            await ensureAdmin(request.user.userId);
+        }
+        catch {
+            return reply.forbidden('Only administrators can toggle webhook debug mode.');
+        }
+        const bodySchema = z.object({
+            enabled: z.boolean()
+        });
+        const parsed = bodySchema.safeParse(request.body);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid payload.');
+        }
+        const enabled = await setWebhookDebugMode(guildId, parsed.data.enabled);
+        return { debugMode: enabled };
+    });
+    // SSE endpoint for webhook debug messages (admin only)
+    server.get('/:guildId/webhooks/debug/stream', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ guildId: z.string() });
+        const { guildId } = paramsSchema.parse(request.params);
+        // Only global admins can connect to the debug stream
+        let isAdmin = false;
+        try {
+            await ensureAdmin(request.user.userId);
+            isAdmin = true;
+        }
+        catch {
+            return reply.forbidden('Only administrators can access webhook debug stream.');
+        }
+        // Tell Fastify we're taking over the response
+        reply.hijack();
+        // Set up SSE headers
+        reply.raw.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        });
+        // Send initial connection message
+        reply.raw.write(`data: ${JSON.stringify({ type: 'connected', guildId })}\n\n`);
+        // Register this client for debug messages and deliver any pending messages from database
+        await registerDebugClient(guildId, request.user.userId, isAdmin, reply);
+        // Handle client disconnect
+        request.raw.on('close', () => {
+            unregisterDebugClient(guildId, request.user.userId);
+        });
+        // Keep the connection alive
+        const keepAliveInterval = setInterval(() => {
+            try {
+                reply.raw.write(': keepalive\n\n');
+            }
+            catch {
+                clearInterval(keepAliveInterval);
+            }
+        }, 30000);
+        request.raw.on('close', () => {
+            clearInterval(keepAliveInterval);
+        });
+    });
     server.patch('/:guildId/members/:memberId/role', { preHandler: [authenticate] }, async (request, reply) => {
         const paramsSchema = z.object({
             guildId: z.string(),
@@ -305,7 +382,7 @@ export async function guildRoutes(server) {
             return reply.badRequest('Invalid membership payload.');
         }
         const actorMembership = await getUserGuildRole(request.user.userId, params.guildId);
-        if (!actorMembership || actorMembership.role === GuildRole.MEMBER) {
+        if (!actorMembership || !canManageGuild(actorMembership.role)) {
             return reply.forbidden('Insufficient permissions to modify memberships.');
         }
         if (body.data.role === GuildRole.LEADER &&

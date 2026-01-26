@@ -1,13 +1,31 @@
 import { CharacterArchetype, CharacterClass } from '@prisma/client';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
-import { createCharacter, listCharactersForUser, updateCharacter, MainCharacterLimitError } from '../services/characterService.js';
+import { createCharacter, listCharactersForUser, updateCharacter, deleteCharacter, MainCharacterLimitError } from '../services/characterService.js';
+import { fetchCharacterInventory } from '../services/guildBankService.js';
 import { getUserGuildRole, canManageGuild } from '../services/guildService.js';
 import { prisma } from '../utils/prisma.js';
 export async function charactersRoutes(server) {
     server.get('/', { preHandler: [authenticate] }, async (request) => {
         const characters = await listCharactersForUser(request.user.userId);
         return { characters };
+    });
+    server.get('/:name/inventory', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({ name: z.string() });
+        const { name } = paramsSchema.parse(request.params);
+        try {
+            const items = await fetchCharacterInventory(name);
+            return { items };
+        }
+        catch (error) {
+            if (error instanceof Error &&
+                /EQ content database is not configured/i.test(error.message ?? '')) {
+                return reply
+                    .serviceUnavailable('EQ database is not configured; set EQ_DB_* environment variables to enable character lookups.');
+            }
+            request.log.error({ err: error, characterName: name }, 'Failed to load character inventory.');
+            return reply.internalServerError('Unable to load character inventory. Please try again later.');
+        }
     });
     server.post('/', { preHandler: [authenticate] }, async (request, reply) => {
         const bodySchema = z.object({
@@ -118,6 +136,33 @@ export async function charactersRoutes(server) {
             }
             request.log.warn({ error }, 'Failed to update character.');
             return reply.internalServerError('Unable to update character.');
+        }
+    });
+    server.delete('/:characterId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            characterId: z.string()
+        });
+        const { characterId } = paramsSchema.parse(request.params);
+        const characterRecord = await prisma.character.findUnique({
+            where: { id: characterId },
+            select: { userId: true }
+        });
+        if (!characterRecord) {
+            return reply.notFound('Character not found.');
+        }
+        if (characterRecord.userId !== request.user.userId) {
+            return reply.forbidden('Only the character owner can delete this record.');
+        }
+        try {
+            await deleteCharacter(characterId, request.user.userId);
+            return reply.code(204).send();
+        }
+        catch (error) {
+            request.log.warn({ error }, 'Failed to delete character.');
+            if (error instanceof Error && error.message === 'Character not found.') {
+                return reply.notFound('Character not found.');
+            }
+            return reply.internalServerError('Unable to delete character.');
         }
     });
 }

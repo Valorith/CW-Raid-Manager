@@ -1,10 +1,11 @@
-import { AttendanceStatus, GuildRole } from '@prisma/client';
+import { AttendanceStatus, GuildRole, SignupStatus } from '@prisma/client';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
 import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
+import { getUnavailableMainCharacters } from './availabilityService.js';
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'];
 const MASTER_LOOTER_NAMES = ['Master Looter', 'master looter', 'MASTER LOOTER'];
@@ -46,6 +47,35 @@ export async function ensureCanManageRaid(userId, guildId) {
     }
     return membership.role;
 }
+async function getSignupCountsForRaids(raidIds) {
+    const map = new Map();
+    if (raidIds.length === 0) {
+        return map;
+    }
+    const signups = await prisma.raidSignup.groupBy({
+        by: ['raidId', 'status'],
+        where: {
+            raidId: { in: raidIds }
+        },
+        _count: {
+            id: true
+        }
+    });
+    for (const raidId of raidIds) {
+        map.set(raidId, { confirmed: 0, notAttending: 0 });
+    }
+    for (const row of signups) {
+        const current = map.get(row.raidId) ?? { confirmed: 0, notAttending: 0 };
+        if (row.status === 'CONFIRMED') {
+            current.confirmed = row._count.id;
+        }
+        else if (row.status === 'NOT_ATTENDING') {
+            current.notAttending = row._count.id;
+        }
+        map.set(row.raidId, current);
+    }
+    return map;
+}
 export async function listRaidEventsForGuild(guildId) {
     const raids = await prisma.raidEvent.findMany({
         where: { guildId },
@@ -80,12 +110,15 @@ export async function listRaidEventsForGuild(guildId) {
     });
     const raidIds = raids.map((raid) => raid.id);
     const unassignedMap = await getUnassignedLootFlags(raidIds);
+    const signupCountsMap = await getSignupCountsForRaids(raidIds);
     return raids.map((raid) => {
         const formatted = formatRaidWithRecurrence(raid);
+        const signupCounts = signupCountsMap.get(raid.id) ?? { confirmed: 0, notAttending: 0 };
         return {
             ...formatted,
             createdBy: withPreferredDisplayName(raid.createdBy),
-            hasUnassignedLoot: unassignedMap.get(raid.id) ?? false
+            hasUnassignedLoot: unassignedMap.get(raid.id) ?? false,
+            signupCounts
         };
     });
 }
@@ -155,6 +188,8 @@ export async function createRaidEvent(input) {
         targetBosses: normalizeStringArray(raid.targetBosses),
         createdByName: withPreferredDisplayName(raid.createdBy).displayName
     });
+    // Auto-signup unavailable users as NOT_ATTENDING
+    await autoSignupUnavailableUsers(raid.id, input.guildId, input.startTime);
     const formatted = formatRaidWithRecurrence(raid);
     return {
         ...formatted,
@@ -305,6 +340,7 @@ export async function getRaidEventById(raidId) {
         return null;
     }
     const raidSignupNotificationsEnabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.signup');
+    const raidCreatedNotificationsEnabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.created');
     const formatted = formatRaidWithRecurrence(raid);
     const hasUnassignedLoot = await raidHasUnassignedLoot(raidId);
     const npcKills = await listRaidNpcKillSummary(raidId);
@@ -312,6 +348,7 @@ export async function getRaidEventById(raidId) {
     return {
         ...formatted,
         raidSignupNotificationsEnabled,
+        raidCreatedNotificationsEnabled,
         createdBy: withPreferredDisplayName(raid.createdBy),
         hasUnassignedLoot,
         npcKills,
@@ -358,6 +395,43 @@ export async function startRaidEvent(raidId, userId) {
         ...formatted,
         hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
     };
+}
+export async function emitRaidCreatedWebhook(raidId, userId) {
+    const raid = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            },
+            createdBy: {
+                select: {
+                    id: true,
+                    displayName: true,
+                    nickname: true
+                }
+            }
+        }
+    });
+    if (!raid) {
+        throw new Error('Raid event not found.');
+    }
+    await ensureCanManageRaid(userId, raid.guildId);
+    const enabled = await isDiscordWebhookEventEnabled(raid.guildId, 'raid.created');
+    if (!enabled) {
+        throw new Error('Raid announcement webhook is disabled in Discord Webhooks settings.');
+    }
+    emitDiscordWebhookEvent(raid.guildId, 'raid.created', {
+        guildName: raid.guild.name,
+        raidId,
+        raidName: raid.name,
+        startTime: raid.startTime,
+        targetZones: normalizeStringArray(raid.targetZones),
+        targetBosses: normalizeStringArray(raid.targetBosses),
+        createdByName: withPreferredDisplayName(raid.createdBy).displayName
+    });
 }
 export async function endRaidEvent(raidId, userId) {
     const existing = await prisma.raidEvent.findUnique({
@@ -429,6 +503,11 @@ export async function endRaidEvent(raidId, userId) {
     });
     const { updatedRaid, attendeeCount, lootCount, nextRaid } = transactionResult;
     stopLootMonitorSession(raidId);
+    // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
+    // since they're no longer needed after the raid ends
+    await prisma.pendingNpcKillClarification.deleteMany({
+        where: { raidId }
+    });
     if (shouldEmitRaidEnded) {
         emitDiscordWebhookEvent(existing.guildId, 'raid.ended', {
             guildName: existing.guild.name,
@@ -501,6 +580,88 @@ export async function restartRaidEvent(raidId, userId) {
         hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
     };
 }
+export async function cancelRaidEvent(raidId, userId) {
+    const existing = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            }
+        }
+    });
+    if (!existing) {
+        throw new Error('Raid event not found.');
+    }
+    await ensureCanManageRaid(userId, existing.guildId);
+    const updated = await prisma.raidEvent.update({
+        where: { id: raidId },
+        data: {
+            canceledAt: new Date(),
+            isActive: false
+        },
+        include: {
+            recurrenceSeries: {
+                select: recurrenceSelection
+            }
+        }
+    });
+    // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
+    // since they're no longer needed after the raid is canceled
+    await prisma.pendingNpcKillClarification.deleteMany({
+        where: { raidId }
+    });
+    emitDiscordWebhookEvent(existing.guildId, 'raid.canceled', {
+        guildName: existing.guild.name,
+        raidId,
+        raidName: existing.name,
+        canceledAt: updated.canceledAt ?? new Date()
+    });
+    const formatted = formatRaidWithRecurrence(updated);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
+}
+export async function uncancelRaidEvent(raidId, userId) {
+    const existing = await prisma.raidEvent.findUnique({
+        where: { id: raidId },
+        include: {
+            guild: {
+                select: {
+                    id: true,
+                    name: true
+                }
+            }
+        }
+    });
+    if (!existing) {
+        throw new Error('Raid event not found.');
+    }
+    if (!existing.canceledAt) {
+        throw new Error('Raid has not been canceled.');
+    }
+    await ensureCanManageRaid(userId, existing.guildId);
+    const updated = await prisma.raidEvent.update({
+        where: { id: raidId },
+        data: {
+            canceledAt: null,
+            isActive: true
+        },
+        include: {
+            recurrenceSeries: {
+                select: recurrenceSelection
+            }
+        }
+    });
+    const formatted = formatRaidWithRecurrence(updated);
+    return {
+        ...formatted,
+        hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
+    };
+}
 export async function deleteRaidEvent(raidId, userId, scope = 'EVENT') {
     const existing = await prisma.raidEvent.findUnique({
         where: { id: raidId },
@@ -547,6 +708,10 @@ export async function deleteRaidEvent(raidId, userId, scope = 'EVENT') {
             where: { raidId }
         });
         await tx.raidSignup.deleteMany({
+            where: { raidId }
+        });
+        // Clean up all pending NPC kill clarifications for this raid
+        await tx.pendingNpcKillClarification.deleteMany({
             where: { raidId }
         });
         await tx.raidEvent.delete({
@@ -725,6 +890,40 @@ function normalizeRecurrenceInput(settings) {
         endDate: settings.endDate ?? null,
         isActive: settings.isActive ?? true
     };
+}
+/**
+ * Auto-signup main characters of unavailable users as NOT_ATTENDING for a raid
+ */
+async function autoSignupUnavailableUsers(raidId, guildId, raidStartTime) {
+    try {
+        // Normalize the raid date to just the date portion (no time)
+        const raidDate = new Date(raidStartTime);
+        raidDate.setUTCHours(0, 0, 0, 0);
+        // Get main characters of users who marked themselves unavailable on this date
+        const unavailableCharacters = await getUnavailableMainCharacters(guildId, raidDate);
+        if (unavailableCharacters.length === 0) {
+            return;
+        }
+        // Create NOT_ATTENDING signups for all unavailable users' main characters
+        // skipDuplicates ensures we don't override any existing signups
+        await prisma.raidSignup.createMany({
+            data: unavailableCharacters.map((char) => ({
+                raidId,
+                userId: char.userId,
+                characterId: char.characterId,
+                characterName: char.characterName,
+                characterClass: char.characterClass,
+                characterLevel: char.characterLevel,
+                isMain: true,
+                status: SignupStatus.NOT_ATTENDING
+            })),
+            skipDuplicates: true
+        });
+    }
+    catch (error) {
+        // Log but don't fail raid creation if auto-signup fails
+        console.error('Failed to auto-signup unavailable users:', error);
+    }
 }
 function normalizeStringArray(value) {
     if (!value || !Array.isArray(value)) {

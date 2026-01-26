@@ -184,6 +184,9 @@ const envSessionSecret = readOptionalEnv('SESSION_SECRET', sessionSecretSchema);
 const envGoogleClientId = readOptionalEnv('GOOGLE_CLIENT_ID', z.string().min(1));
 const envGoogleClientSecret = readOptionalEnv('GOOGLE_CLIENT_SECRET', z.string().min(1));
 const envGoogleCallbackUrl = readOptionalEnv('GOOGLE_CALLBACK_URL', googleCallbackSchema);
+const envDiscordClientId = readOptionalEnv('DISCORD_CLIENT_ID', z.string().min(1));
+const envDiscordClientSecret = readOptionalEnv('DISCORD_CLIENT_SECRET', z.string().min(1));
+const envDiscordCallbackUrl = readOptionalEnv('DISCORD_CALLBACK_URL', googleCallbackSchema);
 const databaseUrl = envDatabaseUrl ?? fileConfig.database?.url ?? null;
 if (!envDatabaseUrl && fileConfig.database?.url && !process.env.DATABASE_URL) {
     process.env.DATABASE_URL = fileConfig.database.url;
@@ -227,6 +230,25 @@ if (googleClientId && googleClientSecret) {
         callbackUrl: googleCallbackUrl
     };
 }
+const discordCallbackUrl = envDiscordCallbackUrl ??
+    (clientUrl ? `${clientUrl.replace(/\/?$/, '')}/api/auth/discord/callback` : undefined);
+let discordConfig = null;
+if (envDiscordClientId && !envDiscordClientSecret) {
+    console.warn('DISCORD_CLIENT_SECRET is missing. Discord OAuth will be disabled.');
+}
+if (envDiscordClientSecret && !envDiscordClientId) {
+    console.warn('DISCORD_CLIENT_ID is missing. Discord OAuth will be disabled.');
+}
+if (envDiscordClientId && envDiscordClientSecret) {
+    if (!discordCallbackUrl) {
+        throw new Error('Discord OAuth requires DISCORD_CALLBACK_URL.');
+    }
+    discordConfig = {
+        clientId: envDiscordClientId,
+        clientSecret: envDiscordClientSecret,
+        callbackUrl: discordCallbackUrl
+    };
+}
 export const appConfig = {
     nodeEnv,
     host: fileConfig.server?.host ?? '0.0.0.0',
@@ -235,5 +257,6 @@ export const appConfig = {
     databaseUrl,
     sessionSecret,
     eqDatabase: eqDatabaseConfig,
-    google: googleConfig
+    google: googleConfig,
+    discord: discordConfig
 };

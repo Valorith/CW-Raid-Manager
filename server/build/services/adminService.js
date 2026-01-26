@@ -11,10 +11,20 @@ export async function ensureAdmin(userId) {
         throw new Error('Administrator privileges required.');
     }
 }
+export async function ensureGuideOrAdmin(userId) {
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { admin: true, guide: true }
+    });
+    if (!user?.admin && !user?.guide) {
+        throw new Error('Guide or Administrator privileges required.');
+    }
+}
 export async function listUsersForAdmin() {
     const users = await prisma.user.findMany({
         orderBy: [
             { admin: 'desc' },
+            { guide: 'desc' },
             { displayName: 'asc' }
         ],
         select: {
@@ -23,6 +33,7 @@ export async function listUsersForAdmin() {
             displayName: true,
             nickname: true,
             admin: true,
+            guide: true,
             createdAt: true,
             updatedAt: true,
             guildMemberships: {
@@ -50,6 +61,7 @@ export async function listUsersForAdmin() {
             displayName: preferred.displayName,
             nickname: preferred.nickname ?? null,
             isAdmin: user.admin,
+            isGuide: user.guide,
             createdAt: user.createdAt,
             updatedAt: user.updatedAt,
             guildMemberships: user.guildMemberships.map((membership) => ({
@@ -62,8 +74,18 @@ export async function listUsersForAdmin() {
 }
 export async function updateUserByAdmin(userId, data) {
     const update = {};
+    // Admin and Guide are mutually exclusive - setting one clears the other
     if (typeof data.admin === 'boolean') {
         update.admin = data.admin;
+        if (data.admin) {
+            update.guide = false; // Clear guide if setting admin
+        }
+    }
+    if (typeof data.guide === 'boolean') {
+        update.guide = data.guide;
+        if (data.guide) {
+            update.admin = false; // Clear admin if setting guide
+        }
     }
     if (data.displayName !== undefined) {
         const displayName = data.displayName.trim();
@@ -100,6 +122,7 @@ export async function updateUserByAdmin(userId, data) {
             displayName: true,
             nickname: true,
             admin: true,
+            guide: true,
             createdAt: true,
             updatedAt: true,
             guildMemberships: {
@@ -126,6 +149,7 @@ export async function updateUserByAdmin(userId, data) {
         displayName: preferred.displayName,
         nickname: preferred.nickname ?? null,
         isAdmin: user.admin,
+        isGuide: user.guide,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
         guildMemberships: user.guildMemberships.map((membership) => ({
@@ -135,9 +159,104 @@ export async function updateUserByAdmin(userId, data) {
         }))
     };
 }
-export async function deleteUserByAdmin(userId) {
-    await prisma.user.delete({
-        where: { id: userId }
+export async function deleteUserByAdmin(userId, performedById) {
+    if (userId === performedById) {
+        throw new Error('You cannot delete your own account.');
+    }
+    const [targetUser, performedBy] = await Promise.all([
+        prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true }
+        }),
+        prisma.user.findUnique({
+            where: { id: performedById },
+            select: { id: true }
+        })
+    ]);
+    if (!targetUser) {
+        throw new Error('User not found.');
+    }
+    if (!performedBy) {
+        throw new Error('Admin user not found.');
+    }
+    await prisma.$transaction(async (tx) => {
+        await tx.guild.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.raidEvent.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.attendanceEvent.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.raidEventSeries.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.questBlueprint.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.questBlueprintFolder.updateMany({
+            where: { createdById: userId },
+            data: { createdById: performedById }
+        });
+        await tx.guildLootListEntry.updateMany({
+            where: { createdById: userId },
+            data: { createdById: null }
+        });
+        await tx.raidLootEvent.updateMany({
+            where: { createdById: userId },
+            data: { createdById: null }
+        });
+        await tx.guildMembership.deleteMany({
+            where: { userId }
+        });
+        await tx.guildApplication.deleteMany({
+            where: { userId }
+        });
+        await tx.raidSignup.deleteMany({
+            where: { userId }
+        });
+        await tx.questAssignment.deleteMany({
+            where: { userId }
+        });
+        const characters = await tx.character.findMany({
+            where: { userId },
+            select: { id: true }
+        });
+        const characterIds = characters.map((character) => character.id);
+        if (characterIds.length > 0) {
+            await tx.attendanceRecord.updateMany({
+                where: { characterId: { in: characterIds } },
+                data: { characterId: null }
+            });
+            await tx.questAssignment.updateMany({
+                where: { characterId: { in: characterIds } },
+                data: { characterId: null }
+            });
+            await tx.character.deleteMany({
+                where: { id: { in: characterIds } }
+            });
+        }
+        await tx.calendarAvailability.deleteMany({
+            where: { userId }
+        });
+        await tx.npcFavorite.deleteMany({
+            where: { userId }
+        });
+        await tx.npcRespawnSubscription.deleteMany({
+            where: { userId }
+        });
+        await tx.guildBankCharacter.deleteMany({
+            where: { userId }
+        });
+        await tx.user.delete({
+            where: { id: userId }
+        });
     });
 }
 export async function listGuildsForAdmin() {

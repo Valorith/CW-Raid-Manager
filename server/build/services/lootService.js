@@ -335,12 +335,16 @@ function summarizeLootAssignments(events) {
         const existing = map.get(key);
         if (existing) {
             existing.count += 1;
+            if (!existing.itemIconId && event.itemIconId != null) {
+                existing.itemIconId = event.itemIconId;
+            }
         }
         else {
             map.set(key, {
                 itemName: event.itemName,
                 looterName: event.looterName,
                 emoji: event.emoji ?? null,
+                itemIconId: event.itemIconId ?? null,
                 count: 1
             });
         }
