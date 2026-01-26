@@ -1189,11 +1189,12 @@ export async function inspectCrashReport(crashReportText: string): Promise<Crash
   const highlights: CrashInspectionResult['highlights'] = [];
 
   if (Array.isArray(parsed.highlights)) {
-    for (const h of parsed.highlights) {
-      if (!h || typeof h !== 'object') continue;
+    for (const item of parsed.highlights) {
+      if (!item || typeof item !== 'object') continue;
+      const h = item as Record<string, unknown>;
       const rawText = typeof h.text === 'string' ? h.text : '';
       const comment = typeof h.comment === 'string' ? h.comment : '';
-      const severity = ['critical', 'important', 'info'].includes(h.severity) ? h.severity : 'info';
+      const severity = ['critical', 'important', 'info'].includes(h.severity as string) ? (h.severity as 'critical' | 'important' | 'info') : 'info';
       const category = typeof h.category === 'string' ? h.category : 'other';
 
       if (!rawText || rawText.length < 2) continue;

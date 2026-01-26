@@ -513,58 +513,64 @@
             <p class="muted small">Review inbound webhook payloads and action results.</p>
           </div>
         </header>
-        <div class="form-grid">
-          <label class="form-field">
-            <span>Webhook</span>
-            <select v-model="inboxFilters.webhookId" class="select">
-              <option value="">All Webhooks</option>
-              <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
-                {{ hook.label }}
-              </option>
-            </select>
-          </label>
-          <label class="form-field">
-            <span>Status</span>
-            <select v-model="inboxFilters.status" class="select">
-              <option value="">All Statuses</option>
-              <option value="RECEIVED">Received</option>
-              <option value="PROCESSED">Processed</option>
-              <option value="FAILED">Failed</option>
-            </select>
-          </label>
-          <label class="form-field">
-            <span>Read Status</span>
-            <select v-model="inboxFilters.readStatus" class="select">
-              <option value="">All</option>
-              <option value="unread">Unread Only</option>
-              <option value="read">Read Only</option>
-            </select>
-          </label>
-          <label class="form-field">
-            <span>Label</span>
-            <select v-model="inboxFilters.labelId" class="select">
-              <option value="">All Labels</option>
-              <option v-for="label in webhookLabels" :key="label.id" :value="label.id">
-                {{ label.name }}
-              </option>
-            </select>
-          </label>
-          <label class="form-field">
-            <span>Page Size</span>
-            <select v-model.number="inboxFilters.pageSize" class="select">
-              <option :value="10">10</option>
-              <option :value="25">25</option>
-              <option :value="50">50</option>
-            </select>
-          </label>
-          <label class="form-field form-field--inline">
-            <span>Starred Only</span>
-            <input v-model="inboxFilters.starred" type="checkbox" />
-          </label>
-          <label class="form-field form-field--inline">
-            <span>See Archived</span>
-            <input v-model="inboxFilters.includeArchived" type="checkbox" />
-          </label>
+        <div class="inbox-filters">
+          <div class="inbox-filters__row">
+            <label class="form-field form-field--compact">
+              <span>Webhook</span>
+              <select v-model="inboxFilters.webhookId" class="select">
+                <option value="">All Webhooks</option>
+                <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
+                  {{ hook.label }}
+                </option>
+              </select>
+            </label>
+            <label class="form-field form-field--compact">
+              <span>Status</span>
+              <select v-model="inboxFilters.status" class="select">
+                <option value="">All Statuses</option>
+                <option value="RECEIVED">Received</option>
+                <option value="PROCESSED">Processed</option>
+                <option value="FAILED">Failed</option>
+              </select>
+            </label>
+            <label class="form-field form-field--compact">
+              <span>Read Status</span>
+              <select v-model="inboxFilters.readStatus" class="select">
+                <option value="">All</option>
+                <option value="unread">Unread Only</option>
+                <option value="read">Read Only</option>
+              </select>
+            </label>
+            <label class="form-field form-field--compact">
+              <span>Label</span>
+              <select v-model="inboxFilters.labelId" class="select">
+                <option value="">All Labels</option>
+                <option v-for="label in webhookLabels" :key="label.id" :value="label.id">
+                  {{ label.name }}
+                </option>
+              </select>
+            </label>
+          </div>
+          <div class="inbox-filters__row inbox-filters__row--secondary">
+            <label class="form-field form-field--compact">
+              <span>Page Size</span>
+              <select v-model.number="inboxFilters.pageSize" class="select select--small">
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+              </select>
+            </label>
+            <div class="inbox-filters__toggles">
+              <label class="filter-toggle">
+                <input v-model="inboxFilters.starred" type="checkbox" />
+                <span>Starred Only</span>
+              </label>
+              <label class="filter-toggle">
+                <input v-model="inboxFilters.includeArchived" type="checkbox" />
+                <span>See Archived</span>
+              </label>
+            </div>
+          </div>
         </div>
         <div class="card__actions">
           <button class="btn btn--outline btn--small" type="button" @click="showLabelManager = true">
@@ -3631,6 +3637,74 @@ function escapeHtml(text: string): string {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
+}
+
+/* Inbox filter layout */
+.inbox-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inbox-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+}
+
+.inbox-filters__row--secondary {
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  align-items: center;
+}
+
+.inbox-filters__toggles {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.85);
+  white-space: nowrap;
+}
+
+.filter-toggle input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.filter-toggle span {
+  font-size: 0.8rem;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.form-field--compact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 130px;
+}
+
+.form-field--compact span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.select--small {
+  padding: 0.4rem 0.6rem;
+  min-width: 70px;
 }
 
 .form-field {
