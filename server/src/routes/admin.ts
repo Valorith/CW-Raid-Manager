@@ -1,5 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { GuildRole } from '@prisma/client';
+import { GuildRole, InboundWebhookActionType, InboundWebhookMessageStatus } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../utils/prisma.js';
 
@@ -37,6 +37,31 @@ import {
   getEventTypes,
   getEventLogZones
 } from '../services/playerEventLogsService.js';
+import {
+  createInboundWebhook,
+  createInboundWebhookAction,
+  createInboundWebhookMessageForAdmin,
+  deleteInboundWebhook,
+  deleteInboundWebhookAction,
+  getInboundWebhookMessage,
+  listInboundWebhookMessages,
+  listInboundWebhookMessagesEnhanced,
+  listInboundWebhooks,
+  retryCrashReviewForMessage,
+  updateInboundWebhook,
+  updateInboundWebhookAction,
+  markMessageRead,
+  getUnreadCount,
+  toggleMessageStar,
+  listWebhookLabels,
+  createWebhookLabel,
+  updateWebhookLabel,
+  deleteWebhookLabel,
+  setMessageLabels,
+  mergeWebhookMessages,
+  bulkMessageAction
+} from '../services/inboundWebhookService.js';
+import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
 import {
   getCharacterByName,
   getCharacterById,
@@ -1412,6 +1437,790 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to remove character from watch list.');
+      }
+    }
+  );
+
+  // ============================================
+  // Inbound Webhook Admin Endpoints
+  // ============================================
+  const retentionPolicySchema = z.object({
+    mode: z.enum(['indefinite', 'days', 'maxCount']),
+    days: z.coerce.number().int().positive().optional(),
+    maxCount: z.coerce.number().int().positive().optional()
+  });
+
+  const actionConfigSchema = z.object({
+    discordWebhookUrl: z.string().url().max(512).optional().nullable(),
+    discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
+    discordTemplate: z.string().max(4000).optional().nullable(),
+    crashModel: z.string().max(120).optional().nullable(),
+    crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
+    crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
+    crashTemperature: z.coerce.number().min(0).max(1).optional().nullable(),
+    crashPromptTemplate: z.string().max(8000).optional().nullable()
+  });
+  type ActionConfig = z.infer<typeof actionConfigSchema>;
+
+  server.get(
+    '/webhooks',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const webhooks = await listInboundWebhooks();
+      return { webhooks };
+    }
+  );
+
+  server.post(
+    '/webhooks',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        label: z.string().min(2).max(120),
+        description: z.string().max(500).optional().nullable(),
+        isEnabled: z.boolean().optional(),
+        retentionPolicy: retentionPolicySchema.optional().nullable()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid webhook payload.');
+      }
+
+      const webhook = await createInboundWebhook(request.user.userId, parsed.data);
+      return reply.code(201).send({ webhook });
+    }
+  );
+
+  server.put(
+    '/webhooks/:webhookId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string() });
+      const { webhookId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z
+        .object({
+          label: z.string().min(2).max(120).optional(),
+          description: z.string().max(500).optional().nullable(),
+          isEnabled: z.boolean().optional(),
+          retentionPolicy: retentionPolicySchema.optional().nullable()
+        })
+        .refine((value) => Object.keys(value).length > 0, {
+          message: 'No fields provided for update.'
+        });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      try {
+        const webhook = await updateInboundWebhook(webhookId, parsed.data);
+        return { webhook };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to update inbound webhook.');
+        if (error instanceof Error && error.message.includes('Record to update not found')) {
+          return reply.notFound('Webhook not found.');
+        }
+        return reply.badRequest('Unable to update webhook.');
+      }
+    }
+  );
+
+  server.delete(
+    '/webhooks/:webhookId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string() });
+      const { webhookId } = paramsSchema.parse(request.params);
+
+      try {
+        await deleteInboundWebhook(webhookId);
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to delete inbound webhook.');
+        if (error instanceof Error && error.message.includes('Record to delete does not exist')) {
+          return reply.notFound('Webhook not found.');
+        }
+        return reply.badRequest('Unable to delete webhook.');
+      }
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/actions',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string() });
+      const { webhookId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z.object({
+        type: z.nativeEnum(InboundWebhookActionType),
+        name: z.string().min(2).max(120),
+        isEnabled: z.boolean().optional(),
+        sortOrder: z.coerce.number().int().optional(),
+        config: actionConfigSchema.optional().nullable()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid webhook action payload.');
+      }
+
+      const parsedData = parsed.data as {
+        type: InboundWebhookActionType;
+        name: string;
+        isEnabled?: boolean;
+        sortOrder?: number;
+        config?: ActionConfig | null;
+      };
+
+      const config = (parsedData.config ?? {}) as ActionConfig;
+      const normalizedConfig: InboundWebhookActionConfig = {
+        discordWebhookUrl:
+          typeof config.discordWebhookUrl === 'string' ? config.discordWebhookUrl.trim() || undefined : undefined,
+        discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
+        discordTemplate:
+          typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
+        crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
+        crashMaxInputChars:
+          typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
+        crashMaxOutputTokens:
+          typeof config.crashMaxOutputTokens === 'number' ? config.crashMaxOutputTokens : undefined,
+        crashTemperature:
+          typeof config.crashTemperature === 'number' ? config.crashTemperature : undefined,
+        crashPromptTemplate:
+          typeof config.crashPromptTemplate === 'string'
+            ? config.crashPromptTemplate.trim() || undefined
+            : undefined
+      };
+
+      const action = await createInboundWebhookAction(webhookId, {
+        type: parsedData.type,
+        name: parsedData.name,
+        isEnabled: parsedData.isEnabled,
+        sortOrder: parsedData.sortOrder,
+        config: normalizedConfig
+      });
+
+      return reply.code(201).send({ action });
+    }
+  );
+
+  server.put(
+    '/webhooks/:webhookId/actions/:actionId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string(), actionId: z.string() });
+      const { webhookId, actionId } = paramsSchema.parse(request.params);
+
+      const action = await prisma.inboundWebhookAction.findUnique({
+        where: { id: actionId },
+        select: { webhookId: true }
+      });
+
+      if (!action || action.webhookId !== webhookId) {
+        return reply.notFound('Webhook action not found.');
+      }
+
+      const bodySchema = z
+        .object({
+          name: z.string().min(2).max(120).optional(),
+          isEnabled: z.boolean().optional(),
+          sortOrder: z.coerce.number().int().optional(),
+          config: actionConfigSchema.optional().nullable()
+        })
+        .refine((value) => Object.keys(value).length > 0, {
+          message: 'No fields provided for update.'
+        });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      const parsedData = parsed.data as {
+        name?: string;
+        isEnabled?: boolean;
+        sortOrder?: number;
+        config?: ActionConfig | null;
+      };
+
+      const config = parsedData.config ? (parsedData.config as ActionConfig) : undefined;
+      const normalizedConfig = config
+        ? ({
+            discordWebhookUrl:
+              typeof config.discordWebhookUrl === 'string'
+                ? config.discordWebhookUrl.trim() || undefined
+                : undefined,
+            discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
+            discordTemplate:
+              typeof config.discordTemplate === 'string'
+                ? config.discordTemplate.trim() || undefined
+                : undefined,
+            crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
+            crashMaxInputChars:
+              typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
+            crashMaxOutputTokens:
+              typeof config.crashMaxOutputTokens === 'number' ? config.crashMaxOutputTokens : undefined,
+            crashTemperature:
+              typeof config.crashTemperature === 'number' ? config.crashTemperature : undefined,
+            crashPromptTemplate:
+              typeof config.crashPromptTemplate === 'string'
+                ? config.crashPromptTemplate.trim() || undefined
+                : undefined
+          } satisfies InboundWebhookActionConfig)
+        : undefined;
+
+      const updated = await updateInboundWebhookAction(actionId, {
+        ...parsedData,
+        config: normalizedConfig
+      });
+
+      return { action: updated };
+    }
+  );
+
+  server.delete(
+    '/webhooks/:webhookId/actions/:actionId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string(), actionId: z.string() });
+      const { webhookId, actionId } = paramsSchema.parse(request.params);
+
+      const action = await prisma.inboundWebhookAction.findUnique({
+        where: { id: actionId },
+        select: { webhookId: true }
+      });
+
+      if (!action || action.webhookId !== webhookId) {
+        return reply.notFound('Webhook action not found.');
+      }
+
+      await deleteInboundWebhookAction(actionId);
+      return reply.code(204).send();
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/test',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string() });
+      const { webhookId } = paramsSchema.parse(request.params);
+
+      const bodySchema = z.object({
+        payload: z.unknown().optional(),
+        runActions: z.boolean().optional()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid test payload.');
+      }
+
+      try {
+        const message = await createInboundWebhookMessageForAdmin({
+          webhookId,
+          payload: parsed.data.payload ?? { event: 'test', message: 'Hello from webhook test.' },
+          runActions: parsed.data.runActions
+        });
+        return reply.code(201).send({ message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to send webhook test payload.');
+        if (error instanceof Error && error.message.includes('Webhook not found')) {
+          return reply.notFound('Webhook not found.');
+        }
+        return reply.badRequest('Unable to send test payload.');
+      }
+    }
+  );
+
+  server.get(
+    '/webhook-inbox',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        page: z.coerce.number().int().positive().default(1),
+        pageSize: z.coerce.number().int().positive().max(100).default(25),
+        webhookId: z.string().optional(),
+        status: z.nativeEnum(InboundWebhookMessageStatus).optional(),
+        includeArchived: z.coerce.boolean().optional(),
+        readStatus: z.enum(['read', 'unread', 'all']).optional(),
+        starred: z.coerce.boolean().optional(),
+        labelIds: z.string().optional()
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      const { labelIds, ...rest } = parsed.data;
+      const labelIdsArray = labelIds ? labelIds.split(',').filter(Boolean) : undefined;
+
+      const result = await listInboundWebhookMessagesEnhanced({
+        ...rest,
+        userId: request.user.userId,
+        labelIds: labelIdsArray
+      });
+      return result;
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/:messageId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      const message = await getInboundWebhookMessage(messageId);
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      return { message };
+    }
+  );
+
+  server.put(
+    '/webhook-inbox/:messageId/assign',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({ adminId: z.string().optional().nullable() });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid assignment payload.');
+      }
+
+      const adminId = parsed.data.adminId ?? null;
+      if (adminId) {
+        const adminUser = await prisma.user.findUnique({
+          where: { id: adminId },
+          select: { id: true, admin: true }
+        });
+        if (!adminUser || !adminUser.admin) {
+          return reply.badRequest('Assigned user must be an admin.');
+        }
+      }
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      const updated = await prisma.inboundWebhookMessage.update({
+        where: { id: messageId },
+        data: {
+          assignedAdminId: adminId,
+          assignedAt: adminId ? new Date() : null
+        },
+        include: {
+          assignedAdmin: {
+            select: { id: true, displayName: true, nickname: true, email: true }
+          }
+        }
+      });
+
+      return { message: updated };
+    }
+  );
+
+  server.put(
+    '/webhook-inbox/:messageId/archive',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({ archived: z.boolean().optional() });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid archive payload.');
+      }
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      const archivedAt = parsed.data.archived ? new Date() : null;
+      const updated = await prisma.inboundWebhookMessage.update({
+        where: { id: messageId },
+        data: { archivedAt },
+        include: {
+          assignedAdmin: {
+            select: { id: true, displayName: true, nickname: true, email: true }
+          },
+          webhook: true,
+          actionRuns: {
+            include: { action: true },
+            orderBy: { createdAt: 'asc' }
+          }
+        }
+      });
+
+      return { message: updated };
+    }
+  );
+
+  server.delete(
+    '/webhook-inbox/:messageId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      await prisma.inboundWebhookMessage.delete({
+        where: { id: messageId }
+      });
+      return reply.code(204).send();
+    }
+  );
+
+  server.post(
+    '/webhook-inbox/:messageId/retry-crash-review',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      try {
+        const message = await retryCrashReviewForMessage(messageId);
+        return reply.code(201).send({ message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to retry crash review.');
+        if (error instanceof Error && error.message.includes('not found')) {
+          return reply.notFound(error.message);
+        }
+        return reply.badRequest('Unable to retry crash review.');
+      }
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Read Status
+  // ============================================================================
+
+  server.put(
+    '/webhook-inbox/:messageId/read',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({ read: z.boolean() });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid read status payload.');
+      }
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      await markMessageRead(messageId, request.user.userId, parsed.data.read);
+      return reply.code(204).send();
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/unread-count',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        webhookId: z.string().optional()
+      });
+      const parsed = querySchema.safeParse(request.query);
+      const webhookId = parsed.success ? parsed.data.webhookId : undefined;
+
+      const count = await getUnreadCount(request.user.userId, webhookId);
+      return { count };
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Starring
+  // ============================================================================
+
+  server.put(
+    '/webhook-inbox/:messageId/star',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({ starred: z.boolean() });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid star payload.');
+      }
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      await toggleMessageStar(messageId, request.user.userId, parsed.data.starred);
+      return reply.code(204).send();
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Labels
+  // ============================================================================
+
+  server.get(
+    '/webhook-labels',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const labels = await listWebhookLabels();
+      return { labels };
+    }
+  );
+
+  server.post(
+    '/webhook-labels',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        name: z.string().min(1).max(50),
+        color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color')
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid label payload.');
+      }
+
+      try {
+        const label = await createWebhookLabel(parsed.data);
+        return reply.code(201).send({ label });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          return reply.badRequest('A label with this name already exists.');
+        }
+        throw error;
+      }
+    }
+  );
+
+  server.put(
+    '/webhook-labels/:labelId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ labelId: z.string() });
+      const { labelId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({
+        name: z.string().min(1).max(50).optional(),
+        color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').optional(),
+        sortOrder: z.number().int().optional()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid label payload.');
+      }
+
+      const existing = await prisma.webhookMessageLabel.findUnique({
+        where: { id: labelId },
+        select: { id: true }
+      });
+      if (!existing) {
+        return reply.notFound('Label not found.');
+      }
+
+      try {
+        const label = await updateWebhookLabel(labelId, parsed.data);
+        return { label };
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('Unique constraint')) {
+          return reply.badRequest('A label with this name already exists.');
+        }
+        throw error;
+      }
+    }
+  );
+
+  server.delete(
+    '/webhook-labels/:labelId',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ labelId: z.string() });
+      const { labelId } = paramsSchema.parse(request.params);
+
+      const existing = await prisma.webhookMessageLabel.findUnique({
+        where: { id: labelId },
+        select: { id: true }
+      });
+      if (!existing) {
+        return reply.notFound('Label not found.');
+      }
+
+      await deleteWebhookLabel(labelId);
+      return reply.code(204).send();
+    }
+  );
+
+  server.put(
+    '/webhook-inbox/:messageId/labels',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z.object({
+        labelIds: z.array(z.string())
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid labels payload.');
+      }
+
+      const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: messageId },
+        select: { id: true }
+      });
+      if (!message) {
+        return reply.notFound('Webhook message not found.');
+      }
+
+      await setMessageLabels(messageId, parsed.data.labelIds);
+      return reply.code(204).send();
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Bulk Actions
+  // ============================================================================
+
+  server.post(
+    '/webhook-inbox/bulk',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        messageIds: z.array(z.string()).min(1).max(100),
+        action: z.enum([
+          'markRead',
+          'markUnread',
+          'archive',
+          'unarchive',
+          'delete',
+          'star',
+          'unstar',
+          'rerunCrashReview',
+          'setLabels'
+        ]),
+        labelIds: z.array(z.string()).optional()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid bulk action payload.');
+      }
+
+      const { messageIds, action, labelIds } = parsed.data;
+      const result = await bulkMessageAction(
+        messageIds,
+        action as BulkActionType,
+        request.user.userId,
+        { labelIds }
+      );
+
+      return result;
+    }
+  );
+
+  // ============================================================================
+  // Webhook Inbox - Message Merging
+  // ============================================================================
+
+  server.post(
+    '/webhook-inbox/merge',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        messageIds: z.array(z.string()).min(2).max(20)
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid merge payload. At least 2 messages required.');
+      }
+
+      try {
+        const message = await mergeWebhookMessages(parsed.data.messageIds);
+        return reply.code(201).send({ message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to merge messages.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to merge messages.');
       }
     }
   );

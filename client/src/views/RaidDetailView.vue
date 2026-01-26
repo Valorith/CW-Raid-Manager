@@ -828,6 +828,9 @@
       :style="{ top: `${killContextMenu.y}px`, left: `${killContextMenu.x}px` }
       "
     >
+      <button class="loot-context-menu__action" type="button" @click="copyKillNpcName">
+        Copy Name
+      </button>
       <button class="loot-context-menu__action" type="button" @click="addTargetBossFromKill">
         Add boss target
       </button>
@@ -3261,6 +3264,33 @@ function openKillContextMenu(event: MouseEvent, npcName: string) {
 function closeKillContextMenu() {
   killContextMenu.visible = false;
   killContextMenu.npcName = '';
+}
+
+async function copyKillNpcName() {
+  const npcName = killContextMenu.npcName.trim();
+  if (!npcName) {
+    closeKillContextMenu();
+    return;
+  }
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(npcName);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = npcName;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+  } catch (error) {
+    console.warn('Failed to copy NPC name', error);
+  } finally {
+    closeKillContextMenu();
+  }
 }
 
 async function addTargetBossFromKill() {

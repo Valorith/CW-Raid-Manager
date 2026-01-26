@@ -39,6 +39,10 @@ model User {
   accountNotes         AccountNote[] @relation("AccountNoteCreator")
   characterAssociations CharacterAssociation[] @relation("CharacterAssociationCreator")
   characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
+  inboundWebhooks      InboundWebhook[] @relation("InboundWebhookCreator")
+  inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
+  webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
+  webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
 }
 
 model Guild {
@@ -666,6 +670,159 @@ enum QuestNodeType {
   USE
   TOUCH
   GIVE_CASH
+}
+
+enum InboundWebhookActionType {
+  DISCORD_RELAY
+  CRASH_REVIEW
+}
+
+enum InboundWebhookMessageStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+enum InboundWebhookActionRunStatus {
+  SUCCESS
+  FAILED
+  SKIPPED
+  PENDING_REVIEW
+}
+
+model InboundWebhook {
+  id             String                 @id @default(cuid())
+  label          String                 @db.VarChar(120)
+  description    String?                @db.VarChar(500)
+  isEnabled      Boolean                @default(true)
+  token          String                 @db.VarChar(120)
+  retentionPolicy Json                 @default(dbgenerated("(json_object())"))
+  createdById    String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  lastReceivedAt DateTime?
+  createdBy      User                   @relation("InboundWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  actions        InboundWebhookAction[]
+  messages       InboundWebhookMessage[]
+
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model InboundWebhookAction {
+  id        String                   @id @default(cuid())
+  webhookId String
+  type      InboundWebhookActionType
+  name      String                   @db.VarChar(120)
+  isEnabled Boolean                  @default(true)
+  config    Json                     @default(dbgenerated("(json_object())"))
+  sortOrder Int                      @default(0)
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  webhook   InboundWebhook           @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  runs      InboundWebhookActionRun[]
+
+  @@index([webhookId])
+  @@index([type])
+}
+
+model InboundWebhookMessage {
+  id            String                    @id @default(cuid())
+  webhookId     String
+  receivedAt    DateTime                  @default(now())
+  sourceIp      String?                   @db.VarChar(64)
+  headers       Json                      @default(dbgenerated("(json_object())"))
+  payload       Json                      @default(dbgenerated("(json_object())"))
+  rawBody       String?                   @db.LongText
+  status        InboundWebhookMessageStatus @default(RECEIVED)
+  actionSummary Json?
+  assignedAdminId String?
+  assignedAt   DateTime?
+  archivedAt   DateTime?
+  mergedFromIds Json?
+  mergedAt     DateTime?
+  webhook       InboundWebhook            @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  assignedAdmin User?                     @relation("InboundWebhookAssignee", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  actionRuns    InboundWebhookActionRun[]
+  readStatuses  WebhookMessageReadStatus[]
+  stars         WebhookMessageStar[]
+  labelAssignments WebhookMessageLabelAssignment[]
+
+  @@index([webhookId])
+  @@index([receivedAt])
+  @@index([status])
+  @@index([assignedAdminId])
+  @@index([archivedAt])
+}
+
+model InboundWebhookActionRun {
+  id         String                       @id @default(cuid())
+  messageId  String
+  actionId   String
+  status     InboundWebhookActionRunStatus @default(SUCCESS)
+  error      String?                      @db.Text
+  result     Json?
+  durationMs Int?
+  createdAt  DateTime                     @default(now())
+  message    InboundWebhookMessage        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  action     InboundWebhookAction         @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([actionId])
+  @@index([createdAt])
+}
+
+// Webhook Message Read Status - per-user read tracking
+model WebhookMessageReadStatus {
+  id        String                @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime              @default(now())
+  message   InboundWebhookMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User                  @relation("WebhookMessageReadStatus", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
+}
+
+// Webhook Message Stars - per-user starring/flagging
+model WebhookMessageStar {
+  id        String                @id @default(cuid())
+  messageId String
+  userId    String
+  createdAt DateTime              @default(now())
+  message   InboundWebhookMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User                  @relation("WebhookMessageStars", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
+}
+
+// Webhook Message Labels - global label definitions
+model WebhookMessageLabel {
+  id          String                          @id @default(cuid())
+  name        String                          @unique @db.VarChar(50)
+  color       String                          @db.VarChar(7)
+  sortOrder   Int                             @default(0)
+  createdAt   DateTime                        @default(now())
+  updatedAt   DateTime                        @updatedAt
+  assignments WebhookMessageLabelAssignment[]
+}
+
+// Webhook Message Label Assignments - message-to-label junction
+model WebhookMessageLabelAssignment {
+  id        String                @id @default(cuid())
+  messageId String
+  labelId   String
+  createdAt DateTime              @default(now())
+  message   InboundWebhookMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  label     WebhookMessageLabel   @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, labelId])
+  @@index([messageId])
+  @@index([labelId])
 }
 
 // NPC Respawn Tracker Models

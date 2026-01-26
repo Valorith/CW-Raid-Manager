@@ -765,7 +765,7 @@ export interface SignupEntry {
   status?: SignupStatus;
 }
 
-export interface CharacterSearchResult {
+export interface RaidCharacterSearchResult {
   id: string;
   name: string;
   class: CharacterClass;
@@ -1392,6 +1392,99 @@ export interface AdminRaidDetail extends AdminRaidSummary {
   }>;
 }
 
+export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
+export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW';
+export type InboundWebhookMessageStatus = 'RECEIVED' | 'PROCESSED' | 'FAILED';
+export type InboundWebhookActionRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'PENDING_REVIEW';
+
+export interface InboundWebhookRetentionPolicy {
+  mode: InboundWebhookRetentionMode;
+  days?: number;
+  maxCount?: number;
+}
+
+export interface InboundWebhookActionConfig {
+  discordWebhookUrl?: string;
+  discordMode?: 'RAW' | 'WRAP';
+  discordTemplate?: string;
+  crashModel?: string;
+  crashMaxInputChars?: number;
+  crashMaxOutputTokens?: number;
+  crashTemperature?: number;
+  crashPromptTemplate?: string;
+}
+
+export interface InboundWebhookAction {
+  id: string;
+  webhookId: string;
+  type: InboundWebhookActionType;
+  name: string;
+  isEnabled: boolean;
+  config: InboundWebhookActionConfig;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InboundWebhook {
+  id: string;
+  label: string;
+  description?: string | null;
+  isEnabled: boolean;
+  token: string;
+  retentionPolicy: InboundWebhookRetentionPolicy;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  lastReceivedAt?: string | null;
+  actions?: InboundWebhookAction[];
+}
+
+export interface InboundWebhookActionRun {
+  id: string;
+  messageId: string;
+  actionId: string;
+  status: InboundWebhookActionRunStatus;
+  error?: string | null;
+  result?: Record<string, unknown> | null;
+  durationMs?: number | null;
+  createdAt: string;
+  action?: InboundWebhookAction | null;
+}
+
+export interface WebhookMessageLabel {
+  id: string;
+  name: string;
+  color: string;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface InboundWebhookMessage {
+  id: string;
+  webhookId: string;
+  receivedAt: string;
+  sourceIp?: string | null;
+  headers: Record<string, unknown>;
+  payload: Record<string, unknown> | string | number | boolean | null;
+  rawBody?: string | null;
+  status: InboundWebhookMessageStatus;
+  actionSummary?: Array<{ actionId: string; status: string }> | null;
+  assignedAdminId?: string | null;
+  assignedAt?: string | null;
+  archivedAt?: string | null;
+  assignedAdmin?: { id: string; displayName: string; nickname?: string | null; email?: string } | null;
+  webhook?: InboundWebhook | null;
+  actionRuns?: InboundWebhookActionRun[];
+  // Email inbox-like features
+  isRead?: boolean;
+  isStarred?: boolean;
+  labels?: WebhookMessageLabel[];
+  mergedFromIds?: string[] | null;
+  mergedAt?: string | null;
+}
+
 // Server Connection Types
 export interface ServerConnection {
   connectId: number;
@@ -1596,7 +1689,7 @@ export interface CharacterWatchListResponse {
   indirectAssociatedCharacterIds: number[];
 }
 
-export interface CharacterSearchResult {
+export interface AdminCharacterSearchResult {
   id: number;
   name: string;
   level: number;
@@ -2945,7 +3038,7 @@ export const api = {
       : [];
   },
 
-  async searchCharactersForSignup(raidId: string, query: string): Promise<CharacterSearchResult[]> {
+  async searchCharactersForSignup(raidId: string, query: string): Promise<RaidCharacterSearchResult[]> {
     const response = await axios.get(`/api/raids/${raidId}/signups/search`, {
       params: { q: query }
     });
@@ -3563,6 +3656,219 @@ export const api = {
     };
   },
 
+  async fetchInboundWebhooks(): Promise<InboundWebhook[]> {
+    const response = await axios.get('/api/admin/webhooks');
+    return Array.isArray(response.data.webhooks) ? response.data.webhooks : [];
+  },
+
+  async createInboundWebhook(payload: {
+    label: string;
+    description?: string | null;
+    isEnabled?: boolean;
+    retentionPolicy?: InboundWebhookRetentionPolicy | null;
+  }): Promise<InboundWebhook> {
+    const response = await axios.post('/api/admin/webhooks', payload);
+    return response.data.webhook;
+  },
+
+  async updateInboundWebhook(
+    webhookId: string,
+    payload: {
+      label?: string;
+      description?: string | null;
+      isEnabled?: boolean;
+      retentionPolicy?: InboundWebhookRetentionPolicy | null;
+    }
+  ): Promise<InboundWebhook> {
+    const response = await axios.put(`/api/admin/webhooks/${webhookId}`, payload);
+    return response.data.webhook;
+  },
+
+  async deleteInboundWebhook(webhookId: string) {
+    await axios.delete(`/api/admin/webhooks/${webhookId}`);
+  },
+
+  async createInboundWebhookAction(
+    webhookId: string,
+    payload: {
+      type: InboundWebhookActionType;
+      name: string;
+      isEnabled?: boolean;
+      sortOrder?: number;
+      config?: InboundWebhookActionConfig | null;
+    }
+  ): Promise<InboundWebhookAction> {
+    const response = await axios.post(`/api/admin/webhooks/${webhookId}/actions`, payload);
+    return response.data.action;
+  },
+
+  async updateInboundWebhookAction(
+    webhookId: string,
+    actionId: string,
+    payload: {
+      name?: string;
+      isEnabled?: boolean;
+      sortOrder?: number;
+      config?: InboundWebhookActionConfig | null;
+    }
+  ): Promise<InboundWebhookAction> {
+    const response = await axios.put(`/api/admin/webhooks/${webhookId}/actions/${actionId}`, payload);
+    return response.data.action;
+  },
+
+  async deleteInboundWebhookAction(webhookId: string, actionId: string) {
+    await axios.delete(`/api/admin/webhooks/${webhookId}/actions/${actionId}`);
+  },
+
+  async testInboundWebhook(webhookId: string, payload?: unknown, runActions?: boolean) {
+    const response = await axios.post(`/api/admin/webhooks/${webhookId}/test`, {
+      payload,
+      runActions
+    });
+    return response.data.message as InboundWebhookMessage;
+  },
+
+  async fetchInboundWebhookInbox(params: {
+    page?: number;
+    pageSize?: number;
+    webhookId?: string;
+    status?: InboundWebhookMessageStatus;
+    includeArchived?: boolean;
+    readStatus?: 'read' | 'unread' | 'all';
+    starred?: boolean;
+    labelIds?: string[];
+  }): Promise<{ messages: InboundWebhookMessage[]; total: number }> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.pageSize) query.set('pageSize', String(params.pageSize));
+    if (params.webhookId) query.set('webhookId', params.webhookId);
+    if (params.status) query.set('status', params.status);
+    if (params.includeArchived) query.set('includeArchived', 'true');
+    if (params.readStatus && params.readStatus !== 'all') query.set('readStatus', params.readStatus);
+    if (params.starred) query.set('starred', 'true');
+    if (params.labelIds && params.labelIds.length > 0) query.set('labelIds', params.labelIds.join(','));
+
+    const response = await axios.get(`/api/admin/webhook-inbox?${query.toString()}`);
+    return {
+      messages: Array.isArray(response.data.messages) ? response.data.messages : [],
+      total: response.data.total ?? 0
+    };
+  },
+
+  async fetchInboundWebhookMessage(messageId: string): Promise<InboundWebhookMessage> {
+    const response = await axios.get(`/api/admin/webhook-inbox/${messageId}`);
+    return response.data.message;
+  },
+
+  async assignInboundWebhookMessage(messageId: string, adminId?: string | null) {
+    const response = await axios.put(`/api/admin/webhook-inbox/${messageId}/assign`, { adminId });
+    return response.data.message as InboundWebhookMessage;
+  },
+
+  async archiveInboundWebhookMessage(messageId: string, archived: boolean) {
+    const response = await axios.put(`/api/admin/webhook-inbox/${messageId}/archive`, { archived });
+    return response.data.message as InboundWebhookMessage;
+  },
+
+  async deleteInboundWebhookMessage(messageId: string) {
+    await axios.delete(`/api/admin/webhook-inbox/${messageId}`);
+  },
+
+  async retryCrashReview(messageId: string): Promise<InboundWebhookMessage> {
+    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/retry-crash-review`);
+    return response.data.message;
+  },
+
+  // ==================== Webhook Inbox Email-like Features ====================
+
+  /**
+   * Marks a webhook message as read or unread for the current user.
+   */
+  async markWebhookMessageRead(messageId: string, read: boolean): Promise<void> {
+    await axios.put(`/api/admin/webhook-inbox/${messageId}/read`, { read });
+  },
+
+  /**
+   * Fetches the unread count for the current user.
+   */
+  async fetchWebhookInboxUnreadCount(webhookId?: string): Promise<number> {
+    const query = webhookId ? `?webhookId=${webhookId}` : '';
+    const response = await axios.get(`/api/admin/webhook-inbox/unread-count${query}`);
+    return response.data.count ?? 0;
+  },
+
+  /**
+   * Toggles the star status for a webhook message.
+   */
+  async toggleWebhookMessageStar(messageId: string, starred: boolean): Promise<void> {
+    await axios.put(`/api/admin/webhook-inbox/${messageId}/star`, { starred });
+  },
+
+  /**
+   * Fetches all webhook message labels.
+   */
+  async fetchWebhookLabels(): Promise<WebhookMessageLabel[]> {
+    const response = await axios.get('/api/admin/webhook-labels');
+    return response.data.labels ?? [];
+  },
+
+  /**
+   * Creates a new webhook message label.
+   */
+  async createWebhookLabel(payload: { name: string; color: string }): Promise<WebhookMessageLabel> {
+    const response = await axios.post('/api/admin/webhook-labels', payload);
+    return response.data.label;
+  },
+
+  /**
+   * Updates an existing webhook message label.
+   */
+  async updateWebhookLabel(
+    labelId: string,
+    payload: { name?: string; color?: string; sortOrder?: number }
+  ): Promise<WebhookMessageLabel> {
+    const response = await axios.put(`/api/admin/webhook-labels/${labelId}`, payload);
+    return response.data.label;
+  },
+
+  /**
+   * Deletes a webhook message label.
+   */
+  async deleteWebhookLabel(labelId: string): Promise<void> {
+    await axios.delete(`/api/admin/webhook-labels/${labelId}`);
+  },
+
+  /**
+   * Sets the labels for a webhook message.
+   */
+  async setWebhookMessageLabels(messageId: string, labelIds: string[]): Promise<void> {
+    await axios.put(`/api/admin/webhook-inbox/${messageId}/labels`, { labelIds });
+  },
+
+  /**
+   * Performs a bulk action on multiple webhook messages.
+   */
+  async bulkWebhookInboxAction(params: {
+    messageIds: string[];
+    action: 'markRead' | 'markUnread' | 'archive' | 'unarchive' | 'delete' | 'star' | 'unstar' | 'rerunCrashReview' | 'setLabels';
+    labelIds?: string[];
+  }): Promise<{ success: number; failed: number }> {
+    const response = await axios.post('/api/admin/webhook-inbox/bulk', params);
+    return {
+      success: response.data.success ?? 0,
+      failed: response.data.failed ?? 0
+    };
+  },
+
+  /**
+   * Merges multiple webhook messages into a single message.
+   * The original messages are deleted and a new merged message is created.
+   */
+  async mergeWebhookMessages(messageIds: string[]): Promise<InboundWebhookMessage> {
+    const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds });
+    return response.data.message;
+  },
+
   /**
    * Fetches detailed item stats for tooltip display.
    */
@@ -4146,7 +4452,7 @@ export const api = {
   /**
    * Searches for characters by name.
    */
-  async searchCharacters(query: string): Promise<CharacterSearchResult[]> {
+  async searchCharacters(query: string): Promise<AdminCharacterSearchResult[]> {
     const response = await axios.get(`/api/admin/characters/search?q=${encodeURIComponent(query)}`);
     return response.data.characters ?? [];
   },

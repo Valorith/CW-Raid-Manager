@@ -134,6 +134,12 @@ const router = createRouter({
       name: 'Metallurgy',
       component: () => import('../views/MetallurgyAdminView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/webhooks',
+      name: 'AdminWebhooks',
+      component: () => import('../views/AdminWebhooksView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]
 });

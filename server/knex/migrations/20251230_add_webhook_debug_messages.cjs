@@ -1,16 +1,12 @@
 /**
- * Migration: Add WebhookDebugMessage table
+ * Migration: Add WebhookDebugMessage table (CommonJS stub)
  *
- * This table stores debug webhook messages for cross-process delivery.
- * When a cron job (separate process) creates debug messages, they are stored
- * in this table so the web server can deliver them to connected SSE clients.
- */
-
-/**
- * @param { import("knex").Knex } knex
+ * This mirrors the .js migration for knex history compatibility.
+ *
+ * @param { import('knex').Knex } knex
  * @returns { Promise<void> }
  */
-export async function up(knex) {
+async function up(knex) {
   const hasTable = await knex.schema.hasTable('WebhookDebugMessage');
   if (hasTable) {
     return;
@@ -30,9 +26,14 @@ export async function up(knex) {
 }
 
 /**
- * @param { import("knex").Knex } knex
+ * @param { import('knex').Knex } knex
  * @returns { Promise<void> }
  */
-export async function down(knex) {
+async function down(knex) {
   await knex.schema.dropTableIfExists('WebhookDebugMessage');
 }
+
+module.exports = {
+  up,
+  down
+};

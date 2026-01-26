@@ -8,7 +8,7 @@ import {
   type CharacterAssociate,
   type AccountNote,
   type AccountKnownIp,
-  type CharacterSearchResult,
+  type AdminCharacterSearchResult,
   type PlayerEventLog,
   type PlayerEventType,
   type PlayerEventZone,
@@ -89,7 +89,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   const filterDataLoaded = ref(false);
 
   // Character search
-  const searchResults = ref<CharacterSearchResult[]>([]);
+  const searchResults = ref<AdminCharacterSearchResult[]>([]);
   const searchLoading = ref(false);
 
   // Watch list

@@ -116,6 +116,13 @@
               </RouterLink>
               <RouterLink
                 v-if="authStore.isAdmin"
+                to="/admin/webhooks"
+                class="nav__dropdown-item"
+              >
+                Webhook Inbox
+              </RouterLink>
+              <RouterLink
+                v-if="authStore.isAdmin"
                 to="/admin/metallurgy"
                 class="nav__dropdown-item"
               >
