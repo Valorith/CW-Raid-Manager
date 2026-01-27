@@ -3692,9 +3692,12 @@ export const api = {
     return response.data;
   },
 
-  async getWebhookProcessingEnabled(): Promise<boolean> {
+  async getServerProcessingConfig(): Promise<{
+    effectivelyEnabled: boolean;
+    serverId: string;
+  }> {
     const response = await axios.get('/api/admin/system-settings/webhook-processing-enabled');
-    return response.data.enabled;
+    return response.data;
   },
 
   async setWebhookProcessingEnabled(enabled: boolean): Promise<boolean> {

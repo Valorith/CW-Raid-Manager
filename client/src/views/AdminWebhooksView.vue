@@ -1389,16 +1389,24 @@
           <div class="settings-section settings-section--global">
             <div class="settings-section-header">
               <h4 class="settings-section-title">Server Processing</h4>
-              <p class="settings-section-description">Global setting to enable or disable webhook processing on this server instance.</p>
+              <p class="settings-section-description">
+                Control webhook processing for this server instance. Each server (identified by SERVER_ID env var) has its own setting.
+              </p>
             </div>
             <div class="settings-fields">
+              <!-- Server ID indicator -->
+              <div class="settings-server-id">
+                <span class="settings-server-id-label">Connected to:</span>
+                <span class="settings-server-id-value">{{ webhookProcessingStatus.serverId }}</span>
+              </div>
+
               <div class="settings-field settings-field--toggle settings-field--prominent">
                 <div class="settings-field-main">
                   <label class="settings-field-label" for="global-processing-toggle">
                     Process Incoming Webhooks
                   </label>
                   <p class="settings-field-hint">
-                    When disabled, incoming webhooks will be ignored by this server. Use this to disable production processing while testing locally with a shared database.
+                    When disabled, incoming webhooks will be stored but not processed by the "{{ webhookProcessingStatus.serverId }}" server.
                   </p>
                 </div>
                 <div class="settings-field-control">
@@ -1406,15 +1414,15 @@
                     <label class="toggle-switch">
                       <input
                         id="global-processing-toggle"
-                        :checked="webhookProcessingEnabled"
+                        :checked="webhookProcessingStatus.effectivelyEnabled"
                         type="checkbox"
                         :disabled="togglingWebhookProcessing"
                         @change="toggleWebhookProcessing"
                       />
                       <span class="toggle-slider"></span>
                     </label>
-                    <span :class="['toggle-status', webhookProcessingEnabled ? 'toggle-status--enabled' : 'toggle-status--disabled']">
-                      {{ webhookProcessingEnabled ? 'Enabled' : 'Disabled' }}
+                    <span :class="['toggle-status', webhookProcessingStatus.effectivelyEnabled ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                      {{ webhookProcessingStatus.effectivelyEnabled ? 'Enabled' : 'Disabled' }}
                     </span>
                   </div>
                 </div>
@@ -1759,8 +1767,11 @@ const webhookSettingsForm = reactive({
 });
 const savingWebhookSettings = ref(false);
 
-// Global Webhook Processing Toggle (for production/test environment conflicts)
-const webhookProcessingEnabled = ref(true);
+// Global Webhook Processing Toggle (per-server, uses SERVER_ID env var)
+const webhookProcessingStatus = reactive({
+  effectivelyEnabled: true,
+  serverId: 'unknown'
+});
 const togglingWebhookProcessing = ref(false);
 const selectedWebhookForSettings = computed(() =>
   webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId)
@@ -2295,7 +2306,7 @@ async function loadAdminUsers() {
 async function refreshAll() {
   loading.value = true;
   try {
-    await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount(), loadWebhookProcessingEnabled()]);
+    await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount(), loadWebhookProcessingStatus()]);
     if (shouldPollInbox()) {
       startInboxPolling();
     }
@@ -2304,25 +2315,28 @@ async function refreshAll() {
   }
 }
 
-async function loadWebhookProcessingEnabled() {
+async function loadWebhookProcessingStatus() {
   try {
-    webhookProcessingEnabled.value = await api.getWebhookProcessingEnabled();
+    const status = await api.getServerProcessingConfig();
+    webhookProcessingStatus.effectivelyEnabled = status.effectivelyEnabled;
+    webhookProcessingStatus.serverId = status.serverId;
   } catch (error) {
-    console.error('Failed to load webhook processing enabled setting:', error);
-    // Default to true if we can't fetch
-    webhookProcessingEnabled.value = true;
+    console.error('Failed to load webhook processing status:', error);
+    // Default to enabled if we can't fetch
+    webhookProcessingStatus.effectivelyEnabled = true;
+    webhookProcessingStatus.serverId = 'unknown';
   }
 }
 
 async function toggleWebhookProcessing() {
   togglingWebhookProcessing.value = true;
   try {
-    const newValue = !webhookProcessingEnabled.value;
+    const newValue = !webhookProcessingStatus.effectivelyEnabled;
     await api.setWebhookProcessingEnabled(newValue);
-    webhookProcessingEnabled.value = newValue;
+    webhookProcessingStatus.effectivelyEnabled = newValue;
     addToast({
       title: 'Server Settings',
-      message: newValue ? 'Webhook processing enabled' : 'Webhook processing disabled',
+      message: `Webhook processing ${newValue ? 'enabled' : 'disabled'} for "${webhookProcessingStatus.serverId}"`,
       variant: newValue ? 'success' : 'warning'
     });
   } catch (error) {
@@ -5098,6 +5112,28 @@ input[type='checkbox']:checked::after {
 
 .settings-field--prominent .settings-field-hint {
   color: #94a3b8;
+}
+
+.settings-server-id {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(30, 41, 59, 0.6);
+  border-radius: 0.375rem;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.settings-server-id-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.settings-server-id-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #60a5fa;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 .settings-info-banner {

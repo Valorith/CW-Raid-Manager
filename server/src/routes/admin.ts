@@ -66,6 +66,7 @@ import {
   processMessagesAfterManualMerge,
   processDismissedMergeMessages,
   getWebhookProcessingEnabled,
+  getWebhookProcessingStatus,
   setWebhookProcessingEnabled
 } from '../services/inboundWebhookService.js';
 import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
@@ -2573,8 +2574,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       preHandler: [authenticate, requireAdmin]
     },
     async () => {
-      const enabled = await getWebhookProcessingEnabled();
-      return { enabled };
+      const status = await getWebhookProcessingStatus();
+      return status;
     }
   );
 

@@ -7,32 +7,33 @@ import { appConfig } from '../config/appConfig.js';
 // ============================================================================
 // SERVICE LOADED - AUTO-MERGE VERSION 2.0
 // ============================================================================
-const WEBHOOK_PROCESSING_DISABLED_ENV = process.env.DISABLE_WEBHOOK_PROCESSING === 'true';
+
+// Server identifier for per-server settings (e.g., 'production', 'local', 'dev')
+const SERVER_ID = process.env.SERVER_ID || 'default';
 
 console.log('========================================');
 console.log('[InboundWebhookService] LOADED - AUTO-MERGE v2.0');
 console.log('[InboundWebhookService] Delayed processing ENABLED');
-console.log(`[InboundWebhookService] Env override: ${WEBHOOK_PROCESSING_DISABLED_ENV ? 'DISABLED' : 'not set'}`);
+console.log(`[InboundWebhookService] Server ID: ${SERVER_ID}`);
 console.log('========================================');
 
 // ============================================================================
 // System Settings Helpers
 // ============================================================================
 
+// Per-server setting key
+const PROCESSING_ENABLED_KEY = `webhookProcessingEnabled:${SERVER_ID}`;
+
 /**
- * Check if webhook processing is enabled (from database setting).
- * Can be overridden by DISABLE_WEBHOOK_PROCESSING env var.
+ * Check if webhook processing is enabled for this server instance.
+ * Uses SERVER_ID env var to store per-server settings in the shared database.
  */
 async function isWebhookProcessingEnabled(): Promise<boolean> {
-  // Env var takes precedence
-  if (WEBHOOK_PROCESSING_DISABLED_ENV) {
-    return false;
-  }
-
   try {
     const setting = await prisma.systemSetting.findUnique({
-      where: { key: 'webhookProcessingEnabled' }
+      where: { key: PROCESSING_ENABLED_KEY }
     });
+    // Default to enabled if no setting exists for this server
     return setting?.value !== 'false';
   } catch {
     // If table doesn't exist yet, default to enabled
@@ -41,22 +42,37 @@ async function isWebhookProcessingEnabled(): Promise<boolean> {
 }
 
 /**
- * Get the webhook processing enabled setting.
+ * Get the webhook processing enabled setting (simple boolean).
  */
 export async function getWebhookProcessingEnabled(): Promise<boolean> {
   return isWebhookProcessingEnabled();
 }
 
 /**
- * Set the webhook processing enabled setting.
+ * Get detailed webhook processing status for this server.
+ */
+export async function getWebhookProcessingStatus(): Promise<{
+  effectivelyEnabled: boolean;
+  serverId: string;
+}> {
+  const effectivelyEnabled = await isWebhookProcessingEnabled();
+
+  return {
+    effectivelyEnabled,
+    serverId: SERVER_ID
+  };
+}
+
+/**
+ * Set the webhook processing enabled setting for this server.
  */
 export async function setWebhookProcessingEnabled(enabled: boolean): Promise<void> {
   await prisma.systemSetting.upsert({
-    where: { key: 'webhookProcessingEnabled' },
+    where: { key: PROCESSING_ENABLED_KEY },
     update: { value: enabled ? 'true' : 'false' },
-    create: { key: 'webhookProcessingEnabled', value: enabled ? 'true' : 'false' }
+    create: { key: PROCESSING_ENABLED_KEY, value: enabled ? 'true' : 'false' }
   });
-  console.log(`[InboundWebhookService] Webhook processing ${enabled ? 'ENABLED' : 'DISABLED'} (database setting)`);
+  console.log(`[InboundWebhookService] Webhook processing ${enabled ? 'ENABLED' : 'DISABLED'} for server "${SERVER_ID}"`);
 }
 
 // ============================================================================
