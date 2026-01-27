@@ -709,8 +709,8 @@
               <td></td>
             </tr>
 
-            <template v-for="message in inboxMessages" :key="message.id">
-              <!-- Regular message row -->
+            <template v-for="message in filteredInboxMessages" :key="message.id">
+              <!-- Regular message row (excludes messages in pending groups) -->
               <tr
                 :class="{
                   'inbox-row--unread': !message.isRead,
@@ -1921,6 +1921,21 @@ interface PendingMergeGroup {
 }
 const pendingMergeGroups = ref<PendingMergeGroup[]>([]);
 const processingGroupKey = ref<string | null>(null);
+
+// Computed: messages that are NOT in a pending merge group (to avoid showing duplicates)
+const pendingGroupMessageIds = computed(() => {
+  const ids = new Set<string>();
+  for (const group of pendingMergeGroups.value) {
+    for (const id of group.messageIds) {
+      ids.add(id);
+    }
+  }
+  return ids;
+});
+
+const filteredInboxMessages = computed(() => {
+  return inboxMessages.value.filter(m => !pendingGroupMessageIds.value.has(m.id));
+});
 
 async function pollPendingMergeGroups() {
   try {

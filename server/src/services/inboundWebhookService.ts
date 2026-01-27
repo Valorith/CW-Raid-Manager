@@ -2078,26 +2078,81 @@ function addMessageToPendingGroup(
   groupKey: string,
   mergeWindowSeconds: number
 ) {
-  const compositeKey = `${webhookId}:${groupKey}`;
   const now = new Date();
+  let targetGroupKey = groupKey;
+  let compositeKey = `${webhookId}:${groupKey}`;
+
+  // If this message has no identifier ('default'), try to find an existing group for this webhook
+  // This handles the case where only some chunks contain the crash filename
+  if (groupKey === 'default') {
+    const existingWebhookGroup = findExistingGroupForWebhook(webhookId);
+    if (existingWebhookGroup) {
+      targetGroupKey = existingWebhookGroup.groupKey;
+      compositeKey = `${webhookId}:${targetGroupKey}`;
+      console.log(`[Webhook ${webhookId}] Message ${messageId} has no identifier, joining existing group "${targetGroupKey}"`);
+    }
+  } else {
+    // This message HAS an identifier - check if there's a 'default' group we should merge into this one
+    const defaultGroup = pendingMergeGroups.get(`${webhookId}:default`);
+    if (defaultGroup) {
+      // Move all messages from 'default' group to this new identified group
+      console.log(`[Webhook ${webhookId}] Found identifier "${groupKey}" - absorbing ${defaultGroup.messageIds.length} messages from 'default' group`);
+
+      // Clear the default group's timer
+      clearTimeout(defaultGroup.timer);
+      pendingMergeGroups.delete(`${webhookId}:default`);
+
+      // Check if a group with this key already exists
+      const existingGroup = pendingMergeGroups.get(compositeKey);
+      if (existingGroup) {
+        // Add default group's messages to existing group
+        existingGroup.messageIds.push(...defaultGroup.messageIds);
+        existingGroup.messageIds.push(messageId);
+        console.log(`[Webhook ${webhookId}] Merged into existing group "${groupKey}" (${existingGroup.messageIds.length} messages)`);
+        return;
+      } else {
+        // Create new group with default group's messages + this message
+        const expiresAt = defaultGroup.expiresAt; // Keep original expiry time
+        const remainingMs = expiresAt.getTime() - now.getTime();
+
+        const timer = setTimeout(() => {
+          console.log(`[Webhook ${webhookId}] Group "${groupKey}" timer FIRED at ${new Date().toISOString()}`);
+          void processGroupWhenReady(compositeKey);
+        }, Math.max(remainingMs, 1000)); // At least 1 second
+
+        const group: PendingMergeGroup = {
+          groupKey,
+          webhookId,
+          messageIds: [...defaultGroup.messageIds, messageId],
+          firstMessageAt: defaultGroup.firstMessageAt,
+          expiresAt,
+          timer
+        };
+
+        pendingMergeGroups.set(compositeKey, group);
+        console.log(`[Webhook ${webhookId}] Created group "${groupKey}" with ${group.messageIds.length} messages (absorbed from default)`);
+        return;
+      }
+    }
+  }
 
   const existingGroup = pendingMergeGroups.get(compositeKey);
 
   if (existingGroup) {
     // Add message to existing group - timer stays fixed from first message
     existingGroup.messageIds.push(messageId);
-    console.log(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${groupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
+    console.log(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${targetGroupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
   } else {
     // Create new group with fixed timer
     const expiresAt = new Date(now.getTime() + mergeWindowSeconds * 1000);
 
     const timer = setTimeout(() => {
-      console.log(`[Webhook ${webhookId}] Group "${groupKey}" timer FIRED at ${new Date().toISOString()}`);
+      console.log(`[Webhook ${webhookId}] Group "${targetGroupKey}" timer FIRED at ${new Date().toISOString()}`);
       void processGroupWhenReady(compositeKey);
     }, mergeWindowSeconds * 1000);
 
     const group: PendingMergeGroup = {
-      groupKey,
+      groupKey: targetGroupKey,
       webhookId,
       messageIds: [messageId],
       firstMessageAt: now,
@@ -2106,8 +2161,21 @@ function addMessageToPendingGroup(
     };
 
     pendingMergeGroups.set(compositeKey, group);
-    console.log(`[Webhook ${webhookId}] Created NEW group "${groupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
+    console.log(`[Webhook ${webhookId}] Created NEW group "${targetGroupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
   }
+}
+
+/**
+ * Find an existing pending group for a webhook (any group key).
+ * Used when a message has no identifier but should probably join an existing group.
+ */
+function findExistingGroupForWebhook(webhookId: string): PendingMergeGroup | null {
+  for (const [key, group] of pendingMergeGroups) {
+    if (group.webhookId === webhookId) {
+      return group;
+    }
+  }
+  return null;
 }
 
 /**
