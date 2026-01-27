@@ -673,14 +673,19 @@
             <tr
               v-for="group in pendingMergeGroups"
               :key="group.compositeKey"
-              class="pending-group-row"
+              :class="['pending-group-row', { 'pending-group-row--processing': group.status === 'processing' }]"
             >
               <td class="table__checkbox-col"></td>
               <td class="table__star-col"></td>
               <td colspan="6">
-                <div class="pending-group-placeholder">
+                <div class="pending-group-placeholder" :class="{ 'pending-group-placeholder--processing': group.status === 'processing' }">
                   <div class="pending-group-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <!-- Spinner icon when processing -->
+                    <svg v-if="group.status === 'processing'" class="pending-group-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="32" />
+                    </svg>
+                    <!-- Clock icon when pending -->
+                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12,6 12,12 16,14" />
                     </svg>
@@ -691,10 +696,15 @@
                       <span class="pending-group-key">{{ group.groupKey !== 'default' ? group.groupKey : 'pending auto-merge' }}</span>
                     </div>
                     <div class="pending-group-timer">
-                      Processing in <strong>{{ group.remainingSeconds }}s</strong>
+                      <template v-if="group.status === 'processing'">
+                        <strong>Processing with AI...</strong>
+                      </template>
+                      <template v-else>
+                        Processing in <strong>{{ group.remainingSeconds }}s</strong>
+                      </template>
                     </div>
                   </div>
-                  <div class="pending-group-actions">
+                  <div class="pending-group-actions" v-if="group.status !== 'processing'">
                     <button
                       class="btn btn--small btn--accent"
                       type="button"
@@ -1918,6 +1928,7 @@ interface PendingMergeGroup {
   firstMessageAt: string;
   expiresAt: string;
   remainingSeconds: number;
+  status: 'pending' | 'processing';
 }
 const pendingMergeGroups = ref<PendingMergeGroup[]>([]);
 const processingGroupKey = ref<string | null>(null);
@@ -1956,17 +1967,13 @@ async function processGroupNow(webhookId: string, groupKey: string) {
   processingGroupKey.value = `${webhookId}:${groupKey}`;
   try {
     await api.processGroupNow(webhookId, groupKey);
-    // Remove from local state immediately
-    pendingMergeGroups.value = pendingMergeGroups.value.filter(
-      g => g.compositeKey !== `${webhookId}:${groupKey}`
-    );
+    // Refresh pending groups to get updated status (now 'processing')
+    await pollPendingMergeGroups();
     addToast({
       title: 'Processing Started',
       message: 'Group is being processed now',
       variant: 'success'
     });
-    // Refresh inbox after a short delay to show results
-    setTimeout(() => loadInbox(), 2000);
   } catch (error) {
     console.error('Failed to process group:', error);
     addToast({
@@ -5747,6 +5754,17 @@ input[type='checkbox']:checked::after {
   50% { background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(30, 41, 59, 0.5) 100%); }
 }
 
+.pending-group-row--processing {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%);
+  border-color: rgba(59, 130, 246, 0.4);
+  animation: processingGroupPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes processingGroupPulse {
+  0%, 100% { background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%); }
+  50% { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 41, 59, 0.5) 100%); }
+}
+
 .pending-group-placeholder {
   display: flex;
   align-items: center;
@@ -5807,6 +5825,33 @@ input[type='checkbox']:checked::after {
 
 .pending-group-actions {
   flex-shrink: 0;
+}
+
+/* Processing state for pending groups */
+.pending-group-placeholder--processing {
+  opacity: 0.9;
+}
+
+.pending-group-placeholder--processing .pending-group-icon {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.pending-group-placeholder--processing .pending-group-count {
+  color: #60a5fa;
+}
+
+.pending-group-placeholder--processing .pending-group-timer strong {
+  color: #60a5fa;
+}
+
+.pending-group-spinner {
+  animation: spinnerRotate 1s linear infinite;
+}
+
+@keyframes spinnerRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* Merge group visual styling */

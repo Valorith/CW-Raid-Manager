@@ -3714,6 +3714,7 @@ export const api = {
     firstMessageAt: string;
     expiresAt: string;
     remainingSeconds: number;
+    status: 'pending' | 'processing';
   }>> {
     const response = await axios.get('/api/admin/webhooks/pending-merge-groups');
     return response.data.groups;

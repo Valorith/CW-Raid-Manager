@@ -86,7 +86,8 @@ interface PendingMergeGroup {
   messageIds: string[];
   firstMessageAt: Date;
   expiresAt: Date;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | null;  // null when processing
+  status: 'pending' | 'processing';
 }
 
 // Track pending merge groups by a composite key: webhookId:groupKey
@@ -2099,7 +2100,9 @@ function addMessageToPendingGroup(
       console.log(`[Webhook ${webhookId}] Found identifier "${groupKey}" - absorbing ${defaultGroup.messageIds.length} messages from 'default' group`);
 
       // Clear the default group's timer
-      clearTimeout(defaultGroup.timer);
+      if (defaultGroup.timer) {
+        clearTimeout(defaultGroup.timer);
+      }
       pendingMergeGroups.delete(`${webhookId}:default`);
 
       // Check if a group with this key already exists
@@ -2126,7 +2129,8 @@ function addMessageToPendingGroup(
           messageIds: [...defaultGroup.messageIds, messageId],
           firstMessageAt: defaultGroup.firstMessageAt,
           expiresAt,
-          timer
+          timer,
+          status: 'pending'
         };
 
         pendingMergeGroups.set(compositeKey, group);
@@ -2157,7 +2161,8 @@ function addMessageToPendingGroup(
       messageIds: [messageId],
       firstMessageAt: now,
       expiresAt,
-      timer
+      timer,
+      status: 'pending'
     };
 
     pendingMergeGroups.set(compositeKey, group);
@@ -2188,9 +2193,18 @@ async function processGroupWhenReady(compositeKey: string) {
     return;
   }
 
-  // Remove from pending and process
-  pendingMergeGroups.delete(compositeKey);
-  await processSpecificGroup(group);
+  // Mark as processing (don't delete yet - keep showing in UI)
+  group.status = 'processing';
+  group.timer = null;
+  console.log(`[processGroupWhenReady] Group ${compositeKey} now processing`);
+
+  try {
+    await processSpecificGroup(group);
+  } finally {
+    // Remove from pending after processing completes
+    pendingMergeGroups.delete(compositeKey);
+    console.log(`[processGroupWhenReady] Group ${compositeKey} processing complete, removed from pending`);
+  }
 }
 
 /**
@@ -2205,12 +2219,23 @@ export async function processGroupNow(webhookId: string, groupKey: string): Prom
     return false;
   }
 
-  // Clear the timer and process immediately
-  clearTimeout(group.timer);
-  pendingMergeGroups.delete(compositeKey);
+  // Clear the timer and mark as processing
+  if (group.timer) {
+    clearTimeout(group.timer);
+  }
+  group.status = 'processing';
+  group.timer = null;
 
   console.log(`[Webhook ${webhookId}] Manually processing group "${groupKey}" with ${group.messageIds.length} messages`);
-  await processSpecificGroup(group);
+
+  try {
+    await processSpecificGroup(group);
+  } finally {
+    // Remove from pending after processing completes
+    pendingMergeGroups.delete(compositeKey);
+    console.log(`[processGroupNow] Group ${compositeKey} processing complete, removed from pending`);
+  }
+
   return true;
 }
 
@@ -2226,6 +2251,7 @@ export function getPendingMergeGroups(): Array<{
   firstMessageAt: Date;
   expiresAt: Date;
   remainingSeconds: number;
+  status: 'pending' | 'processing';
 }> {
   const now = Date.now();
   return Array.from(pendingMergeGroups.entries()).map(([compositeKey, group]) => ({
@@ -2236,7 +2262,8 @@ export function getPendingMergeGroups(): Array<{
     messageIds: group.messageIds,
     firstMessageAt: group.firstMessageAt,
     expiresAt: group.expiresAt,
-    remainingSeconds: Math.max(0, Math.ceil((group.expiresAt.getTime() - now) / 1000))
+    remainingSeconds: Math.max(0, Math.ceil((group.expiresAt.getTime() - now) / 1000)),
+    status: group.status
   }));
 }
 
