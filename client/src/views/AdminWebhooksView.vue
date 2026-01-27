@@ -1172,6 +1172,9 @@
             <span class="ai-icon">✦</span>
             <span>Sorted with AI</span>
             <span class="ai-confidence">({{ Math.round(aiSortResult.confidence * 100) }}% confidence)</span>
+            <span v-if="aiSortResult.removeIds?.length" class="ai-removed">
+              | Deleted {{ aiSortResult.removeIds.length }} redundant segment{{ aiSortResult.removeIds.length > 1 ? 's' : '' }}
+            </span>
             <span v-if="aiSortResult.reasoning" class="ai-reasoning muted small">{{ aiSortResult.reasoning }}</span>
           </div>
           <p class="muted small">Drag to reorder. Messages will be combined in the order shown below.</p>
@@ -3132,22 +3135,45 @@ async function sortWithAi() {
 
   try {
     // Build segments array from current merge ordering
+    // Only send essential content to minimize token usage
     const segments = mergeOrdering.value.map((id) => {
       const msg = getMergeMessage(id);
-      const payloadText = msg?.payload ? JSON.stringify(msg.payload) : '';
-      return { id, text: payloadText };
+      // Extract only the content field, not the entire payload with redundant crashReport data
+      const text = msg ? getCrashReportText(msg) : '';
+      return { id, text: text || '' };
     });
 
     const result = await api.sortCrashSegments(segments);
     aiSortResult.value = result;
 
-    // Apply the AI-suggested ordering
+    // Apply the AI-suggested ordering (this excludes removed segments)
     mergeOrdering.value = result.orderedIds;
     aiSortApplied.value = true;
 
+    // Delete redundant messages identified by AI
+    const removeIds = result.removeIds ?? [];
+    if (removeIds.length > 0) {
+      for (const id of removeIds) {
+        try {
+          await api.deleteInboundWebhookMessage(id);
+          // Remove from local state
+          inboxMessages.value = inboxMessages.value.filter((m) => m.id !== id);
+          inboxTotal.value = Math.max(0, inboxTotal.value - 1);
+        } catch (err) {
+          console.error(`Failed to delete redundant message ${id}:`, err);
+        }
+      }
+    }
+
+    // Build toast message
+    const removedCount = removeIds.length;
+    const toastMessage = removedCount > 0
+      ? `Confidence: ${Math.round(result.confidence * 100)}% | Deleted ${removedCount} redundant segment${removedCount > 1 ? 's' : ''}`
+      : `Confidence: ${Math.round(result.confidence * 100)}%`;
+
     addToast({
       title: 'Sorted with AI',
-      message: `Confidence: ${Math.round(result.confidence * 100)}%`
+      message: toastMessage
     });
   } catch (error) {
     console.error('Failed to sort with AI:', error);
@@ -5106,6 +5132,8 @@ input[type='checkbox']:checked::after {
   flex-direction: column;
   gap: 0.5rem;
   margin: 1rem 0;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
 .merge-item {
@@ -5249,6 +5277,11 @@ input[type='checkbox']:checked::after {
 
 .ai-sort-banner .ai-confidence {
   color: rgba(196, 181, 253, 0.7);
+}
+
+.ai-sort-banner .ai-removed {
+  color: rgba(251, 191, 36, 0.9);
+  font-weight: 500;
 }
 
 .ai-sort-banner .ai-reasoning {

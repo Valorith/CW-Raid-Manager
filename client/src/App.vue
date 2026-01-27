@@ -271,7 +271,7 @@
 
     <div class="toast-container" aria-live="polite" aria-atomic="true">
       <TransitionGroup name="toast" tag="div">
-        <div v-for="toast in toasts" :key="toast.id" class="toast">
+        <div v-for="toast in toasts" :key="toast.id" class="toast" :class="toast.variant ? `toast--${toast.variant}` : ''">
           <strong>{{ toast.title }}</strong>
           <p>{{ toast.message }}</p>
         </div>
@@ -353,10 +353,10 @@ function handleDismissNpcNotifications(ids: string[]) {
   npcRespawnStore.dismissNotifications(ids);
 }
 
-const toasts = ref<{ id: number; title: string; message: string }[]>([]);
+const toasts = ref<{ id: number; title: string; message: string; variant?: string }[]>([]);
 let toastId = 0;
 
-function addToast(payload: { title: string; message: string }) {
+function addToast(payload: { title: string; message: string; variant?: string }) {
   const id = ++toastId;
   toasts.value.push({ id, ...payload });
   window.setTimeout(() => {
@@ -429,11 +429,12 @@ function handleRaidShareCopied(event: CustomEvent<{ raidName?: string }>) {
   });
 }
 
-function handleShowToast(event: CustomEvent<{ title?: string; message?: string }>) {
+function handleShowToast(event: CustomEvent<{ title?: string; message?: string; variant?: string }>) {
   const detail = event.detail ?? {};
   addToast({
     title: detail.title ?? 'Notice',
-    message: detail.message ?? ''
+    message: detail.message ?? '',
+    variant: detail.variant
   });
 }
 
@@ -1415,6 +1416,18 @@ function hasRaidStarted(raid: RaidEventSummary) {
   margin: 0;
   font-size: 0.85rem;
   color: #cbd5f5;
+}
+
+.toast--success {
+  border-left-color: #22c55e;
+}
+
+.toast--warning {
+  border-left-color: #f59e0b;
+}
+
+.toast--error {
+  border-left-color: #ef4444;
 }
 
 </style>

@@ -1214,10 +1214,6 @@ function detectQuestError(
   const summaryLower = summary.toLowerCase();
   const rawLower = rawText?.toLowerCase() ?? '';
 
-  // DEBUG: Log what we're checking
-  console.log('[detectQuestError] rawText first 200 chars:', rawText?.slice(0, 200));
-  console.log('[detectQuestError] checking for questerrors:', rawLower.includes('questerrors'));
-
   // MOST RELIABLE: Check raw text for explicit markers first
   // Check for QuestErrors marker (with or without markdown formatting)
   // This takes priority over everything else
@@ -1227,7 +1223,6 @@ function detectQuestError(
     rawLower.includes('questerrors]') ||
     rawLower.includes('**questerrors**')
   ) {
-    console.log('[detectQuestError] MATCHED quest error marker, returning true');
     return true;
   }
   if (
@@ -1238,10 +1233,30 @@ function detectQuestError(
     return true;
   }
 
+  // Check for explicit crash indicators in raw text - these definitively indicate a crash, NOT a script error
+  // Crash report title/header markers
+  if (rawLower.includes('crash report |') || rawLower.includes('**crash report**')) {
+    return false;
+  }
+  // Crash log file names (e.g., crash_mischiefplane_version_0_inst_id_0_port_7001_6832.log)
+  if (/crash_\w+.*\.log/i.test(rawText ?? '')) {
+    return false;
+  }
   // If raw text starts with [Crash] markers (e.g., "[Crash] Zone [zonename]"), it's NOT a script error
   const rawStripped = rawText?.replace(/\*\*/g, '').replace(/__/g, '').toLowerCase() ?? '';
   if (rawStripped.startsWith('[crash]') || /^\[crash\]\s+zone\s+\[/.test(rawStripped)) {
     return false;
+  }
+
+  // Check if the raw text looks like a crash dump (multiple DLL/EXE module lines)
+  // This is characteristic of native crashes, not script errors
+  if (rawText) {
+    const modulePattern = /\.(exe|dll):\w+.*\(0x[0-9a-f]+\)/gi;
+    const moduleMatches = rawText.match(modulePattern);
+    if (moduleMatches && moduleMatches.length >= 3) {
+      // Multiple module load lines indicate a native crash dump
+      return false;
+    }
   }
 
   // Check if summary explicitly starts with the type prefix
@@ -1270,11 +1285,14 @@ function detectQuestError(
   }
 
   // Check for script error indicators
+  // NOTE: Be careful not to match Perl DLL paths (C:\Strawberry\perl\...) as script errors
+  // Only match if there's explicit script error context, not just perl in a path
   const hasScriptErrorIndicators =
     exception.includes('[questerrors]') ||
     exception.includes('script error') ||
     summaryLower.includes('quest script') ||
-    summaryLower.includes('perl script') ||
+    // Match "perl script" only if it's about a script, not a perl DLL path
+    (summaryLower.includes('perl script') && !rawLower.includes('strawberry\\perl\\')) ||
     summaryLower.includes('lua script') ||
     summaryLower.includes('script error') ||
     summaryLower.includes('[questerrors]');

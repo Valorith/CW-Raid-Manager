@@ -1277,41 +1277,96 @@ export async function inspectCrashReport(crashReportText: string): Promise<Crash
 
 export interface CrashSegmentSortResult {
   orderedIds: string[];
+  removeIds: string[];
   confidence: number;
   reasoning: string;
 }
 
-const SEGMENT_SORT_PROMPT = `You are an expert at analyzing crash reports and log files.
+// Use Flash model for sorting - faster and doesn't have thinking token overhead
+const SORT_MODEL_NAME = 'gemini-2.0-flash';
 
-You will be given multiple segments of what appears to be a single crash report that was split into parts (likely due to message length limits). Your task is to determine the correct order of these segments.
+const SEGMENT_SORT_PROMPT = `Sort crash report segments and identify duplicates.
 
-Analyze the content of each segment and look for:
-- Timestamps or sequence indicators
-- Stack trace continuity (function calls that should flow into each other)
-- Log message progression
-- Headers/footers that indicate beginning or end of report
-- Module loading order
-- Error propagation flow
-- "Continued..." or truncation markers
-- Line numbers or offsets
+Return JSON only:
+{"orderedIds":["id1","id2"],"removeIds":["id3"],"confidence":0.85,"reasoning":"brief explanation"}
 
-Return a JSON object with this exact structure:
-{
-  "orderedIds": ["id1", "id2", "id3"],
-  "confidence": 0.85,
-  "reasoning": "Brief explanation of why this order was chosen"
-}
+Rules:
+- orderedIds: non-duplicate IDs in correct order (use chunk numbers if present)
+- removeIds: duplicate/redundant segment IDs
+- Look for: chunk numbers, EXCEPTION headers (start), RtlUserThreadStart (end)
+- Segments with "[**Crash**] **Zone**" prefix are often duplicates of "Crash Report" chunks
 
-Where:
-- orderedIds is an array of the segment IDs in the correct order (first to last)
-- confidence is a number between 0 and 1 indicating how confident you are
-- reasoning is a brief explanation
-
-IMPORTANT: The orderedIds array must contain ALL the segment IDs provided, no more, no less.
-
-Here are the segments to sort:
-
+Segments:
 `;
+
+// Aggressive compression for sorting - we only need minimal context
+const SORT_HEAD_CHARS = 400;
+const SORT_TAIL_CHARS = 200;
+const SORT_SEGMENT_MAX_CHARS = SORT_HEAD_CHARS + SORT_TAIL_CHARS + 100;
+
+/**
+ * Compress a segment for sorting purposes.
+ * We only need enough context to identify ordering, not full content.
+ */
+function compressSegmentForSorting(text: string): string {
+  if (!text || text.length <= SORT_SEGMENT_MAX_CHARS) {
+    return text;
+  }
+
+  // Extract key ordering indicators
+  const lines = text.split(/\r?\n/);
+  const indicators: string[] = [];
+
+  // Look for explicit chunk numbers
+  const chunkMatch = text.match(/\*?\*?Chunk\*?\*?\s*\[(\d+)\]/i);
+  if (chunkMatch) {
+    indicators.push(`[CHUNK ${chunkMatch[1]}]`);
+  }
+
+  // Look for header indicators (typically at start of crash)
+  const headerPatterns = [
+    /EXCEPTION_\w+/i,
+    /SymInit:/i,
+    /OS-Version:/i,
+    /Crash Report.*Chunk\s*\[\d+\]/i
+  ];
+  for (const pattern of headerPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      indicators.push(match[0]);
+      break;
+    }
+  }
+
+  // Look for footer indicators (typically at end of crash)
+  const footerPatterns = [
+    /RtlUserThreadStart/i,
+    /BaseThreadInitThunk/i,
+    /ntdll.*RtlUser/i
+  ];
+  for (const pattern of footerPatterns) {
+    if (pattern.test(text)) {
+      indicators.push('[END INDICATOR PRESENT]');
+      break;
+    }
+  }
+
+  // Get first and last lines for continuity checking
+  const head = text.slice(0, SORT_HEAD_CHARS);
+  const tail = text.length > SORT_TAIL_CHARS ? text.slice(-SORT_TAIL_CHARS) : '';
+
+  // Build compressed output
+  const parts: string[] = [];
+  if (indicators.length > 0) {
+    parts.push(`Indicators: ${indicators.join(', ')}`);
+  }
+  parts.push(`--- HEAD ---\n${head}`);
+  if (tail) {
+    parts.push(`--- TAIL ---\n${tail}`);
+  }
+
+  return parts.join('\n');
+}
 
 export async function sortCrashReportSegments(
   segments: Array<{ id: string; text: string }>
@@ -1325,22 +1380,26 @@ export async function sortCrashReportSegments(
     throw new Error('At least 2 segments are required for sorting.');
   }
 
+  // First, try to sort by explicit chunk numbers if present
+  const chunkOrder = tryChunkNumberSort(segments);
+  if (chunkOrder) {
+    return chunkOrder;
+  }
+
   const ai = new GoogleGenAI({ apiKey });
 
-  // Build the prompt with all segments
+  // Build the prompt with compressed segments
   let prompt = SEGMENT_SORT_PROMPT;
   for (const segment of segments) {
-    const truncatedText = segment.text.length > 50000
-      ? segment.text.slice(0, 50000) + '\n...<truncated>'
-      : segment.text;
-    prompt += `\n=== SEGMENT ID: ${segment.id} ===\n${truncatedText}\n`;
+    const compressed = compressSegmentForSorting(segment.text);
+    prompt += `\n=== ID: ${segment.id} ===\n${compressed}\n`;
   }
 
   const response = await ai.models.generateContent({
-    model: MODEL_NAME,
+    model: SORT_MODEL_NAME,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
-      maxOutputTokens: 2048,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       temperature: 0.1
     }
   });
@@ -1353,7 +1412,7 @@ export async function sortCrashReportSegments(
     throw new Error('Failed to parse sorting response - no JSON found');
   }
 
-  let parsed: { orderedIds?: unknown[]; confidence?: number; reasoning?: string };
+  let parsed: { orderedIds?: unknown[]; removeIds?: unknown[]; confidence?: number; reasoning?: string };
   try {
     parsed = JSON.parse(jsonMatch[0]);
   } catch {
@@ -1367,13 +1426,19 @@ export async function sortCrashReportSegments(
 
   const segmentIds = new Set(segments.map(s => s.id));
   const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[];
+  const removeIds = Array.isArray(parsed.removeIds)
+    ? (parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[])
+    : [];
 
-  // Ensure all segment IDs are present
-  if (orderedIds.length !== segments.length) {
-    // Fall back to original order if AI response is incomplete
-    console.warn('AI sorting response incomplete, some IDs missing. Falling back to adding missing IDs.');
+  // Create a set of all IDs that are accounted for (either ordered or removed)
+  const accountedIds = new Set([...orderedIds, ...removeIds]);
+
+  // Ensure all segment IDs are accounted for
+  if (accountedIds.size !== segments.length) {
+    // Add any missing IDs to orderedIds (don't auto-remove)
+    console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
     for (const segment of segments) {
-      if (!orderedIds.includes(segment.id)) {
+      if (!accountedIds.has(segment.id)) {
         orderedIds.push(segment.id);
       }
     }
@@ -1381,7 +1446,48 @@ export async function sortCrashReportSegments(
 
   return {
     orderedIds,
+    removeIds,
     confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
     reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
+  };
+}
+
+/**
+ * Try to sort segments by explicit chunk numbers (e.g., "Chunk [1]", "Chunk [2]").
+ * Returns null if not all segments have clear chunk numbers.
+ */
+function tryChunkNumberSort(
+  segments: Array<{ id: string; text: string }>
+): CrashSegmentSortResult | null {
+  const segmentsWithChunks: Array<{ id: string; chunk: number }> = [];
+
+  for (const segment of segments) {
+    // Look for "Chunk [N]" pattern (with optional markdown formatting)
+    const match = segment.text.match(/\*?\*?Chunk\*?\*?\s*\[(\d+)\]/i);
+    if (match) {
+      segmentsWithChunks.push({ id: segment.id, chunk: parseInt(match[1], 10) });
+    }
+  }
+
+  // Only use chunk sorting if ALL segments have chunk numbers
+  if (segmentsWithChunks.length !== segments.length) {
+    return null;
+  }
+
+  // Check for duplicates or gaps that would indicate unreliable chunk numbers
+  const chunkNumbers = segmentsWithChunks.map(s => s.chunk).sort((a, b) => a - b);
+  const hasDuplicates = new Set(chunkNumbers).size !== chunkNumbers.length;
+  if (hasDuplicates) {
+    return null;
+  }
+
+  // Sort by chunk number
+  segmentsWithChunks.sort((a, b) => a.chunk - b.chunk);
+
+  return {
+    orderedIds: segmentsWithChunks.map(s => s.id),
+    removeIds: [],
+    confidence: 0.95,
+    reasoning: `Sorted by explicit chunk numbers [${chunkNumbers.join(', ')}]`
   };
 }

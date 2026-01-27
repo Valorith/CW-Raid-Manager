@@ -1505,6 +1505,7 @@ export interface CrashInspectionResult {
 
 export interface CrashSegmentSortResult {
   orderedIds: string[];
+  removeIds: string[];
   confidence: number;
   reasoning: string;
 }
