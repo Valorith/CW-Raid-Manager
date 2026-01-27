@@ -504,9 +504,14 @@ export async function retryCrashReviewForMessage(messageId: string) {
       }
     });
 
-    // Auto-label based on crash type (script error vs crash) and webhook source
+    // Detect crash type (script error vs crash) once for both labeling and Discord
     const findingsRecord = findings as Record<string, unknown> | null;
-    const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
+    const signature = findingsRecord?.signature as { exception?: string | null; topFrame?: string | null } | undefined;
+    const summaryText = typeof findingsRecord?.summary === 'string' ? findingsRecord.summary as string : '';
+    const isQuestError = detectQuestError(signature, summaryText, crashInput);
+    const errorType = isQuestError ? 'script_error' : 'crash';
+
+    // Auto-label based on crash type and webhook source
     await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label, crashInput);
 
     // After successful AI review, trigger Discord action if configured
@@ -518,8 +523,8 @@ export async function retryCrashReviewForMessage(messageId: string) {
       if (discordConfig.discordWebhookUrl) {
         const discordStartedAt = Date.now();
         try {
-          // Build enriched payload with crash review findings
-          const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts);
+          // Build enriched payload with crash review findings and error type
+          const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts, errorType);
           await sendDiscordRelay(discordConfig.discordWebhookUrl, enrichedPayload, discordConfig, messageId);
           await prisma.inboundWebhookActionRun.create({
             data: {
@@ -785,11 +790,17 @@ async function runInboundWebhookActions(
             }
           });
           summary.push({ actionId: action.id, status: 'SUCCESS' });
-          payloadForActions = enrichPayloadWithCrashReview(payloadForActions, findings, attempts);
 
-          // Auto-label based on crash type (script error vs crash) and webhook source
+          // Detect crash type (script error vs crash) once for both labeling and Discord
           const findingsRecord = findings as Record<string, unknown> | null;
-          const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
+          const signature = findingsRecord?.signature as { exception?: string | null; topFrame?: string | null } | undefined;
+          const summaryText = typeof findingsRecord?.summary === 'string' ? findingsRecord.summary as string : '';
+          const isQuestError = detectQuestError(signature, summaryText, crashInput);
+          const errorType = isQuestError ? 'script_error' : 'crash';
+
+          payloadForActions = enrichPayloadWithCrashReview(payloadForActions, findings, attempts, errorType);
+
+          // Auto-label based on crash type and webhook source
           await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel, crashInput);
         } catch (error) {
           overallStatus = 'FAILED';
@@ -1073,17 +1084,27 @@ function buildCrashReportExtract(extracted: {
   };
 }
 
-function enrichPayloadWithCrashReview(payload: unknown, findings: unknown, attempts: number) {
+function enrichPayloadWithCrashReview(
+  payload: unknown,
+  findings: unknown,
+  attempts: number,
+  errorType?: 'crash' | 'script_error'
+) {
+  // Enrich findings with error type if provided
+  const enrichedFindings = findings && typeof findings === 'object' && !Array.isArray(findings)
+    ? { ...(findings as Record<string, unknown>), errorType }
+    : findings;
+
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     return {
       ...(payload as Record<string, unknown>),
-      crashReview: findings,
+      crashReview: enrichedFindings,
       crashReviewAttempts: attempts
     };
   }
 
   return {
-    crashReview: findings,
+    crashReview: enrichedFindings,
     crashReviewAttempts: attempts,
     originalPayload: payload
   };
@@ -1220,8 +1241,12 @@ function buildCrashReviewEmbed(findings: unknown, _template?: string, messageId?
   const signature = record.signature as { exception?: string | null; topFrame?: string | null } | undefined;
   const telemetry = record.telemetry as { model?: string; attempts?: number } | undefined;
 
-  // Detect if this is a quest/script error vs a crash report
-  const isQuestError = detectQuestError(signature, summary);
+  // Use errorType from findings if available (set by enrichPayloadWithCrashReview),
+  // otherwise fall back to detection (for backwards compatibility)
+  const errorType = record.errorType as 'crash' | 'script_error' | undefined;
+  const isQuestError = errorType
+    ? errorType === 'script_error'
+    : detectQuestError(signature, summary);
 
   // Build link to webhook inbox for this message
   const messageUrl = messageId && clientBaseUrl
