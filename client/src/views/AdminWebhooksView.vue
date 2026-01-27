@@ -669,6 +669,46 @@
             </tr>
           </thead>
           <tbody>
+            <!-- Pending Merge Group Placeholders -->
+            <tr
+              v-for="group in pendingMergeGroups"
+              :key="group.compositeKey"
+              class="pending-group-row"
+            >
+              <td class="table__checkbox-col"></td>
+              <td class="table__star-col"></td>
+              <td colspan="6">
+                <div class="pending-group-placeholder">
+                  <div class="pending-group-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12,6 12,12 16,14" />
+                    </svg>
+                  </div>
+                  <div class="pending-group-info">
+                    <div class="pending-group-title">
+                      <span class="pending-group-count">{{ group.messageCount }} messages</span>
+                      <span class="pending-group-key">{{ group.groupKey !== 'default' ? group.groupKey : 'pending auto-merge' }}</span>
+                    </div>
+                    <div class="pending-group-timer">
+                      Processing in <strong>{{ group.remainingSeconds }}s</strong>
+                    </div>
+                  </div>
+                  <div class="pending-group-actions">
+                    <button
+                      class="btn btn--small btn--accent"
+                      type="button"
+                      :disabled="processingGroupKey === group.compositeKey"
+                      @click="processGroupNow(group.webhookId, group.groupKey)"
+                    >
+                      {{ processingGroupKey === group.compositeKey ? 'Processing...' : 'Process Now' }}
+                    </button>
+                  </div>
+                </div>
+              </td>
+              <td></td>
+            </tr>
+
             <template v-for="message in inboxMessages" :key="message.id">
               <!-- Regular message row -->
               <tr
@@ -1868,11 +1908,70 @@ const processingStatus = reactive({
 });
 let processingStatusInterval: ReturnType<typeof setInterval> | null = null;
 
+// Pending merge groups tracking
+interface PendingMergeGroup {
+  compositeKey: string;
+  groupKey: string;
+  webhookId: string;
+  messageCount: number;
+  messageIds: string[];
+  firstMessageAt: string;
+  expiresAt: string;
+  remainingSeconds: number;
+}
+const pendingMergeGroups = ref<PendingMergeGroup[]>([]);
+const processingGroupKey = ref<string | null>(null);
+
+async function pollPendingMergeGroups() {
+  try {
+    const groups = await api.getPendingMergeGroups();
+    const hadGroups = pendingMergeGroups.value.length > 0;
+    pendingMergeGroups.value = groups;
+
+    // If groups just finished (went from having groups to zero), refresh inbox
+    if (hadGroups && groups.length === 0) {
+      await loadInbox();
+    }
+  } catch (error) {
+    // Silently ignore polling errors
+  }
+}
+
+async function processGroupNow(webhookId: string, groupKey: string) {
+  processingGroupKey.value = `${webhookId}:${groupKey}`;
+  try {
+    await api.processGroupNow(webhookId, groupKey);
+    // Remove from local state immediately
+    pendingMergeGroups.value = pendingMergeGroups.value.filter(
+      g => g.compositeKey !== `${webhookId}:${groupKey}`
+    );
+    addToast({
+      title: 'Processing Started',
+      message: 'Group is being processed now',
+      variant: 'success'
+    });
+    // Refresh inbox after a short delay to show results
+    setTimeout(() => loadInbox(), 2000);
+  } catch (error) {
+    console.error('Failed to process group:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to trigger processing',
+      variant: 'error'
+    });
+  } finally {
+    processingGroupKey.value = null;
+  }
+}
+
 async function pollProcessingStatus() {
   try {
     const status = await api.getWebhookProcessingStatus();
     processingStatus.hasPendingProcessing = status.hasPendingProcessing;
     processingStatus.pendingWebhookIds = status.pendingWebhookIds;
+
+    // Also poll pending merge groups
+    await pollPendingMergeGroups();
 
     // If processing just finished, refresh the inbox
     if (!status.hasPendingProcessing && processingStatus.pendingWebhookIds.length > 0) {
@@ -5619,6 +5718,80 @@ input[type='checkbox']:checked::after {
 
 .inbox-row--archived {
   opacity: 0.6;
+}
+
+/* Pending Merge Group Placeholder */
+.pending-group-row {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%);
+  border: 2px dashed rgba(245, 158, 11, 0.4);
+  animation: pendingGroupPulse 2s ease-in-out infinite;
+}
+
+@keyframes pendingGroupPulse {
+  0%, 100% { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%); }
+  50% { background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(30, 41, 59, 0.5) 100%); }
+}
+
+.pending-group-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0;
+}
+
+.pending-group-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 158, 11, 0.2);
+  border-radius: 50%;
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.pending-group-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.pending-group-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.pending-group-count {
+  font-weight: 600;
+  color: #fbbf24;
+}
+
+.pending-group-key {
+  color: #94a3b8;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.pending-group-timer {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+.pending-group-timer strong {
+  color: #fbbf24;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.pending-group-actions {
+  flex-shrink: 0;
 }
 
 /* Merge group visual styling */

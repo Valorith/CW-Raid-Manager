@@ -67,7 +67,9 @@ import {
   processDismissedMergeMessages,
   getWebhookProcessingEnabled,
   getWebhookProcessingStatus,
-  setWebhookProcessingEnabled
+  setWebhookProcessingEnabled,
+  getPendingMergeGroups,
+  processGroupNow
 } from '../services/inboundWebhookService.js';
 import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
 import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
@@ -2595,6 +2597,49 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
       await setWebhookProcessingEnabled(parsed.data.enabled);
       return { enabled: parsed.data.enabled };
+    }
+  );
+
+  // ============================================================================
+  // Pending Merge Groups
+  // ============================================================================
+
+  server.get(
+    '/webhooks/pending-merge-groups',
+    {
+      preHandler: [authenticate, requireGuideOrAdmin]
+    },
+    async () => {
+      const groups = getPendingMergeGroups();
+      return { groups };
+    }
+  );
+
+  server.post(
+    '/webhooks/:webhookId/process-group-now',
+    {
+      preHandler: [authenticate, requireGuideOrAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ webhookId: z.string() });
+      const bodySchema = z.object({ groupKey: z.string() });
+
+      const params = paramsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.badRequest('Invalid webhook ID.');
+      }
+
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return reply.badRequest('Invalid payload. String "groupKey" field required.');
+      }
+
+      const success = await processGroupNow(params.data.webhookId, body.data.groupKey);
+      if (!success) {
+        return reply.notFound('Pending group not found. It may have already been processed.');
+      }
+
+      return { success: true };
     }
   );
 }

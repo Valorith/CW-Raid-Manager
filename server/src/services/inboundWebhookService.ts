@@ -79,8 +79,20 @@ export async function setWebhookProcessingEnabled(enabled: boolean): Promise<voi
 // Auto-Merge Timer Tracking
 // ============================================================================
 
-// Track pending message processing timers by webhook ID
-// When a new message arrives, we reset the timer to wait for the full merge window
+// Pending auto-merge group info
+interface PendingMergeGroup {
+  groupKey: string;           // Crash file identifier or 'default'
+  webhookId: string;
+  messageIds: string[];
+  firstMessageAt: Date;
+  expiresAt: Date;
+  timer: NodeJS.Timeout;
+}
+
+// Track pending merge groups by a composite key: webhookId:groupKey
+const pendingMergeGroups = new Map<string, PendingMergeGroup>();
+
+// Legacy timer map for backwards compatibility during transition
 const pendingProcessingTimers = new Map<string, NodeJS.Timeout>();
 
 // Track auto-merge retry counts to limit retries
@@ -89,6 +101,9 @@ const AUTO_MERGE_MAX_RETRIES = 1;
 
 // Track webhooks currently being processed to prevent concurrent processing
 const processingWebhooks = new Set<string>();
+
+// Track groups currently being processed to prevent concurrent processing
+const processingGroups = new Set<string>();
 
 // Resolve client base URL for building links
 const clientBaseUrl = resolveClientBaseUrl();
@@ -603,11 +618,11 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     data: { lastReceivedAt: new Date() }
   });
 
-  // Schedule delayed processing after merge window closes
-  // This allows multiple messages to accumulate before deciding how to process them
+  // Add message to pending merge group with fixed timer from first message
   const mergeWindow = webhook.mergeWindowSeconds ?? 60;
-  console.log(`[WEBHOOK RECEIVE] Message created: ${message.id}, scheduling delayed processing in ${mergeWindow}s`);
-  scheduleDelayedProcessing(webhook.id, mergeWindow);
+  const groupKey = extractCrashFileIdentifier(input.payload, input.rawBody ?? null) || 'default';
+  console.log(`[WEBHOOK RECEIVE] Message created: ${message.id}, adding to group "${groupKey}" (merge window: ${mergeWindow}s)`);
+  addMessageToPendingGroup(webhook.id, message.id, groupKey, mergeWindow);
 
   console.log(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
   return message;
@@ -644,8 +659,10 @@ export async function createInboundWebhookMessageForAdmin(options: {
   });
 
   if (options.runActions !== false) {
-    // Schedule delayed processing after merge window closes
-    scheduleDelayedProcessing(webhook.id, webhook.mergeWindowSeconds ?? 60);
+    // Add message to pending merge group with fixed timer from first message
+    const mergeWindow = webhook.mergeWindowSeconds ?? 60;
+    const groupKey = extractCrashFileIdentifier(options.payload, null) || 'default';
+    addMessageToPendingGroup(webhook.id, message.id, groupKey, mergeWindow);
   } else {
     await prisma.inboundWebhookMessage.update({
       where: { id: message.id },
@@ -2052,40 +2069,137 @@ export async function listInboundWebhookMessagesEnhanced(options: {
 // ============================================================================
 
 /**
- * Schedule delayed processing for a webhook after its merge window closes.
- * This allows multiple messages to accumulate before deciding how to process them.
- * If a timer is already pending, reset it to wait for the full window again.
+ * Add a message to a pending merge group. Creates a new group if one doesn't exist.
+ * Uses a FIXED timer from the first message - subsequent messages don't reset the timer.
  */
-function scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
-  const now = Date.now();
-  const existingTimer = pendingProcessingTimers.get(webhookId);
+function addMessageToPendingGroup(
+  webhookId: string,
+  messageId: string,
+  groupKey: string,
+  mergeWindowSeconds: number
+) {
+  const compositeKey = `${webhookId}:${groupKey}`;
+  const now = new Date();
 
-  if (existingTimer) {
-    console.log(`[Webhook ${webhookId}] RESETTING existing timer at ${new Date(now).toISOString()}`);
-    clearTimeout(existingTimer);
+  const existingGroup = pendingMergeGroups.get(compositeKey);
+
+  if (existingGroup) {
+    // Add message to existing group - timer stays fixed from first message
+    existingGroup.messageIds.push(messageId);
+    console.log(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${groupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
   } else {
-    console.log(`[Webhook ${webhookId}] Setting NEW timer at ${new Date(now).toISOString()}`);
+    // Create new group with fixed timer
+    const expiresAt = new Date(now.getTime() + mergeWindowSeconds * 1000);
+
+    const timer = setTimeout(() => {
+      console.log(`[Webhook ${webhookId}] Group "${groupKey}" timer FIRED at ${new Date().toISOString()}`);
+      void processGroupWhenReady(compositeKey);
+    }, mergeWindowSeconds * 1000);
+
+    const group: PendingMergeGroup = {
+      groupKey,
+      webhookId,
+      messageIds: [messageId],
+      firstMessageAt: now,
+      expiresAt,
+      timer
+    };
+
+    pendingMergeGroups.set(compositeKey, group);
+    console.log(`[Webhook ${webhookId}] Created NEW group "${groupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
+  }
+}
+
+/**
+ * Process a group when its timer fires.
+ */
+async function processGroupWhenReady(compositeKey: string) {
+  const group = pendingMergeGroups.get(compositeKey);
+  if (!group) {
+    console.log(`[processGroupWhenReady] Group ${compositeKey} not found, already processed?`);
+    return;
   }
 
-  // Schedule new timer to process after merge window closes
-  const scheduledTime = now + (mergeWindowSeconds * 1000);
+  // Remove from pending and process
+  pendingMergeGroups.delete(compositeKey);
+  await processSpecificGroup(group);
+}
+
+/**
+ * Manually trigger processing of a pending group (skip timer).
+ */
+export async function processGroupNow(webhookId: string, groupKey: string): Promise<boolean> {
+  const compositeKey = `${webhookId}:${groupKey}`;
+  const group = pendingMergeGroups.get(compositeKey);
+
+  if (!group) {
+    console.log(`[processGroupNow] Group ${compositeKey} not found`);
+    return false;
+  }
+
+  // Clear the timer and process immediately
+  clearTimeout(group.timer);
+  pendingMergeGroups.delete(compositeKey);
+
+  console.log(`[Webhook ${webhookId}] Manually processing group "${groupKey}" with ${group.messageIds.length} messages`);
+  await processSpecificGroup(group);
+  return true;
+}
+
+/**
+ * Get all pending merge groups for the UI.
+ */
+export function getPendingMergeGroups(): Array<{
+  compositeKey: string;
+  groupKey: string;
+  webhookId: string;
+  messageCount: number;
+  messageIds: string[];
+  firstMessageAt: Date;
+  expiresAt: Date;
+  remainingSeconds: number;
+}> {
+  const now = Date.now();
+  return Array.from(pendingMergeGroups.entries()).map(([compositeKey, group]) => ({
+    compositeKey,
+    groupKey: group.groupKey,
+    webhookId: group.webhookId,
+    messageCount: group.messageIds.length,
+    messageIds: group.messageIds,
+    firstMessageAt: group.firstMessageAt,
+    expiresAt: group.expiresAt,
+    remainingSeconds: Math.max(0, Math.ceil((group.expiresAt.getTime() - now) / 1000))
+  }));
+}
+
+/**
+ * Legacy function for backwards compatibility - schedules using old approach.
+ * @deprecated Use addMessageToPendingGroup instead
+ */
+function scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
+  // This is kept for any code paths that haven't been migrated yet
+  const existingTimer = pendingProcessingTimers.get(webhookId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
   const timer = setTimeout(() => {
-    const fireTime = Date.now();
-    console.log(`[Webhook ${webhookId}] TIMER FIRED at ${new Date(fireTime).toISOString()} (scheduled for ${new Date(scheduledTime).toISOString()})`);
     pendingProcessingTimers.delete(webhookId);
     void processWebhookMessages(webhookId);
   }, mergeWindowSeconds * 1000);
 
   pendingProcessingTimers.set(webhookId, timer);
-
-  console.log(`[Webhook ${webhookId}] Timer will fire at ${new Date(scheduledTime).toISOString()} (in ${mergeWindowSeconds}s)`);
 }
 
 /**
  * Check if a webhook is currently waiting for its merge window to close or actively processing.
  */
 export function isWebhookProcessingPending(webhookId: string): boolean {
-  return pendingProcessingTimers.has(webhookId) || processingWebhooks.has(webhookId);
+  // Check both old-style timers and new group-based pending
+  const hasLegacyTimer = pendingProcessingTimers.has(webhookId);
+  const hasPendingGroup = Array.from(pendingMergeGroups.values()).some(g => g.webhookId === webhookId);
+  const isProcessing = processingWebhooks.has(webhookId) || Array.from(processingGroups).some(k => k.startsWith(`${webhookId}:`));
+  return hasLegacyTimer || hasPendingGroup || isProcessing;
 }
 
 /**
@@ -2095,14 +2209,109 @@ export function isWebhookProcessingPending(webhookId: string): boolean {
 export function getPendingProcessingWebhookIds(): string[] {
   const pendingIds = new Set([
     ...Array.from(pendingProcessingTimers.keys()),
-    ...Array.from(processingWebhooks)
+    ...Array.from(pendingMergeGroups.values()).map(g => g.webhookId),
+    ...Array.from(processingWebhooks),
+    ...Array.from(processingGroups).map(k => k.split(':')[0])
   ]);
   return Array.from(pendingIds);
 }
 
 /**
+ * Process a specific group of messages by their IDs.
+ * This is called when a group's timer fires or when manually triggered.
+ */
+async function processSpecificGroup(group: PendingMergeGroup) {
+  const { webhookId, groupKey, messageIds } = group;
+  const compositeKey = `${webhookId}:${groupKey}`;
+
+  // Prevent concurrent processing for the same group
+  if (processingGroups.has(compositeKey)) {
+    console.log(`[Webhook ${webhookId}] Group "${groupKey}" already processing, skipping`);
+    return;
+  }
+
+  processingGroups.add(compositeKey);
+
+  try {
+    // Get webhook with its settings and actions
+    const webhook = await prisma.inboundWebhook.findUnique({
+      where: { id: webhookId },
+      include: { actions: true }
+    });
+
+    if (!webhook) {
+      console.log(`[Webhook ${webhookId}] Webhook not found, skipping group "${groupKey}"`);
+      return;
+    }
+
+    // Fetch the actual messages by ID
+    const messages = await prisma.inboundWebhookMessage.findMany({
+      where: {
+        id: { in: messageIds },
+        status: 'RECEIVED',
+        archivedAt: null,
+        mergedAt: null
+      },
+      include: {
+        labelAssignments: {
+          include: { label: true }
+        }
+      },
+      orderBy: { receivedAt: 'asc' }
+    });
+
+    if (messages.length === 0) {
+      console.log(`[Webhook ${webhookId}] No messages found for group "${groupKey}" (already processed?)`);
+      return;
+    }
+
+    console.log(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${messages.length} message(s), autoMerge=${webhook.autoMerge}`);
+
+    if (messages.length === 1) {
+      // Single message - process actions normally
+      const message = messages[0];
+      console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
+      await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label);
+    } else if (webhook.autoMerge) {
+      // Multiple messages with auto-merge enabled - merge and process
+      console.log(`[Webhook ${webhookId}] Auto-merging ${messages.length} messages for "${groupKey}"`);
+      try {
+        await processAutoMergeGroup(messages, webhook);
+      } catch (error) {
+        console.error(`[Webhook ${webhookId}] Auto-merge failed for ${messages.length} messages:`, error);
+        // Mark messages as PENDING_MERGE for manual intervention
+        await markMessagesAsPendingMerge(messages.map(m => m.id));
+      }
+    } else {
+      // Multiple messages without auto-merge - mark as pending merge decision
+      console.log(`[Webhook ${webhookId}] Marking ${messages.length} messages as pending merge (auto-merge disabled)`);
+      await markMessagesAsPendingMerge(messages.map(m => m.id));
+
+      // Send a notification about pending review
+      const discordAction = webhook.actions.find(
+        (action) => action.isEnabled && action.type === 'DISCORD_RELAY'
+      );
+
+      if (discordAction) {
+        const config = discordAction.config as { discordWebhookUrl?: string };
+        if (config?.discordWebhookUrl) {
+          const inboxUrl = clientBaseUrl ? `${clientBaseUrl}/admin/webhooks?tab=inbox` : null;
+          const notificationPayload = {
+            content: `📋 **${messages.length} messages pending merge review** for ${webhook.label}${groupKey !== 'default' ? ` (${groupKey})` : ''}${inboxUrl ? `\n🔗 [View in inbox](${inboxUrl})` : ''}`
+          };
+          await sendDiscordRelay(config.discordWebhookUrl, notificationPayload, config, messages[0].id);
+        }
+      }
+    }
+  } finally {
+    processingGroups.delete(compositeKey);
+  }
+}
+
+/**
  * Process webhook messages after merge window closes.
  * Handles both single messages and merge candidates appropriately.
+ * @deprecated Use processSpecificGroup instead - this is kept for legacy code paths
  */
 async function processWebhookMessages(webhookId: string, isRetry = false) {
   // Prevent concurrent processing for the same webhook
@@ -2209,6 +2418,32 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
     }
   } finally {
     processingWebhooks.delete(webhookId);
+
+    // Check if any new messages arrived while we were processing
+    // If so, we need to process them too (they would have scheduled a new timer)
+    const newMessages = await prisma.inboundWebhookMessage.findMany({
+      where: {
+        webhookId,
+        status: 'RECEIVED',
+        archivedAt: null,
+        mergedAt: null
+      },
+      select: { id: true }
+    });
+
+    if (newMessages.length > 0) {
+      console.log(`[Webhook ${webhookId}] Found ${newMessages.length} new message(s) that arrived during processing - will process shortly`);
+      // Clear any pending timer and schedule immediate reprocessing
+      const existingTimer = pendingProcessingTimers.get(webhookId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        pendingProcessingTimers.delete(webhookId);
+      }
+      // Schedule processing with a short delay to allow any in-flight messages to complete
+      setTimeout(() => {
+        void processWebhookMessages(webhookId);
+      }, 2000);
+    }
   }
 }
 

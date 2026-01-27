@@ -3705,6 +3705,25 @@ export const api = {
     return response.data.enabled;
   },
 
+  async getPendingMergeGroups(): Promise<Array<{
+    compositeKey: string;
+    groupKey: string;
+    webhookId: string;
+    messageCount: number;
+    messageIds: string[];
+    firstMessageAt: string;
+    expiresAt: string;
+    remainingSeconds: number;
+  }>> {
+    const response = await axios.get('/api/admin/webhooks/pending-merge-groups');
+    return response.data.groups;
+  },
+
+  async processGroupNow(webhookId: string, groupKey: string): Promise<boolean> {
+    const response = await axios.post(`/api/admin/webhooks/${webhookId}/process-group-now`, { groupKey });
+    return response.data.success;
+  },
+
   async createInboundWebhook(payload: {
     label: string;
     description?: string | null;
