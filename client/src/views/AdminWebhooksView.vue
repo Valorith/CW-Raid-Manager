@@ -270,13 +270,26 @@
                 </div>
               </header>
               <div v-if="showTestPanel" class="detail-panel__content">
-                <label class="form-field form-field--inline form-field--tight">
-                  <span>Run Actions</span>
-                  <input v-model="testDrafts[selectedWebhook.id].runActions" type="checkbox" />
-                </label>
+                <div class="test-options">
+                  <label class="form-field form-field--inline form-field--tight">
+                    <span>Run Actions</span>
+                    <input v-model="testDrafts[selectedWebhook.id].runActions" type="checkbox" />
+                  </label>
+                  <label class="form-field form-field--inline form-field--tight">
+                    <span>Repeat</span>
+                    <input
+                      v-model.number="testDrafts[selectedWebhook.id].repeatCount"
+                      type="number"
+                      min="1"
+                      max="10"
+                      class="input input--tiny"
+                    />
+                    <span class="input-suffix">times</span>
+                  </label>
+                </div>
                 <div class="form-grid">
                   <label class="form-field">
-                    <span>Payload (JSON)</span>
+                    <span>Payload (JSON or plain text)</span>
                     <textarea
                       v-model="testDrafts[selectedWebhook.id].payload"
                       class="textarea"
@@ -573,6 +586,9 @@
           </div>
         </div>
         <div class="card__actions">
+          <button class="btn btn--outline btn--small" type="button" @click="openWebhookSettings">
+            Webhook Settings
+          </button>
           <button class="btn btn--outline btn--small" type="button" @click="showLabelManager = true">
             Manage Labels
           </button>
@@ -644,11 +660,17 @@
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="message in inboxMessages"
-              :key="message.id"
-              :class="{ 'inbox-row--unread': !message.isRead, 'inbox-row--archived': message.archivedAt }"
-            >
+            <template v-for="message in inboxMessages" :key="message.id">
+              <!-- Regular message row -->
+              <tr
+                :class="{
+                  'inbox-row--unread': !message.isRead,
+                  'inbox-row--archived': message.archivedAt,
+                  'merge-group-row': getMessageMergeGroup(message.id),
+                  'merge-group-row--first': isFirstInMergeGroupDisplay(message.id),
+                  'merge-group-row--last': isLastInMergeGroupDisplay(message.id)
+                }"
+              >
               <td class="table__checkbox-col" @click.stop>
                 <input
                   type="checkbox"
@@ -817,6 +839,34 @@
                 </div>
               </td>
             </tr>
+
+              <!-- Merge group footer (after last message in group) -->
+              <tr v-if="isLastInMergeGroupDisplay(message.id)" class="merge-group-footer">
+                <td colspan="9">
+                  <div class="merge-group-banner">
+                    <span class="merge-group-icon">🔗</span>
+                    <span class="merge-group-text">
+                      {{ getMessageMergeGroup(message.id)?.messages.length }} related messages detected
+                      <span class="muted">(within {{ getMessageMergeGroup(message.id)?.timeWindow }}s)</span>
+                    </span>
+                    <button
+                      class="btn btn--small btn--accent"
+                      type="button"
+                      @click="startMergeFromGroup(getMessageMergeGroup(message.id)!)"
+                    >
+                      Merge these
+                    </button>
+                    <button
+                      class="btn btn--small btn--ghost"
+                      type="button"
+                      @click="dismissMergeGroup(getMessageMergeGroup(message.id)!.id)"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
 
@@ -1101,11 +1151,29 @@
       <div class="modal modal--wide" role="dialog" aria-modal="true">
         <header class="modal__header">
           <h3>Combine Messages</h3>
-          <button class="icon-button" @click="closeMergeModal" aria-label="Close">
-            ✕
-          </button>
+          <div class="modal__header-actions">
+            <button
+              class="btn btn--outline btn--small btn--ai"
+              type="button"
+              :disabled="sortingWithAi || mergeOrdering.length < 2"
+              @click="sortWithAi"
+            >
+              <span v-if="sortingWithAi" class="ai-loading-spinner"></span>
+              <span v-else class="ai-icon">✦</span>
+              {{ sortingWithAi ? 'Sorting...' : 'Sort with AI' }}
+            </button>
+            <button class="icon-button" @click="closeMergeModal" aria-label="Close">
+              ✕
+            </button>
+          </div>
         </header>
         <div class="modal__body">
+          <div v-if="aiSortApplied && aiSortResult" class="ai-sort-banner">
+            <span class="ai-icon">✦</span>
+            <span>Sorted with AI</span>
+            <span class="ai-confidence">({{ Math.round(aiSortResult.confidence * 100) }}% confidence)</span>
+            <span v-if="aiSortResult.reasoning" class="ai-reasoning muted small">{{ aiSortResult.reasoning }}</span>
+          </div>
           <p class="muted small">Drag to reorder. Messages will be combined in the order shown below.</p>
           <div class="merge-list">
             <div
@@ -1295,6 +1363,54 @@
       </div>
     </div>
 
+    <!-- Webhook Settings Modal -->
+    <div v-if="showWebhookSettings" class="modal-backdrop" @click.self="showWebhookSettings = false">
+      <div class="modal modal--small" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <h3>Webhook Settings</h3>
+          <button class="icon-button" @click="showWebhookSettings = false" aria-label="Close">
+            ✕
+          </button>
+        </header>
+        <div class="modal__body">
+          <label class="form-field">
+            <span>Webhook</span>
+            <select v-model="webhookSettingsForm.webhookId" class="select" @change="onWebhookSettingsSelect">
+              <option value="" disabled>Select a webhook...</option>
+              <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
+                {{ hook.label }}
+              </option>
+            </select>
+          </label>
+          <label class="form-field" v-if="webhookSettingsForm.webhookId">
+            <span>Auto-Merge Detection Window</span>
+            <div class="input-with-suffix">
+              <input
+                v-model.number="webhookSettingsForm.mergeWindowSeconds"
+                type="number"
+                min="1"
+                max="300"
+                class="input"
+              />
+              <span class="input-suffix">seconds</span>
+            </div>
+            <p class="form-hint">Messages of the same type received within this window will be suggested for merging.</p>
+          </label>
+        </div>
+        <footer class="modal__footer">
+          <button class="btn btn--outline" type="button" @click="showWebhookSettings = false">Cancel</button>
+          <button
+            class="btn btn--primary"
+            type="button"
+            :disabled="!webhookSettingsForm.webhookId || savingWebhookSettings"
+            @click="saveWebhookSettings"
+          >
+            {{ savingWebhookSettings ? 'Saving...' : 'Save' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Crash Report Inspector Modal -->
     <div v-if="showCrashInspector" class="modal-backdrop" @click.self="closeCrashInspector">
       <div class="modal modal--wide modal--inspector" role="dialog" aria-modal="true">
@@ -1438,7 +1554,8 @@ import {
   type AdminUserSummary,
   type WebhookMessageLabel,
   type CrashInspectionResult,
-  type CrashHighlight
+  type CrashHighlight,
+  type CrashSegmentSortResult
 } from '../services/api';
 import { useToastBus } from '../components/ToastBus';
 
@@ -1494,10 +1611,24 @@ const mergingMessages = ref(false);
 const showMergePreview = ref(false);
 const draggedMergeIndex = ref<number | null>(null);
 const dragOverMergeIndex = ref<number | null>(null);
+const sortingWithAi = ref(false);
+const aiSortApplied = ref(false);
+const aiSortResult = ref<CrashSegmentSortResult | null>(null);
 const unreadCount = ref(0);
 const bulkActionInProgress = ref(false);
 const labelToEdit = ref<WebhookMessageLabel | null>(null);
 const newLabelForm = reactive({ name: '', color: '#4a90d9' });
+
+// Webhook Settings Modal
+const showWebhookSettings = ref(false);
+const webhookSettingsForm = reactive({
+  webhookId: '',
+  mergeWindowSeconds: 10
+});
+const savingWebhookSettings = ref(false);
+
+// Merge group detection
+const dismissedMergeGroups = ref<Set<string>>(new Set());
 
 // Crash Report Inspector
 const showCrashInspector = ref(false);
@@ -1576,6 +1707,127 @@ const selectedWebhook = computed(() =>
   webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
 
+// Merge group detection
+interface MergeGroup {
+  id: string;
+  webhookId: string;
+  crashType: 'crash' | 'script_error';
+  messages: InboundWebhookMessage[];
+  timeWindow: number;
+}
+
+function getCrashType(message: InboundWebhookMessage): 'crash' | 'script_error' | null {
+  const labels = message.labels ?? [];
+  if (labels.some((l) => l.name === 'Crash')) return 'crash';
+  if (labels.some((l) => l.name === 'Script Error')) return 'script_error';
+  return null;
+}
+
+function getMessageLabelSignature(message: InboundWebhookMessage): string {
+  // Create a signature from sorted label names to compare messages
+  const labels = message.labels ?? [];
+  return labels.map((l) => l.name).sort().join('|');
+}
+
+const detectedMergeGroups = computed<MergeGroup[]>(() => {
+  const groups: MergeGroup[] = [];
+  const processed = new Set<string>();
+
+  // Get webhooks with their merge window settings
+  const webhookSettings = new Map(webhooks.value.map((w) => [w.id, w.mergeWindowSeconds ?? 10]));
+
+  for (const message of inboxMessages.value) {
+    if (processed.has(message.id)) continue;
+    if (message.archivedAt) continue;
+
+    const windowSeconds = webhookSettings.get(message.webhookId) ?? 10;
+    const crashType = getCrashType(message);
+    const labelSignature = getMessageLabelSignature(message);
+
+    if (!crashType) continue;
+
+    // Find related messages within time window with matching labels
+    const related = inboxMessages.value.filter((other) => {
+      if (other.id === message.id) return false;
+      if (processed.has(other.id)) return false;
+      if (other.webhookId !== message.webhookId) return false;
+      if (other.archivedAt) return false;
+      // All labels must match (Crash/Script Error, Test/Live, etc.)
+      if (getMessageLabelSignature(other) !== labelSignature) return false;
+
+      const timeDiff = Math.abs(
+        new Date(message.receivedAt).getTime() - new Date(other.receivedAt).getTime()
+      );
+      return timeDiff <= windowSeconds * 1000;
+    });
+
+    if (related.length > 0) {
+      const groupMessages = [message, ...related].sort(
+        (a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime()
+      );
+
+      const groupId = `group-${groupMessages[0].id}`;
+
+      // Skip if this group was dismissed
+      if (!dismissedMergeGroups.value.has(groupId)) {
+        groups.push({
+          id: groupId,
+          webhookId: message.webhookId,
+          crashType,
+          messages: groupMessages,
+          timeWindow: windowSeconds
+        });
+      }
+
+      groupMessages.forEach((m) => processed.add(m.id));
+    }
+  }
+
+  return groups;
+});
+
+function getMessageMergeGroup(messageId: string): MergeGroup | null {
+  return detectedMergeGroups.value.find((g) => g.messages.some((m) => m.id === messageId)) ?? null;
+}
+
+function isFirstInMergeGroupDisplay(messageId: string): boolean {
+  const group = getMessageMergeGroup(messageId);
+  if (!group) return false;
+
+  // Find the first message of this group as it appears in inboxMessages (display order)
+  const groupMessageIds = new Set(group.messages.map((m) => m.id));
+  for (const msg of inboxMessages.value) {
+    if (groupMessageIds.has(msg.id)) {
+      return msg.id === messageId;
+    }
+  }
+  return false;
+}
+
+function isLastInMergeGroupDisplay(messageId: string): boolean {
+  const group = getMessageMergeGroup(messageId);
+  if (!group) return false;
+
+  // Find the last message of this group as it appears in inboxMessages (display order)
+  const groupMessageIds = new Set(group.messages.map((m) => m.id));
+  let lastInDisplay: string | null = null;
+  for (const msg of inboxMessages.value) {
+    if (groupMessageIds.has(msg.id)) {
+      lastInDisplay = msg.id;
+    }
+  }
+  return lastInDisplay === messageId;
+}
+
+function dismissMergeGroup(groupId: string) {
+  dismissedMergeGroups.value.add(groupId);
+}
+
+function startMergeFromGroup(group: MergeGroup) {
+  selectedMessageIds.value = new Set(group.messages.map((m) => m.id));
+  openMergeModal();
+}
+
 function buildRetentionPayload(draft: any): InboundWebhookRetentionPolicy {
   if (draft.retentionMode === 'days') {
     return { mode: 'days' as const, days: draft.retentionDays || 30 };
@@ -1616,7 +1868,8 @@ function buildActionDraft() {
 function buildTestDraft() {
   return {
     payload: '{\n  "event": "test",\n  "message": "hello"\n}',
-    runActions: true
+    runActions: true,
+    repeatCount: 1
   };
 }
 
@@ -2051,12 +2304,21 @@ async function sendTest(webhook: InboundWebhook) {
   }
 
   sendingTestId.value = webhook.id;
+  const repeatCount = Math.min(Math.max(draft.repeatCount || 1, 1), 10);
+
   try {
-    await api.testInboundWebhook(webhook.id, payload, draft.runActions);
+    // Send payloads in quick succession
+    const promises = [];
+    for (let i = 0; i < repeatCount; i++) {
+      promises.push(api.testInboundWebhook(webhook.id, payload, draft.runActions));
+    }
+    await Promise.all(promises);
     await loadInbox();
     addToast({
       title: 'Test Payload Sent',
-      message: `Queued test payload for ${webhook.label}.`
+      message: repeatCount > 1
+        ? `Sent ${repeatCount} test payloads for ${webhook.label}.`
+        : `Queued test payload for ${webhook.label}.`
     });
   } catch (error) {
     const detail =
@@ -2713,6 +2975,42 @@ async function deleteLabel(label: WebhookMessageLabel) {
   }
 }
 
+// Webhook Settings
+function openWebhookSettings() {
+  webhookSettingsForm.webhookId = webhooks.value[0]?.id ?? '';
+  if (webhookSettingsForm.webhookId) {
+    const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
+    webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
+  }
+  showWebhookSettings.value = true;
+}
+
+function onWebhookSettingsSelect() {
+  const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
+  webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
+}
+
+async function saveWebhookSettings() {
+  if (!webhookSettingsForm.webhookId) return;
+  savingWebhookSettings.value = true;
+  try {
+    const updated = await api.updateInboundWebhook(webhookSettingsForm.webhookId, {
+      mergeWindowSeconds: webhookSettingsForm.mergeWindowSeconds
+    });
+    // Update local webhook data
+    const idx = webhooks.value.findIndex((w) => w.id === updated.id);
+    if (idx >= 0) {
+      webhooks.value[idx] = updated;
+    }
+    showWebhookSettings.value = false;
+    addToast({ title: 'Success', message: 'Webhook settings saved' });
+  } catch (err) {
+    addToast({ title: 'Error', message: 'Failed to save webhook settings' });
+  } finally {
+    savingWebhookSettings.value = false;
+  }
+}
+
 async function setMessageLabels(messageId: string, labelIds: string[]) {
   try {
     await api.setWebhookMessageLabels(messageId, labelIds);
@@ -2821,6 +3119,46 @@ function openMergeModal() {
 function closeMergeModal() {
   showMergeModal.value = false;
   mergeOrdering.value = [];
+  aiSortApplied.value = false;
+  aiSortResult.value = null;
+}
+
+async function sortWithAi() {
+  if (sortingWithAi.value || mergeOrdering.value.length < 2) return;
+
+  sortingWithAi.value = true;
+  aiSortApplied.value = false;
+  aiSortResult.value = null;
+
+  try {
+    // Build segments array from current merge ordering
+    const segments = mergeOrdering.value.map((id) => {
+      const msg = getMergeMessage(id);
+      const payloadText = msg?.payload ? JSON.stringify(msg.payload) : '';
+      return { id, text: payloadText };
+    });
+
+    const result = await api.sortCrashSegments(segments);
+    aiSortResult.value = result;
+
+    // Apply the AI-suggested ordering
+    mergeOrdering.value = result.orderedIds;
+    aiSortApplied.value = true;
+
+    addToast({
+      title: 'Sorted with AI',
+      message: `Confidence: ${Math.round(result.confidence * 100)}%`
+    });
+  } catch (error) {
+    console.error('Failed to sort with AI:', error);
+    addToast({
+      title: 'AI Sorting Failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      variant: 'error'
+    });
+  } finally {
+    sortingWithAi.value = false;
+  }
 }
 
 function moveMergeItem(index: number, direction: 'up' | 'down') {
@@ -3817,6 +4155,29 @@ input[type='checkbox']:checked::after {
   color: rgba(148, 163, 184, 0.9);
 }
 
+.input-with-suffix {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.input-with-suffix .input {
+  flex: 1;
+  max-width: 100px;
+}
+
+.input-suffix {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.form-hint {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+  line-height: 1.4;
+}
+
 .toggle {
   display: flex;
   align-items: center;
@@ -4569,6 +4930,69 @@ input[type='checkbox']:checked::after {
   opacity: 0.6;
 }
 
+/* Merge group visual styling */
+.merge-group-row {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.merge-group-row td:first-child {
+  border-left: 3px solid rgba(99, 102, 241, 0.8) !important;
+}
+
+.merge-group-row td:last-child {
+  border-right: 3px solid rgba(99, 102, 241, 0.8) !important;
+}
+
+.merge-group-row--first td {
+  border-top: 3px solid rgba(99, 102, 241, 0.8) !important;
+}
+
+.merge-group-row--last td {
+  /* No bottom border - the footer will provide it */
+}
+
+.merge-group-footer {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.merge-group-footer td {
+  padding: 0 !important;
+  border: none !important;
+  border-left: 3px solid rgba(99, 102, 241, 0.8) !important;
+  border-right: 3px solid rgba(99, 102, 241, 0.8) !important;
+  border-bottom: 3px solid rgba(99, 102, 241, 0.8) !important;
+}
+
+.merge-group-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+}
+
+.merge-group-icon {
+  font-size: 1.1rem;
+}
+
+.merge-group-text {
+  flex: 1;
+  font-size: 0.85rem;
+  color: #a5b4fc;
+  font-weight: 500;
+}
+
+.btn--ghost {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  color: rgba(226, 232, 240, 0.7);
+}
+
+.btn--ghost:hover {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.5);
+  color: rgba(226, 232, 240, 0.9);
+}
+
 .text-bold {
   font-weight: 600;
 }
@@ -4778,6 +5202,62 @@ input[type='checkbox']:checked::after {
   color: #fbbf24;
 }
 
+/* AI Sort button and banner */
+.btn--ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn--ai .ai-icon {
+  font-size: 1rem;
+  color: #a78bfa;
+}
+
+.ai-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(167, 139, 250, 0.3);
+  border-top-color: #a78bfa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-sort-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: 0.5rem;
+  color: #c4b5fd;
+  font-size: 0.9rem;
+}
+
+.ai-sort-banner .ai-icon {
+  color: #a78bfa;
+  font-size: 1.1rem;
+}
+
+.ai-sort-banner .ai-confidence {
+  color: rgba(196, 181, 253, 0.7);
+}
+
+.ai-sort-banner .ai-reasoning {
+  flex: 1;
+  margin-left: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid rgba(167, 139, 250, 0.3);
+}
+
 /* Merge preview modal */
 .merge-preview-body {
   display: flex;
@@ -4863,6 +5343,20 @@ input[type='checkbox']:checked::after {
 .input--small {
   padding: 0.35rem 0.5rem;
   font-size: 0.85rem;
+}
+
+.input--tiny {
+  width: 60px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.test-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 /* ============================================================================

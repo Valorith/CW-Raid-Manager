@@ -1434,6 +1434,7 @@ export interface InboundWebhook {
   isEnabled: boolean;
   token: string;
   retentionPolicy: InboundWebhookRetentionPolicy;
+  mergeWindowSeconds: number;
   createdById: string;
   createdAt: string;
   updatedAt: string;
@@ -1500,6 +1501,12 @@ export interface CrashInspectionResult {
   highlights: CrashHighlight[];
   summary: string;
   errorType: 'native_crash' | 'script_error' | 'unknown';
+}
+
+export interface CrashSegmentSortResult {
+  orderedIds: string[];
+  confidence: number;
+  reasoning: string;
 }
 
 // Server Connection Types
@@ -3695,6 +3702,7 @@ export const api = {
       description?: string | null;
       isEnabled?: boolean;
       retentionPolicy?: InboundWebhookRetentionPolicy | null;
+      mergeWindowSeconds?: number;
     }
   ): Promise<InboundWebhook> {
     const response = await axios.put(`/api/admin/webhooks/${webhookId}`, payload);
@@ -3903,6 +3911,14 @@ export const api = {
    */
   async inspectCrashReport(crashReportText: string): Promise<CrashInspectionResult> {
     const response = await axios.post('/api/admin/webhook-inbox/inspect-crash-report', { crashReportText });
+    return response.data;
+  },
+
+  /**
+   * Sorts crash report segments using AI to determine correct order.
+   */
+  async sortCrashSegments(segments: Array<{ id: string; text: string }>): Promise<CrashSegmentSortResult> {
+    const response = await axios.post('/api/admin/webhook-inbox/sort-crash-segments', { segments });
     return response.data;
   },
 

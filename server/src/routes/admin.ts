@@ -63,7 +63,7 @@ import {
   bulkMessageAction
 } from '../services/inboundWebhookService.js';
 import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
-import { inspectCrashReport } from '../services/geminiCrashReviewService.js';
+import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
 import {
   getCharacterByName,
   getCharacterById,
@@ -1512,7 +1512,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           label: z.string().min(2).max(120).optional(),
           description: z.string().max(500).optional().nullable(),
           isEnabled: z.boolean().optional(),
-          retentionPolicy: retentionPolicySchema.optional().nullable()
+          retentionPolicy: retentionPolicySchema.optional().nullable(),
+          mergeWindowSeconds: z.number().int().min(1).max(300).optional()
         })
         .refine((value) => Object.keys(value).length > 0, {
           message: 'No fields provided for update.'
@@ -2274,6 +2275,36 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.badRequest(error.message);
         }
         return reply.badRequest('Unable to inspect crash report.');
+      }
+    }
+  );
+
+  server.post(
+    '/webhook-inbox/sort-crash-segments',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        segments: z.array(z.object({
+          id: z.string(),
+          text: z.string().min(1)
+        })).min(2).max(20)
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid request. At least 2 segments with id and text are required.');
+      }
+
+      try {
+        const result = await sortCrashReportSegments(parsed.data.segments);
+        return reply.send(result);
+      } catch (error) {
+        request.log.error({ error }, 'Failed to sort crash report segments.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to sort crash report segments.');
       }
     }
   );

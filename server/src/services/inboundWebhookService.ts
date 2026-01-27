@@ -80,6 +80,7 @@ export interface UpdateInboundWebhookInput {
   description?: string | null;
   isEnabled?: boolean;
   retentionPolicy?: InboundWebhookRetentionPolicy | null;
+  mergeWindowSeconds?: number;
 }
 
 export interface CreateInboundWebhookActionInput {
@@ -181,6 +182,9 @@ export async function updateInboundWebhook(webhookId: string, input: UpdateInbou
   }
   if (input.retentionPolicy !== undefined) {
     data.retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? null);
+  }
+  if (input.mergeWindowSeconds !== undefined) {
+    data.mergeWindowSeconds = input.mergeWindowSeconds;
   }
 
   return prisma.inboundWebhook.update({
@@ -397,7 +401,7 @@ export async function retryCrashReviewForMessage(messageId: string) {
     // Auto-label based on crash type (script error vs crash) and webhook source
     const findingsRecord = findings as Record<string, unknown> | null;
     const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
-    await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label);
+    await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label, crashInput);
 
     // After successful AI review, trigger Discord action if configured
     const discordAction = webhook.actions.find(
@@ -627,7 +631,7 @@ async function runInboundWebhookActions(
           // Auto-label based on crash type (script error vs crash) and webhook source
           const findingsRecord = findings as Record<string, unknown> | null;
           const signature = findingsRecord?.signature as { exception?: string | null } | undefined;
-          await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel);
+          await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel, crashInput);
         } catch (error) {
           overallStatus = 'FAILED';
           await prisma.inboundWebhookActionRun.update({
@@ -1134,12 +1138,24 @@ function buildCrashReviewEmbed(findings: unknown, _template?: string, messageId?
 
 function detectQuestError(
   signature: { exception?: string | null; topFrame?: string | null } | undefined,
-  summary: string
+  summary: string,
+  rawText?: string
 ): boolean {
   const exception = signature?.exception?.toLowerCase() ?? '';
   const summaryLower = summary.toLowerCase();
+  const rawLower = rawText?.toLowerCase() ?? '';
 
-  // First, check if summary explicitly starts with the type prefix (most reliable)
+  // MOST RELIABLE: Check raw text for explicit markers first
+  // If raw text starts with [Crash] markers (e.g., "[Crash] Zone [zonename]"), it's NOT a script error
+  if (rawLower.startsWith('[crash]') || /^\[crash\]\s+zone\s+\[/.test(rawLower)) {
+    return false;
+  }
+  // If raw text contains [QuestErrors] marker, it IS a script error
+  if (rawLower.includes('[questerrors]') || rawLower.startsWith('[script error]')) {
+    return true;
+  }
+
+  // Check if summary explicitly starts with the type prefix
   if (summaryLower.startsWith('native crash:')) {
     return false;
   }
@@ -1440,7 +1456,8 @@ async function autoLabelMessage(
   messageId: string,
   findings: unknown,
   signature: { exception?: string | null } | undefined,
-  webhookLabel?: string
+  webhookLabel?: string,
+  rawText?: string
 ): Promise<void> {
   try {
     const labelsToAdd: string[] = [];
@@ -1450,7 +1467,8 @@ async function autoLabelMessage(
       signature as { exception?: string | null; topFrame?: string | null },
       typeof (findings as Record<string, unknown>)?.summary === 'string'
         ? (findings as Record<string, unknown>).summary as string
-        : ''
+        : '',
+      rawText
     );
 
     // Add crash type label (Crash or Script Error)

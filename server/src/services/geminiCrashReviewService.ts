@@ -1270,3 +1270,118 @@ export async function inspectCrashReport(crashReportText: string): Promise<Crash
     highlights: filteredHighlights
   };
 }
+
+// ============================================================================
+// Crash Report Segment Sorting
+// ============================================================================
+
+export interface CrashSegmentSortResult {
+  orderedIds: string[];
+  confidence: number;
+  reasoning: string;
+}
+
+const SEGMENT_SORT_PROMPT = `You are an expert at analyzing crash reports and log files.
+
+You will be given multiple segments of what appears to be a single crash report that was split into parts (likely due to message length limits). Your task is to determine the correct order of these segments.
+
+Analyze the content of each segment and look for:
+- Timestamps or sequence indicators
+- Stack trace continuity (function calls that should flow into each other)
+- Log message progression
+- Headers/footers that indicate beginning or end of report
+- Module loading order
+- Error propagation flow
+- "Continued..." or truncation markers
+- Line numbers or offsets
+
+Return a JSON object with this exact structure:
+{
+  "orderedIds": ["id1", "id2", "id3"],
+  "confidence": 0.85,
+  "reasoning": "Brief explanation of why this order was chosen"
+}
+
+Where:
+- orderedIds is an array of the segment IDs in the correct order (first to last)
+- confidence is a number between 0 and 1 indicating how confident you are
+- reasoning is a brief explanation
+
+IMPORTANT: The orderedIds array must contain ALL the segment IDs provided, no more, no less.
+
+Here are the segments to sort:
+
+`;
+
+export async function sortCrashReportSegments(
+  segments: Array<{ id: string; text: string }>
+): Promise<CrashSegmentSortResult> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured.');
+  }
+
+  if (segments.length < 2) {
+    throw new Error('At least 2 segments are required for sorting.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Build the prompt with all segments
+  let prompt = SEGMENT_SORT_PROMPT;
+  for (const segment of segments) {
+    const truncatedText = segment.text.length > 50000
+      ? segment.text.slice(0, 50000) + '\n...<truncated>'
+      : segment.text;
+    prompt += `\n=== SEGMENT ID: ${segment.id} ===\n${truncatedText}\n`;
+  }
+
+  const response = await ai.models.generateContent({
+    model: MODEL_NAME,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      maxOutputTokens: 2048,
+      temperature: 0.1
+    }
+  });
+
+  const responseText = response.text ?? '';
+
+  // Extract JSON from response
+  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error('Failed to parse sorting response - no JSON found');
+  }
+
+  let parsed: { orderedIds?: unknown[]; confidence?: number; reasoning?: string };
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error('Failed to parse sorting response - invalid JSON');
+  }
+
+  // Validate the response
+  if (!Array.isArray(parsed.orderedIds)) {
+    throw new Error('Invalid response: orderedIds must be an array');
+  }
+
+  const segmentIds = new Set(segments.map(s => s.id));
+  const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[];
+
+  // Ensure all segment IDs are present
+  if (orderedIds.length !== segments.length) {
+    // Fall back to original order if AI response is incomplete
+    console.warn('AI sorting response incomplete, some IDs missing. Falling back to adding missing IDs.');
+    for (const segment of segments) {
+      if (!orderedIds.includes(segment.id)) {
+        orderedIds.push(segment.id);
+      }
+    }
+  }
+
+  return {
+    orderedIds,
+    confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
+  };
+}

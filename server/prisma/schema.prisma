@@ -700,10 +700,11 @@ model InboundWebhook {
   createdById    String
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
-  lastReceivedAt DateTime?
-  createdBy      User                   @relation("InboundWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  actions        InboundWebhookAction[]
-  messages       InboundWebhookMessage[]
+  lastReceivedAt     DateTime?
+  mergeWindowSeconds Int                    @default(10)
+  createdBy          User                   @relation("InboundWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  actions            InboundWebhookAction[]
+  messages           InboundWebhookMessage[]
 
   @@index([createdById])
   @@index([createdAt])

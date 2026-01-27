@@ -10,7 +10,8 @@
       "Bash(npm run build:server:*)",
       "Bash(cd /mnt/c/Users/rgagn/OneDrive/Documents/Github\\\\ Projects/CWRaidManager/server && npx tsc:*)",
       "Bash(npx vue-tsc:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npx knex migrate:status)"
     ]
   }
 }
