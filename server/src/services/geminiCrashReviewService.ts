@@ -1488,6 +1488,23 @@ export async function sortCrashReportSegments(
     return chunkOrder;
   }
 
+  // If some segments have chunk numbers, filter out likely duplicates
+  // (segments with [**Crash**] **Zone** prefix that don't have chunk numbers)
+  const filteredResult = filterDuplicateSegments(segments);
+  if (filteredResult) {
+    // We filtered out duplicates - try chunk sort again
+    const chunkOrderAfterFilter = tryChunkNumberSort(filteredResult.keepSegments);
+    if (chunkOrderAfterFilter) {
+      return {
+        ...chunkOrderAfterFilter,
+        removeIds: [...chunkOrderAfterFilter.removeIds, ...filteredResult.removeIds],
+        reasoning: `${chunkOrderAfterFilter.reasoning}. Also removed ${filteredResult.removeIds.length} duplicate log-streaming segments.`
+      };
+    }
+    // If still can't sort by chunks, continue with AI but use filtered segments
+    segments = filteredResult.keepSegments;
+  }
+
   const ai = new GoogleGenAI({ apiKey });
 
   // Build the prompt with compressed segments
@@ -1497,61 +1514,134 @@ export async function sortCrashReportSegments(
     prompt += `\n=== ID: ${segment.id} ===\n${compressed}\n`;
   }
 
-  const response = await ai.models.generateContent({
-    model: SORT_MODEL_NAME,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: {
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      temperature: 0.1
-    }
-  });
+  // Retry with exponential backoff for rate limiting
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
 
-  const responseText = response.text ?? '';
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: SORT_MODEL_NAME,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          maxOutputTokens: MAX_OUTPUT_TOKENS,
+          temperature: 0.1
+        }
+      });
 
-  // Extract JSON from response
-  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error('Failed to parse sorting response - no JSON found');
-  }
+      const responseText = response.text ?? '';
 
-  let parsed: { orderedIds?: unknown[]; removeIds?: unknown[]; confidence?: number; reasoning?: string };
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error('Failed to parse sorting response - invalid JSON');
-  }
-
-  // Validate the response
-  if (!Array.isArray(parsed.orderedIds)) {
-    throw new Error('Invalid response: orderedIds must be an array');
-  }
-
-  const segmentIds = new Set(segments.map(s => s.id));
-  const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[];
-  const removeIds = Array.isArray(parsed.removeIds)
-    ? (parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[])
-    : [];
-
-  // Create a set of all IDs that are accounted for (either ordered or removed)
-  const accountedIds = new Set([...orderedIds, ...removeIds]);
-
-  // Ensure all segment IDs are accounted for
-  if (accountedIds.size !== segments.length) {
-    // Add any missing IDs to orderedIds (don't auto-remove)
-    console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
-    for (const segment of segments) {
-      if (!accountedIds.has(segment.id)) {
-        orderedIds.push(segment.id);
+      // Extract JSON from response
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Failed to parse sorting response - no JSON found');
       }
+
+      let parsed: { orderedIds?: unknown[]; removeIds?: unknown[]; confidence?: number; reasoning?: string };
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        throw new Error('Failed to parse sorting response - invalid JSON');
+      }
+
+      // Validate the response
+      if (!Array.isArray(parsed.orderedIds)) {
+        throw new Error('Invalid response: orderedIds must be an array');
+      }
+
+      const segmentIds = new Set(segments.map(s => s.id));
+      const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[];
+      let removeIds = Array.isArray(parsed.removeIds)
+        ? (parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id)) as string[])
+        : [];
+
+      // Add back any IDs we filtered out earlier
+      if (filteredResult) {
+        removeIds = [...removeIds, ...filteredResult.removeIds];
+      }
+
+      // Create a set of all IDs that are accounted for
+      const accountedIds = new Set([...orderedIds, ...removeIds]);
+
+      // Ensure all segment IDs are accounted for
+      if (accountedIds.size !== segments.length + (filteredResult?.removeIds.length ?? 0)) {
+        // Add any missing IDs to orderedIds (don't auto-remove)
+        console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
+        for (const segment of segments) {
+          if (!accountedIds.has(segment.id)) {
+            orderedIds.push(segment.id);
+          }
+        }
+      }
+
+      return {
+        orderedIds,
+        removeIds,
+        confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Check if it's a rate limit error (429)
+      const isRateLimitError = lastError.message.includes('429') ||
+        lastError.message.toLowerCase().includes('resource exhausted') ||
+        lastError.message.toLowerCase().includes('rate limit');
+
+      if (isRateLimitError && attempt < MAX_RETRIES) {
+        // Exponential backoff: 2s, 4s, 8s
+        const delayMs = Math.pow(2, attempt) * 1000;
+        console.warn(`[CrashSegmentSort] Rate limited (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // For non-rate-limit errors or final attempt, throw
+      throw lastError;
     }
   }
 
-  return {
-    orderedIds,
-    removeIds,
-    confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
-    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
-  };
+  throw lastError ?? new Error('Failed to sort crash segments after retries');
+}
+
+/**
+ * Filter out duplicate segments that are likely redundant.
+ * When we have segments with explicit chunk numbers AND segments with [**Crash**] **Zone** prefix,
+ * the latter are often real-time log duplicates of the chunked crash report.
+ */
+function filterDuplicateSegments(
+  segments: Array<{ id: string; text: string }>
+): { keepSegments: Array<{ id: string; text: string }>; removeIds: string[] } | null {
+  const chunkedSegments: Array<{ id: string; text: string }> = [];
+  const logStreamSegments: Array<{ id: string; text: string }> = [];
+
+  for (const segment of segments) {
+    // Check if this segment has an explicit chunk number
+    const hasChunkNumber = /\*?\*?Chunk\*?\*?\s*\[\d+\]/i.test(segment.text);
+    // Check if this is a log-streaming segment (starts with [**Crash**] **Zone**)
+    const isLogStream = /^\[?\*?\*?Crash\*?\*?\]?\s*\*?\*?Zone\*?\*?/i.test(segment.text.trim());
+
+    if (hasChunkNumber) {
+      chunkedSegments.push(segment);
+    } else if (isLogStream) {
+      logStreamSegments.push(segment);
+    } else {
+      // Unknown type - keep in chunked to be safe
+      chunkedSegments.push(segment);
+    }
+  }
+
+  // Only filter if we have BOTH chunked and log-stream segments
+  // and the majority are chunked (suggesting the log-stream ones are duplicates)
+  if (chunkedSegments.length > 0 && logStreamSegments.length > 0 && chunkedSegments.length >= logStreamSegments.length) {
+    console.log(`[CrashSegmentSort] Filtering ${logStreamSegments.length} log-stream duplicates, keeping ${chunkedSegments.length} chunked segments`);
+    return {
+      keepSegments: chunkedSegments,
+      removeIds: logStreamSegments.map(s => s.id)
+    };
+  }
+
+  return null;
 }
 
 /**
