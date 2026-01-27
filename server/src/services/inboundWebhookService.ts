@@ -581,6 +581,29 @@ async function runInboundWebhookActions(
       }
 
       if (action.type === 'CRASH_REVIEW') {
+        const message = await prisma.inboundWebhookMessage.findUnique({
+          where: { id: messageId }
+        });
+
+        const crashConfig = normalizeActionConfig(action.config);
+        const crashInput = buildCrashReviewInput(message?.payload, message?.rawBody, payloadForActions);
+
+        // Check if this message looks like a crash report or script error
+        // If not, skip AI review and let it pass through to Discord unchanged
+        if (!looksLikeCrashReport(crashInput)) {
+          await prisma.inboundWebhookActionRun.create({
+            data: {
+              messageId,
+              actionId: action.id,
+              status: 'SKIPPED',
+              result: { note: 'Message does not appear to be a crash report or script error.' },
+              durationMs: Date.now() - startedAt
+            }
+          });
+          summary.push({ actionId: action.id, status: 'SKIPPED' });
+          continue;
+        }
+
         const run = await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -590,12 +613,6 @@ async function runInboundWebhookActions(
           }
         });
 
-        const message = await prisma.inboundWebhookMessage.findUnique({
-          where: { id: messageId }
-        });
-
-        const crashConfig = normalizeActionConfig(action.config);
-        const crashInput = buildCrashReviewInput(message?.payload, message?.rawBody, payloadForActions);
         const extracted = extractCrashReportSections(crashInput);
         const crashReportExtract = buildCrashReportExtract(extracted);
 
@@ -771,6 +788,9 @@ function buildCrashReviewInput(
     if (typeof record.message === 'string') {
       return record.message;
     }
+    if (typeof record.content === 'string') {
+      return record.content;
+    }
     if (record.crashReport && typeof record.crashReport === 'object') {
       return JSON.stringify(record.crashReport, null, 2);
     }
@@ -789,6 +809,55 @@ function buildCrashReviewInput(
   } catch {
     return String(payload ?? fallbackPayload ?? '');
   }
+}
+
+/**
+ * Determines if text content looks like a crash report or script error.
+ * Returns true if it appears to be a crash/error report that should be reviewed by AI.
+ * Returns false for other types of messages (which should pass through unchanged).
+ */
+function looksLikeCrashReport(text: string): boolean {
+  // Strip markdown formatting (**, __, etc.) for more reliable detection
+  const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
+  const lower = stripped.toLowerCase();
+  const trimmed = stripped.trim();
+
+  // Check for explicit crash markers
+  if (trimmed.startsWith('[Crash]') || lower.startsWith('[crash]')) {
+    return true;
+  }
+
+  // Check for quest/script error markers
+  if (lower.includes('[questerrors]') || lower.includes('[script error]')) {
+    return true;
+  }
+
+  // Check for common crash report indicators
+  if (lower.includes('symint:') || lower.includes('syminit:')) {
+    return true;
+  }
+  if (lower.includes('os-version:')) {
+    return true;
+  }
+  if (lower.includes('exception_access_violation') || lower.includes('0xc000')) {
+    return true;
+  }
+
+  // Check for module loading patterns (common in crash dumps)
+  const modulePattern = /\.(exe|dll):/i;
+  const lines = text.split(/\r?\n/).slice(0, 20); // Check first 20 lines
+  let moduleLineCount = 0;
+  for (const line of lines) {
+    if (modulePattern.test(line)) {
+      moduleLineCount++;
+      if (moduleLineCount >= 3) {
+        // Multiple module lines suggest a crash dump
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function extractCrashReportSections(text: string) {
@@ -1145,14 +1214,34 @@ function detectQuestError(
   const summaryLower = summary.toLowerCase();
   const rawLower = rawText?.toLowerCase() ?? '';
 
+  // DEBUG: Log what we're checking
+  console.log('[detectQuestError] rawText first 200 chars:', rawText?.slice(0, 200));
+  console.log('[detectQuestError] checking for questerrors:', rawLower.includes('questerrors'));
+
   // MOST RELIABLE: Check raw text for explicit markers first
-  // If raw text starts with [Crash] markers (e.g., "[Crash] Zone [zonename]"), it's NOT a script error
-  if (rawLower.startsWith('[crash]') || /^\[crash\]\s+zone\s+\[/.test(rawLower)) {
-    return false;
-  }
-  // If raw text contains [QuestErrors] marker, it IS a script error
-  if (rawLower.includes('[questerrors]') || rawLower.startsWith('[script error]')) {
+  // Check for QuestErrors marker (with or without markdown formatting)
+  // This takes priority over everything else
+  if (
+    rawLower.includes('[questerrors]') ||
+    rawLower.includes('[**questerrors**]') ||
+    rawLower.includes('questerrors]') ||
+    rawLower.includes('**questerrors**')
+  ) {
+    console.log('[detectQuestError] MATCHED quest error marker, returning true');
     return true;
+  }
+  if (
+    rawLower.includes('[script error]') ||
+    rawLower.includes('[**script error**]') ||
+    rawLower.includes('script error |')
+  ) {
+    return true;
+  }
+
+  // If raw text starts with [Crash] markers (e.g., "[Crash] Zone [zonename]"), it's NOT a script error
+  const rawStripped = rawText?.replace(/\*\*/g, '').replace(/__/g, '').toLowerCase() ?? '';
+  if (rawStripped.startsWith('[crash]') || /^\[crash\]\s+zone\s+\[/.test(rawStripped)) {
+    return false;
   }
 
   // Check if summary explicitly starts with the type prefix
