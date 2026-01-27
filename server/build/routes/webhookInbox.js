@@ -2,8 +2,10 @@ import { z } from 'zod';
 import { receiveInboundWebhookMessage } from '../services/inboundWebhookService.js';
 export async function webhookInboxRoutes(server) {
     server.post('/:webhookId/:token', async (request, reply) => {
+        console.log('[WEBHOOK ROUTE] >>>>>> INCOMING WEBHOOK REQUEST <<<<<<');
         const paramsSchema = z.object({ webhookId: z.string(), token: z.string() });
         const { webhookId, token } = paramsSchema.parse(request.params);
+        console.log(`[WEBHOOK ROUTE] webhookId: ${webhookId}, token: ${token.slice(0, 8)}...`);
         const payload = request.body ?? {};
         let rawBody = null;
         if (typeof payload === 'string') {

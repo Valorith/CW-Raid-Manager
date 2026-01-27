@@ -1395,7 +1395,7 @@ export interface AdminRaidDetail extends AdminRaidSummary {
 
 export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
 export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW';
-export type InboundWebhookMessageStatus = 'RECEIVED' | 'PROCESSED' | 'FAILED';
+export type InboundWebhookMessageStatus = 'RECEIVED' | 'PENDING_MERGE' | 'PROCESSED' | 'FAILED';
 export type InboundWebhookActionRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'PENDING_REVIEW';
 
 export interface InboundWebhookRetentionPolicy {
@@ -1435,6 +1435,7 @@ export interface InboundWebhook {
   token: string;
   retentionPolicy: InboundWebhookRetentionPolicy;
   mergeWindowSeconds: number;
+  autoMerge: boolean;
   createdById: string;
   createdAt: string;
   updatedAt: string;
@@ -3686,6 +3687,21 @@ export const api = {
     return Array.isArray(response.data.webhooks) ? response.data.webhooks : [];
   },
 
+  async getWebhookProcessingStatus(): Promise<{ pendingWebhookIds: string[]; hasPendingProcessing: boolean }> {
+    const response = await axios.get('/api/admin/webhooks/processing-status');
+    return response.data;
+  },
+
+  async getWebhookProcessingEnabled(): Promise<boolean> {
+    const response = await axios.get('/api/admin/system-settings/webhook-processing-enabled');
+    return response.data.enabled;
+  },
+
+  async setWebhookProcessingEnabled(enabled: boolean): Promise<boolean> {
+    const response = await axios.put('/api/admin/system-settings/webhook-processing-enabled', { enabled });
+    return response.data.enabled;
+  },
+
   async createInboundWebhook(payload: {
     label: string;
     description?: string | null;
@@ -3704,6 +3720,7 @@ export const api = {
       isEnabled?: boolean;
       retentionPolicy?: InboundWebhookRetentionPolicy | null;
       mergeWindowSeconds?: number;
+      autoMerge?: boolean;
     }
   ): Promise<InboundWebhook> {
     const response = await axios.put(`/api/admin/webhooks/${webhookId}`, payload);
@@ -3904,6 +3921,15 @@ export const api = {
   async mergeWebhookMessages(messageIds: string[], combinedText: string): Promise<InboundWebhookMessage> {
     const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds, combinedText });
     return response.data.message;
+  },
+
+  /**
+   * Dismiss merge suggestion and process messages individually.
+   * Called when user decides not to merge and wants to process each message separately.
+   */
+  async dismissMergeAndProcess(messageIds: string[]): Promise<{ success: boolean; processedCount: number }> {
+    const response = await axios.post('/api/admin/webhook-inbox/dismiss-merge', { messageIds });
+    return response.data;
   },
 
   /**

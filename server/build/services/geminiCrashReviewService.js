@@ -70,6 +70,7 @@ function compressCrashReportForAnalysis(text) {
     let omittedModules = 0;
     let skippingRaw = false;
     let omittedLines = 0;
+    const crashStackLines = [];
     for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line)
@@ -79,6 +80,12 @@ function compressCrashReportForAnalysis(text) {
             continue;
         }
         if (skippingRaw) {
+            // Preserve crash stack trace lines even when skipping raw sections
+            // These contain the actual crash location info (e.g., "[Crash] Zone [zonename] file.cpp (123): FunctionName")
+            if (/\[Crash\]/i.test(line) || /\.cpp\s*\(\d+\):/i.test(line) || /\.h\s*\(\d+\):/i.test(line)) {
+                crashStackLines.push(line);
+                continue;
+            }
             omittedLines += 1;
             continue;
         }
@@ -114,6 +121,12 @@ function compressCrashReportForAnalysis(text) {
     if (inModules && omittedModules > 0) {
         output.push(`Modules omitted: ${omittedModules}`);
     }
+    // Add crash stack trace lines that were preserved from raw sections
+    if (crashStackLines.length > 0) {
+        output.push('');
+        output.push('Crash Stack Trace:');
+        output.push(...crashStackLines);
+    }
     if (omittedLines > 0) {
         output.push(`Raw sections omitted: ${omittedLines}`);
     }
@@ -137,16 +150,43 @@ export async function reviewCrashReport(input, options, attempts = 1) {
             .replace(/\{\{crashReport\}\}/gi, analysisInput)
             .replace(/\{\{CrashReport\}\}/g, analysisInput)
         : [
-            'You are a senior C++ crash triage engineer for an EverQuest emulator server.',
-            'Analyze the crash report and provide actionable debugging steps.',
+            'You are a senior engineer for an EverQuest emulator server.',
+            '',
+            'CRITICAL - CLASSIFY THE ERROR TYPE FIRST:',
+            '',
+            'This is a NATIVE CRASH if ANY of these are present:',
+            '   - EXCEPTION_ACCESS_VIOLATION, EXCEPTION_STACK_OVERFLOW, EXCEPTION_INT_DIVIDE_BY_ZERO, or any EXCEPTION_* code',
+            '   - Windows exception codes (0xC0000005, 0xC00000FD, etc.)',
+            '   - SymInit: or Symbol-SearchPath output',
+            '   - Memory addresses like 0x00007FF...',
+            '   - Stack frames with module offsets (zone.exe+0x123456, world.exe+0x..., eqgame.exe+0x...)',
+            '   - References to system DLLs: ntdll.dll, KERNEL32.DLL, KERNELBASE.dll, ucrtbase.dll',
+            '   - "Loaded Modules:" or module loading information',
+            '',
+            'This is a SCRIPT ERROR only if ALL of these conditions are met:',
+            '   - NO Windows exception codes or EXCEPTION_* strings present',
+            '   - NO SymInit or memory addresses present',
+            '   - AND one of these script indicators IS present:',
+            '     * [QuestErrors] or [ScriptError] prefix in the error message',
+            '     * Lua stack traceback ("stack traceback:", ".lua:" with line numbers)',
+            '     * Perl error messages ("Can\'t locate", "Undefined subroutine", "at /path/to/script.pl line")',
+            '     * Quest script paths (quests/*.pl, quests/*.lua)',
+            '',
+            'DEFAULT: If unsure, classify as NATIVE CRASH. Most reports with memory addresses or exception codes are native crashes.',
+            '',
+            'For NATIVE CRASHES: Analyze as a C++ crash - identify the exception type, crashing module, and potential causes in the native code.',
+            '',
+            'For SCRIPT ERRORS: Analyze as a scripting issue - identify the script file, line number, function involved, and what went wrong.',
+            '',
             'Rules:',
             '- If information is missing, say so explicitly.',
             '- Do not invent file names/line numbers unless they appear in the report.',
             '- Keep evidence and next steps concise (max 3 each per hypothesis).',
             '- Always include all required fields; use empty arrays if needed.',
             '- Prefer hypotheses that fit the evidence.',
+            '- REQUIRED: Start the Summary with "Native crash:" or "Script error:" to indicate the type.',
             '',
-            'Crash report:',
+            'Report to analyze:',
             analysisInput
         ].join('\n');
     const prompt = `${promptCore}\n\n${ANALYSIS_SUFFIX}`;
@@ -904,5 +944,317 @@ function buildFallbackFindings(reason, preview) {
         missingInfo: ['Model response was not valid JSON.'],
         recommendedNextSteps: ['Retry the analysis.', 'Ensure the prompt returns JSON only.'],
         rawModelNotes: `${reason} Raw response preview: ${sanitizedPreview}`
+    };
+}
+const INSPECTOR_PROMPT = `You are a crash report analysis expert for an EverQuest emulator server (zone.exe, world.exe, eqgame.exe).
+
+Analyze the crash report and identify SPECIFIC, NARROW sections that are notable for debugging. Return highlights that are as small and precise as possible - individual values, function names, addresses, or short phrases rather than entire lines or blocks.
+
+For each highlight, provide:
+- "text": The EXACT text from the report to highlight (must match exactly, case-sensitive)
+- "comment": A brief explanation of why this is notable (1-2 sentences max)
+- "severity": "critical" (root cause indicators), "important" (significant clues), or "info" (useful context)
+- "category": One of: "exception", "address", "module", "function", "stack_frame", "error_message", "script", "variable", "path", "other"
+
+RULES:
+1. Each "text" field MUST be an exact substring that appears in the crash report
+2. Keep highlights SHORT - prefer "EXCEPTION_ACCESS_VIOLATION" over the entire exception line
+3. Highlight specific memory addresses like "0x00007FF..."
+4. Highlight specific function names, module names, and file paths
+5. For stack traces, highlight individual notable frames, not the entire trace
+6. Aim for 5-15 highlights total, focusing on the most diagnostic information
+7. Do NOT highlight common boilerplate text or headers
+
+Return ONLY valid JSON in this exact format:
+{
+  "summary": "One sentence describing the crash type and likely cause",
+  "errorType": "native_crash" or "script_error" or "unknown",
+  "highlights": [
+    {"text": "exact text to highlight", "comment": "why this matters", "severity": "critical", "category": "exception"},
+    ...
+  ]
+}
+
+Crash report to analyze:
+`;
+export async function inspectCrashReport(crashReportText) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured.');
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const trimmedInput = crashReportText.length > MAX_INPUT_CHARS
+        ? crashReportText.slice(0, MAX_INPUT_CHARS) + '\n...<truncated>'
+        : crashReportText;
+    const prompt = INSPECTOR_PROMPT + trimmedInput;
+    const response = await ai.models.generateContent({
+        model: MODEL_NAME,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+            maxOutputTokens: 8192,
+            temperature: 0.1
+        }
+    });
+    const responseText = response.text ?? '';
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+        throw new Error('Failed to parse inspection response - no JSON found');
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonMatch[0]);
+    }
+    catch {
+        throw new Error('Failed to parse inspection response - invalid JSON');
+    }
+    const highlights = [];
+    if (Array.isArray(parsed.highlights)) {
+        for (const item of parsed.highlights) {
+            if (!item || typeof item !== 'object')
+                continue;
+            const h = item;
+            const rawText = typeof h.text === 'string' ? h.text : '';
+            const comment = typeof h.comment === 'string' ? h.comment : '';
+            const severity = ['critical', 'important', 'info'].includes(h.severity) ? h.severity : 'info';
+            const category = typeof h.category === 'string' ? h.category : 'other';
+            if (!rawText || rawText.length < 2)
+                continue;
+            // Try multiple matching strategies
+            let startIndex = -1;
+            let matchedText = rawText;
+            // Strategy 1: Exact match
+            startIndex = crashReportText.indexOf(rawText);
+            if (startIndex !== -1) {
+                matchedText = rawText;
+            }
+            // Strategy 2: Trimmed match
+            if (startIndex === -1) {
+                const trimmed = rawText.trim();
+                if (trimmed.length >= 2) {
+                    startIndex = crashReportText.indexOf(trimmed);
+                    if (startIndex !== -1) {
+                        matchedText = trimmed;
+                    }
+                }
+            }
+            // Strategy 3: Case-insensitive match
+            if (startIndex === -1) {
+                const lowerReport = crashReportText.toLowerCase();
+                const lowerText = rawText.toLowerCase().trim();
+                if (lowerText.length >= 2) {
+                    const lowerIndex = lowerReport.indexOf(lowerText);
+                    if (lowerIndex !== -1) {
+                        startIndex = lowerIndex;
+                        // Use the actual text from the crash report to preserve case
+                        matchedText = crashReportText.slice(lowerIndex, lowerIndex + lowerText.length);
+                    }
+                }
+            }
+            // Add highlight if found
+            if (startIndex !== -1 && startIndex < crashReportText.length) {
+                highlights.push({
+                    text: matchedText,
+                    comment,
+                    severity: severity,
+                    category,
+                    startIndex,
+                    endIndex: startIndex + matchedText.length
+                });
+            }
+        }
+    }
+    // Sort highlights by position
+    highlights.sort((a, b) => a.startIndex - b.startIndex);
+    // Remove overlapping highlights (keep the first/higher priority one)
+    const filteredHighlights = [];
+    for (const h of highlights) {
+        const overlaps = filteredHighlights.some((existing) => h.startIndex < existing.endIndex && h.endIndex > existing.startIndex);
+        if (!overlaps) {
+            filteredHighlights.push(h);
+        }
+    }
+    return {
+        summary: typeof parsed.summary === 'string' ? parsed.summary : 'Crash report inspection complete.',
+        errorType: parsed.errorType === 'native_crash' || parsed.errorType === 'script_error'
+            ? parsed.errorType
+            : 'unknown',
+        highlights: filteredHighlights
+    };
+}
+// Use Flash model for sorting - faster and doesn't have thinking token overhead
+const SORT_MODEL_NAME = 'gemini-2.0-flash';
+const SEGMENT_SORT_PROMPT = `Sort crash report segments and identify duplicates.
+
+Return JSON only:
+{"orderedIds":["id1","id2"],"removeIds":["id3"],"confidence":0.85,"reasoning":"brief explanation"}
+
+Rules:
+- orderedIds: non-duplicate IDs in correct order (use chunk numbers if present)
+- removeIds: duplicate/redundant segment IDs
+- Look for: chunk numbers, EXCEPTION headers (start), RtlUserThreadStart (end)
+- Segments with "[**Crash**] **Zone**" prefix are often duplicates of "Crash Report" chunks
+
+Segments:
+`;
+// Aggressive compression for sorting - we only need minimal context
+const SORT_HEAD_CHARS = 400;
+const SORT_TAIL_CHARS = 200;
+const SORT_SEGMENT_MAX_CHARS = SORT_HEAD_CHARS + SORT_TAIL_CHARS + 100;
+/**
+ * Compress a segment for sorting purposes.
+ * We only need enough context to identify ordering, not full content.
+ */
+function compressSegmentForSorting(text) {
+    if (!text || text.length <= SORT_SEGMENT_MAX_CHARS) {
+        return text;
+    }
+    // Extract key ordering indicators
+    const lines = text.split(/\r?\n/);
+    const indicators = [];
+    // Look for explicit chunk numbers
+    const chunkMatch = text.match(/\*?\*?Chunk\*?\*?\s*\[(\d+)\]/i);
+    if (chunkMatch) {
+        indicators.push(`[CHUNK ${chunkMatch[1]}]`);
+    }
+    // Look for header indicators (typically at start of crash)
+    const headerPatterns = [
+        /EXCEPTION_\w+/i,
+        /SymInit:/i,
+        /OS-Version:/i,
+        /Crash Report.*Chunk\s*\[\d+\]/i
+    ];
+    for (const pattern of headerPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            indicators.push(match[0]);
+            break;
+        }
+    }
+    // Look for footer indicators (typically at end of crash)
+    const footerPatterns = [
+        /RtlUserThreadStart/i,
+        /BaseThreadInitThunk/i,
+        /ntdll.*RtlUser/i
+    ];
+    for (const pattern of footerPatterns) {
+        if (pattern.test(text)) {
+            indicators.push('[END INDICATOR PRESENT]');
+            break;
+        }
+    }
+    // Get first and last lines for continuity checking
+    const head = text.slice(0, SORT_HEAD_CHARS);
+    const tail = text.length > SORT_TAIL_CHARS ? text.slice(-SORT_TAIL_CHARS) : '';
+    // Build compressed output
+    const parts = [];
+    if (indicators.length > 0) {
+        parts.push(`Indicators: ${indicators.join(', ')}`);
+    }
+    parts.push(`--- HEAD ---\n${head}`);
+    if (tail) {
+        parts.push(`--- TAIL ---\n${tail}`);
+    }
+    return parts.join('\n');
+}
+export async function sortCrashReportSegments(segments) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error('GEMINI_API_KEY is not configured.');
+    }
+    if (segments.length < 2) {
+        throw new Error('At least 2 segments are required for sorting.');
+    }
+    // First, try to sort by explicit chunk numbers if present
+    const chunkOrder = tryChunkNumberSort(segments);
+    if (chunkOrder) {
+        return chunkOrder;
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    // Build the prompt with compressed segments
+    let prompt = SEGMENT_SORT_PROMPT;
+    for (const segment of segments) {
+        const compressed = compressSegmentForSorting(segment.text);
+        prompt += `\n=== ID: ${segment.id} ===\n${compressed}\n`;
+    }
+    const response = await ai.models.generateContent({
+        model: SORT_MODEL_NAME,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            temperature: 0.1
+        }
+    });
+    const responseText = response.text ?? '';
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+        throw new Error('Failed to parse sorting response - no JSON found');
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(jsonMatch[0]);
+    }
+    catch {
+        throw new Error('Failed to parse sorting response - invalid JSON');
+    }
+    // Validate the response
+    if (!Array.isArray(parsed.orderedIds)) {
+        throw new Error('Invalid response: orderedIds must be an array');
+    }
+    const segmentIds = new Set(segments.map(s => s.id));
+    const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id));
+    const removeIds = Array.isArray(parsed.removeIds)
+        ? parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id))
+        : [];
+    // Create a set of all IDs that are accounted for (either ordered or removed)
+    const accountedIds = new Set([...orderedIds, ...removeIds]);
+    // Ensure all segment IDs are accounted for
+    if (accountedIds.size !== segments.length) {
+        // Add any missing IDs to orderedIds (don't auto-remove)
+        console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
+        for (const segment of segments) {
+            if (!accountedIds.has(segment.id)) {
+                orderedIds.push(segment.id);
+            }
+        }
+    }
+    return {
+        orderedIds,
+        removeIds,
+        confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
+    };
+}
+/**
+ * Try to sort segments by explicit chunk numbers (e.g., "Chunk [1]", "Chunk [2]").
+ * Returns null if not all segments have clear chunk numbers.
+ */
+function tryChunkNumberSort(segments) {
+    const segmentsWithChunks = [];
+    for (const segment of segments) {
+        // Look for "Chunk [N]" pattern (with optional markdown formatting)
+        const match = segment.text.match(/\*?\*?Chunk\*?\*?\s*\[(\d+)\]/i);
+        if (match) {
+            segmentsWithChunks.push({ id: segment.id, chunk: parseInt(match[1], 10) });
+        }
+    }
+    // Only use chunk sorting if ALL segments have chunk numbers
+    if (segmentsWithChunks.length !== segments.length) {
+        return null;
+    }
+    // Check for duplicates or gaps that would indicate unreliable chunk numbers
+    const chunkNumbers = segmentsWithChunks.map(s => s.chunk).sort((a, b) => a - b);
+    const hasDuplicates = new Set(chunkNumbers).size !== chunkNumbers.length;
+    if (hasDuplicates) {
+        return null;
+    }
+    // Sort by chunk number
+    segmentsWithChunks.sort((a, b) => a.chunk - b.chunk);
+    return {
+        orderedIds: segmentsWithChunks.map(s => s.id),
+        removeIds: [],
+        confidence: 0.95,
+        reasoning: `Sorted by explicit chunk numbers [${chunkNumbers.join(', ')}]`
     };
 }

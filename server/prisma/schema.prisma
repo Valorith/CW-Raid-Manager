@@ -679,6 +679,7 @@ enum InboundWebhookActionType {
 
 enum InboundWebhookMessageStatus {
   RECEIVED
+  PENDING_MERGE
   PROCESSED
   FAILED
 }
@@ -702,6 +703,7 @@ model InboundWebhook {
   updatedAt      DateTime               @updatedAt
   lastReceivedAt     DateTime?
   mergeWindowSeconds Int                    @default(10)
+  autoMerge          Boolean                @default(false)
   createdBy          User                   @relation("InboundWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
   actions            InboundWebhookAction[]
   messages           InboundWebhookMessage[]
@@ -1105,4 +1107,11 @@ model WebhookDebugMessage {
   createdAt     DateTime @default(now())
 
   @@index([guildId, createdAt])
+}
+
+// System Settings - global application settings stored in database
+model SystemSetting {
+  key       String   @id @db.VarChar(100)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
 }

@@ -60,7 +60,13 @@ import {
   deleteWebhookLabel,
   setMessageLabels,
   mergeWebhookMessages,
-  bulkMessageAction
+  bulkMessageAction,
+  isWebhookProcessingPending,
+  getPendingProcessingWebhookIds,
+  processMessagesAfterManualMerge,
+  processDismissedMergeMessages,
+  getWebhookProcessingEnabled,
+  setWebhookProcessingEnabled
 } from '../services/inboundWebhookService.js';
 import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
 import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
@@ -1475,6 +1481,21 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  // Get pending processing status for webhooks
+  server.get(
+    '/webhooks/processing-status',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const pendingWebhookIds = getPendingProcessingWebhookIds();
+      return {
+        pendingWebhookIds,
+        hasPendingProcessing: pendingWebhookIds.length > 0
+      };
+    }
+  );
+
   server.post(
     '/webhooks',
     {
@@ -1513,7 +1534,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           description: z.string().max(500).optional().nullable(),
           isEnabled: z.boolean().optional(),
           retentionPolicy: retentionPolicySchema.optional().nullable(),
-          mergeWindowSeconds: z.number().int().min(1).max(300).optional()
+          mergeWindowSeconds: z.number().int().min(1).max(300).optional(),
+          autoMerge: z.boolean().optional()
         })
         .refine((value) => Object.keys(value).length > 0, {
           message: 'No fields provided for update.'
@@ -2248,6 +2270,34 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  // Dismiss merge suggestion and process messages individually
+  server.post(
+    '/webhook-inbox/dismiss-merge',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        messageIds: z.array(z.string()).min(1)
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid payload. Message IDs required.');
+      }
+
+      try {
+        await processDismissedMergeMessages(parsed.data.messageIds);
+        return { success: true, processedCount: parsed.data.messageIds.length };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to process dismissed merge messages.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to process messages.');
+      }
+    }
+  );
+
   // ============================================================================
   // Webhook Inbox - Crash Report Inspector
   // ============================================================================
@@ -2510,6 +2560,40 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         request.log.error({ error }, 'Failed to fetch auto-link settings.');
         return reply.badRequest('Unable to fetch auto-link settings.');
       }
+    }
+  );
+
+  // ============================================================================
+  // System Settings - Webhook Processing Toggle
+  // ============================================================================
+
+  server.get(
+    '/system-settings/webhook-processing-enabled',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const enabled = await getWebhookProcessingEnabled();
+      return { enabled };
+    }
+  );
+
+  server.put(
+    '/system-settings/webhook-processing-enabled',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        enabled: z.boolean()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid payload. Boolean "enabled" field required.');
+      }
+
+      await setWebhookProcessingEnabled(parsed.data.enabled);
+      return { enabled: parsed.data.enabled };
     }
   );
 }

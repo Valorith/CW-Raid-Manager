@@ -11,7 +11,11 @@
       "Bash(cd /mnt/c/Users/rgagn/OneDrive/Documents/Github\\\\ Projects/CWRaidManager/server && npx tsc:*)",
       "Bash(npx vue-tsc:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx knex migrate:status)"
+      "Bash(npx knex migrate:status)",
+      "Bash(npm run typecheck)",
+      "Bash(cat:*)",
+      "Bash(find:*)",
+      "Bash(npx prisma generate:*)"
     ]
   }
 }

@@ -522,7 +522,15 @@
       <article class="card">
         <header class="card__header">
           <div>
-            <h2>Webhook Inbox</h2>
+            <div class="inbox-title-row">
+              <h2>Webhook Inbox</h2>
+              <span v-if="isAutoMergeActive" class="auto-merge-badge">
+                Auto-Merge Active
+              </span>
+              <span v-if="processingStatus.hasPendingProcessing" class="processing-badge">
+                Processing...
+              </span>
+            </div>
             <p class="muted small">Review inbound webhook payloads and action results.</p>
           </div>
         </header>
@@ -542,6 +550,7 @@
               <select v-model="inboxFilters.status" class="select">
                 <option value="">All Statuses</option>
                 <option value="RECEIVED">Received</option>
+                <option value="PENDING_MERGE">Pending Merge</option>
                 <option value="PROCESSED">Processed</option>
                 <option value="FAILED">Failed</option>
               </select>
@@ -714,8 +723,8 @@
               </td>
               <td class="actions-cell">
                 <div v-if="message.actionRuns?.length || message.webhook?.actions?.length" class="action-pills">
-                  <!-- Show actions that have runs -->
-                  <template v-for="run in message.actionRuns || []" :key="run.id">
+                  <!-- Show only the latest run of each action type -->
+                  <template v-for="run in getLatestRunsByType(message)" :key="run.id">
                     <span
                       v-if="run.status === 'PENDING_REVIEW'"
                       class="action-pill-wrapper"
@@ -1040,7 +1049,7 @@
                   <ol class="llm-list">
                     <li v-for="item in getCrashRunResult(selectedMessage)?.hypotheses" :key="item.title">
                       <strong>{{ item.title }}</strong>
-                      <span class="muted small">(confidence {{ item.confidence }}%)</span>
+                      <span class="muted small">({{ Math.round(item.confidence * 100) }}% confidence)</span>
                       <p>{{ item.evidence }}</p>
                     </li>
                   </ol>
@@ -1368,39 +1377,158 @@
 
     <!-- Webhook Settings Modal -->
     <div v-if="showWebhookSettings" class="modal-backdrop" @click.self="showWebhookSettings = false">
-      <div class="modal modal--small" role="dialog" aria-modal="true">
+      <div class="modal modal--settings" role="dialog" aria-modal="true">
         <header class="modal__header">
           <h3>Webhook Settings</h3>
           <button class="icon-button" @click="showWebhookSettings = false" aria-label="Close">
             ✕
           </button>
         </header>
-        <div class="modal__body">
-          <label class="form-field">
-            <span>Webhook</span>
-            <select v-model="webhookSettingsForm.webhookId" class="select" @change="onWebhookSettingsSelect">
-              <option value="" disabled>Select a webhook...</option>
-              <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
-                {{ hook.label }}
-              </option>
-            </select>
-          </label>
-          <label class="form-field" v-if="webhookSettingsForm.webhookId">
-            <span>Auto-Merge Detection Window</span>
-            <div class="input-with-suffix">
-              <input
-                v-model.number="webhookSettingsForm.mergeWindowSeconds"
-                type="number"
-                min="1"
-                max="300"
-                class="input"
-              />
-              <span class="input-suffix">seconds</span>
+        <div class="modal__body settings-modal-body">
+          <!-- Global Server Processing Toggle -->
+          <div class="settings-section settings-section--global">
+            <div class="settings-section-header">
+              <h4 class="settings-section-title">Server Processing</h4>
+              <p class="settings-section-description">Global setting to enable or disable webhook processing on this server instance.</p>
             </div>
-            <p class="form-hint">Messages of the same type received within this window will be suggested for merging.</p>
-          </label>
+            <div class="settings-fields">
+              <div class="settings-field settings-field--toggle settings-field--prominent">
+                <div class="settings-field-main">
+                  <label class="settings-field-label" for="global-processing-toggle">
+                    Process Incoming Webhooks
+                  </label>
+                  <p class="settings-field-hint">
+                    When disabled, incoming webhooks will be ignored by this server. Use this to disable production processing while testing locally with a shared database.
+                  </p>
+                </div>
+                <div class="settings-field-control">
+                  <div class="toggle-with-status">
+                    <label class="toggle-switch">
+                      <input
+                        id="global-processing-toggle"
+                        :checked="webhookProcessingEnabled"
+                        type="checkbox"
+                        :disabled="togglingWebhookProcessing"
+                        @change="toggleWebhookProcessing"
+                      />
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span :class="['toggle-status', webhookProcessingEnabled ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                      {{ webhookProcessingEnabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Webhook Selector -->
+          <div class="settings-section settings-section--selector">
+            <label class="form-field">
+              <span class="form-label">Select Webhook</span>
+              <select v-model="webhookSettingsForm.webhookId" class="select" @change="onWebhookSettingsSelect">
+                <option value="" disabled>Choose a webhook to configure...</option>
+                <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
+                  {{ hook.label }}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <!-- Settings Content (shown when webhook selected) -->
+          <template v-if="webhookSettingsForm.webhookId">
+            <!-- Webhook Info Summary -->
+            <div class="settings-info-banner">
+              <div class="settings-info-item">
+                <span class="settings-info-label">Status</span>
+                <span :class="['settings-info-value', selectedWebhookForSettings?.isEnabled ? 'text-success' : 'text-muted']">
+                  {{ selectedWebhookForSettings?.isEnabled ? 'Enabled' : 'Disabled' }}
+                </span>
+              </div>
+              <div class="settings-info-item">
+                <span class="settings-info-label">Last Received</span>
+                <span class="settings-info-value">
+                  {{ selectedWebhookForSettings?.lastReceivedAt ? formatRelativeTime(selectedWebhookForSettings.lastReceivedAt) : 'Never' }}
+                </span>
+              </div>
+              <div class="settings-info-item">
+                <span class="settings-info-label">Actions</span>
+                <span class="settings-info-value">
+                  {{ selectedWebhookForSettings?.actions?.filter(a => a.isEnabled).length ?? 0 }} active
+                </span>
+              </div>
+            </div>
+
+            <!-- Message Processing Section -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <h4 class="settings-section-title">Message Processing</h4>
+                <p class="settings-section-description">Configure how incoming messages are handled and processed.</p>
+              </div>
+
+              <div class="settings-fields">
+                <!-- Merge Window -->
+                <div class="settings-field">
+                  <div class="settings-field-main">
+                    <label class="settings-field-label" :for="`merge-window-${webhookSettingsForm.webhookId}`">
+                      Merge Detection Window
+                    </label>
+                    <p class="settings-field-hint">
+                      Messages received within this time window will be grouped together for potential merging.
+                    </p>
+                  </div>
+                  <div class="settings-field-control">
+                    <div class="input-with-suffix">
+                      <input
+                        :id="`merge-window-${webhookSettingsForm.webhookId}`"
+                        v-model.number="webhookSettingsForm.mergeWindowSeconds"
+                        type="number"
+                        min="1"
+                        max="300"
+                        class="input input--compact"
+                      />
+                      <span class="input-suffix">sec</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Auto-Merge Toggle -->
+                <div class="settings-field settings-field--toggle">
+                  <div class="settings-field-main">
+                    <label class="settings-field-label" :for="`auto-merge-${webhookSettingsForm.webhookId}`">
+                      Automatic Merge Processing
+                    </label>
+                    <p class="settings-field-hint">
+                      Automatically sort, combine, and process grouped messages with AI review when the merge window closes.
+                    </p>
+                  </div>
+                  <div class="settings-field-control">
+                    <div class="toggle-with-status">
+                      <label class="toggle-switch">
+                        <input
+                          :id="`auto-merge-${webhookSettingsForm.webhookId}`"
+                          v-model="webhookSettingsForm.autoMerge"
+                          type="checkbox"
+                        />
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span :class="['toggle-status', webhookSettingsForm.autoMerge ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                        {{ webhookSettingsForm.autoMerge ? 'Enabled' : 'Disabled' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Empty State -->
+          <div v-else class="settings-empty-state">
+            <div class="settings-empty-icon">⚙️</div>
+            <p>Select a webhook above to configure its settings.</p>
+          </div>
         </div>
-        <footer class="modal__footer">
+        <footer class="modal__footer modal__footer--settings">
           <button class="btn btn--outline" type="button" @click="showWebhookSettings = false">Cancel</button>
           <button
             class="btn btn--primary"
@@ -1408,7 +1536,7 @@
             :disabled="!webhookSettingsForm.webhookId || savingWebhookSettings"
             @click="saveWebhookSettings"
           >
-            {{ savingWebhookSettings ? 'Saving...' : 'Save' }}
+            {{ savingWebhookSettings ? 'Saving...' : 'Save Settings' }}
           </button>
         </footer>
       </div>
@@ -1626,9 +1754,17 @@ const newLabelForm = reactive({ name: '', color: '#4a90d9' });
 const showWebhookSettings = ref(false);
 const webhookSettingsForm = reactive({
   webhookId: '',
-  mergeWindowSeconds: 10
+  mergeWindowSeconds: 10,
+  autoMerge: false
 });
 const savingWebhookSettings = ref(false);
+
+// Global Webhook Processing Toggle (for production/test environment conflicts)
+const webhookProcessingEnabled = ref(true);
+const togglingWebhookProcessing = ref(false);
+const selectedWebhookForSettings = computed(() =>
+  webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId)
+);
 
 // Merge group detection
 const dismissedMergeGroups = ref<Set<string>>(new Set());
@@ -1709,6 +1845,58 @@ const failedCount = computed(() =>
 const selectedWebhook = computed(() =>
   webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
+const isAutoMergeActive = computed(() => {
+  // Auto-Merge is a global setting - check if any webhook has it enabled
+  return webhooks.value.some((w) => w.autoMerge);
+});
+
+// Processing status tracking
+const processingStatus = reactive({
+  hasPendingProcessing: false,
+  pendingWebhookIds: [] as string[]
+});
+let processingStatusInterval: ReturnType<typeof setInterval> | null = null;
+
+async function pollProcessingStatus() {
+  try {
+    const status = await api.getWebhookProcessingStatus();
+    processingStatus.hasPendingProcessing = status.hasPendingProcessing;
+    processingStatus.pendingWebhookIds = status.pendingWebhookIds;
+
+    // If processing just finished, refresh the inbox
+    if (!status.hasPendingProcessing && processingStatus.pendingWebhookIds.length > 0) {
+      await loadInbox();
+    }
+  } catch (error) {
+    // Silently ignore polling errors
+  }
+}
+
+function startProcessingStatusPolling() {
+  if (processingStatusInterval) return;
+  // Poll every 2 seconds when auto-merge is active
+  processingStatusInterval = setInterval(pollProcessingStatus, 2000);
+  // Initial poll
+  pollProcessingStatus();
+}
+
+function stopProcessingStatusPolling() {
+  if (processingStatusInterval) {
+    clearInterval(processingStatusInterval);
+    processingStatusInterval = null;
+  }
+}
+
+// Watch for auto-merge status changes to start/stop polling
+watch(isAutoMergeActive, (newVal) => {
+  if (newVal) {
+    startProcessingStatusPolling();
+  } else {
+    stopProcessingStatusPolling();
+    processingStatus.hasPendingProcessing = false;
+    processingStatus.pendingWebhookIds = [];
+  }
+});
 
 // Merge group detection
 interface MergeGroup {
@@ -2107,12 +2295,45 @@ async function loadAdminUsers() {
 async function refreshAll() {
   loading.value = true;
   try {
-    await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount()]);
+    await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount(), loadWebhookProcessingEnabled()]);
     if (shouldPollInbox()) {
       startInboxPolling();
     }
   } finally {
     loading.value = false;
+  }
+}
+
+async function loadWebhookProcessingEnabled() {
+  try {
+    webhookProcessingEnabled.value = await api.getWebhookProcessingEnabled();
+  } catch (error) {
+    console.error('Failed to load webhook processing enabled setting:', error);
+    // Default to true if we can't fetch
+    webhookProcessingEnabled.value = true;
+  }
+}
+
+async function toggleWebhookProcessing() {
+  togglingWebhookProcessing.value = true;
+  try {
+    const newValue = !webhookProcessingEnabled.value;
+    await api.setWebhookProcessingEnabled(newValue);
+    webhookProcessingEnabled.value = newValue;
+    addToast({
+      title: 'Server Settings',
+      message: newValue ? 'Webhook processing enabled' : 'Webhook processing disabled',
+      variant: newValue ? 'success' : 'warning'
+    });
+  } catch (error) {
+    console.error('Failed to toggle webhook processing:', error);
+    addToast({
+      title: 'Error',
+      message: 'Failed to update webhook processing setting',
+      variant: 'error'
+    });
+  } finally {
+    togglingWebhookProcessing.value = false;
   }
 }
 
@@ -2413,12 +2634,35 @@ function getActionLabel(type?: string | null): string {
   }
 }
 
+// Get only the latest run of each action type (for cleaner display in Actions column)
+function getLatestRunsByType(message: InboundWebhookMessage) {
+  const runs = message.actionRuns || [];
+  const latestByType = new Map<string, (typeof runs)[0]>();
+
+  // Runs are ordered by createdAt asc, so later entries override earlier ones
+  for (const run of runs) {
+    const type = run.action?.type;
+    if (type) {
+      latestByType.set(type, run);
+    }
+  }
+
+  return Array.from(latestByType.values());
+}
+
 function getNotStartedActions(message: InboundWebhookMessage) {
   const webhookActions = message.webhook?.actions?.filter((a) => a.isEnabled) || [];
   const startedActionTypes = new Set(
     (message.actionRuns || []).map((run) => run.action?.type).filter(Boolean)
   );
-  return webhookActions.filter((action) => !startedActionTypes.has(action.type));
+  // Filter to actions not started, then deduplicate by type (keep first of each type)
+  const notStarted = webhookActions.filter((action) => !startedActionTypes.has(action.type));
+  const seenTypes = new Set<string>();
+  return notStarted.filter((action) => {
+    if (seenTypes.has(action.type)) return false;
+    seenTypes.add(action.type);
+    return true;
+  });
 }
 
 function formatDate(value?: string | null) {
@@ -2429,6 +2673,24 @@ function formatDate(value?: string | null) {
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(parsed);
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return 'Never';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Never';
+  const now = Date.now();
+  const diff = now - parsed.getTime();
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return formatDate(value);
 }
 
 function formatAdminName(user?: { displayName?: string; nickname?: string | null; email?: string }) {
@@ -2645,7 +2907,7 @@ function formatFindingsText(result: unknown) {
     const record = item as Record<string, unknown>;
     const title = typeof record.title === 'string' ? record.title : `Hypothesis ${index + 1}`;
     const confidence =
-      typeof record.confidence === 'number' ? ` (confidence ${record.confidence})` : '';
+      typeof record.confidence === 'number' ? ` (${Math.round(record.confidence * 100)}% confidence)` : '';
     const evidence = Array.isArray(record.evidence)
       ? record.evidence.map((entry) => `  - ${entry}`)
       : [];
@@ -2984,6 +3246,7 @@ function openWebhookSettings() {
   if (webhookSettingsForm.webhookId) {
     const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
     webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
+    webhookSettingsForm.autoMerge = hook?.autoMerge ?? false;
   }
   showWebhookSettings.value = true;
 }
@@ -2991,6 +3254,7 @@ function openWebhookSettings() {
 function onWebhookSettingsSelect() {
   const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
   webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
+  webhookSettingsForm.autoMerge = hook?.autoMerge ?? false;
 }
 
 async function saveWebhookSettings() {
@@ -2998,7 +3262,8 @@ async function saveWebhookSettings() {
   savingWebhookSettings.value = true;
   try {
     const updated = await api.updateInboundWebhook(webhookSettingsForm.webhookId, {
-      mergeWindowSeconds: webhookSettingsForm.mergeWindowSeconds
+      mergeWindowSeconds: webhookSettingsForm.mergeWindowSeconds,
+      autoMerge: webhookSettingsForm.autoMerge
     });
     // Update local webhook data
     const idx = webhooks.value.findIndex((w) => w.id === updated.id);
@@ -3311,6 +3576,39 @@ async function confirmMerge() {
 
 async function retryCrashReview(message: InboundWebhookMessage) {
   retryingCrashId.value = message.id;
+
+  // Find the crash review action from the webhook to use for the optimistic run
+  const crashAction = message.webhook?.actions?.find((a) => a.type === 'CRASH_REVIEW');
+
+  // Optimistically add a pending run with current timestamp so the timer resets immediately
+  const optimisticRun = {
+    id: `optimistic-${Date.now()}`,
+    messageId: message.id,
+    actionId: crashAction?.id || '',
+    status: 'PENDING_REVIEW' as const,
+    createdAt: new Date().toISOString(),
+    action: crashAction
+  };
+
+  // Update selectedMessage immediately
+  if (selectedMessage.value?.id === message.id) {
+    const currentRuns = selectedMessage.value.actionRuns || [];
+    selectedMessage.value = {
+      ...selectedMessage.value,
+      actionRuns: [...currentRuns, optimisticRun] as typeof currentRuns
+    };
+  }
+
+  // Update inbox list immediately
+  const inboxIndex = inboxMessages.value.findIndex((item) => item.id === message.id);
+  if (inboxIndex >= 0) {
+    const currentRuns = inboxMessages.value[inboxIndex].actionRuns || [];
+    inboxMessages.value[inboxIndex] = {
+      ...inboxMessages.value[inboxIndex],
+      actionRuns: [...currentRuns, optimisticRun] as typeof currentRuns
+    };
+  }
+
   try {
     const updated = await api.retryCrashReview(message.id);
     selectedMessage.value = updated;
@@ -3482,6 +3780,11 @@ onMounted(async () => {
   // Add global click handler to close label dropdown
   document.addEventListener('click', handleGlobalClick);
 
+  // Start processing status polling if auto-merge is active
+  if (isAutoMergeActive.value) {
+    startProcessingStatusPolling();
+  }
+
   // Mark component as ready and process any pending messageId
   componentReady.value = true;
   if (pendingMessageId.value) {
@@ -3505,6 +3808,7 @@ onBeforeUnmount(() => {
     clearInterval(messagePollTimer);
     messagePollTimer = null;
   }
+  stopProcessingStatusPolling();
   document.removeEventListener('click', handleGlobalClick);
 });
 
@@ -4001,6 +4305,70 @@ function escapeHtml(text: string): string {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
+}
+
+/* Inbox title row */
+.inbox-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.inbox-title-row h2 {
+  margin: 0;
+}
+
+.auto-merge-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 9999px;
+}
+
+.auto-merge-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: #22c55e;
+  border-radius: 50%;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.processing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 9999px;
+}
+
+.processing-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: #f59e0b;
+  border-radius: 50%;
+  animation: pulse-dot 1s ease-in-out infinite;
 }
 
 /* Inbox filter layout */
@@ -4679,6 +5047,267 @@ input[type='checkbox']:checked::after {
 
 .modal--wide {
   width: min(1100px, 96vw);
+}
+
+.modal--settings {
+  width: min(520px, 96vw);
+}
+
+/* Settings Modal Styles */
+.settings-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.settings-section--selector {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.settings-section--global {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(30, 41, 59, 0.6) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.settings-section--global .settings-section-header {
+  margin-bottom: 0.75rem;
+}
+
+.settings-section--global .settings-section-title {
+  color: #60a5fa;
+}
+
+.settings-field--prominent {
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.settings-field--prominent .settings-field-hint {
+  color: #94a3b8;
+}
+
+.settings-info-banner {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.875rem 1rem;
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.settings-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.settings-info-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.settings-info-value {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.settings-section-header {
+  margin-bottom: 0.25rem;
+}
+
+.settings-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  color: var(--color-text, #f1f5f9);
+}
+
+.settings-section-description {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(30, 41, 59, 0.3);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.settings-field {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.settings-field--toggle {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  /* Debug: make toggle section more visible */
+  margin-top: 1rem;
+}
+
+.settings-field--toggle:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-field--toggle:first-child {
+  padding-top: 0;
+}
+
+.settings-field-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-field-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text, #f1f5f9);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.settings-field-hint {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.settings-field-control {
+  flex-shrink: 0;
+}
+
+.settings-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.settings-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+  opacity: 0.5;
+}
+
+.settings-empty-state p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(148, 163, 184, 0.3);
+  border-radius: 24px;
+  transition: background-color 0.2s ease;
+}
+
+.toggle-slider::before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--color-primary, #4a90d9);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.toggle-switch input:focus + .toggle-slider {
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.3);
+}
+
+.toggle-with-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.toggle-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.toggle-status--enabled {
+  color: var(--color-success, #22c55e);
+}
+
+.toggle-status--disabled {
+  color: var(--color-danger, #ef4444);
+}
+
+/* Compact input */
+.input--compact {
+  width: 70px;
+  text-align: center;
+}
+
+/* Text utilities */
+.text-success {
+  color: var(--color-success, #22c55e);
+}
+
+.text-muted {
+  color: var(--color-text-muted, #94a3b8);
 }
 
 .modal__header {
@@ -5413,6 +6042,16 @@ input[type='checkbox']:checked::after {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.modal__footer--settings {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 .inspector-body {

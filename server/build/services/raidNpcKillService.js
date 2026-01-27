@@ -1,6 +1,5 @@
 import { createHash } from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { recordKillForTrackedNpc } from './npcRespawnService.js';
 function normalizeNpcName(name) {
     return name.replace(/\s+/g, ' ').trim();
@@ -279,25 +278,6 @@ export async function recordRaidNpcKills(raidId, guildId, kills, logger) {
                 // Log error and continue - NPC may not be tracked in respawn tracker
                 logger?.warn?.({ error, npcName: entry.npcName }, 'Failed to record kill in respawn tracker');
             }
-        }
-    }
-    // Emit Discord webhook for kills of NPCs that are flagged as raid targets in the respawn tracker
-    // Only emit for newly inserted kills to avoid duplicate notifications
-    if (uniqueEntries.length > 0 && raidTargetNpcLookup.size > 0) {
-        const raidTargetKills = uniqueEntries
-            .filter((entry) => raidTargetNpcLookup.has(entry.npcNameNormalized))
-            .map((entry) => ({
-            npcName: raidTargetNpcLookup.get(entry.npcNameNormalized) ?? entry.npcName,
-            killerName: entry.killerName,
-            occurredAt: entry.occurredAt
-        }));
-        if (raidTargetKills.length > 0) {
-            await emitDiscordWebhookEvent(guildId, 'raid.targetKilled', {
-                guildName: raidContext?.guild?.name ?? 'Guild',
-                raidId,
-                raidName: raidContext?.name ?? 'Raid',
-                kills: raidTargetKills
-            });
         }
     }
     return { inserted, pendingClarifications, pendingZoneClarifications };

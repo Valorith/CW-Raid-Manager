@@ -113,6 +113,7 @@ function compressCrashReportForAnalysis(text: string) {
   let omittedModules = 0;
   let skippingRaw = false;
   let omittedLines = 0;
+  const crashStackLines: string[] = [];
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -124,6 +125,12 @@ function compressCrashReportForAnalysis(text: string) {
     }
 
     if (skippingRaw) {
+      // Preserve crash stack trace lines even when skipping raw sections
+      // These contain the actual crash location info (e.g., "[Crash] Zone [zonename] file.cpp (123): FunctionName")
+      if (/\[Crash\]/i.test(line) || /\.cpp\s*\(\d+\):/i.test(line) || /\.h\s*\(\d+\):/i.test(line)) {
+        crashStackLines.push(line);
+        continue;
+      }
       omittedLines += 1;
       continue;
     }
@@ -164,6 +171,13 @@ function compressCrashReportForAnalysis(text: string) {
 
   if (inModules && omittedModules > 0) {
     output.push(`Modules omitted: ${omittedModules}`);
+  }
+
+  // Add crash stack trace lines that were preserved from raw sections
+  if (crashStackLines.length > 0) {
+    output.push('');
+    output.push('Crash Stack Trace:');
+    output.push(...crashStackLines);
   }
 
   if (omittedLines > 0) {

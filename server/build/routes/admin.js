@@ -6,7 +6,8 @@ import { deleteGuildByAdmin, deleteRaidEventByAdmin, deleteUserByAdmin, detachGu
 import { fetchLcItems, fetchLcRequests, fetchLcVotes, fetchLootMaster, getLootManagementSummary } from '../services/lootManagementService.js';
 import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity } from '../services/connectionsService.js';
 import { fetchPlayerEventLogs, getPlayerEventLogStats, getEventTypes, getEventLogZones } from '../services/playerEventLogsService.js';
-import { createInboundWebhook, createInboundWebhookAction, createInboundWebhookMessageForAdmin, deleteInboundWebhook, deleteInboundWebhookAction, getInboundWebhookMessage, listInboundWebhookMessagesEnhanced, listInboundWebhooks, retryCrashReviewForMessage, updateInboundWebhook, updateInboundWebhookAction, markMessageRead, getUnreadCount, toggleMessageStar, listWebhookLabels, createWebhookLabel, updateWebhookLabel, deleteWebhookLabel, setMessageLabels, mergeWebhookMessages, bulkMessageAction } from '../services/inboundWebhookService.js';
+import { createInboundWebhook, createInboundWebhookAction, createInboundWebhookMessageForAdmin, deleteInboundWebhook, deleteInboundWebhookAction, getInboundWebhookMessage, listInboundWebhookMessagesEnhanced, listInboundWebhooks, retryCrashReviewForMessage, updateInboundWebhook, updateInboundWebhookAction, markMessageRead, getUnreadCount, toggleMessageStar, listWebhookLabels, createWebhookLabel, findOrCreateWebhookLabel, updateWebhookLabel, deleteWebhookLabel, setMessageLabels, mergeWebhookMessages, bulkMessageAction, getPendingProcessingWebhookIds, processDismissedMergeMessages } from '../services/inboundWebhookService.js';
+import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
 import { getCharacterByName, getCharacterById, getCharacterEvents, getAccountInfo, getCharacterCorpses, getCharacterAssociates, searchCharacters, addManualAssociation, removeManualAssociation, getAccountNotes, createAccountNote, updateAccountNote, deleteAccountNote, syncIpGroupAssociations, getAccountKnownIps, autoLinkSharedIps, autoLinkSharedIpsStream } from '../services/characterAdminService.js';
 async function requireAdmin(request, reply) {
     try {
@@ -1114,6 +1115,16 @@ export async function adminRoutes(server) {
         const webhooks = await listInboundWebhooks();
         return { webhooks };
     });
+    // Get pending processing status for webhooks
+    server.get('/webhooks/processing-status', {
+        preHandler: [authenticate, requireAdmin]
+    }, async () => {
+        const pendingWebhookIds = getPendingProcessingWebhookIds();
+        return {
+            pendingWebhookIds,
+            hasPendingProcessing: pendingWebhookIds.length > 0
+        };
+    });
     server.post('/webhooks', {
         preHandler: [authenticate, requireAdmin]
     }, async (request, reply) => {
@@ -1140,7 +1151,9 @@ export async function adminRoutes(server) {
             label: z.string().min(2).max(120).optional(),
             description: z.string().max(500).optional().nullable(),
             isEnabled: z.boolean().optional(),
-            retentionPolicy: retentionPolicySchema.optional().nullable()
+            retentionPolicy: retentionPolicySchema.optional().nullable(),
+            mergeWindowSeconds: z.number().int().min(1).max(300).optional(),
+            autoMerge: z.boolean().optional()
         })
             .refine((value) => Object.keys(value).length > 0, {
             message: 'No fields provided for update.'
@@ -1344,7 +1357,7 @@ export async function adminRoutes(server) {
     }, async (request, reply) => {
         const paramsSchema = z.object({ messageId: z.string() });
         const { messageId } = paramsSchema.parse(request.params);
-        const message = await getInboundWebhookMessage(messageId);
+        const message = await getInboundWebhookMessage(messageId, request.user.userId);
         if (!message) {
             return reply.notFound('Webhook message not found.');
         }
@@ -1547,6 +1560,19 @@ export async function adminRoutes(server) {
             throw error;
         }
     });
+    server.post('/webhook-labels/find-or-create', {
+        preHandler: [authenticate, requireAdmin]
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            name: z.string().min(1).max(50)
+        });
+        const parsed = bodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+            return reply.badRequest('Invalid label name.');
+        }
+        const label = await findOrCreateWebhookLabel(parsed.data.name);
+        return { label };
+    });
     server.put('/webhook-labels/:labelId', {
         preHandler: [authenticate, requireAdmin]
     }, async (request, reply) => {
@@ -1652,14 +1678,15 @@ export async function adminRoutes(server) {
         preHandler: [authenticate, requireAdmin]
     }, async (request, reply) => {
         const bodySchema = z.object({
-            messageIds: z.array(z.string()).min(2).max(20)
+            messageIds: z.array(z.string()).min(2).max(20),
+            combinedText: z.string().min(1)
         });
         const parsed = bodySchema.safeParse(request.body ?? {});
         if (!parsed.success) {
-            return reply.badRequest('Invalid merge payload. At least 2 messages required.');
+            return reply.badRequest('Invalid merge payload. At least 2 messages and combined text required.');
         }
         try {
-            const message = await mergeWebhookMessages(parsed.data.messageIds);
+            const message = await mergeWebhookMessages(parsed.data.messageIds, parsed.data.combinedText);
             return reply.code(201).send({ message });
         }
         catch (error) {
@@ -1668,6 +1695,79 @@ export async function adminRoutes(server) {
                 return reply.badRequest(error.message);
             }
             return reply.badRequest('Unable to merge messages.');
+        }
+    });
+    // Dismiss merge suggestion and process messages individually
+    server.post('/webhook-inbox/dismiss-merge', {
+        preHandler: [authenticate, requireAdmin]
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            messageIds: z.array(z.string()).min(1)
+        });
+        const parsed = bodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+            return reply.badRequest('Invalid payload. Message IDs required.');
+        }
+        try {
+            await processDismissedMergeMessages(parsed.data.messageIds);
+            return { success: true, processedCount: parsed.data.messageIds.length };
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to process dismissed merge messages.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to process messages.');
+        }
+    });
+    // ============================================================================
+    // Webhook Inbox - Crash Report Inspector
+    // ============================================================================
+    server.post('/webhook-inbox/inspect-crash-report', {
+        preHandler: [authenticate, requireAdmin]
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            crashReportText: z.string().min(10).max(500000)
+        });
+        const parsed = bodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+            return reply.badRequest('Invalid request. Crash report text is required.');
+        }
+        try {
+            const result = await inspectCrashReport(parsed.data.crashReportText);
+            return reply.send(result);
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to inspect crash report.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to inspect crash report.');
+        }
+    });
+    server.post('/webhook-inbox/sort-crash-segments', {
+        preHandler: [authenticate, requireAdmin]
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            segments: z.array(z.object({
+                id: z.string(),
+                text: z.string().min(1)
+            })).min(2).max(20)
+        });
+        const parsed = bodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+            return reply.badRequest('Invalid request. At least 2 segments with id and text are required.');
+        }
+        try {
+            const result = await sortCrashReportSegments(parsed.data.segments);
+            return reply.send(result);
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to sort crash report segments.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to sort crash report segments.');
         }
     });
     // Sync associations from IP groups (called by connections page)

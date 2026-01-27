@@ -4,8 +4,12 @@ import { receiveInboundWebhookMessage } from '../services/inboundWebhookService.
 
 export async function webhookInboxRoutes(server: FastifyInstance): Promise<void> {
   server.post('/:webhookId/:token', async (request, reply) => {
+    console.log('[WEBHOOK ROUTE] >>>>>> INCOMING WEBHOOK REQUEST <<<<<<');
+
     const paramsSchema = z.object({ webhookId: z.string(), token: z.string() });
     const { webhookId, token } = paramsSchema.parse(request.params);
+
+    console.log(`[WEBHOOK ROUTE] webhookId: ${webhookId}, token: ${token.slice(0, 8)}...`);
 
     const payload = request.body ?? {};
     let rawBody: string | null = null;

@@ -1,6 +1,73 @@
 import { createHash, randomBytes } from 'crypto';
 import { prisma } from '../utils/prisma.js';
-import { reviewCrashReport } from './geminiCrashReviewService.js';
+import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
+import { appConfig } from '../config/appConfig.js';
+// ============================================================================
+// SERVICE LOADED - AUTO-MERGE VERSION 2.0
+// ============================================================================
+const WEBHOOK_PROCESSING_DISABLED = process.env.DISABLE_WEBHOOK_PROCESSING === 'true';
+console.log('========================================');
+console.log('[InboundWebhookService] LOADED - AUTO-MERGE v2.0');
+console.log('[InboundWebhookService] Delayed processing ENABLED');
+console.log(`[InboundWebhookService] Processing: ${WEBHOOK_PROCESSING_DISABLED ? 'DISABLED (env flag)' : 'ACTIVE'}`);
+console.log('========================================');
+// ============================================================================
+// Auto-Merge Timer Tracking
+// ============================================================================
+// Track pending message processing timers by webhook ID
+// When a new message arrives, we reset the timer to wait for the full merge window
+const pendingProcessingTimers = new Map();
+// Track auto-merge retry counts to limit retries
+const autoMergeRetryCounts = new Map();
+const AUTO_MERGE_MAX_RETRIES = 1;
+// Track webhooks currently being processed to prevent concurrent processing
+const processingWebhooks = new Set();
+// Resolve client base URL for building links
+const clientBaseUrl = resolveClientBaseUrl();
+function resolveClientBaseUrl() {
+    const candidates = [
+        appConfig.clientUrl,
+        process.env.CLIENT_URL,
+        process.env.PUBLIC_CLIENT_URL,
+        process.env.PUBLIC_URL,
+        process.env.WEB_URL,
+        process.env.APP_URL,
+        process.env.SITE_URL,
+        process.env.URL,
+        process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+        process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined,
+        process.env.RENDER_EXTERNAL_URL,
+        process.env.DEPLOYMENT_URL
+    ];
+    const normalizedCandidates = candidates
+        .map((value) => {
+        if (!value || typeof value !== 'string')
+            return null;
+        const trimmed = value.trim();
+        if (!trimmed)
+            return null;
+        const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+        try {
+            const url = new URL(withScheme);
+            return `${url.protocol}//${url.host}`.replace(/\/$/, '');
+        }
+        catch {
+            return null;
+        }
+    })
+        .filter((value) => Boolean(value));
+    const isLocalHost = (value) => {
+        try {
+            const { hostname } = new URL(value);
+            return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('127.') || hostname.endsWith('.local');
+        }
+        catch {
+            return false;
+        }
+    };
+    const nonLocal = normalizedCandidates.find((value) => !isLocalHost(value));
+    return nonLocal ?? normalizedCandidates[0] ?? null;
+}
 const GEMINI_TIMEOUT_MS = 120_000;
 const MODULES_MAX_LINES = 400;
 const MODULES_MAX_CHARS = 60_000;
@@ -66,6 +133,12 @@ export async function updateInboundWebhook(webhookId, input) {
     }
     if (input.retentionPolicy !== undefined) {
         data.retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? null);
+    }
+    if (input.mergeWindowSeconds !== undefined) {
+        data.mergeWindowSeconds = input.mergeWindowSeconds;
+    }
+    if (input.autoMerge !== undefined) {
+        data.autoMerge = input.autoMerge;
     }
     return prisma.inboundWebhook.update({
         where: { id: webhookId },
@@ -136,7 +209,9 @@ export async function listInboundWebhookMessages(options) {
             skip: (page - 1) * pageSize,
             take: pageSize,
             include: {
-                webhook: true,
+                webhook: {
+                    include: { actions: true }
+                },
                 assignedAdmin: {
                     select: { id: true, displayName: true, nickname: true, email: true }
                 },
@@ -150,20 +225,43 @@ export async function listInboundWebhookMessages(options) {
     ]);
     return { messages, total };
 }
-export async function getInboundWebhookMessage(messageId) {
-    return prisma.inboundWebhookMessage.findUnique({
+export async function getInboundWebhookMessage(messageId, userId) {
+    const message = await prisma.inboundWebhookMessage.findUnique({
         where: { id: messageId },
         include: {
-            webhook: true,
+            webhook: {
+                include: { actions: true }
+            },
             assignedAdmin: {
                 select: { id: true, displayName: true, nickname: true, email: true }
             },
             actionRuns: {
                 include: { action: true },
                 orderBy: { createdAt: 'asc' }
-            }
+            },
+            labelAssignments: {
+                include: { label: true }
+            },
+            readStatuses: userId
+                ? { where: { userId }, take: 1 }
+                : false,
+            stars: userId
+                ? { where: { userId }, take: 1 }
+                : false
         }
     });
+    if (!message)
+        return null;
+    // Transform to include computed fields for consistency with enhanced list
+    return {
+        ...message,
+        labels: message.labelAssignments.map((la) => la.label),
+        isRead: userId && message.readStatuses ? message.readStatuses.length > 0 : undefined,
+        isStarred: userId && message.stars ? message.stars.length > 0 : undefined,
+        labelAssignments: undefined,
+        readStatuses: undefined,
+        stars: undefined
+    };
 }
 export async function retryCrashReviewForMessage(messageId) {
     const message = await prisma.inboundWebhookMessage.findUnique({
@@ -224,6 +322,46 @@ export async function retryCrashReviewForMessage(messageId) {
                 status: 'PROCESSED'
             }
         });
+        // Auto-label based on crash type (script error vs crash) and webhook source
+        const findingsRecord = findings;
+        const signature = findingsRecord?.signature;
+        await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhook.label, crashInput);
+        // After successful AI review, trigger Discord action if configured
+        const discordAction = webhook.actions.find((action) => action.type === 'DISCORD_RELAY' && action.isEnabled);
+        if (discordAction) {
+            const discordConfig = normalizeActionConfig(discordAction.config);
+            if (discordConfig.discordWebhookUrl) {
+                const discordStartedAt = Date.now();
+                try {
+                    // Build enriched payload with crash review findings
+                    const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts);
+                    await sendDiscordRelay(discordConfig.discordWebhookUrl, enrichedPayload, discordConfig, messageId);
+                    await prisma.inboundWebhookActionRun.create({
+                        data: {
+                            messageId,
+                            actionId: discordAction.id,
+                            status: 'SUCCESS',
+                            durationMs: Date.now() - discordStartedAt
+                        }
+                    });
+                    await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
+                }
+                catch (discordError) {
+                    await prisma.inboundWebhookActionRun.create({
+                        data: {
+                            messageId,
+                            actionId: discordAction.id,
+                            status: 'FAILED',
+                            error: discordError instanceof Error ? discordError.message : 'Unknown Discord error',
+                            durationMs: Date.now() - discordStartedAt
+                        }
+                    });
+                    await updateActionSummary(messageId, discordAction.id, 'FAILED');
+                    // Don't throw - Discord failure shouldn't fail the whole operation
+                    console.error('Discord relay failed after AI review:', discordError);
+                }
+            }
+        }
     }
     catch (error) {
         await prisma.inboundWebhookActionRun.update({
@@ -239,6 +377,13 @@ export async function retryCrashReviewForMessage(messageId) {
     return getInboundWebhookMessage(messageId);
 }
 export async function receiveInboundWebhookMessage(input) {
+    console.log(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
+    console.log(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);
+    // Check if webhook processing is disabled (for testing with shared database)
+    if (WEBHOOK_PROCESSING_DISABLED) {
+        console.log(`[WEBHOOK RECEIVE] Processing DISABLED - skipping (set DISABLE_WEBHOOK_PROCESSING=false to enable)`);
+        return { id: 'skipped', webhookId: input.webhookId, status: 'SKIPPED' };
+    }
     const webhook = await prisma.inboundWebhook.findUnique({
         where: { id: input.webhookId },
         include: { actions: true }
@@ -248,6 +393,21 @@ export async function receiveInboundWebhookMessage(input) {
     }
     if (!webhook.isEnabled) {
         throw new Error('Webhook is disabled.');
+    }
+    console.log(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
+    // Check if the message has any meaningful crash report content
+    // This specifically looks for crashReportText, message, content, or rawBody
+    // and does NOT fall back to JSON stringification of the payload
+    const messageContent = extractActualMessageContent(input.payload, input.rawBody ?? null);
+    // Log payload structure for debugging
+    const payloadType = typeof input.payload;
+    const payloadKeys = input.payload && typeof input.payload === 'object' ? Object.keys(input.payload) : [];
+    console.log(`[WEBHOOK RECEIVE] Payload type: ${payloadType}, keys: [${payloadKeys.join(', ')}], rawBody: ${input.rawBody ? 'present' : 'null'}`);
+    console.log(`[WEBHOOK RECEIVE] Content check: hasContent=${!!messageContent}, contentLength=${messageContent?.length ?? 0}`);
+    if (!messageContent || messageContent.trim().length === 0) {
+        console.log(`[WEBHOOK RECEIVE] >>>>>> DISCARDING MESSAGE - NO CONTENT <<<<<<`);
+        // Return a minimal response but don't create a message record
+        return { id: 'discarded', webhookId: webhook.id, status: 'DISCARDED' };
     }
     const message = await prisma.inboundWebhookMessage.create({
         data: {
@@ -263,7 +423,12 @@ export async function receiveInboundWebhookMessage(input) {
         where: { id: webhook.id },
         data: { lastReceivedAt: new Date() }
     });
-    void runInboundWebhookActions(message.id, webhook.actions, input.payload);
+    // Schedule delayed processing after merge window closes
+    // This allows multiple messages to accumulate before deciding how to process them
+    const mergeWindow = webhook.mergeWindowSeconds ?? 60;
+    console.log(`[WEBHOOK RECEIVE] Message created: ${message.id}, scheduling delayed processing in ${mergeWindow}s`);
+    scheduleDelayedProcessing(webhook.id, mergeWindow);
+    console.log(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
 }
 export async function createInboundWebhookMessageForAdmin(options) {
@@ -289,7 +454,8 @@ export async function createInboundWebhookMessageForAdmin(options) {
         data: { lastReceivedAt: new Date() }
     });
     if (options.runActions !== false) {
-        void runInboundWebhookActions(message.id, webhook.actions, options.payload);
+        // Schedule delayed processing after merge window closes
+        scheduleDelayedProcessing(webhook.id, webhook.mergeWindowSeconds ?? 60);
     }
     else {
         await prisma.inboundWebhookMessage.update({
@@ -302,7 +468,7 @@ export async function createInboundWebhookMessageForAdmin(options) {
     }
     return message;
 }
-async function runInboundWebhookActions(messageId, actions, payload) {
+async function runInboundWebhookActions(messageId, actions, payload, webhookLabel) {
     let overallStatus = 'PROCESSED';
     const summary = [];
     let payloadForActions = payload;
@@ -321,7 +487,7 @@ async function runInboundWebhookActions(messageId, actions, payload) {
                 if (!config.discordWebhookUrl) {
                     throw new Error('Discord webhook URL is missing.');
                 }
-                await sendDiscordRelay(config.discordWebhookUrl, payloadForActions, config);
+                await sendDiscordRelay(config.discordWebhookUrl, payloadForActions, config, messageId);
                 await prisma.inboundWebhookActionRun.create({
                     data: {
                         messageId,
@@ -334,6 +500,26 @@ async function runInboundWebhookActions(messageId, actions, payload) {
                 continue;
             }
             if (action.type === 'CRASH_REVIEW') {
+                const message = await prisma.inboundWebhookMessage.findUnique({
+                    where: { id: messageId }
+                });
+                const crashConfig = normalizeActionConfig(action.config);
+                const crashInput = buildCrashReviewInput(message?.payload, message?.rawBody, payloadForActions);
+                // Check if this message looks like a crash report or script error
+                // If not, skip AI review and let it pass through to Discord unchanged
+                if (!looksLikeCrashReport(crashInput)) {
+                    await prisma.inboundWebhookActionRun.create({
+                        data: {
+                            messageId,
+                            actionId: action.id,
+                            status: 'SKIPPED',
+                            result: { note: 'Message does not appear to be a crash report or script error.' },
+                            durationMs: Date.now() - startedAt
+                        }
+                    });
+                    summary.push({ actionId: action.id, status: 'SKIPPED' });
+                    continue;
+                }
                 const run = await prisma.inboundWebhookActionRun.create({
                     data: {
                         messageId,
@@ -342,11 +528,6 @@ async function runInboundWebhookActions(messageId, actions, payload) {
                         result: { note: 'Crash review in progress.' }
                     }
                 });
-                const message = await prisma.inboundWebhookMessage.findUnique({
-                    where: { id: messageId }
-                });
-                const crashConfig = normalizeActionConfig(action.config);
-                const crashInput = buildCrashReviewInput(message?.payload, message?.rawBody, payloadForActions);
                 const extracted = extractCrashReportSections(crashInput);
                 const crashReportExtract = buildCrashReportExtract(extracted);
                 if (message?.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)) {
@@ -373,6 +554,10 @@ async function runInboundWebhookActions(messageId, actions, payload) {
                     });
                     summary.push({ actionId: action.id, status: 'SUCCESS' });
                     payloadForActions = enrichPayloadWithCrashReview(payloadForActions, findings, attempts);
+                    // Auto-label based on crash type (script error vs crash) and webhook source
+                    const findingsRecord = findings;
+                    const signature = findingsRecord?.signature;
+                    await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel, crashInput);
                 }
                 catch (error) {
                     overallStatus = 'FAILED';
@@ -495,6 +680,9 @@ function buildCrashReviewInput(payload, rawBody, fallbackPayload) {
         if (typeof record.message === 'string') {
             return record.message;
         }
+        if (typeof record.content === 'string') {
+            return record.content;
+        }
         if (record.crashReport && typeof record.crashReport === 'object') {
             return JSON.stringify(record.crashReport, null, 2);
         }
@@ -511,6 +699,49 @@ function buildCrashReviewInput(payload, rawBody, fallbackPayload) {
     catch {
         return String(payload ?? fallbackPayload ?? '');
     }
+}
+/**
+ * Determines if text content looks like a crash report or script error.
+ * Returns true if it appears to be a crash/error report that should be reviewed by AI.
+ * Returns false for other types of messages (which should pass through unchanged).
+ */
+function looksLikeCrashReport(text) {
+    // Strip markdown formatting (**, __, etc.) for more reliable detection
+    const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
+    const lower = stripped.toLowerCase();
+    const trimmed = stripped.trim();
+    // Check for explicit crash markers
+    if (trimmed.startsWith('[Crash]') || lower.startsWith('[crash]')) {
+        return true;
+    }
+    // Check for quest/script error markers
+    if (lower.includes('[questerrors]') || lower.includes('[script error]')) {
+        return true;
+    }
+    // Check for common crash report indicators
+    if (lower.includes('symint:') || lower.includes('syminit:')) {
+        return true;
+    }
+    if (lower.includes('os-version:')) {
+        return true;
+    }
+    if (lower.includes('exception_access_violation') || lower.includes('0xc000')) {
+        return true;
+    }
+    // Check for module loading patterns (common in crash dumps)
+    const modulePattern = /\.(exe|dll):/i;
+    const lines = text.split(/\r?\n/).slice(0, 20); // Check first 20 lines
+    let moduleLineCount = 0;
+    for (const line of lines) {
+        if (modulePattern.test(line)) {
+            moduleLineCount++;
+            if (moduleLineCount >= 3) {
+                // Multiple module lines suggest a crash dump
+                return true;
+            }
+        }
+    }
+    return false;
 }
 function extractCrashReportSections(text) {
     const lines = text.split(/\r?\n/);
@@ -615,8 +846,8 @@ function normalizeActionConfig(config) {
         crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined
     };
 }
-async function sendDiscordRelay(url, payload, config) {
-    const body = buildDiscordPayload(payload, config);
+async function sendDiscordRelay(url, payload, config, messageId) {
+    const body = buildDiscordPayload(payload, config, messageId);
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -627,11 +858,11 @@ async function sendDiscordRelay(url, payload, config) {
         throw new Error(`Discord responded with ${response.status}: ${errorText}`);
     }
 }
-function buildDiscordPayload(payload, config) {
+function buildDiscordPayload(payload, config, messageId) {
     if (config.discordMode !== 'RAW' && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const record = payload;
         if (record.crashReview && typeof record.crashReview === 'object') {
-            return buildCrashReviewEmbed(record.crashReview, config.discordTemplate);
+            return buildCrashReviewEmbed(record.crashReview, config.discordTemplate, messageId);
         }
     }
     if (config.discordMode === 'RAW') {
@@ -674,29 +905,20 @@ const DISCORD_EMBED_COLORS = {
     danger: 0xed4245,
     info: 0x00b0f4
 };
-function buildCrashReviewEmbed(findings, template) {
+function buildCrashReviewEmbed(findings, _template, messageId) {
     const record = (findings ?? {});
     const summary = typeof record.summary === 'string' ? record.summary : 'Crash analysis completed.';
     const hypotheses = Array.isArray(record.hypotheses) ? record.hypotheses : [];
     const recommendedNextSteps = Array.isArray(record.recommendedNextSteps) ? record.recommendedNextSteps : [];
     const signature = record.signature;
     const telemetry = record.telemetry;
-    // If custom template is provided, fall back to plain text content
-    if (template) {
-        const topHypotheses = hypotheses
-            .slice(0, 3)
-            .map((item) => typeof item?.title === 'string' ? `- ${item.title} (${item.confidence ?? 'n/a'})` : '- Hypothesis')
-            .join('\n');
-        const nextStepsText = recommendedNextSteps.slice(0, 5).map((step) => `- ${step}`).join('\n');
-        const json = safeJson(record);
-        const content = template
-            .replace(/\{\{summary\}\}/g, summary)
-            .replace(/\{\{hypotheses\}\}/g, topHypotheses)
-            .replace(/\{\{nextSteps\}\}/g, nextStepsText)
-            .replace(/\{\{json\}\}/g, json)
-            .slice(0, 1900);
-        return { embeds: [{ description: content, color: DISCORD_EMBED_COLORS.danger }] };
-    }
+    // Detect if this is a quest/script error vs a crash report
+    const isQuestError = detectQuestError(signature, summary);
+    // Build link to webhook inbox for this message
+    const messageUrl = messageId && clientBaseUrl
+        ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
+        : null;
+    // Always use polished embed format for crash reviews (template parameter is now ignored)
     // Build polished embed
     const fields = [];
     // Exception signature (if available)
@@ -772,18 +994,31 @@ function buildCrashReviewEmbed(findings, template) {
             embedColor = DISCORD_EMBED_COLORS.danger; // Low confidence - needs more investigation
         }
     }
+    // Add link to view full report
+    if (messageUrl) {
+        fields.push({
+            name: '🔗 Full Report',
+            value: `[View in Webhook Inbox](${messageUrl})`,
+            inline: false
+        });
+    }
     // Build footer with telemetry info
-    const footerParts = ['View Webhook Inbox for full details'];
+    const footerParts = [];
     if (telemetry?.model) {
         footerParts.push(`Model: ${telemetry.model}`);
     }
     if (telemetry?.attempts && telemetry.attempts > 1) {
         footerParts.push(`Attempts: ${telemetry.attempts}`);
     }
+    if (footerParts.length === 0) {
+        footerParts.push(isQuestError ? 'AI-powered script analysis' : 'AI-powered crash analysis');
+    }
+    // Choose title based on error type
+    const embedTitle = isQuestError ? '📜 Script Error Analysis' : '💥 Crash Report Analysis';
     return {
         embeds: [
             {
-                title: '💥 Crash Report Analysis',
+                title: embedTitle,
                 description: summary,
                 color: embedColor,
                 fields,
@@ -792,6 +1027,82 @@ function buildCrashReviewEmbed(findings, template) {
             }
         ]
     };
+}
+function detectQuestError(signature, summary, rawText) {
+    const exception = signature?.exception?.toLowerCase() ?? '';
+    const summaryLower = summary.toLowerCase();
+    const rawLower = rawText?.toLowerCase() ?? '';
+    // MOST RELIABLE: Check raw text for explicit markers first
+    // Check for QuestErrors marker (with or without markdown formatting)
+    // This takes priority over everything else
+    if (rawLower.includes('[questerrors]') ||
+        rawLower.includes('[**questerrors**]') ||
+        rawLower.includes('questerrors]') ||
+        rawLower.includes('**questerrors**')) {
+        return true;
+    }
+    if (rawLower.includes('[script error]') ||
+        rawLower.includes('[**script error**]') ||
+        rawLower.includes('script error |')) {
+        return true;
+    }
+    // Check for explicit crash indicators in raw text - these definitively indicate a crash, NOT a script error
+    // Crash report title/header markers
+    if (rawLower.includes('crash report |') || rawLower.includes('**crash report**')) {
+        return false;
+    }
+    // Crash log file names (e.g., crash_mischiefplane_version_0_inst_id_0_port_7001_6832.log)
+    if (/crash_\w+.*\.log/i.test(rawText ?? '')) {
+        return false;
+    }
+    // If raw text starts with [Crash] markers (e.g., "[Crash] Zone [zonename]"), it's NOT a script error
+    const rawStripped = rawText?.replace(/\*\*/g, '').replace(/__/g, '').toLowerCase() ?? '';
+    if (rawStripped.startsWith('[crash]') || /^\[crash\]\s+zone\s+\[/.test(rawStripped)) {
+        return false;
+    }
+    // Check if the raw text looks like a crash dump (multiple DLL/EXE module lines)
+    // This is characteristic of native crashes, not script errors
+    if (rawText) {
+        const modulePattern = /\.(exe|dll):\w+.*\(0x[0-9a-f]+\)/gi;
+        const moduleMatches = rawText.match(modulePattern);
+        if (moduleMatches && moduleMatches.length >= 3) {
+            // Multiple module load lines indicate a native crash dump
+            return false;
+        }
+    }
+    // Check if summary explicitly starts with the type prefix
+    if (summaryLower.startsWith('native crash:')) {
+        return false;
+    }
+    if (summaryLower.startsWith('script error:')) {
+        return true;
+    }
+    // Check for native crash indicators - these take precedence
+    const hasNativeCrashIndicators = exception.includes('exception_access_violation') ||
+        exception.includes('exception_stack_overflow') ||
+        exception.includes('exception_') ||
+        exception.includes('0xc000') ||
+        exception.includes('syminit') ||
+        summaryLower.includes('native crash') ||
+        summaryLower.includes('access violation') ||
+        summaryLower.includes('memory access') ||
+        summaryLower.includes('null pointer') ||
+        summaryLower.includes('segmentation fault');
+    if (hasNativeCrashIndicators) {
+        return false;
+    }
+    // Check for script error indicators
+    // NOTE: Be careful not to match Perl DLL paths (C:\Strawberry\perl\...) as script errors
+    // Only match if there's explicit script error context, not just perl in a path
+    const hasScriptErrorIndicators = exception.includes('[questerrors]') ||
+        exception.includes('script error') ||
+        summaryLower.includes('quest script') ||
+        // Match "perl script" only if it's about a script, not a perl DLL path
+        (summaryLower.includes('perl script') && !rawLower.includes('strawberry\\perl\\')) ||
+        summaryLower.includes('lua script') ||
+        summaryLower.includes('script error') ||
+        summaryLower.includes('[questerrors]');
+    return hasScriptErrorIndicators;
 }
 function getConfidenceBar(confidence) {
     const filled = Math.round(confidence * 10);
@@ -900,6 +1211,64 @@ export async function createWebhookLabel(input) {
         }
     });
 }
+// Standard label colors
+const STANDARD_LABEL_COLORS = {
+    'crash': '#dc2626', // Red
+    'script error': '#ea580c', // Orange
+    'test': '#8b5cf6', // Purple
+    'live': '#059669' // Green
+};
+// Generate a consistent color based on label name (same name = same color)
+function generateColorFromName(name) {
+    // Simple hash function for consistent color
+    let hash = 0;
+    const normalizedName = name.toLowerCase().trim();
+    for (let i = 0; i < normalizedName.length; i++) {
+        const char = normalizedName.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+    // Generate HSL color with good saturation and lightness for visibility
+    const hue = Math.abs(hash) % 360;
+    const saturation = 65 + (Math.abs(hash >> 8) % 20); // 65-85%
+    const lightness = 45 + (Math.abs(hash >> 16) % 15); // 45-60%
+    // Convert HSL to hex
+    return hslToHex(hue, saturation, lightness);
+}
+function hslToHex(h, s, l) {
+    s /= 100;
+    l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => {
+        const k = (n + h / 30) % 12;
+        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+        return Math.round(255 * color).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+}
+export async function findOrCreateWebhookLabel(name) {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+        throw new Error('Label name is required');
+    }
+    // Try to find existing label (case-insensitive search via fetching all and filtering)
+    const allLabels = await prisma.webhookMessageLabel.findMany();
+    const existingLabel = allLabels.find((l) => l.name.toLowerCase() === trimmedName.toLowerCase());
+    if (existingLabel) {
+        return existingLabel;
+    }
+    // Determine color: use standard color if matching, otherwise generate consistent color
+    const lowerName = trimmedName.toLowerCase();
+    const color = STANDARD_LABEL_COLORS[lowerName] ?? generateColorFromName(trimmedName);
+    // Create new label
+    return prisma.webhookMessageLabel.create({
+        data: {
+            id: generateCuid(),
+            name: trimmedName,
+            color
+        }
+    });
+}
 export async function updateWebhookLabel(labelId, input) {
     const data = {};
     if (input.name !== undefined)
@@ -934,17 +1303,96 @@ export async function setMessageLabels(messageId, labelIds) {
         });
     }
 }
+// Default label definitions
+const DEFAULT_LABELS = {
+    CRASH: { name: 'Crash', color: '#dc2626' }, // Red
+    SCRIPT_ERROR: { name: 'Script Error', color: '#ea580c' }, // Orange
+    TEST: { name: 'Test', color: '#8b5cf6' }, // Purple
+    LIVE: { name: 'Live', color: '#059669' } // Green
+};
+// Get or create a default label
+async function getOrCreateDefaultLabel(type) {
+    const labelDef = DEFAULT_LABELS[type];
+    // Try to find existing label by name
+    let label = await prisma.webhookMessageLabel.findFirst({
+        where: { name: labelDef.name }
+    });
+    // Create if it doesn't exist
+    if (!label) {
+        label = await prisma.webhookMessageLabel.create({
+            data: {
+                id: generateCuid(),
+                name: labelDef.name,
+                color: labelDef.color,
+                sortOrder: type === 'CRASH' ? 1 : 2
+            }
+        });
+    }
+    return label.id;
+}
+// Auto-label a message based on crash review findings
+async function autoLabelMessage(messageId, findings, signature, webhookLabel, rawText) {
+    try {
+        const labelsToAdd = [];
+        // Detect if this is a quest/script error vs crash
+        const isQuestError = detectQuestError(signature, typeof findings?.summary === 'string'
+            ? findings.summary
+            : '', rawText);
+        // Add crash type label (Crash or Script Error)
+        const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
+        labelsToAdd.push(crashLabelId);
+        // Check webhook label for Test/Live server indicators
+        if (webhookLabel) {
+            const lowerLabel = webhookLabel.toLowerCase();
+            if (lowerLabel.includes('test server')) {
+                const testLabelId = await getOrCreateDefaultLabel('TEST');
+                labelsToAdd.push(testLabelId);
+            }
+            else if (lowerLabel.includes('live server')) {
+                const liveLabelId = await getOrCreateDefaultLabel('LIVE');
+                labelsToAdd.push(liveLabelId);
+            }
+        }
+        // Get existing labels for the message
+        const existingAssignments = await prisma.webhookMessageLabelAssignment.findMany({
+            where: { messageId },
+            select: { labelId: true }
+        });
+        const existingLabelIds = new Set(existingAssignments.map((a) => a.labelId));
+        // Add labels that aren't already present
+        for (const labelId of labelsToAdd) {
+            if (!existingLabelIds.has(labelId)) {
+                await prisma.webhookMessageLabelAssignment.create({
+                    data: {
+                        id: generateCuid(),
+                        messageId,
+                        labelId
+                    }
+                });
+            }
+        }
+    }
+    catch (error) {
+        // Don't fail the whole process if auto-labeling fails
+        console.error('Auto-labeling failed:', error);
+    }
+}
 // ============================================================================
 // Message Merging
 // ============================================================================
-export async function mergeWebhookMessages(messageIds) {
+export async function mergeWebhookMessages(messageIds, combinedText) {
     if (messageIds.length < 2) {
         throw new Error('At least 2 messages are required to merge');
     }
     return prisma.$transaction(async (tx) => {
-        // 1. Fetch all messages
+        // 1. Fetch all messages with their labels
         const messages = await tx.inboundWebhookMessage.findMany({
-            where: { id: { in: messageIds } }
+            where: { id: { in: messageIds } },
+            include: {
+                labelAssignments: {
+                    include: { label: true }
+                }
+            }
         });
         if (messages.length !== messageIds.length) {
             throw new Error('Some messages were not found');
@@ -954,46 +1402,68 @@ export async function mergeWebhookMessages(messageIds) {
         if (webhookIds.size !== 1) {
             throw new Error('All messages must belong to the same webhook');
         }
-        // 3. Order messages by the provided order (messageIds array)
-        const ordered = messageIds.map((id) => messages.find((m) => m.id === id));
-        // 4. Concatenate crash reports with separators
-        const combinedRawBody = ordered
-            .map((m, i) => {
-            const separator = '='.repeat(47);
-            const header = `\n${separator}\n=== Part ${i + 1} of ${ordered.length} | Received: ${m.receivedAt.toISOString()} ===\n${separator}\n`;
-            const content = m.rawBody || JSON.stringify(m.payload, null, 2);
-            return header + content;
-        })
-            .join('\n');
-        // 5. Create merged message
+        // 3. Collect unique label IDs from all messages
+        const labelIds = new Set();
+        for (const msg of messages) {
+            for (const la of msg.labelAssignments) {
+                labelIds.add(la.labelId);
+            }
+        }
+        // 4. Create merged message using the client-provided combined text
+        // No actions are triggered - user must manually start AI review
+        const mergedId = generateCuid();
         const merged = await tx.inboundWebhookMessage.create({
             data: {
-                id: generateCuid(),
-                webhookId: ordered[0].webhookId,
+                id: mergedId,
+                webhookId: messages[0].webhookId,
                 receivedAt: new Date(),
-                payload: { merged: true, partCount: ordered.length },
-                rawBody: combinedRawBody,
+                payload: { merged: true, partCount: messageIds.length, crashReportText: combinedText },
+                rawBody: combinedText,
                 status: 'RECEIVED',
                 mergedFromIds: messageIds,
                 mergedAt: new Date(),
                 headers: {}
-            },
+            }
+        });
+        // 5. Copy labels to merged message
+        if (labelIds.size > 0) {
+            await tx.webhookMessageLabelAssignment.createMany({
+                data: Array.from(labelIds).map((labelId) => ({
+                    id: generateCuid(),
+                    messageId: mergedId,
+                    labelId
+                }))
+            });
+        }
+        // 6. Delete originals (this will cascade delete their label assignments)
+        await tx.inboundWebhookMessage.deleteMany({
+            where: { id: { in: messageIds } }
+        });
+        // 7. Fetch the complete merged message with all relations
+        const result = await tx.inboundWebhookMessage.findUniqueOrThrow({
+            where: { id: mergedId },
             include: {
-                webhook: true,
+                webhook: {
+                    include: { actions: true }
+                },
                 assignedAdmin: {
                     select: { id: true, displayName: true, nickname: true, email: true }
                 },
                 actionRuns: {
                     include: { action: true },
                     orderBy: { createdAt: 'asc' }
+                },
+                labelAssignments: {
+                    include: { label: true }
                 }
             }
         });
-        // 6. Delete originals
-        await tx.inboundWebhookMessage.deleteMany({
-            where: { id: { in: messageIds } }
-        });
-        return merged;
+        // Transform to match expected response format
+        return {
+            ...result,
+            labels: result.labelAssignments.map((la) => la.label),
+            labelAssignments: undefined
+        };
     });
 }
 export async function bulkMessageAction(messageIds, action, userId, options) {
@@ -1111,7 +1581,9 @@ export async function listInboundWebhookMessagesEnhanced(options) {
             skip: (page - 1) * pageSize,
             take: pageSize,
             include: {
-                webhook: true,
+                webhook: {
+                    include: { actions: true }
+                },
                 assignedAdmin: {
                     select: { id: true, displayName: true, nickname: true, email: true }
                 },
@@ -1146,6 +1618,491 @@ export async function listInboundWebhookMessagesEnhanced(options) {
         labelAssignments: undefined
     }));
     return { messages: enhancedMessages, total };
+}
+// ============================================================================
+// Delayed Message Processing (Merge Window Handling)
+// ============================================================================
+/**
+ * Schedule delayed processing for a webhook after its merge window closes.
+ * This allows multiple messages to accumulate before deciding how to process them.
+ * If a timer is already pending, reset it to wait for the full window again.
+ */
+function scheduleDelayedProcessing(webhookId, mergeWindowSeconds) {
+    const now = Date.now();
+    const existingTimer = pendingProcessingTimers.get(webhookId);
+    if (existingTimer) {
+        console.log(`[Webhook ${webhookId}] RESETTING existing timer at ${new Date(now).toISOString()}`);
+        clearTimeout(existingTimer);
+    }
+    else {
+        console.log(`[Webhook ${webhookId}] Setting NEW timer at ${new Date(now).toISOString()}`);
+    }
+    // Schedule new timer to process after merge window closes
+    const scheduledTime = now + (mergeWindowSeconds * 1000);
+    const timer = setTimeout(() => {
+        const fireTime = Date.now();
+        console.log(`[Webhook ${webhookId}] TIMER FIRED at ${new Date(fireTime).toISOString()} (scheduled for ${new Date(scheduledTime).toISOString()})`);
+        pendingProcessingTimers.delete(webhookId);
+        void processWebhookMessages(webhookId);
+    }, mergeWindowSeconds * 1000);
+    pendingProcessingTimers.set(webhookId, timer);
+    console.log(`[Webhook ${webhookId}] Timer will fire at ${new Date(scheduledTime).toISOString()} (in ${mergeWindowSeconds}s)`);
+}
+/**
+ * Check if a webhook is currently waiting for its merge window to close or actively processing.
+ */
+export function isWebhookProcessingPending(webhookId) {
+    return pendingProcessingTimers.has(webhookId) || processingWebhooks.has(webhookId);
+}
+/**
+ * Get all webhook IDs that are currently waiting for processing or actively processing.
+ * Includes both webhooks with pending timers AND webhooks actively running AI review.
+ */
+export function getPendingProcessingWebhookIds() {
+    const pendingIds = new Set([
+        ...Array.from(pendingProcessingTimers.keys()),
+        ...Array.from(processingWebhooks)
+    ]);
+    return Array.from(pendingIds);
+}
+/**
+ * Process webhook messages after merge window closes.
+ * Handles both single messages and merge candidates appropriately.
+ */
+async function processWebhookMessages(webhookId, isRetry = false) {
+    // Prevent concurrent processing for the same webhook
+    if (processingWebhooks.has(webhookId)) {
+        console.log(`[Webhook ${webhookId}] Already processing, skipping`);
+        return;
+    }
+    processingWebhooks.add(webhookId);
+    const retryKey = webhookId;
+    try {
+        // Get webhook with its settings and actions
+        const webhook = await prisma.inboundWebhook.findUnique({
+            where: { id: webhookId },
+            include: { actions: true }
+        });
+        if (!webhook) {
+            console.log(`[Webhook ${webhookId}] Webhook not found, skipping`);
+            return;
+        }
+        const mergeWindowSeconds = webhook.mergeWindowSeconds ?? 60;
+        // Find all RECEIVED messages from this webhook within the merge window
+        const windowStart = new Date(Date.now() - mergeWindowSeconds * 1000);
+        const pendingMessages = await prisma.inboundWebhookMessage.findMany({
+            where: {
+                webhookId,
+                status: 'RECEIVED',
+                archivedAt: null,
+                mergedAt: null
+            },
+            include: {
+                labelAssignments: {
+                    include: { label: true }
+                }
+            },
+            orderBy: { receivedAt: 'asc' }
+        });
+        if (pendingMessages.length === 0) {
+            console.log(`[Webhook ${webhookId}] No pending messages to process`);
+            autoMergeRetryCounts.delete(retryKey);
+            return;
+        }
+        console.log(`[Webhook ${webhookId}] Processing ${pendingMessages.length} pending message(s), autoMerge=${webhook.autoMerge}`);
+        // Group messages by crash file identifier (e.g., crash_xxx.log)
+        // This ensures chunks from the same crash are merged together, while unrelated crashes stay separate
+        const messageGroups = groupMessagesByCrashFile(pendingMessages);
+        console.log(`[Webhook ${webhookId}] Grouped into ${messageGroups.length} crash file group(s)`);
+        for (const group of messageGroups) {
+            const groupKey = extractCrashFileIdentifier(group[0].payload, group[0].rawBody) || 'unknown';
+            console.log(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${group.length} message(s)`);
+            if (group.length === 1) {
+                // Single message - process actions normally
+                const message = group[0];
+                console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
+                await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label);
+            }
+            else if (webhook.autoMerge) {
+                // Multiple messages with auto-merge enabled - merge and process
+                console.log(`[Webhook ${webhookId}] Auto-merging ${group.length} messages for "${groupKey}"`);
+                try {
+                    await processAutoMergeGroup(group, webhook);
+                }
+                catch (error) {
+                    console.error(`[Webhook ${webhookId}] Auto-merge failed for ${group.length} messages:`, error);
+                    // Mark messages as PENDING_MERGE for manual intervention
+                    await markMessagesAsPendingMerge(group.map(m => m.id));
+                }
+            }
+            else {
+                // Multiple messages without auto-merge - mark as pending merge decision
+                console.log(`[Webhook ${webhookId}] Marking ${group.length} messages as pending merge (auto-merge disabled)`);
+                await markMessagesAsPendingMerge(group.map(m => m.id));
+                // Send a single Discord notification about pending review
+                await sendPendingMergeNotification(webhook, group);
+            }
+        }
+        // Clear retry count on success
+        autoMergeRetryCounts.delete(retryKey);
+    }
+    catch (error) {
+        console.error(`[Webhook ${webhookId}] Processing error:`, error);
+        // Handle retry logic
+        if (!isRetry) {
+            const currentRetries = autoMergeRetryCounts.get(retryKey) ?? 0;
+            if (currentRetries < AUTO_MERGE_MAX_RETRIES) {
+                autoMergeRetryCounts.set(retryKey, currentRetries + 1);
+                console.log(`[Webhook ${webhookId}] Scheduling retry`);
+                setTimeout(() => {
+                    void processWebhookMessages(webhookId, true);
+                }, 5000);
+            }
+            else {
+                console.error(`[Webhook ${webhookId}] Max retries exceeded, leaving for manual intervention`);
+                autoMergeRetryCounts.delete(retryKey);
+            }
+        }
+    }
+    finally {
+        processingWebhooks.delete(webhookId);
+    }
+}
+/**
+ * Mark messages as pending merge decision (waiting for user action).
+ */
+async function markMessagesAsPendingMerge(messageIds) {
+    await prisma.inboundWebhookMessage.updateMany({
+        where: { id: { in: messageIds } },
+        data: { status: 'PENDING_MERGE' }
+    });
+}
+/**
+ * Send a Discord notification about messages pending merge review.
+ */
+async function sendPendingMergeNotification(webhook, messages) {
+    // Find the Discord action
+    const discordAction = webhook.actions.find((action) => action.type === 'DISCORD_RELAY' && action.isEnabled);
+    if (!discordAction) {
+        console.log(`[Webhook ${webhook.id}] No Discord action configured, skipping notification`);
+        return;
+    }
+    const config = normalizeActionConfig(discordAction.config);
+    if (!config.discordWebhookUrl) {
+        console.log(`[Webhook ${webhook.id}] No Discord webhook URL configured, skipping notification`);
+        return;
+    }
+    // Determine if this is a crash or script error based on labels
+    const labels = messages[0]?.labelAssignments?.map(la => la.label.name.toLowerCase()) ?? [];
+    const isScriptError = labels.some(l => l.includes('script'));
+    const errorType = isScriptError ? 'Script Error' : 'Crash Report';
+    // Build the inbox URL
+    const inboxUrl = clientBaseUrl
+        ? `${clientBaseUrl}/admin/webhooks?tab=inbox`
+        : null;
+    // Build Discord embed
+    const embed = {
+        title: `📋 ${errorType} - Review Required`,
+        description: `**${messages.length} messages** received that may need to be merged before processing.`,
+        color: 0xf59e0b, // Orange/amber color
+        fields: [
+            {
+                name: 'Webhook',
+                value: webhook.label,
+                inline: true
+            },
+            {
+                name: 'Message Count',
+                value: `${messages.length} segments`,
+                inline: true
+            },
+            {
+                name: 'Action Required',
+                value: 'Review and merge these messages in the Webhook Inbox, then run AI Review.',
+                inline: false
+            }
+        ],
+        footer: { text: 'Auto-merge is disabled for this webhook' },
+        timestamp: new Date().toISOString()
+    };
+    // Add link field if we have the URL
+    if (inboxUrl) {
+        embed.fields.push({
+            name: '🔗 Review Now',
+            value: `[Open Webhook Inbox](${inboxUrl})`,
+            inline: false
+        });
+    }
+    try {
+        const response = await fetch(config.discordWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ embeds: [embed] })
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[Webhook ${webhook.id}] Failed to send pending merge notification: ${response.status} ${errorText}`);
+        }
+        else {
+            console.log(`[Webhook ${webhook.id}] Sent pending merge notification for ${messages.length} messages`);
+        }
+    }
+    catch (error) {
+        console.error(`[Webhook ${webhook.id}] Error sending pending merge notification:`, error);
+    }
+}
+/**
+ * Process messages after user manually merges them.
+ * Called after mergeWebhookMessages completes.
+ */
+export async function processMessagesAfterManualMerge(mergedMessageId) {
+    const message = await prisma.inboundWebhookMessage.findUnique({
+        where: { id: mergedMessageId },
+        include: {
+            webhook: {
+                include: { actions: true }
+            }
+        }
+    });
+    if (!message || !message.webhook) {
+        throw new Error('Merged message or webhook not found');
+    }
+    // Run AI review on the merged message
+    await retryCrashReviewForMessage(mergedMessageId);
+}
+/**
+ * Process single messages that user dismisses from merge.
+ * Called when user decides not to merge and wants to process individually.
+ */
+export async function processDismissedMergeMessages(messageIds) {
+    for (const messageId of messageIds) {
+        const message = await prisma.inboundWebhookMessage.findUnique({
+            where: { id: messageId },
+            include: {
+                webhook: {
+                    include: { actions: true }
+                }
+            }
+        });
+        if (!message || !message.webhook) {
+            continue;
+        }
+        // Update status back to RECEIVED and process
+        await prisma.inboundWebhookMessage.update({
+            where: { id: messageId },
+            data: { status: 'RECEIVED' }
+        });
+        await runInboundWebhookActions(messageId, message.webhook.actions, message.payload, message.webhook.label);
+    }
+}
+/**
+ * Extract crash file identifier from message content.
+ * Looks for patterns like "File [crash_xxx.log]" or "crash_xxx.log"
+ * Returns null if no identifier found.
+ */
+function extractCrashFileIdentifier(payload, rawBody) {
+    const text = extractTextForSorting(payload, rawBody);
+    // Pattern 1: "File [crash_xxx.log]" format
+    const fileMatch = text.match(/File\s*\[([^\]]+\.log)\]/i);
+    if (fileMatch) {
+        return fileMatch[1];
+    }
+    // Pattern 2: Direct crash log filename pattern
+    const crashLogMatch = text.match(/(crash_[a-zA-Z0-9_]+\.log)/i);
+    if (crashLogMatch) {
+        return crashLogMatch[1];
+    }
+    // Pattern 3: Script error identifier - use quest/script name if present
+    const questErrorMatch = text.match(/\[QuestErrors?\]\s*([^\n\r]+)/i);
+    if (questErrorMatch) {
+        // Use first 50 chars of the error as identifier
+        return `quest_error_${questErrorMatch[1].slice(0, 50).replace(/[^a-zA-Z0-9]/g, '_')}`;
+    }
+    // Pattern 4: Look for zone/server identifier in crash header
+    const zoneMatch = text.match(/\[Crash\]\s*Zone\s*\[([^\]]+)\]/i);
+    if (zoneMatch) {
+        // Combine with timestamp approximation for uniqueness
+        const timeKey = Math.floor(Date.now() / 60000); // 1-minute buckets
+        return `crash_zone_${zoneMatch[1]}_${timeKey}`;
+    }
+    return null;
+}
+/**
+ * Group messages by crash file identifier.
+ * Messages with the same crash file are grouped together for merging.
+ * Messages without an identifier are grouped by time proximity.
+ */
+function groupMessagesByCrashFile(messages) {
+    const groups = new Map();
+    let unknownCounter = 0;
+    for (const message of messages) {
+        let key = extractCrashFileIdentifier(message.payload, message.rawBody);
+        if (!key) {
+            // No identifier found - use time-based grouping (messages within 30 seconds)
+            // This prevents unrelated messages from being merged
+            const timeKey = Math.floor(message.receivedAt.getTime() / 30000); // 30-second buckets
+            key = `__unknown_${timeKey}__`;
+        }
+        const existing = groups.get(key) || [];
+        existing.push(message);
+        groups.set(key, existing);
+    }
+    return Array.from(groups.values());
+}
+/**
+ * Group messages by their label sets for merging.
+ * Messages with identical label sets can be merged together.
+ * @deprecated Use groupMessagesByCrashFile instead
+ */
+function groupMessagesForMerge(messages) {
+    const groups = new Map();
+    for (const message of messages) {
+        // Create a key based on sorted label IDs
+        const labelIds = message.labelAssignments.map(la => la.labelId).sort();
+        const key = labelIds.join('|') || '__no_labels__';
+        const existing = groups.get(key) || [];
+        existing.push(message);
+        groups.set(key, existing);
+    }
+    return Array.from(groups.values());
+}
+/**
+ * Process a single merge group: sort, remove duplicates, merge, and run AI review.
+ */
+async function processAutoMergeGroup(messages, webhook) {
+    // Build segments for sorting
+    const segments = messages.map(msg => ({
+        id: msg.id,
+        text: extractTextForSorting(msg.payload, msg.rawBody)
+    }));
+    // Sort segments using AI
+    let sortResult;
+    try {
+        sortResult = await sortCrashReportSegments(segments);
+    }
+    catch (error) {
+        console.error('Failed to sort crash segments:', error);
+        throw error;
+    }
+    // Filter out segments marked for removal
+    const removeSet = new Set(sortResult.removeIds);
+    const orderedMessages = sortResult.orderedIds
+        .filter(id => !removeSet.has(id))
+        .map(id => messages.find(m => m.id === id))
+        .filter(Boolean);
+    // If after removing duplicates we have 0-1 messages, handle appropriately
+    if (orderedMessages.length === 0) {
+        // All messages were duplicates - delete them all
+        if (sortResult.removeIds.length > 0) {
+            await prisma.inboundWebhookMessage.deleteMany({
+                where: { id: { in: sortResult.removeIds } }
+            });
+        }
+        return;
+    }
+    if (orderedMessages.length === 1) {
+        // Only one message left after dedup - delete duplicates and process the single message
+        if (sortResult.removeIds.length > 0) {
+            await prisma.inboundWebhookMessage.deleteMany({
+                where: { id: { in: sortResult.removeIds } }
+            });
+        }
+        // Process the single message normally
+        await runInboundWebhookActions(orderedMessages[0].id, webhook.actions, orderedMessages[0].payload, webhook.label);
+        return;
+    }
+    // Delete duplicate/redundant messages identified by the sort
+    if (sortResult.removeIds.length > 0) {
+        await prisma.inboundWebhookMessage.deleteMany({
+            where: { id: { in: sortResult.removeIds } }
+        });
+    }
+    // Build combined text from ordered segments
+    const combinedText = orderedMessages
+        .map(msg => extractTextForSorting(msg.payload, msg.rawBody))
+        .join('\n\n---\n\n');
+    // Merge the messages
+    const messageIds = orderedMessages.map(m => m.id);
+    const mergedMessage = await mergeWebhookMessages(messageIds, combinedText);
+    // Run AI review on the merged message
+    try {
+        await retryCrashReviewForMessage(mergedMessage.id);
+        console.log(`[Auto-merge] Completed: ${messageIds.length} messages merged into ${mergedMessage.id}`);
+    }
+    catch (error) {
+        console.error('[Auto-merge] AI review failed after merge:', error);
+        // The merge succeeded, AI review failed - leave for manual intervention
+    }
+}
+/**
+ * Extract actual message content for determining if a message should be discarded.
+ * Unlike extractTextForSorting, this does NOT fall back to JSON.stringify.
+ * Returns null/empty if no actual crash report text is found.
+ */
+function extractActualMessageContent(payload, rawBody) {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const record = payload;
+        // Check for crashReportText (primary field for crash reports)
+        if (typeof record.crashReportText === 'string' && record.crashReportText.trim().length > 0) {
+            return record.crashReportText;
+        }
+        // Check for message field
+        if (typeof record.message === 'string' && record.message.trim().length > 0) {
+            return record.message;
+        }
+        // Check for content field
+        if (typeof record.content === 'string' && record.content.trim().length > 0) {
+            return record.content;
+        }
+        // Check for text field (common alternative)
+        if (typeof record.text === 'string' && record.text.trim().length > 0) {
+            return record.text;
+        }
+        // Check for body field
+        if (typeof record.body === 'string' && record.body.trim().length > 0) {
+            return record.body;
+        }
+        // Check for raw field (used when payload was a raw string that got normalized)
+        if (typeof record.raw === 'string' && record.raw.trim().length > 0) {
+            return record.raw;
+        }
+    }
+    // Check rawBody as last resort
+    if (typeof rawBody === 'string' && rawBody.trim().length > 0) {
+        return rawBody;
+    }
+    // No actual content found - return null (DO NOT fall back to JSON.stringify)
+    return null;
+}
+/**
+ * Extract text content from a message payload for sorting and merging.
+ */
+function extractTextForSorting(payload, rawBody) {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        const record = payload;
+        if (typeof record.crashReportText === 'string') {
+            return record.crashReportText;
+        }
+        if (typeof record.message === 'string') {
+            return record.message;
+        }
+        if (typeof record.content === 'string') {
+            return record.content;
+        }
+        // Check for raw field (used when payload was a raw string that got normalized)
+        if (typeof record.raw === 'string') {
+            return record.raw;
+        }
+    }
+    if (typeof rawBody === 'string' && rawBody.trim().length > 0) {
+        return rawBody;
+    }
+    try {
+        return JSON.stringify(payload ?? {}, null, 2);
+    }
+    catch {
+        return String(payload ?? '');
+    }
 }
 // Helper to generate CUID-like IDs
 function generateCuid() {
