@@ -1463,6 +1463,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
   const actionConfigSchema = z.object({
     discordWebhookUrl: z.string().url().max(512).optional().nullable(),
+    devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
@@ -1618,6 +1619,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const normalizedConfig: InboundWebhookActionConfig = {
         discordWebhookUrl:
           typeof config.discordWebhookUrl === 'string' ? config.discordWebhookUrl.trim() || undefined : undefined,
+        devDiscordWebhookUrl:
+          typeof config.devDiscordWebhookUrl === 'string' ? config.devDiscordWebhookUrl.trim() || undefined : undefined,
         discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
         discordTemplate:
           typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
@@ -1693,6 +1696,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             discordWebhookUrl:
               typeof config.discordWebhookUrl === 'string'
                 ? config.discordWebhookUrl.trim() || undefined
+                : undefined,
+            devDiscordWebhookUrl:
+              typeof config.devDiscordWebhookUrl === 'string'
+                ? config.devDiscordWebhookUrl.trim() || undefined
                 : undefined,
             discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
             discordTemplate:
