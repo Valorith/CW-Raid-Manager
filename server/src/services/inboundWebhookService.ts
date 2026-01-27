@@ -161,6 +161,7 @@ export interface InboundWebhookRetentionPolicy {
 
 export interface InboundWebhookActionConfig {
   discordWebhookUrl?: string;
+  devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
   crashModel?: string;
@@ -184,6 +185,7 @@ export interface UpdateInboundWebhookInput {
   retentionPolicy?: InboundWebhookRetentionPolicy | null;
   mergeWindowSeconds?: number;
   autoMerge?: boolean;
+  devMode?: boolean;
 }
 
 export interface CreateInboundWebhookActionInput {
@@ -291,6 +293,9 @@ export async function updateInboundWebhook(webhookId: string, input: UpdateInbou
   }
   if (input.autoMerge !== undefined) {
     data.autoMerge = input.autoMerge;
+  }
+  if (input.devMode !== undefined) {
+    data.devMode = input.devMode;
   }
 
   return prisma.inboundWebhook.update({
@@ -520,12 +525,13 @@ export async function retryCrashReviewForMessage(messageId: string) {
     );
     if (discordAction) {
       const discordConfig = normalizeActionConfig(discordAction.config);
-      if (discordConfig.discordWebhookUrl) {
+      const discordUrl = getDiscordUrl(discordConfig, webhook.devMode);
+      if (discordUrl) {
         const discordStartedAt = Date.now();
         try {
           // Build enriched payload with crash review findings and error type
           const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts, errorType);
-          await sendDiscordRelay(discordConfig.discordWebhookUrl, enrichedPayload, discordConfig, messageId);
+          await sendDiscordRelay(discordUrl, enrichedPayload, discordConfig, messageId);
           await prisma.inboundWebhookActionRun.create({
             data: {
               messageId,
@@ -701,7 +707,8 @@ async function runInboundWebhookActions(
     config: unknown;
   }>,
   payload: unknown,
-  webhookLabel?: string
+  webhookLabel?: string,
+  devMode = false
 ) {
   let overallStatus: InboundWebhookMessageStatus = 'PROCESSED';
   const summary: Array<{ actionId: string; status: string }> = [];
@@ -721,10 +728,11 @@ async function runInboundWebhookActions(
     try {
       if (action.type === 'DISCORD_RELAY') {
         const config = normalizeActionConfig(action.config);
-        if (!config.discordWebhookUrl) {
+        const discordUrl = getDiscordUrl(config, devMode);
+        if (!discordUrl) {
           throw new Error('Discord webhook URL is missing.');
         }
-        await sendDiscordRelay(config.discordWebhookUrl, payloadForActions, config, messageId);
+        await sendDiscordRelay(discordUrl, payloadForActions, config, messageId);
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -1145,6 +1153,7 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
   const raw = config as Record<string, unknown>;
   return {
     discordWebhookUrl: typeof raw.discordWebhookUrl === 'string' ? raw.discordWebhookUrl : undefined,
+    devDiscordWebhookUrl: typeof raw.devDiscordWebhookUrl === 'string' ? raw.devDiscordWebhookUrl : undefined,
     discordMode: raw.discordMode === 'RAW' ? 'RAW' : 'WRAP',
     discordTemplate: typeof raw.discordTemplate === 'string' ? raw.discordTemplate : undefined,
     crashModel: typeof raw.crashModel === 'string' ? raw.crashModel : undefined,
@@ -1154,6 +1163,18 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     crashTemperature: typeof raw.crashTemperature === 'number' ? raw.crashTemperature : undefined,
     crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined
   };
+}
+
+/**
+ * Get the appropriate Discord webhook URL based on devMode setting.
+ * When devMode is enabled and a dev URL is configured, use the dev URL.
+ * Otherwise, fall back to the normal Discord webhook URL.
+ */
+function getDiscordUrl(config: InboundWebhookActionConfig, devMode: boolean): string | undefined {
+  if (devMode && config.devDiscordWebhookUrl) {
+    return config.devDiscordWebhookUrl;
+  }
+  return config.discordWebhookUrl;
 }
 
 async function sendDiscordRelay(
@@ -2464,7 +2485,7 @@ async function processSpecificGroup(group: PendingMergeGroup) {
       // Single message - process actions normally
       const message = messages[0];
       console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
-      await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label);
+      await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
     } else if (webhook.autoMerge) {
       // Multiple messages with auto-merge enabled - merge and process
       console.log(`[Webhook ${webhookId}] Auto-merging ${messages.length} messages for "${groupKey}"`);
@@ -2486,13 +2507,14 @@ async function processSpecificGroup(group: PendingMergeGroup) {
       );
 
       if (discordAction) {
-        const config = discordAction.config as { discordWebhookUrl?: string };
-        if (config?.discordWebhookUrl) {
+        const config = normalizeActionConfig(discordAction.config);
+        const discordUrl = getDiscordUrl(config, webhook.devMode);
+        if (discordUrl) {
           const inboxUrl = clientBaseUrl ? `${clientBaseUrl}/admin/webhooks?tab=inbox` : null;
           const notificationPayload = {
             content: `📋 **${messages.length} messages pending merge review** for ${webhook.label}${groupKey !== 'default' ? ` (${groupKey})` : ''}${inboxUrl ? `\n🔗 [View in inbox](${inboxUrl})` : ''}`
           };
-          await sendDiscordRelay(config.discordWebhookUrl, notificationPayload, config, messages[0].id);
+          await sendDiscordRelay(discordUrl, notificationPayload, config, messages[0].id);
         }
       }
     }
@@ -2569,7 +2591,7 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
         // Single message - process actions normally
         const message = group[0];
         console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
-        await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label);
+        await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
       } else if (webhook.autoMerge) {
         // Multiple messages with auto-merge enabled - merge and process
         console.log(`[Webhook ${webhookId}] Auto-merging ${group.length} messages for "${groupKey}"`);
@@ -2657,6 +2679,7 @@ async function sendPendingMergeNotification(
   webhook: {
     id: string;
     label: string;
+    devMode: boolean;
     actions: Array<{
       id: string;
       type: InboundWebhookActionType;
@@ -2681,7 +2704,8 @@ async function sendPendingMergeNotification(
   }
 
   const config = normalizeActionConfig(discordAction.config);
-  if (!config.discordWebhookUrl) {
+  const discordUrl = getDiscordUrl(config, webhook.devMode);
+  if (!discordUrl) {
     console.log(`[Webhook ${webhook.id}] No Discord webhook URL configured, skipping notification`);
     return;
   }
@@ -2739,7 +2763,7 @@ async function sendPendingMergeNotification(
   }
 
   try {
-    const response = await fetch(config.discordWebhookUrl, {
+    const response = await fetch(discordUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ embeds: [embed] })
@@ -2803,7 +2827,7 @@ export async function processDismissedMergeMessages(messageIds: string[]) {
       data: { status: 'RECEIVED' }
     });
 
-    await runInboundWebhookActions(messageId, message.webhook.actions, message.payload, message.webhook.label);
+    await runInboundWebhookActions(messageId, message.webhook.actions, message.payload, message.webhook.label, message.webhook.devMode);
   }
 }
 
@@ -2916,6 +2940,7 @@ async function processAutoMergeGroup(
   webhook: {
     id: string;
     label: string;
+    devMode: boolean;
     actions: Array<{
       id: string;
       type: InboundWebhookActionType;
@@ -2965,7 +2990,7 @@ async function processAutoMergeGroup(
       });
     }
     // Process the single message normally
-    await runInboundWebhookActions(orderedMessages[0].id, webhook.actions, orderedMessages[0].payload, webhook.label);
+    await runInboundWebhookActions(orderedMessages[0].id, webhook.actions, orderedMessages[0].payload, webhook.label, webhook.devMode);
     return;
   }
 

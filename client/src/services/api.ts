@@ -1406,6 +1406,7 @@ export interface InboundWebhookRetentionPolicy {
 
 export interface InboundWebhookActionConfig {
   discordWebhookUrl?: string;
+  devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
   crashModel?: string;
@@ -1436,6 +1437,7 @@ export interface InboundWebhook {
   retentionPolicy: InboundWebhookRetentionPolicy;
   mergeWindowSeconds: number;
   autoMerge: boolean;
+  devMode: boolean;
   createdById: string;
   createdAt: string;
   updatedAt: string;
@@ -3744,6 +3746,7 @@ export const api = {
       retentionPolicy?: InboundWebhookRetentionPolicy | null;
       mergeWindowSeconds?: number;
       autoMerge?: boolean;
+      devMode?: boolean;
     }
   ): Promise<InboundWebhook> {
     const response = await axios.put(`/api/admin/webhooks/${webhookId}`, payload);

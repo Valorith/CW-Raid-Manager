@@ -704,6 +704,7 @@ model InboundWebhook {
   lastReceivedAt     DateTime?
   mergeWindowSeconds Int                    @default(10)
   autoMerge          Boolean                @default(false)
+  devMode            Boolean                @default(false)
   createdBy          User                   @relation("InboundWebhookCreator", fields: [createdById], references: [id], onDelete: Cascade)
   actions            InboundWebhookAction[]
   messages           InboundWebhookMessage[]

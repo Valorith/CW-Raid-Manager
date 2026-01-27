@@ -342,6 +342,14 @@
                     />
                   </label>
                   <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                    <span>Dev Discord Webhook URL</span>
+                    <input
+                      v-model="action.config.devDiscordWebhookUrl"
+                      class="input"
+                      placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
+                    />
+                  </label>
+                  <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
                     <span>Relay Mode</span>
                     <select v-model="action.config.discordMode" class="select">
                       <option value="WRAP">Wrap payload</option>
@@ -444,6 +452,17 @@
                     v-model="actionDrafts[selectedWebhook.id].discordWebhookUrl"
                     class="input"
                     placeholder="https://discord.com/api/webhooks/..."
+                  />
+                </label>
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
+                  class="form-field"
+                >
+                  <span>Dev Discord Webhook URL</span>
+                  <input
+                    v-model="actionDrafts[selectedWebhook.id].devDiscordWebhookUrl"
+                    class="input"
+                    placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
                   />
                 </label>
                 <label
@@ -1578,6 +1597,31 @@
                     </div>
                   </div>
                 </div>
+
+                <!-- Dev Mode Toggle -->
+                <div class="settings-field">
+                  <div class="settings-field-label">
+                    <label :for="`dev-mode-${webhookSettingsForm.webhookId}`">Dev Mode</label>
+                    <p class="settings-field-hint">
+                      When enabled, Discord messages are sent to the Dev Discord Webhook URL instead of the production URL.
+                    </p>
+                  </div>
+                  <div class="settings-field-control">
+                    <div class="toggle-with-status">
+                      <label class="toggle-switch">
+                        <input
+                          :id="`dev-mode-${webhookSettingsForm.webhookId}`"
+                          v-model="webhookSettingsForm.devMode"
+                          type="checkbox"
+                        />
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span :class="['toggle-status', webhookSettingsForm.devMode ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                        {{ webhookSettingsForm.devMode ? 'Enabled' : 'Disabled' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -1815,7 +1859,8 @@ const showWebhookSettings = ref(false);
 const webhookSettingsForm = reactive({
   webhookId: '',
   mergeWindowSeconds: 10,
-  autoMerge: false
+  autoMerge: false,
+  devMode: false
 });
 const savingWebhookSettings = ref(false);
 
@@ -2182,6 +2227,7 @@ function buildActionDraft() {
     name: '',
     isEnabled: true,
     discordWebhookUrl: '',
+    devDiscordWebhookUrl: '',
     discordMode: 'WRAP',
     discordTemplate: 'Webhook payload:\n\n```json\n{{json}}\n```',
     crashModel: 'gemini-2.5-pro',
@@ -2208,6 +2254,7 @@ async function loadWebhooks() {
       ...action,
       config: {
         discordWebhookUrl: action.config?.discordWebhookUrl,
+        devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
         discordMode: action.config?.discordMode ?? 'WRAP',
         discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
         crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
@@ -2538,6 +2585,7 @@ async function createAction(webhook: InboundWebhook) {
         draft.type === 'DISCORD_RELAY'
           ? {
               discordWebhookUrl: draft.discordWebhookUrl.trim() || undefined,
+              devDiscordWebhookUrl: draft.devDiscordWebhookUrl?.trim() || undefined,
               discordMode: draft.discordMode,
               discordTemplate:
                 draft.discordMode === 'RAW' ? undefined : draft.discordTemplate?.trim() || undefined
@@ -2558,6 +2606,7 @@ async function createAction(webhook: InboundWebhook) {
         ...action,
         config: {
           discordWebhookUrl: action.config?.discordWebhookUrl,
+          devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
           discordMode: action.config?.discordMode ?? 'WRAP',
           discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
           crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
@@ -2584,6 +2633,7 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
         action.type === 'DISCORD_RELAY'
           ? {
               discordWebhookUrl: action.config.discordWebhookUrl,
+              devDiscordWebhookUrl: action.config.devDiscordWebhookUrl,
               discordMode: action.config.discordMode ?? 'WRAP',
               discordTemplate:
                 action.config.discordMode === 'RAW'
@@ -2606,6 +2656,7 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
             ...updated,
             config: {
               discordWebhookUrl: updated.config?.discordWebhookUrl,
+              devDiscordWebhookUrl: updated.config?.devDiscordWebhookUrl,
               discordMode: updated.config?.discordMode ?? 'WRAP',
               discordTemplate:
                 updated.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
@@ -3441,6 +3492,7 @@ function openWebhookSettings() {
     const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
     webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
     webhookSettingsForm.autoMerge = hook?.autoMerge ?? false;
+    webhookSettingsForm.devMode = hook?.devMode ?? false;
   }
   showWebhookSettings.value = true;
 }
@@ -3449,6 +3501,7 @@ function onWebhookSettingsSelect() {
   const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
   webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
   webhookSettingsForm.autoMerge = hook?.autoMerge ?? false;
+  webhookSettingsForm.devMode = hook?.devMode ?? false;
 }
 
 async function saveWebhookSettings() {
@@ -3457,7 +3510,8 @@ async function saveWebhookSettings() {
   try {
     const updated = await api.updateInboundWebhook(webhookSettingsForm.webhookId, {
       mergeWindowSeconds: webhookSettingsForm.mergeWindowSeconds,
-      autoMerge: webhookSettingsForm.autoMerge
+      autoMerge: webhookSettingsForm.autoMerge,
+      devMode: webhookSettingsForm.devMode
     });
     // Update local webhook data
     const idx = webhooks.value.findIndex((w) => w.id === updated.id);
