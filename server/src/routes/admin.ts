@@ -1539,7 +1539,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           isEnabled: z.boolean().optional(),
           retentionPolicy: retentionPolicySchema.optional().nullable(),
           mergeWindowSeconds: z.number().int().min(1).max(300).optional(),
-          autoMerge: z.boolean().optional()
+          autoMerge: z.boolean().optional(),
+          devMode: z.boolean().optional()
         })
         .refine((value) => Object.keys(value).length > 0, {
           message: 'No fields provided for update.'
