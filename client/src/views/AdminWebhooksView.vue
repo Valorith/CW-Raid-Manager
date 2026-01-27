@@ -1100,7 +1100,9 @@
                     <li v-for="item in getCrashRunResult(selectedMessage)?.hypotheses" :key="item.title">
                       <strong>{{ item.title }}</strong>
                       <span class="muted small">({{ Math.round(item.confidence * 100) }}% confidence)</span>
-                      <p>{{ item.evidence }}</p>
+                      <ul v-if="item.evidence?.length" class="evidence-list">
+                        <li v-for="(e, idx) in item.evidence" :key="idx" v-html="renderLinkedText(e)"></li>
+                      </ul>
                     </li>
                   </ol>
                 </div>
@@ -1118,10 +1120,10 @@
                   <h5>Recommended Next Steps</h5>
                   <ol class="llm-list llm-list--numbered">
                     <li
-                      v-for="step in getCrashRunResult(selectedMessage)?.recommendedNextSteps"
-                      :key="step"
+                      v-for="(step, idx) in getCrashRunResult(selectedMessage)?.recommendedNextSteps"
+                      :key="idx"
+                      v-html="renderLinkedText(step)"
                     >
-                      {{ step }}
                     </li>
                   </ol>
                 </div>
@@ -2926,6 +2928,41 @@ function getCrashRunResult(message: InboundWebhookMessage) {
     missingInfo?: string[];
     recommendedNextSteps?: string[];
   };
+}
+
+/**
+ * Convert markdown links [text](url) to HTML anchor tags.
+ * Also escapes HTML to prevent XSS, except for the generated anchor tags.
+ */
+function renderMarkdownLinks(text: string): string {
+  // First escape HTML entities to prevent XSS
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  // Then convert markdown links to HTML anchors
+  // Pattern: [link text](url)
+  return escaped.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="code-link">$1</a>'
+  );
+}
+
+/**
+ * Convert backtick-wrapped code to HTML code tags.
+ * Used for file paths that aren't linked.
+ */
+function renderInlineCode(text: string): string {
+  return text.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+}
+
+/**
+ * Render text with markdown links and inline code.
+ */
+function renderLinkedText(text: string): string {
+  return renderInlineCode(renderMarkdownLinks(text));
 }
 
 interface TokenUsageData {
@@ -5583,6 +5620,48 @@ input[type='checkbox']:checked::after {
 .llm-section ul {
   margin: 0;
   padding-left: 1rem;
+}
+
+.llm-section ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.evidence-list {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.evidence-list li {
+  margin-bottom: 0.25rem;
+}
+
+/* Code reference links - for GitHub source links */
+.code-link {
+  color: #60a5fa;
+  text-decoration: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(96, 165, 250, 0.1);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  transition: background-color 0.15s ease;
+}
+
+.code-link:hover {
+  background: rgba(96, 165, 250, 0.2);
+  text-decoration: underline;
+}
+
+/* Inline code for non-linked file paths */
+.inline-code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: rgba(148, 163, 184, 0.15);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  color: #e2e8f0;
 }
 
 .llm-sublist {

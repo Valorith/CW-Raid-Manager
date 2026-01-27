@@ -35,6 +35,10 @@ const MAX_OUTPUT_TOKENS = 16384; // Must account for Gemini 2.5's internal think
 const FOLLOWUP_OUTPUT_TOKENS = 4096;
 const TEMPERATURE = 0.2;
 const FUNCTION_NAME = 'crash_review';
+
+// GitHub repository for source code links
+const GITHUB_REPO_URL = 'https://github.com/Valorith/Server';
+const GITHUB_BRANCH = 'main';
 const ANALYSIS_SUFFIX = [
   'Return plain-text analysis with these exact headers on their own lines:',
   'Summary:',
@@ -102,6 +106,76 @@ function requireEnv(name: string): string {
 
 function truncate(text: string, maxChars: number) {
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n...<truncated>` : text;
+}
+
+// Valid source file extensions for GitHub linking
+const VALID_SOURCE_EXTENSIONS = ['.cpp', '.h', '.hpp', '.c', '.cc', '.lua', '.pl', '.pm', '.py', '.sql'];
+
+/**
+ * Convert [[source:path/to/file.cpp:123]] references to GitHub links.
+ * Invalid paths are converted to plain text (code formatting without link).
+ */
+function convertCodeReferencesToLinks(text: string): string {
+  // Pattern: [[source:path/to/file.ext]] or [[source:path/to/file.ext:linenum]]
+  const pattern = /\[\[source:([^\]]+)\]\]/g;
+
+  return text.replace(pattern, (match, reference: string) => {
+    const parts = reference.trim().split(':');
+    let filePath = parts[0];
+    let lineNumber: string | undefined;
+
+    // Handle line number (could be second part if path doesn't have colons)
+    if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+      lineNumber = parts[1];
+    } else if (parts.length > 2) {
+      // Path might contain colons (unlikely but handle it)
+      // Assume last part is line number if it's numeric
+      const lastPart = parts[parts.length - 1];
+      if (/^\d+$/.test(lastPart)) {
+        lineNumber = lastPart;
+        filePath = parts.slice(0, -1).join(':');
+      }
+    }
+
+    // Clean up the file path
+    filePath = filePath.trim().replace(/^\/+/, ''); // Remove leading slashes
+
+    // Validate it looks like a source file
+    const ext = filePath.toLowerCase().match(/\.[a-z]+$/)?.[0];
+    const isValidSource = ext && VALID_SOURCE_EXTENSIONS.includes(ext);
+
+    // Also check it doesn't look like a system path or client file
+    const isSystemPath = /^(c:|\/usr|\/lib|windows|system32)/i.test(filePath);
+    const isClientFile = /eqgame|eqclient/i.test(filePath);
+
+    if (!isValidSource || isSystemPath || isClientFile) {
+      // Return as code-formatted plain text (no link)
+      return lineNumber ? `\`${filePath}:${lineNumber}\`` : `\`${filePath}\``;
+    }
+
+    // Build GitHub URL
+    const baseUrl = `${GITHUB_REPO_URL}/blob/${GITHUB_BRANCH}/${filePath}`;
+    const url = lineNumber ? `${baseUrl}#L${lineNumber}` : baseUrl;
+    const displayText = lineNumber ? `${filePath}:${lineNumber}` : filePath;
+
+    // Return as markdown link
+    return `[${displayText}](${url})`;
+  });
+}
+
+/**
+ * Apply code reference conversion to all text fields in findings.
+ */
+function processCodeReferencesInFindings(findings: CrashReviewFindings): CrashReviewFindings {
+  return {
+    ...findings,
+    hypotheses: findings.hypotheses.map(h => ({
+      ...h,
+      evidence: h.evidence.map(e => convertCodeReferencesToLinks(e)),
+      nextSteps: h.nextSteps.map(s => convertCodeReferencesToLinks(s))
+    })),
+    recommendedNextSteps: findings.recommendedNextSteps.map(s => convertCodeReferencesToLinks(s))
+  };
 }
 
 function compressCrashReportForAnalysis(text: string) {
@@ -247,6 +321,18 @@ export async function reviewCrashReport(
         '- Prefer hypotheses that fit the evidence.',
         '- REQUIRED: Start the Summary with "Native crash:" or "Script error:" to indicate the type.',
         '',
+        'CODE REFERENCES:',
+        'When referencing specific source files in the EQEmu server codebase, include code references using this format:',
+        '  [[source:path/to/file.cpp:123]] for a specific line',
+        '  [[source:path/to/file.cpp]] for the whole file',
+        'Common paths in the EQEmu codebase include:',
+        '  - zone/*.cpp, zone/*.h (zone server code)',
+        '  - world/*.cpp, world/*.h (world server code)',
+        '  - common/*.cpp, common/*.h (shared utilities)',
+        '  - quests/*.pl, quests/*.lua (quest scripts)',
+        'Include code references in evidence and next steps when you can identify specific files or functions.',
+        'Only include references for files that likely exist in the server codebase - do not reference client files or system libraries.',
+        '',
         'Report to analyze:',
         analysisInput
       ].join('\n');
@@ -321,7 +407,8 @@ export async function reviewCrashReport(
         requestPayload: { analysis: analysisPayload, followup: followupPayload },
         ...responseMetadata
       };
-      return parsed;
+      // Convert code references to GitHub links
+      return processCodeReferencesInFindings(parsed);
     }
   }
   const responseMetadata = extractResponseMetadata(analysisResponse);
@@ -333,7 +420,8 @@ export async function reviewCrashReport(
     requestPayload: { analysis: analysisPayload },
     ...responseMetadata
   };
-  return parsed;
+  // Convert code references to GitHub links
+  return processCodeReferencesInFindings(parsed);
 }
 
 function extractResponseMetadata(response: any): {
