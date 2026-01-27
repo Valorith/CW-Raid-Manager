@@ -624,6 +624,10 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     data: { lastReceivedAt: new Date() }
   });
 
+  // Apply labels immediately using pattern-based detection (no AI needed)
+  // This ensures merge group detection works right away in the UI
+  await applyImmediateLabels(message.id, messageContent, webhook.label);
+
   // Add message to pending merge group with fixed timer from first message
   const mergeWindow = webhook.mergeWindowSeconds ?? 60;
   const groupKey = extractCrashFileIdentifier(input.payload, input.rawBody ?? null) || 'default';
@@ -663,6 +667,12 @@ export async function createInboundWebhookMessageForAdmin(options: {
     where: { id: webhook.id },
     data: { lastReceivedAt: new Date() }
   });
+
+  // Apply labels immediately using pattern-based detection (no AI needed)
+  const messageContent = extractActualMessageContent(options.payload, null);
+  if (messageContent) {
+    await applyImmediateLabels(message.id, messageContent, webhook.label);
+  }
 
   if (options.runActions !== false) {
     // Add message to pending merge group with fixed timer from first message
@@ -1725,7 +1735,64 @@ async function getOrCreateDefaultLabel(type: keyof typeof DEFAULT_LABELS): Promi
   return label.id;
 }
 
+// Apply labels immediately when a message is received (pattern-based, no AI)
+// This ensures merge group detection works right away
+async function applyImmediateLabels(
+  messageId: string,
+  rawText: string,
+  webhookLabel?: string
+): Promise<void> {
+  try {
+    const labelsToAdd: string[] = [];
+    const labelNames: string[] = [];
+
+    // Detect if this is a quest/script error vs crash using pattern matching
+    const isQuestError = detectQuestError(
+      undefined, // No signature needed for pattern detection
+      '',        // No summary needed
+      rawText    // Raw text is sufficient for detection
+    );
+
+    // Add crash type label (Crash or Script Error)
+    const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
+    labelsToAdd.push(crashLabelId);
+    labelNames.push(isQuestError ? 'Script Error' : 'Crash');
+
+    // Check webhook label for Test/Live server indicators
+    if (webhookLabel) {
+      const lowerLabel = webhookLabel.toLowerCase();
+      if (lowerLabel.includes('test server')) {
+        const testLabelId = await getOrCreateDefaultLabel('TEST');
+        labelsToAdd.push(testLabelId);
+        labelNames.push('Test');
+      } else if (lowerLabel.includes('live server')) {
+        const liveLabelId = await getOrCreateDefaultLabel('LIVE');
+        labelsToAdd.push(liveLabelId);
+        labelNames.push('Live');
+      }
+    }
+
+    // Add labels to the message
+    for (const labelId of labelsToAdd) {
+      await prisma.webhookMessageLabelAssignment.create({
+        data: {
+          id: generateCuid(),
+          messageId,
+          labelId
+        }
+      });
+    }
+
+    console.log(`[WEBHOOK RECEIVE] Applied immediate labels to message ${messageId}: [${labelNames.join(', ')}]`);
+  } catch (error) {
+    // Don't fail the whole process if immediate labeling fails
+    console.error('Immediate labeling failed:', error);
+  }
+}
+
 // Auto-label a message based on crash review findings
+// Note: This is called after AI review and may add additional labels,
+// but won't override crash type labels set by applyImmediateLabels
 async function autoLabelMessage(
   messageId: string,
   findings: unknown,
@@ -1734,39 +1801,45 @@ async function autoLabelMessage(
   rawText?: string
 ): Promise<void> {
   try {
+    // Get existing labels for the message first
+    const existingAssignments = await prisma.webhookMessageLabelAssignment.findMany({
+      where: { messageId },
+      include: { label: true }
+    });
+    const existingLabelIds = new Set(existingAssignments.map((a) => a.labelId));
+    const existingLabelNames = new Set(existingAssignments.map((a) => a.label.name));
+
     const labelsToAdd: string[] = [];
 
-    // Detect if this is a quest/script error vs crash
-    const isQuestError = detectQuestError(
-      signature as { exception?: string | null; topFrame?: string | null },
-      typeof (findings as Record<string, unknown>)?.summary === 'string'
-        ? (findings as Record<string, unknown>).summary as string
-        : '',
-      rawText
-    );
+    // Only add crash type label if neither Crash nor Script Error label exists
+    // (immediate labeling should have already set one based on pattern detection)
+    const hasCrashTypeLabel = existingLabelNames.has('Crash') || existingLabelNames.has('Script Error');
+    if (!hasCrashTypeLabel) {
+      // Detect if this is a quest/script error vs crash
+      const isQuestError = detectQuestError(
+        signature as { exception?: string | null; topFrame?: string | null },
+        typeof (findings as Record<string, unknown>)?.summary === 'string'
+          ? (findings as Record<string, unknown>).summary as string
+          : '',
+        rawText
+      );
 
-    // Add crash type label (Crash or Script Error)
-    const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
-    labelsToAdd.push(crashLabelId);
+      // Add crash type label (Crash or Script Error)
+      const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
+      labelsToAdd.push(crashLabelId);
+    }
 
     // Check webhook label for Test/Live server indicators
     if (webhookLabel) {
       const lowerLabel = webhookLabel.toLowerCase();
-      if (lowerLabel.includes('test server')) {
+      if (lowerLabel.includes('test server') && !existingLabelNames.has('Test')) {
         const testLabelId = await getOrCreateDefaultLabel('TEST');
         labelsToAdd.push(testLabelId);
-      } else if (lowerLabel.includes('live server')) {
+      } else if (lowerLabel.includes('live server') && !existingLabelNames.has('Live')) {
         const liveLabelId = await getOrCreateDefaultLabel('LIVE');
         labelsToAdd.push(liveLabelId);
       }
     }
-
-    // Get existing labels for the message
-    const existingAssignments = await prisma.webhookMessageLabelAssignment.findMany({
-      where: { messageId },
-      select: { labelId: true }
-    });
-    const existingLabelIds = new Set(existingAssignments.map((a) => a.labelId));
 
     // Add labels that aren't already present
     for (const labelId of labelsToAdd) {

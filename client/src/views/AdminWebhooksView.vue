@@ -2036,15 +2036,17 @@ watch(isAutoMergeActive, (newVal) => {
 interface MergeGroup {
   id: string;
   webhookId: string;
-  crashType: 'crash' | 'script_error';
+  crashType: 'crash' | 'script_error' | 'pending';
   messages: InboundWebhookMessage[];
   timeWindow: number;
 }
 
-function getCrashType(message: InboundWebhookMessage): 'crash' | 'script_error' | null {
+function getCrashType(message: InboundWebhookMessage): 'crash' | 'script_error' | 'pending' | null {
   const labels = message.labels ?? [];
   if (labels.some((l) => l.name === 'Crash')) return 'crash';
   if (labels.some((l) => l.name === 'Script Error')) return 'script_error';
+  // For PENDING_MERGE messages without labels, treat as 'pending' type so they can be grouped
+  if (message.status === 'PENDING_MERGE') return 'pending';
   return null;
 }
 
@@ -3036,18 +3038,38 @@ async function copyCrashError(message: InboundWebhookMessage) {
 
 function getCrashReportText(message: InboundWebhookMessage) {
   const payload = message.payload as Record<string, unknown> | null;
-  if (payload && typeof payload.crashReportText === 'string') {
+  // Check crashReportText (primary field for crash reports)
+  if (payload && typeof payload.crashReportText === 'string' && payload.crashReportText.trim().length > 0) {
     return payload.crashReportText;
   }
-  if (payload && typeof payload.message === 'string') {
+  // Check message field
+  if (payload && typeof payload.message === 'string' && payload.message.trim().length > 0) {
     return payload.message;
   }
+  // Check content field
+  if (payload && typeof payload.content === 'string' && payload.content.trim().length > 0) {
+    return payload.content;
+  }
+  // Check text field (common alternative)
+  if (payload && typeof payload.text === 'string' && payload.text.trim().length > 0) {
+    return payload.text;
+  }
+  // Check body field
+  if (payload && typeof payload.body === 'string' && payload.body.trim().length > 0) {
+    return payload.body;
+  }
+  // Check raw field (used when payload was a raw string that got normalized)
+  if (payload && typeof payload.raw === 'string' && payload.raw.trim().length > 0) {
+    return payload.raw;
+  }
+  // Check crashReport.rawHead (legacy format)
   const rawHead = payload?.crashReport && typeof payload.crashReport === 'object'
     ? (payload.crashReport as Record<string, unknown>).rawHead
     : null;
   if (typeof rawHead === 'string' && rawHead.trim().length > 0) {
     return rawHead;
   }
+  // Check rawBody as last resort
   if (typeof message.rawBody === 'string' && message.rawBody.trim().length > 0) {
     return message.rawBody;
   }
