@@ -675,6 +675,7 @@ enum QuestNodeType {
 enum InboundWebhookActionType {
   DISCORD_RELAY
   CRASH_REVIEW
+  CLAWDBOT_RELAY
 }
 
 enum InboundWebhookMessageStatus {
