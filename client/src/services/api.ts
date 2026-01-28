@@ -1394,7 +1394,7 @@ export interface AdminRaidDetail extends AdminRaidSummary {
 }
 
 export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
-export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW';
+export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW' | 'CLAWDBOT_RELAY';
 export type InboundWebhookMessageStatus = 'RECEIVED' | 'PENDING_MERGE' | 'PROCESSED' | 'FAILED';
 export type InboundWebhookActionRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'PENDING_REVIEW';
 
