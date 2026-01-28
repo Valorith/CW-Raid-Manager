@@ -2640,6 +2640,16 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                   ? undefined
                   : action.config.discordTemplate?.trim() || undefined
             }
+          : action.type === 'CLAWDBOT_RELAY'
+            ? {
+                clawdbotWebhookUrl: action.config.clawdbotWebhookUrl,
+                devClawdbotWebhookUrl: action.config.devClawdbotWebhookUrl,
+                clawdbotMode: action.config.clawdbotMode ?? 'WRAP',
+                clawdbotTemplate:
+                  action.config.clawdbotMode === 'RAW'
+                    ? undefined
+                    : action.config.clawdbotTemplate?.trim() || undefined
+              }
           : action.type === 'CRASH_REVIEW'
             ? {
                 crashModel: action.config.crashModel?.trim() || undefined,
@@ -2660,6 +2670,10 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
               discordMode: updated.config?.discordMode ?? 'WRAP',
               discordTemplate:
                 updated.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+              clawdbotWebhookUrl: updated.config?.clawdbotWebhookUrl,
+              devClawdbotWebhookUrl: updated.config?.devClawdbotWebhookUrl,
+              clawdbotMode: updated.config?.clawdbotMode ?? 'WRAP',
+              clawdbotTemplate: updated.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
               crashModel: updated.config?.crashModel ?? 'gemini-2.5-pro',
               crashMaxInputChars: updated.config?.crashMaxInputChars ?? 250000,
               crashMaxOutputTokens: updated.config?.crashMaxOutputTokens ?? 16384,
