@@ -169,6 +169,11 @@ export interface InboundWebhookActionConfig {
   crashMaxOutputTokens?: number;
   crashTemperature?: number;
   crashPromptTemplate?: string;
+  // ClawdBot relay fields
+  clawdbotWebhookUrl?: string;
+  devClawdbotWebhookUrl?: string;
+  clawdbotMode?: 'RAW' | 'WRAP';
+  clawdbotTemplate?: string;
 }
 
 export interface CreateInboundWebhookInput {
@@ -557,6 +562,43 @@ export async function retryCrashReviewForMessage(messageId: string) {
         }
       }
     }
+
+    // After successful AI review, also trigger ClawdBot action if configured
+    const clawdbotAction = webhook.actions.find(
+      (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
+    );
+    if (clawdbotAction) {
+      const clawdbotConfig = normalizeActionConfig(clawdbotAction.config);
+      const clawdbotUrl = getClawdbotUrl(clawdbotConfig, webhook.devMode);
+      if (clawdbotUrl) {
+        const clawdbotStartedAt = Date.now();
+        try {
+          const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts, errorType);
+          await sendClawdbotRelay(clawdbotUrl, enrichedPayload, clawdbotConfig);
+          await prisma.inboundWebhookActionRun.create({
+            data: {
+              messageId,
+              actionId: clawdbotAction.id,
+              status: 'SUCCESS',
+              durationMs: Date.now() - clawdbotStartedAt
+            }
+          });
+          await updateActionSummary(messageId, clawdbotAction.id, 'SUCCESS');
+        } catch (clawdbotError) {
+          await prisma.inboundWebhookActionRun.create({
+            data: {
+              messageId,
+              actionId: clawdbotAction.id,
+              status: 'FAILED',
+              error: clawdbotError instanceof Error ? clawdbotError.message : 'Unknown ClawdBot error',
+              durationMs: Date.now() - clawdbotStartedAt
+            }
+          });
+          await updateActionSummary(messageId, clawdbotAction.id, 'FAILED');
+          console.error('ClawdBot relay failed after AI review:', clawdbotError);
+        }
+      }
+    }
   } catch (error) {
     await prisma.inboundWebhookActionRun.update({
       where: { id: run.id },
@@ -733,6 +775,25 @@ async function runInboundWebhookActions(
           throw new Error('Discord webhook URL is missing.');
         }
         await sendDiscordRelay(discordUrl, payloadForActions, config, messageId);
+        await prisma.inboundWebhookActionRun.create({
+          data: {
+            messageId,
+            actionId: action.id,
+            status: 'SUCCESS',
+            durationMs: Date.now() - startedAt
+          }
+        });
+        summary.push({ actionId: action.id, status: 'SUCCESS' });
+        continue;
+      }
+
+      if (action.type === 'CLAWDBOT_RELAY') {
+        const config = normalizeActionConfig(action.config);
+        const clawdbotUrl = getClawdbotUrl(config, devMode);
+        if (!clawdbotUrl) {
+          throw new Error('ClawdBot webhook URL is missing.');
+        }
+        await sendClawdbotRelay(clawdbotUrl, payloadForActions, config);
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -1161,7 +1222,12 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
     crashMaxOutputTokens:
       typeof raw.crashMaxOutputTokens === 'number' ? raw.crashMaxOutputTokens : undefined,
     crashTemperature: typeof raw.crashTemperature === 'number' ? raw.crashTemperature : undefined,
-    crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined
+    crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined,
+    // ClawdBot relay fields
+    clawdbotWebhookUrl: typeof raw.clawdbotWebhookUrl === 'string' ? raw.clawdbotWebhookUrl : undefined,
+    devClawdbotWebhookUrl: typeof raw.devClawdbotWebhookUrl === 'string' ? raw.devClawdbotWebhookUrl : undefined,
+    clawdbotMode: raw.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
+    clawdbotTemplate: typeof raw.clawdbotTemplate === 'string' ? raw.clawdbotTemplate : undefined,
   };
 }
 
@@ -1175,6 +1241,61 @@ function getDiscordUrl(config: InboundWebhookActionConfig, devMode: boolean): st
     return config.devDiscordWebhookUrl;
   }
   return config.discordWebhookUrl;
+}
+
+/**
+ * Get the appropriate ClawdBot webhook URL based on devMode setting.
+ */
+function getClawdbotUrl(config: InboundWebhookActionConfig, devMode: boolean): string | undefined {
+  if (devMode && config.devClawdbotWebhookUrl) {
+    return config.devClawdbotWebhookUrl;
+  }
+  return config.clawdbotWebhookUrl;
+}
+
+/**
+ * Send payload to a ClawdBot webhook endpoint.
+ * Similar to Discord relay but targets ClawdBot's webhook ingress.
+ */
+async function sendClawdbotRelay(
+  url: string,
+  payload: unknown,
+  config: InboundWebhookActionConfig
+) {
+  const body = buildClawdbotPayload(payload, config);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`ClawdBot responded with ${response.status}: ${errorText}`);
+  }
+}
+
+function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConfig) {
+  if (config.clawdbotMode === 'RAW') {
+    return payload;
+  }
+
+  // WRAP mode: format payload with optional template
+  const raw = safeJson(payload);
+  if (!raw) {
+    return { text: 'Webhook relay received an empty payload.' };
+  }
+  const trimmed = raw.length > 4000 ? `${raw.slice(0, 4000)}...` : raw;
+
+  if (config.clawdbotTemplate) {
+    return {
+      text: config.clawdbotTemplate
+        .replace(/\{\{json\}\}/g, trimmed)
+        .replace(/\{\{raw\}\}/g, raw)
+    };
+  }
+
+  return { text: `Webhook payload:\n\n${trimmed}` };
 }
 
 async function sendDiscordRelay(
@@ -2502,19 +2623,28 @@ async function processSpecificGroup(group: PendingMergeGroup) {
       await markMessagesAsPendingMerge(messages.map(m => m.id));
 
       // Send a notification about pending review
+      const inboxUrl = clientBaseUrl ? `${clientBaseUrl}/admin/webhooks?tab=inbox` : null;
+      const pendingText = `📋 **${messages.length} messages pending merge review** for ${webhook.label}${groupKey !== 'default' ? ` (${groupKey})` : ''}${inboxUrl ? `\n🔗 [View in inbox](${inboxUrl})` : ''}`;
+
       const discordAction = webhook.actions.find(
         (action) => action.isEnabled && action.type === 'DISCORD_RELAY'
       );
-
       if (discordAction) {
         const config = normalizeActionConfig(discordAction.config);
         const discordUrl = getDiscordUrl(config, webhook.devMode);
         if (discordUrl) {
-          const inboxUrl = clientBaseUrl ? `${clientBaseUrl}/admin/webhooks?tab=inbox` : null;
-          const notificationPayload = {
-            content: `📋 **${messages.length} messages pending merge review** for ${webhook.label}${groupKey !== 'default' ? ` (${groupKey})` : ''}${inboxUrl ? `\n🔗 [View in inbox](${inboxUrl})` : ''}`
-          };
-          await sendDiscordRelay(discordUrl, notificationPayload, config, messages[0].id);
+          await sendDiscordRelay(discordUrl, { content: pendingText }, config, messages[0].id);
+        }
+      }
+
+      const clawdbotAction = webhook.actions.find(
+        (action) => action.isEnabled && action.type === 'CLAWDBOT_RELAY'
+      );
+      if (clawdbotAction) {
+        const cbConfig = normalizeActionConfig(clawdbotAction.config);
+        const cbUrl = getClawdbotUrl(cbConfig, webhook.devMode);
+        if (cbUrl) {
+          await sendClawdbotRelay(cbUrl, { text: pendingText }, cbConfig);
         }
       }
     }
@@ -2777,6 +2907,23 @@ async function sendPendingMergeNotification(
     }
   } catch (error) {
     console.error(`[Webhook ${webhook.id}] Error sending pending merge notification:`, error);
+  }
+
+  // Also notify ClawdBot if configured
+  const clawdbotAction = webhook.actions.find(
+    (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
+  );
+  if (clawdbotAction) {
+    const cbConfig = normalizeActionConfig(clawdbotAction.config);
+    const cbUrl = getClawdbotUrl(cbConfig, webhook.devMode);
+    if (cbUrl) {
+      const cbText = `📋 **${messages.length} messages pending merge review** for ${webhook.label}${inboxUrl ? `\n🔗 ${inboxUrl}` : ''}`;
+      try {
+        await sendClawdbotRelay(cbUrl, { text: cbText }, cbConfig);
+      } catch (err) {
+        console.error(`[Webhook ${webhook.id}] ClawdBot pending merge notification failed:`, err);
+      }
+    }
   }
 }
 

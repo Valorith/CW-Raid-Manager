@@ -368,6 +368,41 @@
                     placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                   ></textarea>
                 </label>
+                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                  <span>ClawdBot Webhook URL</span>
+                  <input
+                    v-model="action.config.clawdbotWebhookUrl"
+                    class="input"
+                    placeholder="https://your-clawdbot-instance/api/webhook/..."
+                  />
+                </label>
+                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                  <span>Dev ClawdBot Webhook URL</span>
+                  <input
+                    v-model="action.config.devClawdbotWebhookUrl"
+                    class="input"
+                    placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
+                  />
+                </label>
+                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                  <span>Relay Mode</span>
+                  <select v-model="action.config.clawdbotMode" class="select">
+                    <option value="WRAP">Wrap payload</option>
+                    <option value="RAW">Send raw</option>
+                  </select>
+                </label>
+                <label
+                  v-if="action.type === 'CLAWDBOT_RELAY' && action.config.clawdbotMode !== 'RAW'"
+                  class="form-field"
+                >
+                  <span>Wrap Template</span>
+                  <textarea
+                    v-model="action.config.clawdbotTemplate"
+                    class="textarea"
+                    rows="4"
+                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                  ></textarea>
+                </label>
                 <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
                   <span>Model</span>
                   <select v-model="action.config.crashModel" class="select">
@@ -428,6 +463,7 @@
                   <span>Action Type</span>
                   <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
                     <option value="DISCORD_RELAY">Discord Relay</option>
+                    <option value="CLAWDBOT_RELAY">ClawdBot Relay</option>
                     <option value="CRASH_REVIEW">Crash Review</option>
                   </select>
                 </label>
@@ -485,6 +521,53 @@
                   <span>Wrap Template</span>
                   <textarea
                     v-model="actionDrafts[selectedWebhook.id].discordTemplate"
+                    class="textarea"
+                    rows="4"
+                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                  ></textarea>
+                </label>
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
+                  class="form-field"
+                >
+                  <span>ClawdBot Webhook URL</span>
+                  <input
+                    v-model="actionDrafts[selectedWebhook.id].clawdbotWebhookUrl"
+                    class="input"
+                    placeholder="https://your-clawdbot-instance/api/webhook/..."
+                  />
+                </label>
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
+                  class="form-field"
+                >
+                  <span>Dev ClawdBot Webhook URL</span>
+                  <input
+                    v-model="actionDrafts[selectedWebhook.id].devClawdbotWebhookUrl"
+                    class="input"
+                    placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
+                  />
+                </label>
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
+                  class="form-field"
+                >
+                  <span>Relay Mode</span>
+                  <select v-model="actionDrafts[selectedWebhook.id].clawdbotMode" class="select">
+                    <option value="WRAP">Wrap payload</option>
+                    <option value="RAW">Send raw</option>
+                  </select>
+                </label>
+                <label
+                  v-if="
+                    actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY' &&
+                    actionDrafts[selectedWebhook.id].clawdbotMode !== 'RAW'
+                  "
+                  class="form-field"
+                >
+                  <span>Wrap Template</span>
+                  <textarea
+                    v-model="actionDrafts[selectedWebhook.id].clawdbotTemplate"
                     class="textarea"
                     rows="4"
                     placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
@@ -2230,6 +2313,10 @@ function buildActionDraft() {
     devDiscordWebhookUrl: '',
     discordMode: 'WRAP',
     discordTemplate: 'Webhook payload:\n\n```json\n{{json}}\n```',
+    clawdbotWebhookUrl: '',
+    devClawdbotWebhookUrl: '',
+    clawdbotMode: 'WRAP',
+    clawdbotTemplate: 'Webhook payload:\n\n{{json}}',
     crashModel: 'gemini-2.5-pro',
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 16384,
@@ -2257,6 +2344,10 @@ async function loadWebhooks() {
         devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
         discordMode: action.config?.discordMode ?? 'WRAP',
         discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+        clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
+        devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
+        clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
+        clawdbotTemplate: action.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
         crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
         crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
         crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2590,6 +2681,14 @@ async function createAction(webhook: InboundWebhook) {
               discordTemplate:
                 draft.discordMode === 'RAW' ? undefined : draft.discordTemplate?.trim() || undefined
             }
+          : draft.type === 'CLAWDBOT_RELAY'
+            ? {
+                clawdbotWebhookUrl: draft.clawdbotWebhookUrl.trim() || undefined,
+                devClawdbotWebhookUrl: draft.devClawdbotWebhookUrl?.trim() || undefined,
+                clawdbotMode: draft.clawdbotMode,
+                clawdbotTemplate:
+                  draft.clawdbotMode === 'RAW' ? undefined : draft.clawdbotTemplate?.trim() || undefined
+              }
           : draft.type === 'CRASH_REVIEW'
             ? {
                 crashModel: draft.crashModel?.trim() || undefined,
@@ -2609,6 +2708,10 @@ async function createAction(webhook: InboundWebhook) {
           devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
           discordMode: action.config?.discordMode ?? 'WRAP',
           discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+          clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
+          devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
+          clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
+          clawdbotTemplate: action.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
           crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
           crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2833,6 +2936,8 @@ function getActionLabel(type?: string | null): string {
       return 'AI Review';
     case 'DISCORD_RELAY':
       return 'Discord';
+    case 'CLAWDBOT_RELAY':
+      return 'ClawdBot';
     default:
       return 'Action';
   }
