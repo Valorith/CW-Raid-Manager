@@ -1466,6 +1466,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
+    clawdbotWebhookUrl: z.string().url().max(512).optional().nullable(),
+    devClawdbotWebhookUrl: z.string().url().max(512).optional().nullable(),
+    clawdbotMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
+    clawdbotTemplate: z.string().max(4000).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
@@ -1625,6 +1629,13 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
         discordTemplate:
           typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
+        clawdbotWebhookUrl:
+          typeof config.clawdbotWebhookUrl === 'string' ? config.clawdbotWebhookUrl.trim() || undefined : undefined,
+        devClawdbotWebhookUrl:
+          typeof config.devClawdbotWebhookUrl === 'string' ? config.devClawdbotWebhookUrl.trim() || undefined : undefined,
+        clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
+        clawdbotTemplate:
+          typeof config.clawdbotTemplate === 'string' ? config.clawdbotTemplate.trim() || undefined : undefined,
         crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
         crashMaxInputChars:
           typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
@@ -1706,6 +1717,19 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             discordTemplate:
               typeof config.discordTemplate === 'string'
                 ? config.discordTemplate.trim() || undefined
+                : undefined,
+            clawdbotWebhookUrl:
+              typeof config.clawdbotWebhookUrl === 'string'
+                ? config.clawdbotWebhookUrl.trim() || undefined
+                : undefined,
+            devClawdbotWebhookUrl:
+              typeof config.devClawdbotWebhookUrl === 'string'
+                ? config.devClawdbotWebhookUrl.trim() || undefined
+                : undefined,
+            clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
+            clawdbotTemplate:
+              typeof config.clawdbotTemplate === 'string'
+                ? config.clawdbotTemplate.trim() || undefined
                 : undefined,
             crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
             crashMaxInputChars:

@@ -334,6 +334,7 @@ export async function createInboundWebhookAction(webhookId: string, input: Creat
 }
 
 export async function updateInboundWebhookAction(actionId: string, input: UpdateInboundWebhookActionInput) {
+  console.log('[updateInboundWebhookAction] Received input:', JSON.stringify(input, null, 2));
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) {
     data.name = input.name.trim();
@@ -347,11 +348,14 @@ export async function updateInboundWebhookAction(actionId: string, input: Update
   if (input.sortOrder !== undefined) {
     data.sortOrder = input.sortOrder;
   }
+  console.log('[updateInboundWebhookAction] Data to save:', JSON.stringify(data, null, 2));
 
-  return prisma.inboundWebhookAction.update({
+  const result = await prisma.inboundWebhookAction.update({
     where: { id: actionId },
     data
   });
+  console.log('[updateInboundWebhookAction] Saved result:', JSON.stringify(result, null, 2));
+  return result;
 }
 
 export async function deleteInboundWebhookAction(actionId: string) {
@@ -788,21 +792,11 @@ async function runInboundWebhookActions(
       }
 
       if (action.type === 'CLAWDBOT_RELAY') {
-        const config = normalizeActionConfig(action.config);
-        const clawdbotUrl = getClawdbotUrl(config, devMode);
-        if (!clawdbotUrl) {
-          throw new Error('ClawdBot webhook URL is missing.');
-        }
-        await sendClawdbotRelay(clawdbotUrl, payloadForActions, config);
-        await prisma.inboundWebhookActionRun.create({
-          data: {
-            messageId,
-            actionId: action.id,
-            status: 'SUCCESS',
-            durationMs: Date.now() - startedAt
-          }
-        });
-        summary.push({ actionId: action.id, status: 'SUCCESS' });
+        // ClawdBot relay is deferred until after AI review completes
+        // This ensures we send the final merged crash report, not the initial payload
+        // The relay will be triggered in retryCrashReviewForMessage after AI processing
+        console.log(`[Webhook ${webhookId}] Skipping immediate ClawdBot relay - will send after AI review`);
+        summary.push({ actionId: action.id, status: 'PENDING_REVIEW' });
         continue;
       }
 
@@ -1283,19 +1277,44 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
   // WRAP mode: format payload with optional template
   const raw = safeJson(payload);
   if (!raw) {
-    return { text: 'Webhook relay received an empty payload.' };
+    return { title: 'Webhook Relay', description: 'Webhook relay received an empty payload.' };
   }
   const trimmed = raw.length > 4000 ? `${raw.slice(0, 4000)}...` : raw;
 
+  // Extract actual message text (e.g., crash report text)
+  const messageText = extractActualMessageContent(payload, null) || '';
+  const textTrimmed = messageText.length > 4000 ? `${messageText.slice(0, 4000)}...` : messageText;
+
   if (config.clawdbotTemplate) {
-    return {
-      text: config.clawdbotTemplate
+    // Try to parse template as JSON for structured payloads
+    try {
+      // Parse template as JSON first
+      const template = JSON.parse(config.clawdbotTemplate);
+
+      // Recursively replace placeholders in the template
+      const result = JSON.parse(JSON.stringify(template, (key, value) => {
+        if (typeof value === 'string') {
+          return value
+            .replace(/\{\{text\}\}/g, textTrimmed)
+            .replace(/\{\{json\}\}/g, trimmed)
+            .replace(/\{\{raw\}\}/g, raw);
+        }
+        return value;
+      }));
+
+      return result;
+    } catch (err) {
+      // If template is not valid JSON, treat it as plain text template
+      const templateStr = config.clawdbotTemplate
+        .replace(/\{\{text\}\}/g, textTrimmed)
         .replace(/\{\{json\}\}/g, trimmed)
-        .replace(/\{\{raw\}\}/g, raw)
-    };
+        .replace(/\{\{raw\}\}/g, raw);
+
+      return { title: 'Webhook Relay', description: templateStr };
+    }
   }
 
-  return { text: `Webhook payload:\n\n${trimmed}` };
+  return { title: 'Webhook Relay', description: textTrimmed || `Webhook payload:\n\n${trimmed}` };
 }
 
 async function sendDiscordRelay(

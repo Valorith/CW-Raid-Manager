@@ -893,7 +893,7 @@
                       v-else
                       class="action-pill"
                       :class="getActionPillClass(run.status)"
-                      :title="`${run.action?.type || 'Action'}: ${run.status}`"
+                      :title="run.status === 'FAILED' && run.error ? `${run.action?.type || 'Action'}: FAILED\n\n${run.error}` : `${run.action?.type || 'Action'}: ${run.status}`"
                     >
                       {{ getActionLabel(run.action?.type) }}
                     </span>
@@ -2316,7 +2316,7 @@ function buildActionDraft() {
     clawdbotWebhookUrl: '',
     devClawdbotWebhookUrl: '',
     clawdbotMode: 'WRAP',
-    clawdbotTemplate: 'Webhook payload:\n\n{{json}}',
+    clawdbotTemplate: '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
     crashModel: 'gemini-2.5-pro',
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 16384,
@@ -2347,7 +2347,7 @@ async function loadWebhooks() {
         clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
         devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
         clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-        clawdbotTemplate: action.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
+        clawdbotTemplate: action.config?.clawdbotTemplate ?? '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
         crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
         crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
         crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2711,7 +2711,7 @@ async function createAction(webhook: InboundWebhook) {
           clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
           devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
           clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-          clawdbotTemplate: action.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
+          clawdbotTemplate: action.config?.clawdbotTemplate ?? '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
           crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
           crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2728,8 +2728,10 @@ async function createAction(webhook: InboundWebhook) {
 
 async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction) {
   savingActionId.value = action.id;
+  console.log('[saveAction] Action type:', action.type);
+  console.log('[saveAction] Action config before save:', JSON.stringify(action.config, null, 2));
   try {
-    const updated = await api.updateInboundWebhookAction(webhook.id, action.id, {
+    const payload = {
       name: action.name,
       isEnabled: action.isEnabled,
       config:
@@ -2762,7 +2764,10 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                 crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined
               }
           : {}
-    });
+    };
+    console.log('[saveAction] Payload being sent:', JSON.stringify(payload, null, 2));
+    const updated = await api.updateInboundWebhookAction(webhook.id, action.id, payload);
+    console.log('[saveAction] API response:', JSON.stringify(updated, null, 2));
     webhook.actions = (webhook.actions ?? []).map((item) =>
       item.id === action.id
         ? {
@@ -2786,6 +2791,8 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
           }
         : item
     );
+    const savedAction = webhook.actions.find(a => a.id === action.id);
+    console.log('[saveAction] Final saved action config:', JSON.stringify(savedAction?.config, null, 2));
   } finally {
     savingActionId.value = null;
   }
@@ -2815,9 +2822,15 @@ async function sendTest(webhook: InboundWebhook) {
     const hasDiscordRelay = (webhook.actions ?? []).some(
       (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
     );
-    if (hasDiscordRelay) {
+    const hasClawdbotRelay = (webhook.actions ?? []).some(
+      (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
+    );
+    if (hasDiscordRelay || hasClawdbotRelay) {
+      const relayTypes = [];
+      if (hasDiscordRelay) relayTypes.push('Discord');
+      if (hasClawdbotRelay) relayTypes.push('ClawdBot');
       const confirmed = window.confirm(
-        'This test will send a Discord relay message. Continue?'
+        `This test will send ${relayTypes.join(' and ')} relay message(s). Continue?`
       );
       if (!confirmed) {
         return;

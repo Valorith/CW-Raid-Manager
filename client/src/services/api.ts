@@ -1409,6 +1409,10 @@ export interface InboundWebhookActionConfig {
   devDiscordWebhookUrl?: string;
   discordMode?: 'RAW' | 'WRAP';
   discordTemplate?: string;
+  clawdbotWebhookUrl?: string;
+  devClawdbotWebhookUrl?: string;
+  clawdbotMode?: 'RAW' | 'WRAP';
+  clawdbotTemplate?: string;
   crashModel?: string;
   crashMaxInputChars?: number;
   crashMaxOutputTokens?: number;
