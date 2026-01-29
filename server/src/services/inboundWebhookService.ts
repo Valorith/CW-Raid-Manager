@@ -573,8 +573,9 @@ export async function retryCrashReviewForMessage(messageId: string) {
       if (clawdbotUrl) {
         const clawdbotStartedAt = Date.now();
         try {
-          const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts, errorType);
-          await sendClawdbotRelay(clawdbotUrl, enrichedPayload, clawdbotConfig);
+          // Send the full crash text (rawBody), NOT the AI findings
+          // The rawBody contains the sorted/merged crash report text
+          await sendClawdbotRelay(clawdbotUrl, message.payload, clawdbotConfig, message.rawBody);
           await prisma.inboundWebhookActionRun.create({
             data: {
               messageId,
@@ -1250,9 +1251,10 @@ function getClawdbotUrl(config: InboundWebhookActionConfig, devMode: boolean): s
 async function sendClawdbotRelay(
   url: string,
   payload: unknown,
-  config: InboundWebhookActionConfig
+  config: InboundWebhookActionConfig,
+  rawBody?: string | null
 ) {
-  const body = buildClawdbotPayload(payload, config);
+  const body = buildClawdbotPayload(payload, config, rawBody);
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1265,7 +1267,7 @@ async function sendClawdbotRelay(
   }
 }
 
-function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConfig) {
+function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConfig, rawBody?: string | null) {
   if (config.clawdbotMode === 'RAW') {
     return payload;
   }
@@ -1278,7 +1280,10 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
   const trimmed = raw.length > 4000 ? `${raw.slice(0, 4000)}...` : raw;
 
   // Extract actual message text (e.g., crash report text)
-  const messageText = extractActualMessageContent(payload, null) || '';
+  // Prioritize rawBody which contains the full sorted/merged crash text
+  const messageText = (rawBody && typeof rawBody === 'string' && rawBody.trim())
+    ? rawBody
+    : (extractActualMessageContent(payload, null) || '');
   const textTrimmed = messageText.length > 4000 ? `${messageText.slice(0, 4000)}...` : messageText;
 
   if (config.clawdbotTemplate) {
