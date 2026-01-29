@@ -2728,10 +2728,8 @@ async function createAction(webhook: InboundWebhook) {
 
 async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction) {
   savingActionId.value = action.id;
-  console.log('[saveAction] Action type:', action.type);
-  console.log('[saveAction] Action config before save:', JSON.stringify(action.config, null, 2));
   try {
-    const payload = {
+    const updated = await api.updateInboundWebhookAction(webhook.id, action.id, {
       name: action.name,
       isEnabled: action.isEnabled,
       config:
@@ -2764,10 +2762,7 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                 crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined
               }
           : {}
-    };
-    console.log('[saveAction] Payload being sent:', JSON.stringify(payload, null, 2));
-    const updated = await api.updateInboundWebhookAction(webhook.id, action.id, payload);
-    console.log('[saveAction] API response:', JSON.stringify(updated, null, 2));
+    });
     webhook.actions = (webhook.actions ?? []).map((item) =>
       item.id === action.id
         ? {
@@ -2791,8 +2786,6 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
           }
         : item
     );
-    const savedAction = webhook.actions.find(a => a.id === action.id);
-    console.log('[saveAction] Final saved action config:', JSON.stringify(savedAction?.config, null, 2));
   } finally {
     savingActionId.value = null;
   }

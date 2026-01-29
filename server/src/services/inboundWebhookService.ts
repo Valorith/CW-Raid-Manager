@@ -334,7 +334,6 @@ export async function createInboundWebhookAction(webhookId: string, input: Creat
 }
 
 export async function updateInboundWebhookAction(actionId: string, input: UpdateInboundWebhookActionInput) {
-  console.log('[updateInboundWebhookAction] Received input:', JSON.stringify(input, null, 2));
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) {
     data.name = input.name.trim();
@@ -348,14 +347,11 @@ export async function updateInboundWebhookAction(actionId: string, input: Update
   if (input.sortOrder !== undefined) {
     data.sortOrder = input.sortOrder;
   }
-  console.log('[updateInboundWebhookAction] Data to save:', JSON.stringify(data, null, 2));
 
-  const result = await prisma.inboundWebhookAction.update({
+  return prisma.inboundWebhookAction.update({
     where: { id: actionId },
     data
   });
-  console.log('[updateInboundWebhookAction] Saved result:', JSON.stringify(result, null, 2));
-  return result;
 }
 
 export async function deleteInboundWebhookAction(actionId: string) {
@@ -795,7 +791,7 @@ async function runInboundWebhookActions(
         // ClawdBot relay is deferred until after AI review completes
         // This ensures we send the final merged crash report, not the initial payload
         // The relay will be triggered in retryCrashReviewForMessage after AI processing
-        console.log(`[Webhook ${webhookId}] Skipping immediate ClawdBot relay - will send after AI review`);
+        console.log(`[ClawdBot] Skipping immediate relay - will send after AI review`);
         summary.push({ actionId: action.id, status: 'PENDING_REVIEW' });
         continue;
       }
