@@ -1284,7 +1284,6 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
   const messageText = (rawBody && typeof rawBody === 'string' && rawBody.trim())
     ? rawBody
     : (extractActualMessageContent(payload, null) || '');
-  const textTrimmed = messageText.length > 4000 ? `${messageText.slice(0, 4000)}...` : messageText;
 
   if (config.clawdbotTemplate) {
     // Try to parse template as JSON for structured payloads
@@ -1296,7 +1295,7 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
       const result = JSON.parse(JSON.stringify(template, (key, value) => {
         if (typeof value === 'string') {
           return value
-            .replace(/\{\{text\}\}/g, textTrimmed)
+            .replace(/\{\{text\}\}/g, messageText)
             .replace(/\{\{json\}\}/g, trimmed)
             .replace(/\{\{raw\}\}/g, raw);
         }
@@ -1307,7 +1306,7 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
     } catch (err) {
       // If template is not valid JSON, treat it as plain text template
       const templateStr = config.clawdbotTemplate
-        .replace(/\{\{text\}\}/g, textTrimmed)
+        .replace(/\{\{text\}\}/g, messageText)
         .replace(/\{\{json\}\}/g, trimmed)
         .replace(/\{\{raw\}\}/g, raw);
 
@@ -1315,7 +1314,7 @@ function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConf
     }
   }
 
-  return { title: 'Webhook Relay', description: textTrimmed || `Webhook payload:\n\n${trimmed}` };
+  return { title: 'Webhook Relay', description: messageText || `Webhook payload:\n\n${trimmed}` };
 }
 
 async function sendDiscordRelay(
