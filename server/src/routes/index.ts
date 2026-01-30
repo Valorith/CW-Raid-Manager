@@ -21,6 +21,7 @@ import { itemRoutes } from './items.js';
 import { moneyTrackerRoutes } from './moneyTracker.js';
 import { metallurgyRoutes } from './metallurgy.js';
 import { webhookInboxRoutes } from './webhookInbox.js';
+import fitrepRoutes from './fitrep.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -44,4 +45,5 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });
   server.register(metallurgyRoutes, { prefix: '/api/admin/metallurgy' });
   server.register(webhookInboxRoutes, { prefix: '/api/webhook-inbox' });
+  server.register(fitrepRoutes, { prefix: '/api/fitrep' });
 }

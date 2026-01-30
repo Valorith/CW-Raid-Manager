@@ -43,6 +43,12 @@ model User {
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
+  fitrepReportsAsRatee FitrepReport[] @relation("FitrepRateeUser")
+  fitrepReportsAsRater FitrepReport[] @relation("FitrepRaterUser")
+  fitrepReportsCreated FitrepReport[] @relation("FitrepReportCreator")
+  fitrepReportsApproved FitrepReport[] @relation("FitrepReportApprover")
+  fitrepExamples       FitrepExample[] @relation("FitrepExampleUploader")
+  fitrepAiSessions     FitrepAiSession[] @relation("FitrepAiSessionUser")
 }
 
 model Guild {
@@ -82,6 +88,8 @@ model Guild {
   npcKillRecords     NpcKillRecord[]
   pendingNpcKillClarifications PendingNpcKillClarification[]
   npcFavorites       NpcFavorite[]
+  fitrepReports      FitrepReport[]
+  fitrepExamples     FitrepExample[]
 
   @@index([createdById], map: "Guild_createdById_fkey")
 }
@@ -165,6 +173,8 @@ model Character {
   guild             Guild?              @relation(fields: [guildId], references: [id])
   user              User                @relation(fields: [userId], references: [id])
   questAssignments  QuestAssignment[]
+  fitrepReportsAsRatee FitrepReport[] @relation("FitrepRateeCharacter")
+  fitrepReportsAsRater FitrepReport[] @relation("FitrepRaterCharacter")
 
   @@index([guildId], map: "Characters_guildId_fkey")
   @@index([userId], map: "Characters_userId_fkey")
@@ -1116,4 +1126,158 @@ model SystemSetting {
   key       String   @id @db.VarChar(100)
   value     String   @db.Text
   updatedAt DateTime @updatedAt
+}
+
+// FITREP (Fitness Report) Generator Models
+
+// FITREP Templates - defines the structure of different FITREP forms
+model FitrepTemplate {
+  id          String   @id @default(cuid())
+  name        String   @db.VarChar(191)
+  description String?  @db.Text
+  version     String   @default("1.0") @db.VarChar(50)
+  isActive    Boolean  @default(true)
+  fields      Json     // JSON array of field definitions
+  metadata    Json?    // Additional template config (layout, styling, etc.)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  reports     FitrepReport[]
+  examples    FitrepExample[]
+  
+  @@index([isActive])
+}
+
+// FITREP Reports - individual fitness reports  
+model FitrepReport {
+  id                 String                @id @default(cuid())
+  guildId            String
+  templateId         String
+  rateeUserId        String?               // The user being evaluated
+  rateeCharacterId   String?               // The character being evaluated  
+  rateeName          String                @db.VarChar(191) // Name of person being evaluated
+  rateeRank          String?               @db.VarChar(191) // Rank of person being evaluated
+  
+  // Reporting period
+  periodStart        DateTime?             @db.Date
+  periodEnd          DateTime?             @db.Date
+  
+  // Rater (person writing the report)
+  raterUserId        String?               // The user writing the report
+  raterCharacterId   String?               // The character writing the report
+  raterName          String                @db.VarChar(191) // Name of rater
+  raterRank          String?               @db.VarChar(191) // Rank of rater
+  
+  // Report status
+  status             FitrepStatus          @default(DRAFT)
+  submittedAt        DateTime?
+  approvedAt         DateTime?
+  approvedById       String?
+  
+  // Form data
+  formData           Json                  // All form field values
+  
+  // AI assistance data
+  aiPrompt           String?               @db.Text // User's prompt for AI assistance
+  aiGeneratedData    Json?                 // AI-generated content
+  exampleReports     Json?                 // References to example reports used
+  
+  createdById        String
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  
+  // Relations
+  guild              Guild                 @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  template           FitrepTemplate        @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  rateeUser          User?                 @relation("FitrepRateeUser", fields: [rateeUserId], references: [id], onDelete: SetNull)
+  rateeCharacter     Character?            @relation("FitrepRateeCharacter", fields: [rateeCharacterId], references: [id], onDelete: SetNull)
+  raterUser          User?                 @relation("FitrepRaterUser", fields: [raterUserId], references: [id], onDelete: SetNull)
+  raterCharacter     Character?            @relation("FitrepRaterCharacter", fields: [raterCharacterId], references: [id], onDelete: SetNull)
+  createdBy          User                  @relation("FitrepReportCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  approvedBy         User?                 @relation("FitrepReportApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  aiSessions         FitrepAiSession[]
+  
+  @@index([guildId])
+  @@index([rateeUserId])
+  @@index([raterUserId])  
+  @@index([status])
+  @@index([periodStart, periodEnd])
+}
+
+// FITREP Example Reports - user-uploaded examples for AI training
+model FitrepExample {
+  id            String            @id @default(cuid())
+  guildId       String
+  templateId    String?           // Optional link to template
+  name          String            @db.VarChar(191) // User-defined name for this example
+  description   String?           @db.Text
+  
+  // File information
+  filePath      String?           @db.VarChar(512) // Path to uploaded file
+  fileName      String?           @db.VarChar(255) // Original filename
+  fileSize      Int?              // File size in bytes
+  mimeType      String?           @db.VarChar(100) // File MIME type
+  
+  // Extracted data (if parseable)
+  extractedData Json?             // Extracted form data
+  
+  // Metadata
+  uploadedById  String
+  isPublic      Boolean           @default(false) // Whether other users can see this example
+  isActive      Boolean           @default(true)
+  
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  
+  // Relations
+  guild         Guild             @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  template      FitrepTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  uploadedBy    User              @relation("FitrepExampleUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+  
+  @@index([guildId])
+  @@index([templateId])
+  @@index([uploadedById])
+  @@index([isPublic, isActive])
+}
+
+// FITREP AI Sessions - tracks AI assistance sessions
+model FitrepAiSession {
+  id               String               @id @default(cuid())
+  reportId         String
+  userId           String
+  
+  // Session data
+  prompt           String               @db.Text
+  exampleIds       Json?                // Array of FitrepExample IDs used
+  generatedData    Json?                // AI-generated content
+  
+  // Session metadata
+  status           FitrepAiStatus       @default(PROCESSING)
+  errorMessage     String?              @db.Text
+  processingTimeMs Int?
+  
+  createdAt        DateTime             @default(now())
+  
+  // Relations  
+  report           FitrepReport         @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user             User                 @relation("FitrepAiSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([reportId])
+  @@index([userId])
+  @@index([status])
+}
+
+// FITREP Enums
+enum FitrepStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum FitrepAiStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
 }

@@ -140,6 +140,12 @@ const router = createRouter({
       name: 'AdminWebhooks',
       component: () => import('../views/AdminWebhooksView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/fitrep',
+      name: 'FitrepGenerator',
+      component: () => import('../views/FitrepGeneratorView.vue'),
+      meta: { requiresAuth: true }
     }
   ]
 });

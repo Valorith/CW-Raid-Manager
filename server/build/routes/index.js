@@ -19,6 +19,7 @@ import { itemRoutes } from './items.js';
 import { moneyTrackerRoutes } from './moneyTracker.js';
 import { metallurgyRoutes } from './metallurgy.js';
 import { webhookInboxRoutes } from './webhookInbox.js';
+import fitrepRoutes from './fitrep.js';
 export function registerRoutes(server) {
     server.register(authRoutes, { prefix: '/api/auth' });
     server.register(guildRoutes, { prefix: '/api/guilds' });
@@ -41,4 +42,5 @@ export function registerRoutes(server) {
     server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });
     server.register(metallurgyRoutes, { prefix: '/api/admin/metallurgy' });
     server.register(webhookInboxRoutes, { prefix: '/api/webhook-inbox' });
+    server.register(fitrepRoutes, { prefix: '/api/fitrep' });
 }

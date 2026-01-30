@@ -6,7 +6,7 @@ import { deleteGuildByAdmin, deleteRaidEventByAdmin, deleteUserByAdmin, detachGu
 import { fetchLcItems, fetchLcRequests, fetchLcVotes, fetchLootMaster, getLootManagementSummary } from '../services/lootManagementService.js';
 import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity } from '../services/connectionsService.js';
 import { fetchPlayerEventLogs, getPlayerEventLogStats, getEventTypes, getEventLogZones } from '../services/playerEventLogsService.js';
-import { createInboundWebhook, createInboundWebhookAction, createInboundWebhookMessageForAdmin, deleteInboundWebhook, deleteInboundWebhookAction, getInboundWebhookMessage, listInboundWebhookMessagesEnhanced, listInboundWebhooks, retryCrashReviewForMessage, updateInboundWebhook, updateInboundWebhookAction, markMessageRead, getUnreadCount, toggleMessageStar, listWebhookLabels, createWebhookLabel, findOrCreateWebhookLabel, updateWebhookLabel, deleteWebhookLabel, setMessageLabels, mergeWebhookMessages, bulkMessageAction, getPendingProcessingWebhookIds, processDismissedMergeMessages } from '../services/inboundWebhookService.js';
+import { createInboundWebhook, createInboundWebhookAction, createInboundWebhookMessageForAdmin, deleteInboundWebhook, deleteInboundWebhookAction, getInboundWebhookMessage, listInboundWebhookMessagesEnhanced, listInboundWebhooks, retryCrashReviewForMessage, updateInboundWebhook, updateInboundWebhookAction, markMessageRead, getUnreadCount, toggleMessageStar, listWebhookLabels, createWebhookLabel, findOrCreateWebhookLabel, updateWebhookLabel, deleteWebhookLabel, setMessageLabels, mergeWebhookMessages, bulkMessageAction, getPendingProcessingWebhookIds, processDismissedMergeMessages, getWebhookProcessingStatus, setWebhookProcessingEnabled, getPendingMergeGroups, processGroupNow } from '../services/inboundWebhookService.js';
 import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
 import { getCharacterByName, getCharacterById, getCharacterEvents, getAccountInfo, getCharacterCorpses, getCharacterAssociates, searchCharacters, addManualAssociation, removeManualAssociation, getAccountNotes, createAccountNote, updateAccountNote, deleteAccountNote, syncIpGroupAssociations, getAccountKnownIps, autoLinkSharedIps, autoLinkSharedIpsStream } from '../services/characterAdminService.js';
 async function requireAdmin(request, reply) {
@@ -1101,6 +1101,7 @@ export async function adminRoutes(server) {
     });
     const actionConfigSchema = z.object({
         discordWebhookUrl: z.string().url().max(512).optional().nullable(),
+        devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
         discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
         discordTemplate: z.string().max(4000).optional().nullable(),
         crashModel: z.string().max(120).optional().nullable(),
@@ -1153,7 +1154,8 @@ export async function adminRoutes(server) {
             isEnabled: z.boolean().optional(),
             retentionPolicy: retentionPolicySchema.optional().nullable(),
             mergeWindowSeconds: z.number().int().min(1).max(300).optional(),
-            autoMerge: z.boolean().optional()
+            autoMerge: z.boolean().optional(),
+            devMode: z.boolean().optional()
         })
             .refine((value) => Object.keys(value).length > 0, {
             message: 'No fields provided for update.'
@@ -1211,6 +1213,7 @@ export async function adminRoutes(server) {
         const config = (parsedData.config ?? {});
         const normalizedConfig = {
             discordWebhookUrl: typeof config.discordWebhookUrl === 'string' ? config.discordWebhookUrl.trim() || undefined : undefined,
+            devDiscordWebhookUrl: typeof config.devDiscordWebhookUrl === 'string' ? config.devDiscordWebhookUrl.trim() || undefined : undefined,
             discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
             discordTemplate: typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
             crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
@@ -1262,6 +1265,9 @@ export async function adminRoutes(server) {
             ? {
                 discordWebhookUrl: typeof config.discordWebhookUrl === 'string'
                     ? config.discordWebhookUrl.trim() || undefined
+                    : undefined,
+                devDiscordWebhookUrl: typeof config.devDiscordWebhookUrl === 'string'
+                    ? config.devDiscordWebhookUrl.trim() || undefined
                     : undefined,
                 discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
                 discordTemplate: typeof config.discordTemplate === 'string'
@@ -1922,5 +1928,55 @@ export async function adminRoutes(server) {
             request.log.error({ error }, 'Failed to fetch auto-link settings.');
             return reply.badRequest('Unable to fetch auto-link settings.');
         }
+    });
+    // ============================================================================
+    // System Settings - Webhook Processing Toggle
+    // ============================================================================
+    server.get('/system-settings/webhook-processing-enabled', {
+        preHandler: [authenticate, requireAdmin]
+    }, async () => {
+        const status = await getWebhookProcessingStatus();
+        return status;
+    });
+    server.put('/system-settings/webhook-processing-enabled', {
+        preHandler: [authenticate, requireAdmin]
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            enabled: z.boolean()
+        });
+        const parsed = bodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+            return reply.badRequest('Invalid payload. Boolean "enabled" field required.');
+        }
+        await setWebhookProcessingEnabled(parsed.data.enabled);
+        return { enabled: parsed.data.enabled };
+    });
+    // ============================================================================
+    // Pending Merge Groups
+    // ============================================================================
+    server.get('/webhooks/pending-merge-groups', {
+        preHandler: [authenticate, requireGuideOrAdmin]
+    }, async () => {
+        const groups = getPendingMergeGroups();
+        return { groups };
+    });
+    server.post('/webhooks/:webhookId/process-group-now', {
+        preHandler: [authenticate, requireGuideOrAdmin]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({ webhookId: z.string() });
+        const bodySchema = z.object({ groupKey: z.string() });
+        const params = paramsSchema.safeParse(request.params);
+        if (!params.success) {
+            return reply.badRequest('Invalid webhook ID.');
+        }
+        const body = bodySchema.safeParse(request.body ?? {});
+        if (!body.success) {
+            return reply.badRequest('Invalid payload. String "groupKey" field required.');
+        }
+        const success = await processGroupNow(params.data.webhookId, body.data.groupKey);
+        if (!success) {
+            return reply.notFound('Pending group not found. It may have already been processed.');
+        }
+        return { success: true };
     });
 }
