@@ -12,6 +12,10 @@
         <button class="btn" @click="saveDraft" :disabled="!formDirty">
           💾 Save Draft
         </button>
+        <button class="btn btn--accent" @click="exportPdf" :disabled="pdfExporting">
+          <span v-if="pdfExporting">⏳ Exporting...</span>
+          <span v-else>📄 Export to PDF</span>
+        </button>
       </div>
     </header>
 
@@ -316,6 +320,7 @@ import { ref, computed, reactive } from 'vue';
 import axios from 'axios';
 
 const formDirty = ref(false);
+const pdfExporting = ref(false);
 const aiPrompt = ref('');
 const aiLoading = ref(false);
 const aiSuggestions = ref<Record<string, any> | null>(null);
@@ -395,6 +400,31 @@ function getFieldLabel(key: string): string {
 function applySuggestion(key: string, value: any) {
   form[key] = value;
   markDirty();
+}
+
+async function exportPdf() {
+  pdfExporting.value = true;
+  try {
+    const response = await axios.post('/api/fitrep/export-pdf', {
+      formData: JSON.parse(JSON.stringify(form)),
+    }, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const name = form.rateeName ? form.rateeName.replace(/[^a-zA-Z0-9]/g, '_') : 'FITREP';
+    a.download = `${name}_FITREP.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err: any) {
+    alert('Failed to export PDF: ' + (err.response?.data?.message || err.message));
+  } finally {
+    pdfExporting.value = false;
+  }
 }
 
 function saveDraft() {

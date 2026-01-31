@@ -1,6 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { randomUUID } from 'crypto';
+import { readFile, unlink } from 'fs/promises';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { authenticate } from '../middleware/authenticate.js';
+
+const execFileAsync = promisify(execFile);
 import {
   getActiveTemplates,
   getTemplateById,
@@ -170,5 +178,43 @@ export default async function fitrepRoutes(server: FastifyInstance) {
     });
 
     return suggestions;
+  });
+
+  // Export FITREP to filled PDF
+  server.post('/export-pdf', async (request, reply) => {
+    const schema = z.object({
+      formData: z.record(z.any()),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const templatePath = join(__dirname, '..', '..', 'assets', 'fitrep_template.pdf');
+    const scriptPath = join(__dirname, '..', '..', 'scripts', 'fill_fitrep_pdf.py');
+    const outputPath = join('/tmp', `fitrep_${randomUUID()}.pdf`);
+
+    try {
+      const child = execFileAsync('python3', [scriptPath, templatePath, outputPath], {
+        timeout: 15000,
+      });
+
+      // Write form data to stdin
+      child.child.stdin?.write(JSON.stringify(parsed.data.formData));
+      child.child.stdin?.end();
+
+      await child;
+
+      const pdfBuffer = await readFile(outputPath);
+
+      // Cleanup temp file
+      unlink(outputPath).catch(() => {});
+
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', 'attachment; filename="FITREP.pdf"');
+      return reply.send(pdfBuffer);
+    } catch (err: any) {
+      server.log.error(err, 'Failed to generate FITREP PDF');
+      return reply.internalServerError('Failed to generate PDF: ' + (err.message || 'Unknown error'));
+    }
   });
 }
