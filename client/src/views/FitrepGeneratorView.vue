@@ -281,19 +281,28 @@
             rows="6"
             placeholder="E.g., Senior Chief Petty Officer with 18 years of service. Led a team of 12 in..."
           ></textarea>
-          <button class="btn btn--ai" @click="generateWithAI" :disabled="!aiPrompt || aiLoading">
+          <button class="btn btn--ai" @click="generateWithAI" :disabled="(!aiPrompt && !uploadedExamples.length) || aiLoading">
             <span v-if="aiLoading">⏳ Generating...</span>
             <span v-else>✨ Generate with AI</span>
           </button>
+          <p v-if="aiError" class="ai-error">{{ aiError }}</p>
         </div>
 
         <div class="ai-section" v-if="aiSuggestions">
-          <h3>AI Suggestions</h3>
+          <div class="ai-suggestions-header">
+            <h3>AI Suggestions</h3>
+            <button class="btn btn--small btn--accent" @click="applyAllSuggestions" v-if="Object.keys(aiSuggestions).length > 1">
+              ✅ Apply All
+            </button>
+          </div>
+          <p v-if="aiNotes" class="ai-notes">{{ aiNotes }}</p>
           <div class="ai-suggestions">
             <div v-for="(value, key) in aiSuggestions" :key="key" class="suggestion-item">
-              <span class="suggestion-field">{{ getFieldLabel(key) }}</span>
-              <p class="suggestion-value">{{ value }}</p>
-              <button class="btn btn--small" @click="applySuggestion(key, value)">Apply</button>
+              <div class="suggestion-header">
+                <span class="suggestion-field">{{ getFieldLabel(key) }}</span>
+                <button class="btn btn--small" @click="applySuggestion(key, value)">Apply</button>
+              </div>
+              <p class="suggestion-value">{{ typeof value === 'number' ? value + '.0' : value }}</p>
             </div>
           </div>
         </div>
@@ -304,11 +313,14 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue';
+import axios from 'axios';
 
 const formDirty = ref(false);
 const aiPrompt = ref('');
 const aiLoading = ref(false);
 const aiSuggestions = ref<Record<string, any> | null>(null);
+const aiNotes = ref<string>('');
+const aiError = ref<string>('');
 const uploadedExamples = ref<{ name: string; file: File }[]>([]);
 const savedReports = ref<any[]>([]);
 const fileInput = ref<HTMLInputElement>();
@@ -358,9 +370,26 @@ function setTrait(key: string, val: number | string) {
   markDirty();
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  rateeName: '1. Name',
+  gradeRate: '2. Grade/Rate',
+  commandEmployment: '28. Command Employment',
+  primaryDuties: '29. Primary Duties',
+  performanceComments: '41. Comments on Performance',
+  recommendation: '40. Recommendation',
+  leadership: '33. Leadership',
+  institutionalExpertise: '34. Institutional Expertise',
+  professionalism: '35. Professionalism',
+  loyalty: '36. Loyalty',
+  character: '37. Character',
+  communication: '38. Communication',
+  heritage: '39. Heritage',
+};
+
 function getFieldLabel(key: string): string {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
   const field = traits.find(t => t.key === key);
-  return field?.label || key;
+  return field?.label || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
 }
 
 function applySuggestion(key: string, value: any) {
@@ -404,14 +433,48 @@ function removeExample(ex: { name: string }) {
 }
 
 async function generateWithAI() {
+  if (!aiPrompt.value && !uploadedExamples.value.length) return;
+
   aiLoading.value = true;
-  // Placeholder for AI integration
-  setTimeout(() => {
-    aiSuggestions.value = {
-      performanceComments: 'AI-generated comments will appear here once the AI integration is configured.',
-    };
+  aiError.value = '';
+  aiSuggestions.value = null;
+  aiNotes.value = '';
+
+  try {
+    // Extract text from uploaded files (read as text for .txt, name-only for PDFs)
+    const extractedExamples: { fileName: string; text: string }[] = [];
+    for (const ex of uploadedExamples.value) {
+      if (ex.file.type === 'text/plain' || ex.name.endsWith('.txt')) {
+        const text = await ex.file.text();
+        extractedExamples.push({ fileName: ex.name, text });
+      } else {
+        // For PDFs/docs, send filename as reference (server-side extraction would need pdf-parse)
+        extractedExamples.push({ fileName: ex.name, text: `[Uploaded file: ${ex.name}]` });
+      }
+    }
+
+    const { data } = await axios.post('/api/fitrep/ai/generate', {
+      prompt: aiPrompt.value,
+      currentForm: JSON.parse(JSON.stringify(form)),
+      extractedExamples,
+    });
+
+    aiSuggestions.value = data.fields;
+    aiNotes.value = data.notes || '';
+  } catch (err: any) {
+    aiError.value = err.response?.data?.message || err.message || 'Failed to generate suggestions';
+    console.error('AI generation error:', err);
+  } finally {
     aiLoading.value = false;
-  }, 1500);
+  }
+}
+
+function applyAllSuggestions() {
+  if (!aiSuggestions.value) return;
+  for (const [key, value] of Object.entries(aiSuggestions.value)) {
+    form[key] = value;
+  }
+  markDirty();
 }
 
 // Load draft on mount if exists
@@ -754,14 +817,52 @@ if (existing) {
   font-weight: 600;
 }
 
+.suggestion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .suggestion-value {
   font-size: 0.85rem;
   color: var(--text, #ddd);
-  margin: 0.25rem 0 0.5rem;
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
 }
 
 .btn--small {
   font-size: 0.75rem;
   padding: 0.25rem 0.75rem;
+}
+
+.btn--accent {
+  background: var(--accent, #e94560);
+  color: #fff;
+  border: none;
+}
+
+.ai-suggestions-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+
+  h3 { margin: 0; }
+}
+
+.ai-notes {
+  font-size: 0.75rem;
+  color: var(--text-dim, #888);
+  background: rgba(255,255,255,0.03);
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  font-style: italic;
+}
+
+.ai-error {
+  color: #e94560;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
 }
 </style>

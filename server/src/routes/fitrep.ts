@@ -15,6 +15,7 @@ import {
   createAiSession,
   seedE7E9Template,
 } from '../services/fitrepService.js';
+import { generateSuggestions } from '../services/fitrepAiService.js';
 
 export default async function fitrepRoutes(server: FastifyInstance) {
   server.addHook('onRequest', authenticate);
@@ -132,7 +133,7 @@ export default async function fitrepRoutes(server: FastifyInstance) {
     return { success: true };
   });
 
-  // AI Assist
+  // AI Assist (linked to report)
   server.post('/:guildId/reports/:reportId/ai-assist', async (request, reply) => {
     const { reportId } = request.params as { reportId: string };
     const schema = z.object({
@@ -147,5 +148,27 @@ export default async function fitrepRoutes(server: FastifyInstance) {
       prompt: parsed.data.prompt,
       exampleIds: parsed.data.exampleIds,
     });
+  });
+
+  // AI Generate (standalone — no report required)
+  server.post('/ai/generate', async (request, reply) => {
+    const schema = z.object({
+      prompt: z.string().min(1),
+      currentForm: z.record(z.any()).optional(),
+      extractedExamples: z.array(z.object({
+        fileName: z.string(),
+        text: z.string(),
+      })).optional(),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+
+    const suggestions = generateSuggestions({
+      prompt: parsed.data.prompt,
+      currentForm: parsed.data.currentForm,
+      extractedExamples: parsed.data.extractedExamples,
+    });
+
+    return suggestions;
   });
 }

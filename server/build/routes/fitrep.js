@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { getActiveTemplates, getTemplateById, listReports, getReportById, createReport, updateReport, deleteReport, listExamples, createExample, deleteExample, createAiSession, seedE7E9Template, } from '../services/fitrepService.js';
+import { generateSuggestions } from '../services/fitrepAiService.js';
 export default async function fitrepRoutes(server) {
     server.addHook('onRequest', authenticate);
     // Templates
@@ -107,7 +108,7 @@ export default async function fitrepRoutes(server) {
         await deleteExample(exampleId);
         return { success: true };
     });
-    // AI Assist
+    // AI Assist (linked to report)
     server.post('/:guildId/reports/:reportId/ai-assist', async (request, reply) => {
         const { reportId } = request.params;
         const schema = z.object({
@@ -122,5 +123,25 @@ export default async function fitrepRoutes(server) {
             prompt: parsed.data.prompt,
             exampleIds: parsed.data.exampleIds,
         });
+    });
+    // AI Generate (standalone — no report required)
+    server.post('/ai/generate', async (request, reply) => {
+        const schema = z.object({
+            prompt: z.string().min(1),
+            currentForm: z.record(z.any()).optional(),
+            extractedExamples: z.array(z.object({
+                fileName: z.string(),
+                text: z.string(),
+            })).optional(),
+        });
+        const parsed = schema.safeParse(request.body);
+        if (!parsed.success)
+            return reply.badRequest(parsed.error.message);
+        const suggestions = generateSuggestions({
+            prompt: parsed.data.prompt,
+            currentForm: parsed.data.currentForm,
+            extractedExamples: parsed.data.extractedExamples,
+        });
+        return suggestions;
     });
 }
