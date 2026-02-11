@@ -12,10 +12,17 @@ export function initSentry() {
         environment: appConfig.nodeEnv || 'production',
         release: process.env.RAILWAY_GIT_COMMIT_SHA || undefined,
         tracesSampleRate: 0.1, // 10% of transactions for performance monitoring
-        beforeSend(event) {
+        beforeSend(event, hint) {
             // Strip any sensitive data
             if (event.request?.cookies) {
                 delete event.request.cookies;
+            }
+            // Filter out expected HTTP errors (401, 403, 404) — not bugs
+            const error = hint?.originalException;
+            if (error && typeof error === 'object' && 'statusCode' in error) {
+                const code = error.statusCode;
+                if (code === 401 || code === 403 || code === 404)
+                    return null;
             }
             return event;
         },
