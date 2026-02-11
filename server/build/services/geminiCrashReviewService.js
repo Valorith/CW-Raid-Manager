@@ -5,7 +5,19 @@ const MAX_OUTPUT_TOKENS = 16384; // Must account for Gemini 2.5's internal think
 const FOLLOWUP_OUTPUT_TOKENS = 4096;
 const TEMPERATURE = 0.2;
 const FUNCTION_NAME = 'crash_review';
+// GitHub repository for source code links
+const GITHUB_REPO_URL = 'https://github.com/Valorith/Server';
+const GITHUB_BRANCH = 'main';
 const ANALYSIS_SUFFIX = [
+    '',
+    'CODE REFERENCES:',
+    'When referencing specific source files in the EQEmu server codebase, use this format:',
+    '  [[source:zone/client_packet.cpp:123]] for a specific line',
+    '  [[source:zone/client_packet.cpp]] for the whole file',
+    'Common paths: zone/*.cpp, world/*.cpp, common/*.cpp, common/repositories/*.h',
+    'Include these references in evidence and next steps when you identify specific code locations.',
+    'Only reference server-side code files, not system DLLs or client files.',
+    '',
     'Return plain-text analysis with these exact headers on their own lines:',
     'Summary:',
     'Signature:',
@@ -60,6 +72,66 @@ function requireEnv(name) {
 }
 function truncate(text, maxChars) {
     return text.length > maxChars ? `${text.slice(0, maxChars)}\n...<truncated>` : text;
+}
+// Valid source file extensions for GitHub linking
+const VALID_SOURCE_EXTENSIONS = ['.cpp', '.h', '.hpp', '.c', '.cc', '.lua', '.pl', '.pm', '.py', '.sql'];
+/**
+ * Convert [[source:path/to/file.cpp:123]] references to GitHub links.
+ * Invalid paths are converted to plain text (code formatting without link).
+ */
+function convertCodeReferencesToLinks(text) {
+    // Pattern: [[source:path/to/file.ext]] or [[source:path/to/file.ext:linenum]]
+    const pattern = /\[\[source:([^\]]+)\]\]/g;
+    return text.replace(pattern, (match, reference) => {
+        const parts = reference.trim().split(':');
+        let filePath = parts[0];
+        let lineNumber;
+        // Handle line number (could be second part if path doesn't have colons)
+        if (parts.length === 2 && /^\d+$/.test(parts[1])) {
+            lineNumber = parts[1];
+        }
+        else if (parts.length > 2) {
+            // Path might contain colons (unlikely but handle it)
+            // Assume last part is line number if it's numeric
+            const lastPart = parts[parts.length - 1];
+            if (/^\d+$/.test(lastPart)) {
+                lineNumber = lastPart;
+                filePath = parts.slice(0, -1).join(':');
+            }
+        }
+        // Clean up the file path
+        filePath = filePath.trim().replace(/^\/+/, ''); // Remove leading slashes
+        // Validate it looks like a source file
+        const ext = filePath.toLowerCase().match(/\.[a-z]+$/)?.[0];
+        const isValidSource = ext && VALID_SOURCE_EXTENSIONS.includes(ext);
+        // Also check it doesn't look like a system path or client file
+        const isSystemPath = /^(c:|\/usr|\/lib|windows|system32)/i.test(filePath);
+        const isClientFile = /eqgame|eqclient/i.test(filePath);
+        if (!isValidSource || isSystemPath || isClientFile) {
+            // Return as code-formatted plain text (no link)
+            return lineNumber ? `\`${filePath}:${lineNumber}\`` : `\`${filePath}\``;
+        }
+        // Build GitHub URL
+        const baseUrl = `${GITHUB_REPO_URL}/blob/${GITHUB_BRANCH}/${filePath}`;
+        const url = lineNumber ? `${baseUrl}#L${lineNumber}` : baseUrl;
+        const displayText = lineNumber ? `${filePath}:${lineNumber}` : filePath;
+        // Return as markdown link
+        return `[${displayText}](${url})`;
+    });
+}
+/**
+ * Apply code reference conversion to all text fields in findings.
+ */
+function processCodeReferencesInFindings(findings) {
+    return {
+        ...findings,
+        hypotheses: findings.hypotheses.map(h => ({
+            ...h,
+            evidence: h.evidence.map(e => convertCodeReferencesToLinks(e)),
+            nextSteps: h.nextSteps.map(s => convertCodeReferencesToLinks(s))
+        })),
+        recommendedNextSteps: findings.recommendedNextSteps.map(s => convertCodeReferencesToLinks(s))
+    };
 }
 function compressCrashReportForAnalysis(text) {
     const lines = text.replace(/\r/g, '').split('\n');
@@ -250,7 +322,8 @@ export async function reviewCrashReport(input, options, attempts = 1) {
                 requestPayload: { analysis: analysisPayload, followup: followupPayload },
                 ...responseMetadata
             };
-            return parsed;
+            // Convert code references to GitHub links
+            return processCodeReferencesInFindings(parsed);
         }
     }
     const responseMetadata = extractResponseMetadata(analysisResponse);
@@ -262,7 +335,8 @@ export async function reviewCrashReport(input, options, attempts = 1) {
         requestPayload: { analysis: analysisPayload },
         ...responseMetadata
     };
-    return parsed;
+    // Convert code references to GitHub links
+    return processCodeReferencesInFindings(parsed);
 }
 function extractResponseMetadata(response) {
     const metadata = {};
@@ -1170,6 +1244,22 @@ export async function sortCrashReportSegments(segments) {
     if (chunkOrder) {
         return chunkOrder;
     }
+    // If some segments have chunk numbers, filter out likely duplicates
+    // (segments with [**Crash**] **Zone** prefix that don't have chunk numbers)
+    const filteredResult = filterDuplicateSegments(segments);
+    if (filteredResult) {
+        // We filtered out duplicates - try chunk sort again
+        const chunkOrderAfterFilter = tryChunkNumberSort(filteredResult.keepSegments);
+        if (chunkOrderAfterFilter) {
+            return {
+                ...chunkOrderAfterFilter,
+                removeIds: [...chunkOrderAfterFilter.removeIds, ...filteredResult.removeIds],
+                reasoning: `${chunkOrderAfterFilter.reasoning}. Also removed ${filteredResult.removeIds.length} duplicate log-streaming segments.`
+            };
+        }
+        // If still can't sort by chunks, continue with AI but use filtered segments
+        segments = filteredResult.keepSegments;
+    }
     const ai = new GoogleGenAI({ apiKey });
     // Build the prompt with compressed segments
     let prompt = SEGMENT_SORT_PROMPT;
@@ -1177,54 +1267,117 @@ export async function sortCrashReportSegments(segments) {
         const compressed = compressSegmentForSorting(segment.text);
         prompt += `\n=== ID: ${segment.id} ===\n${compressed}\n`;
     }
-    const response = await ai.models.generateContent({
-        model: SORT_MODEL_NAME,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
-            temperature: 0.1
-        }
-    });
-    const responseText = response.text ?? '';
-    // Extract JSON from response
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-        throw new Error('Failed to parse sorting response - no JSON found');
-    }
-    let parsed;
-    try {
-        parsed = JSON.parse(jsonMatch[0]);
-    }
-    catch {
-        throw new Error('Failed to parse sorting response - invalid JSON');
-    }
-    // Validate the response
-    if (!Array.isArray(parsed.orderedIds)) {
-        throw new Error('Invalid response: orderedIds must be an array');
-    }
-    const segmentIds = new Set(segments.map(s => s.id));
-    const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id));
-    const removeIds = Array.isArray(parsed.removeIds)
-        ? parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id))
-        : [];
-    // Create a set of all IDs that are accounted for (either ordered or removed)
-    const accountedIds = new Set([...orderedIds, ...removeIds]);
-    // Ensure all segment IDs are accounted for
-    if (accountedIds.size !== segments.length) {
-        // Add any missing IDs to orderedIds (don't auto-remove)
-        console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
-        for (const segment of segments) {
-            if (!accountedIds.has(segment.id)) {
-                orderedIds.push(segment.id);
+    // Retry with exponential backoff for rate limiting
+    const MAX_RETRIES = 3;
+    let lastError = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await ai.models.generateContent({
+                model: SORT_MODEL_NAME,
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: {
+                    maxOutputTokens: MAX_OUTPUT_TOKENS,
+                    temperature: 0.1
+                }
+            });
+            const responseText = response.text ?? '';
+            // Extract JSON from response
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                throw new Error('Failed to parse sorting response - no JSON found');
             }
+            let parsed;
+            try {
+                parsed = JSON.parse(jsonMatch[0]);
+            }
+            catch {
+                throw new Error('Failed to parse sorting response - invalid JSON');
+            }
+            // Validate the response
+            if (!Array.isArray(parsed.orderedIds)) {
+                throw new Error('Invalid response: orderedIds must be an array');
+            }
+            const segmentIds = new Set(segments.map(s => s.id));
+            const orderedIds = parsed.orderedIds.filter(id => typeof id === 'string' && segmentIds.has(id));
+            let removeIds = Array.isArray(parsed.removeIds)
+                ? parsed.removeIds.filter(id => typeof id === 'string' && segmentIds.has(id))
+                : [];
+            // Add back any IDs we filtered out earlier
+            if (filteredResult) {
+                removeIds = [...removeIds, ...filteredResult.removeIds];
+            }
+            // Create a set of all IDs that are accounted for
+            const accountedIds = new Set([...orderedIds, ...removeIds]);
+            // Ensure all segment IDs are accounted for
+            if (accountedIds.size !== segments.length + (filteredResult?.removeIds.length ?? 0)) {
+                // Add any missing IDs to orderedIds (don't auto-remove)
+                console.warn('AI sorting response incomplete, some IDs missing. Adding to orderedIds.');
+                for (const segment of segments) {
+                    if (!accountedIds.has(segment.id)) {
+                        orderedIds.push(segment.id);
+                    }
+                }
+            }
+            return {
+                orderedIds,
+                removeIds,
+                confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+                reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
+            };
+        }
+        catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            // Check if it's a rate limit error (429)
+            const isRateLimitError = lastError.message.includes('429') ||
+                lastError.message.toLowerCase().includes('resource exhausted') ||
+                lastError.message.toLowerCase().includes('rate limit');
+            if (isRateLimitError && attempt < MAX_RETRIES) {
+                // Exponential backoff: 2s, 4s, 8s
+                const delayMs = Math.pow(2, attempt) * 1000;
+                console.warn(`[CrashSegmentSort] Rate limited (attempt ${attempt}/${MAX_RETRIES}), retrying in ${delayMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                continue;
+            }
+            // For non-rate-limit errors or final attempt, throw
+            throw lastError;
         }
     }
-    return {
-        orderedIds,
-        removeIds,
-        confidence: typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
-        reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : 'Unable to determine reasoning'
-    };
+    throw lastError ?? new Error('Failed to sort crash segments after retries');
+}
+/**
+ * Filter out duplicate segments that are likely redundant.
+ * When we have segments with explicit chunk numbers AND segments with [**Crash**] **Zone** prefix,
+ * the latter are often real-time log duplicates of the chunked crash report.
+ */
+function filterDuplicateSegments(segments) {
+    const chunkedSegments = [];
+    const logStreamSegments = [];
+    for (const segment of segments) {
+        // Check if this segment has an explicit chunk number
+        const hasChunkNumber = /\*?\*?Chunk\*?\*?\s*\[\d+\]/i.test(segment.text);
+        // Check if this is a log-streaming segment (starts with [**Crash**] **Zone**)
+        const isLogStream = /^\[?\*?\*?Crash\*?\*?\]?\s*\*?\*?Zone\*?\*?/i.test(segment.text.trim());
+        if (hasChunkNumber) {
+            chunkedSegments.push(segment);
+        }
+        else if (isLogStream) {
+            logStreamSegments.push(segment);
+        }
+        else {
+            // Unknown type - keep in chunked to be safe
+            chunkedSegments.push(segment);
+        }
+    }
+    // Only filter if we have BOTH chunked and log-stream segments
+    // and the majority are chunked (suggesting the log-stream ones are duplicates)
+    if (chunkedSegments.length > 0 && logStreamSegments.length > 0 && chunkedSegments.length >= logStreamSegments.length) {
+        console.log(`[CrashSegmentSort] Filtering ${logStreamSegments.length} log-stream duplicates, keeping ${chunkedSegments.length} chunked segments`);
+        return {
+            keepSegments: chunkedSegments,
+            removeIds: logStreamSegments.map(s => s.id)
+        };
+    }
+    return null;
 }
 /**
  * Try to sort segments by explicit chunk numbers (e.g., "Chunk [1]", "Chunk [2]").

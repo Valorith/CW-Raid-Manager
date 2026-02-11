@@ -72,7 +72,9 @@ export async function authRoutes(server) {
                 return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
             }
             catch (error) {
-                request.log.error({ error }, 'Error during Google OAuth callback');
+                const errMsg = error instanceof Error ? error.message : String(error);
+                const errStack = error instanceof Error ? error.stack : undefined;
+                request.log.error({ error, errorMessage: errMsg, errorStack: errStack, callbackUrl: appConfig.google?.callbackUrl, protocol: request.protocol, hostname: request.hostname, url: request.url, cookies: Object.keys(request.cookies || {}) }, 'Error during Google OAuth callback');
                 return reply.internalServerError('Unable to complete Google sign-in.');
             }
         });

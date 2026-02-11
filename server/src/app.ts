@@ -17,7 +17,8 @@ export function buildServer(): FastifyInstance {
   const server = fastify({
     logger: {
       level: appConfig.nodeEnv === 'development' ? 'debug' : 'info'
-    }
+    },
+    trustProxy: true
   });
 
   const currentDir = dirname(fileURLToPath(new URL('.', import.meta.url)));
