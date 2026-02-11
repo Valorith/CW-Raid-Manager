@@ -16,6 +16,14 @@
 
 import 'dotenv/config';
 
+// Safety timeout — force exit if cron hangs (e.g., dead DB connection)
+const CRON_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+const timeoutTimer = setTimeout(() => {
+  console.error('[CronSnapshot] TIMEOUT: Cron job exceeded 2 minutes. Force exiting.');
+  process.exit(1);
+}, CRON_TIMEOUT_MS);
+timeoutTimer.unref(); // Don't prevent normal exit
+
 import { prisma } from './utils/prisma.js';
 import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
