@@ -33,66 +33,77 @@ CW Raid Manager/
 - MySQL instance (local or remote)
 - Google OAuth 2.0 credentials (Client ID & Secret)
 
-## Environment Configuration
+## Local Development
 
-1. **Clone configuration templates**
+Use this flow when you want to run the app locally with the Vite client and Fastify server in watch mode.
 
-   ```bash
-   cp server/.env.example server/.env
-   cp config/app.config.example.json config/app.config.json
-   ```
+### 1. Install dependencies
 
-2. **Edit `server/.env`** with your secrets and connection details:
-
-   - `DATABASE_URL` must point to a MySQL database (schema will be managed by Prisma).
-   - `CLIENT_URL` should be the base URL the client is served from (e.g., `http://localhost:5173` in development).
-   - `SESSION_SECRET` should be a long, random string.
-   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL` must align with your Google OAuth configuration. The callback URL must also be registered in the Google Cloud Console.
-
-3. **Edit `config/app.config.json`** to adjust deployment-specific values (host, port, client base URL, OAuth callback override). You can relocate the file and point to it with `APP_CONFIG_PATH=/path/to/app.config.json`.
-
-## Installation
-
-Install dependencies for both workspaces from the project root:
+From the repo root:
 
 ```bash
-cd "CW Raid Manager"
 npm install
 ```
 
-This installs shared dev tooling plus the `client` and `server` dependencies.
-
-## Database & Prisma
-
-Generate the Prisma client and run the initial migration:
+### 2. Create local config files
 
 ```bash
-cd server
-npx prisma generate
-npx prisma migrate dev --name init
+cp server/.env.example server/.env
+cp config/app.config.example.json config/app.config.json
 ```
 
-Follow the prompts to create the database schema.
+Then update `server/.env` with your local values:
 
-## Development Workflow
+- `DATABASE_URL`: MySQL connection string for your local database.
+- `CLIENT_URL`: usually `http://localhost:5173`.
+- `SESSION_SECRET`: long random string for local sessions.
+- OAuth settings: at least one provider must be configured if you need to sign in locally.
 
-Run both the API and front-end concurrently from the project root:
+If you use `config/app.config.json`, keep it aligned with your local host, port, and callback URLs. You can also point elsewhere with `APP_CONFIG_PATH=/path/to/app.config.json`.
+
+Note: the server entrypoints currently load `server/.env` via `dotenv/config`. A `server/.env.local` file is not loaded automatically unless you wire that behavior in.
+
+### 3. Prepare the database
+
+This repo uses both Prisma migrations and Knex migrations. For a fresh local database, run:
+
+```bash
+npm --workspace server run prisma:generate
+npm --workspace server run prisma:migrate
+npm --workspace server run knex:migrate
+```
+
+`prisma:migrate` applies the older Prisma migration history, and `knex:migrate` applies newer schema changes.
+
+### 4. Start the app
+
+Run both workspaces from the repo root:
 
 ```bash
 npm run dev
 ```
 
-- Server: <http://localhost:4000>
+Local URLs:
+
 - Client: <http://localhost:5173>
+- Server/API: <http://localhost:4000>
 
-The dev server proxies `/api/*` requests to the Fastify instance.
+The client proxies `/api/*` requests to the Fastify server during development.
 
-### Useful Scripts
+If you only want one side running:
 
-- `npm run build` – Builds both workspaces.
-- `npm run lint` – Lints server and client code.
-- `npm run format` – Runs Prettier across server/client source.
-- `npm run --workspace server prisma:migrate` – Prisma migration helper (dev).
+```bash
+npm run dev:server
+npm run dev:client
+```
+
+### 5. Useful local checks
+
+- `npm run lint` runs ESLint for both workspaces.
+- `npm run build` builds both workspaces.
+- `npm --workspace client run type-check` runs `vue-tsc`.
+- `npm --workspace server run prisma:generate` refreshes Prisma client types after schema edits.
+- `npm --workspace server run cron:snapshot` runs the snapshot cron entrypoint manually.
 
 ## Deploying to Railway
 

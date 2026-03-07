@@ -540,101 +540,145 @@
 
         <div v-else>
           <p v-if="historyRaids.length === 0" class="muted empty-state">No completed raids found.</p>
-          <ul v-else class="raid-list">
-            <li
-              v-for="raid in historyRaids"
-              :key="raid.id"
-              :class="[
-                'raid-list__item',
-                { 'raid-list__item--active': raid.startedAt && !raid.endedAt }
-              ]"
-              role="button"
-              tabindex="0"
-              @click="openRaid(raid.id)"
-              @keydown.enter.prevent="openRaid(raid.id)"
-              @keydown.space.prevent="openRaid(raid.id)"
-            >
-              <div class="raid-info">
-                <div class="raid-info__primary">
-                  <span
-                    v-if="raid.hasUnassignedLoot"
-                    class="raid-alert"
-                    role="img"
-                    aria-label="Loot pending assignment"
-                    title="Loot pending assignment"
-                  >
-                    ❗
-                  </span>
-                  <div class="raid-info__content">
-                    <strong>
-                      <span
-                        v-if="raid.isRecurring"
-                        class="raid-recurring-icon"
-                        role="img"
-                        :title="recurrenceTooltip(raid)"
-                        :aria-label="recurrenceTooltip(raid)"
-                      >
-                        ♻️
-                      </span>
-                      {{ raid.name }}
-                    </strong>
-                    <span class="muted">
-                      ({{ formatDate(raid.startTime) }})
-                      <template v-if="formatTargetZones(raid.targetZones)">
-                        • {{ formatTargetZones(raid.targetZones) }}
-                      </template>
+          <template v-else>
+            <div v-if="historyTotalPages > 1" class="pagination pagination--history-top">
+              <button
+                class="pagination__button"
+                type="button"
+                :disabled="historyPage === 1"
+                @click="setHistoryPage(historyPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">
+                Page {{ historyPage }} of {{ historyTotalPages }} ({{ historyRaids.length }} raids)
+              </span>
+              <button
+                class="pagination__button"
+                type="button"
+                :disabled="historyPage === historyTotalPages"
+                @click="setHistoryPage(historyPage + 1)"
+              >
+                Next
+              </button>
+            </div>
+            <ul class="raid-list">
+              <li
+                v-for="raid in paginatedHistoryRaids"
+                :key="raid.id"
+                :class="[
+                  'raid-list__item',
+                  { 'raid-list__item--active': raid.startedAt && !raid.endedAt }
+                ]"
+                role="button"
+                tabindex="0"
+                @click="openRaid(raid.id)"
+                @keydown.enter.prevent="openRaid(raid.id)"
+                @keydown.space.prevent="openRaid(raid.id)"
+              >
+                <div class="raid-info">
+                  <div class="raid-info__primary">
+                    <span
+                      v-if="raid.hasUnassignedLoot"
+                      class="raid-alert"
+                      role="img"
+                      aria-label="Loot pending assignment"
+                      title="Loot pending assignment"
+                    >
+                      ❗
                     </span>
+                    <div class="raid-info__content">
+                      <strong>
+                        <span
+                          v-if="raid.isRecurring"
+                          class="raid-recurring-icon"
+                          role="img"
+                          :title="recurrenceTooltip(raid)"
+                          :aria-label="recurrenceTooltip(raid)"
+                        >
+                          ♻️
+                        </span>
+                        {{ raid.name }}
+                      </strong>
+                      <span class="muted">
+                        ({{ formatDate(raid.startTime) }})
+                        <template v-if="formatTargetZones(raid.targetZones)">
+                          • {{ formatTargetZones(raid.targetZones) }}
+                        </template>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div class="raid-meta">
-                <span
-                  v-if="raid.logMonitor?.isActive"
-                  class="raid-monitor-indicator"
-                  role="img"
-                  :aria-label="`Continuous monitoring active${raid.logMonitor?.userDisplayName ? ' by ' + raid.logMonitor.userDisplayName : ''}`"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span :class="['badge', getRaidStatus(raid.id).variant]">
-                  {{ getRaidStatus(raid.id).label }}
-                </span>
-                <button
-                  class="copy-button"
-                  type="button"
-                  :disabled="sharingRaidId === raid.id"
-                  @click.stop="shareRaid(raid)"
-                  title="Copy share link"
-                >
-                  <span aria-hidden="true">🔗</span>
-                  <span class="sr-only">Copy share link</span>
-                </button>
-                <button
-                  v-if="canCopyRaid(raid)"
-                  class="copy-button"
-                  type="button"
-                  :disabled="copyingRaidId === raid.id"
-                  @click.stop="copyRaid(raid)"
-                  title="Copy raid"
-                >
-                  <span aria-hidden="true">📄</span>
-                  <span class="sr-only">Copy raid</span>
-                </button>
-                <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
-                  Open
-                </button>
-              </div>
-            </li>
-          </ul>
+                <div class="raid-meta">
+                  <span
+                    v-if="raid.logMonitor?.isActive"
+                    class="raid-monitor-indicator"
+                    role="img"
+                    :aria-label="`Continuous monitoring active${raid.logMonitor?.userDisplayName ? ' by ' + raid.logMonitor.userDisplayName : ''}`"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span :class="['badge', getRaidStatus(raid.id).variant]">
+                    {{ getRaidStatus(raid.id).label }}
+                  </span>
+                  <button
+                    class="copy-button"
+                    type="button"
+                    :disabled="sharingRaidId === raid.id"
+                    @click.stop="shareRaid(raid)"
+                    title="Copy share link"
+                  >
+                    <span aria-hidden="true">🔗</span>
+                    <span class="sr-only">Copy share link</span>
+                  </button>
+                  <button
+                    v-if="canCopyRaid(raid)"
+                    class="copy-button"
+                    type="button"
+                    :disabled="copyingRaidId === raid.id"
+                    @click.stop="copyRaid(raid)"
+                    title="Copy raid"
+                  >
+                    <span aria-hidden="true">📄</span>
+                    <span class="sr-only">Copy raid</span>
+                  </button>
+                  <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
+                    Open
+                  </button>
+                </div>
+              </li>
+            </ul>
+            <div v-if="historyTotalPages > 1" class="pagination">
+              <button
+                class="pagination__button"
+                type="button"
+                :disabled="historyPage === 1"
+                @click="setHistoryPage(historyPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">
+                Showing {{ paginatedHistoryRaids.length }} of {{ historyRaids.length }} raids
+              </span>
+              <button
+                class="pagination__button"
+                type="button"
+                :disabled="historyPage === historyTotalPages"
+                @click="setHistoryPage(historyPage + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -769,6 +813,8 @@ const scheduledStartDate = ref<string | null>(null);
 const router = useRouter();
 const route = useRoute();
 const activeTab = ref<'active' | 'history'>(route.query.tab === 'history' ? 'history' : 'active');
+const HISTORY_PAGE_SIZE = 10;
+const historyPage = ref(1);
 const copyingRaidId = ref<string | null>(null);
 const sharingRaidId = ref<string | null>(null);
 const calendarViewRef = ref<HTMLElement | null>(null);
@@ -1112,6 +1158,15 @@ const historyRaids = computed(() =>
       new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
     )
 );
+
+const historyTotalPages = computed(() =>
+  Math.max(1, Math.ceil(historyRaids.value.length / HISTORY_PAGE_SIZE))
+);
+
+const paginatedHistoryRaids = computed(() => {
+  const start = (historyPage.value - 1) * HISTORY_PAGE_SIZE;
+  return historyRaids.value.slice(start, start + HISTORY_PAGE_SIZE);
+});
 
 const raidsByDate = computed(() => {
   const map = new Map<string, RaidEventSummary[]>();
@@ -1513,6 +1568,7 @@ watch(
 
 watch(selectedGuildId, (guildId) => {
   activeTab.value = 'active';
+  historyPage.value = 1;
   goToCurrentMonth();
   if (guildId) {
     ensureGuildDefaults(guildId);
@@ -1535,6 +1591,17 @@ watch(calendarViewDate, () => {
 
 watch(activeTab, () => {
   hideDayContextMenu();
+});
+
+watch(historyRaids, (nextHistory) => {
+  if (nextHistory.length === 0) {
+    historyPage.value = 1;
+    return;
+  }
+
+  if (historyPage.value > historyTotalPages.value) {
+    historyPage.value = historyTotalPages.value;
+  }
 });
 
 watch(
@@ -1562,6 +1629,10 @@ function startOfMonth(date: Date) {
   result.setDate(1);
   result.setHours(0, 0, 0, 0);
   return result;
+}
+
+function setHistoryPage(page: number) {
+  historyPage.value = Math.min(Math.max(1, page), historyTotalPages.value);
 }
 
 function startOfDay(date: Date) {
@@ -1650,6 +1721,10 @@ function parseDateKey(dateKey: string): Date {
   justify-content: space-between;
   margin-top: 1rem;
   gap: 0.75rem;
+}
+
+.pagination--history-top {
+  margin-bottom: 0.9rem;
 }
 
 .pagination__label {
