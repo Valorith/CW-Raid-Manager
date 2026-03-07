@@ -8,7 +8,18 @@ import mysql, {
 
 import { appConfig } from '../config/appConfig.js';
 
-type EqDbQueryParams = Record<string, unknown> | unknown[];
+type EqDbQueryParams =
+  | string
+  | number
+  | bigint
+  | boolean
+  | Date
+  | null
+  | Blob
+  | Buffer
+  | Uint8Array
+  | EqDbQueryParams[]
+  | { [key: string]: EqDbQueryParams };
 type AppLogger = {
   debug?: (...args: unknown[]) => unknown;
   info?: (...args: unknown[]) => unknown;
@@ -121,7 +132,11 @@ export async function executeEqDb<
   }
 
   const pool = await ensurePool();
-  return pool.execute<TResult>(sql, params ?? []);
+  if (params === undefined) {
+    return pool.execute<TResult>(sql);
+  }
+
+  return pool.execute<TResult>(sql, params);
 }
 
 export async function queryEqDb<TResult = RowDataPacket[]>(

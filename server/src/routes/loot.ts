@@ -426,6 +426,9 @@ export async function lootRoutes(server: FastifyInstance) {
     if (!raid) {
       return reply.notFound('Raid not found.');
     }
+    if (raid.endedAt || !raid.isActive) {
+      return reply.conflict('Cannot start log monitoring for a raid that has ended.');
+    }
 
     try {
       await ensureCanManageRaid(request.user.userId, raid.guildId);

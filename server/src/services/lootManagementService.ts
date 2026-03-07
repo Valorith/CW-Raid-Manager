@@ -314,7 +314,7 @@ export async function fetchLootMaster(
 
   const offset = (page - 1) * pageSize;
   let whereClause = '';
-  const params: unknown[] = [];
+  const params: Array<string | number> = [];
 
   if (search && search.trim()) {
     whereClause = `WHERE item_name LIKE ? OR npc_name LIKE ? OR zone_name LIKE ?`;
@@ -371,7 +371,7 @@ export async function fetchLcItems(
 
   const offset = (page - 1) * pageSize;
   let whereClause = '';
-  const params: unknown[] = [];
+  const params: Array<string | number> = [];
 
   if (search && search.trim()) {
     whereClause = `WHERE i.Name LIKE ?`;
@@ -439,7 +439,7 @@ export async function fetchLcRequests(
 
   const offset = (page - 1) * pageSize;
   let whereClause = '';
-  const params: unknown[] = [];
+  const params: Array<string | number> = [];
 
   if (search && search.trim()) {
     whereClause = `WHERE i.Name LIKE ?`;
@@ -511,7 +511,7 @@ export async function fetchLcVotes(
 
   const offset = (page - 1) * pageSize;
   let whereClause = '';
-  const params: unknown[] = [];
+  const params: Array<string | number> = [];
 
   if (search && search.trim()) {
     whereClause = `WHERE voter_name LIKE ? OR item_name LIKE ? OR character_name LIKE ?`;

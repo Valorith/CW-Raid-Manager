@@ -1819,7 +1819,7 @@ const supportsContinuousMonitoring = computed(
 );
 const pendingFileHandle = ref<LocalFileHandle | null>(null);
 const canStartContinuousMonitor = computed(
-  () => supportsContinuousMonitoring.value && pendingFileHandle.value !== null
+  () => supportsContinuousMonitoring.value && pendingFileHandle.value !== null && Boolean(isRaidActive.value)
 );
 const clearingLoot = ref(false);
 const clearLootPrompt = reactive<{
@@ -3368,9 +3368,12 @@ watch(
 // Clear loot disposition history when raid ends
 watch(
   () => raid.value?.endedAt,
-  (endedAt) => {
+  (endedAt, previousEndedAt) => {
     if (endedAt) {
       clearLootDispositionHistory();
+      if (!previousEndedAt && monitorSession.value) {
+        void stopMonitorForEndedRaid();
+      }
     }
   },
   { immediate: true }
@@ -4566,6 +4569,11 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
     appendDebugLog('Continuous monitoring skipped: session already active');
     return;
   }
+  if (raid.value?.endedAt) {
+    continuousMonitorError.value = 'This raid has ended. Continuous monitoring is unavailable.';
+    appendDebugLog('Continuous monitoring blocked: raid has ended');
+    return;
+  }
   if (!supportsContinuousMonitoring.value) {
     continuousMonitorError.value = 'This browser does not support continuous monitoring.';
     appendDebugLog('Continuous monitoring blocked: unsupported browser');
@@ -4623,7 +4631,7 @@ async function startContinuousMonitor(initialFile: File, providedHandle?: LocalF
     if (sessionStarted && monitorSession.value?.sessionId) {
       await api.stopRaidLogMonitor(raidId, { sessionId: monitorSession.value.sessionId });
     }
-    monitorSession.value = null;
+    clearLocalMonitorSessionState();
     cleanupMonitorController();
   } finally {
     monitorStarting.value = false;
@@ -4901,11 +4909,20 @@ async function sendMonitorHeartbeat() {
 }
 
 async function attemptSessionRecovery() {
+  if (await refreshRaidStateForMonitorRecovery()) {
+    appendDebugLog('Skipping monitor session recovery because raid has ended');
+    continuousMonitorError.value = 'This raid has ended. Continuous monitoring stopped.';
+    clearLocalMonitorSessionState();
+    cleanupMonitorController();
+    await fetchMonitorStatus();
+    return;
+  }
+
   // Don't attempt recovery if already recovering or no file handle
   if (monitorHealth.isRecovering || !monitorController.fileHandle) {
     cleanupMonitorController();
     resetMonitorHealth();
-    monitorSession.value = null;
+    clearLocalMonitorSessionState();
     await fetchMonitorStatus();
     return;
   }
@@ -4920,7 +4937,7 @@ async function attemptSessionRecovery() {
       appendDebugLog('Lost file handle permission, cannot recover');
       cleanupMonitorController();
       resetMonitorHealth();
-      monitorSession.value = null;
+      clearLocalMonitorSessionState();
       continuousMonitorError.value = 'Lost access to log file. Please restart monitoring.';
       await fetchMonitorStatus();
       return;
@@ -4946,7 +4963,7 @@ async function attemptSessionRecovery() {
     appendDebugLog('Monitor session recovery failed', { error: String(recoveryError) });
     cleanupMonitorController();
     resetMonitorHealth();
-    monitorSession.value = null;
+    clearLocalMonitorSessionState();
     continuousMonitorError.value = 'Monitoring session lost. Please restart monitoring.';
     await fetchMonitorStatus();
   }
@@ -4970,6 +4987,49 @@ function cleanupMonitorController() {
   monitorController.pendingSummaryBlock = '';
 }
 
+function clearLocalMonitorSessionState() {
+  monitorSession.value = null;
+  clearingLoot.value = false;
+  pendingFileHandle.value = null;
+  pendingUploadFile.value = null;
+}
+
+async function stopMonitorForEndedRaid() {
+  appendDebugLog('Stopping log monitor because raid ended');
+  continuousMonitorError.value = 'This raid has ended. Continuous monitoring stopped.';
+
+  if (monitorSession.value?.isOwner) {
+    await stopActiveMonitor();
+    return;
+  }
+
+  clearLocalMonitorSessionState();
+  cleanupMonitorController();
+  await fetchMonitorStatus();
+}
+
+async function refreshRaidStateForMonitorRecovery() {
+  if (raid.value?.endedAt) {
+    return true;
+  }
+
+  try {
+    const updatedRaid = await api.fetchRaid(raidId);
+    raid.value = updatedRaid;
+    return Boolean(updatedRaid.endedAt);
+  } catch (error) {
+    if (isAxiosError(error) && error.response?.status === 404) {
+      stopMonitorStatusPolling();
+      cleanupMonitorController();
+      clearLocalMonitorSessionState();
+      router.replace({ name: 'Raids' });
+      return true;
+    }
+    appendDebugLog('Failed to refresh raid during monitor recovery', { error: String(error) });
+    return Boolean(raid.value?.endedAt);
+  }
+}
+
 async function stopActiveMonitor(options?: { force?: boolean }) {
   if (!monitorSession.value) {
     return;
@@ -4984,10 +5044,7 @@ async function stopActiveMonitor(options?: { force?: boolean }) {
     appendDebugLog('Failed to stop log monitor', { error: String(error) });
   } finally {
     monitorStopping.value = false;
-    monitorSession.value = null;
-    clearingLoot.value = false;
-    pendingFileHandle.value = null;
-    pendingUploadFile.value = null;
+    clearLocalMonitorSessionState();
     cleanupMonitorController();
     await fetchMonitorStatus();
   }

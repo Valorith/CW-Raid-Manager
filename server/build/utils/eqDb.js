@@ -84,7 +84,10 @@ export async function executeEqDb(sql, params) {
         throw new Error(missingConfigMessage);
     }
     const pool = await ensurePool();
-    return pool.execute(sql, params ?? []);
+    if (params === undefined) {
+        return pool.execute(sql);
+    }
+    return pool.execute(sql, params);
 }
 export async function queryEqDb(sql, params) {
     const [rows] = await executeEqDb(sql, params);
