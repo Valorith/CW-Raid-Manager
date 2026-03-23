@@ -9,6 +9,7 @@ import {
   type NpcFavorite,
   type NpcDefinitionInput,
   type NpcKillRecordInput,
+  type NpcKillRecordUpdateInput,
   type GuildRole,
   type NpcContentFlag
 } from '../services/api';
@@ -218,6 +219,16 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     await api.deleteNpcKillRecord(guildId, killRecordId);
     // Refresh tracker to get updated data
     await fetchRespawnTracker(guildId, true);
+  }
+
+  async function updateKillRecord(
+    guildId: string,
+    killRecordId: string,
+    input: NpcKillRecordUpdateInput
+  ): Promise<NpcKillRecord> {
+    const record = await api.updateNpcKillRecord(guildId, killRecordId, input);
+    await fetchRespawnTracker(guildId, true);
+    return record;
   }
 
   async function toggleSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean): Promise<void> {
@@ -472,6 +483,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     updateDefinition,
     deleteDefinition,
     recordKill,
+    updateKillRecord,
     deleteKillRecord,
     toggleSubscription,
     toggleFavorite,

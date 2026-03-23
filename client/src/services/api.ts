@@ -942,6 +942,13 @@ export interface NpcKillRecordInput {
   triggerWebhook?: boolean;
 }
 
+export interface NpcKillRecordUpdateInput {
+  killedAt: string;
+  killedByName?: string | null;
+  notes?: string | null;
+  isInstance?: boolean;
+}
+
 export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
@@ -4275,6 +4282,15 @@ export const api = {
 
   async createNpcKillRecord(guildId: string, input: NpcKillRecordInput): Promise<NpcKillRecord> {
     const response = await axios.post(`/api/guilds/${guildId}/npc-kills`, input);
+    return response.data.record;
+  },
+
+  async updateNpcKillRecord(
+    guildId: string,
+    killRecordId: string,
+    input: NpcKillRecordUpdateInput
+  ): Promise<NpcKillRecord> {
+    const response = await axios.put(`/api/guilds/${guildId}/npc-kills/${killRecordId}`, input);
     return response.data.record;
   },
 

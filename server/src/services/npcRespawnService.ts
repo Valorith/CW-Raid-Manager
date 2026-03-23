@@ -32,6 +32,13 @@ export interface NpcKillRecordInput {
   isInstance?: boolean;
 }
 
+export interface NpcKillRecordUpdateInput {
+  killedAt: Date;
+  killedByName?: string | null;
+  notes?: string | null;
+  isInstance?: boolean;
+}
+
 export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
@@ -347,6 +354,36 @@ export async function createKillRecord(
   });
 
   return formatKillRecord(record);
+}
+
+export async function updateKillRecord(
+  guildId: string,
+  killRecordId: string,
+  input: NpcKillRecordUpdateInput
+) {
+  const existing = await prisma.npcKillRecord.findFirst({
+    where: { guildId, id: killRecordId },
+    include: { npcDefinition: true }
+  });
+  if (!existing) {
+    throw new Error('Kill record not found.');
+  }
+
+  const updated = await prisma.npcKillRecord.update({
+    where: { id: killRecordId },
+    data: {
+      killedAt: input.killedAt,
+      killedByName: input.killedByName?.trim() || null,
+      notes: input.notes?.trim() || null,
+      isInstance: input.isInstance ?? existing.isInstance
+    },
+    include: { npcDefinition: true }
+  });
+
+  return {
+    record: formatKillRecord(updated),
+    previousIsInstance: existing.isInstance ?? false
+  };
 }
 
 export async function deleteKillRecord(guildId: string, killRecordId: string) {

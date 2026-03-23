@@ -408,10 +408,13 @@
     <div v-if="showKillModal" class="modal-backdrop" @click.self="closeKillModal">
       <div class="modal">
         <header class="modal__header">
-          <h3>Record Kill: {{ selectedNpc?.npcName }}</h3>
+          <h3>{{ killModalMode === 'edit' ? 'Edit Active Respawn' : 'Record Kill' }}: {{ selectedNpc?.npcName }}</h3>
           <button class="modal__close" @click="closeKillModal">&times;</button>
         </header>
         <div class="modal__body">
+          <p v-if="killModalMode === 'edit'" class="modal__hint muted">
+            Update the tracked kill time or switch this respawn between overworld and instance.
+          </p>
           <div class="form-group">
             <label for="kill-date">Kill Date & Time</label>
             <input
@@ -464,7 +467,11 @@
             :disabled="submittingKill"
             @click="submitKill"
           >
-            {{ submittingKill ? 'Recording...' : 'Record Kill' }}
+            {{
+              submittingKill
+                ? (killModalMode === 'edit' ? 'Saving...' : 'Recording...')
+                : (killModalMode === 'edit' ? 'Save Changes' : 'Record Kill')
+            }}
           </button>
         </footer>
       </div>
@@ -570,6 +577,14 @@
             <span class="context-menu-icon">{{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? '★' : '☆' }}</span>
             {{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? 'Unfavorite' : 'Favorite' }}
           </button>
+          <button
+            v-if="contextMenuNpc && canEditActiveRespawn(contextMenuNpc)"
+            class="context-menu-item"
+            @click="openEditRespawnModal(contextMenuNpc)"
+          >
+            <span class="context-menu-icon">✎</span>
+            Edit Active Respawn
+          </button>
         </div>
       </div>
     </Teleport>
@@ -603,6 +618,8 @@ const activeVariantFilter = ref<'all' | 'overworld' | 'instance'>('all');
 const showKillModal = ref(false);
 const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
+const killModalMode = ref<'create' | 'edit'>('create');
+const editingKillRecordId = ref<string | null>(null);
 const currentPage = ref(1);
 const itemsPerPage = 10;
 
@@ -861,6 +878,13 @@ function closeContextMenu() {
   contextMenuNpc.value = null;
 }
 
+function canEditActiveRespawn(npc: NpcRespawnTrackerEntry): boolean {
+  return Boolean(
+    npc.lastKill &&
+    (npc.respawnStatus === 'down' || npc.respawnStatus === 'window')
+  );
+}
+
 function isNpcFavorited(npc: NpcRespawnTrackerEntry): boolean {
   return store.isFavorited(npc.npcNameNormalized, npc.isInstanceVariant);
 }
@@ -876,6 +900,8 @@ async function toggleFavorite(npc: NpcRespawnTrackerEntry) {
 
 function openKillModal(npc: NpcRespawnTrackerEntry) {
   selectedNpc.value = npc;
+  killModalMode.value = 'create';
+  editingKillRecordId.value = null;
   // Default to current time in local timezone
   const now = new Date();
   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -889,9 +915,36 @@ function openKillModal(npc: NpcRespawnTrackerEntry) {
   showKillModal.value = true;
 }
 
+function toDateTimeLocalValue(isoString: string): string {
+  const date = new Date(isoString);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
+function openEditRespawnModal(npc: NpcRespawnTrackerEntry) {
+  if (!npc.lastKill || !canEditActiveRespawn(npc)) {
+    closeContextMenu();
+    return;
+  }
+
+  selectedNpc.value = npc;
+  killModalMode.value = 'edit';
+  editingKillRecordId.value = npc.lastKill.id;
+  killForm.value = {
+    killedAt: toDateTimeLocalValue(npc.lastKill.killedAt),
+    killedByName: npc.lastKill.killedByName ?? '',
+    notes: npc.lastKill.notes ?? '',
+    isInstance: npc.lastKill.isInstance ?? npc.isInstanceVariant ?? false
+  };
+  showKillModal.value = true;
+  closeContextMenu();
+}
+
 function closeKillModal() {
   showKillModal.value = false;
   selectedNpc.value = null;
+  killModalMode.value = 'create';
+  editingKillRecordId.value = null;
 }
 
 async function submitKill() {
@@ -899,16 +952,27 @@ async function submitKill() {
 
   submittingKill.value = true;
   try {
-    await store.recordKill(guildId, {
-      npcDefinitionId: selectedNpc.value.id,
+    const payload = {
       killedAt: new Date(killForm.value.killedAt).toISOString(),
       killedByName: killForm.value.killedByName || null,
       notes: killForm.value.notes || null,
       isInstance: killForm.value.isInstance
-    });
+    };
+
+    if (killModalMode.value === 'edit' && editingKillRecordId.value) {
+      await store.updateKillRecord(guildId, editingKillRecordId.value, payload);
+    } else {
+      await store.recordKill(guildId, {
+        npcDefinitionId: selectedNpc.value.id,
+        ...payload
+      });
+    }
     closeKillModal();
   } catch (err: any) {
-    showErrorFromException(err, 'Failed to record kill');
+    showErrorFromException(
+      err,
+      killModalMode.value === 'edit' ? 'Failed to update respawn' : 'Failed to record kill'
+    );
   } finally {
     submittingKill.value = false;
   }
@@ -1894,6 +1958,12 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.modal__hint {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .form-group {
