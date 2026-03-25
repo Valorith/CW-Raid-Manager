@@ -6,7 +6,11 @@ import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
 import { canManageGuild, getUserGuildRole } from '../services/guildService.js';
-import { ensureUserCanViewGuild, ensureCanManageRaid, getRaidEventById } from '../services/raidService.js';
+import {
+  ensureUserCanViewGuild,
+  ensureCanManageRaid,
+  getRaidEventById
+} from '../services/raidService.js';
 import {
   createRaidLootEvents,
   deleteRaidLootEvent,
@@ -42,7 +46,8 @@ const lootIconDirectoryCandidates = [
   resolve(currentDir, '../../../assets/icons/items'),
   resolve(currentDir, '../../../../assets/icons/items')
 ];
-const lootIconDirectory = lootIconDirectoryCandidates.find((candidate) => existsSync(candidate)) ?? null;
+const lootIconDirectory =
+  lootIconDirectoryCandidates.find((candidate) => existsSync(candidate)) ?? null;
 
 const lootEventSchema = z.object({
   itemName: z.string().min(2).max(191),
@@ -58,19 +63,13 @@ const parserPatternSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   pattern: z.string().min(1),
-  ignoredMethods: z
-    .array(
-      z
-        .string()
-        .trim()
-        .min(1)
-        .max(120)
-    )
-    .max(25)
-    .optional()
+  ignoredMethods: z.array(z.string().trim().min(1).max(120)).max(25).optional()
 });
 
-function serializeMonitorSession(viewerId: string, session: ReturnType<typeof getActiveLootMonitorSession>) {
+function serializeMonitorSession(
+  viewerId: string,
+  session: ReturnType<typeof getActiveLootMonitorSession>
+) {
   if (!session) {
     return null;
   }
@@ -92,8 +91,8 @@ function serializeMonitorSession(viewerId: string, session: ReturnType<typeof ge
 export async function lootRoutes(server: FastifyInstance) {
   server.get('/loot-icons/:iconId', async (request, reply) => {
     const paramsSchema = z.object({
-      // Icon ID must be positive (0 means "no icon" in EverQuest)
-      iconId: z.coerce.number().int().positive()
+      // Icon ID 0 is a valid fallback asset in this project; allow any non-negative icon ID.
+      iconId: z.coerce.number().int().min(0)
     });
     const querySchema = z
       .object({
@@ -205,107 +204,119 @@ export async function lootRoutes(server: FastifyInstance) {
     return { loot };
   });
 
-  server.get('/raids/:raidId/log-monitor', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const { raidId } = paramsSchema.parse(request.params);
+  server.get(
+    '/raids/:raidId/log-monitor',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const { raidId } = paramsSchema.parse(request.params);
 
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      try {
+        await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+      } catch {
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      const session = getActiveLootMonitorSession(raidId);
+      return {
+        session: serializeMonitorSession(request.user.userId, session),
+        heartbeatIntervalMs: LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
+        timeoutMs: LOOT_MONITOR_SESSION_TTL_MS
+      };
     }
-
-    try {
-      await ensureUserCanViewGuild(request.user.userId, raid.guildId);
-    } catch {
-      return reply.forbidden('You are not a member of this guild.');
-    }
-
-    const session = getActiveLootMonitorSession(raidId);
-    return {
-      session: serializeMonitorSession(request.user.userId, session),
-      heartbeatIntervalMs: LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
-      timeoutMs: LOOT_MONITOR_SESSION_TTL_MS
-    };
-  });
+  );
 
   // Fetch active loot council state shared by the log monitor owner
   // Returns items currently being considered with their interests
-  server.get('/raids/:raidId/loot-council-state', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const { raidId } = paramsSchema.parse(request.params);
+  server.get(
+    '/raids/:raidId/loot-council-state',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const { raidId } = paramsSchema.parse(request.params);
 
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      try {
+        await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+      } catch {
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      const state = getLootCouncilState(raidId);
+      return { state };
     }
-
-    try {
-      await ensureUserCanViewGuild(request.user.userId, raid.guildId);
-    } catch {
-      return reply.forbidden('You are not a member of this guild.');
-    }
-
-    const state = getLootCouncilState(raidId);
-    return { state };
-  });
+  );
 
   // Update loot council state (called by the log monitor owner)
-  server.post('/raids/:raidId/loot-council-state', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const { raidId } = paramsSchema.parse(request.params);
+  server.post(
+    '/raids/:raidId/loot-council-state',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const { raidId } = paramsSchema.parse(request.params);
 
-    const bodySchema = z.object({
-      items: z.array(
-        z.object({
-          key: z.string(),
-          nameKey: z.string(),
-          instanceId: z.number(),
-          itemName: z.string(),
-          itemId: z.number().nullable().optional(),
-          itemIconId: z.number().nullable().optional(),
-          ordinal: z.number().nullable().optional(),
-          startedAt: z.string(),
-          lastUpdatedAt: z.string(),
-          status: z.enum(['ACTIVE', 'AWARDED', 'REMOVED']),
-          awardedTo: z.string().nullable().optional(),
-          interests: z.array(
-            z.object({
-              playerKey: z.string(),
-              playerName: z.string(),
-              replacing: z.string().nullable().optional(),
-              replacingItemId: z.number().nullable().optional(),
-              replacingItemIconId: z.number().nullable().optional(),
-              mode: z.enum(['REPLACING', 'NOT_REPLACING']),
-              votes: z.number().nullable().optional(),
-              lastUpdatedAt: z.string(),
-              source: z.enum(['LIVE', 'SYNC']),
-              voters: z.array(z.string()),
-              classHint: z.string().nullable().optional()
-            })
-          )
-        })
-      )
-    });
+      const bodySchema = z.object({
+        items: z.array(
+          z.object({
+            key: z.string(),
+            nameKey: z.string(),
+            instanceId: z.number(),
+            itemName: z.string(),
+            itemId: z.number().nullable().optional(),
+            itemIconId: z.number().nullable().optional(),
+            ordinal: z.number().nullable().optional(),
+            startedAt: z.string(),
+            lastUpdatedAt: z.string(),
+            status: z.enum(['ACTIVE', 'AWARDED', 'REMOVED']),
+            awardedTo: z.string().nullable().optional(),
+            interests: z.array(
+              z.object({
+                playerKey: z.string(),
+                playerName: z.string(),
+                replacing: z.string().nullable().optional(),
+                replacingItemId: z.number().nullable().optional(),
+                replacingItemIconId: z.number().nullable().optional(),
+                mode: z.enum(['REPLACING', 'NOT_REPLACING']),
+                votes: z.number().nullable().optional(),
+                lastUpdatedAt: z.string(),
+                source: z.enum(['LIVE', 'SYNC']),
+                voters: z.array(z.string()),
+                classHint: z.string().nullable().optional()
+              })
+            )
+          })
+        )
+      });
 
-    const parsed = bodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.badRequest('Invalid loot council state payload.');
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid loot council state payload.');
+      }
+
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      // Only the log monitor owner can update the loot council state
+      const session = getActiveLootMonitorSession(raidId);
+      if (!session || session.userId !== request.user.userId) {
+        return reply.forbidden('Only the active log monitor owner can update loot council state.');
+      }
+
+      updateLootCouncilState(raidId, parsed.data.items as LootCouncilStateItem[]);
+      return { success: true };
     }
-
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
-    }
-
-    // Only the log monitor owner can update the loot council state
-    const session = getActiveLootMonitorSession(raidId);
-    if (!session || session.userId !== request.user.userId) {
-      return reply.forbidden('Only the active log monitor owner can update loot council state.');
-    }
-
-    updateLootCouncilState(raidId, parsed.data.items as LootCouncilStateItem[]);
-    return { success: true };
-  });
+  );
 
   server.post('/raids/:raidId/loot', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ raidId: z.string() });
@@ -344,51 +355,59 @@ export async function lootRoutes(server: FastifyInstance) {
     return reply.code(201).send({ loot: created });
   });
 
-  server.patch('/raids/:raidId/loot/:lootId', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string(), lootId: z.string() });
-    const { raidId, lootId } = paramsSchema.parse(request.params);
+  server.patch(
+    '/raids/:raidId/loot/:lootId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string(), lootId: z.string() });
+      const { raidId, lootId } = paramsSchema.parse(request.params);
 
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        request.log.warn({ error }, 'Unauthorized loot update attempt.');
+        return reply.forbidden('You do not have permission to modify loot for this raid.');
+      }
+
+      const bodySchema = lootEventSchema.partial();
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid loot update payload.');
+      }
+
+      const loot = await updateRaidLootEvent(lootId, raid.guildId, parsed.data, request.log);
+      return { loot };
     }
+  );
 
-    try {
-      await ensureCanManageRaid(request.user.userId, raid.guildId);
-    } catch (error) {
-      request.log.warn({ error }, 'Unauthorized loot update attempt.');
-      return reply.forbidden('You do not have permission to modify loot for this raid.');
+  server.delete(
+    '/raids/:raidId/loot/:lootId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string(), lootId: z.string() });
+      const { raidId, lootId } = paramsSchema.parse(request.params);
+
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        request.log.warn({ error }, 'Unauthorized loot delete attempt.');
+        return reply.forbidden('You do not have permission to delete loot for this raid.');
+      }
+
+      await deleteRaidLootEvent(lootId, raid.guildId);
+      return reply.code(204).send();
     }
-
-    const bodySchema = lootEventSchema.partial();
-    const parsed = bodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.badRequest('Invalid loot update payload.');
-    }
-
-    const loot = await updateRaidLootEvent(lootId, raid.guildId, parsed.data, request.log);
-    return { loot };
-  });
-
-  server.delete('/raids/:raidId/loot/:lootId', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string(), lootId: z.string() });
-    const { raidId, lootId } = paramsSchema.parse(request.params);
-
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
-    }
-
-    try {
-      await ensureCanManageRaid(request.user.userId, raid.guildId);
-    } catch (error) {
-      request.log.warn({ error }, 'Unauthorized loot delete attempt.');
-      return reply.forbidden('You do not have permission to delete loot for this raid.');
-    }
-
-    await deleteRaidLootEvent(lootId, raid.guildId);
-    return reply.code(204).send();
-  });
+  );
 
   server.delete('/raids/:raidId/loot', { preHandler: [authenticate] }, async (request, reply) => {
     const paramsSchema = z.object({ raidId: z.string() });
@@ -410,207 +429,231 @@ export async function lootRoutes(server: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  server.post('/raids/:raidId/log-monitor/start', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const bodySchema = z.object({
-      fileName: z.string().min(3).max(255)
-    });
-
-    const { raidId } = paramsSchema.parse(request.params);
-    const parsedBody = bodySchema.safeParse(request.body);
-    if (!parsedBody.success) {
-      return reply.badRequest('Invalid log monitor payload.');
-    }
-
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
-    }
-    if (raid.endedAt || !raid.isActive) {
-      return reply.conflict('Cannot start log monitoring for a raid that has ended.');
-    }
-
-    try {
-      await ensureCanManageRaid(request.user.userId, raid.guildId);
-    } catch (error) {
-      request.log.warn({ error }, 'Unauthorized log monitor start attempt.');
-      return reply.forbidden('You do not have permission to monitor logs for this raid.');
-    }
-
-    const profile = await prisma.user.findUnique({
-      where: { id: request.user.userId },
-      select: { displayName: true, nickname: true }
-    });
-
-    const preferred = withPreferredDisplayName({
-      displayName: profile?.displayName ?? 'Unknown Raider',
-      nickname: profile?.nickname ?? null
-    });
-
-    try {
-      const session = startLootMonitorSession({
-        raidId,
-        guildId: raid.guildId,
-        userId: request.user.userId,
-        userDisplayName: preferred.displayName,
-        fileName: parsedBody.data.fileName
+  server.post(
+    '/raids/:raidId/log-monitor/start',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const bodySchema = z.object({
+        fileName: z.string().min(3).max(255)
       });
 
-      return reply.code(201).send({
-        session: serializeMonitorSession(request.user.userId, session),
-        heartbeatIntervalMs: LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
-        timeoutMs: LOOT_MONITOR_SESSION_TTL_MS
+      const { raidId } = paramsSchema.parse(request.params);
+      const parsedBody = bodySchema.safeParse(request.body);
+      if (!parsedBody.success) {
+        return reply.badRequest('Invalid log monitor payload.');
+      }
+
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+      if (raid.endedAt || !raid.isActive) {
+        return reply.conflict('Cannot start log monitoring for a raid that has ended.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch (error) {
+        request.log.warn({ error }, 'Unauthorized log monitor start attempt.');
+        return reply.forbidden('You do not have permission to monitor logs for this raid.');
+      }
+
+      const profile = await prisma.user.findUnique({
+        where: { id: request.user.userId },
+        select: { displayName: true, nickname: true }
       });
-    } catch (error) {
-      if (error instanceof Error && error.message === 'LOOT_MONITOR_ACTIVE') {
-        return reply.conflict('Another member is already monitoring this raid.');
-      }
-      request.log.error({ error }, 'Failed to start log monitor session.');
-      return reply.internalServerError('Unable to start log monitoring at this time.');
-    }
-  });
 
-  server.post('/raids/:raidId/log-monitor/heartbeat', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const bodySchema = z.object({
-      sessionId: z.string().uuid()
-    });
+      const preferred = withPreferredDisplayName({
+        displayName: profile?.displayName ?? 'Unknown Raider',
+        nickname: profile?.nickname ?? null
+      });
 
-    const { raidId } = paramsSchema.parse(request.params);
-    const parsedBody = bodySchema.safeParse(request.body);
-    if (!parsedBody.success) {
-      return reply.badRequest('Invalid heartbeat payload.');
-    }
+      try {
+        const session = startLootMonitorSession({
+          raidId,
+          guildId: raid.guildId,
+          userId: request.user.userId,
+          userDisplayName: preferred.displayName,
+          fileName: parsedBody.data.fileName
+        });
 
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
-    }
-
-    try {
-      await ensureCanManageRaid(request.user.userId, raid.guildId);
-    } catch {
-      return reply.forbidden('You do not have permission to monitor logs for this raid.');
-    }
-
-    try {
-      const session = heartbeatLootMonitorSession(raidId, parsedBody.data.sessionId, request.user.userId);
-      return {
-        session: serializeMonitorSession(request.user.userId, session)
-      };
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message === 'LOOT_MONITOR_NOT_FOUND') {
-          return reply.notFound('No active monitoring session found.');
+        return reply.code(201).send({
+          session: serializeMonitorSession(request.user.userId, session),
+          heartbeatIntervalMs: LOOT_MONITOR_HEARTBEAT_INTERVAL_MS,
+          timeoutMs: LOOT_MONITOR_SESSION_TTL_MS
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === 'LOOT_MONITOR_ACTIVE') {
+          return reply.conflict('Another member is already monitoring this raid.');
         }
-        if (error.message === 'LOOT_MONITOR_FORBIDDEN') {
-          return reply.forbidden('Only the monitoring user can update this session.');
-        }
+        request.log.error({ error }, 'Failed to start log monitor session.');
+        return reply.internalServerError('Unable to start log monitoring at this time.');
       }
-      request.log.error({ error }, 'Failed to process log monitor heartbeat.');
-      return reply.internalServerError('Unable to update monitoring session.');
     }
-  });
+  );
 
-  server.post('/raids/:raidId/log-monitor/stop', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ raidId: z.string() });
-    const bodySchema = z.object({
-      sessionId: z.string().uuid().optional(),
-      force: z.boolean().optional()
-    });
+  server.post(
+    '/raids/:raidId/log-monitor/heartbeat',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const bodySchema = z.object({
+        sessionId: z.string().uuid()
+      });
 
-    const { raidId } = paramsSchema.parse(request.params);
-    const parsedBody = bodySchema.safeParse(request.body ?? {});
-    if (!parsedBody.success) {
-      return reply.badRequest('Invalid stop payload.');
+      const { raidId } = paramsSchema.parse(request.params);
+      const parsedBody = bodySchema.safeParse(request.body);
+      if (!parsedBody.success) {
+        return reply.badRequest('Invalid heartbeat payload.');
+      }
+
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
+
+      try {
+        await ensureCanManageRaid(request.user.userId, raid.guildId);
+      } catch {
+        return reply.forbidden('You do not have permission to monitor logs for this raid.');
+      }
+
+      try {
+        const session = heartbeatLootMonitorSession(
+          raidId,
+          parsedBody.data.sessionId,
+          request.user.userId
+        );
+        return {
+          session: serializeMonitorSession(request.user.userId, session)
+        };
+      } catch (error) {
+        if (error instanceof Error) {
+          if (error.message === 'LOOT_MONITOR_NOT_FOUND') {
+            return reply.notFound('No active monitoring session found.');
+          }
+          if (error.message === 'LOOT_MONITOR_FORBIDDEN') {
+            return reply.forbidden('Only the monitoring user can update this session.');
+          }
+        }
+        request.log.error({ error }, 'Failed to process log monitor heartbeat.');
+        return reply.internalServerError('Unable to update monitoring session.');
+      }
     }
+  );
 
-    const raid = await getRaidEventById(raidId);
-    if (!raid) {
-      return reply.notFound('Raid not found.');
-    }
+  server.post(
+    '/raids/:raidId/log-monitor/stop',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ raidId: z.string() });
+      const bodySchema = z.object({
+        sessionId: z.string().uuid().optional(),
+        force: z.boolean().optional()
+      });
 
-    let membershipRole: Awaited<ReturnType<typeof ensureUserCanViewGuild>>;
-    try {
-      membershipRole = await ensureUserCanViewGuild(request.user.userId, raid.guildId);
-    } catch {
-      return reply.forbidden('You are not a member of this guild.');
-    }
+      const { raidId } = paramsSchema.parse(request.params);
+      const parsedBody = bodySchema.safeParse(request.body ?? {});
+      if (!parsedBody.success) {
+        return reply.badRequest('Invalid stop payload.');
+      }
 
-    const canForceStop = canManageGuild(membershipRole);
-    const session = getActiveLootMonitorSession(raidId);
+      const raid = await getRaidEventById(raidId);
+      if (!raid) {
+        return reply.notFound('Raid not found.');
+      }
 
-    if (!session) {
+      let membershipRole: Awaited<ReturnType<typeof ensureUserCanViewGuild>>;
+      try {
+        membershipRole = await ensureUserCanViewGuild(request.user.userId, raid.guildId);
+      } catch {
+        return reply.forbidden('You are not a member of this guild.');
+      }
+
+      const canForceStop = canManageGuild(membershipRole);
+      const session = getActiveLootMonitorSession(raidId);
+
+      if (!session) {
+        return reply.code(204).send();
+      }
+
+      const isOwner = session.userId === request.user.userId;
+
+      if (!isOwner && (!parsedBody.data.force || !canForceStop)) {
+        return reply.forbidden("Only raid leadership can force stop another user's monitor.");
+      }
+
+      if (!parsedBody.data.force) {
+        if (!parsedBody.data.sessionId) {
+          return reply.badRequest('Session identifier required to stop monitoring.');
+        }
+        if (parsedBody.data.sessionId !== session.sessionId) {
+          return reply.conflict('Session mismatch. Reload the page and try again.');
+        }
+      } else if (!canForceStop) {
+        return reply.forbidden('You do not have permission to force stop monitoring.');
+      }
+
+      stopLootMonitorSession(raidId);
       return reply.code(204).send();
     }
+  );
 
-    const isOwner = session.userId === request.user.userId;
+  server.get(
+    '/guilds/:guildId/loot-settings',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ guildId: z.string() });
+      const { guildId } = paramsSchema.parse(request.params);
 
-    if (!isOwner && (!parsedBody.data.force || !canForceStop)) {
-      return reply.forbidden("Only raid leadership can force stop another user's monitor.");
-    }
-
-    if (!parsedBody.data.force) {
-      if (!parsedBody.data.sessionId) {
-        return reply.badRequest('Session identifier required to stop monitoring.');
+      const membership = await getUserGuildRole(request.user.userId, guildId);
+      if (!membership) {
+        return reply.forbidden('You are not a member of this guild.');
       }
-      if (parsedBody.data.sessionId !== session.sessionId) {
-        return reply.conflict('Session mismatch. Reload the page and try again.');
+
+      const settings = await getGuildLootParserSettings(guildId);
+      return {
+        settings,
+        defaults: {
+          patterns: defaultLootPatterns,
+          emoji: defaultLootEmoji
+        }
+      };
+    }
+  );
+
+  server.put(
+    '/guilds/:guildId/loot-settings',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ guildId: z.string() });
+      const { guildId } = paramsSchema.parse(request.params);
+
+      const membership = await getUserGuildRole(request.user.userId, guildId);
+      if (!membership || membership.role === 'MEMBER') {
+        return reply.forbidden('Only raid staff can update parser settings.');
       }
-    } else if (!canForceStop) {
-      return reply.forbidden('You do not have permission to force stop monitoring.');
-    }
 
-    stopLootMonitorSession(raidId);
-    return reply.code(204).send();
-  });
+      const bodySchema = z.object({
+        patterns: z.array(parserPatternSchema).min(1),
+        emoji: z.string().max(16).optional().nullable()
+      });
 
-  server.get('/guilds/:guildId/loot-settings', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ guildId: z.string() });
-    const { guildId } = paramsSchema.parse(request.params);
-
-    const membership = await getUserGuildRole(request.user.userId, guildId);
-    if (!membership) {
-      return reply.forbidden('You are not a member of this guild.');
-    }
-
-    const settings = await getGuildLootParserSettings(guildId);
-    return {
-      settings,
-      defaults: {
-        patterns: defaultLootPatterns,
-        emoji: defaultLootEmoji
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid parser settings payload.');
       }
-    };
-  });
 
-  server.put('/guilds/:guildId/loot-settings', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ guildId: z.string() });
-    const { guildId } = paramsSchema.parse(request.params);
-
-    const membership = await getUserGuildRole(request.user.userId, guildId);
-    if (!membership || membership.role === 'MEMBER') {
-      return reply.forbidden('Only raid staff can update parser settings.');
-    }
-
-    const bodySchema = z.object({
-      patterns: z.array(parserPatternSchema).min(1),
-      emoji: z.string().max(16).optional().nullable()
-    });
-
-    const parsed = bodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.badRequest('Invalid parser settings payload.');
-    }
-
-    try {
-      const settings = await updateGuildLootParserSettings(guildId, parsed.data);
-      return { settings };
-    } catch (error) {
-      if (error instanceof InvalidLootPatternError) {
-        return reply.badRequest(error.message);
+      try {
+        const settings = await updateGuildLootParserSettings(guildId, parsed.data);
+        return { settings };
+      } catch (error) {
+        if (error instanceof InvalidLootPatternError) {
+          return reply.badRequest(error.message);
+        }
+        throw error;
       }
-      throw error;
     }
-  });
+  );
 }

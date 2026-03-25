@@ -113,7 +113,7 @@
               @click="openItemOwnershipModal(result)"
             >
               <div class="result-name-row">
-                <span v-if="hasValidIconId(result.itemIconId)" class="result-item-icon">
+                <span v-if="hasSearchResultIcon(result.itemIconId)" class="result-item-icon">
                   <img
                     :src="getLootIconSrc(result.itemIconId!)"
                     :alt="result.itemName"
@@ -561,7 +561,7 @@
           <div class="item-ownership-modal__title-group">
             <div v-if="itemOwnershipResult" class="item-ownership-modal__title-row">
               <span
-                v-if="hasValidIconId(itemOwnershipResult.item.itemIconId)"
+                v-if="hasSearchResultIcon(itemOwnershipResult.item.itemIconId)"
                 class="item-ownership-modal__icon"
               >
                 <img
@@ -610,43 +610,72 @@
           >
             No character inventories currently contain this item.
           </p>
-          <div v-else-if="itemOwnershipResult" class="item-ownership-table-wrapper">
-            <table class="item-ownership-table">
-              <thead>
-                <tr>
-                  <th>Character</th>
-                  <th>Account</th>
-                  <th>Level / Class</th>
-                  <th>Guild</th>
-                  <th>Location</th>
-                  <th>Quantity</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="owner in itemOwnershipResult.owners"
-                  :key="`${owner.characterId}-${owner.slotId}-${owner.location}`"
-                >
-                  <td>
-                    <button
-                      type="button"
-                      class="item-owner-link"
-                      @click="openCharacterAdminById(owner.characterId)"
-                    >
-                      {{ owner.characterName }}
-                    </button>
-                  </td>
-                  <td>{{ owner.accountName }}</td>
-                  <td>Level {{ owner.level }} {{ formatClass(owner.className) }}</td>
-                  <td>
-                    <span v-if="owner.guildName" class="guild-tag">{{ owner.guildName }}</span>
-                    <span v-else class="muted">-</span>
-                  </td>
-                  <td>{{ formatItemLocation(owner.location, owner.slotId) }}</td>
-                  <td>x{{ owner.quantity }}</td>
-                </tr>
-              </tbody>
-            </table>
+          <div v-else-if="itemOwnershipResult" class="item-ownership-content">
+            <div class="item-ownership-content__meta">
+              <span class="muted small">
+                Showing {{ itemOwnershipRangeStart }}-{{ itemOwnershipRangeEnd }} of
+                {{ itemOwnershipResult.owners.length }} inventory entries
+              </span>
+            </div>
+
+            <div class="item-ownership-table-wrapper">
+              <table class="item-ownership-table">
+                <thead>
+                  <tr>
+                    <th>Character</th>
+                    <th>Account</th>
+                    <th>Level / Class</th>
+                    <th>Guild</th>
+                    <th>Location</th>
+                    <th>Quantity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="owner in paginatedItemOwners"
+                    :key="`${owner.characterId}-${owner.slotId}-${owner.location}`"
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        class="item-owner-link"
+                        @click="openCharacterAdminById(owner.characterId)"
+                      >
+                        {{ owner.characterName }}
+                      </button>
+                    </td>
+                    <td>{{ owner.accountName }}</td>
+                    <td>Level {{ owner.level }} {{ formatClass(owner.className) }}</td>
+                    <td>
+                      <span v-if="owner.guildName" class="guild-tag">{{ owner.guildName }}</span>
+                      <span v-else class="muted">-</span>
+                    </td>
+                    <td>{{ formatItemLocation(owner.location, owner.slotId) }}</td>
+                    <td>x{{ owner.quantity }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="itemOwnershipTotalPages > 1" class="pagination item-ownership-pagination">
+              <button
+                class="pagination__button"
+                :disabled="itemOwnershipPage === 1"
+                @click="setItemOwnershipPage(itemOwnershipPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__label">
+                Page {{ itemOwnershipPage }} of {{ itemOwnershipTotalPages }}
+              </span>
+              <button
+                class="pagination__button"
+                :disabled="itemOwnershipPage === itemOwnershipTotalPages"
+                @click="setItemOwnershipPage(itemOwnershipPage + 1)"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -741,6 +770,8 @@ const itemOwnershipModalOpen = ref(false);
 const itemOwnershipLoading = ref(false);
 const itemOwnershipError = ref<string | null>(null);
 const itemOwnershipResult = ref<AdminItemOwnershipResult | null>(null);
+const itemOwnershipPage = ref(1);
+const itemOwnershipPageSize = 25;
 let globalSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const normalizedGlobalSearchQuery = computed(() => globalSearchQuery.value.trim());
@@ -778,6 +809,30 @@ const showGlobalSearchNoResults = computed(() => {
 const globalSearchNoResultsText = computed(() =>
   globalSearchMode.value === 'characters' ? 'No characters found' : 'No items found'
 );
+const itemOwnershipTotalPages = computed(() =>
+  Math.max(1, Math.ceil((itemOwnershipResult.value?.owners.length ?? 0) / itemOwnershipPageSize))
+);
+const paginatedItemOwners = computed(() => {
+  const owners = itemOwnershipResult.value?.owners ?? [];
+  const start = (itemOwnershipPage.value - 1) * itemOwnershipPageSize;
+  return owners.slice(start, start + itemOwnershipPageSize);
+});
+const itemOwnershipRangeStart = computed(() => {
+  const totalOwners = itemOwnershipResult.value?.owners.length ?? 0;
+  if (totalOwners === 0) {
+    return 0;
+  }
+
+  return (itemOwnershipPage.value - 1) * itemOwnershipPageSize + 1;
+});
+const itemOwnershipRangeEnd = computed(() => {
+  const totalOwners = itemOwnershipResult.value?.owners.length ?? 0;
+  if (totalOwners === 0) {
+    return 0;
+  }
+
+  return Math.min(itemOwnershipPage.value * itemOwnershipPageSize, totalOwners);
+});
 
 function clearGlobalSearchResults() {
   characterAdminStore.clearSearchResults();
@@ -857,6 +912,7 @@ async function openItemOwnershipModal(item: AdminItemSearchResult) {
   itemOwnershipLoading.value = true;
   itemOwnershipError.value = null;
   itemOwnershipResult.value = null;
+  itemOwnershipPage.value = 1;
   globalSearchQuery.value = '';
   showSearchResults.value = false;
   clearGlobalSearchResults();
@@ -878,6 +934,11 @@ function closeItemOwnershipModal() {
   itemOwnershipLoading.value = false;
   itemOwnershipError.value = null;
   itemOwnershipResult.value = null;
+  itemOwnershipPage.value = 1;
+}
+
+function setItemOwnershipPage(page: number) {
+  itemOwnershipPage.value = Math.min(Math.max(1, page), itemOwnershipTotalPages.value);
 }
 
 function openHackEvents(characterId: number) {
@@ -907,6 +968,10 @@ function updateTooltipPosition(event: MouseEvent) {
 
 function hideItemTooltip() {
   tooltipStore.hideTooltip();
+}
+
+function hasSearchResultIcon(iconId: number | null | undefined): iconId is number {
+  return typeof iconId === 'number' && Number.isFinite(iconId) && iconId >= 0;
 }
 
 function formatItemLocation(location: GuildBankLocation, slotId: number): string {
@@ -2452,11 +2517,33 @@ onUnmounted(() => {
 
 .item-ownership-modal__body {
   padding: 1.5rem;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.item-ownership-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.item-ownership-content__meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .item-ownership-table-wrapper {
-  overflow-x: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: min(60vh, 34rem);
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.35);
 }
 
 .item-ownership-table {
@@ -2472,14 +2559,23 @@ onUnmounted(() => {
 }
 
 .item-ownership-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: rgba(148, 163, 184, 0.72);
+  background: rgba(15, 23, 42, 0.92);
 }
 
 .item-ownership-table tbody tr:hover {
   background: rgba(59, 130, 246, 0.08);
+}
+
+.item-ownership-pagination {
+  margin-top: 0;
+  padding-top: 0.25rem;
 }
 
 .item-owner-link {
@@ -2753,6 +2849,10 @@ onUnmounted(() => {
   .item-ownership-modal__title-row {
     align-items: flex-start;
   }
+
+  .item-ownership-content__meta {
+    justify-content: center;
+  }
 }
 
 @media (max-width: 480px) {
@@ -2797,6 +2897,10 @@ onUnmounted(() => {
   .item-ownership-table td {
     padding: 0.7rem 0.55rem;
     font-size: 0.8rem;
+  }
+
+  .item-ownership-table-wrapper {
+    max-height: min(55vh, 28rem);
   }
 
   .ip-group {
