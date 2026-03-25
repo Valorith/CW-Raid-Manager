@@ -1563,6 +1563,33 @@ export interface ConnectionsResponse {
   ipExemptions: IpExemption[];
 }
 
+export interface AdminItemSearchResult {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+}
+
+export interface AdminItemOwner {
+  characterId: number;
+  characterName: string;
+  accountId: number;
+  accountName: string;
+  level: number;
+  className: CharacterClass;
+  classId: number;
+  guildName: string | null;
+  slotId: number;
+  location: GuildBankLocation;
+  quantity: number;
+}
+
+export interface AdminItemOwnershipResult {
+  item: AdminItemSearchResult;
+  owners: AdminItemOwner[];
+  totalCharacterCount: number;
+  totalItemCount: number;
+}
+
 // Player Event Log Types
 export interface PlayerEventLog {
   id: number;
@@ -4581,6 +4608,22 @@ export const api = {
   async searchCharacters(query: string): Promise<AdminCharacterSearchResult[]> {
     const response = await axios.get(`/api/admin/characters/search?q=${encodeURIComponent(query)}`);
     return response.data.characters ?? [];
+  },
+
+  /**
+   * Searches items by partial name or exact item ID for admin/global search.
+   */
+  async searchAdminItems(query: string): Promise<AdminItemSearchResult[]> {
+    const response = await axios.get(`/api/admin/items/search?q=${encodeURIComponent(query)}`);
+    return response.data.items ?? [];
+  },
+
+  /**
+   * Fetches every character that possesses a given item.
+   */
+  async fetchAdminItemOwnership(itemId: number): Promise<AdminItemOwnershipResult> {
+    const response = await axios.get(`/api/admin/items/${itemId}/owners`);
+    return response.data;
   },
 
   // ============================================

@@ -6,9 +6,7 @@
         <p class="muted">Currently connected characters on the EQEmu server.</p>
       </div>
       <div class="section-header__actions">
-        <router-link to="/admin" class="btn btn--outline">
-          Back to Admin
-        </router-link>
+        <router-link to="/admin" class="btn btn--outline"> Back to Admin </router-link>
         <div v-if="authStore.isAdmin" class="auto-link-wrapper">
           <span class="auto-link-label">
             Last: {{ lastAutoLinkDate ? formatAutoLinkDate : 'Never' }}
@@ -49,11 +47,7 @@
       <div class="stat-card">
         <span class="stat-card__label">Auto-Refresh</span>
         <strong class="stat-card__value">{{ autoRefreshEnabled ? 'ON' : 'OFF' }}</strong>
-        <button
-          type="button"
-          class="stat-card__toggle"
-          @click="toggleAutoRefresh"
-        >
+        <button type="button" class="stat-card__toggle" @click="toggleAutoRefresh">
           {{ autoRefreshEnabled ? 'Disable' : 'Enable' }}
         </button>
       </div>
@@ -62,39 +56,83 @@
     <!-- Character Search -->
     <div class="character-search-section">
       <div class="character-search">
-        <label class="character-search__label">Global Character Search</label>
+        <label class="character-search__label">Global Search</label>
         <div class="search-input-wrapper">
           <input
             type="text"
             v-model="globalSearchQuery"
-            placeholder="Search any character by name..."
+            :placeholder="globalSearchPlaceholder"
             class="character-search__input"
             @input="handleGlobalSearch"
             @focus="showSearchResults = true"
           />
-          <span v-if="characterAdminStore.searchLoading" class="search-spinner"></span>
+          <span v-if="activeGlobalSearchLoading" class="search-spinner"></span>
         </div>
-        <div
-          v-if="showSearchResults && (characterAdminStore.searchResults.length > 0 || globalSearchQuery.length >= 2)"
-          class="character-search__results"
-        >
-          <div
-            v-for="result in characterAdminStore.searchResults"
-            :key="result.id"
-            class="character-search__result"
-            @click="openCharacterAdmin(result)"
+        <div class="character-search__toggle" role="tablist" aria-label="Global search mode">
+          <button
+            type="button"
+            class="character-search__toggle-button"
+            :class="{ 'character-search__toggle-button--active': globalSearchMode === 'items' }"
+            :aria-pressed="globalSearchMode === 'items'"
+            @click="setGlobalSearchMode('items')"
           >
-            <span class="result-name">{{ result.name }}</span>
-            <span class="result-details">
-              Level {{ result.level }} {{ result.className }}
-              <span class="result-account">({{ result.accountName }})</span>
-            </span>
-          </div>
+            Items
+          </button>
+          <button
+            type="button"
+            class="character-search__toggle-button"
+            :class="{
+              'character-search__toggle-button--active': globalSearchMode === 'characters'
+            }"
+            :aria-pressed="globalSearchMode === 'characters'"
+            @click="setGlobalSearchMode('characters')"
+          >
+            Characters
+          </button>
+        </div>
+        <div v-if="showSearchResults && showGlobalSearchDropdown" class="character-search__results">
+          <template v-if="globalSearchMode === 'characters'">
+            <div
+              v-for="result in characterAdminStore.searchResults"
+              :key="result.id"
+              class="character-search__result"
+              @click="openCharacterAdmin(result)"
+            >
+              <span class="result-name">{{ result.name }}</span>
+              <span class="result-details">
+                Level {{ result.level }} {{ result.className }}
+                <span class="result-account">({{ result.accountName }})</span>
+              </span>
+            </div>
+          </template>
+          <template v-else>
+            <div
+              v-for="result in itemSearchResults"
+              :key="result.itemId"
+              class="character-search__result"
+              @click="openItemOwnershipModal(result)"
+            >
+              <div class="result-name-row">
+                <span v-if="hasValidIconId(result.itemIconId)" class="result-item-icon">
+                  <img
+                    :src="getLootIconSrc(result.itemIconId!)"
+                    :alt="result.itemName"
+                    loading="lazy"
+                  />
+                </span>
+                <span class="result-name">{{ result.itemName }}</span>
+              </div>
+              <span class="result-details">Item ID {{ result.itemId }}</span>
+            </div>
+          </template>
           <div
-            v-if="characterAdminStore.searchResults.length === 0 && globalSearchQuery.length >= 2 && !characterAdminStore.searchLoading"
+            v-if="showGlobalSearchNoResults && !activeGlobalSearchLoading"
             class="character-search__no-results"
           >
-            No characters found
+            {{ globalSearchNoResultsText }}
+          </div>
+          <div v-else-if="itemSearchError" class="character-search__no-results">
+            {{ itemSearchError }}
           </div>
         </div>
       </div>
@@ -104,7 +142,10 @@
       <header class="card__header">
         <div>
           <h2>Connected Characters</h2>
-          <span class="muted small">{{ filteredConnections.length }} characters from {{ filteredIpGroups.length }} IPs</span>
+          <span class="muted small"
+            >{{ filteredConnections.length }} characters from
+            {{ filteredIpGroups.length }} IPs</span
+          >
         </div>
         <input
           v-model="searchQuery"
@@ -119,7 +160,9 @@
         {{ error }}
       </p>
       <p v-else-if="filteredConnections.length === 0" class="muted empty-message">
-        {{ searchQuery ? 'No characters match your search.' : 'No characters currently connected.' }}
+        {{
+          searchQuery ? 'No characters match your search.' : 'No characters currently connected.'
+        }}
       </p>
 
       <div v-else class="ip-groups">
@@ -135,12 +178,18 @@
           <div class="ip-group__header">
             <div class="ip-group__left">
               <code class="ip-address">{{ group.ip }}</code>
-              <span class="ip-group__count">{{ getTotalGroupCount(group) }} character{{ getTotalGroupCount(group) !== 1 ? 's' : '' }}</span>
+              <span class="ip-group__count"
+                >{{ getTotalGroupCount(group) }} character{{
+                  getTotalGroupCount(group) !== 1 ? 's' : ''
+                }}</span
+              >
             </div>
             <span
               class="ip-group__outside-count"
               :class="{
-                'ip-group__outside-count--warning': getOutsideHomeCount(group) > 0 && getOutsideHomeCount(group) <= getIpLimit(group.ip),
+                'ip-group__outside-count--warning':
+                  getOutsideHomeCount(group) > 0 &&
+                  getOutsideHomeCount(group) <= getIpLimit(group.ip),
                 'ip-group__outside-count--danger': getOutsideHomeCount(group) > getIpLimit(group.ip)
               }"
             >
@@ -189,9 +238,15 @@
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-last-kill">
-                    <div v-if="conn.lastKillNpcName" class="last-kill-cell" :title="formatLastKillTooltip(conn)">
+                    <div
+                      v-if="conn.lastKillNpcName"
+                      class="last-kill-cell"
+                      :title="formatLastKillTooltip(conn)"
+                    >
                       <span class="last-kill-name">{{ formatNpcName(conn.lastKillNpcName) }}</span>
-                      <span v-if="conn.lastKillAt" class="last-kill-time">{{ formatRelativeTime(conn.lastKillAt) }}</span>
+                      <span v-if="conn.lastKillAt" class="last-kill-time">{{
+                        formatRelativeTime(conn.lastKillAt)
+                      }}</span>
                     </div>
                     <span v-else class="muted">-</span>
                   </td>
@@ -225,7 +280,15 @@
           <!-- Trader Sub-group -->
           <div v-if="group.traders.length > 0" class="trader-subgroup">
             <div class="trader-subgroup__header">
-              <svg class="subgroup-icon subgroup-icon--trader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                class="subgroup-icon subgroup-icon--trader"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
                 <line x1="3" y1="6" x2="21" y2="6"></line>
                 <path d="M16 10a4 4 0 0 1-8 0"></path>
@@ -281,7 +344,10 @@
                           @mousemove="updateTooltipPosition($event)"
                           @mouseleave="hideItemTooltip"
                         >
-                          <span v-if="hasValidIconId(trader.lastSaleItemIconId)" class="last-sale-icon">
+                          <span
+                            v-if="hasValidIconId(trader.lastSaleItemIconId)"
+                            class="last-sale-icon"
+                          >
                             <img
                               :src="getLootIconSrc(trader.lastSaleItemIconId!)"
                               :alt="trader.lastSaleItemName"
@@ -291,8 +357,12 @@
                           <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
                         </div>
                         <div class="last-sale-details">
-                          <span class="last-sale-price">{{ formatMoney(trader.lastSalePrice) }}</span>
-                          <span class="last-sale-time">{{ formatRelativeTime(trader.lastSaleAt!) }}</span>
+                          <span class="last-sale-price">{{
+                            formatMoney(trader.lastSalePrice)
+                          }}</span>
+                          <span class="last-sale-time">{{
+                            formatRelativeTime(trader.lastSaleAt!)
+                          }}</span>
                         </div>
                       </div>
                       <span v-else class="muted">-</span>
@@ -304,8 +374,14 @@
                         @click="openTraderSales(trader.characterId)"
                         :title="`View ${trader.totalSalesCount} sale${trader.totalSalesCount !== 1 ? 's' : ''}`"
                       >
-                        <span class="total-sales-amount">{{ formatMoney(trader.totalSalesAmount) }}</span>
-                        <span class="total-sales-count">({{ trader.totalSalesCount }} item{{ trader.totalSalesCount !== 1 ? 's' : '' }})</span>
+                        <span class="total-sales-amount">{{
+                          formatMoney(trader.totalSalesAmount)
+                        }}</span>
+                        <span class="total-sales-count"
+                          >({{ trader.totalSalesCount }} item{{
+                            trader.totalSalesCount !== 1 ? 's' : ''
+                          }})</span
+                        >
                       </button>
                       <span v-else class="muted">-</span>
                     </td>
@@ -329,7 +405,15 @@
           <!-- Fighter Sub-group -->
           <div v-if="group.fighters.length > 0" class="fighter-subgroup">
             <div class="fighter-subgroup__header">
-              <svg class="subgroup-icon subgroup-icon--fighter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                class="subgroup-icon subgroup-icon--fighter"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M14.5 17.5L3 6V3h3l11.5 11.5"></path>
                 <path d="M13 19l6-6"></path>
                 <path d="M16 16l4 4"></path>
@@ -379,13 +463,23 @@
                     <td class="col-level">{{ fighter.level }}</td>
                     <td class="col-zone">{{ fighter.zoneName }}</td>
                     <td class="col-guild">
-                      <span v-if="fighter.guildName" class="guild-tag">{{ fighter.guildName }}</span>
+                      <span v-if="fighter.guildName" class="guild-tag">{{
+                        fighter.guildName
+                      }}</span>
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-last-kill">
-                      <div v-if="fighter.lastKillNpcName" class="last-kill-cell" :title="formatLastKillTooltip(fighter)">
-                        <span class="last-kill-name">{{ formatNpcName(fighter.lastKillNpcName) }}</span>
-                        <span v-if="fighter.lastKillAt" class="last-kill-time">{{ formatRelativeTime(fighter.lastKillAt) }}</span>
+                      <div
+                        v-if="fighter.lastKillNpcName"
+                        class="last-kill-cell"
+                        :title="formatLastKillTooltip(fighter)"
+                      >
+                        <span class="last-kill-name">{{
+                          formatNpcName(fighter.lastKillNpcName)
+                        }}</span>
+                        <span v-if="fighter.lastKillAt" class="last-kill-time">{{
+                          formatRelativeTime(fighter.lastKillAt)
+                        }}</span>
                       </div>
                       <span v-else class="muted">-</span>
                     </td>
@@ -394,7 +488,10 @@
                         <span :title="formatFullDate(fighter.lastActionAt)">
                           {{ formatRelativeTime(fighter.lastActionAt) }}
                         </span>
-                        <span class="event-type-badge" :title="formatFullDate(fighter.lastActionAt)">
+                        <span
+                          class="event-type-badge"
+                          :title="formatFullDate(fighter.lastActionAt)"
+                        >
                           {{ getEventTypeLabel(fighter.lastActionEventTypeId) }}
                         </span>
                       </div>
@@ -438,9 +535,7 @@
       </div>
     </article>
 
-    <p v-if="lastUpdated" class="last-updated muted small">
-      Last updated: {{ formatLastUpdated }}
-    </p>
+    <p v-if="lastUpdated" class="last-updated muted small">Last updated: {{ formatLastUpdated }}</p>
 
     <!-- Confirmation Modal for Auto-Link -->
     <ConfirmationModal
@@ -454,10 +549,108 @@
     />
 
     <!-- Progress Modal for Auto-Link -->
-    <AutoLinkProgressModal
-      :is-open="showAutoLinkProgress"
-      @close="handleAutoLinkClose"
-    />
+    <AutoLinkProgressModal :is-open="showAutoLinkProgress" @close="handleAutoLinkClose" />
+
+    <div
+      v-if="itemOwnershipModalOpen"
+      class="item-ownership-modal-backdrop"
+      @click.self="closeItemOwnershipModal"
+    >
+      <div class="item-ownership-modal">
+        <header class="item-ownership-modal__header">
+          <div class="item-ownership-modal__title-group">
+            <div v-if="itemOwnershipResult" class="item-ownership-modal__title-row">
+              <span
+                v-if="hasValidIconId(itemOwnershipResult.item.itemIconId)"
+                class="item-ownership-modal__icon"
+              >
+                <img
+                  :src="getLootIconSrc(itemOwnershipResult.item.itemIconId!)"
+                  :alt="itemOwnershipResult.item.itemName"
+                  loading="lazy"
+                />
+              </span>
+              <div>
+                <p class="item-ownership-modal__eyebrow">Item Ownership</p>
+                <h2>{{ itemOwnershipResult.item.itemName }}</h2>
+              </div>
+            </div>
+            <div v-else>
+              <p class="item-ownership-modal__eyebrow">Item Ownership</p>
+              <h2>Loading item owners...</h2>
+            </div>
+            <p v-if="itemOwnershipResult" class="item-ownership-modal__summary">
+              Item ID {{ itemOwnershipResult.item.itemId }} •
+              {{ itemOwnershipResult.totalCharacterCount }} character{{
+                itemOwnershipResult.totalCharacterCount === 1 ? '' : 's'
+              }}
+              • {{ itemOwnershipResult.totalItemCount }} total item{{
+                itemOwnershipResult.totalItemCount === 1 ? '' : 's'
+              }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="item-ownership-modal__close"
+            aria-label="Close item ownership modal"
+            @click="closeItemOwnershipModal"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="item-ownership-modal__body">
+          <GlobalLoadingSpinner v-if="itemOwnershipLoading" />
+          <p v-else-if="itemOwnershipError" class="error-message">
+            {{ itemOwnershipError }}
+          </p>
+          <p
+            v-else-if="itemOwnershipResult && itemOwnershipResult.owners.length === 0"
+            class="muted empty-message"
+          >
+            No character inventories currently contain this item.
+          </p>
+          <div v-else-if="itemOwnershipResult" class="item-ownership-table-wrapper">
+            <table class="item-ownership-table">
+              <thead>
+                <tr>
+                  <th>Character</th>
+                  <th>Account</th>
+                  <th>Level / Class</th>
+                  <th>Guild</th>
+                  <th>Location</th>
+                  <th>Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="owner in itemOwnershipResult.owners"
+                  :key="`${owner.characterId}-${owner.slotId}-${owner.location}`"
+                >
+                  <td>
+                    <button
+                      type="button"
+                      class="item-owner-link"
+                      @click="openCharacterAdminById(owner.characterId)"
+                    >
+                      {{ owner.characterName }}
+                    </button>
+                  </td>
+                  <td>{{ owner.accountName }}</td>
+                  <td>Level {{ owner.level }} {{ formatClass(owner.className) }}</td>
+                  <td>
+                    <span v-if="owner.guildName" class="guild-tag">{{ owner.guildName }}</span>
+                    <span v-else class="muted">-</span>
+                  </td>
+                  <td>{{ formatItemLocation(owner.location, owner.slotId) }}</td>
+                  <td>x{{ owner.quantity }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -468,7 +661,14 @@ import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type ServerConnection, type IpExemption, type AutoLinkSettings } from '../services/api';
+import {
+  api,
+  type AdminItemOwnershipResult,
+  type AdminItemSearchResult,
+  type GuildBankLocation,
+  type IpExemption,
+  type ServerConnection
+} from '../services/api';
 import { characterClassLabels, characterClassIcons, type CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
@@ -483,13 +683,21 @@ const DEFAULT_OUTSIDE_LIMIT = 2;
 const characterAdminStore = useCharacterAdminStore();
 const tooltipStore = useItemTooltipStore();
 // Orange border: directly watched characters
-const watchedCharacterIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqCharacterId)));
+const watchedCharacterIds = computed(
+  () => new Set(characterAdminStore.fullWatchList.map((w) => w.eqCharacterId))
+);
 // Orange border: characters on the same account as watched characters
-const watchedAccountIds = computed(() => new Set(characterAdminStore.fullWatchList.map(w => w.eqAccountId)));
+const watchedAccountIds = computed(
+  () => new Set(characterAdminStore.fullWatchList.map((w) => w.eqAccountId))
+);
 // Orange border: characters with direct associations to watched characters
-const directAssociatedIds = computed(() => new Set(characterAdminStore.directAssociatedCharacterIds));
+const directAssociatedIds = computed(
+  () => new Set(characterAdminStore.directAssociatedCharacterIds)
+);
 // Yellow border: characters with indirect associations to watched characters
-const indirectAssociatedIds = computed(() => new Set(characterAdminStore.indirectAssociatedCharacterIds));
+const indirectAssociatedIds = computed(
+  () => new Set(characterAdminStore.indirectAssociatedCharacterIds)
+);
 
 interface IpGroup {
   ip: string;
@@ -525,26 +733,151 @@ const lastAutoLinkDate = ref<Date | null>(null);
 // Global character search
 const globalSearchQuery = ref('');
 const showSearchResults = ref(false);
+const globalSearchMode = ref<'characters' | 'items'>('characters');
+const itemSearchResults = ref<AdminItemSearchResult[]>([]);
+const itemSearchLoading = ref(false);
+const itemSearchError = ref<string | null>(null);
+const itemOwnershipModalOpen = ref(false);
+const itemOwnershipLoading = ref(false);
+const itemOwnershipError = ref<string | null>(null);
+const itemOwnershipResult = ref<AdminItemOwnershipResult | null>(null);
 let globalSearchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const normalizedGlobalSearchQuery = computed(() => globalSearchQuery.value.trim());
+const isGlobalItemIdQuery = computed(() => /^\d+$/.test(normalizedGlobalSearchQuery.value));
+const canSearchCharacters = computed(() => normalizedGlobalSearchQuery.value.length >= 2);
+const canSearchItems = computed(
+  () => isGlobalItemIdQuery.value || normalizedGlobalSearchQuery.value.length >= 2
+);
+const activeGlobalSearchLoading = computed(() =>
+  globalSearchMode.value === 'characters'
+    ? characterAdminStore.searchLoading
+    : itemSearchLoading.value
+);
+const globalSearchPlaceholder = computed(() =>
+  globalSearchMode.value === 'characters'
+    ? 'Search any character by name...'
+    : 'Search by item name or item ID...'
+);
+const showGlobalSearchDropdown = computed(() => {
+  if (globalSearchMode.value === 'characters') {
+    return characterAdminStore.searchResults.length > 0 || canSearchCharacters.value;
+  }
+
+  return (
+    itemSearchResults.value.length > 0 || canSearchItems.value || Boolean(itemSearchError.value)
+  );
+});
+const showGlobalSearchNoResults = computed(() => {
+  if (globalSearchMode.value === 'characters') {
+    return characterAdminStore.searchResults.length === 0 && canSearchCharacters.value;
+  }
+
+  return itemSearchResults.value.length === 0 && canSearchItems.value && !itemSearchError.value;
+});
+const globalSearchNoResultsText = computed(() =>
+  globalSearchMode.value === 'characters' ? 'No characters found' : 'No items found'
+);
+
+function clearGlobalSearchResults() {
+  characterAdminStore.clearSearchResults();
+  itemSearchResults.value = [];
+  itemSearchError.value = null;
+}
+
+async function searchItems(query: string) {
+  itemSearchLoading.value = true;
+  itemSearchError.value = null;
+
+  try {
+    itemSearchResults.value = await api.searchAdminItems(query);
+  } catch (err) {
+    console.error('Failed to search items:', err);
+    itemSearchResults.value = [];
+    itemSearchError.value = err instanceof Error ? err.message : 'Failed to search items.';
+  } finally {
+    itemSearchLoading.value = false;
+  }
+}
 
 function handleGlobalSearch() {
   if (globalSearchTimeout) clearTimeout(globalSearchTimeout);
 
-  if (globalSearchQuery.value.length < 2) {
-    characterAdminStore.clearSearchResults();
+  if (globalSearchMode.value === 'characters' && !canSearchCharacters.value) {
+    clearGlobalSearchResults();
+    return;
+  }
+
+  if (globalSearchMode.value === 'items' && !canSearchItems.value) {
+    clearGlobalSearchResults();
     return;
   }
 
   globalSearchTimeout = setTimeout(() => {
-    characterAdminStore.searchCharacters(globalSearchQuery.value);
+    const query = normalizedGlobalSearchQuery.value;
+    if (globalSearchMode.value === 'characters') {
+      characterAdminStore.searchCharacters(query);
+      return;
+    }
+
+    searchItems(query);
   }, 300);
+}
+
+function setGlobalSearchMode(mode: 'characters' | 'items') {
+  if (globalSearchMode.value === mode) {
+    return;
+  }
+
+  globalSearchMode.value = mode;
+  clearGlobalSearchResults();
+
+  if (normalizedGlobalSearchQuery.value) {
+    showSearchResults.value = true;
+    handleGlobalSearch();
+  } else {
+    showSearchResults.value = false;
+  }
 }
 
 function openCharacterAdmin(result: { id: number; name: string }) {
   characterAdminStore.openById(result.id);
   globalSearchQuery.value = '';
   showSearchResults.value = false;
-  characterAdminStore.clearSearchResults();
+  clearGlobalSearchResults();
+}
+
+function openCharacterAdminById(characterId: number) {
+  closeItemOwnershipModal();
+  characterAdminStore.openById(characterId);
+}
+
+async function openItemOwnershipModal(item: AdminItemSearchResult) {
+  itemOwnershipModalOpen.value = true;
+  itemOwnershipLoading.value = true;
+  itemOwnershipError.value = null;
+  itemOwnershipResult.value = null;
+  globalSearchQuery.value = '';
+  showSearchResults.value = false;
+  clearGlobalSearchResults();
+
+  try {
+    itemOwnershipResult.value = await api.fetchAdminItemOwnership(item.itemId);
+  } catch (err: unknown) {
+    const error = err as { response?: { data?: { message?: string } }; message?: string };
+    console.error('Failed to fetch item ownership:', err);
+    itemOwnershipError.value =
+      error.response?.data?.message || error.message || 'Failed to load item ownership.';
+  } finally {
+    itemOwnershipLoading.value = false;
+  }
+}
+
+function closeItemOwnershipModal() {
+  itemOwnershipModalOpen.value = false;
+  itemOwnershipLoading.value = false;
+  itemOwnershipError.value = null;
+  itemOwnershipResult.value = null;
 }
 
 function openHackEvents(characterId: number) {
@@ -576,6 +909,21 @@ function hideItemTooltip() {
   tooltipStore.hideTooltip();
 }
 
+function formatItemLocation(location: GuildBankLocation, slotId: number): string {
+  switch (location) {
+    case 'WORN':
+      return `Worn (slot ${slotId})`;
+    case 'PERSONAL':
+      return slotId >= 4000 ? `Bag (slot ${slotId})` : `Personal (slot ${slotId})`;
+    case 'CURSOR':
+      return `Cursor (slot ${slotId})`;
+    case 'BANK':
+      return `Bank (slot ${slotId})`;
+    default:
+      return `Slot ${slotId}`;
+  }
+}
+
 // Close search results when clicking outside
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as HTMLElement;
@@ -604,7 +952,10 @@ const filteredConnections = computed(() => {
 });
 
 const filteredIpGroups = computed((): IpGroup[] => {
-  const groupMap = new Map<string, { connections: ServerConnection[]; traders: ServerConnection[]; fighters: ServerConnection[] }>();
+  const groupMap = new Map<
+    string,
+    { connections: ServerConnection[]; traders: ServerConnection[]; fighters: ServerConnection[] }
+  >();
 
   for (const conn of filteredConnections.value) {
     const existing = groupMap.get(conn.ip);
@@ -827,7 +1178,7 @@ function getEventTypeLabel(eventTypeId: number | null): string {
   return EVENT_TYPE_LABELS[eventTypeId] || 'Event';
 }
 
-const INACTIVE_ZONES = ["Clumsy's Home", "The Bazaar", "Guild Hall"];
+const INACTIVE_ZONES = ["Clumsy's Home", 'The Bazaar', 'Guild Hall'];
 
 function isOutsideHome(conn: ServerConnection): boolean {
   return !INACTIVE_ZONES.includes(conn.zoneName);
@@ -942,7 +1293,7 @@ async function syncIpAssociations(conns: typeof connections.value) {
   // Check if any IP group has multiple accounts
   let hasMultiAccountGroup = false;
   for (const group of ipGroups.values()) {
-    const uniqueAccounts = new Set(group.map(c => c.accountId));
+    const uniqueAccounts = new Set(group.map((c) => c.accountId));
     if (uniqueAccounts.size > 1) {
       hasMultiAccountGroup = true;
       break;
@@ -956,7 +1307,7 @@ async function syncIpAssociations(conns: typeof connections.value) {
   // Sync associations
   try {
     await api.syncIpGroupAssociations(
-      conns.map(c => ({
+      conns.map((c) => ({
         characterId: c.characterId,
         characterName: c.characterName,
         accountId: c.accountId,
@@ -967,7 +1318,6 @@ async function syncIpAssociations(conns: typeof connections.value) {
     console.error('Failed to sync IP group associations:', err);
   }
 }
-
 
 async function refreshConnections() {
   await loadConnections(true);
@@ -1043,6 +1393,9 @@ onMounted(async () => {
 onUnmounted(() => {
   stopAutoRefresh();
   document.removeEventListener('click', handleClickOutside);
+  if (globalSearchTimeout) {
+    clearTimeout(globalSearchTimeout);
+  }
 });
 </script>
 
@@ -1148,7 +1501,9 @@ onUnmounted(() => {
   border-radius: 0.5rem;
   color: #bae6fd;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .stat-card__toggle:hover {
@@ -1181,6 +1536,46 @@ onUnmounted(() => {
   position: relative;
 }
 
+.character-search__toggle {
+  display: inline-flex;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.character-search__toggle-button {
+  min-width: 120px;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.55);
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.12s ease;
+}
+
+.character-search__toggle-button:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #dbeafe;
+  transform: translateY(-1px);
+}
+
+.character-search__toggle-button--active {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.28), rgba(37, 99, 235, 0.2));
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #eff6ff;
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.22);
+}
+
 .character-search__input {
   width: 100%;
   padding: 0.75rem 1rem;
@@ -1190,7 +1585,9 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 0.75rem;
   color: #f8fafc;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .character-search__input:focus {
@@ -1258,6 +1655,30 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.result-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.result-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.35rem;
+}
+
+.result-item-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
 .character-search__result .result-details {
   font-size: 0.8rem;
   color: #94a3b8;
@@ -1305,7 +1726,9 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.6);
   color: #f8fafc;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .input--search:focus {
@@ -1325,7 +1748,9 @@ onUnmounted(() => {
   border: 2px solid rgba(100, 116, 139, 0.5);
   border-radius: 0.75rem;
   overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.1);
 }
 
@@ -1341,7 +1766,8 @@ onUnmounted(() => {
 }
 
 @keyframes hackCriticalPulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow: 0 0 16px rgba(239, 68, 68, 0.35);
   }
   50% {
@@ -1459,19 +1885,26 @@ onUnmounted(() => {
 }
 
 .connections-table tbody tr.row--watched td {
-  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
+  box-shadow:
+    inset 0 2px 0 rgba(249, 115, 22, 0.6),
+    inset 0 -2px 0 rgba(249, 115, 22, 0.6);
 }
 
 .connections-table tbody tr.row--watched td:first-child {
-  box-shadow: inset 3px 2px 0 rgba(249, 115, 22, 0.6), inset 0 -2px 0 rgba(249, 115, 22, 0.6);
+  box-shadow:
+    inset 3px 2px 0 rgba(249, 115, 22, 0.6),
+    inset 0 -2px 0 rgba(249, 115, 22, 0.6);
 }
 
 .connections-table tbody tr.row--watched td:last-child {
-  box-shadow: inset 0 2px 0 rgba(249, 115, 22, 0.6), inset -3px -2px 0 rgba(249, 115, 22, 0.6);
+  box-shadow:
+    inset 0 2px 0 rgba(249, 115, 22, 0.6),
+    inset -3px -2px 0 rgba(249, 115, 22, 0.6);
 }
 
 @keyframes watchPulse {
-  0%, 100% {
+  0%,
+  100% {
     background-color: rgba(249, 115, 22, 0.08);
   }
   50% {
@@ -1485,19 +1918,26 @@ onUnmounted(() => {
 }
 
 .connections-table tbody tr.row--watched-associated td {
-  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+  box-shadow:
+    inset 0 2px 0 rgba(234, 179, 8, 0.6),
+    inset 0 -2px 0 rgba(234, 179, 8, 0.6);
 }
 
 .connections-table tbody tr.row--watched-associated td:first-child {
-  box-shadow: inset 3px 2px 0 rgba(234, 179, 8, 0.6), inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+  box-shadow:
+    inset 3px 2px 0 rgba(234, 179, 8, 0.6),
+    inset 0 -2px 0 rgba(234, 179, 8, 0.6);
 }
 
 .connections-table tbody tr.row--watched-associated td:last-child {
-  box-shadow: inset 0 2px 0 rgba(234, 179, 8, 0.6), inset -3px -2px 0 rgba(234, 179, 8, 0.6);
+  box-shadow:
+    inset 0 2px 0 rgba(234, 179, 8, 0.6),
+    inset -3px -2px 0 rgba(234, 179, 8, 0.6);
 }
 
 @keyframes watchAssociatedPulse {
-  0%, 100% {
+  0%,
+  100% {
     background-color: rgba(234, 179, 8, 0.08);
   }
   50% {
@@ -1565,7 +2005,9 @@ onUnmounted(() => {
 
 .hack-count-badge--clickable {
   cursor: pointer;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .hack-count-badge--clickable:hover {
@@ -1771,7 +2213,9 @@ onUnmounted(() => {
   padding: 0.2rem 0.4rem;
   margin: -0.2rem -0.4rem;
   border-radius: 0.25rem;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  transition:
+    background-color 0.15s ease,
+    transform 0.1s ease;
 }
 
 .total-sales-cell--clickable:hover {
@@ -1892,7 +2336,10 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1907,6 +2354,149 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
+.item-ownership-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(2, 6, 23, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+.item-ownership-modal {
+  width: min(980px, 100%);
+  max-height: calc(100vh - 3rem);
+  display: flex;
+  flex-direction: column;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.94));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 30px 80px rgba(2, 6, 23, 0.5);
+}
+
+.item-ownership-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.item-ownership-modal__title-group h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1.35rem;
+}
+
+.item-ownership-modal__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.item-ownership-modal__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+}
+
+.item-ownership-modal__icon img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.item-ownership-modal__eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(96, 165, 250, 0.82);
+}
+
+.item-ownership-modal__summary {
+  margin: 0.75rem 0 0;
+  color: #94a3b8;
+  font-size: 0.88rem;
+}
+
+.item-ownership-modal__close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #e2e8f0;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    transform 0.12s ease;
+}
+
+.item-ownership-modal__close:hover {
+  background: rgba(148, 163, 184, 0.2);
+  transform: scale(1.04);
+}
+
+.item-ownership-modal__body {
+  padding: 1.5rem;
+  overflow: auto;
+}
+
+.item-ownership-table-wrapper {
+  overflow-x: auto;
+}
+
+.item-ownership-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.item-ownership-table th,
+.item-ownership-table td {
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+  text-align: left;
+}
+
+.item-ownership-table th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(148, 163, 184, 0.72);
+}
+
+.item-ownership-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.item-owner-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #93c5fd;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.item-owner-link:hover {
+  color: #dbeafe;
+  text-decoration: underline;
+}
+
 .last-updated {
   text-align: center;
 }
@@ -1917,7 +2507,9 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -1970,6 +2562,10 @@ onUnmounted(() => {
 
   .card {
     padding: 1rem;
+  }
+
+  .character-search {
+    width: 100%;
   }
 
   .card__header {
@@ -2054,6 +2650,14 @@ onUnmounted(() => {
     width: 130px;
   }
 
+  .character-search__toggle {
+    flex-wrap: wrap;
+  }
+
+  .character-search__toggle-button {
+    flex: 1;
+  }
+
   .last-sale-icon {
     width: 16px;
     height: 16px;
@@ -2133,6 +2737,22 @@ onUnmounted(() => {
   .stat-card__value {
     font-size: 1.4rem;
   }
+
+  .item-ownership-modal-backdrop {
+    padding: 0.75rem;
+  }
+
+  .item-ownership-modal__header {
+    padding: 1rem;
+  }
+
+  .item-ownership-modal__body {
+    padding: 1rem;
+  }
+
+  .item-ownership-modal__title-row {
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 480px) {
@@ -2167,6 +2787,16 @@ onUnmounted(() => {
 
   .card__header h2 {
     font-size: 1rem;
+  }
+
+  .item-ownership-modal__title-row {
+    flex-direction: column;
+  }
+
+  .item-ownership-table th,
+  .item-ownership-table td {
+    padding: 0.7rem 0.55rem;
+    font-size: 0.8rem;
   }
 
   .ip-group {

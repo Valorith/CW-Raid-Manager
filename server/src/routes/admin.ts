@@ -30,7 +30,13 @@ import {
   fetchLootMaster,
   getLootManagementSummary
 } from '../services/lootManagementService.js';
-import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity } from '../services/connectionsService.js';
+import {
+  fetchServerConnections,
+  fetchIpExemptions,
+  fetchCharacterLastActivity,
+  searchItemsForOwnership,
+  fetchItemOwnership
+} from '../services/connectionsService.js';
 import {
   fetchPlayerEventLogs,
   getPlayerEventLogStats,
@@ -71,8 +77,14 @@ import {
   getPendingMergeGroups,
   processGroupNow
 } from '../services/inboundWebhookService.js';
-import type { InboundWebhookActionConfig, BulkActionType } from '../services/inboundWebhookService.js';
-import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
+import type {
+  InboundWebhookActionConfig,
+  BulkActionType
+} from '../services/inboundWebhookService.js';
+import {
+  inspectCrashReport,
+  sortCrashReportSegments
+} from '../services/geminiCrashReviewService.js';
 import {
   getCharacterByName,
   getCharacterById,
@@ -94,7 +106,10 @@ import {
   type ConnectionForSync
 } from '../services/characterAdminService.js';
 
-async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
+async function requireAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void | FastifyReply> {
   try {
     await ensureAdmin(request.user.userId);
   } catch (error) {
@@ -103,7 +118,10 @@ async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promi
   }
 }
 
-async function requireGuideOrAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
+async function requireGuideOrAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void | FastifyReply> {
   try {
     await ensureGuideOrAdmin(request.user.userId);
   } catch (error) {
@@ -297,7 +315,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const membership = await upsertGuildMembershipAsAdmin(guildId, parsed.data.userId, parsed.data.role);
+        const membership = await upsertGuildMembershipAsAdmin(
+          guildId,
+          parsed.data.userId,
+          parsed.data.role
+        );
         return reply.code(201).send({ membership });
       } catch (error) {
         request.log.error({ error }, 'Failed to upsert guild membership.');
@@ -541,7 +563,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await fetchLootMaster(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        const result = await fetchLootMaster(
+          parsed.data.page,
+          parsed.data.pageSize,
+          parsed.data.search
+        );
         return result;
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch loot master data.');
@@ -571,7 +597,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await fetchLcItems(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        const result = await fetchLcItems(
+          parsed.data.page,
+          parsed.data.pageSize,
+          parsed.data.search
+        );
         return result;
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch LC items data.');
@@ -601,7 +631,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await fetchLcRequests(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        const result = await fetchLcRequests(
+          parsed.data.page,
+          parsed.data.pageSize,
+          parsed.data.search
+        );
         return result;
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch LC requests data.');
@@ -631,7 +665,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const result = await fetchLcVotes(parsed.data.page, parsed.data.pageSize, parsed.data.search);
+        const result = await fetchLcVotes(
+          parsed.data.page,
+          parsed.data.pageSize,
+          parsed.data.search
+        );
         return result;
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch LC votes data.');
@@ -657,11 +695,11 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         ]);
 
         // Fetch last activity data for all connected characters in a single batch query
-        const characterIds = baseConnections.map(c => c.characterId);
+        const characterIds = baseConnections.map((c) => c.characterId);
         const activityMap = await fetchCharacterLastActivity(characterIds);
 
         // Merge activity data into connections
-        const connections = baseConnections.map(conn => {
+        const connections = baseConnections.map((conn) => {
           const activity = activityMap.get(conn.characterId);
           return {
             ...conn,
@@ -703,14 +741,23 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         page: z.coerce.number().int().positive().default(1),
         pageSize: z.coerce.number().int().positive().max(100).default(50),
         characterName: z.string().optional(),
-        eventTypes: z.string().optional().transform((val) => {
-          if (!val) return undefined;
-          return val.split(',').map(Number).filter((n) => !Number.isNaN(n));
-        }),
+        eventTypes: z
+          .string()
+          .optional()
+          .transform((val) => {
+            if (!val) return undefined;
+            return val
+              .split(',')
+              .map(Number)
+              .filter((n) => !Number.isNaN(n));
+          }),
         zoneId: z.coerce.number().int().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        sortBy: z.enum(['created_at', 'character_name', 'event_type_id', 'zone_id']).optional().default('created_at'),
+        sortBy: z
+          .enum(['created_at', 'character_name', 'event_type_id', 'zone_id'])
+          .optional()
+          .default('created_at'),
         sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
         search: z.string().optional()
       });
@@ -813,6 +860,65 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     }
   );
 
+  server.get(
+    '/items/search',
+    {
+      preHandler: [authenticate, requireGuideOrAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        q: z.string().min(1).max(100)
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Search query is required.');
+      }
+
+      try {
+        const items = await searchItemsForOwnership(parsed.data.q);
+        return { items };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to search items.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to search items.');
+      }
+    }
+  );
+
+  server.get(
+    '/items/:itemId/owners',
+    {
+      preHandler: [authenticate, requireGuideOrAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        itemId: z.coerce.number().int().positive()
+      });
+
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid item ID.');
+      }
+
+      try {
+        const result = await fetchItemOwnership(parsed.data.itemId);
+        if (!result) {
+          return reply.notFound('Item not found.');
+        }
+        return result;
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch item ownership.');
+        if (error instanceof Error) {
+          return reply.badRequest(error.message);
+        }
+        return reply.badRequest('Unable to fetch item ownership.');
+      }
+    }
+  );
+
   // Get character by name
   server.get(
     '/characters/:name',
@@ -890,14 +996,23 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const querySchema = z.object({
         page: z.coerce.number().int().positive().default(1),
         pageSize: z.coerce.number().int().positive().max(100).default(25),
-        eventTypes: z.string().optional().transform((val) => {
-          if (!val) return undefined;
-          return val.split(',').map(Number).filter((n) => !Number.isNaN(n));
-        }),
+        eventTypes: z
+          .string()
+          .optional()
+          .transform((val) => {
+            if (!val) return undefined;
+            return val
+              .split(',')
+              .map(Number)
+              .filter((n) => !Number.isNaN(n));
+          }),
         zoneId: z.coerce.number().int().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        sortBy: z.enum(['created_at', 'character_name', 'event_type_id', 'zone_id']).optional().default('created_at'),
+        sortBy: z
+          .enum(['created_at', 'character_name', 'event_type_id', 'zone_id'])
+          .optional()
+          .default('created_at'),
         sortOrder: z.enum(['asc', 'desc']).optional().default('desc')
       });
 
@@ -1287,7 +1402,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
         // Get all associated character IDs for watched characters
         // These are characters in the CharacterAssociation table linked to any watched character
-        const watchedCharIds = watchList.map(w => w.eqCharacterId);
+        const watchedCharIds = watchList.map((w) => w.eqCharacterId);
 
         let directAssociatedCharacterIds: number[] = [];
         let indirectAssociatedCharacterIds: number[] = [];
@@ -1623,20 +1738,33 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const config = (parsedData.config ?? {}) as ActionConfig;
       const normalizedConfig: InboundWebhookActionConfig = {
         discordWebhookUrl:
-          typeof config.discordWebhookUrl === 'string' ? config.discordWebhookUrl.trim() || undefined : undefined,
+          typeof config.discordWebhookUrl === 'string'
+            ? config.discordWebhookUrl.trim() || undefined
+            : undefined,
         devDiscordWebhookUrl:
-          typeof config.devDiscordWebhookUrl === 'string' ? config.devDiscordWebhookUrl.trim() || undefined : undefined,
+          typeof config.devDiscordWebhookUrl === 'string'
+            ? config.devDiscordWebhookUrl.trim() || undefined
+            : undefined,
         discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
         discordTemplate:
-          typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
+          typeof config.discordTemplate === 'string'
+            ? config.discordTemplate.trim() || undefined
+            : undefined,
         clawdbotWebhookUrl:
-          typeof config.clawdbotWebhookUrl === 'string' ? config.clawdbotWebhookUrl.trim() || undefined : undefined,
+          typeof config.clawdbotWebhookUrl === 'string'
+            ? config.clawdbotWebhookUrl.trim() || undefined
+            : undefined,
         devClawdbotWebhookUrl:
-          typeof config.devClawdbotWebhookUrl === 'string' ? config.devClawdbotWebhookUrl.trim() || undefined : undefined,
+          typeof config.devClawdbotWebhookUrl === 'string'
+            ? config.devClawdbotWebhookUrl.trim() || undefined
+            : undefined,
         clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
         clawdbotTemplate:
-          typeof config.clawdbotTemplate === 'string' ? config.clawdbotTemplate.trim() || undefined : undefined,
-        crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
+          typeof config.clawdbotTemplate === 'string'
+            ? config.clawdbotTemplate.trim() || undefined
+            : undefined,
+        crashModel:
+          typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
         crashMaxInputChars:
           typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
         crashMaxOutputTokens:
@@ -1731,11 +1859,16 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
               typeof config.clawdbotTemplate === 'string'
                 ? config.clawdbotTemplate.trim() || undefined
                 : undefined,
-            crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
+            crashModel:
+              typeof config.crashModel === 'string'
+                ? config.crashModel.trim() || undefined
+                : undefined,
             crashMaxInputChars:
               typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
             crashMaxOutputTokens:
-              typeof config.crashMaxOutputTokens === 'number' ? config.crashMaxOutputTokens : undefined,
+              typeof config.crashMaxOutputTokens === 'number'
+                ? config.crashMaxOutputTokens
+                : undefined,
             crashTemperature:
               typeof config.crashTemperature === 'number' ? config.crashTemperature : undefined,
             crashPromptTemplate:
@@ -2152,7 +2285,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const { labelId } = paramsSchema.parse(request.params);
       const bodySchema = z.object({
         name: z.string().min(1).max(50).optional(),
-        color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').optional(),
+        color: z
+          .string()
+          .regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color')
+          .optional(),
         sortOrder: z.number().int().optional()
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
@@ -2289,11 +2425,16 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.badRequest('Invalid merge payload. At least 2 messages and combined text required.');
+        return reply.badRequest(
+          'Invalid merge payload. At least 2 messages and combined text required.'
+        );
       }
 
       try {
-        const message = await mergeWebhookMessages(parsed.data.messageIds, parsed.data.combinedText);
+        const message = await mergeWebhookMessages(
+          parsed.data.messageIds,
+          parsed.data.combinedText
+        );
         return reply.code(201).send({ message });
       } catch (error) {
         request.log.error({ error }, 'Failed to merge messages.');
@@ -2371,14 +2512,21 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const bodySchema = z.object({
-        segments: z.array(z.object({
-          id: z.string(),
-          text: z.string().min(1)
-        })).min(2).max(20)
+        segments: z
+          .array(
+            z.object({
+              id: z.string(),
+              text: z.string().min(1)
+            })
+          )
+          .min(2)
+          .max(20)
       });
       const parsed = bodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.badRequest('Invalid request. At least 2 segments with id and text are required.');
+        return reply.badRequest(
+          'Invalid request. At least 2 segments with id and text are required.'
+        );
       }
 
       try {
@@ -2402,12 +2550,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const bodySchema = z.object({
-        connections: z.array(z.object({
-          characterId: z.number().int().positive(),
-          characterName: z.string().min(1),
-          accountId: z.number().int().positive(),
-          ip: z.string().min(1)
-        }))
+        connections: z.array(
+          z.object({
+            characterId: z.number().int().positive(),
+            characterName: z.string().min(1),
+            accountId: z.number().int().positive(),
+            ip: z.string().min(1)
+          })
+        )
       });
 
       const parsed = bodySchema.safeParse(request.body);
@@ -2465,10 +2615,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
         const userName = user.nickname || user.displayName;
 
-        const result = await autoLinkSharedIps(
-          request.user.userId,
-          userName
-        );
+        const result = await autoLinkSharedIps(request.user.userId, userName);
 
         return result;
       } catch (error) {
@@ -2505,7 +2652,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         reply.raw.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
+          Connection: 'keep-alive',
           'X-Accel-Buffering': 'no' // Disable nginx buffering
         });
 
@@ -2564,9 +2711,15 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
         if (!response.ok) {
           const errorText = await response.text();
-          request.log.error({ status: response.status, error: errorText }, 'IP geolocation API error');
+          request.log.error(
+            { status: response.status, error: errorText },
+            'IP geolocation API error'
+          );
           return reply.status(response.status).send({
-            error: response.status === 423 ? 'API rate limit exceeded (1000/day).' : 'Failed to fetch geolocation data.'
+            error:
+              response.status === 423
+                ? 'API rate limit exceeded (1000/day).'
+                : 'Failed to fetch geolocation data.'
           });
         }
 
