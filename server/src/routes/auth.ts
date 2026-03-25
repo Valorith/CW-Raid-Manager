@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { appConfig } from '../config/appConfig.js';
 import { authenticate } from '../middleware/authenticate.js';
@@ -10,10 +10,104 @@ import {
 } from '../services/authService.js';
 import { prisma } from '../utils/prisma.js';
 
+const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1' ||
+    hostname.startsWith('127.')
+  );
+}
+
+function normalizeOrigin(value?: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function authRoutes(server: FastifyInstance): Promise<void> {
+  const configuredClientOrigin = normalizeOrigin(appConfig.clientUrl);
+
+  function getRequestedClientOrigin(request: FastifyRequest): string | null {
+    const originHeader = request.headers.origin;
+    const refererHeader = request.headers.referer;
+    const originCandidate = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+    const refererCandidate = Array.isArray(refererHeader) ? refererHeader[0] : refererHeader;
+    const normalizedOrigin = normalizeOrigin(originCandidate);
+    const normalizedReferer = normalizeOrigin(refererCandidate);
+
+    return normalizedOrigin ?? normalizedReferer;
+  }
+
+  function isAllowedClientOrigin(origin: string): boolean {
+    if (configuredClientOrigin && origin === configuredClientOrigin) {
+      return true;
+    }
+
+    try {
+      const url = new URL(origin);
+      return appConfig.nodeEnv !== 'production' && isLoopbackHostname(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  function setPostAuthOriginCookie(request: FastifyRequest, reply: FastifyReply): void {
+    const requestedOrigin = getRequestedClientOrigin(request);
+
+    if (!requestedOrigin || !isAllowedClientOrigin(requestedOrigin)) {
+      reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+      return;
+    }
+
+    reply.setCookie(POST_AUTH_ORIGIN_COOKIE, requestedOrigin, {
+      signed: true,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: appConfig.nodeEnv === 'production',
+      path: '/',
+      maxAge: 60 * 10
+    });
+  }
+
+  function getPostAuthBaseUrl(reply: FastifyReply, cookieValue?: string): string {
+    if (cookieValue) {
+      const unsignedCookie = reply.unsignCookie(cookieValue);
+      if (unsignedCookie.valid && unsignedCookie.value && isAllowedClientOrigin(unsignedCookie.value)) {
+        return unsignedCookie.value;
+      }
+    }
+
+    return appConfig.clientUrl;
+  }
+
+  if (server.hasDecorator('googleOAuth2') && server.googleOAuth2) {
+    server.get('/google', async (request, reply) => {
+      setPostAuthOriginCookie(request, reply);
+      return reply.redirect('/api/auth/google/start');
+    });
+  }
+
   if (server.hasDecorator('googleOAuth2') && server.googleOAuth2) {
     server.get('/google/callback', async (request, reply) => {
       try {
+        const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+        reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+
         // Check if this is a linking flow (user is linking account, not logging in)
         const linkCookie = request.cookies.cwraid_link_user;
         let linkingUserId: string | null = null;
@@ -34,7 +128,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           request.log.error('Missing Google access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`
             );
           }
           return reply.internalServerError('Unable to complete Google sign-in.');
@@ -53,7 +147,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
             );
           }
           return reply.internalServerError('Unable to complete Google sign-in.');
@@ -70,12 +164,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         if (linkingUserId) {
           try {
             await linkGoogleToUser(linkingUserId, profile);
-            return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=google`);
+            return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=google`);
           } catch (linkError) {
             const message = linkError instanceof Error ? linkError.message : 'Failed to link Google account.';
             request.log.error({ error: linkError }, 'Error linking Google account');
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`
             );
           }
         }
@@ -103,7 +197,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 60 * 60 * 24 * 7
         });
 
-        return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
+        return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         const errStack = error instanceof Error ? error.stack : undefined;
@@ -116,7 +210,15 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   }
 
   if (server.hasDecorator('discordOAuth2') && server.discordOAuth2) {
+    server.get('/discord', async (request, reply) => {
+      setPostAuthOriginCookie(request, reply);
+      return reply.redirect('/api/auth/discord/start');
+    });
+
     server.get('/discord/callback', async (request, reply) => {
+      const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+      reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+
       // Check if this is a linking flow (user is linking account, not logging in)
       const linkCookie = request.cookies.cwraid_link_user;
       let linkingUserId: string | null = null;
@@ -142,7 +244,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -163,7 +265,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           request.log.error('Missing Discord access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -184,7 +286,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         );
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
+            `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
           );
         }
         return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -212,7 +314,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           );
           if (linkingUserId) {
             return reply.redirect(
-              `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
             );
           }
           return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -223,7 +325,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         request.log.error({ error: fetchError }, 'Error fetching Discord user profile');
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
+            `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
           );
         }
         return reply.internalServerError('Unable to complete Discord sign-in.');
@@ -234,7 +336,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         request.log.error('Discord profile missing email. User may not have granted email scope.');
         if (linkingUserId) {
           return reply.redirect(
-            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
+            `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
           );
         }
         return reply.badRequest('Discord account must have a verified email address.');
@@ -244,12 +346,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       if (linkingUserId) {
         try {
           await linkDiscordToUser(linkingUserId, profile);
-          return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=discord`);
+          return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=discord`);
         } catch (linkError) {
           const message = linkError instanceof Error ? linkError.message : 'Failed to link Discord account.';
           request.log.error({ error: linkError }, 'Error linking Discord account');
           return reply.redirect(
-            `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`
+            `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`
           );
         }
       }
@@ -286,7 +388,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 60 * 60 * 24 * 7
         });
 
-        return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
+        return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
       } catch (jwtError) {
         request.log.error({ error: jwtError }, 'Failed to sign JWT for Discord user');
         return reply.internalServerError('Unable to complete Discord sign-in.');

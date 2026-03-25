@@ -12,3 +12,4 @@ package-lock.json
 !.env.example
 eqlog_Valgor_CWR.txt
 .codex/config.toml
+AGENTS.local.md

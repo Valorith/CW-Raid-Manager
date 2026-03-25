@@ -7,6 +7,10 @@
 - Pinia is used for shared cross-view state (`auth`, loot monitor state, attention indicators, tooltip/cache-like state, guild bank, character admin), not as a blanket replacement for local component state.
 - Do not edit generated or built output in `server/build/`; change source files under `server/src/` or `client/src/`.
 
+## Local Agent Overrides
+- If `AGENTS.local.md` exists at the repo root, read it as supplemental machine-specific guidance before making assumptions about local setup, dev startup, testing URLs, or environment quirks.
+- Treat `AGENTS.local.md` as local-only context that may override generic repo guidance for that machine, but do not copy its machine-specific details into tracked files unless explicitly asked.
+
 ## Project Structure & Key Areas
 - `client/src/views/` contains the main feature surfaces. Some files are intentionally large feature containers, especially raid-, loot-, and admin-related views.
 - `client/src/services/api.ts` is the primary client/server contract layer. API payload/result interfaces are maintained manually here and in `client/src/services/types.ts`.

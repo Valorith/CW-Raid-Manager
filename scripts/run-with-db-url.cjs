@@ -136,6 +136,28 @@ function ensureDatabaseUrl({ allowMissing }) {
   process.exit(1);
 }
 
+function ensureNodeCaMode() {
+  const current = process.env.NODE_OPTIONS || '';
+  if (
+    current.includes('--use-bundled-ca') ||
+    current.includes('--use-openssl-ca') ||
+    current.includes('--use-system-ca')
+  ) {
+    return;
+  }
+
+  // Homebrew Node on some local setups prefers an OpenSSL CA store that does not
+  // trust Google OAuth endpoints correctly. In local/dev flows, prefer Node's
+  // bundled CA set so HTTPS token exchanges work without weakening TLS checks.
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+
+  process.env.NODE_OPTIONS = current
+    ? `${current} --use-bundled-ca`
+    : '--use-bundled-ca';
+}
+
 function runCommand({ command, args }) {
   const child = spawn(command, args, {
     stdio: 'inherit',
@@ -160,6 +182,7 @@ function runCommand({ command, args }) {
 function main() {
   const parsed = parseArgs(process.argv.slice(2));
   ensureDatabaseUrl(parsed.options);
+  ensureNodeCaMode();
   runCommand(parsed);
 }
 

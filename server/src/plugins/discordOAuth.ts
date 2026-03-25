@@ -38,7 +38,7 @@ export const discordOAuthPlugin = fp(async (fastify) => {
         authorizationMethod: 'body'
       }
     },
-    startRedirectPath: '/api/auth/discord',
+    startRedirectPath: '/api/auth/discord/start',
     callbackUri: appConfig.discord.callbackUrl,
     cookie: {
       secure: appConfig.nodeEnv === 'production',

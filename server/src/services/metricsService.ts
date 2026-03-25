@@ -98,11 +98,11 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     where: {
       attendanceEvent: {
         raid: {
-          guildId
-        },
-        createdAt: {
-          gte: start,
-          lte: end
+          guildId,
+          startTime: {
+            gte: start,
+            lte: end
+          }
         }
       }
     },
@@ -173,7 +173,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
   const uniqueCharacters = new Map<string, GuildMetricsFilterOptions['characters'][number]>();
   const uniqueRaids = new Map<string, { id: string; name: string }>();
   const uniqueLooters = new Map<string, { name: string; looterClass: string | null }>();
-  const attendanceCharacterKeys = new Set<string>();
+  const summaryAttendanceCharacterKeys = new Set<string>();
 
   const guildMains = await prisma.character.findMany({
     where: {
@@ -259,7 +259,6 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     } else {
       uniqueCharacters.set(key, entry);
     }
-    attendanceCharacterKeys.add(key);
   };
 
   const pushAttendanceRecord = (record: AttendanceMetricRecord) => {
@@ -284,19 +283,16 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
 
     const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
     const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
-    const isMainValue = resolvedByName?.isMain ?? Boolean(record.character?.isMain);
+    const isMainValue = Boolean(resolvedByName?.isMain ?? record.character?.isMain);
     const resolvedUserId = record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
     const resolvedDisplayName = record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
     const resolvedClassFinal = resolvedClass ?? resolvedByName?.class ?? null;
-
-    const fallbackMains = resolveUserMains(resolvedUserId);
-    const fallbackMain = fallbackMains.length ? fallbackMains[0] : null;
-    const effectiveCharacterId = characterId ?? fallbackMain?.id ?? null;
-    const effectiveCharacterName = characterName || fallbackMain?.name || '';
-    const effectiveUserId = resolvedUserId ?? fallbackMain?.userId ?? null;
-    const effectiveDisplayName = resolvedDisplayName ?? fallbackMain?.user?.displayName ?? null;
-    const effectiveClass = resolvedClassFinal ?? fallbackMain?.class ?? null;
-    const effectiveIsMain = isMainValue || Boolean(fallbackMain?.isMain);
+    const effectiveCharacterId = characterId;
+    const effectiveCharacterName = characterName;
+    const effectiveUserId = resolvedUserId;
+    const effectiveDisplayName = resolvedDisplayName;
+    const effectiveClass = resolvedClassFinal;
+    const effectiveIsMain = isMainValue;
 
     const characterEntry = {
       id: effectiveCharacterId,
@@ -309,8 +305,11 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
 
     if (effectiveCharacterId) {
       registerCharacter(characterEntry, `id:${effectiveCharacterId}`);
+      summaryAttendanceCharacterKeys.add(`id:${effectiveCharacterId}`);
     } else {
-      registerCharacter(characterEntry, `name:${characterName.toLowerCase()}`);
+      const fallbackKey = `name:${characterName.toLowerCase()}`;
+      registerCharacter(characterEntry, fallbackKey);
+      summaryAttendanceCharacterKeys.add(fallbackKey);
     }
 
     pushAttendanceRecord({
@@ -350,25 +349,6 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
         },
         mainKey
       );
-      pushAttendanceRecord({
-        id: `${record.id}:main:${main.id ?? main.name}`,
-        status: record.status,
-        timestamp: record.attendanceEvent.createdAt.toISOString(),
-        eventType: record.attendanceEvent.eventType,
-        raid: {
-          id: raid?.id ?? '',
-          name: raid?.name ?? 'Unknown Raid',
-          startTime: toIsoString(raid?.startTime)
-        },
-        character: {
-          id: main.id,
-          name: main.name,
-          class: main.class,
-          isMain: true,
-          userId: main.userId,
-          userDisplayName: main.user?.displayName ?? null
-        }
-      });
     }
   }
 
@@ -412,7 +392,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
 
   const summary: GuildMetricsSummary = {
     attendanceRecords: attendanceRecords.length,
-    uniqueAttendanceCharacters: attendanceCharacterKeys.size,
+    uniqueAttendanceCharacters: summaryAttendanceCharacterKeys.size,
     lootEvents: lootEvents.length,
     uniqueLooters: uniqueLooters.size,
     raidsTracked: uniqueRaids.size

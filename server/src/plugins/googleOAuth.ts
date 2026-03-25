@@ -31,7 +31,7 @@ export const googleOAuthPlugin = fp(async (fastify) => {
       },
       auth: googleConfiguration
     },
-    startRedirectPath: '/api/auth/google',
+    startRedirectPath: '/api/auth/google/start',
     callbackUri: appConfig.google.callbackUrl,
     cookie: {
       secure: appConfig.nodeEnv === 'production',

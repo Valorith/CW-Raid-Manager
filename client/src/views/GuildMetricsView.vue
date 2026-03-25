@@ -2435,12 +2435,17 @@ function isPresentStatus(status: AttendanceStatus): boolean {
   return status === 'PRESENT';
 }
 
+function countsTowardRaidAttendance(status: AttendanceStatus): boolean {
+  return status !== 'ABSENT';
+}
+
 interface RaidIdentityAttendanceSnapshot {
   raidId: string;
   identity: EntityIdentity;
   totalEvents: number;
   presentEventKeys: Set<string>;
   presentEventIndices: Set<number>;
+  attendedRaid: boolean;
   hasPresence: boolean;
   wasLate: boolean;
   leftEarly: boolean;
@@ -2485,6 +2490,9 @@ function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityA
         identity: EntityIdentity;
         presentEventIndices: Set<number>;
         presentEventKeys: Set<string>;
+        lateEventIndices: Set<number>;
+        leftEarlyEventIndices: Set<number>;
+        attendedRaid: boolean;
       }
     >();
 
@@ -2499,7 +2507,10 @@ function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityA
         state = {
           identity,
           presentEventIndices: new Set<number>(),
-          presentEventKeys: new Set<string>()
+          presentEventKeys: new Set<string>(),
+          lateEventIndices: new Set<number>(),
+          leftEarlyEventIndices: new Set<number>(),
+          attendedRaid: false
         };
         identityStates.set(identityKey, state);
       } else {
@@ -2521,15 +2532,23 @@ function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityA
         });
       }
       const entry = state!;
-      if (!isPresentStatus(record.status)) {
-        continue;
+      if (countsTowardRaidAttendance(record.status)) {
+        entry.attendedRaid = true;
       }
       const eventIndex = eventIndexByTime.get(record.timestamp) ?? 0;
-      entry.presentEventIndices.add(eventIndex);
-      entry.presentEventKeys.add(`${raidId}::${record.timestamp}`);
+      if (isPresentStatus(record.status)) {
+        entry.presentEventIndices.add(eventIndex);
+        entry.presentEventKeys.add(`${raidId}::${record.timestamp}`);
+      }
+      if (record.status === 'LATE') {
+        entry.lateEventIndices.add(eventIndex);
+      }
+      if (record.status === 'BENCHED') {
+        entry.leftEarlyEventIndices.add(eventIndex);
+      }
     }
 
-    for (const { identity, presentEventIndices, presentEventKeys } of identityStates.values()) {
+    for (const { identity, presentEventIndices, presentEventKeys, lateEventIndices, leftEarlyEventIndices, attendedRaid } of identityStates.values()) {
       const hasPresence = presentEventIndices.size > 0;
       const presentAtFirst = hasPresence && presentEventIndices.has(0);
       const presentAtLast = hasPresence && presentEventIndices.has(lastEventIndex);
@@ -2539,9 +2558,10 @@ function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityA
         totalEvents: eventTimes.length,
         presentEventKeys,
         presentEventIndices,
+        attendedRaid,
         hasPresence,
-        wasLate: hasPresence && !presentAtFirst,
-        leftEarly: hasPresence && !presentAtLast
+        wasLate: attendedRaid && (lateEventIndices.size > 0 || !presentAtFirst),
+        leftEarly: attendedRaid && (leftEarlyEventIndices.size > 0 || !presentAtLast)
       };
       const compositeKeys = buildCompositeKeysForIdentity(raidId, identity);
       for (const key of compositeKeys) {
@@ -2780,37 +2800,74 @@ function aggregateCharacterAttendanceForIdentity(
     normalizedNames.add(identity.normalizedPrimaryName.toLowerCase());
   }
 
-  const mainStatusByName = new Map<string, boolean>();
-  let hasMainCharacter = false;
-  if (identity.mode === 'member') {
-    for (const normalizedName of normalizedNames) {
-      const characterIdentity = resolveCharacterIdentityByNormalizedName(normalizedName);
-      if (!characterIdentity) {
-        continue;
-      }
-      const optionMatch =
-        characterEntityOptionLookup.value.get(characterIdentity.key) ??
-        (characterIdentity.normalizedPrimaryName
-          ? characterEntityOptionLookup.value.get(`name:${characterIdentity.normalizedPrimaryName}`)
-          : undefined);
-      const isMain = Boolean(optionMatch?.isMain);
-      mainStatusByName.set(normalizedName, isMain);
-      if (isMain) {
-        hasMainCharacter = true;
-      }
-    }
-  }
-
   let presentEvents = 0;
   let totalAttendanceEvents = 0;
   let lateRaids = 0;
   let leftEarlyRaids = 0;
   let absentRaids = 0;
 
+  if (identity.mode === 'member') {
+    for (const raidId of raidIds) {
+      const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
+      let raidHasAttendance = false;
+      let raidLate = false;
+      let raidLeftEarly = false;
+      let raidTotalEvents = raidEventCount;
+      const raidPresentEventIndices = new Set<number>();
+
+      for (const normalizedName of normalizedNames) {
+        const characterIdentity = resolveCharacterIdentityByNormalizedName(normalizedName);
+        if (!characterIdentity) {
+          continue;
+        }
+        const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
+        if (!snapshot || !snapshot.attendedRaid) {
+          continue;
+        }
+
+        raidHasAttendance = true;
+        raidTotalEvents = Math.max(raidTotalEvents, snapshot.totalEvents);
+        snapshot.presentEventIndices.forEach((eventIndex) => {
+          raidPresentEventIndices.add(eventIndex);
+        });
+        if (snapshot.wasLate) {
+          raidLate = true;
+        }
+        if (snapshot.leftEarly) {
+          raidLeftEarly = true;
+        }
+      }
+
+      if (!raidHasAttendance) {
+        if (!skipAbsent && raidEventCount > 0) {
+          absentRaids += 1;
+          totalAttendanceEvents += raidEventCount;
+        }
+        continue;
+      }
+
+      presentEvents += raidPresentEventIndices.size;
+      totalAttendanceEvents += raidTotalEvents;
+      if (raidLate) {
+        lateRaids += 1;
+      }
+      if (raidLeftEarly) {
+        leftEarlyRaids += 1;
+      }
+    }
+
+    return {
+      presentEvents,
+      totalAttendanceEvents,
+      lateRaids,
+      leftEarlyRaids,
+      absentRaids
+    };
+  }
+
   for (const raidId of raidIds) {
     const raidEventCount = raidEventTotals.value.get(raidId) ?? 0;
-    let raidHasPresence = false;
-    let raidHasMainPresence = false;
+    let raidHasAttendance = false;
     let raidLate = false;
     let raidLeftEarly = false;
 
@@ -2823,34 +2880,25 @@ function aggregateCharacterAttendanceForIdentity(
         continue;
       }
       const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
-      if (!snapshot || !snapshot.hasPresence) {
+      if (!snapshot || !snapshot.attendedRaid) {
         continue;
       }
-      const isMainCharacter =
-        identity.mode === 'member' ? mainStatusByName.get(normalizedName) ?? false : true;
-      raidHasPresence = true;
-      if (isMainCharacter) {
-        raidHasMainPresence = true;
-      }
+      raidHasAttendance = true;
       presentEvents += snapshot.presentEventIndices.size;
       totalAttendanceEvents += snapshot.totalEvents;
-      if (snapshot.wasLate && (identity.mode !== 'member' || isMainCharacter)) {
+      if (snapshot.wasLate) {
         raidLate = true;
       }
-      if (snapshot.leftEarly && (identity.mode !== 'member' || isMainCharacter)) {
+      if (snapshot.leftEarly) {
         raidLeftEarly = true;
       }
     }
 
-    if (!raidHasPresence) {
-      if (!skipAbsent && raidEventCount > 0 && (identity.mode !== 'member' || hasMainCharacter)) {
+    if (!raidHasAttendance) {
+      if (!skipAbsent && raidEventCount > 0) {
         absentRaids += 1;
         totalAttendanceEvents += raidEventCount;
       }
-      continue;
-    }
-
-    if (identity.mode === 'member' && !raidHasMainPresence) {
       continue;
     }
 
@@ -3271,7 +3319,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
     const raidDayMap = new Map<string, string>();
 
     for (const record of filteredAttendanceRecords.value) {
-      const baseTimestamp = record.timestamp || record.raid.startTime;
+      const baseTimestamp = record.raid.startTime || record.timestamp;
       if (!baseTimestamp) {
         continue;
       }
@@ -3355,7 +3403,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
           : [identity.normalizedPrimaryName];
         const processedNames = new Set<string>();
 
-        let hasPresence = false;
+        let attendedRaid = false;
         let wasLate = statuses.has('LATE');
         let leftEarly = statuses.has('LEFT_EARLY');
         let unresolvedIdentityAbsent = false;
@@ -3376,11 +3424,11 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
             continue;
           }
           const snapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
-          if (!snapshot || !snapshot.hasPresence) {
+          if (!snapshot || !snapshot.attendedRaid) {
             unresolvedSnapshotAbsent = true;
             continue;
           }
-          hasPresence = true;
+          attendedRaid = true;
           if (snapshot.wasLate) {
             wasLate = true;
           }
@@ -3389,7 +3437,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
           }
         }
 
-        if (hasPresence || statuses.has('PRESENT')) {
+        if (attendedRaid) {
           buckets.present += 1;
           if (wasLate) {
             buckets.late += 1;
@@ -3498,7 +3546,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
     for (const identity of combinedIdentities.values()) {
       if (identity.key === UNKNOWN_MEMBER_ENTITY_KEY) {
         const processed = new Set<string>();
-        let hasPresence = false;
+        let attendedRaid = false;
         let late = false;
         let leftEarly = false;
         for (const normalizedName of identity.normalizedCharacterNames) {
@@ -3512,10 +3560,10 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
             continue;
           }
           const characterSnapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
-          if (!characterSnapshot || !characterSnapshot.hasPresence) {
+          if (!characterSnapshot || !characterSnapshot.attendedRaid) {
             continue;
           }
-          hasPresence = true;
+          attendedRaid = true;
           if (characterSnapshot.wasLate) {
             late = true;
           }
@@ -3523,7 +3571,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
             leftEarly = true;
           }
         }
-        if (hasPresence) {
+        if (attendedRaid) {
           buckets.present += 1;
           if (late) {
             buckets.late += 1;
@@ -3544,7 +3592,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
         .filter((name): name is string => Boolean(name))
         .map((name) => name.toLowerCase());
 
-      let hasPresence = false;
+      let attendedRaid = false;
       let wasLate = false;
       let leftEarly = false;
       let unresolvedIdentityAbsent = false;
@@ -3561,11 +3609,11 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
           continue;
         }
         const characterSnapshot = getRaidAttendanceSnapshot(raidId, characterIdentity);
-        if (!characterSnapshot || !characterSnapshot.hasPresence) {
+        if (!characterSnapshot || !characterSnapshot.attendedRaid) {
           unresolvedSnapshotAbsent = true;
           continue;
         }
-        hasPresence = true;
+        attendedRaid = true;
         if (characterSnapshot.wasLate) {
           wasLate = true;
         }
@@ -3574,7 +3622,7 @@ const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
         }
       }
 
-      if (hasPresence) {
+      if (attendedRaid) {
         buckets.present += 1;
         if (wasLate) {
           buckets.late += 1;
@@ -3748,10 +3796,10 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     if (!entry.userDisplayName && record.character.userDisplayName) {
       entry.userDisplayName = record.character.userDisplayName;
     }
-    if (record.status === 'PRESENT') {
-      const eventKey = `${record.raid.id}::${record.timestamp}`;
-      entry.presentEventSet.add(eventKey);
-    }
+      if (isPresentStatus(record.status)) {
+        const eventKey = `${record.raid.id}::${record.timestamp}`;
+        entry.presentEventSet.add(eventKey);
+      }
   }
 
   const raidIds = Array.from(filteredRaidIds.value);
@@ -3781,7 +3829,7 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     let absent = 0;
     for (const raidId of raidIds) {
       const snapshot = getRaidAttendanceSnapshot(raidId, entry.identity);
-      if (!snapshot || !snapshot.hasPresence) {
+      if (!snapshot || !snapshot.attendedRaid) {
         absent += 1;
         continue;
       }
@@ -3811,12 +3859,13 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
   }
 
   const sorted = summariesList.sort((a, b) => {
+    const presentDiff = b.presentEvents - a.presentEvents;
+    if (presentDiff !== 0) {
+      return presentDiff;
+    }
     const diff = attendanceRateValue(b) - attendanceRateValue(a);
     if (diff !== 0) {
       return diff;
-    }
-    if (b.presentEvents !== a.presentEvents) {
-      return b.presentEvents - a.presentEvents;
     }
     return b.totalAttendanceEvents - a.totalAttendanceEvents;
   });
@@ -3968,7 +4017,7 @@ const attendanceByCharacterChartData = computed(() => {
     labels: entries.map((entry) => entry.name),
     datasets: [
       {
-        label: 'Raid Participation (%)',
+        label: 'Present Event Rate (%)',
         data: entries.map((entry) => Number(attendanceRateValue(entry).toFixed(1))),
         backgroundColor: backgroundColors,
         hoverBackgroundColor: hoverBackgroundColors,
@@ -4042,11 +4091,13 @@ const attendanceByCharacterChartOptions = computed(() => {
             const value =
               typeof context.parsed.x === 'number' ? context.parsed.x : Number(context.parsed);
             if (!entry) {
-              return `${value.toFixed(1)}% participation`;
+              return `${value.toFixed(1)}% present event rate`;
             }
             const rows = [
-              `Participation: ${value.toFixed(1)}%`,
+              `Present Event Rate: ${value.toFixed(1)}%`,
               `Present Events: ${entry.presentEvents}`,
+              `Total Possible Events: ${entry.totalAttendanceEvents}`,
+              `Formula: ${entry.presentEvents} / ${entry.totalAttendanceEvents}`,
               `Late Raids: ${entry.lateRaids}`,
               `Left Early Raids: ${entry.leftEarlyRaids}`,
               `Absent Raids: ${entry.absentRaids}`,
