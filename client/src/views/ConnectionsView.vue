@@ -395,10 +395,10 @@
                     <td class="col-hack-count">
                       <span
                         class="hack-risk-indicator"
-                        :class="`hack-risk-indicator--${hackRiskByCharacterId[trader.characterId].level}`"
-                        :title="hackRiskByCharacterId[trader.characterId].tooltip"
+                        :class="`hack-risk-indicator--${getHackRiskDisplay(trader).level}`"
+                        :title="getHackRiskDisplay(trader).tooltip"
                       >
-                        {{ hackRiskByCharacterId[trader.characterId].label }}
+                        {{ getHackRiskDisplay(trader).label }}
                       </span>
                       <button
                         v-if="trader.hackCount > 0"
@@ -871,7 +871,7 @@ type HackRiskDisplay = {
 const DEFAULT_HACK_RISK_DISPLAY: HackRiskDisplay = {
   level: 'normal',
   label: 'Normal',
-  tooltip: 'Normal risk: 0 hack events.'
+  tooltip: 'Hack risk information unavailable.'
 };
 
 function getHackRiskLevelForCount(
@@ -887,10 +887,27 @@ function getHackRiskLevelForCount(
   }
 
   const ratio = hackCount / average;
-  if (ratio >= 5) return { level: 'critical', label: 'Critical' };
-  if (ratio >= 3) return { level: 'high', label: 'High' };
+  if (hackCount >= 5) {
+    if (ratio >= 5) return { level: 'critical', label: 'Critical' };
+    return { level: 'high', label: 'High' };
+  }
+
+  if (hackCount >= 3) {
+    if (ratio >= 3) return { level: 'high', label: 'High' };
+    return { level: 'elevated', label: 'Elevated' };
+  }
+
   if (ratio >= 1.5) return { level: 'elevated', label: 'Elevated' };
   return { level: 'normal', label: 'Normal' };
+}
+
+function formatHackAverage(average: number): string {
+  const absoluteAverage = Math.abs(average);
+  if (absoluteAverage < 0.01) {
+    return average.toFixed(4);
+  }
+
+  return average.toFixed(2);
 }
 
 const hackRiskByCharacterId = computed(() => {
@@ -913,7 +930,7 @@ const hackRiskByCharacterId = computed(() => {
       ...risk,
       tooltip: `${risk.label} risk: ${conn.hackCount} hack event${
         conn.hackCount !== 1 ? 's' : ''
-      } vs server average ${average.toFixed(2)} (${ratio.toFixed(1)}x).`
+      } vs server average ${formatHackAverage(average)} (${ratio.toFixed(1)}x).`
     });
   }
 
