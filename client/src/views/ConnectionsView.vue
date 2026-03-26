@@ -262,6 +262,13 @@
                     <span v-else class="muted">-</span>
                   </td>
                   <td class="col-hack-count">
+                    <span
+                      class="hack-risk-indicator"
+                      :class="`hack-risk-indicator--${getHackRiskDisplay(conn).level}`"
+                      :title="getHackRiskDisplay(conn).tooltip"
+                    >
+                      {{ getHackRiskDisplay(conn).label }}
+                    </span>
                     <button
                       v-if="conn.hackCount > 0"
                       class="hack-count-badge hack-count-badge--clickable"
@@ -386,6 +393,13 @@
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-hack-count">
+                      <span
+                        class="hack-risk-indicator"
+                        :class="`hack-risk-indicator--${getHackRiskDisplay(trader).level}`"
+                        :title="getHackRiskDisplay(trader).tooltip"
+                      >
+                        {{ getHackRiskDisplay(trader).label }}
+                      </span>
                       <button
                         v-if="trader.hackCount > 0"
                         class="hack-count-badge hack-count-badge--clickable"
@@ -498,6 +512,13 @@
                       <span v-else class="muted">-</span>
                     </td>
                     <td class="col-hack-count">
+                      <span
+                        class="hack-risk-indicator"
+                        :class="`hack-risk-indicator--${getHackRiskDisplay(fighter).level}`"
+                        :title="getHackRiskDisplay(fighter).tooltip"
+                      >
+                        {{ getHackRiskDisplay(fighter).label }}
+                      </span>
                       <button
                         v-if="fighter.hackCount > 0"
                         class="hack-count-badge hack-count-badge--clickable"
@@ -833,6 +854,75 @@ const itemOwnershipRangeEnd = computed(() => {
 
   return Math.min(itemOwnershipPage.value * itemOwnershipPageSize, totalOwners);
 });
+
+const serverHackAverage = computed(() => {
+  if (connections.value.length === 0) return 0;
+  const totalHackEvents = connections.value.reduce((sum, conn) => sum + conn.hackCount, 0);
+  return totalHackEvents / connections.value.length;
+});
+
+type HackRiskLevel = 'normal' | 'elevated' | 'high' | 'critical';
+type HackRiskDisplay = {
+  level: HackRiskLevel;
+  label: string;
+  tooltip: string;
+};
+
+const DEFAULT_HACK_RISK_DISPLAY: HackRiskDisplay = {
+  level: 'normal',
+  label: 'Normal',
+  tooltip: 'Normal risk: 0 hack events.'
+};
+
+function getHackRiskLevelForCount(
+  hackCount: number,
+  average: number
+): { level: HackRiskLevel; label: string } {
+  if (hackCount <= 0) return { level: 'normal', label: 'Normal' };
+
+  if (average <= 0) {
+    if (hackCount >= 5) return { level: 'critical', label: 'Critical' };
+    if (hackCount >= 3) return { level: 'high', label: 'High' };
+    return { level: 'elevated', label: 'Elevated' };
+  }
+
+  const ratio = hackCount / average;
+  if (ratio >= 5) return { level: 'critical', label: 'Critical' };
+  if (ratio >= 3) return { level: 'high', label: 'High' };
+  if (ratio >= 1.5) return { level: 'elevated', label: 'Elevated' };
+  return { level: 'normal', label: 'Normal' };
+}
+
+const hackRiskByCharacterId = computed(() => {
+  const average = serverHackAverage.value;
+  const result = new Map<number, HackRiskDisplay>();
+
+  for (const conn of connections.value) {
+    const risk = getHackRiskLevelForCount(conn.hackCount, average);
+
+    if (average <= 0) {
+      result.set(conn.characterId, {
+        ...risk,
+        tooltip: `${risk.label} risk: ${conn.hackCount} hack event${conn.hackCount !== 1 ? 's' : ''}.`
+      });
+      continue;
+    }
+
+    const ratio = conn.hackCount / average;
+    result.set(conn.characterId, {
+      ...risk,
+      tooltip: `${risk.label} risk: ${conn.hackCount} hack event${
+        conn.hackCount !== 1 ? 's' : ''
+      } vs server average ${average.toFixed(2)} (${ratio.toFixed(1)}x).`
+    });
+  }
+
+  return result;
+});
+
+function getHackRiskDisplay(conn: ServerConnection): HackRiskDisplay {
+  return hackRiskByCharacterId.value.get(conn.characterId) ?? DEFAULT_HACK_RISK_DISPLAY;
+}
 
 function clearGlobalSearchResults() {
   characterAdminStore.clearSearchResults();
@@ -2052,8 +2142,40 @@ onUnmounted(() => {
 }
 
 .col-hack-count {
-  width: 60px;
+  width: 135px;
   text-align: center;
+}
+
+.hack-risk-indicator {
+  display: inline-block;
+  min-width: 60px;
+  margin-bottom: 0.25rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.hack-risk-indicator--normal {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.hack-risk-indicator--elevated {
+  background: rgba(250, 204, 21, 0.15);
+  color: #facc15;
+}
+
+.hack-risk-indicator--high {
+  background: rgba(249, 115, 22, 0.18);
+  color: #fb923c;
+}
+
+.hack-risk-indicator--critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
 .hack-count-badge {
