@@ -395,10 +395,10 @@
                     <td class="col-hack-count">
                       <span
                         class="hack-risk-indicator"
-                        :class="`hack-risk-indicator--${getHackRiskDisplay(trader).level}`"
-                        :title="getHackRiskDisplay(trader).tooltip"
+                        :class="`hack-risk-indicator--${hackRiskByCharacterId[trader.characterId].level}`"
+                        :title="hackRiskByCharacterId[trader.characterId].tooltip"
                       >
-                        {{ getHackRiskDisplay(trader).label }}
+                        {{ hackRiskByCharacterId[trader.characterId].label }}
                       </span>
                       <button
                         v-if="trader.hackCount > 0"
