@@ -196,94 +196,6 @@
               Active: {{ getOutsideHomeCount(group) }}/{{ getIpLimit(group.ip) }}
             </span>
           </div>
-          <!-- Regular Connections Table -->
-          <div v-if="group.connections.length > 0" class="table-wrapper">
-            <table class="connections-table">
-              <thead>
-                <tr>
-                  <th class="col-class">Class</th>
-                  <th class="col-name">Character</th>
-                  <th class="col-level">Level</th>
-                  <th class="col-zone">Zone</th>
-                  <th class="col-guild">Guild</th>
-                  <th class="col-last-kill">Last Kill</th>
-                  <th class="col-last-action">Last Action</th>
-                  <th class="col-hack-count">Hacks</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(conn, index) in group.connections"
-                  :key="`${conn.connectId}-${index}`"
-                  :class="getRowClass(conn, group)"
-                >
-                  <td class="col-class">
-                    <div class="class-cell">
-                      <img
-                        v-if="getClassIcon(conn.className)"
-                        :src="getClassIcon(conn.className) ?? undefined"
-                        :alt="formatClass(conn.className)"
-                        class="class-icon"
-                      />
-                      <span class="class-label">{{ formatClass(conn.className) }}</span>
-                    </div>
-                  </td>
-                  <td class="col-name">
-                    <CharacterLink :name="conn.characterName" :admin-mode="true" />
-                  </td>
-                  <td class="col-level">{{ conn.level }}</td>
-                  <td class="col-zone">{{ conn.zoneName }}</td>
-                  <td class="col-guild">
-                    <span v-if="conn.guildName" class="guild-tag">{{ conn.guildName }}</span>
-                    <span v-else class="muted">-</span>
-                  </td>
-                  <td class="col-last-kill">
-                    <div
-                      v-if="conn.lastKillNpcName"
-                      class="last-kill-cell"
-                      :title="formatLastKillTooltip(conn)"
-                    >
-                      <span class="last-kill-name">{{ formatNpcName(conn.lastKillNpcName) }}</span>
-                      <span v-if="conn.lastKillAt" class="last-kill-time">{{
-                        formatRelativeTime(conn.lastKillAt)
-                      }}</span>
-                    </div>
-                    <span v-else class="muted">-</span>
-                  </td>
-                  <td class="col-last-action">
-                    <div v-if="conn.lastActionAt" class="last-action-cell">
-                      <span :title="formatFullDate(conn.lastActionAt)">
-                        {{ formatRelativeTime(conn.lastActionAt) }}
-                      </span>
-                      <span class="event-type-badge" :title="formatFullDate(conn.lastActionAt)">
-                        {{ getEventTypeLabel(conn.lastActionEventTypeId) }}
-                      </span>
-                    </div>
-                    <span v-else class="muted">-</span>
-                  </td>
-                  <td class="col-hack-count">
-                    <span
-                      class="hack-risk-indicator"
-                      :class="`hack-risk-indicator--${getHackRiskDisplay(conn).level}`"
-                      :title="getHackRiskDisplay(conn).tooltip"
-                    >
-                      {{ getHackRiskDisplay(conn).label }}
-                    </span>
-                    <button
-                      v-if="conn.hackCount > 0"
-                      class="hack-count-badge hack-count-badge--clickable"
-                      @click="openHackEvents(conn.characterId)"
-                      :title="`View ${conn.hackCount} hack event${conn.hackCount !== 1 ? 's' : ''}`"
-                    >
-                      {{ conn.hackCount }}
-                    </button>
-                    <span v-else class="muted">0</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
           <!-- Trader Sub-group -->
           <div v-if="group.traders.length > 0" class="trader-subgroup">
             <div class="trader-subgroup__header">
@@ -751,7 +663,6 @@ const indirectAssociatedIds = computed(
 
 interface IpGroup {
   ip: string;
-  connections: ServerConnection[];
   traders: ServerConnection[];
   fighters: ServerConnection[];
 }
@@ -759,11 +670,6 @@ interface IpGroup {
 // A trader is a character in The Bazaar with no kill history
 function isTrader(conn: ServerConnection): boolean {
   return conn.zoneName === 'The Bazaar' && !conn.lastKillNpcName;
-}
-
-// A fighter is any character that is not a trader
-function isFighter(conn: ServerConnection): boolean {
-  return !isTrader(conn);
 }
 
 const connections = ref<ServerConnection[]>([]);
@@ -855,12 +761,13 @@ const itemOwnershipRangeEnd = computed(() => {
   return Math.min(itemOwnershipPage.value * itemOwnershipPageSize, totalOwners);
 });
 
-const serverHackAverage = computed(() => {
+const rawServerHackAverage = computed(() => {
   if (connections.value.length === 0) return 0;
   const totalHackEvents = connections.value.reduce((sum, conn) => sum + conn.hackCount, 0);
   return totalHackEvents / connections.value.length;
 });
 
+const serverHackAverage = computed(() => Math.ceil(rawServerHackAverage.value));
 type HackRiskLevel = 'normal' | 'elevated' | 'high' | 'critical';
 type HackRiskDisplay = {
   level: HackRiskLevel;
@@ -874,6 +781,11 @@ const DEFAULT_HACK_RISK_DISPLAY: HackRiskDisplay = {
   tooltip: 'Normal risk: 0 hack events.'
 };
 
+const HACK_RISK_MIN_COUNTS = {
+  elevated: 5,
+  high: 10,
+  critical: 15
+} as const;
 function getHackRiskLevelForCount(
   hackCount: number,
   average: number
@@ -881,18 +793,27 @@ function getHackRiskLevelForCount(
   if (hackCount <= 0) return { level: 'normal', label: 'Normal' };
 
   if (average <= 0) {
-    if (hackCount >= 5) return { level: 'critical', label: 'Critical' };
-    if (hackCount >= 3) return { level: 'high', label: 'High' };
-    return { level: 'elevated', label: 'Elevated' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.critical) return { level: 'critical', label: 'Critical' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.high) return { level: 'high', label: 'High' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.elevated) return { level: 'elevated', label: 'Elevated' };
+    return { level: 'normal', label: 'Normal' };
   }
 
   const ratio = hackCount / average;
-  if (ratio >= 5) return { level: 'critical', label: 'Critical' };
-  if (ratio >= 3) return { level: 'high', label: 'High' };
-  if (ratio >= 1.5) return { level: 'elevated', label: 'Elevated' };
+  if (ratio >= 5 && hackCount >= HACK_RISK_MIN_COUNTS.critical) {
+    return { level: 'critical', label: 'Critical' };
+  }
+
+  if (ratio >= 3 && hackCount >= HACK_RISK_MIN_COUNTS.high) {
+    return { level: 'high', label: 'High' };
+  }
+
+  if (ratio >= 1.5 && hackCount >= HACK_RISK_MIN_COUNTS.elevated) {
+    return { level: 'elevated', label: 'Elevated' };
+  }
+
   return { level: 'normal', label: 'Normal' };
 }
-
 const hackRiskByCharacterId = computed(() => {
   const average = serverHackAverage.value;
   const result = new Map<number, HackRiskDisplay>();
@@ -913,7 +834,7 @@ const hackRiskByCharacterId = computed(() => {
       ...risk,
       tooltip: `${risk.label} risk: ${conn.hackCount} hack event${
         conn.hackCount !== 1 ? 's' : ''
-      } vs server average ${average.toFixed(2)} (${ratio.toFixed(1)}x).`
+      } vs server average ${average} (${ratio.toFixed(1)}x).`
     });
   }
 
@@ -1107,10 +1028,7 @@ const filteredConnections = computed(() => {
 });
 
 const filteredIpGroups = computed((): IpGroup[] => {
-  const groupMap = new Map<
-    string,
-    { connections: ServerConnection[]; traders: ServerConnection[]; fighters: ServerConnection[] }
-  >();
+  const groupMap = new Map<string, { traders: ServerConnection[]; fighters: ServerConnection[] }>();
 
   for (const conn of filteredConnections.value) {
     const existing = groupMap.get(conn.ip);
@@ -1122,19 +1040,19 @@ const filteredIpGroups = computed((): IpGroup[] => {
       }
     } else {
       if (isTrader(conn)) {
-        groupMap.set(conn.ip, { connections: [], traders: [conn], fighters: [] });
+        groupMap.set(conn.ip, { traders: [conn], fighters: [] });
       } else {
-        groupMap.set(conn.ip, { connections: [], traders: [], fighters: [conn] });
+        groupMap.set(conn.ip, { traders: [], fighters: [conn] });
       }
     }
   }
 
   // Sort groups by total count (descending), then by IP
   return Array.from(groupMap.entries())
-    .map(([ip, { connections, traders, fighters }]) => ({ ip, connections, traders, fighters }))
+    .map(([ip, { traders, fighters }]) => ({ ip, traders, fighters }))
     .sort((a, b) => {
-      const totalA = a.connections.length + a.traders.length + a.fighters.length;
-      const totalB = b.connections.length + b.traders.length + b.fighters.length;
+      const totalA = a.traders.length + a.fighters.length;
+      const totalB = b.traders.length + b.fighters.length;
       if (totalB !== totalA) {
         return totalB - totalA;
       }
@@ -1242,7 +1160,7 @@ function formatMoney(copper: number | null): string {
 }
 
 function getTotalGroupCount(group: IpGroup): number {
-  return group.connections.length + group.traders.length + group.fighters.length;
+  return group.traders.length + group.fighters.length;
 }
 
 /**
@@ -1340,8 +1258,8 @@ function isOutsideHome(conn: ServerConnection): boolean {
 }
 
 function getOutsideHomeCount(group: IpGroup): number {
-  // Traders are in The Bazaar (inactive zone), so only count fighters and regular connections
-  return [...group.connections, ...group.fighters].filter(isOutsideHome).length;
+  // Traders are in The Bazaar (inactive zone), so only fighters count as active.
+  return group.fighters.filter(isOutsideHome).length;
 }
 
 function getIpLimit(ip: string): number {
@@ -1357,8 +1275,7 @@ function getIpGroupHackStatus(group: IpGroup): 'critical' | 'warning' | null {
   let hasCritical = false;
   let hasWarning = false;
 
-  // Check all connections: regular, traders, and fighters
-  const allConnections = [...group.connections, ...group.traders, ...group.fighters];
+  const allConnections = [...group.traders, ...group.fighters];
   for (const conn of allConnections) {
     if (conn.lastHackAt) {
       const hackTime = new Date(conn.lastHackAt);
@@ -2231,7 +2148,7 @@ onUnmounted(() => {
 .trader-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
-  background: rgba(45, 212, 191, 0.04);
+  background: rgba(90, 24, 154, 0.08);
 }
 
 .trader-subgroup__header {
@@ -2239,8 +2156,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(45, 212, 191, 0.08);
-  border-bottom: 1px solid rgba(45, 212, 191, 0.15);
+  background: rgba(26, 4, 41, 0.92);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.28);
 }
 
 .trader-subgroup__label {
@@ -2248,7 +2165,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #2dd4bf;
+  color: #d8b4fe;
 }
 
 .trader-subgroup__count {
@@ -2256,12 +2173,12 @@ onUnmounted(() => {
   font-weight: 600;
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
-  background: rgba(45, 212, 191, 0.2);
-  color: #2dd4bf;
+  background: rgba(168, 85, 247, 0.2);
+  color: #e9d5ff;
 }
 
 .connections-table--traders th {
-  background: rgba(45, 212, 191, 0.05);
+  background: rgba(90, 24, 154, 0.08);
 }
 
 /* Sub-group Icon Styles */
@@ -2272,18 +2189,18 @@ onUnmounted(() => {
 }
 
 .subgroup-icon--trader {
-  color: #2dd4bf;
+  color: #c084fc;
 }
 
 .subgroup-icon--fighter {
-  color: #f87171;
+  color: #c08457;
 }
 
 /* Fighter Sub-group Styles */
 .fighter-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
-  background: rgba(248, 113, 113, 0.04);
+  background: rgba(192, 132, 87, 0.06);
 }
 
 .fighter-subgroup__header {
@@ -2291,8 +2208,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(248, 113, 113, 0.08);
-  border-bottom: 1px solid rgba(248, 113, 113, 0.15);
+  background: rgba(192, 132, 87, 0.1);
+  border-bottom: 1px solid rgba(192, 132, 87, 0.2);
 }
 
 .fighter-subgroup__label {
@@ -2300,7 +2217,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #f87171;
+  color: #d6b08a;
 }
 
 .fighter-subgroup__count {
@@ -2308,12 +2225,12 @@ onUnmounted(() => {
   font-weight: 600;
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
-  background: rgba(248, 113, 113, 0.2);
-  color: #f87171;
+  background: rgba(192, 132, 87, 0.18);
+  color: #d6b08a;
 }
 
 .connections-table--fighters th {
-  background: rgba(248, 113, 113, 0.05);
+  background: rgba(192, 132, 87, 0.06);
 }
 
 .col-last-sale {
