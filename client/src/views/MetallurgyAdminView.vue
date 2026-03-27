@@ -1140,6 +1140,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+  align-items: stretch;
 }
 
 @media (max-width: 1024px) {
@@ -1157,6 +1158,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  min-height: 0;
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.35);
 }
 
@@ -1204,9 +1206,11 @@ onMounted(async () => {
 
 /* Ore List Styles */
 .ore-list {
-  display: block;
-  height: 500px;
-  overflow-y: scroll;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   padding-right: 0.5rem;
   /* Firefox scrollbar */
   scrollbar-width: thin;
