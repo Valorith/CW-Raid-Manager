@@ -2148,7 +2148,7 @@ onUnmounted(() => {
 .trader-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
-  background: rgba(45, 212, 191, 0.04);
+  background: rgba(90, 24, 154, 0.08);
 }
 
 .trader-subgroup__header {
@@ -2156,8 +2156,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(45, 212, 191, 0.08);
-  border-bottom: 1px solid rgba(45, 212, 191, 0.15);
+  background: rgba(26, 4, 41, 0.92);
+  border-bottom: 1px solid rgba(168, 85, 247, 0.28);
 }
 
 .trader-subgroup__label {
@@ -2165,7 +2165,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #2dd4bf;
+  color: #d8b4fe;
 }
 
 .trader-subgroup__count {
@@ -2173,12 +2173,12 @@ onUnmounted(() => {
   font-weight: 600;
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
-  background: rgba(45, 212, 191, 0.2);
-  color: #2dd4bf;
+  background: rgba(168, 85, 247, 0.2);
+  color: #e9d5ff;
 }
 
 .connections-table--traders th {
-  background: rgba(45, 212, 191, 0.05);
+  background: rgba(90, 24, 154, 0.08);
 }
 
 /* Sub-group Icon Styles */
@@ -2189,7 +2189,7 @@ onUnmounted(() => {
 }
 
 .subgroup-icon--trader {
-  color: #2dd4bf;
+  color: #c084fc;
 }
 
 .subgroup-icon--fighter {
