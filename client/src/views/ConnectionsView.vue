@@ -761,12 +761,13 @@ const itemOwnershipRangeEnd = computed(() => {
   return Math.min(itemOwnershipPage.value * itemOwnershipPageSize, totalOwners);
 });
 
-const serverHackAverage = computed(() => {
+const rawServerHackAverage = computed(() => {
   if (connections.value.length === 0) return 0;
   const totalHackEvents = connections.value.reduce((sum, conn) => sum + conn.hackCount, 0);
   return totalHackEvents / connections.value.length;
 });
 
+const serverHackAverage = computed(() => Math.ceil(rawServerHackAverage.value));
 type HackRiskLevel = 'normal' | 'elevated' | 'high' | 'critical';
 type HackRiskDisplay = {
   level: HackRiskLevel;
@@ -777,9 +778,14 @@ type HackRiskDisplay = {
 const DEFAULT_HACK_RISK_DISPLAY: HackRiskDisplay = {
   level: 'normal',
   label: 'Normal',
-  tooltip: 'Hack risk information unavailable.'
+  tooltip: 'Normal risk: 0 hack events.'
 };
 
+const HACK_RISK_MIN_COUNTS = {
+  elevated: 5,
+  high: 10,
+  critical: 15
+} as const;
 function getHackRiskLevelForCount(
   hackCount: number,
   average: number
@@ -787,35 +793,27 @@ function getHackRiskLevelForCount(
   if (hackCount <= 0) return { level: 'normal', label: 'Normal' };
 
   if (average <= 0) {
-    if (hackCount >= 5) return { level: 'critical', label: 'Critical' };
-    if (hackCount >= 3) return { level: 'high', label: 'High' };
-    return { level: 'elevated', label: 'Elevated' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.critical) return { level: 'critical', label: 'Critical' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.high) return { level: 'high', label: 'High' };
+    if (hackCount >= HACK_RISK_MIN_COUNTS.elevated) return { level: 'elevated', label: 'Elevated' };
+    return { level: 'normal', label: 'Normal' };
   }
 
   const ratio = hackCount / average;
-  if (hackCount >= 5) {
-    if (ratio >= 5) return { level: 'critical', label: 'Critical' };
+  if (ratio >= 5 && hackCount >= HACK_RISK_MIN_COUNTS.critical) {
+    return { level: 'critical', label: 'Critical' };
+  }
+
+  if (ratio >= 3 && hackCount >= HACK_RISK_MIN_COUNTS.high) {
     return { level: 'high', label: 'High' };
   }
 
-  if (hackCount >= 3) {
-    if (ratio >= 3) return { level: 'high', label: 'High' };
+  if (ratio >= 1.5 && hackCount >= HACK_RISK_MIN_COUNTS.elevated) {
     return { level: 'elevated', label: 'Elevated' };
   }
 
-  if (ratio >= 1.5) return { level: 'elevated', label: 'Elevated' };
   return { level: 'normal', label: 'Normal' };
 }
-
-function formatHackAverage(average: number): string {
-  const absoluteAverage = Math.abs(average);
-  if (absoluteAverage < 0.01) {
-    return average.toFixed(4);
-  }
-
-  return average.toFixed(2);
-}
-
 const hackRiskByCharacterId = computed(() => {
   const average = serverHackAverage.value;
   const result = new Map<number, HackRiskDisplay>();
@@ -836,7 +834,7 @@ const hackRiskByCharacterId = computed(() => {
       ...risk,
       tooltip: `${risk.label} risk: ${conn.hackCount} hack event${
         conn.hackCount !== 1 ? 's' : ''
-      } vs server average ${formatHackAverage(average)} (${ratio.toFixed(1)}x).`
+      } vs server average ${average} (${ratio.toFixed(1)}x).`
     });
   }
 
@@ -2195,14 +2193,14 @@ onUnmounted(() => {
 }
 
 .subgroup-icon--fighter {
-  color: #f87171;
+  color: #c08457;
 }
 
 /* Fighter Sub-group Styles */
 .fighter-subgroup {
   margin-top: 0.5rem;
   border-top: 1px dashed rgba(148, 163, 184, 0.2);
-  background: rgba(248, 113, 113, 0.04);
+  background: rgba(192, 132, 87, 0.06);
 }
 
 .fighter-subgroup__header {
@@ -2210,8 +2208,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  background: rgba(248, 113, 113, 0.08);
-  border-bottom: 1px solid rgba(248, 113, 113, 0.15);
+  background: rgba(192, 132, 87, 0.1);
+  border-bottom: 1px solid rgba(192, 132, 87, 0.2);
 }
 
 .fighter-subgroup__label {
@@ -2219,7 +2217,7 @@ onUnmounted(() => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #f87171;
+  color: #d6b08a;
 }
 
 .fighter-subgroup__count {
@@ -2227,12 +2225,12 @@ onUnmounted(() => {
   font-weight: 600;
   padding: 0.1rem 0.4rem;
   border-radius: 0.25rem;
-  background: rgba(248, 113, 113, 0.2);
-  color: #f87171;
+  background: rgba(192, 132, 87, 0.18);
+  color: #d6b08a;
 }
 
 .connections-table--fighters th {
-  background: rgba(248, 113, 113, 0.05);
+  background: rgba(192, 132, 87, 0.06);
 }
 
 .col-last-sale {
