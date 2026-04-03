@@ -2,10 +2,87 @@ import { appConfig } from '../config/appConfig.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { linkDiscordToUser, linkGoogleToUser, upsertDiscordUser, upsertGoogleUser } from '../services/authService.js';
 import { prisma } from '../utils/prisma.js';
+const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
+function isLoopbackHostname(hostname) {
+    return (hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname === '::1' ||
+        hostname.startsWith('127.'));
+}
+function normalizeOrigin(value) {
+    if (!value) {
+        return null;
+    }
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            return null;
+        }
+        return `${url.protocol}//${url.host}`;
+    }
+    catch {
+        return null;
+    }
+}
 export async function authRoutes(server) {
+    const configuredClientOrigin = normalizeOrigin(appConfig.clientUrl);
+    function getRequestedClientOrigin(request) {
+        const originHeader = request.headers.origin;
+        const refererHeader = request.headers.referer;
+        const originCandidate = Array.isArray(originHeader) ? originHeader[0] : originHeader;
+        const refererCandidate = Array.isArray(refererHeader) ? refererHeader[0] : refererHeader;
+        const normalizedOrigin = normalizeOrigin(originCandidate);
+        const normalizedReferer = normalizeOrigin(refererCandidate);
+        return normalizedOrigin ?? normalizedReferer;
+    }
+    function isAllowedClientOrigin(origin) {
+        if (configuredClientOrigin && origin === configuredClientOrigin) {
+            return true;
+        }
+        try {
+            const url = new URL(origin);
+            return appConfig.nodeEnv !== 'production' && isLoopbackHostname(url.hostname);
+        }
+        catch {
+            return false;
+        }
+    }
+    function setPostAuthOriginCookie(request, reply) {
+        const requestedOrigin = getRequestedClientOrigin(request);
+        if (!requestedOrigin || !isAllowedClientOrigin(requestedOrigin)) {
+            reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+            return;
+        }
+        reply.setCookie(POST_AUTH_ORIGIN_COOKIE, requestedOrigin, {
+            signed: true,
+            httpOnly: true,
+            sameSite: 'lax',
+            secure: appConfig.nodeEnv === 'production',
+            path: '/',
+            maxAge: 60 * 10
+        });
+    }
+    function getPostAuthBaseUrl(reply, cookieValue) {
+        if (cookieValue) {
+            const unsignedCookie = reply.unsignCookie(cookieValue);
+            if (unsignedCookie.valid && unsignedCookie.value && isAllowedClientOrigin(unsignedCookie.value)) {
+                return unsignedCookie.value;
+            }
+        }
+        return appConfig.clientUrl;
+    }
+    if (server.hasDecorator('googleOAuth2') && server.googleOAuth2) {
+        server.get('/google', async (request, reply) => {
+            setPostAuthOriginCookie(request, reply);
+            return reply.redirect('/api/auth/google/start');
+        });
+    }
     if (server.hasDecorator('googleOAuth2') && server.googleOAuth2) {
         server.get('/google/callback', async (request, reply) => {
             try {
+                const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+                reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
                 // Check if this is a linking flow (user is linking account, not logging in)
                 const linkCookie = request.cookies.cwraid_link_user;
                 let linkingUserId = null;
@@ -22,7 +99,7 @@ export async function authRoutes(server) {
                 if (!accessToken) {
                     request.log.error('Missing Google access token in OAuth callback response.');
                     if (linkingUserId) {
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`);
                     }
                     return reply.internalServerError('Unable to complete Google sign-in.');
                 }
@@ -34,7 +111,7 @@ export async function authRoutes(server) {
                 if (!googleUserResponse.ok) {
                     request.log.error({ status: googleUserResponse.status, statusText: googleUserResponse.statusText }, 'Failed to fetch Google user profile');
                     if (linkingUserId) {
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`);
                     }
                     return reply.internalServerError('Unable to complete Google sign-in.');
                 }
@@ -43,12 +120,12 @@ export async function authRoutes(server) {
                 if (linkingUserId) {
                     try {
                         await linkGoogleToUser(linkingUserId, profile);
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=google`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=google`);
                     }
                     catch (linkError) {
                         const message = linkError instanceof Error ? linkError.message : 'Failed to link Google account.';
                         request.log.error({ error: linkError }, 'Error linking Google account');
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`);
                     }
                 }
                 // Normal login flow
@@ -69,7 +146,7 @@ export async function authRoutes(server) {
                     path: '/',
                     maxAge: 60 * 60 * 24 * 7
                 });
-                return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
+                return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
             }
             catch (error) {
                 const errMsg = error instanceof Error ? error.message : String(error);
@@ -83,7 +160,13 @@ export async function authRoutes(server) {
         server.log.warn('Google OAuth plugin unavailable. Skipping Google callback route registration.');
     }
     if (server.hasDecorator('discordOAuth2') && server.discordOAuth2) {
+        server.get('/discord', async (request, reply) => {
+            setPostAuthOriginCookie(request, reply);
+            return reply.redirect('/api/auth/discord/start');
+        });
         server.get('/discord/callback', async (request, reply) => {
+            const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+            reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
             // Check if this is a linking flow (user is linking account, not logging in)
             const linkCookie = request.cookies.cwraid_link_user;
             let linkingUserId = null;
@@ -103,7 +186,7 @@ export async function authRoutes(server) {
                 if (queryParams.error) {
                     request.log.error({ error: queryParams.error }, 'Discord OAuth returned an error in callback');
                     if (linkingUserId) {
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`);
                     }
                     return reply.internalServerError('Unable to complete Discord sign-in.');
                 }
@@ -117,7 +200,7 @@ export async function authRoutes(server) {
                 if (!token?.token.access_token) {
                     request.log.error('Missing Discord access token in OAuth callback response.');
                     if (linkingUserId) {
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`);
                     }
                     return reply.internalServerError('Unable to complete Discord sign-in.');
                 }
@@ -133,7 +216,7 @@ export async function authRoutes(server) {
                     callbackUrl: appConfig.discord?.callbackUrl
                 }, 'Discord OAuth token exchange failed');
                 if (linkingUserId) {
-                    return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`);
+                    return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`);
                 }
                 return reply.internalServerError('Unable to complete Discord sign-in.');
             }
@@ -148,7 +231,7 @@ export async function authRoutes(server) {
                 if (!discordUserResponse.ok) {
                     request.log.error({ status: discordUserResponse.status, statusText: discordUserResponse.statusText }, 'Failed to fetch Discord user profile');
                     if (linkingUserId) {
-                        return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`);
+                        return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`);
                     }
                     return reply.internalServerError('Unable to complete Discord sign-in.');
                 }
@@ -157,7 +240,7 @@ export async function authRoutes(server) {
             catch (fetchError) {
                 request.log.error({ error: fetchError }, 'Error fetching Discord user profile');
                 if (linkingUserId) {
-                    return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`);
+                    return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`);
                 }
                 return reply.internalServerError('Unable to complete Discord sign-in.');
             }
@@ -165,7 +248,7 @@ export async function authRoutes(server) {
             if (!profile.email) {
                 request.log.error('Discord profile missing email. User may not have granted email scope.');
                 if (linkingUserId) {
-                    return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`);
+                    return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`);
                 }
                 return reply.badRequest('Discord account must have a verified email address.');
             }
@@ -173,12 +256,12 @@ export async function authRoutes(server) {
             if (linkingUserId) {
                 try {
                     await linkDiscordToUser(linkingUserId, profile);
-                    return reply.redirect(`${appConfig.clientUrl}/settings/account?linked=discord`);
+                    return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=discord`);
                 }
                 catch (linkError) {
                     const message = linkError instanceof Error ? linkError.message : 'Failed to link Discord account.';
                     request.log.error({ error: linkError }, 'Error linking Discord account');
-                    return reply.redirect(`${appConfig.clientUrl}/settings/account?error=${encodeURIComponent(message)}`);
+                    return reply.redirect(`${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`);
                 }
             }
             // Step 4: Create or update user in database (login flow)
@@ -208,7 +291,7 @@ export async function authRoutes(server) {
                     path: '/',
                     maxAge: 60 * 60 * 24 * 7
                 });
-                return reply.redirect(`${appConfig.clientUrl}/auth/callback`);
+                return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
             }
             catch (jwtError) {
                 request.log.error({ error: jwtError }, 'Failed to sign JWT for Discord user');

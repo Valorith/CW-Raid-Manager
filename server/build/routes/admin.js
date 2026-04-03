@@ -4,7 +4,7 @@ import { prisma } from '../utils/prisma.js';
 import { authenticate } from '../middleware/authenticate.js';
 import { deleteGuildByAdmin, deleteRaidEventByAdmin, deleteUserByAdmin, detachGuildCharacterByAdmin, ensureAdmin, ensureGuideOrAdmin, getGuildDetailForAdmin, getRaidEventForAdmin, listGuildsForAdmin, listRaidEventsForAdmin, listUsersForAdmin, removeGuildMemberAsAdmin, updateGuildDetailsByAdmin, updateGuildMemberRoleAsAdmin, updateRaidEventByAdmin, updateUserByAdmin, upsertGuildMembershipAsAdmin } from '../services/adminService.js';
 import { fetchLcItems, fetchLcRequests, fetchLcVotes, fetchLootMaster, getLootManagementSummary } from '../services/lootManagementService.js';
-import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity } from '../services/connectionsService.js';
+import { fetchServerConnections, fetchIpExemptions, fetchCharacterLastActivity, searchItemsForOwnership, fetchItemOwnership } from '../services/connectionsService.js';
 import { fetchPlayerEventLogs, getPlayerEventLogStats, getEventTypes, getEventLogZones } from '../services/playerEventLogsService.js';
 import { createInboundWebhook, createInboundWebhookAction, createInboundWebhookMessageForAdmin, deleteInboundWebhook, deleteInboundWebhookAction, getInboundWebhookMessage, listInboundWebhookMessagesEnhanced, listInboundWebhooks, retryCrashReviewForMessage, updateInboundWebhook, updateInboundWebhookAction, markMessageRead, getUnreadCount, toggleMessageStar, listWebhookLabels, createWebhookLabel, findOrCreateWebhookLabel, updateWebhookLabel, deleteWebhookLabel, setMessageLabels, mergeWebhookMessages, bulkMessageAction, getPendingProcessingWebhookIds, processDismissedMergeMessages, getWebhookProcessingStatus, setWebhookProcessingEnabled, getPendingMergeGroups, processGroupNow } from '../services/inboundWebhookService.js';
 import { inspectCrashReport, sortCrashReportSegments } from '../services/geminiCrashReviewService.js';
@@ -451,10 +451,10 @@ export async function adminRoutes(server) {
                 fetchIpExemptions()
             ]);
             // Fetch last activity data for all connected characters in a single batch query
-            const characterIds = baseConnections.map(c => c.characterId);
+            const characterIds = baseConnections.map((c) => c.characterId);
             const activityMap = await fetchCharacterLastActivity(characterIds);
             // Merge activity data into connections
-            const connections = baseConnections.map(conn => {
+            const connections = baseConnections.map((conn) => {
                 const activity = activityMap.get(conn.characterId);
                 return {
                     ...conn,
@@ -491,15 +491,24 @@ export async function adminRoutes(server) {
             page: z.coerce.number().int().positive().default(1),
             pageSize: z.coerce.number().int().positive().max(100).default(50),
             characterName: z.string().optional(),
-            eventTypes: z.string().optional().transform((val) => {
+            eventTypes: z
+                .string()
+                .optional()
+                .transform((val) => {
                 if (!val)
                     return undefined;
-                return val.split(',').map(Number).filter((n) => !Number.isNaN(n));
+                return val
+                    .split(',')
+                    .map(Number)
+                    .filter((n) => !Number.isNaN(n));
             }),
             zoneId: z.coerce.number().int().optional(),
             startDate: z.string().optional(),
             endDate: z.string().optional(),
-            sortBy: z.enum(['created_at', 'character_name', 'event_type_id', 'zone_id']).optional().default('created_at'),
+            sortBy: z
+                .enum(['created_at', 'character_name', 'event_type_id', 'zone_id'])
+                .optional()
+                .default('created_at'),
             sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
             search: z.string().optional()
         });
@@ -579,6 +588,53 @@ export async function adminRoutes(server) {
             return reply.badRequest('Unable to search characters.');
         }
     });
+    server.get('/items/search', {
+        preHandler: [authenticate, requireGuideOrAdmin]
+    }, async (request, reply) => {
+        const querySchema = z.object({
+            q: z.string().min(1).max(100)
+        });
+        const parsed = querySchema.safeParse(request.query);
+        if (!parsed.success) {
+            return reply.badRequest('Search query is required.');
+        }
+        try {
+            const items = await searchItemsForOwnership(parsed.data.q);
+            return { items };
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to search items.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to search items.');
+        }
+    });
+    server.get('/items/:itemId/owners', {
+        preHandler: [authenticate, requireGuideOrAdmin]
+    }, async (request, reply) => {
+        const paramsSchema = z.object({
+            itemId: z.coerce.number().int().positive()
+        });
+        const parsed = paramsSchema.safeParse(request.params);
+        if (!parsed.success) {
+            return reply.badRequest('Invalid item ID.');
+        }
+        try {
+            const result = await fetchItemOwnership(parsed.data.itemId);
+            if (!result) {
+                return reply.notFound('Item not found.');
+            }
+            return result;
+        }
+        catch (error) {
+            request.log.error({ error }, 'Failed to fetch item ownership.');
+            if (error instanceof Error) {
+                return reply.badRequest(error.message);
+            }
+            return reply.badRequest('Unable to fetch item ownership.');
+        }
+    });
     // Get character by name
     server.get('/characters/:name', {
         preHandler: [authenticate, requireGuideOrAdmin]
@@ -641,15 +697,24 @@ export async function adminRoutes(server) {
         const querySchema = z.object({
             page: z.coerce.number().int().positive().default(1),
             pageSize: z.coerce.number().int().positive().max(100).default(25),
-            eventTypes: z.string().optional().transform((val) => {
+            eventTypes: z
+                .string()
+                .optional()
+                .transform((val) => {
                 if (!val)
                     return undefined;
-                return val.split(',').map(Number).filter((n) => !Number.isNaN(n));
+                return val
+                    .split(',')
+                    .map(Number)
+                    .filter((n) => !Number.isNaN(n));
             }),
             zoneId: z.coerce.number().int().optional(),
             startDate: z.string().optional(),
             endDate: z.string().optional(),
-            sortBy: z.enum(['created_at', 'character_name', 'event_type_id', 'zone_id']).optional().default('created_at'),
+            sortBy: z
+                .enum(['created_at', 'character_name', 'event_type_id', 'zone_id'])
+                .optional()
+                .default('created_at'),
             sortOrder: z.enum(['asc', 'desc']).optional().default('desc')
         });
         const parsedParams = paramsSchema.safeParse(request.params);
@@ -953,7 +1018,7 @@ export async function adminRoutes(server) {
             });
             // Get all associated character IDs for watched characters
             // These are characters in the CharacterAssociation table linked to any watched character
-            const watchedCharIds = watchList.map(w => w.eqCharacterId);
+            const watchedCharIds = watchList.map((w) => w.eqCharacterId);
             let directAssociatedCharacterIds = [];
             let indirectAssociatedCharacterIds = [];
             if (watchedCharIds.length > 0) {
@@ -1216,14 +1281,26 @@ export async function adminRoutes(server) {
         const parsedData = parsed.data;
         const config = (parsedData.config ?? {});
         const normalizedConfig = {
-            discordWebhookUrl: typeof config.discordWebhookUrl === 'string' ? config.discordWebhookUrl.trim() || undefined : undefined,
-            devDiscordWebhookUrl: typeof config.devDiscordWebhookUrl === 'string' ? config.devDiscordWebhookUrl.trim() || undefined : undefined,
+            discordWebhookUrl: typeof config.discordWebhookUrl === 'string'
+                ? config.discordWebhookUrl.trim() || undefined
+                : undefined,
+            devDiscordWebhookUrl: typeof config.devDiscordWebhookUrl === 'string'
+                ? config.devDiscordWebhookUrl.trim() || undefined
+                : undefined,
             discordMode: config.discordMode === 'RAW' ? 'RAW' : 'WRAP',
-            discordTemplate: typeof config.discordTemplate === 'string' ? config.discordTemplate.trim() || undefined : undefined,
-            clawdbotWebhookUrl: typeof config.clawdbotWebhookUrl === 'string' ? config.clawdbotWebhookUrl.trim() || undefined : undefined,
-            devClawdbotWebhookUrl: typeof config.devClawdbotWebhookUrl === 'string' ? config.devClawdbotWebhookUrl.trim() || undefined : undefined,
+            discordTemplate: typeof config.discordTemplate === 'string'
+                ? config.discordTemplate.trim() || undefined
+                : undefined,
+            clawdbotWebhookUrl: typeof config.clawdbotWebhookUrl === 'string'
+                ? config.clawdbotWebhookUrl.trim() || undefined
+                : undefined,
+            devClawdbotWebhookUrl: typeof config.devClawdbotWebhookUrl === 'string'
+                ? config.devClawdbotWebhookUrl.trim() || undefined
+                : undefined,
             clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
-            clawdbotTemplate: typeof config.clawdbotTemplate === 'string' ? config.clawdbotTemplate.trim() || undefined : undefined,
+            clawdbotTemplate: typeof config.clawdbotTemplate === 'string'
+                ? config.clawdbotTemplate.trim() || undefined
+                : undefined,
             crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
             crashMaxInputChars: typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
             crashMaxOutputTokens: typeof config.crashMaxOutputTokens === 'number' ? config.crashMaxOutputTokens : undefined,
@@ -1291,9 +1368,13 @@ export async function adminRoutes(server) {
                 clawdbotTemplate: typeof config.clawdbotTemplate === 'string'
                     ? config.clawdbotTemplate.trim() || undefined
                     : undefined,
-                crashModel: typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
+                crashModel: typeof config.crashModel === 'string'
+                    ? config.crashModel.trim() || undefined
+                    : undefined,
                 crashMaxInputChars: typeof config.crashMaxInputChars === 'number' ? config.crashMaxInputChars : undefined,
-                crashMaxOutputTokens: typeof config.crashMaxOutputTokens === 'number' ? config.crashMaxOutputTokens : undefined,
+                crashMaxOutputTokens: typeof config.crashMaxOutputTokens === 'number'
+                    ? config.crashMaxOutputTokens
+                    : undefined,
                 crashTemperature: typeof config.crashTemperature === 'number' ? config.crashTemperature : undefined,
                 crashPromptTemplate: typeof config.crashPromptTemplate === 'string'
                     ? config.crashPromptTemplate.trim() || undefined
@@ -1604,7 +1685,10 @@ export async function adminRoutes(server) {
         const { labelId } = paramsSchema.parse(request.params);
         const bodySchema = z.object({
             name: z.string().min(1).max(50).optional(),
-            color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color').optional(),
+            color: z
+                .string()
+                .regex(/^#[0-9A-Fa-f]{6}$/, 'Invalid hex color')
+                .optional(),
             sortOrder: z.number().int().optional()
         });
         const parsed = bodySchema.safeParse(request.body ?? {});
@@ -1773,10 +1857,13 @@ export async function adminRoutes(server) {
         preHandler: [authenticate, requireAdmin]
     }, async (request, reply) => {
         const bodySchema = z.object({
-            segments: z.array(z.object({
+            segments: z
+                .array(z.object({
                 id: z.string(),
                 text: z.string().min(1)
-            })).min(2).max(20)
+            }))
+                .min(2)
+                .max(20)
         });
         const parsed = bodySchema.safeParse(request.body ?? {});
         if (!parsed.success) {
@@ -1874,7 +1961,7 @@ export async function adminRoutes(server) {
             reply.raw.writeHead(200, {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
+                Connection: 'keep-alive',
                 'X-Accel-Buffering': 'no' // Disable nginx buffering
             });
             // Stream progress updates
@@ -1921,7 +2008,9 @@ export async function adminRoutes(server) {
                 const errorText = await response.text();
                 request.log.error({ status: response.status, error: errorText }, 'IP geolocation API error');
                 return reply.status(response.status).send({
-                    error: response.status === 423 ? 'API rate limit exceeded (1000/day).' : 'Failed to fetch geolocation data.'
+                    error: response.status === 423
+                        ? 'API rate limit exceeded (1000/day).'
+                        : 'Failed to fetch geolocation data.'
                 });
             }
             const data = await response.json();

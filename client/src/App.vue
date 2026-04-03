@@ -80,6 +80,9 @@
         >
           BiS
         </RouterLink>
+        <RouterLink v-if="authStore.isAuthenticated" to="/market" class="nav__link">
+          Market
+        </RouterLink>
 
         <!-- Admin - With dropdown (different items for admin vs guide) -->
         <div

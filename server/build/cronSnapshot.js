@@ -25,8 +25,17 @@ import { prisma } from './utils/prisma.js';
 import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
 import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
+import { syncMarketSaleEvents } from './services/marketService.js';
 async function main() {
     console.log('[CronJob] Starting scheduled tasks...');
+    console.log('[CronJob] Syncing market sale events...');
+    try {
+        const syncResult = await syncMarketSaleEvents({ maxBatches: 20 });
+        console.log(`[CronJob] Market sync complete. Processed ${syncResult.processed} rows, inserted ${syncResult.inserted}.`);
+    }
+    catch (error) {
+        console.error('[CronJob] Error syncing market sale events:', error);
+    }
     // Task 1: Check and send NPC respawn notifications
     // This runs every time the cron job fires (every 5 minutes)
     console.log('[CronJob] Checking NPC respawn notifications...');

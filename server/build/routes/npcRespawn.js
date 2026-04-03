@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
-import { listNpcDefinitions, getNpcDefinition, createNpcDefinition, updateNpcDefinition, deleteNpcDefinition, listKillRecords, listKillRecordsForNpc, createKillRecord, deleteKillRecord, getUserSubscriptions, upsertSubscription, deleteSubscription, getRespawnTrackerData, getEnabledContentFlags, NPC_CONTENT_FLAGS } from '../services/npcRespawnService.js';
+import { listNpcDefinitions, getNpcDefinition, createNpcDefinition, updateNpcDefinition, deleteNpcDefinition, listKillRecords, listKillRecordsForNpc, createKillRecord, updateKillRecord, deleteKillRecord, getUserSubscriptions, upsertSubscription, deleteSubscription, getRespawnTrackerData, getEnabledContentFlags, NPC_CONTENT_FLAGS } from '../services/npcRespawnService.js';
 import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
 import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
 import { prisma } from '../utils/prisma.js';
@@ -25,6 +25,12 @@ const killRecordBodySchema = z.object({
     notes: z.string().max(500).nullable().optional(),
     isInstance: z.boolean().optional(),
     triggerWebhook: z.boolean().optional()
+});
+const killRecordUpdateBodySchema = z.object({
+    killedAt: z.string().datetime().or(z.date()),
+    killedByName: z.string().trim().max(191).nullable().optional(),
+    notes: z.string().max(500).nullable().optional(),
+    isInstance: z.boolean().optional()
 });
 const subscriptionBodySchema = z.object({
     npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
@@ -223,6 +229,43 @@ export async function npcRespawnRoutes(server) {
         }
         catch (error) {
             return reply.badRequest(error instanceof Error ? error.message : 'Failed to create kill record.');
+        }
+    });
+    // Update a kill record (used for active respawn edits)
+    server.put('/:guildId/npc-kills/:killRecordId', { preHandler: [authenticate] }, async (request, reply) => {
+        const paramsSchema = z.object({
+            guildId: z.string(),
+            killRecordId: z.string()
+        });
+        const { guildId, killRecordId } = paramsSchema.parse(request.params);
+        await ensureUserCanViewGuild(request.user.userId, guildId);
+        const parsedBody = killRecordUpdateBodySchema.safeParse(request.body ?? {});
+        if (!parsedBody.success) {
+            return reply.badRequest('Invalid kill record payload: ' + parsedBody.error.message);
+        }
+        try {
+            const { record, previousIsInstance } = await updateKillRecord(guildId, killRecordId, {
+                killedAt: new Date(parsedBody.data.killedAt),
+                killedByName: parsedBody.data.killedByName ?? null,
+                notes: parsedBody.data.notes ?? null,
+                isInstance: parsedBody.data.isInstance
+            });
+            if (previousIsInstance !== record.isInstance) {
+                await prisma.npcRespawnNotification.deleteMany({
+                    where: {
+                        npcDefinitionId: record.npcDefinitionId,
+                        isInstanceVariant: previousIsInstance
+                    }
+                });
+            }
+            await resetRespawnNotification(record.npcDefinitionId, record.isInstance, record.id);
+            return { record };
+        }
+        catch (error) {
+            if (error instanceof Error && error.message === 'Kill record not found.') {
+                return reply.notFound(error.message);
+            }
+            return reply.badRequest(error instanceof Error ? error.message : 'Failed to update kill record.');
         }
     });
     // Delete a kill record (any guild member can delete - needed for Up/Down status buttons)

@@ -638,6 +638,11 @@ enum SignupStatus {
   NOT_ATTENDING
 }
 
+enum MarketLogEventType {
+  TRADER_PURCHASE
+  TRADER_SELL
+}
+
 enum AvailabilityStatus {
   AVAILABLE
   UNAVAILABLE
@@ -1100,6 +1105,33 @@ model CharacterWatch {
   @@unique([eqCharacterId])
   @@index([eqAccountId])
   @@index([createdById])
+}
+
+model MarketSaleEvent {
+  id                        String             @id @default(cuid())
+  eqLogId                   BigInt             @unique
+  eventType                 MarketLogEventType
+  occurredAt                DateTime
+  syncedAt                  DateTime           @default(now())
+  actorCharacterId          Int
+  actorCharacterName        String             @db.VarChar(191)
+  counterpartyCharacterId   Int?
+  counterpartyCharacterName String?            @db.VarChar(191)
+  itemId                    Int?
+  itemName                  String             @db.VarChar(191)
+  itemNameNormalized        String             @db.VarChar(191)
+  itemIconId                Int?
+  price                     Int
+  quantity                  Int                @default(1)
+  charges                   Int?
+  totalCost                 Int
+  playerMoneyBalance        Int?
+  rawEventData              Json?
+
+  @@index([eventType, occurredAt], map: "MarketSaleEvent_eventType_occurredAt_idx")
+  @@index([itemId, eventType, occurredAt], map: "MarketSaleEvent_itemId_eventType_occurredAt_idx")
+  @@index([itemNameNormalized, eventType, occurredAt], map: "MarketSaleEvent_itemName_eventType_occurredAt_idx")
+  @@index([actorCharacterId, eventType, occurredAt], map: "MarketSaleEvent_actor_eventType_occurredAt_idx")
 }
 
 model BisSlotCandidate {

@@ -274,6 +274,29 @@ export async function createKillRecord(guildId, input) {
     });
     return formatKillRecord(record);
 }
+export async function updateKillRecord(guildId, killRecordId, input) {
+    const existing = await prisma.npcKillRecord.findFirst({
+        where: { guildId, id: killRecordId },
+        include: { npcDefinition: true }
+    });
+    if (!existing) {
+        throw new Error('Kill record not found.');
+    }
+    const updated = await prisma.npcKillRecord.update({
+        where: { id: killRecordId },
+        data: {
+            killedAt: input.killedAt,
+            killedByName: input.killedByName?.trim() || null,
+            notes: input.notes?.trim() || null,
+            isInstance: input.isInstance ?? existing.isInstance
+        },
+        include: { npcDefinition: true }
+    });
+    return {
+        record: formatKillRecord(updated),
+        previousIsInstance: existing.isInstance ?? false
+    };
+}
 export async function deleteKillRecord(guildId, killRecordId) {
     const existing = await prisma.npcKillRecord.findFirst({
         where: { guildId, id: killRecordId }

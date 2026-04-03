@@ -1728,6 +1728,113 @@ export interface PlayerEventZone {
   zoneName: string;
 }
 
+export interface MarketSyncStatus {
+  lastEqLogId: string | null;
+  lastSyncedAt: string | null;
+}
+
+export interface MarketRecentSale {
+  id: string;
+  occurredAt: string;
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  price: number;
+  quantity: number;
+  charges: number | null;
+  totalCost: number;
+  sellerCharacterId: number;
+  sellerCharacterName: string;
+  buyerCharacterId: number | null;
+  buyerCharacterName: string | null;
+}
+
+export interface MarketTopItem {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  salesCount: number;
+  unitsSold: number;
+  totalRevenue: number;
+  averagePrice: number;
+  lastSoldAt: string;
+}
+
+export interface MarketDailyActivityPoint {
+  saleDate: string;
+  salesCount: number;
+  unitsSold: number;
+  totalRevenue: number;
+}
+
+export interface MarketSummary {
+  rangeDays: number | null;
+  totalSales: number;
+  totalUnitsSold: number;
+  totalRevenue: number;
+  uniqueItems: number;
+  averageSalePrice: number;
+  lastSaleAt: string | null;
+  syncStatus: MarketSyncStatus;
+  dailyActivity: MarketDailyActivityPoint[];
+  topItems: MarketTopItem[];
+  recentSales: MarketRecentSale[];
+}
+
+export interface MarketItemSearchResult {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  saleCount: number;
+  lastSoldAt: string;
+}
+
+export interface MarketPricePoint {
+  occurredAt: string;
+  price: number;
+  quantity: number;
+  totalCost: number;
+}
+
+export interface MarketItemStats {
+  totalSales: number;
+  totalUnitsSold: number;
+  totalRevenue: number;
+  averagePrice: number;
+  minPrice: number;
+  maxPrice: number;
+  lastSoldAt: string | null;
+}
+
+export interface MarketItemHistory {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  rangeDays: number | null;
+  stats: MarketItemStats;
+  pricePoints: MarketPricePoint[];
+  dailyTrend: Array<{
+    saleDate: string;
+    salesCount: number;
+    unitsSold: number;
+    averagePrice: number;
+    minPrice: number;
+    maxPrice: number;
+    totalRevenue: number;
+  }>;
+  recentSales: MarketRecentSale[];
+}
+
+export interface MarketRecentSalesPage {
+  sales: MarketRecentSale[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export type MarketTopItemsSort = 'quantity' | 'value';
+
 // Character Admin Types
 export interface CharacterAdminDetails {
   id: number;
@@ -4599,6 +4706,59 @@ export const api = {
   async fetchPlayerEventZones(): Promise<PlayerEventZone[]> {
     const response = await axios.get('/api/admin/player-event-logs/zones');
     return response.data.zones ?? [];
+  },
+
+  async fetchMarketSummary(
+    days: number | null = null,
+    topItemsSort: MarketTopItemsSort = 'quantity'
+  ): Promise<MarketSummary> {
+    const params = new URLSearchParams({ topItemsSort });
+    if (days != null) {
+      params.append('days', String(days));
+    }
+    const response = await axios.get(`/api/market/summary?${params.toString()}`);
+    return response.data.summary;
+  },
+
+  async searchMarketItems(query: string, limit = 12): Promise<MarketItemSearchResult[]> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit)
+    });
+    const response = await axios.get(`/api/market/items/search?${params.toString()}`);
+    return response.data.items ?? [];
+  },
+
+  async fetchMarketItemHistory(options: {
+    itemId?: number;
+    itemName?: string;
+    days?: number | null;
+    pointLimit?: number;
+  }): Promise<MarketItemHistory> {
+    const params = new URLSearchParams();
+    if (options.itemId != null) params.append('itemId', String(options.itemId));
+    if (options.itemName) params.append('itemName', options.itemName);
+    if (options.days != null) params.append('days', String(options.days));
+    if (options.pointLimit != null) params.append('pointLimit', String(options.pointLimit));
+    const response = await axios.get(`/api/market/history?${params.toString()}`);
+    return response.data.history;
+  },
+
+  async fetchMarketSalesPage(options: {
+    itemId?: number;
+    itemName?: string;
+    days?: number | null;
+    page?: number;
+    pageSize?: number;
+  }): Promise<MarketRecentSalesPage> {
+    const params = new URLSearchParams();
+    if (options.itemId != null) params.append('itemId', String(options.itemId));
+    if (options.itemName) params.append('itemName', options.itemName);
+    if (options.days != null) params.append('days', String(options.days));
+    if (options.page != null) params.append('page', String(options.page));
+    if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
+    const response = await axios.get(`/api/market/sales?${params.toString()}`);
+    return response.data.salesPage;
   },
 
   // Character Admin APIs

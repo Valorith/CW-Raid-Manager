@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/market',
+      name: 'Market',
+      component: () => import('../views/MarketView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/auth/callback',
       name: 'AuthCallback',
       component: () => import('../views/AuthCallbackView.vue')

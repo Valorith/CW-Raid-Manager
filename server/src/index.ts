@@ -4,6 +4,7 @@ import { appConfig } from './config/appConfig.js';
 import { buildServer } from './app.js';
 import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 import { startMoneyTrackerScheduler } from './services/moneyTrackerScheduler.js';
+import { startMarketSyncScheduler } from './services/marketSyncScheduler.js';
 
 async function start(): Promise<void> {
   const server = buildServer();
@@ -29,6 +30,12 @@ async function start(): Promise<void> {
       // Start the money tracker scheduler for automatic daily snapshots
       startMoneyTrackerScheduler({
         info: (...args) => server.log.info(args[0]),
+        error: (...args) => server.log.error(args[0]),
+        debug: (...args) => server.log.debug(args[0])
+      });
+      startMarketSyncScheduler({
+        info: (...args) => server.log.info(args[0]),
+        warn: (...args) => server.log.warn(args[0]),
         error: (...args) => server.log.error(args[0]),
         debug: (...args) => server.log.debug(args[0])
       });

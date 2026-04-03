@@ -1,4 +1,4 @@
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, openSync, readSync, closeSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
@@ -18,6 +18,7 @@ const lootIconDirectoryCandidates = [
     resolve(currentDir, '../../../../assets/icons/items')
 ];
 const lootIconDirectory = lootIconDirectoryCandidates.find((candidate) => existsSync(candidate)) ?? null;
+const lootIconValidityCache = new Map();
 const lootEventSchema = z.object({
     itemName: z.string().min(2).max(191),
     itemId: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
@@ -31,14 +32,7 @@ const parserPatternSchema = z.object({
     id: z.string().min(1),
     label: z.string().min(1),
     pattern: z.string().min(1),
-    ignoredMethods: z
-        .array(z
-        .string()
-        .trim()
-        .min(1)
-        .max(120))
-        .max(25)
-        .optional()
+    ignoredMethods: z.array(z.string().trim().min(1).max(120)).max(25).optional()
 });
 function serializeMonitorSession(viewerId, session) {
     if (!session) {
@@ -58,11 +52,41 @@ function serializeMonitorSession(viewerId, session) {
         isOwner: session.userId === viewerId
     };
 }
+function hasValidLootIconSignature(filePath, extension) {
+    const cached = lootIconValidityCache.get(filePath);
+    if (cached !== undefined) {
+        return cached;
+    }
+    let fileHandle = null;
+    try {
+        const headerLength = extension === 'gif' ? 6 : 8;
+        const header = Buffer.alloc(headerLength);
+        fileHandle = openSync(filePath, 'r');
+        const bytesRead = readSync(fileHandle, header, 0, headerLength, 0);
+        const isValid = extension === 'gif'
+            ? bytesRead >= 6 &&
+                (header.toString('ascii', 0, 6) === 'GIF87a' ||
+                    header.toString('ascii', 0, 6) === 'GIF89a')
+            : bytesRead >= 8 &&
+                header.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        lootIconValidityCache.set(filePath, isValid);
+        return isValid;
+    }
+    catch {
+        lootIconValidityCache.set(filePath, false);
+        return false;
+    }
+    finally {
+        if (fileHandle != null) {
+            closeSync(fileHandle);
+        }
+    }
+}
 export async function lootRoutes(server) {
     server.get('/loot-icons/:iconId', async (request, reply) => {
         const paramsSchema = z.object({
-            // Icon ID must be positive (0 means "no icon" in EverQuest)
-            iconId: z.coerce.number().int().positive()
+            // Icon ID 0 is a valid fallback asset in this project; allow any non-negative icon ID.
+            iconId: z.coerce.number().int().min(0)
         });
         const querySchema = z
             .object({
@@ -91,7 +115,7 @@ export async function lootRoutes(server) {
         let selectedExtension = null;
         for (const extension of extensionOrder) {
             const candidatePath = join(lootIconDirectory, `${params.data.iconId}.${extension}`);
-            if (existsSync(candidatePath)) {
+            if (existsSync(candidatePath) && hasValidLootIconSignature(candidatePath, extension)) {
                 selectedPath = candidatePath;
                 selectedExtension = extension;
                 break;

@@ -12,11 +12,11 @@ export async function getGuildMetrics(options) {
         where: {
             attendanceEvent: {
                 raid: {
-                    guildId
-                },
-                createdAt: {
-                    gte: start,
-                    lte: end
+                    guildId,
+                    startTime: {
+                        gte: start,
+                        lte: end
+                    }
                 }
             }
         },
@@ -84,7 +84,7 @@ export async function getGuildMetrics(options) {
     const uniqueCharacters = new Map();
     const uniqueRaids = new Map();
     const uniqueLooters = new Map();
-    const attendanceCharacterKeys = new Set();
+    const summaryAttendanceCharacterKeys = new Set();
     const guildMains = await prisma.character.findMany({
         where: {
             guildId,
@@ -160,7 +160,6 @@ export async function getGuildMetrics(options) {
         else {
             uniqueCharacters.set(key, entry);
         }
-        attendanceCharacterKeys.add(key);
     };
     const pushAttendanceRecord = (record) => {
         attendanceRecords.push(record);
@@ -179,18 +178,16 @@ export async function getGuildMetrics(options) {
         }
         const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
         const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
-        const isMainValue = resolvedByName?.isMain ?? Boolean(record.character?.isMain);
+        const isMainValue = Boolean(resolvedByName?.isMain ?? record.character?.isMain);
         const resolvedUserId = record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
         const resolvedDisplayName = record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
         const resolvedClassFinal = resolvedClass ?? resolvedByName?.class ?? null;
-        const fallbackMains = resolveUserMains(resolvedUserId);
-        const fallbackMain = fallbackMains.length ? fallbackMains[0] : null;
-        const effectiveCharacterId = characterId ?? fallbackMain?.id ?? null;
-        const effectiveCharacterName = characterName || fallbackMain?.name || '';
-        const effectiveUserId = resolvedUserId ?? fallbackMain?.userId ?? null;
-        const effectiveDisplayName = resolvedDisplayName ?? fallbackMain?.user?.displayName ?? null;
-        const effectiveClass = resolvedClassFinal ?? fallbackMain?.class ?? null;
-        const effectiveIsMain = isMainValue || Boolean(fallbackMain?.isMain);
+        const effectiveCharacterId = characterId;
+        const effectiveCharacterName = characterName;
+        const effectiveUserId = resolvedUserId;
+        const effectiveDisplayName = resolvedDisplayName;
+        const effectiveClass = resolvedClassFinal;
+        const effectiveIsMain = isMainValue;
         const characterEntry = {
             id: effectiveCharacterId,
             name: effectiveCharacterName,
@@ -201,9 +198,12 @@ export async function getGuildMetrics(options) {
         };
         if (effectiveCharacterId) {
             registerCharacter(characterEntry, `id:${effectiveCharacterId}`);
+            summaryAttendanceCharacterKeys.add(`id:${effectiveCharacterId}`);
         }
         else {
-            registerCharacter(characterEntry, `name:${characterName.toLowerCase()}`);
+            const fallbackKey = `name:${characterName.toLowerCase()}`;
+            registerCharacter(characterEntry, fallbackKey);
+            summaryAttendanceCharacterKeys.add(fallbackKey);
         }
         pushAttendanceRecord({
             id: record.id,
@@ -238,25 +238,6 @@ export async function getGuildMetrics(options) {
                 userDisplayName: main.user?.displayName ?? null,
                 isMain: true
             }, mainKey);
-            pushAttendanceRecord({
-                id: `${record.id}:main:${main.id ?? main.name}`,
-                status: record.status,
-                timestamp: record.attendanceEvent.createdAt.toISOString(),
-                eventType: record.attendanceEvent.eventType,
-                raid: {
-                    id: raid?.id ?? '',
-                    name: raid?.name ?? 'Unknown Raid',
-                    startTime: toIsoString(raid?.startTime)
-                },
-                character: {
-                    id: main.id,
-                    name: main.name,
-                    class: main.class,
-                    isMain: true,
-                    userId: main.userId,
-                    userDisplayName: main.user?.displayName ?? null
-                }
-            });
         }
     }
     for (const event of lootEventsRaw) {
@@ -297,7 +278,7 @@ export async function getGuildMetrics(options) {
     }
     const summary = {
         attendanceRecords: attendanceRecords.length,
-        uniqueAttendanceCharacters: attendanceCharacterKeys.size,
+        uniqueAttendanceCharacters: summaryAttendanceCharacterKeys.size,
         lootEvents: lootEvents.length,
         uniqueLooters: uniqueLooters.size,
         raidsTracked: uniqueRaids.size
