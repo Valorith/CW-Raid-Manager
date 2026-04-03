@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import {
   ensureMarketSalesFresh,
+  getMarketCharacterHistoryPage,
   getMarketItemHistory,
   getMarketRecentSalesPage,
   getMarketSummary,
@@ -97,6 +98,42 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch market sales page.');
         return reply.internalServerError('Unable to fetch market sales.');
+      }
+    }
+  );
+
+  server.get(
+    '/character-history',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        characterName: z.string().trim().min(1).max(191),
+        type: z.enum(['sell', 'buy']).default('sell'),
+        days: z.coerce.number().int().min(1).max(3650).optional(),
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce.number().int().min(5).max(50).default(10)
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        await ensureMarketSalesFresh({ logger: request.log });
+        const historyPage = await getMarketCharacterHistoryPage({
+          characterName: parsed.data.characterName,
+          type: parsed.data.type,
+          rangeDays: parsed.data.days,
+          page: parsed.data.page,
+          pageSize: parsed.data.pageSize
+        });
+        return { historyPage };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch character market history.');
+        return reply.internalServerError('Unable to fetch character market history.');
       }
     }
   );

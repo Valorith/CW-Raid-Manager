@@ -10,6 +10,7 @@ const TRADER_SELL_EVENT_TYPE_ID = 39;
 const DEFAULT_SYNC_BATCH_SIZE = 500;
 const MARKET_SYNC_STATE_KEY = 'marketLogSyncState';
 const SELLER_EVENT_TYPE = 'TRADER_SELL';
+const BUYER_EVENT_TYPE = 'TRADER_PURCHASE';
 
 type MarketLogger = {
   info?: (...args: unknown[]) => void;
@@ -188,6 +189,35 @@ export interface MarketRecentSalesPage {
   total: number;
   totalPages: number;
 }
+
+export type MarketCharacterHistoryType = 'sell' | 'buy';
+
+export interface MarketCharacterHistoryPage {
+  characterName: string;
+  type: MarketCharacterHistoryType;
+  entries: MarketRecentSale[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+type MarketSaleEventRow = {
+  id: string;
+  occurredAt: Date;
+  eventType: string;
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  price: number;
+  quantity: number;
+  charges: number | null;
+  totalCost: number;
+  actorCharacterId: number;
+  actorCharacterName: string;
+  counterpartyCharacterId: number | null;
+  counterpartyCharacterName: string | null;
+};
 
 let characterSchemaCache: CharacterSchema | null = null;
 let marketSyncPromise: Promise<MarketSyncSummary> | null = null;
@@ -470,6 +500,7 @@ async function fetchRecentSales(
     select: {
       id: true,
       occurredAt: true,
+      eventType: true,
       itemId: true,
       itemName: true,
       itemIconId: true,
@@ -484,21 +515,7 @@ async function fetchRecentSales(
     }
   });
 
-  return rows.map((row) => ({
-    id: row.id,
-    occurredAt: row.occurredAt.toISOString(),
-    itemId: row.itemId,
-    itemName: row.itemName,
-    itemIconId: row.itemIconId,
-    price: row.price,
-    quantity: row.quantity,
-    charges: row.charges,
-    totalCost: row.totalCost,
-    sellerCharacterId: row.actorCharacterId,
-    sellerCharacterName: row.actorCharacterName,
-    buyerCharacterId: row.counterpartyCharacterId,
-    buyerCharacterName: row.counterpartyCharacterName
-  }));
+  return rows.map(mapMarketSaleEventRow);
 }
 
 async function fetchRecentSalesPage(
@@ -522,6 +539,7 @@ async function fetchRecentSalesPage(
       select: {
         id: true,
         occurredAt: true,
+        eventType: true,
         itemId: true,
         itemName: true,
         itemIconId: true,
@@ -538,25 +556,33 @@ async function fetchRecentSalesPage(
   ]);
 
   return {
-    sales: rows.map((row) => ({
-      id: row.id,
-      occurredAt: row.occurredAt.toISOString(),
-      itemId: row.itemId,
-      itemName: row.itemName,
-      itemIconId: row.itemIconId,
-      price: row.price,
-      quantity: row.quantity,
-      charges: row.charges,
-      totalCost: row.totalCost,
-      sellerCharacterId: row.actorCharacterId,
-      sellerCharacterName: row.actorCharacterName,
-      buyerCharacterId: row.counterpartyCharacterId,
-      buyerCharacterName: row.counterpartyCharacterName
-    })),
+    sales: rows.map(mapMarketSaleEventRow),
     page,
     pageSize,
     total,
     totalPages: Math.max(1, Math.ceil(total / pageSize))
+  };
+}
+
+function mapMarketSaleEventRow(row: MarketSaleEventRow): MarketRecentSale {
+  const isSellerEvent = row.eventType === SELLER_EVENT_TYPE;
+
+  return {
+    id: row.id,
+    occurredAt: row.occurredAt.toISOString(),
+    itemId: row.itemId,
+    itemName: row.itemName,
+    itemIconId: row.itemIconId,
+    price: row.price,
+    quantity: row.quantity,
+    charges: row.charges,
+    totalCost: row.totalCost,
+    sellerCharacterId: isSellerEvent ? row.actorCharacterId : row.counterpartyCharacterId ?? 0,
+    sellerCharacterName: isSellerEvent
+      ? row.actorCharacterName
+      : row.counterpartyCharacterName ?? 'Unknown Trader',
+    buyerCharacterId: isSellerEvent ? row.counterpartyCharacterId : row.actorCharacterId,
+    buyerCharacterName: isSellerEvent ? row.counterpartyCharacterName : row.actorCharacterName
   };
 }
 
@@ -1030,6 +1056,82 @@ export async function getMarketRecentSalesPage(options: {
     if (isMarketSaleEventTableMissing(error)) {
       return {
         sales: [],
+        page,
+        pageSize,
+        total: 0,
+        totalPages: 1
+      };
+    }
+
+    throw error;
+  }
+}
+
+export async function getMarketCharacterHistoryPage(options: {
+  characterName: string;
+  type?: MarketCharacterHistoryType;
+  rangeDays?: number | null;
+  page?: number;
+  pageSize?: number;
+}): Promise<MarketCharacterHistoryPage> {
+  const {
+    characterName,
+    type = 'sell',
+    rangeDays = null,
+    page = 1,
+    pageSize = 10
+  } = options;
+  const trimmedName = characterName.trim();
+  const occurredAtRange = buildOccurredAtRange(rangeDays);
+  const where: Prisma.MarketSaleEventWhereInput = {
+    actorCharacterName: trimmedName,
+    eventType: type === 'sell' ? SELLER_EVENT_TYPE : BUYER_EVENT_TYPE,
+    ...(occurredAtRange ? { occurredAt: occurredAtRange } : {})
+  };
+  const skip = (page - 1) * pageSize;
+
+  try {
+    const [total, rows] = await Promise.all([
+      prisma.marketSaleEvent.count({ where }),
+      prisma.marketSaleEvent.findMany({
+        where,
+        orderBy: { occurredAt: 'desc' },
+        skip,
+        take: pageSize,
+        select: {
+          id: true,
+          occurredAt: true,
+          eventType: true,
+          itemId: true,
+          itemName: true,
+          itemIconId: true,
+          price: true,
+          quantity: true,
+          charges: true,
+          totalCost: true,
+          actorCharacterId: true,
+          actorCharacterName: true,
+          counterpartyCharacterId: true,
+          counterpartyCharacterName: true
+        }
+      })
+    ]);
+
+    return {
+      characterName: trimmedName,
+      type,
+      entries: rows.map(mapMarketSaleEventRow),
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize))
+    };
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
+      return {
+        characterName: trimmedName,
+        type,
+        entries: [],
         page,
         pageSize,
         total: 0,

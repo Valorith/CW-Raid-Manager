@@ -1834,6 +1834,17 @@ export interface MarketRecentSalesPage {
 }
 
 export type MarketTopItemsSort = 'quantity' | 'value';
+export type MarketCharacterHistoryType = 'sell' | 'buy';
+
+export interface MarketCharacterHistoryPage {
+  characterName: string;
+  type: MarketCharacterHistoryType;
+  entries: MarketRecentSale[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 
 // Character Admin Types
 export interface CharacterAdminDetails {
@@ -4759,6 +4770,24 @@ export const api = {
     if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
     const response = await axios.get(`/api/market/sales?${params.toString()}`);
     return response.data.salesPage;
+  },
+
+  async fetchMarketCharacterHistoryPage(options: {
+    characterName: string;
+    type?: MarketCharacterHistoryType;
+    days?: number | null;
+    page?: number;
+    pageSize?: number;
+  }): Promise<MarketCharacterHistoryPage> {
+    const params = new URLSearchParams({
+      characterName: options.characterName
+    });
+    if (options.type) params.append('type', options.type);
+    if (options.days != null) params.append('days', String(options.days));
+    if (options.page != null) params.append('page', String(options.page));
+    if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
+    const response = await axios.get(`/api/market/character-history?${params.toString()}`);
+    return response.data.historyPage;
   },
 
   // Character Admin APIs
