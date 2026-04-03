@@ -12,5 +12,6 @@ export function hasValidIconId(iconId: number | null | undefined): iconId is num
 
 export function getLootIconSrc(iconId: number, format?: LootIconFormat): string {
   const base = `${lootIconBaseUrl}/${iconId}`;
-  return format ? `${base}?format=${format}` : base;
+  const resolvedFormat = format ?? 'png';
+  return `${base}?format=${resolvedFormat}`;
 }

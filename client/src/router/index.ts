@@ -100,6 +100,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/bis/:characterClass?',
+      name: 'BisPlanner',
+      component: () => import('../views/BisPlannerView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/admin',
       name: 'Admin',
       component: () => import('../views/AdminView.vue'),
@@ -139,6 +145,12 @@ const router = createRouter({
       path: '/admin/webhooks',
       name: 'AdminWebhooks',
       component: () => import('../views/AdminWebhooksView.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true }
+    },
+    {
+      path: '/admin/bis',
+      name: 'BisModeration',
+      component: () => import('../views/BisModerationView.vue'),
       meta: { requiresAuth: true, requiresAdmin: true }
     }
   ]

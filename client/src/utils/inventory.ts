@@ -55,6 +55,41 @@ export const WORN_SLOT_SHORT_LABELS = [
     'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
 ];
 
+export interface WornSlotUiDefinition {
+    slotId: number;
+    label: string;
+    shortLabel: string;
+    key: string;
+    row: number;
+    col: number;
+}
+
+export const WORN_SLOT_UI_LAYOUT: WornSlotUiDefinition[] = [
+    { slotId: 1, label: WORN_SLOT_LABELS[1], shortLabel: WORN_SLOT_SHORT_LABELS[1], key: WORN_SLOT_KEYS[1], row: 1, col: 1 },
+    { slotId: 2, label: WORN_SLOT_LABELS[2], shortLabel: WORN_SLOT_SHORT_LABELS[2], key: WORN_SLOT_KEYS[2], row: 1, col: 2 },
+    { slotId: 3, label: WORN_SLOT_LABELS[3], shortLabel: WORN_SLOT_SHORT_LABELS[3], key: WORN_SLOT_KEYS[3], row: 1, col: 3 },
+    { slotId: 4, label: WORN_SLOT_LABELS[4], shortLabel: WORN_SLOT_SHORT_LABELS[4], key: WORN_SLOT_KEYS[4], row: 1, col: 4 },
+    { slotId: 17, label: WORN_SLOT_LABELS[17], shortLabel: WORN_SLOT_SHORT_LABELS[17], key: WORN_SLOT_KEYS[17], row: 2, col: 1 },
+    { slotId: 5, label: WORN_SLOT_LABELS[5], shortLabel: WORN_SLOT_SHORT_LABELS[5], key: WORN_SLOT_KEYS[5], row: 2, col: 4 },
+    { slotId: 7, label: WORN_SLOT_LABELS[7], shortLabel: WORN_SLOT_SHORT_LABELS[7], key: WORN_SLOT_KEYS[7], row: 3, col: 1 },
+    { slotId: 8, label: WORN_SLOT_LABELS[8], shortLabel: WORN_SLOT_SHORT_LABELS[8], key: WORN_SLOT_KEYS[8], row: 3, col: 4 },
+    { slotId: 20, label: WORN_SLOT_LABELS[20], shortLabel: WORN_SLOT_SHORT_LABELS[20], key: WORN_SLOT_KEYS[20], row: 4, col: 1 },
+    { slotId: 6, label: WORN_SLOT_LABELS[6], shortLabel: WORN_SLOT_SHORT_LABELS[6], key: WORN_SLOT_KEYS[6], row: 4, col: 4 },
+    { slotId: 9, label: WORN_SLOT_LABELS[9], shortLabel: WORN_SLOT_SHORT_LABELS[9], key: WORN_SLOT_KEYS[9], row: 5, col: 1 },
+    { slotId: 10, label: WORN_SLOT_LABELS[10], shortLabel: WORN_SLOT_SHORT_LABELS[10], key: WORN_SLOT_KEYS[10], row: 5, col: 4 },
+    { slotId: 18, label: WORN_SLOT_LABELS[18], shortLabel: WORN_SLOT_SHORT_LABELS[18], key: WORN_SLOT_KEYS[18], row: 6, col: 1 },
+    { slotId: 12, label: WORN_SLOT_LABELS[12], shortLabel: WORN_SLOT_SHORT_LABELS[12], key: WORN_SLOT_KEYS[12], row: 6, col: 2 },
+    { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0], row: 6, col: 3 },
+    { slotId: 19, label: WORN_SLOT_LABELS[19], shortLabel: WORN_SLOT_SHORT_LABELS[19], key: WORN_SLOT_KEYS[19], row: 6, col: 4 },
+    { slotId: 15, label: WORN_SLOT_LABELS[15], shortLabel: WORN_SLOT_SHORT_LABELS[15], key: WORN_SLOT_KEYS[15], row: 7, col: 2 },
+    { slotId: 16, label: WORN_SLOT_LABELS[16], shortLabel: WORN_SLOT_SHORT_LABELS[16], key: WORN_SLOT_KEYS[16], row: 7, col: 3 },
+    { slotId: 21, label: WORN_SLOT_LABELS[21], shortLabel: WORN_SLOT_SHORT_LABELS[21], key: WORN_SLOT_KEYS[21], row: 7, col: 4 },
+    { slotId: 13, label: WORN_SLOT_LABELS[13], shortLabel: WORN_SLOT_SHORT_LABELS[13], key: WORN_SLOT_KEYS[13], row: 8, col: 1 },
+    { slotId: 14, label: WORN_SLOT_LABELS[14], shortLabel: WORN_SLOT_SHORT_LABELS[14], key: WORN_SLOT_KEYS[14], row: 8, col: 2 },
+    { slotId: 11, label: WORN_SLOT_LABELS[11], shortLabel: WORN_SLOT_SHORT_LABELS[11], key: WORN_SLOT_KEYS[11], row: 8, col: 3 },
+    { slotId: 22, label: WORN_SLOT_LABELS[22], shortLabel: WORN_SLOT_SHORT_LABELS[22], key: WORN_SLOT_KEYS[22], row: 8, col: 4 }
+];
+
 export const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
 export const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
 export const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);

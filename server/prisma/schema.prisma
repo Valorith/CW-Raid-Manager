@@ -43,6 +43,11 @@ model User {
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
+  bisCandidates      BisSlotCandidate[] @relation("BisCandidateSubmitter")
+  bisVotes           BisVote[]          @relation("BisVoteUser")
+  bisBansReceived    BisBan[]           @relation("BisBanUser")
+  bisBansIssued      BisBan[]           @relation("BisBanIssuer")
+  bisBansRevoked     BisBan[]           @relation("BisBanRevoker")
 }
 
 model Guild {
@@ -1095,6 +1100,59 @@ model CharacterWatch {
   @@unique([eqCharacterId])
   @@index([eqAccountId])
   @@index([createdById])
+}
+
+model BisSlotCandidate {
+  id             String         @id @default(cuid())
+  characterClass CharacterClass
+  slotId         Int
+  itemId         Int
+  itemName       String         @db.VarChar(191)
+  itemIconId     Int?
+  submittedById  String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  submittedBy    User           @relation("BisCandidateSubmitter", fields: [submittedById], references: [id], onDelete: Cascade)
+  votes          BisVote[]
+
+  @@unique([characterClass, slotId, itemId], map: "BisSlotCandidate_class_slot_item_key")
+  @@index([characterClass, slotId], map: "BisSlotCandidate_class_slot_idx")
+  @@index([submittedById], map: "BisSlotCandidate_submitter_idx")
+}
+
+model BisVote {
+  id             String         @id @default(cuid())
+  candidateId    String
+  userId         String
+  characterClass CharacterClass
+  slotId         Int
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  candidate      BisSlotCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user           User           @relation("BisVoteUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, characterClass, slotId], map: "BisVote_user_class_slot_key")
+  @@index([candidateId], map: "BisVote_candidate_idx")
+  @@index([characterClass, slotId], map: "BisVote_class_slot_idx")
+}
+
+model BisBan {
+  id          String   @id @default(cuid())
+  userId      String
+  bannedById  String
+  reason      String?  @db.VarChar(500)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  revokedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation("BisBanUser", fields: [userId], references: [id], onDelete: Cascade)
+  bannedBy    User     @relation("BisBanIssuer", fields: [bannedById], references: [id], onDelete: Cascade)
+  revokedBy   User?    @relation("BisBanRevoker", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt, expiresAt], map: "BisBan_user_active_idx")
+  @@index([bannedById], map: "BisBan_banned_by_idx")
+  @@index([revokedById], map: "BisBan_revoked_by_idx")
 }
 
 // Webhook Debug Messages - stores debug webhook messages for cross-process delivery

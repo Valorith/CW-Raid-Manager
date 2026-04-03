@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, openSync, readSync, closeSync } from 'fs';
 import { join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
@@ -48,6 +48,7 @@ const lootIconDirectoryCandidates = [
 ];
 const lootIconDirectory =
   lootIconDirectoryCandidates.find((candidate) => existsSync(candidate)) ?? null;
+const lootIconValidityCache = new Map<string, boolean>();
 
 const lootEventSchema = z.object({
   itemName: z.string().min(2).max(191),
@@ -86,6 +87,42 @@ function serializeMonitorSession(
     },
     isOwner: session.userId === viewerId
   };
+}
+
+function hasValidLootIconSignature(
+  filePath: string,
+  extension: 'gif' | 'png'
+): boolean {
+  const cached = lootIconValidityCache.get(filePath);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let fileHandle: number | null = null;
+  try {
+    const headerLength = extension === 'gif' ? 6 : 8;
+    const header = Buffer.alloc(headerLength);
+    fileHandle = openSync(filePath, 'r');
+    const bytesRead = readSync(fileHandle, header, 0, headerLength, 0);
+
+    const isValid =
+      extension === 'gif'
+        ? bytesRead >= 6 &&
+          (header.toString('ascii', 0, 6) === 'GIF87a' ||
+            header.toString('ascii', 0, 6) === 'GIF89a')
+        : bytesRead >= 8 &&
+          header.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+
+    lootIconValidityCache.set(filePath, isValid);
+    return isValid;
+  } catch {
+    lootIconValidityCache.set(filePath, false);
+    return false;
+  } finally {
+    if (fileHandle != null) {
+      closeSync(fileHandle);
+    }
+  }
 }
 
 export async function lootRoutes(server: FastifyInstance) {
@@ -130,7 +167,7 @@ export async function lootRoutes(server: FastifyInstance) {
     let selectedExtension: 'gif' | 'png' | null = null;
     for (const extension of extensionOrder) {
       const candidatePath = join(lootIconDirectory, `${params.data.iconId}.${extension}`);
-      if (existsSync(candidatePath)) {
+      if (existsSync(candidatePath) && hasValidLootIconSignature(candidatePath, extension)) {
         selectedPath = candidatePath;
         selectedExtension = extension;
         break;

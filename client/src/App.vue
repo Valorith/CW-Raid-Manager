@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div :class="['app-shell', { 'app-shell--bis': isBisSurface }]">
     <header class="app-header">
       <div class="brand">
         <RouterLink to="/dashboard" class="brand__title">CW Raid Manager</RouterLink>
@@ -73,6 +73,13 @@
         >
           Raids
         </RouterLink>
+        <RouterLink
+          v-if="authStore.isAuthenticated"
+          :to="{ name: 'BisPlanner', params: { characterClass: 'WARRIOR' } }"
+          class="nav__link"
+        >
+          BiS
+        </RouterLink>
 
         <!-- Admin - With dropdown (different items for admin vs guide) -->
         <div
@@ -120,6 +127,13 @@
                 class="nav__dropdown-item"
               >
                 Webhook Inbox
+              </RouterLink>
+              <RouterLink
+                v-if="authStore.isAdmin"
+                to="/admin/bis"
+                class="nav__dropdown-item"
+              >
+                BiS Moderation
               </RouterLink>
               <RouterLink
                 v-if="authStore.isAdmin"
@@ -277,7 +291,7 @@
         </div>
       </TransitionGroup>
     </div>
-    <main class="app-content">
+    <main :class="['app-content', { 'app-content--bis': isBisSurface }]">
       <RouterView v-slot="{ Component, route }">
         <KeepAlive include="LootTrackerView">
           <component v-if="Component" :is="Component" :key="resolveViewKey(route)" />
@@ -298,7 +312,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
-import { RouterLink, RouterView, useRouter, type RouteLocationNormalized } from 'vue-router';
+import { RouterLink, RouterView, useRoute, useRouter, type RouteLocationNormalized } from 'vue-router';
 
 import { useAuthStore } from './stores/auth';
 import { api, type RaidEventSummary } from './services/api';
@@ -319,6 +333,7 @@ const authStore = useAuthStore();
 const webhookDebugStore = useWebhookDebugStore();
 const activeRaid = ref<RaidEventSummary | null>(null);
 const router = useRouter();
+const route = useRoute();
 const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
@@ -373,6 +388,10 @@ function handleActiveRaidEvent() {
 }
 
 const primaryGuild = computed(() => authStore.primaryGuild);
+const isBisSurface = computed(() => {
+  const routeName = typeof route.name === 'string' ? route.name : '';
+  return routeName === 'BisPlanner' || routeName === 'BisModeration';
+});
 
 const guildNavLabel = computed(() => primaryGuild.value?.name ?? 'Guilds');
 
@@ -619,6 +638,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
   flex-direction: column;
   background-color: #10141a;
   color: #f1f5f9;
+}
+
+.app-shell--bis {
+  background: #000000;
 }
 
 .app-header {
@@ -1157,6 +1180,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .app-content {
   padding: 2rem;
   flex: 1;
+}
+
+.app-content--bis {
+  background: #000000;
 }
 
 .active-raid-banner {

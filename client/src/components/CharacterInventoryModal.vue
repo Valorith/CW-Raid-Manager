@@ -286,11 +286,9 @@ import { useItemTooltipStore } from '../stores/itemTooltip';
 import type { GuildBankItem, CharacterClass } from '../services/api';
 import { getLootIconSrc } from '../utils/itemIcons';
 import {
-  WORN_SLOT_LABELS,
-  WORN_SLOT_KEYS,
-  WORN_SLOT_SHORT_LABELS,
   GENERAL_SLOT_IDS,
   BANK_SLOT_IDS,
+  WORN_SLOT_UI_LAYOUT,
   resolveSlotPlacement
 } from '../utils/inventory';
 
@@ -306,73 +304,7 @@ const generalSlotsUi = GENERAL_SLOT_IDS.map((slotId, index) => ({
   label: `General ${index + 1}`
 }));
 
-const customWornSlotsUi = computed(() => {
-  const slots: Array<{
-    type: 'worn';
-    slotId: number;
-    label: string;
-    shortLabel: string;
-    key: string;
-    row: number;
-    col: number;
-  }> = [];
-
-  // Helper to find slot by key
-  const findSlot = (key: string, row: number, col: number) => {
-    const index = WORN_SLOT_KEYS.indexOf(key);
-    if (index === -1) return;
-    slots.push({
-      type: 'worn',
-      slotId: index,
-      label: WORN_SLOT_LABELS[index],
-      shortLabel: WORN_SLOT_SHORT_LABELS[index],
-      key: WORN_SLOT_KEYS[index],
-      row,
-      col
-    });
-  };
-
-  // Row 1
-  findSlot('ear1', 1, 1);
-  findSlot('head', 1, 2);
-  findSlot('face', 1, 3);
-  findSlot('ear2', 1, 4);
-
-  // Row 2
-  findSlot('chest', 2, 1);
-  findSlot('neck', 2, 4);
-
-  // Row 3
-  findSlot('arms', 3, 1);
-  findSlot('back', 3, 4);
-
-  // Row 4
-  findSlot('waist', 4, 1);
-  findSlot('shoulders', 4, 4);
-
-  // Row 5
-  findSlot('wrist1', 5, 1);
-  findSlot('wrist2', 5, 4);
-
-  // Row 6
-  findSlot('legs', 6, 1);
-  findSlot('hands', 6, 2);
-  findSlot('charm', 6, 3);
-  findSlot('feet', 6, 4);
-
-  // Row 7
-  findSlot('finger1', 7, 2);
-  findSlot('finger2', 7, 3);
-  findSlot('powersource', 7, 4);
-
-  // Row 8
-  findSlot('primary', 8, 1);
-  findSlot('secondary', 8, 2);
-  findSlot('range', 8, 3);
-  findSlot('ammo', 8, 4);
-
-  return slots;
-});
+const customWornSlotsUi = computed(() => WORN_SLOT_UI_LAYOUT);
 
 const bankSlotsUi = BANK_SLOT_IDS.map((slotId, index) => ({
   slotId,

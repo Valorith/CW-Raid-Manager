@@ -174,6 +174,85 @@ export interface GuildBankSnapshot {
   missingCharacters: string[];
 }
 
+export interface BisCandidate {
+  id: string;
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+  voteCount: number;
+  submittedAt: string;
+  submittedBy: {
+    id: string;
+    displayName: string;
+  };
+  isWinner: boolean;
+}
+
+export interface BisSlotSummary {
+  slotId: number;
+  slotKey: string;
+  slotLabel: string;
+  totalVotes: number;
+  viewerVoteCandidateId: string | null;
+  winner: BisCandidate | null;
+  candidates: BisCandidate[];
+}
+
+export interface BisBoard {
+  characterClass: CharacterClass;
+  slotSummaries: BisSlotSummary[];
+  permissions: {
+    canVote: boolean;
+    isBanned: boolean;
+    reason: string | null;
+    expiresAt: string | null;
+  };
+}
+
+export interface BisDiscoveredItem {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+}
+
+export interface BisSearchCharacterResult {
+  id: number;
+  name: string;
+  className: CharacterClass;
+}
+
+export interface BisModerationUserResult {
+  id: string;
+  displayName: string;
+  nickname: string | null;
+  email: string;
+  isAdmin: boolean;
+  isGuide: boolean;
+  activeBan: {
+    id: string;
+    reason: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    bannedByDisplayName: string;
+  } | null;
+}
+
+export interface BisBan {
+  id: string;
+  reason: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    displayName: string;
+    email: string;
+  };
+  bannedBy: {
+    id: string;
+    displayName: string;
+  };
+}
+
 /**
  * Detailed item stats for tooltip display.
  * Matches the EverQuest items database schema.
@@ -2700,6 +2779,56 @@ export const api = {
     return data.items;
   },
 
+  async fetchBisBoard(characterClass: CharacterClass): Promise<BisBoard> {
+    const response = await axios.get(`/api/bis?characterClass=${encodeURIComponent(characterClass)}`);
+    return response.data;
+  },
+
+  async searchBisDiscoveredItems(
+    characterClass: CharacterClass,
+    slotId: number,
+    query: string,
+    limit?: number
+  ): Promise<BisDiscoveredItem[]> {
+    const params = new URLSearchParams({
+      characterClass,
+      slotId: String(slotId),
+      q: query
+    });
+    if (limit) {
+      params.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/bis/discovered-items?${params.toString()}`);
+    return response.data.items ?? [];
+  },
+
+  async nominateBisCandidate(input: {
+    characterClass: CharacterClass;
+    slotId: number;
+    itemId: number;
+  }): Promise<{ candidateId: string }> {
+    const response = await axios.post('/api/bis/candidates', input);
+    return response.data;
+  },
+
+  async voteBisCandidate(candidateId: string): Promise<{
+    candidateId: string;
+    characterClass: CharacterClass;
+    slotId: number;
+  }> {
+    const response = await axios.post('/api/bis/votes', { candidateId });
+    return response.data;
+  },
+
+  async searchBisCharacters(query: string, limit?: number): Promise<BisSearchCharacterResult[]> {
+    const params = new URLSearchParams({ q: query });
+    if (limit) {
+      params.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/bis/characters/search?${params.toString()}`);
+    return response.data.characters ?? [];
+  },
+
   async fetchGuildBankCharacters(guildId: string): Promise<GuildBankCharacter[]> {
     const response = await axios.get(`/api/guilds/${guildId}/guild-bank/characters`);
     return Array.isArray(response.data.characters) ? response.data.characters.map(normalizeGuildBankCharacter) : [];
@@ -4608,6 +4737,29 @@ export const api = {
   async searchCharacters(query: string): Promise<AdminCharacterSearchResult[]> {
     const response = await axios.get(`/api/admin/characters/search?q=${encodeURIComponent(query)}`);
     return response.data.characters ?? [];
+  },
+
+  async searchBisModerationUsers(query: string): Promise<BisModerationUserResult[]> {
+    const response = await axios.get(`/api/bis/admin/users/search?q=${encodeURIComponent(query)}`);
+    return response.data.users ?? [];
+  },
+
+  async fetchBisBans(): Promise<BisBan[]> {
+    const response = await axios.get('/api/bis/admin/bans');
+    return response.data.bans ?? [];
+  },
+
+  async createBisBan(input: {
+    userId: string;
+    reason?: string | null;
+    expiresAt?: string | null;
+  }): Promise<BisBan> {
+    const response = await axios.post('/api/bis/admin/bans', input);
+    return response.data.ban;
+  },
+
+  async revokeBisBan(banId: string): Promise<void> {
+    await axios.delete(`/api/bis/admin/bans/${banId}`);
   },
 
   /**
