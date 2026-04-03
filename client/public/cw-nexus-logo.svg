@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">CW Nexus logo</title>
+  <desc id="desc">A stylized N monogram with a circular nexus ring in blue and violet gradients.</desc>
+  <defs>
+    <linearGradient id="ringGradient" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee" />
+      <stop offset="1" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="nGradient" x1="56" y1="56" x2="200" y2="200" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8fafc" />
+      <stop offset="1" stop-color="#cbd5e1" />
+    </linearGradient>
+  </defs>
+
+  <circle cx="128" cy="128" r="96" fill="#0f172a" stroke="url(#ringGradient)" stroke-width="14" />
+  <path
+    d="M82 182V74h26l66 79V74h28v108h-25l-67-80v80H82Z"
+    fill="url(#nGradient)"
+  />
+  <circle cx="128" cy="128" r="118" fill="none" stroke="url(#ringGradient)" stroke-opacity="0.35" stroke-width="6" />
+</svg>

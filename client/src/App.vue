@@ -2,7 +2,10 @@
   <div :class="['app-shell', { 'app-shell--bis': isBisSurface }]">
     <header class="app-header">
       <div class="brand">
-        <RouterLink to="/dashboard" class="brand__title">CW Raid Manager</RouterLink>
+        <RouterLink to="/dashboard" class="brand__title" aria-label="CW Nexus home">
+          <img class="brand__logo" src="/cw-nexus-logo.svg" alt="CW Nexus logo" />
+          <span>CW Nexus</span>
+        </RouterLink>
       </div>
       <nav class="nav">
         <!-- Dashboard - No dropdown -->
@@ -662,11 +665,20 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .brand__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
   font-weight: 700;
   font-size: 1.25rem;
   letter-spacing: 0.08em;
   color: #f1f5f9;
   text-decoration: none;
+}
+
+.brand__logo {
+  width: 1.8rem;
+  height: 1.8rem;
+  display: block;
 }
 
 .brand {

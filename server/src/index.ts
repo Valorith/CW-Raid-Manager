@@ -16,7 +16,7 @@ async function start(): Promise<void> {
     });
     server.log.info(
       { port: appConfig.port, env: appConfig.nodeEnv },
-      'CW Raid Manager API server started'
+      'CW Nexus API server started'
     );
 
     if (isEqDbConfigured()) {
@@ -43,7 +43,7 @@ async function start(): Promise<void> {
       server.log.debug('EQ content database not configured; skipping pool initialization.');
     }
   } catch (error) {
-    server.log.error(error, 'Failed to start CW Raid Manager API server');
+    server.log.error(error, 'Failed to start CW Nexus API server');
     process.exit(1);
   }
 }

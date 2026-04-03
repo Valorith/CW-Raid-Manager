@@ -17,7 +17,7 @@ fi
 export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
 export OPEN_BROWSER="${OPEN_BROWSER:-true}"
 
-echo "Starting CW Raid Manager local dev environment..."
+echo "Starting CW Nexus local dev environment..."
 echo "Project root: $SCRIPT_DIR"
 echo
 echo "This will run: npm run dev"

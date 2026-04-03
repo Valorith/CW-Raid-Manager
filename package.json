@@ -1,8 +1,8 @@
 {
-  "name": "cw-raid-manager",
+  "name": "cw-nexus",
   "private": true,
   "version": "0.1.0",
-  "description": "Monorepo for CW Raid Manager application (EverQuest raid management platform).",
+  "description": "Monorepo for CW Nexus application (EverQuest raid management platform).",
   "workspaces": [
     "client",
     "server"

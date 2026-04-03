@@ -1,6 +1,6 @@
-# CW Raid Manager
+# CW Nexus
 
-CW Raid Manager is a full-stack tool for coordinating EverQuest raids. It tracks guild membership, characters, raid schedules, and attendance — including the ability to import roster exports straight from the game and verify them before saving.
+CW Nexus is a full-stack tool for coordinating EverQuest raids. It tracks guild membership, characters, raid schedules, and attendance — including the ability to import roster exports straight from the game and verify them before saving.
 
 ## Features
 
@@ -19,7 +19,7 @@ CW Raid Manager is a full-stack tool for coordinating EverQuest raids. It tracks
 ## Project Structure
 
 ```
-CW Raid Manager/
+CW Nexus/
 ├── client/            # Vue front-end application
 ├── server/            # Fastify + Prisma API
 ├── config/            # Environment configuration templates
