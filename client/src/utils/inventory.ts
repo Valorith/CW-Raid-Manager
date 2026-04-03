@@ -93,9 +93,24 @@ export const WORN_SLOT_UI_LAYOUT: WornSlotUiDefinition[] = [
 export const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
 export const BAG_POCKET_INDICES = Array.from({ length: 10 }, (_, index) => index);
 export const BANK_SLOT_IDS = Array.from({ length: 24 }, (_, index) => 2000 + index);
+export const SHARED_BANK_SLOT_IDS = [2500, 2501];
+
+// EQEmu server-recognized inventory bag slot ranges from the docs/constants.
+const EQEMU_CURSOR_SLOT_ID = 33;
+const EQEMU_BAG_SLOT_COUNT = 10;
+const EQEMU_GENERAL_BAG_BEGIN = 47;
+const EQEMU_GENERAL_BAG_END =
+    EQEMU_GENERAL_BAG_BEGIN + GENERAL_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
+const EQEMU_CURSOR_BAG_BEGIN = EQEMU_GENERAL_BAG_END + 1;
+const EQEMU_CURSOR_BAG_END = EQEMU_CURSOR_BAG_BEGIN + EQEMU_BAG_SLOT_COUNT - 1;
+const EQEMU_BANK_BAG_BEGIN = EQEMU_CURSOR_BAG_END + 1;
+const EQEMU_BANK_BAG_END = EQEMU_BANK_BAG_BEGIN + BANK_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
+const EQEMU_SHARED_BANK_BAG_BEGIN = EQEMU_BANK_BAG_END + 1;
+const EQEMU_SHARED_BANK_BAG_END =
+    EQEMU_SHARED_BANK_BAG_BEGIN + SHARED_BANK_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
 
 export type ResolvedSlotPlacement = {
-    area: 'worn' | 'inventory' | 'inventoryBag' | 'bank' | 'bankBag' | 'unknown';
+    area: 'worn' | 'inventory' | 'inventoryBag' | 'cursor' | 'cursorBag' | 'bank' | 'bankBag' | 'sharedBank' | 'sharedBankBag' | 'unknown';
     slotId: number | null;
     slotLabel: string;
     parentSlotId?: number | null;
@@ -110,6 +125,10 @@ export function generalSlotLabel(slotId: number) {
 
 export function bankSlotLabel(slotId: number) {
     return `Bank ${slotId - 1999}`;
+}
+
+export function sharedBankSlotLabel(slotId: number) {
+    return `Shared Bank ${slotId - 2499}`;
 }
 
 export function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
@@ -131,6 +150,73 @@ export function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlaceme
             area: 'inventory',
             slotId,
             slotLabel: generalSlotLabel(slotId)
+        };
+    }
+
+    if (slotId === EQEMU_CURSOR_SLOT_ID) {
+        return {
+            area: 'cursor',
+            slotId,
+            slotLabel: 'Cursor'
+        };
+    }
+
+    if (slotId >= EQEMU_GENERAL_BAG_BEGIN && slotId <= EQEMU_GENERAL_BAG_END) {
+        const offset = slotId - EQEMU_GENERAL_BAG_BEGIN;
+        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+        const parentSlotId = GENERAL_SLOT_IDS[bagIndex];
+
+        return {
+            area: 'inventoryBag',
+            slotId,
+            slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+            parentSlotId,
+            parentLabel: generalSlotLabel(parentSlotId),
+            bagSlotIndex
+        };
+    }
+
+    if (slotId >= EQEMU_CURSOR_BAG_BEGIN && slotId <= EQEMU_CURSOR_BAG_END) {
+        return {
+            area: 'cursorBag',
+            slotId,
+            slotLabel: `Bag slot ${slotId - EQEMU_CURSOR_BAG_BEGIN + 1}`,
+            parentSlotId: EQEMU_CURSOR_SLOT_ID,
+            parentLabel: 'Cursor',
+            bagSlotIndex: slotId - EQEMU_CURSOR_BAG_BEGIN
+        };
+    }
+
+    if (slotId >= EQEMU_BANK_BAG_BEGIN && slotId <= EQEMU_BANK_BAG_END) {
+        const offset = slotId - EQEMU_BANK_BAG_BEGIN;
+        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+        const parentSlotId = BANK_SLOT_IDS[bagIndex];
+
+        return {
+            area: 'bankBag',
+            slotId,
+            slotLabel: `Bank bag slot ${bagSlotIndex + 1}`,
+            parentSlotId,
+            parentLabel: bankSlotLabel(parentSlotId),
+            bagSlotIndex
+        };
+    }
+
+    if (slotId >= EQEMU_SHARED_BANK_BAG_BEGIN && slotId <= EQEMU_SHARED_BANK_BAG_END) {
+        const offset = slotId - EQEMU_SHARED_BANK_BAG_BEGIN;
+        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+        const parentSlotId = SHARED_BANK_SLOT_IDS[bagIndex];
+
+        return {
+            area: 'sharedBankBag',
+            slotId,
+            slotLabel: `Shared bank bag slot ${bagSlotIndex + 1}`,
+            parentSlotId,
+            parentLabel: sharedBankSlotLabel(parentSlotId),
+            bagSlotIndex
         };
     }
 
@@ -162,6 +248,14 @@ export function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlaceme
             area: 'bank',
             slotId,
             slotLabel: bankSlotLabel(slotId)
+        };
+    }
+
+    if (slotId >= SHARED_BANK_SLOT_IDS[0] && slotId <= SHARED_BANK_SLOT_IDS[SHARED_BANK_SLOT_IDS.length - 1]) {
+        return {
+            area: 'sharedBank',
+            slotId,
+            slotLabel: sharedBankSlotLabel(slotId)
         };
     }
 
@@ -199,7 +293,13 @@ export function slotDisplayLabel(resolved: ResolvedSlotPlacement): string {
     if (resolved.area === 'inventoryBag' && resolved.parentLabel) {
         return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
     }
+    if (resolved.area === 'cursorBag' && resolved.parentLabel) {
+        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+    }
     if (resolved.area === 'bankBag' && resolved.parentLabel) {
+        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+    }
+    if (resolved.area === 'sharedBankBag' && resolved.parentLabel) {
         return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
     }
     return resolved.slotLabel;

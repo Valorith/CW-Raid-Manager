@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { MarketFavoriteListType, Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
 import { prisma } from '../utils/prisma.js';
@@ -8,6 +8,7 @@ import { getItemIconId } from './eqItemService.js';
 const TRADER_PURCHASE_EVENT_TYPE_ID = 38;
 const TRADER_SELL_EVENT_TYPE_ID = 39;
 const DEFAULT_SYNC_BATCH_SIZE = 500;
+const MARKET_SYNC_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const MARKET_SYNC_STATE_KEY = 'marketLogSyncState';
 const SELLER_EVENT_TYPE = 'TRADER_SELL';
 const BUYER_EVENT_TYPE = 'TRADER_PURCHASE';
@@ -65,6 +66,12 @@ type SearchItemRow = {
   lastSoldAt: Date;
 };
 
+type EqItemSearchRow = RowDataPacket & {
+  item_id: number | string;
+  item_name: string;
+  item_icon_id: number | string | null;
+};
+
 type ItemDailyTrendRow = {
   saleDate: Date;
   salesCount: bigint | number;
@@ -73,6 +80,13 @@ type ItemDailyTrendRow = {
   minPrice: number | null;
   maxPrice: number | null;
   totalRevenue: bigint | number | null;
+};
+
+type CharacterSearchRow = {
+  characterName: string;
+  lastSeenAt: Date;
+  sellCount: bigint | number | null;
+  buyCount: bigint | number | null;
 };
 
 export interface MarketSyncSummary {
@@ -94,6 +108,7 @@ export interface MarketRecentSale {
   itemId: number | null;
   itemName: string;
   itemIconId: number | null;
+  itemAveragePrice?: number | null;
   price: number;
   quantity: number;
   charges: number | null;
@@ -143,7 +158,8 @@ export interface MarketItemSearchResult {
   itemName: string;
   itemIconId: number | null;
   saleCount: number;
-  lastSoldAt: string;
+  lastSoldAt: string | null;
+  hasMarketData: boolean;
 }
 
 export interface MarketPricePoint {
@@ -202,6 +218,59 @@ export interface MarketCharacterHistoryPage {
   totalPages: number;
 }
 
+export interface MarketItemActivityPage {
+  entries: MarketRecentSale[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface MarketItemActivity {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  rangeDays: number | null;
+  buyers: MarketItemActivityPage;
+  sellers: MarketItemActivityPage;
+}
+
+export interface MarketCharacterSearchResult {
+  characterName: string;
+  lastSeenAt: string;
+  sellCount: number;
+  buyCount: number;
+}
+
+export interface MarketFavoriteItem {
+  id: string;
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  createdAt: string;
+  totalSales: number;
+  totalUnitsSold: number;
+  totalRevenue: number;
+  averagePrice: number;
+  lastPrice: number | null;
+  lastSoldAt: string | null;
+}
+
+export interface MarketFavoriteCharacter {
+  id: string;
+  characterName: string;
+  createdAt: string;
+  sellCount: number;
+  buyCount: number;
+  totalTransactions: number;
+  lastSeenAt: string | null;
+}
+
+export interface MarketFavorites {
+  items: MarketFavoriteItem[];
+  characters: MarketFavoriteCharacter[];
+}
+
 type MarketSaleEventRow = {
   id: string;
   occurredAt: Date;
@@ -225,6 +294,18 @@ let marketTableMissingWarned = false;
 
 function normalizeItemName(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function normalizeDisplayText(value: string | null | undefined): string {
+  return (value ?? '').trim().replace(/\s+/g, ' ');
+}
+
+function normalizeCharacterName(value: string | null | undefined): string {
+  return normalizeDisplayText(value);
+}
+
+function normalizeCharacterNameKey(value: string | null | undefined): string {
+  return normalizeCharacterName(value).toLowerCase();
 }
 
 function asInt(value: unknown): number | null {
@@ -255,18 +336,12 @@ function toNumber(value: bigint | number | null | undefined): number {
 function isMarketSaleEventTableMissing(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
-    (
-      (
-        error.code === 'P2021' &&
-        (error.meta?.modelName === 'MarketSaleEvent' || error.meta?.table === 'MarketSaleEvent')
-      ) ||
-      (
-        error.code === 'P2010' &&
+    ((error.code === 'P2021' &&
+      (error.meta?.modelName === 'MarketSaleEvent' || error.meta?.table === 'MarketSaleEvent')) ||
+      (error.code === 'P2010' &&
         error.meta?.code === '1146' &&
         typeof error.meta?.message === 'string' &&
-        error.meta.message.includes('MarketSaleEvent')
-      )
-    )
+        error.meta.message.includes('MarketSaleEvent')))
   );
 }
 
@@ -298,6 +373,148 @@ function createEmptyMarketSummary(
     topItems: [],
     recentSales: []
   };
+}
+
+function buildMarketFavoriteItemKey(itemId: number | null | undefined, itemName: string): string {
+  if (itemId != null) {
+    return `item:${itemId}`;
+  }
+
+  return `item-name:${normalizeItemName(itemName)}`;
+}
+
+function buildMarketFavoriteCharacterKey(characterName: string): string {
+  return `character:${normalizeCharacterNameKey(characterName)}`;
+}
+
+function createEmptyMarketFavoriteItemMetrics() {
+  return {
+    totalSales: 0,
+    totalUnitsSold: 0,
+    totalRevenue: 0,
+    averagePrice: 0,
+    lastPrice: null as number | null,
+    lastSoldAt: null as string | null
+  };
+}
+
+function createEmptyMarketFavoriteCharacterMetrics() {
+  return {
+    sellCount: 0,
+    buyCount: 0,
+    totalTransactions: 0,
+    lastSeenAt: null as string | null
+  };
+}
+
+async function getMarketFavoriteItemMetrics(input: {
+  itemId: number | null;
+  itemName: string | null;
+}) {
+  const normalizedItemName = normalizeItemName(input.itemName);
+  const where: Prisma.MarketSaleEventWhereInput = {
+    eventType: SELLER_EVENT_TYPE,
+    ...(input.itemId != null
+      ? { itemId: input.itemId }
+      : normalizedItemName.length > 0
+        ? { itemNameNormalized: normalizedItemName }
+        : {})
+  };
+
+  if (input.itemId == null && normalizedItemName.length === 0) {
+    return createEmptyMarketFavoriteItemMetrics();
+  }
+
+  try {
+    const [aggregate, latestSale] = await Promise.all([
+      prisma.marketSaleEvent.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { quantity: true, totalCost: true },
+        _avg: { price: true },
+        _max: { occurredAt: true }
+      }),
+      prisma.marketSaleEvent.findFirst({
+        where,
+        orderBy: { occurredAt: 'desc' },
+        select: {
+          price: true,
+          occurredAt: true
+        }
+      })
+    ]);
+
+    return {
+      totalSales: aggregate._count._all ?? 0,
+      totalUnitsSold: aggregate._sum.quantity ?? 0,
+      totalRevenue: aggregate._sum.totalCost ?? 0,
+      averagePrice: Math.round(aggregate._avg.price ?? 0),
+      lastPrice: latestSale?.price ?? null,
+      lastSoldAt:
+        latestSale?.occurredAt?.toISOString() ?? aggregate._max.occurredAt?.toISOString() ?? null
+    };
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
+      return createEmptyMarketFavoriteItemMetrics();
+    }
+
+    throw error;
+  }
+}
+
+async function getMarketFavoriteCharacterMetrics(characterName: string) {
+  const normalizedCharacterName = normalizeCharacterName(characterName);
+  if (!normalizedCharacterName) {
+    return createEmptyMarketFavoriteCharacterMetrics();
+  }
+
+  try {
+    const [sellCount, buyCount, lastActorEvent, lastCounterpartyEvent] = await Promise.all([
+      prisma.marketSaleEvent.count({
+        where: {
+          eventType: SELLER_EVENT_TYPE,
+          actorCharacterName: normalizedCharacterName
+        }
+      }),
+      prisma.marketSaleEvent.count({
+        where: {
+          eventType: SELLER_EVENT_TYPE,
+          counterpartyCharacterName: normalizedCharacterName
+        }
+      }),
+      prisma.marketSaleEvent.findFirst({
+        where: {
+          actorCharacterName: normalizedCharacterName
+        },
+        orderBy: { occurredAt: 'desc' },
+        select: { occurredAt: true }
+      }),
+      prisma.marketSaleEvent.findFirst({
+        where: {
+          counterpartyCharacterName: normalizedCharacterName
+        },
+        orderBy: { occurredAt: 'desc' },
+        select: { occurredAt: true }
+      })
+    ]);
+
+    const lastSeenDate = [lastActorEvent?.occurredAt, lastCounterpartyEvent?.occurredAt]
+      .filter((value): value is Date => value instanceof Date)
+      .sort((left, right) => right.getTime() - left.getTime())[0];
+
+    return {
+      sellCount,
+      buyCount,
+      totalTransactions: sellCount + buyCount,
+      lastSeenAt: lastSeenDate?.toISOString() ?? null
+    };
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
+      return createEmptyMarketFavoriteCharacterMetrics();
+    }
+
+    throw error;
+  }
 }
 
 async function getTableColumns(tableName: string): Promise<string[]> {
@@ -515,7 +732,7 @@ async function fetchRecentSales(
     }
   });
 
-  return rows.map(mapMarketSaleEventRow);
+  return enrichMarketRecentSales(rows, where.occurredAt);
 }
 
 async function fetchRecentSalesPage(
@@ -556,7 +773,54 @@ async function fetchRecentSalesPage(
   ]);
 
   return {
-    sales: rows.map(mapMarketSaleEventRow),
+    sales: await enrichMarketRecentSales(rows, salesWhere.occurredAt),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize))
+  };
+}
+
+async function fetchMarketActivityPage(
+  where: Prisma.MarketSaleEventWhereInput,
+  eventType: typeof SELLER_EVENT_TYPE | typeof BUYER_EVENT_TYPE,
+  page: number,
+  pageSize: number
+): Promise<MarketItemActivityPage> {
+  const skip = (page - 1) * pageSize;
+  const pageWhere: Prisma.MarketSaleEventWhereInput = {
+    ...where,
+    eventType
+  };
+
+  const [total, rows] = await Promise.all([
+    prisma.marketSaleEvent.count({ where: pageWhere }),
+    prisma.marketSaleEvent.findMany({
+      where: pageWhere,
+      orderBy: { occurredAt: 'desc' },
+      skip,
+      take: pageSize,
+      select: {
+        id: true,
+        occurredAt: true,
+        eventType: true,
+        itemId: true,
+        itemName: true,
+        itemIconId: true,
+        price: true,
+        quantity: true,
+        charges: true,
+        totalCost: true,
+        actorCharacterId: true,
+        actorCharacterName: true,
+        counterpartyCharacterId: true,
+        counterpartyCharacterName: true
+      }
+    })
+  ]);
+
+  return {
+    entries: rows.map(mapMarketSaleEventRow),
     page,
     pageSize,
     total,
@@ -577,13 +841,78 @@ function mapMarketSaleEventRow(row: MarketSaleEventRow): MarketRecentSale {
     quantity: row.quantity,
     charges: row.charges,
     totalCost: row.totalCost,
-    sellerCharacterId: isSellerEvent ? row.actorCharacterId : row.counterpartyCharacterId ?? 0,
+    sellerCharacterId: isSellerEvent ? row.actorCharacterId : (row.counterpartyCharacterId ?? 0),
     sellerCharacterName: isSellerEvent
       ? row.actorCharacterName
-      : row.counterpartyCharacterName ?? 'Unknown Trader',
+      : (row.counterpartyCharacterName ?? 'Unknown Trader'),
     buyerCharacterId: isSellerEvent ? row.counterpartyCharacterId : row.actorCharacterId,
     buyerCharacterName: isSellerEvent ? row.counterpartyCharacterName : row.actorCharacterName
   };
+}
+
+async function enrichMarketRecentSales(
+  rows: MarketSaleEventRow[],
+  occurredAt?: Prisma.MarketSaleEventWhereInput['occurredAt']
+): Promise<MarketRecentSale[]> {
+  const sales = rows.map(mapMarketSaleEventRow);
+  if (sales.length === 0) {
+    return sales;
+  }
+
+  const averagePriceEntries = await Promise.all(
+    Array.from(
+      new Map(
+        sales.map((sale) => [
+          sale.itemId != null ? `item:${sale.itemId}` : `name:${normalizeItemName(sale.itemName)}`,
+          sale
+        ])
+      ).values()
+    ).map(async (sale) => {
+      const averagePrice = await getMarketSaleAveragePrice(
+        {
+          itemId: sale.itemId,
+          itemName: sale.itemName
+        },
+        occurredAt
+      );
+
+      return [
+        sale.itemId != null ? `item:${sale.itemId}` : `name:${normalizeItemName(sale.itemName)}`,
+        averagePrice
+      ] as const;
+    })
+  );
+
+  const averagePriceByKey = new Map(averagePriceEntries);
+
+  return sales.map((sale) => ({
+    ...sale,
+    itemAveragePrice:
+      averagePriceByKey.get(
+        sale.itemId != null ? `item:${sale.itemId}` : `name:${normalizeItemName(sale.itemName)}`
+      ) ?? null
+  }));
+}
+
+async function getMarketSaleAveragePrice(
+  item: Pick<MarketRecentSale, 'itemId' | 'itemName'>,
+  occurredAt?: Prisma.MarketSaleEventWhereInput['occurredAt']
+): Promise<number | null> {
+  const normalizedItemName = normalizeItemName(item.itemName);
+  if (item.itemId == null && normalizedItemName.length === 0) {
+    return null;
+  }
+
+  const aggregate = await prisma.marketSaleEvent.aggregate({
+    where: {
+      eventType: SELLER_EVENT_TYPE,
+      ...(occurredAt ? { occurredAt } : {}),
+      ...(item.itemId != null ? { itemId: item.itemId } : { itemNameNormalized: normalizedItemName })
+    },
+    _avg: { price: true }
+  });
+
+  return aggregate._avg.price != null ? Math.round(aggregate._avg.price) : null;
 }
 
 function buildRangeStart(rangeDays: number): Date {
@@ -613,6 +942,7 @@ export async function syncMarketSaleEvents(
     logger?: MarketLogger;
     batchSize?: number;
     maxBatches?: number;
+    minIntervalMs?: number;
   } = {}
 ): Promise<MarketSyncSummary> {
   if (!isEqDbConfigured()) {
@@ -629,11 +959,42 @@ export async function syncMarketSaleEvents(
     return marketSyncPromise;
   }
 
-  const { logger, batchSize = DEFAULT_SYNC_BATCH_SIZE, maxBatches = 20 } = options;
+  const {
+    logger,
+    batchSize = DEFAULT_SYNC_BATCH_SIZE,
+    maxBatches = 20,
+    minIntervalMs = MARKET_SYNC_MIN_INTERVAL_MS
+  } = options;
 
   marketSyncPromise = (async () => {
     try {
       const currentState = await getMarketSyncState();
+      const existingRows = await prisma.marketSaleEvent.count().catch((error) => {
+        if (isMarketSaleEventTableMissing(error)) {
+          logMissingMarketTable(logger);
+          return 0;
+        }
+
+        throw error;
+      });
+      const lastSyncedMs = currentState.lastSyncedAt
+        ? new Date(currentState.lastSyncedAt).getTime()
+        : 0;
+
+      if (existingRows > 0 && lastSyncedMs && Date.now() - lastSyncedMs < minIntervalMs) {
+        const summary = await getMarketSyncStatus();
+        logger?.debug?.(
+          `[MarketSync] skipped early sync; lastSyncedAt=${summary.lastSyncedAt ?? 'n/a'}`
+        );
+        return {
+          processed: 0,
+          inserted: 0,
+          batches: 0,
+          lastEqLogId: summary.lastEqLogId,
+          lastSyncedAt: summary.lastSyncedAt
+        };
+      }
+
       let cursor = currentState.lastEqLogId || '0';
       let processed = 0;
       let inserted = 0;
@@ -848,9 +1209,9 @@ export async function searchMarketItems(
     return [];
   }
 
-  let rows: SearchItemRow[];
+  let marketRows: SearchItemRow[];
   try {
-    rows = await prisma.$queryRaw<SearchItemRow[]>(Prisma.sql`
+    marketRows = await prisma.$queryRaw<SearchItemRow[]>(Prisma.sql`
       SELECT
         itemId,
         itemName,
@@ -866,6 +1227,169 @@ export async function searchMarketItems(
     `);
   } catch (error) {
     if (isMarketSaleEventTableMissing(error)) {
+      marketRows = [];
+    } else {
+      throw error;
+    }
+  }
+
+  const results = new Map<string, MarketItemSearchResult>();
+  const resultsByName = new Map<string, MarketItemSearchResult>();
+
+  for (const row of marketRows) {
+    const result: MarketItemSearchResult = {
+      itemId: row.itemId,
+      itemName: row.itemName,
+      itemIconId: row.itemIconId,
+      saleCount: toNumber(row.saleCount),
+      lastSoldAt: new Date(row.lastSoldAt).toISOString(),
+      hasMarketData: true
+    };
+
+    results.set(buildMarketFavoriteItemKey(row.itemId, row.itemName), result);
+    resultsByName.set(normalizeItemName(row.itemName), result);
+  }
+
+  if (isEqDbConfigured()) {
+    const isNumericSearch = /^\d+$/.test(normalizedQuery);
+    const namePrefixTerm = `${normalizedQuery}%`;
+    const nameContainsTerm = `%${normalizedQuery}%`;
+    const numericItemId = isNumericSearch ? Number(normalizedQuery) : null;
+    const searchConditions = ['LOWER(i.Name) LIKE ?'];
+    const params: Array<string | number> = [nameContainsTerm];
+
+    if (numericItemId != null && Number.isFinite(numericItemId) && numericItemId > 0) {
+      searchConditions.push('i.id = ?');
+      params.push(numericItemId);
+    }
+
+    try {
+      const eqRows = await queryEqDb<EqItemSearchRow[]>(
+        `
+          SELECT
+            i.id as item_id,
+            i.Name as item_name,
+            i.icon as item_icon_id
+          FROM items i
+          WHERE ${searchConditions.join(' OR ')}
+          ORDER BY
+            CASE
+              WHEN ? IS NOT NULL AND i.id = ? THEN 0
+              WHEN LOWER(i.Name) = ? THEN 1
+              WHEN LOWER(i.Name) LIKE ? THEN 2
+              ELSE 3
+            END,
+            i.Name ASC
+          LIMIT ?
+        `,
+        [...params, numericItemId, numericItemId ?? 0, normalizedQuery, namePrefixTerm, limit]
+      );
+
+      for (const row of eqRows) {
+        const itemId = Number(row.item_id);
+        const itemName = String(row.item_name);
+        const resultKey = buildMarketFavoriteItemKey(itemId, itemName);
+        const normalizedItemName = normalizeItemName(itemName);
+        const existing = results.get(resultKey) ?? resultsByName.get(normalizedItemName);
+
+        if (existing) {
+          if (existing.itemId == null) {
+            existing.itemId = itemId;
+          }
+          if (existing.itemIconId == null && row.item_icon_id != null) {
+            existing.itemIconId = Number(row.item_icon_id);
+          }
+          continue;
+        }
+
+        results.set(resultKey, {
+          itemId,
+          itemName,
+          itemIconId: row.item_icon_id != null ? Number(row.item_icon_id) : null,
+          saleCount: 0,
+          lastSoldAt: null,
+          hasMarketData: false
+        });
+        resultsByName.set(normalizedItemName, results.get(resultKey)!);
+      }
+    } catch (error) {
+      console.error('Failed to search EQ items for market search fallback:', error);
+    }
+  }
+
+  return Array.from(results.values())
+    .sort((left, right) => {
+      if (left.hasMarketData !== right.hasMarketData) {
+        return left.hasMarketData ? -1 : 1;
+      }
+
+      if (left.lastSoldAt && right.lastSoldAt) {
+        const timeDifference =
+          new Date(right.lastSoldAt).getTime() - new Date(left.lastSoldAt).getTime();
+        if (timeDifference !== 0) {
+          return timeDifference;
+        }
+      } else if (left.lastSoldAt || right.lastSoldAt) {
+        return left.lastSoldAt ? -1 : 1;
+      }
+
+      if (left.saleCount !== right.saleCount) {
+        return right.saleCount - left.saleCount;
+      }
+
+      return left.itemName.localeCompare(right.itemName);
+    })
+    .slice(0, limit);
+}
+
+export async function searchMarketCharacters(
+  query: string,
+  limit = 12
+): Promise<MarketCharacterSearchResult[]> {
+  const normalizedQuery = normalizeCharacterNameKey(query);
+  if (normalizedQuery.length === 0) {
+    return [];
+  }
+
+  let rows: CharacterSearchRow[];
+  try {
+    rows = await prisma.$queryRaw<CharacterSearchRow[]>(Prisma.sql`
+      SELECT
+        characterName,
+        MAX(lastSeenAt) as lastSeenAt,
+        COALESCE(SUM(sellCount), 0) as sellCount,
+        COALESCE(SUM(buyCount), 0) as buyCount
+      FROM (
+        SELECT
+          actorCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE actorCharacterName IS NOT NULL
+          AND actorCharacterName <> ''
+          AND LOWER(actorCharacterName) LIKE ${`%${normalizedQuery}%`}
+        GROUP BY actorCharacterName
+
+        UNION ALL
+
+        SELECT
+          counterpartyCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE counterpartyCharacterName IS NOT NULL
+          AND counterpartyCharacterName <> ''
+          AND LOWER(counterpartyCharacterName) LIKE ${`%${normalizedQuery}%`}
+        GROUP BY counterpartyCharacterName
+      ) matchedCharacters
+      GROUP BY characterName
+      ORDER BY lastSeenAt DESC, sellCount DESC, buyCount DESC, characterName ASC
+      LIMIT ${limit}
+    `);
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
       return [];
     }
 
@@ -873,12 +1397,173 @@ export async function searchMarketItems(
   }
 
   return rows.map((row) => ({
-    itemId: row.itemId,
-    itemName: row.itemName,
-    itemIconId: row.itemIconId,
-    saleCount: toNumber(row.saleCount),
-    lastSoldAt: new Date(row.lastSoldAt).toISOString()
+    characterName: row.characterName,
+    lastSeenAt: new Date(row.lastSeenAt).toISOString(),
+    sellCount: toNumber(row.sellCount),
+    buyCount: toNumber(row.buyCount)
   }));
+}
+
+export async function getMarketFavorites(userId: string): Promise<MarketFavorites> {
+  const favorites = await prisma.marketFavorite.findMany({
+    where: { userId },
+    orderBy: [{ createdAt: 'desc' }]
+  });
+
+  const itemFavorites = favorites.filter(
+    (favorite) =>
+      favorite.listType === MarketFavoriteListType.FAVORITE_ITEMS && Boolean(favorite.itemName)
+  );
+  const itemMetrics = await Promise.all(
+    itemFavorites.map((favorite) =>
+      getMarketFavoriteItemMetrics({
+        itemId: favorite.itemId,
+        itemName: favorite.itemName
+      })
+    )
+  );
+  const characterFavorites = favorites.filter(
+    (favorite) =>
+      favorite.listType === MarketFavoriteListType.FAVORITE_CHARACTERS &&
+      Boolean(favorite.characterName)
+  );
+  const characterMetrics = await Promise.all(
+    characterFavorites.map((favorite) =>
+      getMarketFavoriteCharacterMetrics(favorite.characterName ?? '')
+    )
+  );
+
+  return {
+    items: itemFavorites.map((favorite, index) => ({
+      id: favorite.id,
+      itemId: favorite.itemId,
+      itemName: favorite.itemName ?? 'Unknown Item',
+      itemIconId: favorite.itemIconId,
+      createdAt: favorite.createdAt.toISOString(),
+      ...itemMetrics[index]
+    })),
+    characters: characterFavorites.map((favorite, index) => ({
+      id: favorite.id,
+      characterName: favorite.characterName ?? 'Unknown Character',
+      createdAt: favorite.createdAt.toISOString(),
+      ...characterMetrics[index]
+    }))
+  };
+}
+
+export async function addMarketFavoriteItem(
+  userId: string,
+  input: {
+    itemId?: number | null;
+    itemName: string;
+    itemIconId?: number | null;
+  }
+): Promise<MarketFavoriteItem> {
+  const itemName = normalizeDisplayText(input.itemName);
+  const itemId = input.itemId ?? null;
+  const targetKey = buildMarketFavoriteItemKey(itemId, itemName);
+
+  const favorite = await prisma.marketFavorite.upsert({
+    where: {
+      userId_listType_targetKey: {
+        userId,
+        listType: MarketFavoriteListType.FAVORITE_ITEMS,
+        targetKey
+      }
+    },
+    create: {
+      userId,
+      listType: MarketFavoriteListType.FAVORITE_ITEMS,
+      targetKey,
+      itemId,
+      itemName,
+      itemIconId: input.itemIconId ?? null
+    },
+    update: {
+      itemName,
+      itemIconId: input.itemIconId ?? null
+    }
+  });
+  const metrics = await getMarketFavoriteItemMetrics({
+    itemId: favorite.itemId,
+    itemName: favorite.itemName
+  });
+
+  return {
+    id: favorite.id,
+    itemId: favorite.itemId,
+    itemName: favorite.itemName ?? itemName,
+    itemIconId: favorite.itemIconId,
+    createdAt: favorite.createdAt.toISOString(),
+    ...metrics
+  };
+}
+
+export async function removeMarketFavoriteItem(
+  userId: string,
+  input: {
+    itemId?: number | null;
+    itemName?: string | null;
+  }
+): Promise<void> {
+  const normalizedName = normalizeDisplayText(input.itemName);
+  const targetKey = buildMarketFavoriteItemKey(input.itemId ?? null, normalizedName);
+
+  await prisma.marketFavorite.deleteMany({
+    where: {
+      userId,
+      listType: MarketFavoriteListType.FAVORITE_ITEMS,
+      targetKey
+    }
+  });
+}
+
+export async function addMarketFavoriteCharacter(
+  userId: string,
+  characterName: string
+): Promise<MarketFavoriteCharacter> {
+  const normalizedCharacterName = normalizeCharacterName(characterName);
+  const targetKey = buildMarketFavoriteCharacterKey(normalizedCharacterName);
+
+  const favorite = await prisma.marketFavorite.upsert({
+    where: {
+      userId_listType_targetKey: {
+        userId,
+        listType: MarketFavoriteListType.FAVORITE_CHARACTERS,
+        targetKey
+      }
+    },
+    create: {
+      userId,
+      listType: MarketFavoriteListType.FAVORITE_CHARACTERS,
+      targetKey,
+      characterName: normalizedCharacterName
+    },
+    update: {
+      characterName: normalizedCharacterName
+    }
+  });
+  const metrics = await getMarketFavoriteCharacterMetrics(favorite.characterName ?? '');
+
+  return {
+    id: favorite.id,
+    characterName: favorite.characterName ?? normalizedCharacterName,
+    createdAt: favorite.createdAt.toISOString(),
+    ...metrics
+  };
+}
+
+export async function removeMarketFavoriteCharacter(
+  userId: string,
+  characterName: string
+): Promise<void> {
+  await prisma.marketFavorite.deleteMany({
+    where: {
+      userId,
+      listType: MarketFavoriteListType.FAVORITE_CHARACTERS,
+      targetKey: buildMarketFavoriteCharacterKey(characterName)
+    }
+  });
 }
 
 export async function getMarketItemHistory(options: {
@@ -909,38 +1594,38 @@ export async function getMarketItemHistory(options: {
     : Prisma.empty;
 
   const marketData = await Promise.all([
-      prisma.marketSaleEvent.aggregate({
-        where,
-        _count: { _all: true },
-        _sum: { quantity: true, totalCost: true },
-        _avg: { price: true },
-        _min: { price: true },
-        _max: { price: true, occurredAt: true }
-      }),
-      prisma.marketSaleEvent.findFirst({
-        where,
-        orderBy: [{ itemIconId: 'desc' }, { occurredAt: 'desc' }],
-        select: {
-          itemId: true,
-          itemName: true,
-          itemIconId: true
-        }
-      }),
-      prisma.marketSaleEvent.findMany({
-        where,
-        orderBy: { occurredAt: 'asc' },
-        take: pointLimit,
-        select: {
-          occurredAt: true,
-          price: true,
-          quantity: true,
-          totalCost: true
-        }
-      }),
-      fetchRecentSales(where, 20),
-      prisma.$queryRaw<ItemDailyTrendRow[]>(
-        itemId != null
-          ? Prisma.sql`
+    prisma.marketSaleEvent.aggregate({
+      where,
+      _count: { _all: true },
+      _sum: { quantity: true, totalCost: true },
+      _avg: { price: true },
+      _min: { price: true },
+      _max: { price: true, occurredAt: true }
+    }),
+    prisma.marketSaleEvent.findFirst({
+      where,
+      orderBy: [{ itemIconId: 'desc' }, { occurredAt: 'desc' }],
+      select: {
+        itemId: true,
+        itemName: true,
+        itemIconId: true
+      }
+    }),
+    prisma.marketSaleEvent.findMany({
+      where,
+      orderBy: { occurredAt: 'asc' },
+      take: pointLimit,
+      select: {
+        occurredAt: true,
+        price: true,
+        quantity: true,
+        totalCost: true
+      }
+    }),
+    fetchRecentSales(where, 20),
+    prisma.$queryRaw<ItemDailyTrendRow[]>(
+      itemId != null
+        ? Prisma.sql`
               SELECT
                 DATE(occurredAt) as saleDate,
                 COUNT(*) as salesCount,
@@ -956,7 +1641,7 @@ export async function getMarketItemHistory(options: {
               GROUP BY DATE(occurredAt)
               ORDER BY saleDate ASC
             `
-          : Prisma.sql`
+        : Prisma.sql`
               SELECT
                 DATE(occurredAt) as saleDate,
                 COUNT(*) as salesCount,
@@ -972,8 +1657,8 @@ export async function getMarketItemHistory(options: {
               GROUP BY DATE(occurredAt)
               ORDER BY saleDate ASC
             `
-      )
-    ]).catch((error) => {
+    )
+  ]).catch((error) => {
     if (isMarketSaleEventTableMissing(error)) {
       return null;
     }
@@ -1031,13 +1716,7 @@ export async function getMarketRecentSalesPage(options: {
   page?: number;
   pageSize?: number;
 }): Promise<MarketRecentSalesPage> {
-  const {
-    itemId,
-    itemName,
-    rangeDays = null,
-    page = 1,
-    pageSize = 10
-  } = options;
+  const { itemId, itemName, rangeDays = null, page = 1, pageSize = 10 } = options;
   const normalizedName = normalizeItemName(itemName);
   const occurredAtRange = buildOccurredAtRange(rangeDays);
 
@@ -1074,13 +1753,7 @@ export async function getMarketCharacterHistoryPage(options: {
   page?: number;
   pageSize?: number;
 }): Promise<MarketCharacterHistoryPage> {
-  const {
-    characterName,
-    type = 'sell',
-    rangeDays = null,
-    page = 1,
-    pageSize = 10
-  } = options;
+  const { characterName, type = 'sell', rangeDays = null, page = 1, pageSize = 10 } = options;
   const trimmedName = characterName.trim();
   const occurredAtRange = buildOccurredAtRange(rangeDays);
   const where: Prisma.MarketSaleEventWhereInput = {
@@ -1137,6 +1810,74 @@ export async function getMarketCharacterHistoryPage(options: {
         total: 0,
         totalPages: 1
       };
+    }
+
+    throw error;
+  }
+}
+
+export async function getMarketItemActivity(options: {
+  itemId?: number;
+  itemName?: string;
+  rangeDays?: number | null;
+  buyersPage?: number;
+  sellersPage?: number;
+  pageSize?: number;
+}): Promise<MarketItemActivity | null> {
+  const {
+    itemId,
+    itemName,
+    rangeDays = null,
+    buyersPage = 1,
+    sellersPage = 1,
+    pageSize = 10
+  } = options;
+  const normalizedName = normalizeItemName(itemName);
+
+  if (itemId == null && normalizedName.length === 0) {
+    return null;
+  }
+
+  const occurredAtRange = buildOccurredAtRange(rangeDays);
+  const where: Prisma.MarketSaleEventWhereInput = {
+    ...(occurredAtRange ? { occurredAt: occurredAtRange } : {}),
+    ...(itemId != null
+      ? { itemId }
+      : {
+          itemNameNormalized: normalizedName
+        })
+  };
+
+  try {
+    const [representative, buyers, sellers] = await Promise.all([
+      prisma.marketSaleEvent.findFirst({
+        where,
+        orderBy: [{ itemIconId: 'desc' }, { occurredAt: 'desc' }],
+        select: {
+          itemId: true,
+          itemName: true,
+          itemIconId: true
+        }
+      }),
+      fetchMarketActivityPage(where, BUYER_EVENT_TYPE, buyersPage, pageSize),
+      fetchMarketActivityPage(where, SELLER_EVENT_TYPE, sellersPage, pageSize)
+    ]);
+
+    if (!representative) {
+      return null;
+    }
+
+    return {
+      itemId: representative.itemId,
+      itemName: representative.itemName,
+      itemIconId: representative.itemIconId,
+      rangeDays,
+      buyers,
+      sellers
+    };
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
+      return null;
     }
 
     throw error;

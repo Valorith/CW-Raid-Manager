@@ -36,6 +36,7 @@ model User {
   personalBankCharacters GuildBankCharacter[]
   calendarAvailability CalendarAvailability[]
   npcFavorites         NpcFavorite[]
+  marketFavorites      MarketFavorite[]
   accountNotes         AccountNote[] @relation("AccountNoteCreator")
   characterAssociations CharacterAssociation[] @relation("CharacterAssociationCreator")
   characterWatches     CharacterWatch[] @relation("CharacterWatchCreator")
@@ -643,6 +644,11 @@ enum MarketLogEventType {
   TRADER_SELL
 }
 
+enum MarketFavoriteListType {
+  FAVORITE_ITEMS
+  FAVORITE_CHARACTERS
+}
+
 enum AvailabilityStatus {
   AVAILABLE
   UNAVAILABLE
@@ -1132,6 +1138,45 @@ model MarketSaleEvent {
   @@index([itemId, eventType, occurredAt], map: "MarketSaleEvent_itemId_eventType_occurredAt_idx")
   @@index([itemNameNormalized, eventType, occurredAt], map: "MarketSaleEvent_itemName_eventType_occurredAt_idx")
   @@index([actorCharacterId, eventType, occurredAt], map: "MarketSaleEvent_actor_eventType_occurredAt_idx")
+}
+
+model MarketListing {
+  id                  String   @id @default(cuid())
+  sellerCharacterId   Int
+  sellerCharacterName String   @db.VarChar(191)
+  itemId              Int
+  itemName            String   @db.VarChar(191)
+  itemIconId          Int?
+  itemType            Int?
+  itemSlots           Int?
+  price               Int
+  charges             Int?
+  slotId              Int
+  listedAt            DateTime?
+  syncedAt            DateTime @default(now())
+
+  @@index([listedAt], map: "MarketListing_listedAt_idx")
+  @@index([price], map: "MarketListing_price_idx")
+  @@index([sellerCharacterId], map: "MarketListing_sellerCharacterId_idx")
+  @@index([itemId], map: "MarketListing_itemId_idx")
+  @@index([itemType], map: "MarketListing_itemType_idx")
+}
+
+model MarketFavorite {
+  id            String                 @id @default(cuid())
+  userId        String
+  listType      MarketFavoriteListType
+  targetKey     String                 @db.VarChar(191)
+  itemId        Int?
+  itemName      String?                @db.VarChar(191)
+  itemIconId    Int?
+  characterName String?                @db.VarChar(191)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listType, targetKey], map: "MarketFavorite_user_list_target_key")
+  @@index([userId, listType], map: "MarketFavorite_userId_listType_idx")
 }
 
 model BisSlotCandidate {

@@ -497,7 +497,7 @@ export interface QuestAssignment {
   progress: QuestNodeProgress[];
 }
 
-export interface QuestAssignmentCounts extends Record<QuestAssignmentStatus, number> { }
+export interface QuestAssignmentCounts extends Record<QuestAssignmentStatus, number> {}
 
 export interface QuestBlueprintSummaryLite {
   id: string;
@@ -716,7 +716,12 @@ export interface GuildMetricsQuery {
   endDate?: string;
 }
 
-export type DiscordWebhookEventCategory = 'RAID' | 'ATTENDANCE' | 'APPLICATION' | 'BANK' | 'RESPAWN';
+export type DiscordWebhookEventCategory =
+  | 'RAID'
+  | 'ATTENDANCE'
+  | 'APPLICATION'
+  | 'BANK'
+  | 'RESPAWN';
 
 export interface DiscordWebhookEventDefinition {
   key: string;
@@ -758,7 +763,7 @@ export interface GuildDiscordWebhookInput {
   mentionSubscriptions?: Record<string, boolean>;
 }
 
-export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> { }
+export interface GuildDiscordWebhookUpdateInput extends Partial<GuildDiscordWebhookInput> {}
 
 export interface RaidSignupCounts {
   confirmed: number;
@@ -1091,7 +1096,6 @@ export interface DiscoveredItem {
   itemIconId: number | null;
 }
 
-
 export interface AttendanceEventSummary {
   id: string;
   createdAt: string;
@@ -1283,8 +1287,7 @@ function normalizeLootParserSettings(raw: unknown): GuildLootParserSettings {
   const patterns = Array.isArray(settings.patterns)
     ? settings.patterns.map((pattern, index) => normalizeLootPattern(pattern, index))
     : [];
-  const emoji =
-    typeof settings.emoji === 'string' && settings.emoji.trim() ? settings.emoji : '💎';
+  const emoji = typeof settings.emoji === 'string' && settings.emoji.trim() ? settings.emoji : '💎';
 
   return { patterns, emoji };
 }
@@ -1569,7 +1572,12 @@ export interface InboundWebhookMessage {
   assignedAdminId?: string | null;
   assignedAt?: string | null;
   archivedAt?: string | null;
-  assignedAdmin?: { id: string; displayName: string; nickname?: string | null; email?: string } | null;
+  assignedAdmin?: {
+    id: string;
+    displayName: string;
+    nickname?: string | null;
+    email?: string;
+  } | null;
   webhook?: InboundWebhook | null;
   actionRuns?: InboundWebhookActionRun[];
   // Email inbox-like features
@@ -1739,6 +1747,7 @@ export interface MarketRecentSale {
   itemId: number | null;
   itemName: string;
   itemIconId: number | null;
+  itemAveragePrice?: number | null;
   price: number;
   quantity: number;
   charges: number | null;
@@ -1786,7 +1795,21 @@ export interface MarketItemSearchResult {
   itemName: string;
   itemIconId: number | null;
   saleCount: number;
-  lastSoldAt: string;
+  lastSoldAt: string | null;
+  hasMarketData: boolean;
+}
+
+export interface MarketDiscoveredItemSearchResult {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+}
+
+export interface MarketCharacterSearchResult {
+  characterName: string;
+  lastSeenAt: string;
+  sellCount: number;
+  buyCount: number;
 }
 
 export interface MarketPricePoint {
@@ -1833,6 +1856,82 @@ export interface MarketRecentSalesPage {
   totalPages: number;
 }
 
+export type MarketListingsSortField =
+  | 'listedAt'
+  | 'price'
+  | 'analysis'
+  | 'charges'
+  | 'itemName'
+  | 'sellerName'
+  | 'slotId';
+
+export interface MarketListingsFilters {
+  q?: string;
+  itemName?: string;
+  sellerName?: string;
+  itemType?: number;
+  equipSlot?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  minCharges?: number;
+  maxCharges?: number;
+  listedWithinDays?: number;
+  dealsOnly?: boolean;
+}
+
+export interface MarketListing {
+  sellerCharacterId: number;
+  sellerCharacterName: string;
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+  itemAveragePrice?: number | null;
+  price: number;
+  charges: number | null;
+  slotId: number;
+  listedAt: string | null;
+}
+
+export interface MarketListingsSummary {
+  totalListings: number;
+  distinctSellers: number;
+  distinctItems: number;
+  newestListingAt: string | null;
+}
+
+export interface MarketListingsSyncStatus {
+  lastRetrievedAt: string | null;
+}
+
+export interface MarketListingsPage {
+  listings: MarketListing[];
+  summary: MarketListingsSummary;
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  sourceAvailable: boolean;
+  message: string | null;
+  syncStatus: MarketListingsSyncStatus;
+}
+
+export interface MarketItemActivityPage {
+  entries: MarketRecentSale[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface MarketItemActivity {
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  rangeDays: number | null;
+  buyers: MarketItemActivityPage;
+  sellers: MarketItemActivityPage;
+}
+
 export type MarketTopItemsSort = 'quantity' | 'value';
 export type MarketCharacterHistoryType = 'sell' | 'buy';
 
@@ -1844,6 +1943,35 @@ export interface MarketCharacterHistoryPage {
   pageSize: number;
   total: number;
   totalPages: number;
+}
+
+export interface MarketFavoriteItem {
+  id: string;
+  itemId: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  createdAt: string;
+  totalSales: number;
+  totalUnitsSold: number;
+  totalRevenue: number;
+  averagePrice: number;
+  lastPrice: number | null;
+  lastSoldAt: string | null;
+}
+
+export interface MarketFavoriteCharacter {
+  id: string;
+  characterName: string;
+  createdAt: string;
+  sellCount: number;
+  buyCount: number;
+  totalTransactions: number;
+  lastSeenAt: string | null;
+}
+
+export interface MarketFavorites {
+  items: MarketFavoriteItem[];
+  characters: MarketFavoriteCharacter[];
 }
 
 // Character Admin Types
@@ -2054,9 +2182,7 @@ function normalizeAttendanceEvent(event: any): AttendanceEventSummary {
     createdAt: event.createdAt,
     note: event.note ?? null,
     eventType: event.eventType ?? undefined,
-    records: Array.isArray(event.records)
-      ? event.records.map(normalizeAttendanceRecord)
-      : []
+    records: Array.isArray(event.records) ? event.records.map(normalizeAttendanceRecord) : []
   };
 }
 
@@ -2129,8 +2255,18 @@ function normalizeBooleanRecord(raw: any) {
   }, {});
 }
 
-const QUEST_ASSIGNMENT_STATUS_VALUES: QuestAssignmentStatus[] = ['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'];
-const QUEST_NODE_PROGRESS_VALUES: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
+const QUEST_ASSIGNMENT_STATUS_VALUES: QuestAssignmentStatus[] = [
+  'ACTIVE',
+  'PAUSED',
+  'COMPLETED',
+  'CANCELLED'
+];
+const QUEST_NODE_PROGRESS_VALUES: QuestNodeProgressStatus[] = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'BLOCKED'
+];
 const QUEST_NODE_TYPE_VALUES: QuestNodeType[] = [
   'DELIVER',
   'KILL',
@@ -2144,7 +2280,11 @@ const QUEST_NODE_TYPE_VALUES: QuestNodeType[] = [
   'TOUCH',
   'GIVE_CASH'
 ];
-const QUEST_BLUEPRINT_VISIBILITY_VALUES: QuestBlueprintVisibility[] = ['GUILD', 'LINK_ONLY', 'PRIVATE'];
+const QUEST_BLUEPRINT_VISIBILITY_VALUES: QuestBlueprintVisibility[] = [
+  'GUILD',
+  'LINK_ONLY',
+  'PRIVATE'
+];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -2163,7 +2303,9 @@ function isQuestNodeType(value: unknown): value is QuestNodeType {
 }
 
 function isQuestBlueprintVisibility(value: unknown): value is QuestBlueprintVisibility {
-  return typeof value === 'string' && (QUEST_BLUEPRINT_VISIBILITY_VALUES as string[]).includes(value);
+  return (
+    typeof value === 'string' && (QUEST_BLUEPRINT_VISIBILITY_VALUES as string[]).includes(value)
+  );
 }
 
 function normalizeQuestPermissions(raw: any): QuestTrackerPermissions {
@@ -2213,33 +2355,36 @@ function normalizeQuestAssignment(raw: any): QuestAssignment {
     progressSummary: normalizeQuestProgressSummary(raw?.progressSummary),
     totalViewerSteps:
       typeof raw?.totalViewerSteps === 'number' ? Math.max(0, raw.totalViewerSteps) : undefined,
-    user: raw?.user && typeof raw.user === 'object'
-      ? {
-        id: typeof raw.user.id === 'string' ? raw.user.id : '',
-        displayName: typeof raw.user.displayName === 'string' ? raw.user.displayName : '',
-        nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
-      }
-      : undefined,
+    user:
+      raw?.user && typeof raw.user === 'object'
+        ? {
+            id: typeof raw.user.id === 'string' ? raw.user.id : '',
+            displayName: typeof raw.user.displayName === 'string' ? raw.user.displayName : '',
+            nickname: typeof raw.user.nickname === 'string' ? raw.user.nickname : null
+          }
+        : undefined,
     character:
       raw?.character && typeof raw.character === 'object'
         ? {
-          id: typeof raw.character.id === 'string' ? raw.character.id : '',
-          name: typeof raw.character.name === 'string' ? raw.character.name : 'Character',
-          class:
-            typeof raw.character.class === 'string'
-              ? (raw.character.class as CharacterClass)
-              : 'WARRIOR'
-        }
+            id: typeof raw.character.id === 'string' ? raw.character.id : '',
+            name: typeof raw.character.name === 'string' ? raw.character.name : 'Character',
+            class:
+              typeof raw.character.class === 'string'
+                ? (raw.character.class as CharacterClass)
+                : 'WARRIOR'
+          }
         : null,
     progress: Array.isArray(raw?.progress)
-      ? raw.progress.map((entry: any): QuestNodeProgress => ({
-        nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
-        status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
-        progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
-        targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
-        notes: typeof entry?.notes === 'string' ? entry.notes : null,
-        isDisabled: Boolean(entry?.isDisabled)
-      }))
+      ? raw.progress.map(
+          (entry: any): QuestNodeProgress => ({
+            nodeId: typeof entry?.nodeId === 'string' ? entry.nodeId : '',
+            status: isQuestNodeProgressStatus(entry?.status) ? entry.status : 'NOT_STARTED',
+            progressCount: typeof entry?.progressCount === 'number' ? entry.progressCount : 0,
+            targetCount: typeof entry?.targetCount === 'number' ? entry.targetCount : 0,
+            notes: typeof entry?.notes === 'string' ? entry.notes : null,
+            isDisabled: Boolean(entry?.isDisabled)
+          })
+        )
       : []
   };
 }
@@ -2248,9 +2393,9 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
   const position = isPlainObject(raw?.position)
     ? raw.position
     : {
-      x: typeof raw?.positionX === 'number' ? raw.positionX : 0,
-      y: typeof raw?.positionY === 'number' ? raw.positionY : 0
-    };
+        x: typeof raw?.positionX === 'number' ? raw.positionX : 0,
+        y: typeof raw?.positionY === 'number' ? raw.positionY : 0
+      };
 
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
@@ -2262,7 +2407,9 @@ function normalizeQuestNode(raw: any): QuestNodeViewModel {
       y: typeof position?.y === 'number' ? position.y : 0
     },
     sortOrder: typeof raw?.sortOrder === 'number' ? raw.sortOrder : 0,
-    requirements: isPlainObject(raw?.requirements) ? (raw.requirements as Record<string, unknown>) : {},
+    requirements: isPlainObject(raw?.requirements)
+      ? (raw.requirements as Record<string, unknown>)
+      : {},
     metadata: isPlainObject(raw?.metadata) ? (raw.metadata as Record<string, unknown>) : {},
     isGroup: Boolean(raw?.isGroup),
     isFinal: Boolean(raw?.isFinal),
@@ -2422,8 +2569,7 @@ function normalizeRaidSignup(raw: any): RaidSignup {
         ? raw.character.isMain
         : false;
 
-  const statusValue: SignupStatus =
-    raw?.status === 'NOT_ATTENDING' ? 'NOT_ATTENDING' : 'CONFIRMED';
+  const statusValue: SignupStatus = raw?.status === 'NOT_ATTENDING' ? 'NOT_ATTENDING' : 'CONFIRMED';
 
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
@@ -2478,53 +2624,51 @@ function normalizeRaidSummary(
 ): RaidEventSummary {
   const includeAttendance = options?.includeAttendance ?? false;
 
-  const attendance = includeAttendance && Array.isArray(raid?.attendance)
-    ? raid.attendance.map((event: any) => ({
-      id: event.id,
-      createdAt: event.createdAt,
-      eventType: event.eventType ?? undefined
-    }))
-    : [];
+  const attendance =
+    includeAttendance && Array.isArray(raid?.attendance)
+      ? raid.attendance.map((event: any) => ({
+          id: event.id,
+          createdAt: event.createdAt,
+          eventType: event.eventType ?? undefined
+        }))
+      : [];
 
   const rawMonitor = raid?.logMonitor;
   const logMonitor = rawMonitor
     ? {
-      isActive:
-        typeof rawMonitor.isActive === 'boolean'
-          ? rawMonitor.isActive
-          : true,
-      userId: typeof rawMonitor.userId === 'string' ? rawMonitor.userId : null,
-      userDisplayName:
-        typeof rawMonitor.userDisplayName === 'string'
-          ? rawMonitor.userDisplayName
-          : null,
-      startedAt: normalizeNullableDate(rawMonitor.startedAt)
-    }
+        isActive: typeof rawMonitor.isActive === 'boolean' ? rawMonitor.isActive : true,
+        userId: typeof rawMonitor.userId === 'string' ? rawMonitor.userId : null,
+        userDisplayName:
+          typeof rawMonitor.userDisplayName === 'string' ? rawMonitor.userDisplayName : null,
+        startedAt: normalizeNullableDate(rawMonitor.startedAt)
+      }
     : null;
 
   const recurrence = raid?.recurrence
     ? {
-      id: typeof raid.recurrence?.id === 'string' ? raid.recurrence.id : '',
-      frequency:
-        raid.recurrence?.frequency === 'DAILY' ||
+        id: typeof raid.recurrence?.id === 'string' ? raid.recurrence.id : '',
+        frequency:
+          raid.recurrence?.frequency === 'DAILY' ||
           raid.recurrence?.frequency === 'WEEKLY' ||
           raid.recurrence?.frequency === 'MONTHLY'
-          ? raid.recurrence.frequency
-          : 'WEEKLY',
-      interval:
-        typeof raid.recurrence?.interval === 'number' && raid.recurrence.interval > 0
-          ? raid.recurrence.interval
-          : 1,
-      endDate: normalizeNullableDate(raid.recurrence?.endDate),
-      isActive: raid.recurrence?.isActive !== false
-    }
+            ? raid.recurrence.frequency
+            : 'WEEKLY',
+        interval:
+          typeof raid.recurrence?.interval === 'number' && raid.recurrence.interval > 0
+            ? raid.recurrence.interval
+            : 1,
+        endDate: normalizeNullableDate(raid.recurrence?.endDate),
+        isActive: raid.recurrence?.isActive !== false
+      }
     : null;
 
   const signupCounts = raid?.signupCounts
     ? {
-      confirmed: typeof raid.signupCounts.confirmed === 'number' ? raid.signupCounts.confirmed : 0,
-      notAttending: typeof raid.signupCounts.notAttending === 'number' ? raid.signupCounts.notAttending : 0
-    }
+        confirmed:
+          typeof raid.signupCounts.confirmed === 'number' ? raid.signupCounts.confirmed : 0,
+        notAttending:
+          typeof raid.signupCounts.notAttending === 'number' ? raid.signupCounts.notAttending : 0
+      }
     : undefined;
 
   return {
@@ -2537,11 +2681,11 @@ function normalizeRaidSummary(
     canceledAt: normalizeNullableDate(raid?.canceledAt),
     targetZones: normalizeStringArray(raid?.targetZones),
     targetBosses: normalizeStringArray(raid?.targetBosses),
-    notes: typeof raid?.notes === 'string' ? raid.notes : raid?.notes ?? null,
+    notes: typeof raid?.notes === 'string' ? raid.notes : (raid?.notes ?? null),
     discordVoiceUrl:
       typeof raid?.discordVoiceUrl === 'string'
         ? raid.discordVoiceUrl
-        : raid?.discordVoiceUrl ?? null,
+        : (raid?.discordVoiceUrl ?? null),
     isActive: Boolean(raid?.isActive),
     isRecurring: Boolean(raid?.isRecurring || recurrence),
     recurrence,
@@ -2577,22 +2721,11 @@ function normalizeAttendanceMetricRecord(raw: any): AttendanceMetricRecord {
     character: {
       id: typeof character?.id === 'string' ? character.id : null,
       name: typeof character?.name === 'string' ? character.name : 'Unknown',
-      class:
-        typeof character?.class === 'string'
-          ? (character.class as CharacterClass)
-          : null,
-      isMain:
-        typeof character?.isMain === 'boolean'
-          ? character.isMain
-          : null,
-      userId:
-        typeof character?.userId === 'string'
-          ? character.userId
-          : null,
+      class: typeof character?.class === 'string' ? (character.class as CharacterClass) : null,
+      isMain: typeof character?.isMain === 'boolean' ? character.isMain : null,
+      userId: typeof character?.userId === 'string' ? character.userId : null,
       userDisplayName:
-        typeof character?.userDisplayName === 'string'
-          ? character.userDisplayName
-          : null
+        typeof character?.userDisplayName === 'string' ? character.userDisplayName : null
     }
   };
 }
@@ -2616,35 +2749,24 @@ function normalizeGuildNpcNote(note: any): GuildNpcNote {
     : [];
   const relatedNpcs = Array.isArray(note?.relatedNpcs)
     ? note.relatedNpcs.map((entry: any) =>
-      normalizeGuildNpcAssociation({
-        ...entry,
-        name: entry?.associatedNpcName ?? entry?.name
-      })
-    )
+        normalizeGuildNpcAssociation({
+          ...entry,
+          name: entry?.associatedNpcName ?? entry?.name
+        })
+      )
     : [];
 
   return {
     id: typeof note?.id === 'string' ? note.id : '',
     npcName: typeof note?.npcName === 'string' ? note.npcName : 'Unknown NPC',
-    notes: typeof note?.notes === 'string' ? note.notes : note?.notes ?? null,
-    allaLink:
-      typeof note?.allaLink === 'string'
-        ? note.allaLink
-        : note?.allaLink ?? null,
-    lastEditedById:
-      typeof note?.lastEditedById === 'string' ? note.lastEditedById : null,
-    lastEditedByName:
-      typeof note?.lastEditedByName === 'string'
-        ? note.lastEditedByName
-        : null,
+    notes: typeof note?.notes === 'string' ? note.notes : (note?.notes ?? null),
+    allaLink: typeof note?.allaLink === 'string' ? note.allaLink : (note?.allaLink ?? null),
+    lastEditedById: typeof note?.lastEditedById === 'string' ? note.lastEditedById : null,
+    lastEditedByName: typeof note?.lastEditedByName === 'string' ? note.lastEditedByName : null,
     deletionRequestedById:
-      typeof note?.deletionRequestedById === 'string'
-        ? note.deletionRequestedById
-        : null,
+      typeof note?.deletionRequestedById === 'string' ? note.deletionRequestedById : null,
     deletionRequestedByName:
-      typeof note?.deletionRequestedByName === 'string'
-        ? note.deletionRequestedByName
-        : null,
+      typeof note?.deletionRequestedByName === 'string' ? note.deletionRequestedByName : null,
     deletionRequestedAt: normalizeDateString(note?.deletionRequestedAt),
     createdAt: normalizeDateString(note?.createdAt),
     updatedAt: normalizeDateString(note?.updatedAt),
@@ -2654,8 +2776,7 @@ function normalizeGuildNpcNote(note: any): GuildNpcNote {
 }
 
 function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
-  const isPersonal =
-    raw?.isPersonal === true || raw?.isPersonal === 1 || raw?.isPersonal === '1';
+  const isPersonal = raw?.isPersonal === true || raw?.isPersonal === 1 || raw?.isPersonal === '1';
   return {
     id: typeof raw?.id === 'string' ? raw.id : '',
     name: typeof raw?.name === 'string' ? raw.name : 'Unknown',
@@ -2670,9 +2791,9 @@ function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
 function normalizeGuildBankItem(raw: any): GuildBankItem {
   const location =
     raw?.location === 'WORN' ||
-      raw?.location === 'PERSONAL' ||
-      raw?.location === 'CURSOR' ||
-      raw?.location === 'BANK'
+    raw?.location === 'PERSONAL' ||
+    raw?.location === 'CURSOR' ||
+    raw?.location === 'BANK'
       ? raw.location
       : 'PERSONAL';
 
@@ -2777,37 +2898,26 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
       ? filterOptionsRaw.classes.filter((entry: any) => typeof entry === 'string')
       : [],
     characters: Array.isArray(filterOptionsRaw?.characters)
-      ? filterOptionsRaw.characters
-        .map((entry: any) => ({
+      ? filterOptionsRaw.characters.map((entry: any) => ({
           id: typeof entry?.id === 'string' ? entry.id : null,
           name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
-          class:
-            typeof entry?.class === 'string'
-              ? (entry.class as CharacterClass)
-              : null,
+          class: typeof entry?.class === 'string' ? (entry.class as CharacterClass) : null,
           userId: typeof entry?.userId === 'string' ? entry.userId : null,
           userDisplayName:
-            typeof entry?.userDisplayName === 'string'
-              ? entry.userDisplayName
-              : null,
+            typeof entry?.userDisplayName === 'string' ? entry.userDisplayName : null,
           isMain: Boolean(entry?.isMain)
         }))
       : [],
     raids: Array.isArray(filterOptionsRaw?.raids)
-      ? filterOptionsRaw.raids
-        .map((entry: any) => ({
+      ? filterOptionsRaw.raids.map((entry: any) => ({
           id: typeof entry?.id === 'string' ? entry.id : '',
           name: typeof entry?.name === 'string' ? entry.name : 'Unknown Raid'
         }))
       : [],
     lootParticipants: Array.isArray(filterOptionsRaw?.lootParticipants)
-      ? filterOptionsRaw.lootParticipants
-        .map((entry: any) => ({
+      ? filterOptionsRaw.lootParticipants.map((entry: any) => ({
           name: typeof entry?.name === 'string' ? entry.name : 'Unknown',
-          looterClass:
-            typeof entry?.looterClass === 'string'
-              ? entry.looterClass
-              : null
+          looterClass: typeof entry?.looterClass === 'string' ? entry.looterClass : null
         }))
       : []
   };
@@ -2839,9 +2949,7 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
     lootEvents: lootEvents.length,
     uniqueLooters: uniqueLooters,
     raidsTracked:
-      typeof summaryRaw?.raidsTracked === 'number'
-        ? summaryRaw.raidsTracked
-        : raidsTracked
+      typeof summaryRaw?.raidsTracked === 'number' ? summaryRaw.raidsTracked : raidsTracked
   };
 
   const rangeRaw = raw?.range ?? {};
@@ -2849,10 +2957,7 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
     typeof rangeRaw?.start === 'string'
       ? rangeRaw.start
       : (attendanceRecords[0]?.timestamp ?? new Date(0).toISOString());
-  const end =
-    typeof rangeRaw?.end === 'string'
-      ? rangeRaw.end
-      : new Date().toISOString();
+  const end = typeof rangeRaw?.end === 'string' ? rangeRaw.end : new Date().toISOString();
 
   return {
     range: {
@@ -2893,12 +2998,16 @@ export const api = {
   },
 
   async fetchCharacterInventory(characterName: string): Promise<GuildBankItem[]> {
-    const { data } = await axios.get(`/api/characters/${encodeURIComponent(characterName)}/inventory`);
+    const { data } = await axios.get(
+      `/api/characters/${encodeURIComponent(characterName)}/inventory`
+    );
     return data.items;
   },
 
   async fetchBisBoard(characterClass: CharacterClass): Promise<BisBoard> {
-    const response = await axios.get(`/api/bis?characterClass=${encodeURIComponent(characterClass)}`);
+    const response = await axios.get(
+      `/api/bis?characterClass=${encodeURIComponent(characterClass)}`
+    );
     return response.data;
   },
 
@@ -2949,7 +3058,9 @@ export const api = {
 
   async fetchGuildBankCharacters(guildId: string): Promise<GuildBankCharacter[]> {
     const response = await axios.get(`/api/guilds/${guildId}/guild-bank/characters`);
-    return Array.isArray(response.data.characters) ? response.data.characters.map(normalizeGuildBankCharacter) : [];
+    return Array.isArray(response.data.characters)
+      ? response.data.characters.map(normalizeGuildBankCharacter)
+      : [];
   },
 
   async requestGuildBankItems(
@@ -2992,7 +3103,9 @@ export const api = {
     guildId: string,
     blueprintId: string
   ): Promise<QuestBlueprintDetailPayload> {
-    const response = await axios.get(`/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`);
+    const response = await axios.get(
+      `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`
+    );
     return normalizeQuestBlueprintDetail(response.data);
   },
 
@@ -3082,7 +3195,12 @@ export const api = {
   async updateQuestBlueprint(
     guildId: string,
     blueprintId: string,
-    payload: Partial<{ title: string; summary: string | null; visibility: QuestBlueprintVisibility; isArchived: boolean }>
+    payload: Partial<{
+      title: string;
+      summary: string | null;
+      visibility: QuestBlueprintVisibility;
+      isArchived: boolean;
+    }>
   ): Promise<QuestBlueprintSummaryLite> {
     const response = await axios.patch(
       `/api/guilds/${guildId}/quest-tracker/blueprints/${blueprintId}`,
@@ -3145,9 +3263,12 @@ export const api = {
     return normalizeQuestAssignment(response.data.assignment);
   },
 
-  async fetchGuildNpcNotes(
-    guildId: string
-  ): Promise<{ notes: GuildNpcNote[]; canEdit: boolean; canApproveDeletion: boolean; viewerRole: GuildRole | null }> {
+  async fetchGuildNpcNotes(guildId: string): Promise<{
+    notes: GuildNpcNote[];
+    canEdit: boolean;
+    canApproveDeletion: boolean;
+    viewerRole: GuildRole | null;
+  }> {
     const response = await axios.get(`/api/guilds/${guildId}/npc-notes`);
     const notes = Array.isArray(response.data.notes)
       ? response.data.notes.map((note: any) => normalizeGuildNpcNote(note))
@@ -3156,10 +3277,7 @@ export const api = {
       notes,
       canEdit: Boolean(response.data.canEdit ?? true),
       canApproveDeletion: Boolean(response.data.canApproveDeletion),
-      viewerRole:
-        typeof response.data.viewerRole === 'string'
-          ? response.data.viewerRole
-          : null
+      viewerRole: typeof response.data.viewerRole === 'string' ? response.data.viewerRole : null
     };
   },
 
@@ -3216,16 +3334,19 @@ export const api = {
     return normalizeGuildMetrics(response.data.metrics ?? {});
   },
 
-  async updateGuildSettings(guildId: string, payload: {
-    description?: string | null;
-    defaultRaidStartTime?: string | null;
-    defaultRaidEndTime?: string | null;
-    defaultDiscordVoiceUrl?: string | null;
-    discordWidgetServerId?: string | null;
-    discordWidgetTheme?: DiscordWidgetTheme | null;
-    discordWidgetEnabled?: boolean;
-    blacklistSpells?: boolean;
-  }): Promise<GuildDetail> {
+  async updateGuildSettings(
+    guildId: string,
+    payload: {
+      description?: string | null;
+      defaultRaidStartTime?: string | null;
+      defaultRaidEndTime?: string | null;
+      defaultDiscordVoiceUrl?: string | null;
+      discordWidgetServerId?: string | null;
+      discordWidgetTheme?: DiscordWidgetTheme | null;
+      discordWidgetEnabled?: boolean;
+      blacklistSpells?: boolean;
+    }
+  ): Promise<GuildDetail> {
     const response = await axios.patch(`/api/guilds/${guildId}`, payload);
     return response.data.guild;
   },
@@ -3255,8 +3376,8 @@ export const api = {
     const response = await axios.get(`/api/raids/guild/${guildId}`);
     const normalizedRaids = Array.isArray(response.data.raids)
       ? response.data.raids.map((raid: any) =>
-        normalizeRaidSummary(raid, { includeAttendance: true })
-      )
+          normalizeRaidSummary(raid, { includeAttendance: true })
+        )
       : [];
     return {
       raids: normalizedRaids,
@@ -3274,35 +3395,35 @@ export const api = {
     const npcKills =
       Array.isArray(raid?.npcKills) && raid.npcKills.length > 0
         ? raid.npcKills
-          .map(
-            (kill: any): { npcName: string; killCount: number } => ({
+            .map((kill: any): { npcName: string; killCount: number } => ({
               npcName: typeof kill?.npcName === 'string' ? kill.npcName : 'Unknown NPC',
               killCount:
                 typeof kill?.killCount === 'number' && kill.killCount > 0 ? kill.killCount : 0
-            })
-          )
-          .filter(
-            (kill: { npcName: string; killCount: number }) =>
-              kill.killCount > 0 && kill.npcName.trim().length > 0
-          )
+            }))
+            .filter(
+              (kill: { npcName: string; killCount: number }) =>
+                kill.killCount > 0 && kill.npcName.trim().length > 0
+            )
         : [];
     const npcKillEvents =
       Array.isArray(raid?.npcKillEvents) && raid.npcKillEvents.length > 0
         ? raid.npcKillEvents
-          .map(
-            (event: any): { npcName: string; killerName: string | null; occurredAt: string | null } => ({
-              npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
-              killerName:
-                typeof event?.killerName === 'string' && event.killerName.trim().length > 0
-                  ? event.killerName
-                  : null,
-              occurredAt: normalizeDateString(event?.occurredAt)
-            })
-          )
-          .filter(
-            (event: { npcName: string; killerName: string | null; occurredAt: string | null }) =>
-              Boolean(event.occurredAt)
-          )
+            .map(
+              (
+                event: any
+              ): { npcName: string; killerName: string | null; occurredAt: string | null } => ({
+                npcName: typeof event?.npcName === 'string' ? event.npcName : 'Unknown NPC',
+                killerName:
+                  typeof event?.killerName === 'string' && event.killerName.trim().length > 0
+                    ? event.killerName
+                    : null,
+                occurredAt: normalizeDateString(event?.occurredAt)
+              })
+            )
+            .filter(
+              (event: { npcName: string; killerName: string | null; occurredAt: string | null }) =>
+                Boolean(event.occurredAt)
+            )
         : [];
     return {
       ...raid,
@@ -3325,7 +3446,11 @@ export const api = {
       : [];
   },
 
-  async updateSignupStatus(raidId: string, signupId: string, status: SignupStatus): Promise<RaidSignup[]> {
+  async updateSignupStatus(
+    raidId: string,
+    signupId: string,
+    status: SignupStatus
+  ): Promise<RaidSignup[]> {
     const response = await axios.patch(`/api/raids/${raidId}/signups/${signupId}`, {
       status
     });
@@ -3341,7 +3466,11 @@ export const api = {
       : [];
   },
 
-  async addSignup(raidId: string, characterId: string, status: SignupStatus = 'CONFIRMED'): Promise<RaidSignup[]> {
+  async addSignup(
+    raidId: string,
+    characterId: string,
+    status: SignupStatus = 'CONFIRMED'
+  ): Promise<RaidSignup[]> {
     const response = await axios.post(`/api/raids/${raidId}/signups`, {
       characterId,
       status
@@ -3351,7 +3480,10 @@ export const api = {
       : [];
   },
 
-  async searchCharactersForSignup(raidId: string, query: string): Promise<RaidCharacterSearchResult[]> {
+  async searchCharactersForSignup(
+    raidId: string,
+    query: string
+  ): Promise<RaidCharacterSearchResult[]> {
     const response = await axios.get(`/api/raids/${raidId}/signups/search`, {
       params: { q: query }
     });
@@ -3367,7 +3499,10 @@ export const api = {
     };
   },
 
-  async startRaidLogMonitor(raidId: string, payload: { fileName: string }): Promise<RaidLogMonitorStatus> {
+  async startRaidLogMonitor(
+    raidId: string,
+    payload: { fileName: string }
+  ): Promise<RaidLogMonitorStatus> {
     const response = await axios.post(`/api/raids/${raidId}/log-monitor/start`, payload);
     return {
       session: response.data.session ?? null,
@@ -3376,7 +3511,10 @@ export const api = {
     };
   },
 
-  async heartbeatRaidLogMonitor(raidId: string, sessionId: string): Promise<RaidLogMonitorSession | null> {
+  async heartbeatRaidLogMonitor(
+    raidId: string,
+    sessionId: string
+  ): Promise<RaidLogMonitorSession | null> {
     const response = await axios.post(`/api/raids/${raidId}/log-monitor/heartbeat`, { sessionId });
     return response.data.session ?? null;
   },
@@ -3411,8 +3549,18 @@ export const api = {
 
   async recordRaidNpcKills(
     raidId: string,
-    kills: Array<{ npcName: string; occurredAt: string; killerName?: string | null; rawLine?: string | null; zoneName?: string | null }>
-  ): Promise<{ inserted: number; pendingClarifications: PendingInstanceClarification[]; pendingZoneClarifications: PendingZoneClarification[] }> {
+    kills: Array<{
+      npcName: string;
+      occurredAt: string;
+      killerName?: string | null;
+      rawLine?: string | null;
+      zoneName?: string | null;
+    }>
+  ): Promise<{
+    inserted: number;
+    pendingClarifications: PendingInstanceClarification[];
+    pendingZoneClarifications: PendingZoneClarification[];
+  }> {
     if (!Array.isArray(kills) || kills.length === 0) {
       return { inserted: 0, pendingClarifications: [], pendingZoneClarifications: [] };
     }
@@ -3488,7 +3636,7 @@ export const api = {
       total: response.data.total ?? 0,
       page: response.data.page ?? 1,
       totalPages: response.data.totalPages ?? 1,
-      pageSize: response.data.pageSize ?? (options.pageSize ?? 25)
+      pageSize: response.data.pageSize ?? options.pageSize ?? 25
     };
   },
 
@@ -3520,7 +3668,10 @@ export const api = {
     await axios.delete(`/api/guilds/${guildId}/loot-lists/${entryId}`);
   },
 
-  async fetchRecentLoot(page = 1, limit = 6): Promise<{
+  async fetchRecentLoot(
+    page = 1,
+    limit = 6
+  ): Promise<{
     loot: RecentLootEntry[];
     page: number;
     totalPages: number;
@@ -3569,14 +3720,12 @@ export const api = {
       notes?: string;
       isActive?: boolean;
       discordVoiceUrl?: string | null;
-      recurrence?:
-      | {
+      recurrence?: {
         frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY';
         interval: number;
         endDate?: string | null;
         isActive?: boolean;
-      }
-      | null;
+      } | null;
     }
   ) {
     const response = await axios.patch(`/api/raids/${raidId}`, payload);
@@ -3718,12 +3867,12 @@ export const api = {
       ...event,
       characters: Array.isArray(event.characters)
         ? event.characters.map((record: any) => {
-          const normalized = normalizeAttendanceRecord(record);
-          return {
-            ...normalized,
-            status: (record.status ?? normalized.status ?? 'PRESENT') as AttendanceStatus
-          };
-        })
+            const normalized = normalizeAttendanceRecord(record);
+            return {
+              ...normalized,
+              status: (record.status ?? normalized.status ?? 'PRESENT') as AttendanceStatus
+            };
+          })
         : []
     }));
   },
@@ -3760,8 +3909,8 @@ export const api = {
   async deleteRaid(raidId: string, options?: { scope?: 'EVENT' | 'SERIES' }) {
     const config = options?.scope
       ? {
-        data: { scope: options.scope }
-      }
+          data: { scope: options.scope }
+        }
       : undefined;
     await axios.delete(`/api/raids/${raidId}`, config);
   },
@@ -3816,7 +3965,8 @@ export const api = {
           ? payload.defaultEventSubscriptions
           : {},
       defaultMentionSubscriptions:
-        payload.defaultMentionSubscriptions && typeof payload.defaultMentionSubscriptions === 'object'
+        payload.defaultMentionSubscriptions &&
+        typeof payload.defaultMentionSubscriptions === 'object'
           ? payload.defaultMentionSubscriptions
           : {}
     };
@@ -3870,7 +4020,13 @@ export const api = {
 
   async updateAdminUser(
     userId: string,
-    payload: { admin?: boolean; guide?: boolean; displayName?: string; nickname?: string | null; email?: string }
+    payload: {
+      admin?: boolean;
+      guide?: boolean;
+      displayName?: string;
+      nickname?: string | null;
+      email?: string;
+    }
   ): Promise<AdminUserSummary> {
     const response = await axios.patch(`/api/admin/users/${userId}`, payload);
     return response.data.user;
@@ -3919,10 +4075,7 @@ export const api = {
     userId: string,
     payload: { role: GuildRole }
   ): Promise<AdminGuildMemberSummary> {
-    const response = await axios.patch(
-      `/api/admin/guilds/${guildId}/members/${userId}`,
-      payload
-    );
+    const response = await axios.patch(`/api/admin/guilds/${guildId}/members/${userId}`, payload);
     return response.data.membership;
   },
 
@@ -3974,7 +4127,10 @@ export const api = {
     return Array.isArray(response.data.webhooks) ? response.data.webhooks : [];
   },
 
-  async getWebhookProcessingStatus(): Promise<{ pendingWebhookIds: string[]; hasPendingProcessing: boolean }> {
+  async getWebhookProcessingStatus(): Promise<{
+    pendingWebhookIds: string[];
+    hasPendingProcessing: boolean;
+  }> {
     const response = await axios.get('/api/admin/webhooks/processing-status');
     return response.data;
   },
@@ -3988,27 +4144,33 @@ export const api = {
   },
 
   async setWebhookProcessingEnabled(enabled: boolean): Promise<boolean> {
-    const response = await axios.put('/api/admin/system-settings/webhook-processing-enabled', { enabled });
+    const response = await axios.put('/api/admin/system-settings/webhook-processing-enabled', {
+      enabled
+    });
     return response.data.enabled;
   },
 
-  async getPendingMergeGroups(): Promise<Array<{
-    compositeKey: string;
-    groupKey: string;
-    webhookId: string;
-    messageCount: number;
-    messageIds: string[];
-    firstMessageAt: string;
-    expiresAt: string;
-    remainingSeconds: number;
-    status: 'pending' | 'processing';
-  }>> {
+  async getPendingMergeGroups(): Promise<
+    Array<{
+      compositeKey: string;
+      groupKey: string;
+      webhookId: string;
+      messageCount: number;
+      messageIds: string[];
+      firstMessageAt: string;
+      expiresAt: string;
+      remainingSeconds: number;
+      status: 'pending' | 'processing';
+    }>
+  > {
     const response = await axios.get('/api/admin/webhooks/pending-merge-groups');
     return response.data.groups;
   },
 
   async processGroupNow(webhookId: string, groupKey: string): Promise<boolean> {
-    const response = await axios.post(`/api/admin/webhooks/${webhookId}/process-group-now`, { groupKey });
+    const response = await axios.post(`/api/admin/webhooks/${webhookId}/process-group-now`, {
+      groupKey
+    });
     return response.data.success;
   },
 
@@ -4066,7 +4228,10 @@ export const api = {
       config?: InboundWebhookActionConfig | null;
     }
   ): Promise<InboundWebhookAction> {
-    const response = await axios.put(`/api/admin/webhooks/${webhookId}/actions/${actionId}`, payload);
+    const response = await axios.put(
+      `/api/admin/webhooks/${webhookId}/actions/${actionId}`,
+      payload
+    );
     return response.data.action;
   },
 
@@ -4098,9 +4263,11 @@ export const api = {
     if (params.webhookId) query.set('webhookId', params.webhookId);
     if (params.status) query.set('status', params.status);
     if (params.includeArchived) query.set('includeArchived', 'true');
-    if (params.readStatus && params.readStatus !== 'all') query.set('readStatus', params.readStatus);
+    if (params.readStatus && params.readStatus !== 'all')
+      query.set('readStatus', params.readStatus);
     if (params.starred) query.set('starred', 'true');
-    if (params.labelIds && params.labelIds.length > 0) query.set('labelIds', params.labelIds.join(','));
+    if (params.labelIds && params.labelIds.length > 0)
+      query.set('labelIds', params.labelIds.join(','));
 
     const response = await axios.get(`/api/admin/webhook-inbox?${query.toString()}`);
     return {
@@ -4213,7 +4380,16 @@ export const api = {
    */
   async bulkWebhookInboxAction(params: {
     messageIds: string[];
-    action: 'markRead' | 'markUnread' | 'archive' | 'unarchive' | 'delete' | 'star' | 'unstar' | 'rerunCrashReview' | 'setLabels';
+    action:
+      | 'markRead'
+      | 'markUnread'
+      | 'archive'
+      | 'unarchive'
+      | 'delete'
+      | 'star'
+      | 'unstar'
+      | 'rerunCrashReview'
+      | 'setLabels';
     labelIds?: string[];
   }): Promise<{ success: number; failed: number }> {
     const response = await axios.post('/api/admin/webhook-inbox/bulk', params);
@@ -4229,8 +4405,14 @@ export const api = {
    * @param messageIds - Array of message IDs in the desired merge order
    * @param combinedText - The combined crash report text (no separators)
    */
-  async mergeWebhookMessages(messageIds: string[], combinedText: string): Promise<InboundWebhookMessage> {
-    const response = await axios.post('/api/admin/webhook-inbox/merge', { messageIds, combinedText });
+  async mergeWebhookMessages(
+    messageIds: string[],
+    combinedText: string
+  ): Promise<InboundWebhookMessage> {
+    const response = await axios.post('/api/admin/webhook-inbox/merge', {
+      messageIds,
+      combinedText
+    });
     return response.data.message;
   },
 
@@ -4238,7 +4420,9 @@ export const api = {
    * Dismiss merge suggestion and process messages individually.
    * Called when user decides not to merge and wants to process each message separately.
    */
-  async dismissMergeAndProcess(messageIds: string[]): Promise<{ success: boolean; processedCount: number }> {
+  async dismissMergeAndProcess(
+    messageIds: string[]
+  ): Promise<{ success: boolean; processedCount: number }> {
     const response = await axios.post('/api/admin/webhook-inbox/dismiss-merge', { messageIds });
     return response.data;
   },
@@ -4248,14 +4432,18 @@ export const api = {
    * @param crashReportText - The crash report text to analyze
    */
   async inspectCrashReport(crashReportText: string): Promise<CrashInspectionResult> {
-    const response = await axios.post('/api/admin/webhook-inbox/inspect-crash-report', { crashReportText });
+    const response = await axios.post('/api/admin/webhook-inbox/inspect-crash-report', {
+      crashReportText
+    });
     return response.data;
   },
 
   /**
    * Sorts crash report segments using AI to determine correct order.
    */
-  async sortCrashSegments(segments: Array<{ id: string; text: string }>): Promise<CrashSegmentSortResult> {
+  async sortCrashSegments(
+    segments: Array<{ id: string; text: string }>
+  ): Promise<CrashSegmentSortResult> {
     const response = await axios.post('/api/admin/webhook-inbox/sort-crash-segments', { segments });
     return response.data;
   },
@@ -4348,10 +4536,7 @@ export const api = {
   /**
    * Deletes the current user's availability entries for specific dates.
    */
-  async deleteUserAvailability(
-    guildId: string,
-    dates: string[]
-  ): Promise<{ deleted: number }> {
+  async deleteUserAvailability(guildId: string, dates: string[]): Promise<{ deleted: number }> {
     const response = await axios.delete(`/api/availability/guild/${guildId}/me`, {
       data: { dates }
     });
@@ -4365,7 +4550,9 @@ export const api = {
     guildId: string,
     date: string
   ): Promise<{ details: AvailabilityUserDetail[] }> {
-    const response = await axios.get(`/api/availability/guild/${guildId}/details?date=${encodeURIComponent(date)}`);
+    const response = await axios.get(
+      `/api/availability/guild/${guildId}/details?date=${encodeURIComponent(date)}`
+    );
     return response.data;
   },
 
@@ -4445,7 +4632,11 @@ export const api = {
 
   // Guild Donations
 
-  async fetchGuildDonations(guildId: string, page = 1, limit = 25): Promise<PaginatedDonationsResponse> {
+  async fetchGuildDonations(
+    guildId: string,
+    page = 1,
+    limit = 25
+  ): Promise<PaginatedDonationsResponse> {
     const response = await axios.get(`/api/guilds/${guildId}/donations`, {
       params: { page, limit }
     });
@@ -4595,8 +4786,14 @@ export const api = {
     return response.data.subscription;
   },
 
-  async deleteNpcSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean = false): Promise<void> {
-    await axios.delete(`/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}?isInstanceVariant=${isInstanceVariant}`);
+  async deleteNpcSubscription(
+    guildId: string,
+    npcDefinitionId: string,
+    isInstanceVariant: boolean = false
+  ): Promise<void> {
+    await axios.delete(
+      `/api/guilds/${guildId}/npc-subscriptions/${npcDefinitionId}?isInstanceVariant=${isInstanceVariant}`
+    );
   },
 
   async fetchPendingNpcKillClarifications(guildId: string): Promise<{
@@ -4622,7 +4819,10 @@ export const api = {
     return response.data.record;
   },
 
-  async dismissPendingNpcKillClarification(guildId: string, clarificationId: string): Promise<void> {
+  async dismissPendingNpcKillClarification(
+    guildId: string,
+    clarificationId: string
+  ): Promise<void> {
     await axios.delete(`/api/guilds/${guildId}/npc-pending-clarifications/${clarificationId}`);
   },
 
@@ -4740,12 +4940,67 @@ export const api = {
     return response.data.items ?? [];
   },
 
+  async searchMarketDiscoveredItems(
+    query: string,
+    limit = 12
+  ): Promise<MarketDiscoveredItemSearchResult[]> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit)
+    });
+    const response = await axios.get(`/api/market/items/discovered-search?${params.toString()}`);
+    return response.data.items ?? [];
+  },
+
+  async searchMarketCharacters(query: string, limit = 12): Promise<MarketCharacterSearchResult[]> {
+    const params = new URLSearchParams({
+      q: query,
+      limit: String(limit)
+    });
+    const response = await axios.get(`/api/market/characters/search?${params.toString()}`);
+    return response.data.characters ?? [];
+  },
+
+  async fetchMarketFavorites(): Promise<MarketFavorites> {
+    const response = await axios.get('/api/market/favorites');
+    return response.data.favorites ?? { items: [], characters: [] };
+  },
+
+  async addMarketFavoriteItem(input: {
+    itemId?: number | null;
+    itemName: string;
+    itemIconId?: number | null;
+  }): Promise<MarketFavoriteItem> {
+    const response = await axios.post('/api/market/favorites/items', input);
+    return response.data.favorite;
+  },
+
+  async removeMarketFavoriteItem(input: {
+    itemId?: number | null;
+    itemName?: string | null;
+  }): Promise<void> {
+    const params = new URLSearchParams();
+    if (input.itemId != null) params.append('itemId', String(input.itemId));
+    if (input.itemName) params.append('itemName', input.itemName);
+    await axios.delete(`/api/market/favorites/items?${params.toString()}`);
+  },
+
+  async addMarketFavoriteCharacter(characterName: string): Promise<MarketFavoriteCharacter> {
+    const response = await axios.post('/api/market/favorites/characters', { characterName });
+    return response.data.favorite;
+  },
+
+  async removeMarketFavoriteCharacter(characterName: string): Promise<void> {
+    const params = new URLSearchParams({ characterName });
+    await axios.delete(`/api/market/favorites/characters?${params.toString()}`);
+  },
+
   async fetchMarketItemHistory(options: {
     itemId?: number;
     itemName?: string;
     days?: number | null;
     pointLimit?: number;
-  }): Promise<MarketItemHistory> {
+  }): Promise<MarketItemHistory | null> {
     const params = new URLSearchParams();
     if (options.itemId != null) params.append('itemId', String(options.itemId));
     if (options.itemName) params.append('itemName', options.itemName);
@@ -4753,6 +5008,25 @@ export const api = {
     if (options.pointLimit != null) params.append('pointLimit', String(options.pointLimit));
     const response = await axios.get(`/api/market/history?${params.toString()}`);
     return response.data.history;
+  },
+
+  async fetchMarketItemActivity(options: {
+    itemId?: number;
+    itemName?: string;
+    days?: number | null;
+    buyersPage?: number;
+    sellersPage?: number;
+    pageSize?: number;
+  }): Promise<MarketItemActivity | null> {
+    const params = new URLSearchParams();
+    if (options.itemId != null) params.append('itemId', String(options.itemId));
+    if (options.itemName) params.append('itemName', options.itemName);
+    if (options.days != null) params.append('days', String(options.days));
+    if (options.buyersPage != null) params.append('buyersPage', String(options.buyersPage));
+    if (options.sellersPage != null) params.append('sellersPage', String(options.sellersPage));
+    if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
+    const response = await axios.get(`/api/market/history/activity?${params.toString()}`);
+    return response.data.activity;
   },
 
   async fetchMarketSalesPage(options: {
@@ -4788,6 +5062,49 @@ export const api = {
     if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
     const response = await axios.get(`/api/market/character-history?${params.toString()}`);
     return response.data.historyPage;
+  },
+
+  async fetchMarketListingsPage(
+    options: {
+      q?: string;
+      itemName?: string;
+      sellerName?: string;
+      itemType?: number;
+      equipSlot?: number;
+      minPrice?: number;
+      maxPrice?: number;
+      minCharges?: number;
+      maxCharges?: number;
+      listedWithinDays?: number;
+      dealsOnly?: boolean;
+      page?: number;
+      pageSize?: number;
+      sortBy?: MarketListingsSortField;
+      sortOrder?: 'asc' | 'desc';
+      refreshIfStale?: boolean;
+    } = {}
+  ): Promise<MarketListingsPage> {
+    const params = new URLSearchParams();
+    if (options.q) params.append('q', options.q);
+    if (options.itemName) params.append('itemName', options.itemName);
+    if (options.sellerName) params.append('sellerName', options.sellerName);
+    if (options.itemType != null) params.append('itemType', String(options.itemType));
+    if (options.equipSlot != null) params.append('equipSlot', String(options.equipSlot));
+    if (options.minPrice != null) params.append('minPrice', String(options.minPrice));
+    if (options.maxPrice != null) params.append('maxPrice', String(options.maxPrice));
+    if (options.minCharges != null) params.append('minCharges', String(options.minCharges));
+    if (options.maxCharges != null) params.append('maxCharges', String(options.maxCharges));
+    if (options.listedWithinDays != null) {
+      params.append('listedWithinDays', String(options.listedWithinDays));
+    }
+    if (options.dealsOnly) params.append('dealsOnly', 'true');
+    if (options.page != null) params.append('page', String(options.page));
+    if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
+    if (options.sortBy) params.append('sortBy', options.sortBy);
+    if (options.sortOrder) params.append('sortOrder', options.sortOrder);
+    if (options.refreshIfStale) params.append('refreshIfStale', 'true');
+    const response = await axios.get(`/api/market/listings?${params.toString()}`);
+    return response.data.listingsPage;
   },
 
   // Character Admin APIs
@@ -4986,7 +5303,9 @@ export const api = {
   /**
    * Checks if a character is on the watch list.
    */
-  async checkCharacterWatch(characterId: number): Promise<{ isWatched: boolean; watch: CharacterWatch | null }> {
+  async checkCharacterWatch(
+    characterId: number
+  ): Promise<{ isWatched: boolean; watch: CharacterWatch | null }> {
     const response = await axios.get(`/api/admin/character-watch/${characterId}`);
     return { isWatched: response.data.isWatched, watch: response.data.watch };
   },
@@ -4994,7 +5313,11 @@ export const api = {
   /**
    * Adds a character to the watch list.
    */
-  async addCharacterWatch(characterId: number, characterName: string, accountId: number): Promise<CharacterWatch> {
+  async addCharacterWatch(
+    characterId: number,
+    characterName: string,
+    accountId: number
+  ): Promise<CharacterWatch> {
     const response = await axios.post('/api/admin/character-watch', {
       characterId,
       characterName,
@@ -5013,12 +5336,14 @@ export const api = {
   /**
    * Syncs associations from IP groups (called when connections page loads).
    */
-  async syncIpGroupAssociations(connections: Array<{
-    characterId: number;
-    characterName: string;
-    accountId: number;
-    ip: string;
-  }>): Promise<{ created: number; skipped: number }> {
+  async syncIpGroupAssociations(
+    connections: Array<{
+      characterId: number;
+      characterName: string;
+      accountId: number;
+      ip: string;
+    }>
+  ): Promise<{ created: number; skipped: number }> {
     const response = await axios.post('/api/admin/sync-ip-associations', { connections });
     return response.data;
   },
@@ -5079,13 +5404,19 @@ export const api = {
   /**
    * Fetch metallurgy snapshots with optional date range
    */
-  async fetchMetallurgySnapshots(options?: { days?: number; startDate?: string; endDate?: string }): Promise<MetallurgySnapshot[]> {
+  async fetchMetallurgySnapshots(options?: {
+    days?: number;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<MetallurgySnapshot[]> {
     const params = new URLSearchParams();
     if (options?.days) params.set('days', String(options.days));
     if (options?.startDate) params.set('startDate', options.startDate);
     if (options?.endDate) params.set('endDate', options.endDate);
     const queryString = params.toString();
-    const url = queryString ? `/api/admin/metallurgy/snapshots?${queryString}` : '/api/admin/metallurgy/snapshots';
+    const url = queryString
+      ? `/api/admin/metallurgy/snapshots?${queryString}`
+      : '/api/admin/metallurgy/snapshots';
     const response = await axios.get(url);
     return response.data.snapshots;
   },
@@ -5120,7 +5451,6 @@ export const api = {
     const response = await axios.get('/api/admin/metallurgy/summary');
     return response.data.summary;
   }
-
 };
 
 // ============================================================================

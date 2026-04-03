@@ -1,6 +1,8 @@
 import { isEqDbConfigured } from '../utils/eqDb.js';
 import { syncMarketSaleEvents } from './marketService.js';
 
+const MARKET_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+
 type SchedulerLogger = {
   info?: (...args: unknown[]) => void;
   warn?: (...args: unknown[]) => void;
@@ -19,7 +21,7 @@ async function schedulerTick(): Promise<void> {
   try {
     await syncMarketSaleEvents({
       logger,
-      maxBatches: 6
+      maxBatches: 20
     });
   } catch (error) {
     logger.error?.('[MarketSyncScheduler] Error syncing market sale events.', error);
@@ -35,12 +37,12 @@ export function startMarketSyncScheduler(customLogger?: SchedulerLogger): void {
     logger = customLogger;
   }
 
-  logger.info?.('[MarketSyncScheduler] Starting scheduler (checking every minute)...');
+  logger.info?.('[MarketSyncScheduler] Starting scheduler (checking every 15 minutes)...');
   void schedulerTick();
 
   schedulerInterval = setInterval(() => {
     void schedulerTick();
-  }, 60 * 1000);
+  }, MARKET_SYNC_INTERVAL_MS);
 }
 
 export function stopMarketSyncScheduler(): void {
