@@ -304,3 +304,48 @@ export function slotDisplayLabel(resolved: ResolvedSlotPlacement): string {
     }
     return resolved.slotLabel;
 }
+
+function normalizeWornSlotLabel(slotId: number): string {
+    switch (slotId) {
+        case 1:
+        case 4:
+            return 'Ear';
+        case 9:
+        case 10:
+            return 'Wrist';
+        case 15:
+        case 16:
+            return 'Finger';
+        default:
+            return WORN_SLOT_LABELS[slotId] ?? `Slot ${slotId}`;
+    }
+}
+
+export function itemSlotSummaryLabel(itemSlots: number | null | undefined): string | null {
+    if (typeof itemSlots !== 'number' || !Number.isFinite(itemSlots) || itemSlots <= 0) {
+        return null;
+    }
+
+    const uniqueLabels: string[] = [];
+    for (let slotId = 0; slotId < WORN_SLOT_LABELS.length; slotId += 1) {
+        const slotBit = 2 ** slotId;
+        if ((itemSlots & slotBit) !== slotBit) {
+            continue;
+        }
+
+        const label = normalizeWornSlotLabel(slotId);
+        if (!uniqueLabels.includes(label)) {
+            uniqueLabels.push(label);
+        }
+    }
+
+    if (uniqueLabels.length === 0) {
+        return null;
+    }
+
+    if (uniqueLabels.length <= 3) {
+        return uniqueLabels.join(' / ');
+    }
+
+    return `${uniqueLabels.slice(0, 3).join(' / ')} +${uniqueLabels.length - 3}`;
+}

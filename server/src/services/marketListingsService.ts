@@ -23,6 +23,7 @@ type MarketListingsSummaryRow = RowDataPacket & {
 };
 
 type MarketListingRow = RowDataPacket & {
+  id: string;
   sellerCharacterId: number | bigint | string | null;
   sellerCharacterName: string | null;
   itemId: number | bigint | string | null;
@@ -60,6 +61,7 @@ type MarketListingCacheRecord = {
 export type MarketListingsSortField =
   | 'listedAt'
   | 'price'
+  | 'priceRank'
   | 'analysis'
   | 'charges'
   | 'itemName'
@@ -68,6 +70,7 @@ export type MarketListingsSortField =
 
 export interface MarketListingsFilters {
   q?: string;
+  itemId?: number;
   itemName?: string;
   sellerName?: string;
   itemType?: number;
@@ -78,6 +81,7 @@ export interface MarketListingsFilters {
   maxCharges?: number;
   listedWithinDays?: number;
   dealsOnly?: boolean;
+  bestPricesOnly?: boolean;
 }
 
 export interface MarketListing {
@@ -86,8 +90,10 @@ export interface MarketListing {
   itemId: number;
   itemName: string;
   itemIconId: number | null;
+  itemSlots: number | null;
   itemAveragePrice?: number | null;
   price: number;
+  priceRank: number;
   charges: number | null;
   slotId: number;
   listedAt: string | null;
@@ -205,6 +211,45 @@ function normalizeSearchQuery(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function buildPriceRankEarlierListingCondition(
+  candidateAlias: string,
+  currentAlias: string
+): string {
+  return `
+    ${candidateAlias}.price < ${currentAlias}.price
+    OR (
+      ${candidateAlias}.price = ${currentAlias}.price
+      AND COALESCE(${candidateAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59')) <
+        COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
+    )
+    OR (
+      ${candidateAlias}.price = ${currentAlias}.price
+      AND COALESCE(${candidateAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59')) =
+        COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
+      AND ${candidateAlias}.id < ${currentAlias}.id
+    )
+  `;
+}
+
+function buildPriceRankExpression(currentAlias: string): string {
+  return `
+    (
+      SELECT COUNT(*)
+      FROM MarketListing mlRank
+      WHERE mlRank.itemId = ${currentAlias}.itemId
+        AND (
+          ${buildPriceRankEarlierListingCondition('mlRank', currentAlias)}
+          OR (
+            mlRank.price = ${currentAlias}.price
+            AND COALESCE(mlRank.listedAt, TIMESTAMP('9999-12-31 23:59:59')) =
+              COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
+            AND mlRank.id = ${currentAlias}.id
+          )
+        )
+    )
+  `;
+}
+
 function buildRangeStart(days: number): Date {
   const start = new Date();
   start.setUTCDate(start.getUTCDate() - days);
@@ -316,6 +361,11 @@ function buildWhereClause(filters: MarketListingsFilters): {
   const itemName = normalizeSearchQuery(filters.itemName);
   const sellerName = normalizeSearchQuery(filters.sellerName);
 
+  if (filters.itemId != null) {
+    conditions.push('ml.itemId = ?');
+    params.push(filters.itemId);
+  }
+
   if (searchQuery) {
     const likeQuery = `%${searchQuery}%`;
     conditions.push(
@@ -374,6 +424,17 @@ function buildWhereClause(filters: MarketListingsFilters): {
     conditions.push('ml.price < saleAvg.averagePrice');
   }
 
+  if (filters.bestPricesOnly) {
+    conditions.push(`
+      NOT EXISTS (
+        SELECT 1
+        FROM MarketListing mlBest
+        WHERE mlBest.itemId = ml.itemId
+          AND (${buildPriceRankEarlierListingCondition('mlBest', 'ml')})
+      )
+    `);
+  }
+
   if (conditions.length === 0) {
     return { clause: '', params: [] };
   }
@@ -389,9 +450,13 @@ function buildOrderByClause(
   sortOrder: SortOrder,
   includeAveragePrice: boolean
 ): string {
+  const priceRankExpression = buildPriceRankExpression('ml');
+
   switch (sortBy) {
     case 'price':
       return `ml.price ${sortOrder}, ml.listedAt DESC, ml.id DESC`;
+    case 'priceRank':
+      return `${priceRankExpression} ${sortOrder}, ml.listedAt DESC, ml.id DESC`;
     case 'analysis':
       if (!includeAveragePrice) {
         return `ml.listedAt DESC, ml.id DESC`;
@@ -423,7 +488,10 @@ function buildOrderByClause(
   }
 }
 
-function mapMarketListingRow(row: MarketListingRow): MarketListing {
+function mapMarketListingRow(
+  row: MarketListingRow,
+  priceRankByListingId: ReadonlyMap<string, number>
+): MarketListing {
   const sellerCharacterId = toNumber(row.sellerCharacterId);
   const itemId = toNumber(row.itemId);
 
@@ -433,12 +501,70 @@ function mapMarketListingRow(row: MarketListingRow): MarketListing {
     itemId,
     itemName: row.itemName?.trim() || `Item ${itemId}`,
     itemIconId: toNullableNumber(row.itemIconId),
+    itemSlots: toNullableNumber(row.itemSlots),
     itemAveragePrice: toNullableDecimal(row.itemAveragePrice),
     price: toNumber(row.price),
+    priceRank: priceRankByListingId.get(row.id) ?? 1,
     charges: toNullableNumber(row.charges),
     slotId: toNumber(row.slotId),
     listedAt: row.listedAt ? new Date(row.listedAt).toISOString() : null
   };
+}
+
+async function buildPriceRankByListingId(itemIds: number[]): Promise<Map<string, number>> {
+  const uniqueItemIds = Array.from(new Set(itemIds.filter((itemId) => itemId > 0)));
+  const priceRankByListingId = new Map<string, number>();
+
+  if (uniqueItemIds.length === 0) {
+    return priceRankByListingId;
+  }
+
+  const listings = await prisma.marketListing.findMany({
+    where: {
+      itemId: {
+        in: uniqueItemIds
+      }
+    },
+    select: {
+      id: true,
+      itemId: true,
+      price: true,
+      listedAt: true
+    }
+  });
+
+  const listingsByItemId = new Map<number, typeof listings>();
+  for (const listing of listings) {
+    const existing = listingsByItemId.get(listing.itemId);
+    if (existing) {
+      existing.push(listing);
+      continue;
+    }
+
+    listingsByItemId.set(listing.itemId, [listing]);
+  }
+
+  for (const itemListings of listingsByItemId.values()) {
+    itemListings.sort((left, right) => {
+      if (left.price !== right.price) {
+        return left.price - right.price;
+      }
+
+      const leftListedAt = left.listedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      const rightListedAt = right.listedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+      if (leftListedAt !== rightListedAt) {
+        return leftListedAt - rightListedAt;
+      }
+
+      return left.id.localeCompare(right.id);
+    });
+
+    itemListings.forEach((listing, index) => {
+      priceRankByListingId.set(listing.id, index + 1);
+    });
+  }
+
+  return priceRankByListingId;
 }
 
 function buildAveragePriceJoinClause(includeAveragePrice: boolean): string {
@@ -713,6 +839,7 @@ export async function ensureMarketListingsFresh(
 export async function getMarketListingsPage(
   options: {
     q?: string;
+    itemId?: number;
     itemName?: string;
     sellerName?: string;
     itemType?: number;
@@ -723,6 +850,7 @@ export async function getMarketListingsPage(
     maxCharges?: number;
     listedWithinDays?: number;
     dealsOnly?: boolean;
+    bestPricesOnly?: boolean;
     page?: number;
     pageSize?: number;
     sortBy?: MarketListingsSortField;
@@ -731,6 +859,7 @@ export async function getMarketListingsPage(
 ): Promise<MarketListingsPage> {
   const {
     q = '',
+    itemId,
     itemName,
     sellerName,
     itemType,
@@ -741,6 +870,7 @@ export async function getMarketListingsPage(
     maxCharges,
     listedWithinDays,
     dealsOnly = false,
+    bestPricesOnly = false,
     page = 1,
     pageSize = 25,
     sortBy = 'listedAt',
@@ -750,6 +880,7 @@ export async function getMarketListingsPage(
   const syncStatus = await getMarketListingsSyncStatus();
   const { clause, params } = buildWhereClause({
     q,
+    itemId,
     itemName,
     sellerName,
     itemType,
@@ -759,7 +890,8 @@ export async function getMarketListingsPage(
     minCharges,
     maxCharges,
     listedWithinDays,
-    dealsOnly
+    dealsOnly,
+    bestPricesOnly
   });
   const offset = (page - 1) * pageSize;
 
@@ -785,11 +917,13 @@ export async function getMarketListingsPage(
       prisma.$queryRawUnsafe<MarketListingRow[]>(
         `
           SELECT
+            ml.id as id,
             ml.sellerCharacterId as sellerCharacterId,
             ml.sellerCharacterName as sellerCharacterName,
             ml.itemId as itemId,
             ml.itemName as itemName,
             ml.itemIconId as itemIconId,
+            ml.itemSlots as itemSlots,
             ${includeAveragePrice ? 'saleAvg.averagePrice' : 'NULL'} as itemAveragePrice,
             ml.price as price,
             ml.charges as charges,
@@ -816,9 +950,12 @@ export async function getMarketListingsPage(
         ? new Date(summaryRow.newestListingAt).toISOString()
         : null
     };
+    const priceRankByListingId = await buildPriceRankByListingId(
+      listingRows.map((row) => toNumber(row.itemId))
+    );
 
     return {
-      listings: listingRows.map((row) => mapMarketListingRow(row)),
+      listings: listingRows.map((row) => mapMarketListingRow(row, priceRankByListingId)),
       summary,
       page,
       pageSize,

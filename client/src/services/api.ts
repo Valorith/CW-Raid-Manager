@@ -1859,6 +1859,7 @@ export interface MarketRecentSalesPage {
 export type MarketListingsSortField =
   | 'listedAt'
   | 'price'
+  | 'priceRank'
   | 'analysis'
   | 'charges'
   | 'itemName'
@@ -1867,6 +1868,7 @@ export type MarketListingsSortField =
 
 export interface MarketListingsFilters {
   q?: string;
+  itemId?: number;
   itemName?: string;
   sellerName?: string;
   itemType?: number;
@@ -1877,6 +1879,7 @@ export interface MarketListingsFilters {
   maxCharges?: number;
   listedWithinDays?: number;
   dealsOnly?: boolean;
+  bestPricesOnly?: boolean;
 }
 
 export interface MarketListing {
@@ -1885,8 +1888,10 @@ export interface MarketListing {
   itemId: number;
   itemName: string;
   itemIconId: number | null;
+  itemSlots: number | null;
   itemAveragePrice?: number | null;
   price: number;
+  priceRank: number;
   charges: number | null;
   slotId: number;
   listedAt: string | null;
@@ -5067,6 +5072,7 @@ export const api = {
   async fetchMarketListingsPage(
     options: {
       q?: string;
+      itemId?: number;
       itemName?: string;
       sellerName?: string;
       itemType?: number;
@@ -5077,6 +5083,7 @@ export const api = {
       maxCharges?: number;
       listedWithinDays?: number;
       dealsOnly?: boolean;
+      bestPricesOnly?: boolean;
       page?: number;
       pageSize?: number;
       sortBy?: MarketListingsSortField;
@@ -5086,6 +5093,7 @@ export const api = {
   ): Promise<MarketListingsPage> {
     const params = new URLSearchParams();
     if (options.q) params.append('q', options.q);
+    if (options.itemId != null) params.append('itemId', String(options.itemId));
     if (options.itemName) params.append('itemName', options.itemName);
     if (options.sellerName) params.append('sellerName', options.sellerName);
     if (options.itemType != null) params.append('itemType', String(options.itemType));
@@ -5098,6 +5106,7 @@ export const api = {
       params.append('listedWithinDays', String(options.listedWithinDays));
     }
     if (options.dealsOnly) params.append('dealsOnly', 'true');
+    if (options.bestPricesOnly) params.append('bestPricesOnly', 'true');
     if (options.page != null) params.append('page', String(options.page));
     if (options.pageSize != null) params.append('pageSize', String(options.pageSize));
     if (options.sortBy) params.append('sortBy', options.sortBy);

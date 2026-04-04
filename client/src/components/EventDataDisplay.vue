@@ -158,7 +158,11 @@
           </div>
           <div v-if="hasMoneyValue(eventData.character_1_give_money)" class="data-row data-row--indented">
             <span class="data-label">Money:</span>
-            <span class="data-value data-value--highlight">{{ formatMoney(eventData.character_1_give_money) }}</span>
+            <CoinDisplay
+              v-if="buildMoneyDisplayProps(eventData.character_1_give_money)"
+              class="data-value data-value--highlight"
+              v-bind="buildMoneyDisplayProps(eventData.character_1_give_money)!"
+            />
           </div>
           <template v-if="eventData.character_1_give_items && eventData.character_1_give_items.length > 0">
             <div v-for="(item, idx) in eventData.character_1_give_items" :key="'c1-item-' + idx" class="data-row data-row--indented">
@@ -175,7 +179,11 @@
           </div>
           <div v-if="hasMoneyValue(eventData.character_2_give_money)" class="data-row data-row--indented">
             <span class="data-label">Money:</span>
-            <span class="data-value data-value--highlight">{{ formatMoney(eventData.character_2_give_money) }}</span>
+            <CoinDisplay
+              v-if="buildMoneyDisplayProps(eventData.character_2_give_money)"
+              class="data-value data-value--highlight"
+              v-bind="buildMoneyDisplayProps(eventData.character_2_give_money)!"
+            />
           </div>
           <template v-if="eventData.character_2_give_items && eventData.character_2_give_items.length > 0">
             <div v-for="(item, idx) in eventData.character_2_give_items" :key="'c2-item-' + idx" class="data-row data-row--indented">
@@ -197,7 +205,11 @@
         </div>
         <div v-if="eventData.money" class="data-row">
           <span class="data-label">Money:</span>
-          <span class="data-value">{{ formatMoney(eventData.money) }}</span>
+          <CoinDisplay
+            v-if="buildMoneyDisplayProps(eventData.money)"
+            class="data-value"
+            v-bind="buildMoneyDisplayProps(eventData.money)!"
+          />
         </div>
       </template>
     </template>
@@ -218,7 +230,11 @@
       </div>
       <div v-if="eventData.price || eventData.cost" class="data-row">
         <span class="data-label">Price:</span>
-        <span class="data-value">{{ formatMoney(eventData.price || eventData.cost) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.price || eventData.cost)"
+          class="data-value"
+          v-bind="buildMoneyDisplayProps(eventData.price || eventData.cost)!"
+        />
       </div>
     </template>
 
@@ -250,15 +266,27 @@
       </div>
       <div v-if="eventData.price !== undefined" class="data-row">
         <span class="data-label">Price:</span>
-        <span class="data-value data-value--success">{{ formatMoney(eventData.price) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.price)"
+          class="data-value data-value--success"
+          v-bind="buildMoneyDisplayProps(eventData.price)!"
+        />
       </div>
       <div v-if="eventData.total_cost !== undefined" class="data-row">
         <span class="data-label">Total Earned:</span>
-        <span class="data-value data-value--success">{{ formatMoney(eventData.total_cost) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.total_cost)"
+          class="data-value data-value--success"
+          v-bind="buildMoneyDisplayProps(eventData.total_cost)!"
+        />
       </div>
       <div v-if="eventData.player_money_balance !== undefined" class="data-row">
         <span class="data-label">New Balance:</span>
-        <span class="data-value">{{ formatMoney(eventData.player_money_balance) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.player_money_balance)"
+          class="data-value"
+          v-bind="buildMoneyDisplayProps(eventData.player_money_balance)!"
+        />
       </div>
     </template>
 
@@ -290,15 +318,27 @@
       </div>
       <div v-if="eventData.price !== undefined" class="data-row">
         <span class="data-label">Price:</span>
-        <span class="data-value data-value--danger">{{ formatMoney(eventData.price) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.price)"
+          class="data-value data-value--danger"
+          v-bind="buildMoneyDisplayProps(eventData.price)!"
+        />
       </div>
       <div v-if="eventData.total_cost !== undefined" class="data-row">
         <span class="data-label">Total Cost:</span>
-        <span class="data-value data-value--danger">{{ formatMoney(eventData.total_cost) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.total_cost)"
+          class="data-value data-value--danger"
+          v-bind="buildMoneyDisplayProps(eventData.total_cost)!"
+        />
       </div>
       <div v-if="eventData.player_money_balance !== undefined" class="data-row">
         <span class="data-label">New Balance:</span>
-        <span class="data-value">{{ formatMoney(eventData.player_money_balance) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.player_money_balance)"
+          class="data-value"
+          v-bind="buildMoneyDisplayProps(eventData.player_money_balance)!"
+        />
       </div>
     </template>
 
@@ -332,7 +372,11 @@
       <!-- Money handed in -->
       <div v-if="hasMoneyValue(eventData.handin_money)" class="data-row">
         <span class="data-label">Money Given:</span>
-        <span class="data-value data-value--highlight">{{ formatMoney(eventData.handin_money) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.handin_money)"
+          class="data-value data-value--highlight"
+          v-bind="buildMoneyDisplayProps(eventData.handin_money)!"
+        />
       </div>
       <!-- Items returned -->
       <template v-if="eventData.return_items && eventData.return_items.length > 0">
@@ -350,7 +394,11 @@
       <!-- Money returned -->
       <div v-if="hasMoneyValue(eventData.return_money)" class="data-row">
         <span class="data-label">Money Received:</span>
-        <span class="data-value data-value--success">{{ formatMoney(eventData.return_money) }}</span>
+        <CoinDisplay
+          v-if="buildMoneyDisplayProps(eventData.return_money)"
+          class="data-value data-value--success"
+          v-bind="buildMoneyDisplayProps(eventData.return_money)!"
+        />
       </div>
     </template>
 
@@ -506,6 +554,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+
+import CoinDisplay from './CoinDisplay.vue';
 import type { PlayerEventLog } from '../services/api';
 
 const props = defineProps<{
@@ -563,6 +613,26 @@ function formatValue(value: unknown, key?: string): string {
     return JSON.stringify(value);
   }
   return String(value);
+}
+
+function buildMoneyDisplayProps(
+  value: unknown
+): { amountInCopper: number } | { platinum: number; gold: number; silver: number; copper: number } | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return { amountInCopper: value };
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    const money = value as { platinum?: number; gold?: number; silver?: number; copper?: number };
+    return {
+      platinum: money.platinum ?? 0,
+      gold: money.gold ?? 0,
+      silver: money.silver ?? 0,
+      copper: money.copper ?? 0
+    };
+  }
+
+  return null;
 }
 
 function formatMoney(value: unknown): string {

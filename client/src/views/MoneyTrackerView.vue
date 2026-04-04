@@ -199,19 +199,31 @@
                 <td class="money-tracker__td--name">{{ char.name }}</td>
                 <td class="money-tracker__td--total">{{ formatPlatinum(char.totalPlatinumEquivalent) }}</td>
                 <td class="money-tracker__td--inventory">
-                  <span class="currency-breakdown">
-                    {{ formatCurrency(char.platinum, char.gold, char.silver, char.copper) }}
-                  </span>
+                  <CoinDisplay
+                    class="currency-breakdown"
+                    :platinum="char.platinum"
+                    :gold="char.gold"
+                    :silver="char.silver"
+                    :copper="char.copper"
+                  />
                 </td>
                 <td class="money-tracker__td--bank">
-                  <span class="currency-breakdown">
-                    {{ formatCurrency(char.platinumBank, char.goldBank, char.silverBank, char.copperBank) }}
-                  </span>
+                  <CoinDisplay
+                    class="currency-breakdown"
+                    :platinum="char.platinumBank"
+                    :gold="char.goldBank"
+                    :silver="char.silverBank"
+                    :copper="char.copperBank"
+                  />
                 </td>
                 <td class="money-tracker__td--cursor">
-                  <span class="currency-breakdown">
-                    {{ formatCurrency(char.platinumCursor, char.goldCursor, char.silverCursor, char.copperCursor) }}
-                  </span>
+                  <CoinDisplay
+                    class="currency-breakdown"
+                    :platinum="char.platinumCursor"
+                    :gold="char.goldCursor"
+                    :silver="char.silverCursor"
+                    :copper="char.copperCursor"
+                  />
                 </td>
               </tr>
             </tbody>
@@ -457,6 +469,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 import axios from 'axios';
 
+import CoinDisplay from '../components/CoinDisplay.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
@@ -882,15 +895,6 @@ function formatPlatinum(value: number): string {
     return `${(value / 1000).toFixed(2)}K`;
   }
   return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
-}
-
-function formatCurrency(pp: number, gp: number, sp: number, cp: number): string {
-  const parts: string[] = [];
-  if (pp > 0) parts.push(`${pp.toLocaleString()}pp`);
-  if (gp > 0) parts.push(`${gp}gp`);
-  if (sp > 0) parts.push(`${sp}sp`);
-  if (cp > 0) parts.push(`${cp}cp`);
-  return parts.length > 0 ? parts.join(' ') : '0pp';
 }
 
 function formatSnapshotDate(dateStr: string | Date | null | undefined): string {

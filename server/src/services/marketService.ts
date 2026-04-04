@@ -929,6 +929,14 @@ function buildOccurredAtRange(rangeDays?: number | null): Prisma.DateTimeFilter 
   return { gte: buildRangeStart(rangeDays) };
 }
 
+function serializeSqlDate(value: Date | string): string {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
+}
+
 export async function getMarketSyncStatus(): Promise<MarketSyncStatus> {
   const state = await getMarketSyncState();
   return {
@@ -1174,7 +1182,7 @@ export async function getMarketSummary(
       lastSaleAt: aggregate._max.occurredAt?.toISOString() ?? null,
       syncStatus,
       dailyActivity: dailyActivityRaw.map((row) => ({
-        saleDate: new Date(row.saleDate).toISOString(),
+        saleDate: serializeSqlDate(row.saleDate),
         salesCount: toNumber(row.salesCount),
         unitsSold: toNumber(row.unitsSold),
         totalRevenue: toNumber(row.totalRevenue)
@@ -1697,7 +1705,7 @@ export async function getMarketItemHistory(options: {
       totalCost: point.totalCost
     })),
     dailyTrend: dailyTrendRaw.map((row) => ({
-      saleDate: new Date(row.saleDate).toISOString(),
+      saleDate: serializeSqlDate(row.saleDate),
       salesCount: toNumber(row.salesCount),
       unitsSold: toNumber(row.unitsSold),
       averagePrice: Math.round(row.averagePrice ?? 0),

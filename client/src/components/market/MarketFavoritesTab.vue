@@ -55,9 +55,7 @@
                 </span>
                 <span class="search-row__text">
                   <strong>{{ item.itemName }}</strong>
-                  <small class="muted">
-                    Item {{ formatNumber(item.itemId) }} · Discovered item
-                  </small>
+                  <small class="muted">Discovered item</small>
                 </span>
               </span>
               <span class="search-row__status muted">
@@ -111,8 +109,17 @@
                       </span>
                     </button>
                   </td>
-                  <td>{{ formatPlatinum(item.averagePrice) }}</td>
-                  <td>{{ formatOptionalPlatinum(item.lastPrice) }}</td>
+                  <td>
+                    <CoinDisplay variant="platinum" :amount-in-copper="item.averagePrice" />
+                  </td>
+                  <td>
+                    <CoinDisplay
+                      v-if="item.lastPrice != null"
+                      variant="platinum"
+                      :amount-in-copper="item.lastPrice"
+                    />
+                    <span v-else>—</span>
+                  </td>
                   <td>
                     <span
                       class="trend-indicator"
@@ -124,7 +131,9 @@
                   </td>
                   <td>{{ formatNumber(item.totalSales) }}</td>
                   <td>{{ formatNumber(item.totalUnitsSold) }}</td>
-                  <td>{{ formatPlatinum(item.totalRevenue) }}</td>
+                  <td>
+                    <CoinDisplay variant="platinum" :amount-in-copper="item.totalRevenue" />
+                  </td>
                   <td>{{ formatCompactDate(item.lastSoldAt) }}</td>
                   <td class="favorites-table__action">
                     <button
@@ -302,6 +311,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
+import CoinDisplay from '../../components/CoinDisplay.vue';
 import {
   api,
   type MarketCharacterSearchResult,
@@ -405,18 +415,6 @@ function formatCompactDate(value: string | null) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
-}
-
-function formatPlatinum(valueInCopper: number) {
-  const platinum = valueInCopper / 1000;
-  return `${new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: platinum < 100 ? 1 : 0,
-    maximumFractionDigits: 1
-  }).format(platinum)} pp`;
-}
-
-function formatOptionalPlatinum(valueInCopper: number | null) {
-  return valueInCopper == null ? '—' : formatPlatinum(valueInCopper);
 }
 
 function getPriceTrendDirection(lastPrice: number | null | undefined, averagePrice: number | null | undefined) {

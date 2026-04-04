@@ -276,9 +276,10 @@
                           <span class="last-sale-item">{{ trader.lastSaleItemName }}</span>
                         </div>
                         <div class="last-sale-details">
-                          <span class="last-sale-price">{{
-                            formatMoney(trader.lastSalePrice)
-                          }}</span>
+                          <CoinDisplay
+                            class="last-sale-price"
+                            :amount-in-copper="trader.lastSalePrice"
+                          />
                           <span class="last-sale-time">{{
                             formatRelativeTime(trader.lastSaleAt!)
                           }}</span>
@@ -293,9 +294,10 @@
                         @click="openTraderSales(trader.characterId)"
                         :title="`View ${trader.totalSalesCount} sale${trader.totalSalesCount !== 1 ? 's' : ''}`"
                       >
-                        <span class="total-sales-amount">{{
-                          formatMoney(trader.totalSalesAmount)
-                        }}</span>
+                        <CoinDisplay
+                          class="total-sales-amount"
+                          :amount-in-copper="trader.totalSalesAmount"
+                        />
                         <span class="total-sales-count"
                           >({{ trader.totalSalesCount }} item{{
                             trader.totalSalesCount !== 1 ? 's' : ''
@@ -618,6 +620,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+
+import CoinDisplay from '../components/CoinDisplay.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
@@ -1143,20 +1147,6 @@ function formatLastKillTooltip(conn: ServerConnection): string {
 function formatLastSaleTooltip(conn: ServerConnection): string {
   if (!conn.lastSaleAt) return '';
   return `Sold ${conn.lastSaleItemName} on ${formatFullDate(conn.lastSaleAt)}`;
-}
-
-function formatMoney(copper: number | null): string {
-  if (copper === null || copper === 0) return '0c';
-  const platinum = Math.floor(copper / 1000);
-  const gold = Math.floor((copper % 1000) / 100);
-  const silver = Math.floor((copper % 100) / 10);
-  const copperRemainder = copper % 10;
-  const parts: string[] = [];
-  if (platinum > 0) parts.push(`${platinum.toLocaleString()}p`);
-  if (gold > 0) parts.push(`${gold}g`);
-  if (silver > 0) parts.push(`${silver}s`);
-  if (copperRemainder > 0 || parts.length === 0) parts.push(`${copperRemainder}c`);
-  return parts.join(' ');
 }
 
 function getTotalGroupCount(group: IpGroup): number {

@@ -36,6 +36,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       const querySchema = z
         .object({
           q: z.string().trim().max(100).optional(),
+          itemId: z.coerce.number().int().positive().optional(),
           itemName: z.string().trim().max(100).optional(),
           sellerName: z.string().trim().max(100).optional(),
           itemType: z.coerce.number().int().optional(),
@@ -56,10 +57,30 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
               z.boolean().optional()
             )
             .optional(),
+          bestPricesOnly: z
+            .preprocess(
+              (value) =>
+                value === true || value === 'true'
+                  ? true
+                  : value === false || value === 'false'
+                    ? false
+                    : undefined,
+              z.boolean().optional()
+            )
+            .optional(),
           page: z.coerce.number().int().min(1).default(1),
           pageSize: z.coerce.number().int().min(5).max(100).default(25),
           sortBy: z
-            .enum(['listedAt', 'price', 'analysis', 'charges', 'itemName', 'sellerName', 'slotId'])
+            .enum([
+              'listedAt',
+              'price',
+              'priceRank',
+              'analysis',
+              'charges',
+              'itemName',
+              'sellerName',
+              'slotId'
+            ])
             .default('listedAt'),
           sortOrder: z.enum(['asc', 'desc']).default('desc')
         })

@@ -98,6 +98,7 @@
                 <select v-model="sortBy" class="input" :disabled="loading">
                   <option value="listedAt">Newest Listings</option>
                   <option value="price">Price</option>
+                  <option value="priceRank">Price Rank</option>
                   <option value="analysis">Analysis</option>
                   <option value="charges">Charges</option>
                   <option value="itemName">Item Name</option>
@@ -151,17 +152,33 @@
             </div>
 
             <div class="filter-group">
-              <span class="filter-group__label">Price Signal</span>
               <div class="choice-pills">
                 <button
                   type="button"
                   class="choice-pill choice-pill--deal"
                   :class="{ 'choice-pill--deal-active': dealsOnly }"
                   :aria-pressed="dealsOnly"
+                  title="Show listings priced below the average recorded sale price for that item."
                   @click="dealsOnly = !dealsOnly"
                 >
                   <span class="deal-toggle__icon" aria-hidden="true">↘</span>
                   <span>See Deals</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="filter-group">
+              <div class="choice-pills">
+                <button
+                  type="button"
+                  class="choice-pill choice-pill--best"
+                  :class="{ 'choice-pill--best-active': bestPricesOnly }"
+                  :aria-pressed="bestPricesOnly"
+                  title="Show only the current cheapest listing for each item. Older listings win price ties."
+                  @click="bestPricesOnly = !bestPricesOnly"
+                >
+                  <span class="best-price-toggle__icon" aria-hidden="true">1</span>
+                  <span>See only best prices</span>
                 </button>
               </div>
             </div>
@@ -218,7 +235,7 @@
               </label>
 
               <div class="range-card">
-                <span class="filter-field__label">Price Range (pp)</span>
+                <span class="filter-field__label">Price Range</span>
                 <div class="range-card__inputs">
                   <input
                     v-model="minPricePp"
@@ -345,6 +362,19 @@
                       }}</span>
                     </button>
                   </th>
+                  <th :aria-sort="getColumnAriaSort('priceRank')">
+                    <button
+                      type="button"
+                      class="table-sort"
+                      :class="{ 'table-sort--active': sortBy === 'priceRank' }"
+                      @click="toggleSort('priceRank')"
+                    >
+                      <span>Price Rank</span>
+                      <span class="table-sort__icon" aria-hidden="true">{{
+                        getSortIndicator('priceRank')
+                      }}</span>
+                    </button>
+                  </th>
                   <th :aria-sort="getColumnAriaSort('analysis')">
                     <button
                       type="button"
@@ -365,7 +395,7 @@
                       :class="{ 'table-sort--active': sortBy === 'charges' }"
                       @click="toggleSort('charges')"
                     >
-                      <span>Charges</span>
+                      <span>Qty/Charges</span>
                       <span class="table-sort__icon" aria-hidden="true">{{
                         getSortIndicator('charges')
                       }}</span>
@@ -413,7 +443,10 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="listing in displayListings" :key="buildListingKey(listing)">
+                <tr
+                  v-for="listing in displayListings"
+                  :key="buildListingKey(listing)"
+                >
                   <td>
                     <button
                       type="button"
@@ -432,11 +465,28 @@
                       </span>
                       <span class="table-item__text">
                         <strong>{{ listing.itemName }}</strong>
-                        <small class="muted">Item {{ formatNumber(listing.itemId) }}</small>
                       </span>
                     </button>
                   </td>
-                  <td>{{ formatPlatinum(listing.price) }}</td>
+                  <td><CoinDisplay variant="platinum" :amount-in-copper="listing.price" /></td>
+                  <td class="price-rank-cell">
+                    <span
+                      class="price-rank-badge"
+                      :class="{ 'price-rank-badge--leader': listing.priceRank === 1 }"
+                      :title="getPriceRankTitle(listing)"
+                      :aria-label="getPriceRankTitle(listing)"
+                    >
+                      <span
+                        v-if="listing.priceRank === 1"
+                        class="price-rank-badge__leader"
+                      >
+                        <span class="price-rank-badge__leader-medallion" aria-hidden="true">
+                          <span class="price-rank-badge__leader-number">1</span>
+                        </span>
+                      </span>
+                      <span v-else class="price-rank-badge__value">{{ listing.priceRank }}</span>
+                    </span>
+                  </td>
                   <td>
                     <div
                       class="listing-analysis"
@@ -465,7 +515,7 @@
                     </button>
                   </td>
                   <td>{{ formatDateTime(listing.listedAt) }}</td>
-                  <td>{{ formatSlot(listing.slotId) }}</td>
+                  <td>{{ formatSlot(listing) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -509,6 +559,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+import CoinDisplay from '../../components/CoinDisplay.vue';
 import { EQEMU_ITEM_SLOT_OPTIONS, EQEMU_ITEM_TYPE_OPTIONS } from '../../data/eqItemFilters';
 import {
   api,
@@ -518,7 +569,7 @@ import {
   type MarketListingsSortField
 } from '../../services/api';
 import { useItemTooltipStore } from '../../stores/itemTooltip';
-import { resolveSlotPlacement, slotDisplayLabel } from '../../utils/inventory';
+import { itemSlotSummaryLabel } from '../../utils/inventory';
 import { getLootIconSrc, hasValidIconId } from '../../utils/itemIcons';
 
 const props = defineProps<{
@@ -548,6 +599,7 @@ const minCharges = ref('');
 const maxCharges = ref('');
 const listedWithinDays = ref('');
 const dealsOnly = ref(false);
+const bestPricesOnly = ref(false);
 const sortBy = ref<MarketListingsSortField>('listedAt');
 const sortOrder = ref<'asc' | 'desc'>('desc');
 const advancedFiltersOpen = ref(false);
@@ -679,7 +731,8 @@ const activeFilters = computed<MarketListingsFilters>(() => ({
   minCharges: parseIntegerInput(minCharges.value) ?? undefined,
   maxCharges: parseIntegerInput(maxCharges.value) ?? undefined,
   listedWithinDays: parseIntegerInput(listedWithinDays.value) ?? undefined,
-  dealsOnly: dealsOnly.value || undefined
+  dealsOnly: dealsOnly.value || undefined,
+  bestPricesOnly: bestPricesOnly.value || undefined
 }));
 
 const validationMessage = computed(() => {
@@ -760,6 +813,12 @@ const activeFilterChips = computed(() => {
     chips.push({
       key: 'dealsOnly',
       label: 'See Deals'
+    });
+  }
+  if (activeFilters.value.bestPricesOnly) {
+    chips.push({
+      key: 'bestPricesOnly',
+      label: 'Only Best Prices'
     });
   }
 
@@ -855,25 +914,17 @@ function formatRelativeDateTime(referenceValue: string | null, value: string | n
   return formatDateTime(value);
 }
 
-function formatSlot(slotId: number) {
-  const resolved = resolveSlotPlacement(slotId);
-  if (resolved.area !== 'worn') {
-    return 'General';
+function formatSlot(listing: MarketListing) {
+  return itemSlotSummaryLabel(listing.itemSlots) ?? '—';
+}
+
+function getPriceRankTitle(listing: MarketListing) {
+  const itemLabel = listing.itemName || `Item ${listing.itemId}`;
+  if (listing.priceRank === 1) {
+    return `Best price for ${itemLabel}. Older listings win ties.`;
   }
 
-  if (slotId === 1 || slotId === 4) {
-    return 'Ear';
-  }
-
-  if (slotId === 9 || slotId === 10) {
-    return 'Wrist';
-  }
-
-  if (slotId === 15 || slotId === 16) {
-    return 'Finger';
-  }
-
-  return slotDisplayLabel(resolved);
+  return `Price rank #${formatNumber(listing.priceRank)} for ${itemLabel}. Older listings win ties.`;
 }
 
 function getListingAnalysisDirection(
@@ -945,6 +996,7 @@ function getListingAnalysisTitle(price: number, averagePrice: number | null | un
 
 function getDefaultSortOrder(field: MarketListingsSortField): 'asc' | 'desc' {
   switch (field) {
+    case 'priceRank':
     case 'itemName':
     case 'sellerName':
     case 'slotId':
@@ -1090,6 +1142,7 @@ function resetFilters() {
   maxCharges.value = '';
   listedWithinDays.value = '';
   dealsOnly.value = false;
+  bestPricesOnly.value = false;
   currentPage.value = 1;
   advancedFiltersOpen.value = false;
 }
@@ -1128,6 +1181,9 @@ function clearFilter(key: string) {
       break;
     case 'dealsOnly':
       dealsOnly.value = false;
+      break;
+    case 'bestPricesOnly':
+      bestPricesOnly.value = false;
       break;
     default:
       break;
@@ -1216,7 +1272,8 @@ watch(
     minCharges,
     maxCharges,
     listedWithinDays,
-    dealsOnly
+    dealsOnly,
+    bestPricesOnly
   ],
   () => {
     currentPage.value = 1;
@@ -1466,9 +1523,33 @@ onBeforeUnmount(() => {
   color: #bbf7d0;
 }
 
+.choice-pill--best {
+  gap: 0.45rem;
+}
+
+.choice-pill--best-active {
+  border-color: rgba(74, 222, 128, 0.34);
+  background: rgba(20, 83, 45, 0.3);
+  color: #dcfce7;
+}
+
 .deal-toggle__icon {
   color: #34d399;
   font-size: 1rem;
+  line-height: 1;
+}
+
+.best-price-toggle__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(134, 239, 172, 0.96), rgba(34, 197, 94, 0.92));
+  color: #14532d;
+  font-size: 0.76rem;
+  font-weight: 900;
   line-height: 1;
 }
 
@@ -1760,6 +1841,66 @@ onBeforeUnmount(() => {
 
 .listings-table tbody tr:hover {
   background: rgba(30, 41, 59, 0.34);
+}
+
+.price-rank-cell {
+  width: 7.5rem;
+}
+
+.price-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.price-rank-badge__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.price-rank-badge--leader {
+  min-width: auto;
+  min-height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #dcfce7;
+  box-shadow: none;
+}
+
+.price-rank-badge__leader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.price-rank-badge__leader-medallion {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(236, 253, 245, 0.96), rgba(74, 222, 128, 0.95) 42%, rgba(5, 150, 105, 0.96) 100%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+.price-rank-badge__leader-number {
+  position: relative;
+  z-index: 1;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #064e3b;
+  text-shadow: 0 1px 0 rgba(236, 253, 245, 0.4);
 }
 
 .table-item,

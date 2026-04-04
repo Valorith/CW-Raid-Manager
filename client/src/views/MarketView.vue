@@ -189,7 +189,9 @@
           </article>
           <article class="card">
             <span class="label">Revenue</span>
-            <strong>{{ formatPlatinum(summary?.totalRevenue ?? 0) }}</strong>
+            <strong>
+              <CoinDisplay variant="platinum" :amount-in-copper="summary?.totalRevenue ?? 0" />
+            </strong>
             <small>gross traded value</small>
           </article>
           <article class="card">
@@ -255,7 +257,7 @@
                         <span>{{ sale.itemName }}</span>
                       </button>
                     </td>
-                    <td>{{ formatPlatinum(sale.price) }}</td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="sale.price" /></td>
                     <td>
                       <span
                         class="trend-indicator"
@@ -266,7 +268,7 @@
                       </span>
                     </td>
                     <td>{{ formatNumber(sale.quantity) }}</td>
-                    <td>{{ formatPlatinum(sale.totalCost) }}</td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="sale.totalCost" /></td>
                     <td>
                       <button
                         type="button"
@@ -377,8 +379,15 @@
                     </div>
                   </div>
                   <div class="mover__meta">
-                    <strong>{{ formatPlatinum(item.totalRevenue) }}</strong>
-                    <small class="muted">avg {{ formatPlatinum(item.averagePrice) }}</small>
+                    <strong class="mover__meta-primary">
+                      <CoinDisplay variant="platinum" :amount-in-copper="item.totalRevenue" />
+                    </strong>
+                    <span class="mover__meta-secondary muted">
+                      <span class="mover__meta-label">Avg Price</span>
+                      <span class="mover__meta-value">
+                        <CoinDisplay variant="platinum" :amount-in-copper="item.averagePrice" />
+                      </span>
+                    </span>
                   </div>
                 </button>
                 <button
@@ -516,6 +525,15 @@
               >
                 Activity
               </button>
+              <button
+                type="button"
+                class="segmented-control__button"
+                :class="{ 'segmented-control__button--active': activeItemModalTab === 'listings' }"
+                :disabled="itemListingsLoading && !itemListingsPage"
+                @click="setItemModalTab('listings')"
+              >
+                Listings
+              </button>
             </div>
             <span
               v-if="activeItemModalTab === 'activity' && itemActivity"
@@ -523,6 +541,13 @@
             >
               Buyers {{ formatNumber(itemActivity.buyers.total) }} · Sellers
               {{ formatNumber(itemActivity.sellers.total) }}
+            </span>
+            <span
+              v-else-if="activeItemModalTab === 'listings' && activeItemListingsPage"
+              class="muted market-modal__toolbar-meta"
+            >
+              Page {{ activeItemListingsPage.page }} of {{ activeItemListingsPage.totalPages }} ·
+              {{ formatNumber(activeItemListingsPage.total) }} listings
             </span>
           </div>
 
@@ -536,13 +561,23 @@
             <section class="stats stats--focus">
               <article class="card card--spotlight">
                 <span class="label">Avg Price</span>
-                <strong>{{ formatPlatinum(history.stats.averagePrice) }}</strong>
+                <strong>
+                  <CoinDisplay
+                    variant="platinum"
+                    :amount-in-copper="history.stats.averagePrice"
+                  />
+                </strong>
                 <small>per unit</small>
               </article>
               <article class="card">
                 <span class="label">Price Range</span>
-                <strong>{{ formatPlatinum(history.stats.minPrice) }}</strong>
-                <small>to {{ formatPlatinum(history.stats.maxPrice) }}</small>
+                <strong>
+                  <CoinDisplay variant="platinum" :amount-in-copper="history.stats.minPrice" />
+                </strong>
+                <small
+                  >to
+                  <CoinDisplay variant="platinum" :amount-in-copper="history.stats.maxPrice"
+                /></small>
               </article>
               <article class="card">
                 <span class="label">Units Sold</span>
@@ -551,7 +586,12 @@
               </article>
               <article class="card">
                 <span class="label">Revenue</span>
-                <strong>{{ formatPlatinum(history.stats.totalRevenue) }}</strong>
+                <strong>
+                  <CoinDisplay
+                    variant="platinum"
+                    :amount-in-copper="history.stats.totalRevenue"
+                  />
+                </strong>
                 <small>{{ formatCompactDate(history.stats.lastSoldAt) }}</small>
               </article>
             </section>
@@ -605,6 +645,235 @@
             </button>
           </div>
           <div
+            v-else-if="activeItemModalTab === 'listings' && itemListingsLoading && !itemListingsPage"
+            class="empty muted market-modal__loading"
+          >
+            Loading item listings...
+          </div>
+          <template v-else-if="activeItemModalTab === 'listings' && activeItemListingsPage?.listings.length">
+            <div class="table-wrap table-wrap--modal">
+              <table class="listings-table">
+                <thead>
+                  <tr>
+                    <th :aria-sort="getItemListingsColumnAriaSort('itemName')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'itemName' }"
+                        @click="toggleItemListingsSort('itemName')"
+                      >
+                        <span>Item</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('itemName')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('price')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'price' }"
+                        @click="toggleItemListingsSort('price')"
+                      >
+                        <span>Price</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('price')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('priceRank')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'priceRank' }"
+                        @click="toggleItemListingsSort('priceRank')"
+                      >
+                        <span>Price Rank</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('priceRank')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('analysis')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'analysis' }"
+                        @click="toggleItemListingsSort('analysis')"
+                      >
+                        <span>Analysis</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('analysis')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('charges')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'charges' }"
+                        @click="toggleItemListingsSort('charges')"
+                      >
+                        <span>Qty/Charges</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('charges')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('sellerName')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'sellerName' }"
+                        @click="toggleItemListingsSort('sellerName')"
+                      >
+                        <span>Seller</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('sellerName')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('listedAt')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'listedAt' }"
+                        @click="toggleItemListingsSort('listedAt')"
+                      >
+                        <span>Listed</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('listedAt')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getItemListingsColumnAriaSort('slotId')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': itemListingsSortBy === 'slotId' }"
+                        @click="toggleItemListingsSort('slotId')"
+                      >
+                        <span>Slot</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getItemListingsSortIndicator('slotId')
+                        }}</span>
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="listing in activeItemListingsPage.listings"
+                    :key="buildCharacterListingKey(listing)"
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        class="table-item table-item--static"
+                        @mouseenter="showMarketItemTooltip($event, listing.itemId, listing.itemName, listing.itemIconId)"
+                        @mousemove="updateMarketItemTooltipPosition($event)"
+                        @mouseleave="hideMarketItemTooltip"
+                        @click="openCharacterListingItem(listing)"
+                      >
+                        <span v-if="hasValidIconId(listing.itemIconId)" class="item-icon">
+                          <img
+                            :src="getLootIconSrc(listing.itemIconId!)"
+                            :alt="listing.itemName"
+                            loading="lazy"
+                          />
+                        </span>
+                        <span class="table-item__text">
+                          <strong>{{ listing.itemName }}</strong>
+                        </span>
+                      </button>
+                    </td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="listing.price" /></td>
+                    <td class="price-rank-cell">
+                      <span
+                        class="price-rank-badge"
+                        :class="{ 'price-rank-badge--leader': listing.priceRank === 1 }"
+                        :title="getPriceRankTitle(listing)"
+                        :aria-label="getPriceRankTitle(listing)"
+                      >
+                        <span
+                          v-if="listing.priceRank === 1"
+                          class="price-rank-badge__leader"
+                        >
+                          <span class="price-rank-badge__leader-medallion" aria-hidden="true">
+                            <span class="price-rank-badge__leader-number">1</span>
+                          </span>
+                        </span>
+                        <span v-else class="price-rank-badge__value">{{ listing.priceRank }}</span>
+                      </span>
+                    </td>
+                    <td>
+                      <div
+                        class="listing-analysis"
+                        :class="
+                          getListingAnalysisClass(listing.price, listing.itemAveragePrice)
+                        "
+                        :title="
+                          getListingAnalysisTitle(listing.price, listing.itemAveragePrice)
+                        "
+                      >
+                        <span class="listing-analysis__arrow" aria-hidden="true">
+                          {{ getListingAnalysisArrow(listing.price, listing.itemAveragePrice) }}
+                        </span>
+                        <span
+                          v-if="
+                            getListingAnalysisPercent(listing.price, listing.itemAveragePrice)
+                          "
+                          class="listing-analysis__percent"
+                        >
+                          {{ getListingAnalysisPercent(listing.price, listing.itemAveragePrice) }}
+                        </span>
+                      </div>
+                    </td>
+                    <td>{{ formatOptionalNumber(listing.charges) }}</td>
+                    <td>
+                      <button
+                        type="button"
+                        class="character-history-link"
+                        @click="openCharacterHistoryModal(listing.sellerCharacterName, 'listings')"
+                      >
+                        {{ listing.sellerCharacterName }}
+                      </button>
+                    </td>
+                    <td>{{ formatDateTime(listing.listedAt) }}</td>
+                    <td>{{ formatSlot(listing) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="activeItemListingsPage.totalPages > 1" class="pagination">
+              <button
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="itemListingsLoading || activeItemListingsPage.page <= 1"
+                @click="changeItemListingsPage(activeItemListingsPage.page - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__meta muted">
+                Page {{ activeItemListingsPage.page }} of {{ activeItemListingsPage.totalPages }}
+              </span>
+              <button
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="
+                  itemListingsLoading ||
+                  activeItemListingsPage.page >= activeItemListingsPage.totalPages
+                "
+                @click="changeItemListingsPage(activeItemListingsPage.page + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </template>
+          <p v-else-if="activeItemModalTab === 'listings'" class="empty muted market-modal__loading">
+            No active bazaar listings are currently cached for this item.
+          </p>
+          <div
             v-else-if="activeItemModalTab === 'activity' && itemActivityLoading && !itemActivity"
             class="empty muted market-modal__loading"
           >
@@ -644,9 +913,11 @@
                             {{ entry.buyerCharacterName }}
                           </button>
                         </td>
-                        <td>{{ formatPlatinum(entry.price) }}</td>
+                        <td><CoinDisplay variant="platinum" :amount-in-copper="entry.price" /></td>
                         <td>{{ formatNumber(entry.quantity) }}</td>
-                        <td>{{ formatPlatinum(entry.totalCost) }}</td>
+                        <td>
+                          <CoinDisplay variant="platinum" :amount-in-copper="entry.totalCost" />
+                        </td>
                         <td>{{ formatDateTime(entry.occurredAt) }}</td>
                       </tr>
                     </tbody>
@@ -714,9 +985,11 @@
                             {{ entry.sellerCharacterName }}
                           </button>
                         </td>
-                        <td>{{ formatPlatinum(entry.price) }}</td>
+                        <td><CoinDisplay variant="platinum" :amount-in-copper="entry.price" /></td>
                         <td>{{ formatNumber(entry.quantity) }}</td>
-                        <td>{{ formatPlatinum(entry.totalCost) }}</td>
+                        <td>
+                          <CoinDisplay variant="platinum" :amount-in-copper="entry.totalCost" />
+                        </td>
                         <td>{{ formatDateTime(entry.occurredAt) }}</td>
                       </tr>
                     </tbody>
@@ -811,10 +1084,10 @@
               <button
                 type="button"
                 class="btn btn--outline btn--small"
-                :disabled="activeCharacterHistoryLoading"
+                :disabled="activeCharacterModalLoading"
                 @click="reloadActiveCharacterHistory"
               >
-                {{ activeCharacterHistoryLoading ? 'Loading...' : 'Reload Tab' }}
+                {{ activeCharacterModalLoading ? 'Loading...' : 'Reload Tab' }}
               </button>
               <button
                 type="button"
@@ -831,8 +1104,17 @@
             <div
               class="segmented-control"
               role="tablist"
-              aria-label="Character bazaar history type"
+              aria-label="Character bazaar activity tab"
             >
+              <button
+                type="button"
+                class="segmented-control__button"
+                :class="{ 'segmented-control__button--active': activeCharacterTab === 'listings' }"
+                :disabled="characterListingsLoading"
+                @click="setCharacterHistoryTab('listings')"
+              >
+                Listings
+              </button>
               <button
                 type="button"
                 class="segmented-control__button"
@@ -852,24 +1134,254 @@
                 Buy
               </button>
             </div>
-            <span v-if="activeCharacterHistoryPage" class="muted market-modal__toolbar-meta">
-              Page {{ activeCharacterHistoryPage.page }} of
-              {{ activeCharacterHistoryPage.totalPages }} ·
-              {{ formatNumber(activeCharacterHistoryPage.total) }} transactions
+            <span
+              v-if="activeCharacterModalPageMeta"
+              class="muted market-modal__toolbar-meta"
+            >
+              Page {{ activeCharacterModalPageMeta.page }} of
+              {{ activeCharacterModalPageMeta.totalPages }} ·
+              {{ formatNumber(activeCharacterModalPageMeta.total) }}
+              {{ activeCharacterTab === 'listings' ? 'listings' : 'transactions' }}
             </span>
           </div>
 
           <p class="muted market-modal__summary">
             {{
-              activeCharacterTab === 'sell'
-                ? 'Seller-side bazaar transactions recorded for this character.'
-                : 'Buyer-side bazaar transactions recorded for this character.'
+              activeCharacterTab === 'listings'
+                ? 'Active bazaar listings currently cached for this trader.'
+                : activeCharacterTab === 'sell'
+                  ? 'Seller-side bazaar transactions recorded for this character.'
+                  : 'Buyer-side bazaar transactions recorded for this character.'
             }}
           </p>
 
-          <div v-if="activeCharacterHistoryLoading" class="empty muted market-modal__loading">
-            Loading character history...
+          <div v-if="activeCharacterModalLoading" class="empty muted market-modal__loading">
+            {{ activeCharacterTab === 'listings' ? 'Loading character listings...' : 'Loading character history...' }}
           </div>
+          <template v-else-if="activeCharacterTab === 'listings' && activeCharacterListingsPage?.listings.length">
+            <div class="table-wrap table-wrap--modal">
+              <table class="listings-table">
+                <thead>
+                  <tr>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('itemName')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'itemName' }"
+                        @click="toggleCharacterListingsSort('itemName')"
+                      >
+                        <span>Item</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('itemName')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('price')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'price' }"
+                        @click="toggleCharacterListingsSort('price')"
+                      >
+                        <span>Price</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('price')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('priceRank')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'priceRank' }"
+                        @click="toggleCharacterListingsSort('priceRank')"
+                      >
+                        <span>Price Rank</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('priceRank')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('analysis')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'analysis' }"
+                        @click="toggleCharacterListingsSort('analysis')"
+                      >
+                        <span>Analysis</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('analysis')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('charges')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'charges' }"
+                        @click="toggleCharacterListingsSort('charges')"
+                      >
+                        <span>Qty/Charges</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('charges')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('sellerName')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'sellerName' }"
+                        @click="toggleCharacterListingsSort('sellerName')"
+                      >
+                        <span>Seller</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('sellerName')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('listedAt')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'listedAt' }"
+                        @click="toggleCharacterListingsSort('listedAt')"
+                      >
+                        <span>Listed</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('listedAt')
+                        }}</span>
+                      </button>
+                    </th>
+                    <th :aria-sort="getCharacterListingsColumnAriaSort('slotId')">
+                      <button
+                        type="button"
+                        class="table-sort"
+                        :class="{ 'table-sort--active': characterListingsSortBy === 'slotId' }"
+                        @click="toggleCharacterListingsSort('slotId')"
+                      >
+                        <span>Slot</span>
+                        <span class="table-sort__icon" aria-hidden="true">{{
+                          getCharacterListingsSortIndicator('slotId')
+                        }}</span>
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="listing in activeCharacterListingsPage.listings"
+                    :key="buildCharacterListingKey(listing)"
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        class="table-item table-item-button table-item--static"
+                        @mouseenter="showMarketItemTooltip($event, listing.itemId, listing.itemName, listing.itemIconId)"
+                        @mousemove="updateMarketItemTooltipPosition($event)"
+                        @mouseleave="hideMarketItemTooltip"
+                        @click="openCharacterListingItem(listing)"
+                      >
+                        <span v-if="hasValidIconId(listing.itemIconId)" class="item-icon">
+                          <img
+                            :src="getLootIconSrc(listing.itemIconId!)"
+                            :alt="listing.itemName"
+                            loading="lazy"
+                          />
+                        </span>
+                        <span class="table-item__text">
+                          <strong>{{ listing.itemName }}</strong>
+                        </span>
+                      </button>
+                    </td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="listing.price" /></td>
+                    <td class="price-rank-cell">
+                      <span
+                        class="price-rank-badge"
+                        :class="{ 'price-rank-badge--leader': listing.priceRank === 1 }"
+                        :title="getPriceRankTitle(listing)"
+                        :aria-label="getPriceRankTitle(listing)"
+                      >
+                        <span
+                          v-if="listing.priceRank === 1"
+                          class="price-rank-badge__leader"
+                        >
+                          <span class="price-rank-badge__leader-medallion" aria-hidden="true">
+                            <span class="price-rank-badge__leader-number">1</span>
+                          </span>
+                        </span>
+                        <span v-else class="price-rank-badge__value">{{ listing.priceRank }}</span>
+                      </span>
+                    </td>
+                    <td>
+                      <div
+                        class="listing-analysis"
+                        :class="
+                          getListingAnalysisClass(listing.price, listing.itemAveragePrice)
+                        "
+                        :title="
+                          getListingAnalysisTitle(listing.price, listing.itemAveragePrice)
+                        "
+                      >
+                        <span class="listing-analysis__arrow" aria-hidden="true">
+                          {{ getListingAnalysisArrow(listing.price, listing.itemAveragePrice) }}
+                        </span>
+                        <span
+                          v-if="
+                            getListingAnalysisPercent(listing.price, listing.itemAveragePrice)
+                          "
+                          class="listing-analysis__percent"
+                        >
+                          {{ getListingAnalysisPercent(listing.price, listing.itemAveragePrice) }}
+                        </span>
+                      </div>
+                    </td>
+                    <td>{{ formatOptionalNumber(listing.charges) }}</td>
+                    <td>
+                      <button
+                        type="button"
+                        class="character-history-link"
+                        @click="openCharacterHistoryModal(listing.sellerCharacterName, 'listings')"
+                      >
+                        {{ listing.sellerCharacterName }}
+                      </button>
+                    </td>
+                    <td>{{ formatDateTime(listing.listedAt) }}</td>
+                    <td>{{ formatSlot(listing) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div
+              v-if="activeCharacterListingsPage.totalPages > 1"
+              class="pagination"
+            >
+              <button
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="characterListingsLoading || activeCharacterListingsPage.page <= 1"
+                @click="changeCharacterHistoryPage(activeCharacterListingsPage.page - 1)"
+              >
+                Previous
+              </button>
+              <span class="pagination__meta muted">
+                Page {{ activeCharacterListingsPage.page }} of
+                {{ activeCharacterListingsPage.totalPages }}
+              </span>
+              <button
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="
+                  characterListingsLoading ||
+                  activeCharacterListingsPage.page >= activeCharacterListingsPage.totalPages
+                "
+                @click="changeCharacterHistoryPage(activeCharacterListingsPage.page + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </template>
           <template v-else-if="activeCharacterHistoryEntries.length">
             <div class="table-wrap table-wrap--modal">
               <table class="market-table">
@@ -904,9 +1416,9 @@
                         <span>{{ entry.itemName }}</span>
                       </button>
                     </td>
-                    <td>{{ formatPlatinum(entry.price) }}</td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="entry.price" /></td>
                     <td>{{ formatNumber(entry.quantity) }}</td>
-                    <td>{{ formatPlatinum(entry.totalCost) }}</td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="entry.totalCost" /></td>
                     <td>
                       <button
                         v-if="canOpenCharacterHistory(getCharacterHistoryCounterpartyName(entry))"
@@ -956,7 +1468,9 @@
           </template>
           <p v-else class="empty muted market-modal__loading">
             {{
-              activeCharacterTab === 'sell'
+              activeCharacterTab === 'listings'
+                ? 'No active bazaar listings are currently cached for this character.'
+                : activeCharacterTab === 'sell'
                 ? 'No bazaar sell history was found for this character in the selected range.'
                 : 'No bazaar buy history was found for this character in the selected range.'
             }}
@@ -972,6 +1486,7 @@ import { isAxiosError } from 'axios';
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 
+import CoinDisplay from '../components/CoinDisplay.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MarketFavoritesTab from '../components/market/MarketFavoritesTab.vue';
 import MarketListingsTab from '../components/market/MarketListingsTab.vue';
@@ -985,6 +1500,9 @@ import {
   type MarketFavoriteItem,
   type MarketItemActivity,
   type MarketItemHistory,
+  type MarketListing,
+  type MarketListingsPage,
+  type MarketListingsSortField,
   type MarketItemSearchResult,
   type MarketRecentSale,
   type MarketRecentSalesPage,
@@ -993,13 +1511,15 @@ import {
   type MarketTopItem
 } from '../services/api';
 import { useItemTooltipStore } from '../stores/itemTooltip';
+import { itemSlotSummaryLabel } from '../utils/inventory';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
 
 ensureChartJsRegistered();
 
 type MarketSelectableItem = Pick<MarketItemSearchResult, 'itemId' | 'itemName' | 'itemIconId'>;
-type MarketItemModalTab = 'trends' | 'activity';
+type MarketItemModalTab = 'trends' | 'activity' | 'listings';
+type MarketCharacterModalTab = 'listings' | MarketCharacterHistoryType;
 
 function isNotFoundError(error: unknown): boolean {
   return isAxiosError(error) && error.response?.status === 404;
@@ -1013,6 +1533,7 @@ const refreshing = ref(false);
 const searchLoading = ref(false);
 const historyLoading = ref(false);
 const itemActivityLoading = ref(false);
+const itemListingsLoading = ref(false);
 const salesLoading = ref(false);
 const refreshCooldownRemaining = ref(0);
 const favoritesLoading = ref(false);
@@ -1020,6 +1541,7 @@ const favoritesLoading = ref(false);
 const summary = ref<MarketSummary | null>(null);
 const history = ref<MarketItemHistory | null>(null);
 const itemActivity = ref<MarketItemActivity | null>(null);
+const itemListingsPage = ref<MarketListingsPage | null>(null);
 const salesPage = ref<MarketRecentSalesPage | null>(null);
 const favoriteItems = ref<MarketFavoriteItem[]>([]);
 const favoriteCharacters = ref<MarketFavoriteCharacter[]>([]);
@@ -1030,7 +1552,7 @@ const activeModalItem = ref<MarketSelectableItem | null>(null);
 const activeItemModalTab = ref<MarketItemModalTab>('trends');
 const isItemModalOpen = ref(false);
 const activeCharacterName = ref<string | null>(null);
-const activeCharacterTab = ref<MarketCharacterHistoryType>('sell');
+const activeCharacterTab = ref<MarketCharacterModalTab>('listings');
 const isCharacterModalOpen = ref(false);
 const activeTab = ref<'market' | 'listings' | 'favorites'>('market');
 const selectedRangeDays = ref<number | null>(null);
@@ -1038,8 +1560,11 @@ const topItemsSort = ref<MarketTopItemsSort>('quantity');
 const salesPageNumber = ref(1);
 const salesPageSize = 10;
 const itemActivityPageSize = 8;
+const itemListingsPageSize = 10;
 const itemActivityBuyersPageNumber = ref(1);
 const itemActivitySellersPageNumber = ref(1);
+const itemListingsSortBy = ref<MarketListingsSortField>('listedAt');
+const itemListingsSortOrder = ref<'asc' | 'desc'>('desc');
 const characterHistoryPageSize = 10;
 const searchQuery = ref('');
 const searchResults = ref<MarketItemSearchResult[]>([]);
@@ -1059,32 +1584,75 @@ const characterHistoryRequestTokens = reactive<Record<MarketCharacterHistoryType
   sell: 0,
   buy: 0
 });
+const characterListingsPage = ref<MarketListingsPage | null>(null);
+const characterListingsLoading = ref(false);
+const characterListingsRequestToken = ref(0);
+const characterListingsPageSize = 10;
+const characterListingsSortBy = ref<MarketListingsSortField>('listedAt');
+const characterListingsSortOrder = ref<'asc' | 'desc'>('desc');
 
 let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 let refreshCooldownInterval: ReturnType<typeof setInterval> | null = null;
 let activeSearchToken = 0;
 let activeItemActivityRequestToken = 0;
+let activeItemListingsRequestToken = 0;
 const marketModalTitleId = 'market-item-trend-title';
 const characterHistoryModalTitleId = 'market-character-history-title';
 const UNKNOWN_MARKET_CHARACTER_LABEL = 'Unknown Trader';
 const REFRESH_COOLDOWN_SECONDS = 60;
 
 const displaySales = computed<MarketRecentSale[]>(() => salesPage.value?.sales ?? []);
-const activeCharacterHistoryPage = computed(() => characterHistoryPages[activeCharacterTab.value]);
+const activeCharacterHistoryPage = computed(() =>
+  activeCharacterTab.value === 'listings' ? null : characterHistoryPages[activeCharacterTab.value]
+);
 const activeCharacterHistoryEntries = computed<MarketRecentSale[]>(
   () => activeCharacterHistoryPage.value?.entries ?? []
 );
-const activeCharacterHistoryLoading = computed(
-  () => characterHistoryLoading[activeCharacterTab.value]
+const activeCharacterHistoryLoading = computed(() =>
+  activeCharacterTab.value === 'listings' ? false : characterHistoryLoading[activeCharacterTab.value]
+);
+const activeCharacterModalLoading = computed(() =>
+  activeCharacterTab.value === 'listings'
+    ? characterListingsLoading.value
+    : characterHistoryLoading[activeCharacterTab.value]
 );
 const activeCharacterHistoryCounterpartyLabel = computed(() =>
   activeCharacterTab.value === 'sell' ? 'Buyer' : 'Seller'
 );
+const activeCharacterListingsPage = computed(() => characterListingsPage.value);
+const activeCharacterModalPageMeta = computed(() => {
+  if (activeCharacterTab.value === 'listings') {
+    return activeCharacterListingsPage.value
+      ? {
+          page: activeCharacterListingsPage.value.page,
+          totalPages: activeCharacterListingsPage.value.totalPages,
+          total: activeCharacterListingsPage.value.total
+        }
+      : null;
+  }
+
+  return activeCharacterHistoryPage.value
+    ? {
+        page: activeCharacterHistoryPage.value.page,
+        totalPages: activeCharacterHistoryPage.value.totalPages,
+        total: activeCharacterHistoryPage.value.total
+      }
+    : null;
+});
 const activeItemActivityBuyersPage = computed(() => itemActivity.value?.buyers ?? null);
 const activeItemActivitySellersPage = computed(() => itemActivity.value?.sellers ?? null);
-const activeItemModalLoading = computed(() =>
-  activeItemModalTab.value === 'trends' ? historyLoading.value : itemActivityLoading.value
-);
+const activeItemListingsPage = computed(() => itemListingsPage.value);
+const activeItemModalLoading = computed(() => {
+  if (activeItemModalTab.value === 'trends') {
+    return historyLoading.value;
+  }
+
+  if (activeItemModalTab.value === 'activity') {
+    return itemActivityLoading.value;
+  }
+
+  return itemListingsLoading.value;
+});
 const favoriteItemKeys = computed(
   () => new Set(favoriteItems.value.map((item) => getFavoriteItemKey(item)))
 );
@@ -1137,6 +1705,12 @@ const activeItemFavoriteButtonLabel = computed(() => {
   return isActiveItemFavorited.value ? 'Watching' : 'Watch Item';
 });
 const itemModalTabSummary = computed(() => {
+  if (activeItemModalTab.value === 'listings') {
+    const totalListings = activeItemListingsPage.value?.total ?? 0;
+    const sellerCount = activeItemListingsPage.value?.summary.distinctSellers ?? 0;
+    return `${formatNumber(totalListings)} active listings · ${formatNumber(sellerCount)} traders`;
+  }
+
   if (activeItemModalTab.value === 'activity') {
     const buyersTotal = activeItemActivityBuyersPage.value?.total ?? 0;
     const sellersTotal = activeItemActivitySellersPage.value?.total ?? 0;
@@ -1152,6 +1726,10 @@ const selectedRangeLabel = computed(() =>
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatOptionalNumber(value: number | null) {
+  return value == null ? '—' : formatNumber(value);
 }
 
 function formatPlatinum(valueInCopper: number) {
@@ -1298,6 +1876,164 @@ function getPriceTrendLabel(
   return 'Last sale price is unavailable';
 }
 
+function getListingAnalysisDirection(
+  price: number,
+  averagePrice: number | null | undefined
+): 'up' | 'down' | 'flat' {
+  if (averagePrice == null || averagePrice <= 0) {
+    return 'flat';
+  }
+
+  if (price > averagePrice) {
+    return 'up';
+  }
+
+  if (price < averagePrice) {
+    return 'down';
+  }
+
+  return 'flat';
+}
+
+function getListingAnalysisArrow(price: number, averagePrice: number | null | undefined) {
+  const direction = getListingAnalysisDirection(price, averagePrice);
+  if (direction === 'up') return '↑';
+  if (direction === 'down') return '↓';
+  return '→';
+}
+
+function getListingAnalysisPercent(price: number, averagePrice: number | null | undefined) {
+  if (averagePrice == null || averagePrice <= 0) {
+    return null;
+  }
+
+  const deltaPercent = ((price - averagePrice) / averagePrice) * 100;
+  if (Math.abs(deltaPercent) < 0.05) {
+    return '0%';
+  }
+
+  return `${deltaPercent > 0 ? '+' : '-'}${new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1
+  }).format(Math.abs(deltaPercent))}%`;
+}
+
+function getListingAnalysisClass(price: number, averagePrice: number | null | undefined) {
+  const direction = getListingAnalysisDirection(price, averagePrice);
+  if (direction === 'up') return 'listing-analysis--up';
+  if (direction === 'down') return 'listing-analysis--down';
+  return 'listing-analysis--flat';
+}
+
+function getListingAnalysisTitle(price: number, averagePrice: number | null | undefined) {
+  if (averagePrice == null || averagePrice <= 0) {
+    return 'No average sale price is established yet for this item.';
+  }
+
+  const percent = getListingAnalysisPercent(price, averagePrice) ?? '0%';
+  const direction = getListingAnalysisDirection(price, averagePrice);
+  if (direction === 'up') {
+    return `Listed ${percent} above the average sale price.`;
+  }
+
+  if (direction === 'down') {
+    return `Listed ${percent} below the average sale price.`;
+  }
+
+  return 'Listed at the average sale price.';
+}
+
+function formatSlot(listing: MarketListing) {
+  return itemSlotSummaryLabel(listing.itemSlots) ?? '—';
+}
+
+function getDefaultMarketListingsSortOrder(field: MarketListingsSortField): 'asc' | 'desc' {
+  switch (field) {
+    case 'priceRank':
+    case 'itemName':
+    case 'sellerName':
+    case 'slotId':
+    case 'analysis':
+      return 'asc';
+    case 'listedAt':
+    case 'price':
+    case 'charges':
+    default:
+      return 'desc';
+  }
+}
+
+function getCharacterListingsSortIndicator(field: MarketListingsSortField) {
+  if (characterListingsSortBy.value !== field) {
+    return '↕';
+  }
+
+  return characterListingsSortOrder.value === 'asc' ? '↑' : '↓';
+}
+
+function getItemListingsSortIndicator(field: MarketListingsSortField) {
+  if (itemListingsSortBy.value !== field) {
+    return '↕';
+  }
+
+  return itemListingsSortOrder.value === 'asc' ? '↑' : '↓';
+}
+
+function getCharacterListingsColumnAriaSort(field: MarketListingsSortField) {
+  if (characterListingsSortBy.value !== field) {
+    return 'none';
+  }
+
+  return characterListingsSortOrder.value === 'asc' ? 'ascending' : 'descending';
+}
+
+function getItemListingsColumnAriaSort(field: MarketListingsSortField) {
+  if (itemListingsSortBy.value !== field) {
+    return 'none';
+  }
+
+  return itemListingsSortOrder.value === 'asc' ? 'ascending' : 'descending';
+}
+
+function toggleCharacterListingsSort(field: MarketListingsSortField) {
+  if (characterListingsSortBy.value === field) {
+    characterListingsSortOrder.value = characterListingsSortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    characterListingsSortBy.value = field;
+    characterListingsSortOrder.value = getDefaultMarketListingsSortOrder(field);
+  }
+
+  if (isCharacterModalOpen.value && activeCharacterName.value) {
+    void loadCharacterListingsPage(1);
+  }
+}
+
+function toggleItemListingsSort(field: MarketListingsSortField) {
+  if (itemListingsSortBy.value === field) {
+    itemListingsSortOrder.value = itemListingsSortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    itemListingsSortBy.value = field;
+    itemListingsSortOrder.value = getDefaultMarketListingsSortOrder(field);
+  }
+
+  if (isItemModalOpen.value && activeModalItem.value) {
+    void loadSelectedItemListingsPage(1);
+  }
+}
+
+function buildCharacterListingKey(listing: MarketListing) {
+  return `${listing.sellerCharacterId}-${listing.itemId}-${listing.slotId}-${listing.listedAt ?? 'na'}`;
+}
+
+function getPriceRankTitle(listing: MarketListing) {
+  const itemLabel = listing.itemName || `Item ${listing.itemId}`;
+  if (listing.priceRank === 1) {
+    return `Best price for ${itemLabel}. Older listings win ties.`;
+  }
+
+  return `Price rank #${formatNumber(listing.priceRank)} for ${itemLabel}. Older listings win ties.`;
+}
+
 function getPriceTrendClass(
   lastPrice: number | null | undefined,
   averagePrice: number | null | undefined
@@ -1367,9 +2103,19 @@ function hideMarketItemTooltip() {
   tooltipStore.hideTooltip();
 }
 
+function parseCalendarDate(value: string) {
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+  }
+
+  return new Date(value);
+}
+
 function buildDateLabel(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-    new Date(value)
+    parseCalendarDate(value)
   );
 }
 
@@ -1380,6 +2126,18 @@ function buildDateTimeLabel(value: string) {
     hour: 'numeric',
     minute: '2-digit'
   }).format(new Date(value));
+}
+
+function formatPriceChartTick(value: string | number) {
+  const numericValue = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return `${value} pp`;
+  }
+
+  return `${new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: numericValue < 10 ? 0 : 0,
+    maximumFractionDigits: numericValue < 10 ? 2 : 1
+  }).format(numericValue)} pp`;
 }
 
 const overallChartData = computed(() => {
@@ -1429,29 +2187,96 @@ const overallChartOptions = {
 
 const itemPriceChartData = computed(() => {
   if (!history.value?.pricePoints.length) return null;
+
+  const pointValues = history.value.pricePoints.map((point) => Number((point.price / 1000).toFixed(2)));
+  const lastIndex = pointValues.length - 1;
+
   return {
     labels: history.value.pricePoints.map((point) => buildDateTimeLabel(point.occurredAt)),
     datasets: [
       {
         label: 'Price Per Unit (pp)',
-        data: history.value.pricePoints.map((point) => Number((point.price / 1000).toFixed(2))),
-        borderColor: '#34d399',
-        backgroundColor: 'rgba(52, 211, 153, 0.18)',
-        fill: true
+        data: pointValues,
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(147, 197, 253, 0.22)',
+        fill: 'origin' as const,
+        stepped: true,
+        borderWidth: 4,
+        tension: 0,
+        pointRadius: pointValues.map((_, index) => (index === lastIndex ? 8 : 0)),
+        pointHoverRadius: pointValues.map((_, index) => (index === lastIndex ? 9 : 4)),
+        pointHitRadius: pointValues.map((_, index) => (index === lastIndex ? 12 : 10)),
+        pointBackgroundColor: pointValues.map((_, index) =>
+          index === lastIndex ? '#f8fafc' : 'rgba(0, 0, 0, 0)'
+        ),
+        pointBorderColor: pointValues.map((_, index) =>
+          index === lastIndex ? '#60a5fa' : 'rgba(0, 0, 0, 0)'
+        ),
+        pointBorderWidth: pointValues.map((_, index) => (index === lastIndex ? 5 : 0))
       }
     ]
   };
 });
 
-const itemPriceChartOptions = {
-  maintainAspectRatio: false,
-  scales: {
-    y: {
-      grid: { color: 'rgba(148, 163, 184, 0.12)' },
-      ticks: { callback: (value: string | number) => `${value} pp` }
+const itemPriceChartOptions = computed(() => {
+  const pointValues = history.value?.pricePoints.map((point) => Number((point.price / 1000).toFixed(2))) ?? [];
+  const maxValue = pointValues.length ? Math.max(...pointValues) : 0;
+  const minValue = pointValues.length ? Math.min(...pointValues) : 0;
+  const range = Math.max(maxValue - minValue, 0);
+  const topPadding = maxValue > 0 ? Math.max(range * 0.12, maxValue * 0.08, 0.25) : 1;
+
+  return {
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    scales: {
+      x: {
+        grid: {
+          display: false,
+          drawBorder: false
+        },
+        ticks: {
+          maxTicksLimit: 3,
+          color: 'rgba(226, 232, 240, 0.82)'
+        },
+        border: {
+          color: 'rgba(148, 163, 184, 0.35)'
+        }
+      },
+      y: {
+        suggestedMax: maxValue + topPadding,
+        grid: {
+          color: 'rgba(148, 163, 184, 0.16)',
+          drawBorder: false
+        },
+        ticks: {
+          callback: (value: string | number) => formatPriceChartTick(value),
+          color: 'rgba(226, 232, 240, 0.82)',
+          maxTicksLimit: 5
+        },
+        border: {
+          display: false
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        display: false
+      },
+      tooltip: {
+        callbacks: {
+          title: (items: Array<{ label?: string }>) => items[0]?.label ?? '',
+          label: (context: { parsed: { y: number | null } }) =>
+            `Price: ${context.parsed.y ?? 0} pp`
+        }
+      }
+    },
+    elements: {
+      line: {
+        capBezierPoints: false
+      }
     }
-  }
-};
+  };
+});
 
 const itemDailyChartData = computed(() => {
   if (!history.value?.dailyTrend.length) return null;
@@ -1561,6 +2386,10 @@ function resetItemActivityPages() {
   itemActivitySellersPageNumber.value = 1;
 }
 
+function resetItemListingsPage() {
+  itemListingsPage.value = null;
+}
+
 async function loadSelectedItemActivity() {
   if (!activeModalItem.value) {
     itemActivity.value = null;
@@ -1605,6 +2434,53 @@ async function loadSelectedItemActivity() {
   } finally {
     if (token === activeItemActivityRequestToken) {
       itemActivityLoading.value = false;
+    }
+  }
+}
+
+async function loadSelectedItemListingsPage(
+  page = itemListingsPage.value?.page ?? 1,
+  refreshIfStale = false
+) {
+  if (!activeModalItem.value) {
+    itemListingsPage.value = null;
+    return;
+  }
+
+  const token = ++activeItemListingsRequestToken;
+  itemListingsLoading.value = true;
+
+  try {
+    const listingsPage = await api.fetchMarketListingsPage({
+      itemId: activeModalItem.value.itemId ?? undefined,
+      itemName: activeModalItem.value.itemName,
+      page,
+      pageSize: itemListingsPageSize,
+      sortBy: itemListingsSortBy.value,
+      sortOrder: itemListingsSortOrder.value,
+      refreshIfStale
+    });
+
+    if (token !== activeItemListingsRequestToken) {
+      return;
+    }
+
+    itemListingsPage.value = listingsPage;
+  } catch (error) {
+    if (token !== activeItemListingsRequestToken) {
+      return;
+    }
+
+    console.error('Failed to load market item listings.', error);
+    itemListingsPage.value = null;
+    addToast({
+      title: 'Item Listings Failed',
+      message: `Unable to load active listings for ${activeModalItem.value.itemName}.`,
+      variant: 'error'
+    });
+  } finally {
+    if (token === activeItemListingsRequestToken) {
+      itemListingsLoading.value = false;
     }
   }
 }
@@ -1804,6 +2680,10 @@ function resetCharacterHistoryPages() {
   characterHistoryPages.buy = null;
 }
 
+function resetCharacterListingsPage() {
+  characterListingsPage.value = null;
+}
+
 function canOpenCharacterHistory(name: string | null) {
   return Boolean(name?.trim()) && name !== UNKNOWN_MARKET_CHARACTER_LABEL;
 }
@@ -1813,7 +2693,7 @@ function getCharacterHistoryCounterpartyName(entry: MarketRecentSale) {
 }
 
 async function loadCharacterHistoryPage(
-  type: MarketCharacterHistoryType = activeCharacterTab.value,
+  type: MarketCharacterHistoryType = activeCharacterTab.value === 'buy' ? 'buy' : 'sell',
   page = characterHistoryPages[type]?.page ?? 1
 ) {
   const characterName = activeCharacterName.value?.trim();
@@ -1858,6 +2738,53 @@ async function loadCharacterHistoryPage(
   }
 }
 
+async function loadCharacterListingsPage(
+  page = characterListingsPage.value?.page ?? 1,
+  refreshIfStale = false
+) {
+  const characterName = activeCharacterName.value?.trim();
+  if (!characterName) {
+    characterListingsPage.value = null;
+    return;
+  }
+
+  const token = ++characterListingsRequestToken.value;
+  characterListingsLoading.value = true;
+
+  try {
+    const listingsPage = await api.fetchMarketListingsPage({
+      sellerName: characterName,
+      page,
+      pageSize: characterListingsPageSize,
+      sortBy: characterListingsSortBy.value,
+      sortOrder: characterListingsSortOrder.value,
+      refreshIfStale
+    });
+
+    if (token !== characterListingsRequestToken.value) {
+      return;
+    }
+
+    characterListingsPage.value = listingsPage;
+  } catch (error) {
+    if (token !== characterListingsRequestToken.value) {
+      return;
+    }
+
+    console.error('Failed to load character listings.', error);
+    characterListingsPage.value = null;
+    addToast({
+      title: 'Character Listings Failed',
+      message: `Unable to load active listings for ${characterName}.`,
+      variant: 'error'
+    });
+  } finally {
+    if (token === characterListingsRequestToken.value) {
+      characterListingsLoading.value = false;
+    }
+  }
+}
+
 async function refreshAll() {
   if (isRefreshButtonDisabled.value) {
     return;
@@ -1866,16 +2793,24 @@ async function refreshAll() {
   startRefreshCooldown();
   await loadSummary(false);
   if (isItemModalOpen.value && activeModalItem.value) {
-    await loadSelectedItemHistory();
+    if (activeItemModalTab.value === 'listings') {
+      await loadSelectedItemListingsPage(activeItemListingsPage.value?.page ?? 1, true);
+    } else {
+      await loadSelectedItemHistory();
+    }
     if (activeItemModalTab.value === 'activity' || itemActivity.value) {
       await loadSelectedItemActivity();
     }
   }
   if (isCharacterModalOpen.value && activeCharacterName.value) {
-    await loadCharacterHistoryPage(
-      activeCharacterTab.value,
-      activeCharacterHistoryPage.value?.page ?? 1
-    );
+    if (activeCharacterTab.value === 'listings') {
+      await loadCharacterListingsPage(activeCharacterListingsPage.value?.page ?? 1, true);
+    } else {
+      await loadCharacterHistoryPage(
+        activeCharacterTab.value,
+        activeCharacterHistoryPage.value?.page ?? 1
+      );
+    }
   }
   await loadSalesPage(1);
 }
@@ -1885,6 +2820,7 @@ function openItemModal(item: MarketSelectableItem) {
   activeItemModalTab.value = 'trends';
   resetItemActivityPages();
   itemActivity.value = null;
+  resetItemListingsPage();
   isItemModalOpen.value = true;
   showSearchResults.value = false;
   void loadSelectedItemHistory();
@@ -1907,10 +2843,15 @@ function selectTopItem(item: MarketTopItem) {
 }
 
 function openFavoriteCharacter(characterName: string) {
-  openCharacterHistoryModal(characterName, 'sell');
+  openCharacterHistoryModal(characterName, 'listings');
 }
 
 function reloadSelectedItem() {
+  if (activeItemModalTab.value === 'listings') {
+    void loadSelectedItemListingsPage(activeItemListingsPage.value?.page ?? 1, true);
+    return;
+  }
+
   if (activeItemModalTab.value === 'activity') {
     void loadSelectedItemActivity();
     return;
@@ -1929,6 +2870,11 @@ function setItemModalTab(tab: MarketItemModalTab) {
   }
 
   activeItemModalTab.value = tab;
+  if (tab === 'listings' && !itemListingsPage.value) {
+    void loadSelectedItemListingsPage(1, true);
+    return;
+  }
+
   if (tab === 'activity' && !itemActivity.value) {
     void loadSelectedItemActivity();
   }
@@ -1948,26 +2894,51 @@ function changeItemActivityPage(type: 'buyers' | 'sellers', page: number) {
   void loadSelectedItemActivity();
 }
 
-function openCharacterHistoryModal(name: string | null, type: MarketCharacterHistoryType) {
+function changeItemListingsPage(page: number) {
+  if (itemListingsLoading.value) {
+    return;
+  }
+
+  void loadSelectedItemListingsPage(page);
+}
+
+function getDefaultCharacterModalTab(_type: MarketCharacterModalTab): MarketCharacterModalTab {
+  return 'listings';
+}
+
+function openCharacterHistoryModal(name: string | null, type: MarketCharacterModalTab) {
   const trimmedName = name?.trim() ?? '';
   if (!trimmedName || trimmedName === UNKNOWN_MARKET_CHARACTER_LABEL) {
     return;
   }
 
   const hasCharacterChanged = activeCharacterName.value !== trimmedName;
+  const nextTab = getDefaultCharacterModalTab(type);
 
   activeCharacterName.value = trimmedName;
-  activeCharacterTab.value = type;
+  activeCharacterTab.value = nextTab;
   isCharacterModalOpen.value = true;
 
   if (hasCharacterChanged) {
     resetCharacterHistoryPages();
-    void loadCharacterHistoryPage(type, 1);
+    resetCharacterListingsPage();
+    if (nextTab === 'listings') {
+      void loadCharacterListingsPage(1, true);
+    } else {
+      void loadCharacterHistoryPage(nextTab, 1);
+    }
     return;
   }
 
-  if (!characterHistoryPages[type]) {
-    void loadCharacterHistoryPage(type, 1);
+  if (nextTab === 'listings') {
+    if (!characterListingsPage.value) {
+      void loadCharacterListingsPage(1, true);
+    }
+    return;
+  }
+
+  if (!characterHistoryPages[nextTab]) {
+    void loadCharacterHistoryPage(nextTab, 1);
   }
 }
 
@@ -1980,26 +2951,48 @@ function openCharacterHistoryCounterparty(entry: MarketRecentSale) {
   openCharacterHistoryModal(entry.sellerCharacterName, 'sell');
 }
 
-function setCharacterHistoryTab(type: MarketCharacterHistoryType) {
+function setCharacterHistoryTab(type: MarketCharacterModalTab) {
   if (activeCharacterTab.value === type) {
     return;
   }
 
   activeCharacterTab.value = type;
+
+  if (type === 'listings') {
+    if (!characterListingsPage.value) {
+      void loadCharacterListingsPage(1, true);
+    }
+    return;
+  }
+
   if (!characterHistoryPages[type]) {
     void loadCharacterHistoryPage(type, 1);
   }
 }
 
 function reloadActiveCharacterHistory() {
-  void loadCharacterHistoryPage(
-    activeCharacterTab.value,
-    activeCharacterHistoryPage.value?.page ?? 1
-  );
+  if (activeCharacterTab.value === 'listings') {
+    void loadCharacterListingsPage(activeCharacterListingsPage.value?.page ?? 1, true);
+    return;
+  }
+
+  void loadCharacterHistoryPage(activeCharacterTab.value, activeCharacterHistoryPage.value?.page ?? 1);
 }
 
 function closeCharacterModal() {
   isCharacterModalOpen.value = false;
+}
+
+function openCharacterListingItem(listing: MarketListing) {
+  closeCharacterModal();
+  selectSearchResult({
+    itemId: listing.itemId,
+    itemName: listing.itemName,
+    itemIconId: listing.itemIconId,
+    saleCount: 0,
+    lastSoldAt: listing.listedAt,
+    hasMarketData: true
+  });
 }
 
 function selectSaleItem(sale: MarketRecentSale) {
@@ -2035,6 +3028,15 @@ function changeSalesPage(page: number) {
 }
 
 function changeCharacterHistoryPage(page: number) {
+  if (activeCharacterTab.value === 'listings') {
+    if (characterListingsLoading.value) {
+      return;
+    }
+
+    void loadCharacterListingsPage(page);
+    return;
+  }
+
   if (activeCharacterHistoryLoading.value) {
     return;
   }
@@ -2069,14 +3071,21 @@ watch(selectedRangeDays, async () => {
   if (isItemModalOpen.value && activeModalItem.value) {
     resetItemActivityPages();
     itemActivity.value = null;
-    await loadSelectedItemHistory();
+    if (activeItemModalTab.value !== 'listings') {
+      await loadSelectedItemHistory();
+    }
     if (activeItemModalTab.value === 'activity') {
       await loadSelectedItemActivity();
     }
   }
   if (isCharacterModalOpen.value && activeCharacterName.value) {
     resetCharacterHistoryPages();
-    await loadCharacterHistoryPage(activeCharacterTab.value, 1);
+    resetCharacterListingsPage();
+    if (activeCharacterTab.value === 'listings') {
+      await loadCharacterListingsPage(1);
+    } else {
+      await loadCharacterHistoryPage(activeCharacterTab.value, 1);
+    }
   }
   await loadSalesPage(1);
 });
@@ -2578,7 +3587,37 @@ onBeforeUnmount(() => {
   transform: translateY(-1px);
 }
 .mover__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.28rem;
+  min-width: 9.5rem;
   text-align: right;
+}
+.mover__meta-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+.mover__meta-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  font-size: 0.84rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+.mover__meta-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.mover__meta-value {
+  color: #cbd5e1;
 }
 .favorite-toggle {
   display: inline-flex;
@@ -2695,6 +3734,128 @@ onBeforeUnmount(() => {
   letter-spacing: 0.12em;
   color: #94a3b8;
 }
+.listings-table {
+  width: 100%;
+  min-width: 58rem;
+  border-collapse: collapse;
+}
+.listings-table th,
+.listings-table td {
+  padding: 0.8rem 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  text-align: left;
+  white-space: nowrap;
+}
+.listings-table th {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.listings-table tbody tr:hover {
+  background: rgba(30, 41, 59, 0.34);
+}
+.table-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.table-sort:hover {
+  color: #e2e8f0;
+}
+.table-sort--active {
+  color: #f8fafc;
+}
+.table-sort__icon {
+  min-width: 0.8rem;
+  color: #7dd3fc;
+  font-size: 0.88rem;
+  line-height: 1;
+}
+.listing-analysis {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.listing-analysis__arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+.listing-analysis__percent {
+  font-size: 0.88rem;
+}
+.listing-analysis--up {
+  color: #f87171;
+}
+.listing-analysis--down {
+  color: #34d399;
+}
+.listing-analysis--flat {
+  color: #94a3b8;
+}
+.price-rank-cell {
+  width: 7.5rem;
+}
+.price-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #e2e8f0;
+  font-weight: 700;
+  line-height: 1;
+}
+.price-rank-badge__value {
+  font-variant-numeric: tabular-nums;
+}
+.price-rank-badge--leader {
+  min-width: auto;
+  min-height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #dcfce7;
+  box-shadow: none;
+}
+.price-rank-badge__leader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.price-rank-badge__leader-medallion {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(236, 253, 245, 0.96), rgba(74, 222, 128, 0.95) 42%, rgba(5, 150, 105, 0.96) 100%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+.price-rank-badge__leader-number {
+  position: relative;
+  z-index: 1;
+  font-size: 1rem;
+  font-weight: 900;
+  color: #064e3b;
+  text-shadow: 0 1px 0 rgba(236, 253, 245, 0.4);
+}
 .trend-indicator {
   display: inline-flex;
   align-items: center;
@@ -2721,35 +3882,48 @@ onBeforeUnmount(() => {
 .trend-indicator--flat {
   color: #94a3b8;
 }
+.table-item,
+.character-history-link {
+  color: inherit;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+}
 .table-item {
   display: flex;
   align-items: center;
   gap: 0.7rem;
   min-width: 16rem;
-}
-.table-item--static {
-  min-width: 12rem;
-}
-.character-history-link {
-  border: none;
-  padding: 0;
-  background: transparent;
-  color: #38bdf8;
-  font: inherit;
-  font-weight: 600;
   cursor: pointer;
   text-align: left;
-  transition:
-    color 0.15s ease,
-    text-shadow 0.15s ease;
+}
+.table-item--static {
+  min-width: 14rem;
+}
+.table-item__text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.18rem;
+  min-width: 0;
+}
+.table-item__text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.character-history-link {
+  cursor: pointer;
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-decoration-color: rgba(125, 211, 252, 0.45);
+  text-underline-offset: 0.14em;
 }
 .character-history-link:hover,
 .character-history-link:focus-visible {
-  color: #f8fafc;
-  text-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
-}
-.character-history-link--inline {
-  display: inline-flex;
+  color: #bae6fd;
 }
 .market-modal-backdrop {
   position: fixed;
@@ -2763,7 +3937,7 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(6px);
 }
 .market-modal {
-  width: min(1100px, calc(100vw - 3rem));
+  width: min(1260px, calc(100vw - 2rem));
   max-height: calc(100vh - 3rem);
   overflow: auto;
   padding: 1.35rem;
@@ -2775,7 +3949,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 32px 80px rgba(2, 6, 23, 0.48);
 }
 .market-modal--character {
-  width: min(960px, calc(100vw - 3rem));
+  width: min(1080px, calc(100vw - 2rem));
 }
 .market-modal__header {
   display: flex;
@@ -2840,13 +4014,16 @@ onBeforeUnmount(() => {
   min-height: 14rem;
 }
 .item-icon {
-  width: 2.25rem;
-  height: 2.25rem;
-  overflow: hidden;
-  border-radius: 0.7rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background: rgba(15, 23, 42, 0.85);
+  width: 2.2rem;
+  height: 2.2rem;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  overflow: hidden;
 }
 .item-icon--lg {
   width: 2.7rem;
@@ -2855,7 +4032,7 @@ onBeforeUnmount(() => {
 .item-icon img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 .muted {
   color: #94a3b8;
