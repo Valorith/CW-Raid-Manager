@@ -101,6 +101,7 @@ npm run dev:client
 
 - `npm run lint` runs ESLint for both workspaces.
 - `npm run build` builds both workspaces.
+- `server/build/` is generated server output and is not tracked in Git.
 - `npm --workspace client run type-check` runs `vue-tsc`.
 - `npm --workspace server run prisma:generate` refreshes Prisma client types after schema edits.
 - `npm --workspace server run cron:snapshot` runs the snapshot cron entrypoint manually.
