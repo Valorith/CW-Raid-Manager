@@ -318,28 +318,27 @@
       <div v-if="loading && !hasLoaded" class="empty muted">Loading cached bazaar listings...</div>
 
       <template v-else>
-        <section class="stats">
-          <article class="card card--accent">
-            <span class="label">Listings</span>
-            <strong>{{ formatNumber(summary.totalListings) }}</strong>
-            <small>matching cached entries</small>
-          </article>
-          <article class="card">
-            <span class="label">Sellers</span>
-            <strong>{{ formatNumber(summary.distinctSellers) }}</strong>
-            <small>distinct traders</small>
-          </article>
-          <article class="card">
-            <span class="label">Items</span>
-            <strong>{{ formatNumber(summary.distinctItems) }}</strong>
-            <small>distinct item ids</small>
-          </article>
-          <article class="card">
-            <span class="label">Newest</span>
-            <strong>{{ formatCompactDate(summary.newestListingAt) }}</strong>
-            <small>{{ formatTime(summary.newestListingAt) }}</small>
-          </article>
-        </section>
+        <div class="listings-summary-bar">
+          <span class="listings-stat">
+            <span class="listings-stat__value">{{ formatNumber(summary.totalListings) }}</span>
+            <span class="listings-stat__label">Listings</span>
+          </span>
+          <span class="listings-summary-bar__sep"></span>
+          <span class="listings-stat">
+            <span class="listings-stat__value">{{ formatNumber(summary.distinctSellers) }}</span>
+            <span class="listings-stat__label">Sellers</span>
+          </span>
+          <span class="listings-summary-bar__sep"></span>
+          <span class="listings-stat">
+            <span class="listings-stat__value">{{ formatNumber(summary.distinctItems) }}</span>
+            <span class="listings-stat__label">Items</span>
+          </span>
+          <span class="listings-summary-bar__sep"></span>
+          <span class="listings-stat">
+            <span class="listings-stat__value">{{ formatCompactDate(summary.newestListingAt) }}</span>
+            <span class="listings-stat__label">Newest</span>
+          </span>
+        </div>
 
         <div v-if="validationMessage" class="status-banner status-banner--warning">
           {{ validationMessage }}
@@ -992,7 +991,7 @@ function getListingAnalysisPercent(price: number, averagePrice: number | null | 
 
   const deltaPercent = ((price - averagePrice) / averagePrice) * 100;
   if (Math.abs(deltaPercent) < 0.05) {
-    return '0%';
+    return null;
   }
 
   return `${deltaPercent > 0 ? '+' : '-'}${new Intl.NumberFormat('en-US', {
@@ -1342,8 +1341,7 @@ onBeforeUnmount(() => {
 }
 
 .listings-tab__header,
-.panel,
-.card {
+.panel {
   border: 1px solid rgba(148, 163, 184, 0.12);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(15, 23, 42, 0.88));
   box-shadow: 0 18px 44px rgba(2, 6, 23, 0.26);
@@ -1685,33 +1683,52 @@ onBeforeUnmount(() => {
   opacity: 0.85;
 }
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.85rem;
-  margin-top: 1rem;
+.listings-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.55rem 1rem;
+  margin-top: 0.75rem;
+  border-radius: 6px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
 }
 
-.card {
+.listings-summary-bar__sep {
+  width: 1px;
+  align-self: stretch;
+  background: #1e293b;
+  flex-shrink: 0;
+}
+
+.listings-stat {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 1rem 1.1rem;
-  border-radius: 1rem;
+  gap: 0.1rem;
 }
 
-.card strong {
-  font-size: 1.45rem;
-  line-height: 1.1;
+.listings-stat__value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.card small,
+.listings-stat__label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #64748b;
+  line-height: 1;
+}
+
 .label,
 .muted {
   color: #94a3b8;
 }
 
-.card--accent .label,
 .eyebrow {
   color: #fbbf24;
 }
@@ -2045,8 +2062,12 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 980px) {
-  .stats {
-    grid-template-columns: 1fr;
+  .listings-summary-bar {
+    flex-wrap: wrap;
+    gap: 0.6rem 1rem;
+  }
+  .listings-summary-bar__sep {
+    display: none;
   }
 
   .filters-shell__actions,

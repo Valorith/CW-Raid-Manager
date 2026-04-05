@@ -1,7 +1,7 @@
 <template>
   <section class="auth-callback">
     <div class="card">
-      <h1>Signing you in…</h1>
+      <h1>Entering {{ APP_NAME }}…</h1>
       <p>Please wait while we finalize authentication.</p>
     </div>
   </section>
@@ -11,6 +11,7 @@
 import { onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { APP_NAME } from '../constants/branding';
 import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();

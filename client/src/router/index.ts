@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
+import { APP_NAME } from '../constants/branding';
 import { useAuthStore } from '../stores/auth';
 
 const router = createRouter({
@@ -181,6 +182,11 @@ router.beforeEach(async (to) => {
   }
 
   return true;
+});
+
+router.afterEach((to) => {
+  const pageTitle = typeof to.meta.title === 'string' ? `${to.meta.title} | ${APP_NAME}` : APP_NAME;
+  document.title = pageTitle;
 });
 
 export default router;
