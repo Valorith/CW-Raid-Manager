@@ -152,6 +152,36 @@
             </div>
 
             <div class="filter-group">
+              <span class="filter-group__label">Equip</span>
+              <div class="choice-pills">
+                <button
+                  type="button"
+                  class="choice-pill"
+                  :class="{ 'choice-pill--active': selectedEquipSlots.size > 0 }"
+                  :aria-pressed="selectedEquipSlots.size > 0"
+                  @click="slotSelectorOpen = true"
+                >
+                  Slots{{ selectedEquipSlots.size > 0 ? ` (${selectedEquipSlots.size})` : '' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="filter-group">
+              <div class="choice-pills">
+                <button
+                  type="button"
+                  class="choice-pill"
+                  :class="{ 'choice-pill--active': includeAugs }"
+                  :aria-pressed="includeAugs"
+                  title="Include augments in listing results."
+                  @click="includeAugs = !includeAugs"
+                >
+                  Include Augs
+                </button>
+              </div>
+            </div>
+
+            <div class="filter-group">
               <div class="choice-pills">
                 <button
                   type="button"
@@ -194,20 +224,6 @@
                     v-for="option in itemTypeOptions"
                     :key="option.value"
                     :value="String(option.value)"
-                  >
-                    {{ option.label }}
-                  </option>
-                </select>
-              </label>
-
-              <label class="filter-field">
-                <span class="filter-field__label">Equip Slot</span>
-                <select v-model="equipSlotValue" class="input">
-                  <option value="">All equip slots</option>
-                  <option
-                    v-for="option in itemSlotOptions"
-                    :key="option.slotId"
-                    :value="String(option.slotId)"
                   >
                     {{ option.label }}
                   </option>
@@ -553,6 +569,13 @@
         </p>
       </template>
     </article>
+
+    <SlotSelectorModal
+      :visible="slotSelectorOpen"
+      :model-value="selectedEquipSlots"
+      @update:model-value="onSlotsSelected"
+      @close="slotSelectorOpen = false"
+    />
   </section>
 </template>
 
@@ -560,6 +583,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import CoinDisplay from '../../components/CoinDisplay.vue';
+import SlotSelectorModal from './SlotSelectorModal.vue';
 import { EQEMU_ITEM_SLOT_OPTIONS, EQEMU_ITEM_TYPE_OPTIONS } from '../../data/eqItemFilters';
 import {
   api,
@@ -592,12 +616,14 @@ const keywordQuery = ref('');
 const itemNameQuery = ref('');
 const sellerNameQuery = ref('');
 const itemTypeValue = ref('');
-const equipSlotValue = ref('');
+const selectedEquipSlots = ref<Set<number>>(new Set());
+const slotSelectorOpen = ref(false);
 const minPricePp = ref('');
 const maxPricePp = ref('');
 const minCharges = ref('');
 const maxCharges = ref('');
 const listedWithinDays = ref('');
+const includeAugs = ref(true);
 const dealsOnly = ref(false);
 const bestPricesOnly = ref(false);
 const sortBy = ref<MarketListingsSortField>('listedAt');
@@ -612,7 +638,7 @@ const LISTINGS_PAGE_SIZE = 25;
 const LISTINGS_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
 const unavailableMessage = 'Bazaar listings are unavailable right now.';
 const itemTypeOptions = EQEMU_ITEM_TYPE_OPTIONS;
-const itemSlotOptions = EQEMU_ITEM_SLOT_OPTIONS;
+const itemSlotOptions = EQEMU_ITEM_SLOT_OPTIONS; // Used for chip labels
 const listedWithinOptions = [
   { value: '', label: 'Any time' },
   { value: '1', label: '1 day' },
@@ -725,7 +751,8 @@ const activeFilters = computed<MarketListingsFilters>(() => ({
   itemName: normalizeText(itemNameQuery.value) || undefined,
   sellerName: normalizeText(sellerNameQuery.value) || undefined,
   itemType: parseIntegerInput(itemTypeValue.value) ?? undefined,
-  equipSlot: parseIntegerInput(equipSlotValue.value) ?? undefined,
+  equipSlots: selectedEquipSlots.value.size > 0 ? [...selectedEquipSlots.value] : undefined,
+  excludeAugs: !includeAugs.value || undefined,
   minPrice: parsePriceInputToCopper(minPricePp.value) ?? undefined,
   maxPrice: parsePriceInputToCopper(maxPricePp.value) ?? undefined,
   minCharges: parseIntegerInput(minCharges.value) ?? undefined,
@@ -773,11 +800,17 @@ const activeFilterChips = computed(() => {
       label: `Type: ${getItemTypeLabel(activeFilters.value.itemType)}`
     });
   }
-  if (activeFilters.value.equipSlot != null) {
+  if (activeFilters.value.equipSlots != null && activeFilters.value.equipSlots.length > 0) {
+    const slotLabels = activeFilters.value.equipSlots
+      .map((id) => getEquipSlotLabel(id))
+      .join(', ');
     chips.push({
-      key: 'equipSlot',
-      label: `Equip Slot: ${getEquipSlotLabel(activeFilters.value.equipSlot)}`
+      key: 'equipSlots',
+      label: `Slots: ${slotLabels}`
     });
+  }
+  if (activeFilters.value.excludeAugs) {
+    chips.push({ key: 'excludeAugs', label: 'Excluding Augs' });
   }
   if (activeFilters.value.minPrice != null) {
     chips.push({
@@ -832,7 +865,6 @@ const advancedFilterCount = computed(
       activeFilters.value.itemName,
       activeFilters.value.sellerName,
       activeFilters.value.itemType,
-      activeFilters.value.equipSlot,
       activeFilters.value.minPrice,
       activeFilters.value.maxPrice,
       activeFilters.value.minCharges,
@@ -1135,7 +1167,8 @@ function resetFilters() {
   itemNameQuery.value = '';
   sellerNameQuery.value = '';
   itemTypeValue.value = '';
-  equipSlotValue.value = '';
+  selectedEquipSlots.value = new Set();
+  includeAugs.value = true;
   minPricePp.value = '';
   maxPricePp.value = '';
   minCharges.value = '';
@@ -1145,6 +1178,10 @@ function resetFilters() {
   bestPricesOnly.value = false;
   currentPage.value = 1;
   advancedFiltersOpen.value = false;
+}
+
+function onSlotsSelected(slots: Set<number>) {
+  selectedEquipSlots.value = slots;
 }
 
 function clearFilter(key: string) {
@@ -1161,8 +1198,11 @@ function clearFilter(key: string) {
     case 'itemType':
       itemTypeValue.value = '';
       break;
-    case 'equipSlot':
-      equipSlotValue.value = '';
+    case 'equipSlots':
+      selectedEquipSlots.value = new Set();
+      break;
+    case 'excludeAugs':
+      includeAugs.value = true;
       break;
     case 'minPrice':
       minPricePp.value = '';
@@ -1266,7 +1306,8 @@ watch(
     itemNameQuery,
     sellerNameQuery,
     itemTypeValue,
-    equipSlotValue,
+    selectedEquipSlots,
+    includeAugs,
     minPricePp,
     maxPricePp,
     minCharges,
@@ -1278,7 +1319,8 @@ watch(
   () => {
     currentPage.value = 1;
     scheduleListingsReload();
-  }
+  },
+  { deep: true }
 );
 
 onMounted(() => {

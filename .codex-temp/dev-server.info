@@ -1,0 +1,4 @@
+root_cmd_pid=177284
+vite_pid=22184
+api_pid=200512
+stop_command=taskkill /PID 177284 /T /F

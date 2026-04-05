@@ -1,30 +1,24 @@
 <template>
   <section class="market-view">
     <header class="hero">
-      <div>
-        <p class="eyebrow">Bazaar Intelligence</p>
+      <div class="hero__left">
         <h1>Market</h1>
-        <p class="muted hero-copy">
-          Search persisted bazaar sales, inspect cached trader listings, and monitor overall market
-          flow from Railway-backed bazaar data.
-        </p>
         <div class="hero-meta">
           <template v-if="activeTab === 'market'">
             <span class="pill">{{ selectedRangeLabel }}</span>
             <span class="pill pill--muted"
-              >Last EQEmu retrieval
+              >Synced
               {{ formatSyncTime(summary?.syncStatus.lastSyncedAt ?? null) }}</span
             >
           </template>
           <template v-else-if="activeTab === 'listings'">
-            <span class="pill">Trader listings cache</span>
+            <span class="pill">Listings cache</span>
             <span class="pill pill--muted"
-              >Last trader retrieval {{ formatSyncTime(listingsLastRetrievedAt) }}</span
+              >Retrieved {{ formatSyncTime(listingsLastRetrievedAt) }}</span
             >
           </template>
           <template v-else>
-            <span class="pill">Personal watchlist</span>
-            <span class="pill pill--muted">Watched items and characters</span>
+            <span class="pill pill--muted">Personal watchlist</span>
           </template>
         </div>
       </div>
@@ -47,17 +41,10 @@
             {{ refreshButtonLabel }}
           </button>
         </template>
-        <p v-else-if="activeTab === 'listings'" class="muted hero-actions__hint">
-          Cached listings refresh from Railway. A fresh EQEmu retrieval check only runs when this
-          tab is opened after 15 minutes.
-        </p>
-        <p v-else class="muted hero-actions__hint">
-          Manage personal watchlist items and characters.
-        </p>
       </div>
     </header>
 
-    <div class="market-page-tabs" role="tablist" aria-label="Market page tabs">
+    <nav class="market-page-tabs" role="tablist" aria-label="Market page tabs">
       <button
         id="market-tab-market"
         type="button"
@@ -94,7 +81,7 @@
       >
         Watchlist
       </button>
-    </div>
+    </nav>
 
     <section
       v-show="activeTab === 'market'"
@@ -176,30 +163,64 @@
       <GlobalLoadingSpinner v-if="showLoading" />
 
       <template v-else>
-        <section class="stats">
-          <article class="card card--accent">
-            <span class="label">Sales</span>
-            <strong>{{ formatNumber(summary?.totalSales ?? 0) }}</strong>
-            <small>seller-side transactions</small>
-          </article>
-          <article class="card">
-            <span class="label">Units</span>
-            <strong>{{ formatNumber(summary?.totalUnitsSold ?? 0) }}</strong>
-            <small>total quantity moved</small>
-          </article>
-          <article class="card">
-            <span class="label">Revenue</span>
-            <strong>
-              <CoinDisplay variant="platinum" :amount-in-copper="summary?.totalRevenue ?? 0" />
-            </strong>
-            <small>gross traded value</small>
-          </article>
-          <article class="card">
-            <span class="label">Items</span>
-            <strong>{{ formatNumber(summary?.uniqueItems ?? 0) }}</strong>
-            <small>distinct items sold</small>
-          </article>
-        </section>
+        <div v-if="displaySales.length" class="sales-ticker">
+          <div class="sales-ticker__track">
+            <div class="sales-ticker__content">
+              <span
+                v-for="sale in tickerSales"
+                :key="sale.id"
+                class="sales-ticker__item"
+                @click="selectSaleItem(sale)"
+              >
+                <img
+                  v-if="hasValidIconId(sale.itemIconId)"
+                  :src="getLootIconSrc(sale.itemIconId!)"
+                  class="sales-ticker__icon"
+                  alt=""
+                />
+                <span class="sales-ticker__name">{{ sale.itemName }}</span>
+                <span class="sales-ticker__price">
+                  <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
+                </span>
+                <span
+                  class="sales-ticker__trend"
+                  :class="'sales-ticker__trend--' + getPriceTrendDirection(sale.price, sale.itemAveragePrice)"
+                  :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
+                >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span>
+                <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
+                <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
+                <span class="sales-ticker__sep">&middot;</span>
+              </span>
+            </div>
+            <div class="sales-ticker__content" aria-hidden="true">
+              <span
+                v-for="sale in tickerSales"
+                :key="'dup-' + sale.id"
+                class="sales-ticker__item"
+                @click="selectSaleItem(sale)"
+              >
+                <img
+                  v-if="hasValidIconId(sale.itemIconId)"
+                  :src="getLootIconSrc(sale.itemIconId!)"
+                  class="sales-ticker__icon"
+                  alt=""
+                />
+                <span class="sales-ticker__name">{{ sale.itemName }}</span>
+                <span class="sales-ticker__price">
+                  <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
+                </span>
+                <span
+                  class="sales-ticker__trend"
+                  :class="'sales-ticker__trend--' + getPriceTrendDirection(sale.price, sale.itemAveragePrice)"
+                  :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
+                >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span>
+                <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
+                <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
+                <span class="sales-ticker__sep">&middot;</span>
+              </span>
+            </div>
+          </div>
+        </div>
 
         <article class="panel panel--chart-fill">
           <div class="panel-head">
@@ -1602,6 +1623,19 @@ const UNKNOWN_MARKET_CHARACTER_LABEL = 'Unknown Trader';
 const REFRESH_COOLDOWN_SECONDS = 60;
 
 const displaySales = computed<MarketRecentSale[]>(() => salesPage.value?.sales ?? []);
+const tickerSales = computed(() => displaySales.value.slice(0, 10));
+
+function formatTickerTime(value: string | null): string {
+  if (!value) return '';
+  const diff = Date.now() - new Date(value).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
 const activeCharacterHistoryPage = computed(() =>
   activeCharacterTab.value === 'listings' ? null : characterHistoryPages[activeCharacterTab.value]
 );
@@ -3150,21 +3184,26 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.7rem 1rem;
+  padding: 0.5rem 0.85rem;
   border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 600;
   cursor: pointer;
-  transition:
-    transform 0.12s ease,
-    box-shadow 0.15s ease,
-    border-color 0.15s ease;
+  transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
 }
-.btn:hover {
-  transform: translateY(-1px);
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .btn--accent {
-  background: linear-gradient(135deg, #f59e0b, #38bdf8);
-  color: #0f172a;
-  box-shadow: 0 10px 24px rgba(14, 165, 233, 0.22);
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+.btn--accent:hover:not(:disabled) {
+  background: #2563eb;
+  border-color: #2563eb;
 }
 .btn--outline {
   background: rgba(15, 23, 42, 0.68);
@@ -3187,7 +3226,6 @@ onBeforeUnmount(() => {
   outline-offset: 1px;
   border-color: rgba(56, 189, 248, 0.45);
 }
-.hero,
 .panel,
 .card {
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -3195,15 +3233,17 @@ onBeforeUnmount(() => {
   box-shadow: 0 18px 44px rgba(2, 6, 23, 0.26);
 }
 .hero {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 1.25rem;
-  padding: 1.8rem;
-  border-radius: 1.4rem;
-  background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.24), transparent 32%),
-    radial-gradient(circle at left center, rgba(56, 189, 248, 0.16), transparent 40%),
-    linear-gradient(135deg, rgba(16, 24, 39, 0.98), rgba(15, 23, 42, 0.94));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+}
+.hero__left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
 }
 .eyebrow,
 .label {
@@ -3221,116 +3261,80 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 .hero h1 {
-  font-size: clamp(2.2rem, 4vw, 3.2rem);
-  line-height: 0.96;
-  letter-spacing: -0.04em;
-}
-.hero-copy {
-  margin: 0.85rem 0 0;
-  max-width: 52rem;
-  line-height: 1.6;
+  font-size: 1.4rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  white-space: nowrap;
 }
 .hero-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.7rem;
-  margin-top: 1rem;
+  gap: 0.4rem;
+  align-items: center;
 }
 .pill {
   display: inline-flex;
-  padding: 0.45rem 0.8rem;
-  border-radius: 999px;
-  background: rgba(245, 158, 11, 0.14);
-  border: 1px solid rgba(245, 158, 11, 0.26);
-  color: #fde68a;
-  font-size: 0.84rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  font-size: 0.72rem;
   font-weight: 600;
 }
 .pill--muted {
-  background: rgba(51, 65, 85, 0.6);
-  border-color: rgba(148, 163, 184, 0.22);
-  color: #cbd5e1;
+  background: rgba(51, 65, 85, 0.45);
+  border-color: rgba(148, 163, 184, 0.15);
+  color: #94a3b8;
 }
 .hero-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-  min-width: 13rem;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 .market-page-tabs {
   display: flex;
-  align-items: stretch;
-  gap: 0.45rem;
-  padding: 0.45rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 1.15rem;
-  background:
-    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.82)),
-    rgba(2, 6, 23, 0.8);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 18px 40px rgba(2, 6, 23, 0.18);
+  align-items: flex-end;
+  gap: 0;
+  border-bottom: 1px solid #334155;
+  padding: 0;
 }
 .market-page-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 8.5rem;
-  padding: 0.9rem 1.15rem;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 0.9rem;
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.76), rgba(15, 23, 42, 0.9));
-  color: #cbd5e1;
+  padding: 0.65rem 1.35rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: #94a3b8;
   font: inherit;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: 0.9rem;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-  transition:
-    background 0.16s ease,
-    color 0.16s ease,
-    border-color 0.16s ease,
-    transform 0.16s ease,
-    box-shadow 0.16s ease;
+  margin-bottom: -1px;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
 }
 .market-page-tab:hover {
-  background: linear-gradient(180deg, rgba(51, 65, 85, 0.88), rgba(30, 41, 59, 0.96));
-  color: #f8fafc;
-  border-color: rgba(148, 163, 184, 0.24);
-  transform: translateY(-1px);
+  color: #e2e8f0;
+  background: rgba(30, 41, 59, 0.5);
 }
 .market-page-tab--active {
-  background: linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(15, 23, 42, 0.98) 48%);
   color: #f8fafc;
-  border-color: rgba(125, 211, 252, 0.46);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 24px rgba(14, 165, 233, 0.16);
-}
-.market-page-tab--active::after {
-  content: '';
-  position: absolute;
-  left: 0.8rem;
-  right: 0.8rem;
-  bottom: 0.38rem;
-  height: 0.18rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(125, 211, 252, 0.96), rgba(250, 204, 21, 0.9));
+  background: #0f172a;
+  border-color: #334155;
 }
 .market-page-tab:focus-visible {
-  outline: 2px solid rgba(125, 211, 252, 0.72);
-  outline-offset: 2px;
+  outline: 2px solid rgba(59, 130, 246, 0.5);
+  outline-offset: -2px;
 }
 .market-tab-panel {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-}
-.hero-actions__hint {
-  margin: 0;
-  max-width: 18rem;
-  text-align: right;
 }
 .panel {
   padding: 1.25rem;
@@ -3475,6 +3479,131 @@ onBeforeUnmount(() => {
 .selection p {
   margin: 0.2rem 0 0;
 }
+/* Sales ticker */
+.sales-ticker {
+  overflow: hidden;
+  border-radius: 6px;
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  padding: 0.45rem 0;
+  mask-image: linear-gradient(to right, transparent, black 3%, black 97%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 3%, black 97%, transparent);
+}
+
+.sales-ticker__track {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 60s linear infinite;
+}
+
+.sales-ticker:hover .sales-ticker__track {
+  animation-play-state: paused;
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.sales-ticker__content {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.sales-ticker__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.25rem;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s;
+}
+
+.sales-ticker__item:hover {
+  background: #1e293b;
+}
+
+.sales-ticker__icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+
+.sales-ticker__name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sales-ticker__price {
+  font-size: 0.78rem;
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.sales-ticker__qty {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.sales-ticker__time {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.sales-ticker__trend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.sales-ticker__trend--up {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.sales-ticker__trend--down {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.sales-ticker__trend--flat {
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.sales-ticker__trend--unknown {
+  color: #475569;
+}
+
+.sales-ticker__sep {
+  color: #334155;
+  margin: 0 0.35rem;
+  font-size: 0.9rem;
+  user-select: none;
+}
+
+/* Item history modal stats cards */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3870,14 +3999,14 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 .trend-indicator--up {
-  color: #34d399;
-  border-color: rgba(52, 211, 153, 0.26);
-  background: rgba(16, 185, 129, 0.12);
-}
-.trend-indicator--down {
   color: #f87171;
   border-color: rgba(248, 113, 113, 0.26);
   background: rgba(239, 68, 68, 0.12);
+}
+.trend-indicator--down {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.26);
+  background: rgba(16, 185, 129, 0.12);
 }
 .trend-indicator--flat {
   color: #94a3b8;
@@ -4038,7 +4167,6 @@ onBeforeUnmount(() => {
   color: #94a3b8;
 }
 @media (max-width: 1100px) {
-  .hero,
   .layout,
   .market-summary-layout {
     grid-template-columns: 1fr;
@@ -4046,15 +4174,11 @@ onBeforeUnmount(() => {
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .hero-actions {
-    min-width: 0;
-  }
-  .market-page-tabs {
-    padding: 0.4rem;
-  }
 }
 @media (max-width: 768px) {
-  .hero,
+  .hero {
+    flex-wrap: wrap;
+  }
   .panel {
     padding: 1rem;
   }
@@ -4072,17 +4196,11 @@ onBeforeUnmount(() => {
     flex: 1;
   }
   .market-page-tabs {
-    gap: 0.25rem;
-    padding: 0.3rem;
     overflow-x: auto;
   }
   .market-page-tab {
-    min-width: 7.5rem;
-    padding: 0.78rem 0.95rem;
-  }
-  .hero-actions__hint {
-    align-self: flex-start;
-    text-align: left;
+    padding: 0.45rem 0.7rem;
+    font-size: 0.78rem;
   }
   .mover {
     align-items: stretch;

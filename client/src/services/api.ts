@@ -1872,7 +1872,8 @@ export interface MarketListingsFilters {
   itemName?: string;
   sellerName?: string;
   itemType?: number;
-  equipSlot?: number;
+  equipSlots?: number[];
+  excludeAugs?: boolean;
   minPrice?: number;
   maxPrice?: number;
   minCharges?: number;
@@ -5076,7 +5077,8 @@ export const api = {
       itemName?: string;
       sellerName?: string;
       itemType?: number;
-      equipSlot?: number;
+      equipSlots?: number[];
+      excludeAugs?: boolean;
       minPrice?: number;
       maxPrice?: number;
       minCharges?: number;
@@ -5097,7 +5099,10 @@ export const api = {
     if (options.itemName) params.append('itemName', options.itemName);
     if (options.sellerName) params.append('sellerName', options.sellerName);
     if (options.itemType != null) params.append('itemType', String(options.itemType));
-    if (options.equipSlot != null) params.append('equipSlot', String(options.equipSlot));
+    if (options.equipSlots != null && options.equipSlots.length > 0) {
+      params.append('equipSlots', options.equipSlots.join(','));
+    }
+    if (options.excludeAugs) params.append('excludeAugs', 'true');
     if (options.minPrice != null) params.append('minPrice', String(options.minPrice));
     if (options.maxPrice != null) params.append('maxPrice', String(options.maxPrice));
     if (options.minCharges != null) params.append('minCharges', String(options.minCharges));

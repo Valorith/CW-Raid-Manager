@@ -74,11 +74,12 @@ export interface MarketListingsFilters {
   itemName?: string;
   sellerName?: string;
   itemType?: number;
-  equipSlot?: number;
+  equipSlots?: number[];
   minPrice?: number;
   maxPrice?: number;
   minCharges?: number;
   maxCharges?: number;
+  excludeAugs?: boolean;
   listedWithinDays?: number;
   dealsOnly?: boolean;
   bestPricesOnly?: boolean;
@@ -389,9 +390,18 @@ function buildWhereClause(filters: MarketListingsFilters): {
     params.push(filters.itemType);
   }
 
-  if (filters.equipSlot != null && VALID_EQUIP_SLOT_IDS.has(filters.equipSlot)) {
-    conditions.push('(COALESCE(ml.itemSlots, 0) & ?) <> 0');
-    params.push(2 ** filters.equipSlot);
+  if (filters.equipSlots != null && filters.equipSlots.length > 0) {
+    const combinedMask = filters.equipSlots
+      .filter((id) => VALID_EQUIP_SLOT_IDS.has(id))
+      .reduce((mask, id) => mask | (2 ** id), 0);
+    if (combinedMask > 0) {
+      conditions.push('(COALESCE(ml.itemSlots, 0) & ?) <> 0');
+      params.push(combinedMask);
+    }
+  }
+
+  if (filters.excludeAugs) {
+    conditions.push('ml.itemType != 54');
   }
 
   if (filters.minPrice != null) {
@@ -843,7 +853,8 @@ export async function getMarketListingsPage(
     itemName?: string;
     sellerName?: string;
     itemType?: number;
-    equipSlot?: number;
+    equipSlots?: number[];
+    excludeAugs?: boolean;
     minPrice?: number;
     maxPrice?: number;
     minCharges?: number;
@@ -863,7 +874,8 @@ export async function getMarketListingsPage(
     itemName,
     sellerName,
     itemType,
-    equipSlot,
+    equipSlots,
+    excludeAugs = false,
     minPrice,
     maxPrice,
     minCharges,
@@ -884,7 +896,8 @@ export async function getMarketListingsPage(
     itemName,
     sellerName,
     itemType,
-    equipSlot,
+    equipSlots,
+    excludeAugs,
     minPrice,
     maxPrice,
     minCharges,

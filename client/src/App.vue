@@ -17,17 +17,36 @@
         <!-- Guild - With dropdown when guild is selected -->
         <div
           v-if="authStore.isAuthenticated"
+          ref="guildDropdownNavRef"
           class="nav__item"
           :class="{ 'nav__item--has-dropdown': primaryGuild }"
-          @mouseenter="openDropdown('guild')"
-          @mouseleave="closeDropdown('guild')"
+          @mouseenter="onNavDropdownMouseEnter('guild')"
+          @mouseleave="onNavDropdownMouseLeave('guild')"
         >
           <RouterLink :to="guildNavTo" class="nav__link">
             {{ guildNavLabel }}
-            <svg v-if="primaryGuild" class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+            <svg
+              v-if="primaryGuild && prefersHoverDropdowns"
+              class="nav__chevron"
+              viewBox="0 0 20 20"
+              aria-hidden="true"
+            >
               <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
             </svg>
           </RouterLink>
+          <button
+            v-if="primaryGuild && !prefersHoverDropdowns"
+            type="button"
+            class="nav__chevron-btn"
+            :aria-expanded="activeDropdown === 'guild'"
+            aria-haspopup="true"
+            aria-label="Open guild menu"
+            @click.stop="toggleTouchDropdown('guild')"
+          >
+            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </button>
           <Transition name="dropdown">
             <div v-if="primaryGuild && activeDropdown === 'guild'" class="nav__dropdown">
               <RouterLink
@@ -87,9 +106,10 @@
         <!-- Admin - With dropdown (different items for admin vs guide) -->
         <div
           v-if="authStore.isAdminOrGuide"
+          ref="adminDropdownNavRef"
           class="nav__item nav__item--has-dropdown"
-          @mouseenter="openDropdown('admin')"
-          @mouseleave="closeDropdown('admin')"
+          @mouseenter="onNavDropdownMouseEnter('admin')"
+          @mouseleave="onNavDropdownMouseLeave('admin')"
         >
           <component
             :is="authStore.isAdmin ? 'RouterLink' : 'span'"
@@ -98,10 +118,23 @@
             :class="{ 'nav__link--no-click': !authStore.isAdmin }"
           >
             Admin
-            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+            <svg v-if="prefersHoverDropdowns" class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
             </svg>
           </component>
+          <button
+            v-if="!prefersHoverDropdowns"
+            type="button"
+            class="nav__chevron-btn"
+            :aria-expanded="activeDropdown === 'admin'"
+            aria-haspopup="true"
+            aria-label="Open admin menu"
+            @click.stop="toggleTouchDropdown('admin')"
+          >
+            <svg class="nav__chevron" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </button>
           <Transition name="dropdown">
             <div v-if="activeDropdown === 'admin'" class="nav__dropdown">
               <RouterLink
@@ -341,9 +374,24 @@ const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
 
-// Dropdown state for nav menu
+// Dropdown state for nav menu (hover on fine pointers; tap chevron on touch / no-hover)
 const activeDropdown = ref<string | null>(null);
 let dropdownTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const prefersHoverDropdowns = ref(
+  typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+);
+
+const guildDropdownNavRef = ref<HTMLElement | null>(null);
+const adminDropdownNavRef = ref<HTMLElement | null>(null);
+
+let hoverDropdownMediaQuery: MediaQueryList | null = null;
+
+function updateHoverDropdownPreference() {
+  prefersHoverDropdowns.value =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
 
 function openDropdown(name: string) {
   if (dropdownTimeout) {
@@ -362,6 +410,50 @@ function closeDropdown(name: string) {
       activeDropdown.value = null;
     }
   }, 300);
+}
+
+function onNavDropdownMouseEnter(name: string) {
+  if (!prefersHoverDropdowns.value) {
+    return;
+  }
+  openDropdown(name);
+}
+
+function onNavDropdownMouseLeave(name: string) {
+  if (!prefersHoverDropdowns.value) {
+    return;
+  }
+  closeDropdown(name);
+}
+
+function toggleTouchDropdown(name: string) {
+  if (prefersHoverDropdowns.value) {
+    return;
+  }
+  activeDropdown.value = activeDropdown.value === name ? null : name;
+}
+
+function closeDropdownsFromOutside(target: Node) {
+  if (prefersHoverDropdowns.value) {
+    return;
+  }
+  if (guildDropdownNavRef.value?.contains(target)) {
+    return;
+  }
+  if (adminDropdownNavRef.value?.contains(target)) {
+    return;
+  }
+  activeDropdown.value = null;
+}
+
+function onDocumentPointerDown(event: PointerEvent) {
+  closeDropdownsFromOutside(event.target as Node);
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    activeDropdown.value = null;
+  }
 }
 
 // Computed for NPC notifications
@@ -532,6 +624,12 @@ function stopNpcRespawnMonitoring() {
 }
 
 onMounted(async () => {
+  hoverDropdownMediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
+  updateHoverDropdownPreference();
+  hoverDropdownMediaQuery.addEventListener('change', updateHoverDropdownPreference);
+  document.addEventListener('pointerdown', onDocumentPointerDown, true);
+  document.addEventListener('keydown', onDocumentKeydown, true);
+
   await authStore.fetchCurrentUser();
   if (primaryGuild.value) {
     await loadActiveRaid(primaryGuild.value.id);
@@ -552,6 +650,11 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  hoverDropdownMediaQuery?.removeEventListener('change', updateHoverDropdownPreference);
+  hoverDropdownMediaQuery = null;
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+  document.removeEventListener('keydown', onDocumentKeydown, true);
+
   window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
   window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
   window.removeEventListener('loot-updated', handleLootUpdated as EventListener);
@@ -563,6 +666,13 @@ onBeforeUnmount(() => {
   // Cleanup webhook debug store
   webhookDebugStore.cleanup();
 });
+
+watch(
+  () => route.fullPath,
+  () => {
+    activeDropdown.value = null;
+  }
+);
 
 watch(
   () => primaryGuild.value?.id,
@@ -685,10 +795,46 @@ function hasRaidStarted(raid: RaidEventSummary) {
   position: relative;
 }
 
+.nav__item--has-dropdown {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
 .nav__item--has-dropdown .nav__link {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.nav__chevron-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: 0;
+}
+
+.nav__chevron-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #38bdf8;
+}
+
+.nav__chevron-btn:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.75);
+  outline-offset: 2px;
+}
+
+.nav__chevron-btn .nav__chevron {
+  opacity: 0.85;
 }
 
 .nav-alerts {
@@ -1329,8 +1475,16 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 @media (max-width: 768px) {
+  .app-shell {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   .app-header {
     padding: 0.75rem 1.25rem;
+    padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
   }
 
   .nav {
@@ -1354,15 +1508,32 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
   .app-content {
     padding: 1.25rem;
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
   }
 
   .active-raid-banner {
     padding: 0.75rem 1.25rem;
+    padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
   }
 
   .active-raid-banner__content {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .toast-container {
+    left: max(1rem, env(safe-area-inset-left, 0px));
+    right: max(1rem, env(safe-area-inset-right, 0px));
+    bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
+    max-width: calc(100vw - 2rem);
+  }
+
+  .toast {
+    min-width: 0;
+    max-width: 100%;
   }
 }
 

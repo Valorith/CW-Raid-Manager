@@ -40,11 +40,32 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
           itemName: z.string().trim().max(100).optional(),
           sellerName: z.string().trim().max(100).optional(),
           itemType: z.coerce.number().int().optional(),
-          equipSlot: z.coerce.number().int().optional(),
+          equipSlots: z
+            .string()
+            .optional()
+            .transform((value) => {
+              if (!value) return undefined;
+              const ids = value
+                .split(',')
+                .map((s) => Number(s.trim()))
+                .filter((n) => Number.isInteger(n) && itemSlotIds.has(n));
+              return ids.length > 0 ? ids : undefined;
+            }),
           minPrice: z.coerce.number().int().min(0).optional(),
           maxPrice: z.coerce.number().int().min(0).optional(),
           minCharges: z.coerce.number().int().min(0).optional(),
           maxCharges: z.coerce.number().int().min(0).optional(),
+          excludeAugs: z
+            .preprocess(
+              (value) =>
+                value === true || value === 'true'
+                  ? true
+                  : value === false || value === 'false'
+                    ? false
+                    : undefined,
+              z.boolean().optional()
+            )
+            .optional(),
           listedWithinDays: z.coerce.number().int().min(1).max(365).optional(),
           dealsOnly: z
             .preprocess(
@@ -103,9 +124,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
         .refine((value) => value.itemType == null || itemTypeValues.has(value.itemType), {
           message: 'Invalid item type.'
         })
-        .refine((value) => value.equipSlot == null || itemSlotIds.has(value.equipSlot), {
-          message: 'Invalid equipment slot.'
-        });
+;
 
       const parsed = querySchema.safeParse(request.query);
       if (!parsed.success) {

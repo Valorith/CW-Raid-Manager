@@ -879,4 +879,36 @@ onMounted(() => {
 .small {
   font-size: 0.85rem;
 }
+
+@media (max-width: 480px) {
+  .settings__header h1 {
+    font-size: 1.5rem;
+  }
+
+  .card {
+    padding: 1.25rem;
+  }
+
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .provider-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .provider-card__info {
+    min-width: 0;
+  }
+
+  .provider-card .btn,
+  .provider-card a.btn {
+    align-self: stretch;
+    justify-content: center;
+    text-align: center;
+  }
+}
 </style>

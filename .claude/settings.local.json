@@ -17,7 +17,11 @@
       "Bash(find:*)",
       "Bash(npx prisma generate:*)",
       "Bash(psql:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx vite:*)",
+      "Bash(find /c/Users/rgagn/OneDrive/Documents/Github Projects/CWRaidManager/client/src -type f \\\\\\(-name *MarketTrends* -o -name *Market* \\\\\\))",
+      "Bash(xargs grep:*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

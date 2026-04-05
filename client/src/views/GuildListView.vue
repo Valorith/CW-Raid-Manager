@@ -512,4 +512,25 @@ function extractErrorMessage(error: unknown, fallback: string) {
   font-size: 1.15rem;
   cursor: pointer;
 }
+
+@media (max-width: 480px) {
+  .guilds {
+    gap: 1.25rem;
+  }
+
+  .guild-card__heading {
+    min-width: 0;
+  }
+
+  .guild-card__heading h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .modal-backdrop {
+    padding: 1rem;
+    padding-left: max(1rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1rem, env(safe-area-inset-right, 0px));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  }
+}
 </style>
