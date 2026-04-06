@@ -125,13 +125,15 @@ Railway can host both the Fastify API and the Vue client behind a single project
    - `GOOGLE_CALLBACK_URL` – Must exactly match the Google console redirect (`https://<railway-domain>/api/auth/google/callback`).
    - Optional: `APP_CONFIG_PATH` if you store a custom `config/app.config.json`.
 
-4. **Set build/start commands in Railway.**
+4. **Deploy with the checked-in Railway config.**
 
-   - Install command: `npm install`
-   - Build command: `npm run build`
-   - Start command: `npm run start`
+   This repo includes [`railway.json`](./railway.json), which tells Railway to:
 
-   The build step generates the production Vue bundle in `client/dist` and compiles the Fastify server. The start command runs through the database bootstrapper and launches the API + static assets on the port Railway provides.
+   - build with `npm run build`
+   - start with `npm run start`
+   - health check `GET /health`
+
+   That avoids Railpack guessing wrong in this npm-workspaces setup and ensures the production Vue bundle plus `server/build/index.js` exist before the service boots.
 
 5. **Run migrations during deployment.**  
    Apply Prisma migrations against the Railway database any time the schema changes:
