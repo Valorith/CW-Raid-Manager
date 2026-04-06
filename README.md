@@ -130,12 +130,24 @@ Railway can host both the Fastify API and the Vue client behind a single project
    This repo includes [`railway.json`](./railway.json), which tells Railway to:
 
    - build with `npm run build`
-   - start with `npm run start`
-   - health check `GET /health`
 
-   That avoids Railpack guessing wrong in this npm-workspaces setup and ensures the production Vue bundle plus `server/build/index.js` exist before the service boots.
+   That avoids Railpack guessing wrong in this npm-workspaces setup and ensures the production Vue bundle plus `server/build/index.js` exist before any service boots.
 
-5. **Run migrations during deployment.**  
+   Do not set a shared `startCommand` in `railway.json` for this repo. Railway applies config-as-code overrides to every service that deploys this repository, which will break the dedicated cron service if it is forced to use the web server command.
+
+5. **Set start commands per service in Railway.**
+
+   For this shared monorepo, configure service-specific runtime settings in the Railway dashboard:
+
+   - Web/API service:
+     - Start command: `npm run start`
+     - Health check: `GET /health`
+   - Cron service:
+     - Start command: `npm run cron:snapshot --prefix server`
+     - Cron schedule: `*/5 * * * *`
+     - No health check required
+
+6. **Run migrations during deployment.**  
    Apply Prisma migrations against the Railway database any time the schema changes:
 
    ```bash
@@ -146,7 +158,7 @@ Railway can host both the Fastify API and the Vue client behind a single project
 
    > The helper accepts `--allow-missing` for commands (like `prisma generate`) that do not require a live database connection; otherwise the process exits early so migrations/startup never proceed without credentials.
 
-6. **Redeploy on changes.**  
+7. **Redeploy on changes.**  
    Push to the connected branch or run `railway up` to trigger a new build. Railway rebuilds the workspaces and restarts the service with the latest code.
 
 ## Handling Roster Imports
