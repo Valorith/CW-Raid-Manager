@@ -73,7 +73,7 @@ export async function integrationRoutes(server: FastifyInstance): Promise<void> 
       if (connected) {
         await sendTelegramMessage({
           chatId: String(parsed.data.message?.chat.id ?? ''),
-          text: 'Your CW Raid Manager Telegram notifications are now connected.'
+          text: 'Your CW Nexus Telegram notifications are now connected.'
         }).catch(() => undefined);
       }
     } catch (error) {
@@ -157,7 +157,7 @@ export async function integrationRoutes(server: FastifyInstance): Promise<void> 
           if (connected && message.from) {
             await sendWhatsappMessage({
               toPhoneNumber: message.from,
-              text: 'Your CW Raid Manager WhatsApp notifications are now connected.'
+              text: 'Your CW Nexus WhatsApp notifications are now connected.'
             }).catch(() => undefined);
           }
         } catch (error) {

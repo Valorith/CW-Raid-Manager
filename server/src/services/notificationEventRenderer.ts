@@ -33,7 +33,7 @@ export function renderNotificationEvent(
   switch (eventKey) {
     case 'notification.test':
       return {
-        text: `Test message from CW Raid Manager.\n\nYour ${asString(data.provider, 'messenger')} channel is connected and ready.`
+        text: `Test message from CW Nexus.\n\nYour ${asString(data.provider, 'messenger')} channel is connected and ready.`
       };
     case 'npc.respawn.window_open':
       if (typeof data.minutesUntilWindow === 'number' && data.minutesUntilWindow > 0) {

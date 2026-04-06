@@ -154,7 +154,7 @@ async function ensureNotificationIdentityAvailable(options: {
   });
 
   if (conflict) {
-    throw new Error('That messenger account is already linked to another CW Raid Manager user.');
+    throw new Error('That messenger account is already linked to another CW Nexus user.');
   }
 }
 
