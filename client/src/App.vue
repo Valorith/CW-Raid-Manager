@@ -269,14 +269,52 @@
           to="/settings/account"
           class="settings-link"
           aria-label="Account settings"
+          title="Account Settings"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              fill="currentColor"
-              fill-rule="evenodd"
-              d="M11.828 1.046c-.307-.684-1.32-.684-1.628 0l-.562 1.255a8.45 8.45 0 0 0-2.548 1.473l-1.352-.284c-.707-.148-1.336.48-1.188 1.188l.284 1.352a8.46 8.46 0 0 0-1.473 2.548l-1.255.562c-.684.306-.684 1.32 0 1.628l1.255.562a8.45 8.45 0 0 0 1.473 2.548l-.284 1.352c-.148.707.48 1.336 1.188 1.188l1.352-.284a8.45 8.45 0 0 0 2.548 1.473l.562 1.255c.307.684 1.32.684 1.628 0l.562-1.255a8.45 8.45 0 0 0 2.548-1.473l1.352.284c.707.148 1.336-.48 1.188-1.188l-.284-1.352a8.45 8.45 0 0 0 1.473-2.548l1.255-.562c.684-.307.684-1.32 0-1.628l-1.255-.562a8.45 8.45 0 0 0-1.473-2.548l.284-1.352c.148-.707-.48-1.336-1.188-1.188l-1.352.284a8.45 8.45 0 0 0-2.548-1.473l-.562-1.255ZM12 15.75a3.75 3.75 0 1 1 0-7.5 3.75 3.75 0 0 1 0 7.5Z"
-              clip-rule="evenodd"
-            />
+            <g fill="currentColor">
+              <rect x="11" y="1.5" width="2" height="4" rx="0.75" />
+              <rect x="11" y="18.5" width="2" height="4" rx="0.75" />
+              <rect x="18.5" y="11" width="4" height="2" rx="0.75" />
+              <rect x="1.5" y="11" width="4" height="2" rx="0.75" />
+              <rect
+                x="16.95"
+                y="4.1"
+                width="2"
+                height="4"
+                rx="0.75"
+                transform="rotate(45 17.95 6.1)"
+              />
+              <rect
+                x="5.05"
+                y="15.9"
+                width="2"
+                height="4"
+                rx="0.75"
+                transform="rotate(45 6.05 17.9)"
+              />
+              <rect
+                x="15.9"
+                y="16.95"
+                width="4"
+                height="2"
+                rx="0.75"
+                transform="rotate(45 17.9 17.95)"
+              />
+              <rect
+                x="4.1"
+                y="5.05"
+                width="4"
+                height="2"
+                rx="0.75"
+                transform="rotate(45 6.1 6.05)"
+              />
+              <path
+                fill-rule="evenodd"
+                d="M12 6.1a5.9 5.9 0 1 0 0 11.8 5.9 5.9 0 0 0 0-11.8Zm0 3.2a2.7 2.7 0 1 1 0 5.4 2.7 2.7 0 0 1 0-5.4Z"
+                clip-rule="evenodd"
+              />
+            </g>
           </svg>
         </RouterLink>
         <template v-if="authStore.isAuthenticated">
@@ -1301,30 +1339,38 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2.5rem;
+  height: 2.5rem;
   border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(15, 23, 42, 0.6);
-  color: #e2e8f0;
+  border: 1px solid rgba(103, 232, 249, 0.5);
+  background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.22), rgba(30, 41, 59, 0.95));
+  color: #f8fafc;
+  text-decoration: none;
+  box-shadow:
+    0 10px 24px rgba(2, 8, 23, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   transition:
     transform 0.12s ease,
     border-color 0.2s ease,
     background 0.2s ease,
-    color 0.2s ease;
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .settings-link svg {
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 1.35rem;
+  height: 1.35rem;
 }
 
 .settings-link:hover,
 .settings-link:focus {
   transform: translateY(-1px);
-  border-color: rgba(59, 130, 246, 0.55);
-  background: rgba(59, 130, 246, 0.2);
-  color: #38bdf8;
+  border-color: rgba(103, 232, 249, 0.7);
+  background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.34), rgba(30, 64, 175, 0.9));
+  color: #f8fafc;
+  box-shadow:
+    0 14px 28px rgba(14, 116, 144, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .settings-link:focus {

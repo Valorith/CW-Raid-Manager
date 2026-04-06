@@ -424,7 +424,7 @@
             </div>
           </article>
 
-          <article class="preferences-panel">
+          <article v-if="hasGuildMemberships" class="preferences-panel">
             <header class="preferences-panel__header">
               <h3>Guild Alerts</h3>
               <p class="muted small">
@@ -436,7 +436,7 @@
             <div v-if="notificationsLoading" class="muted small">Loading guild preferences...</div>
             <div v-else class="guild-preferences">
               <section
-                v-for="group in guildAlertGroups"
+                v-for="group in visibleGuildAlertGroups"
                 :key="group.scopeId"
                 class="guild-preferences__group"
               >
@@ -497,6 +497,9 @@
                   </div>
                 </div>
               </section>
+              <p v-if="!visibleGuildAlertGroups.length" class="muted small">
+                No guild-specific alert options are available for your current guild roles.
+              </p>
             </div>
           </article>
         </div>
@@ -640,6 +643,7 @@ const whatsappAvailability = computed(() => notificationAvailability.value.WHATS
 const marketAlertPreferences = computed(() =>
   notificationPreferences.value.filter((preference) => preference.scopeType === 'GLOBAL')
 );
+const hasGuildMemberships = computed(() => (authStore.user?.guilds?.length ?? 0) > 0);
 const guildAlertGroups = computed(() => {
   const groups = new Map<string, NotificationPreferenceSummary[]>();
 
@@ -657,6 +661,14 @@ const guildAlertGroups = computed(() => {
     preferences
   }));
 });
+const visibleGuildAlertGroups = computed(() =>
+  guildAlertGroups.value
+    .map((group) => ({
+      ...group,
+      preferences: group.preferences.filter((preference) => shouldShowGuildAlertPreference(preference))
+    }))
+    .filter((group) => group.preferences.length > 0)
+);
 
 const previewName = computed(() => {
   const trimmed = nickname.value.trim();
@@ -825,6 +837,22 @@ function getProviderAvailability(provider: NotificationProvider) {
 
 function canStartMessengerConnect(provider: NotificationProvider) {
   return getProviderAvailability(provider).isAvailable;
+}
+
+function canManageGuildApplicationAlerts(guildId: string) {
+  const role = authStore.user?.guilds.find((guild) => guild.id === guildId)?.role;
+  return role === 'LEADER' || role === 'OFFICER';
+}
+
+function shouldShowGuildAlertPreference(preference: NotificationPreferenceSummary) {
+  if (
+    preference.eventKey !== 'application.approved' &&
+    preference.eventKey !== 'application.denied'
+  ) {
+    return true;
+  }
+
+  return canManageGuildApplicationAlerts(preference.scopeId);
 }
 
 function getMessengerStatus(provider: NotificationProvider) {
