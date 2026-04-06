@@ -33,12 +33,19 @@ async function start(): Promise<void> {
         error: (...args) => server.log.error(args[0]),
         debug: (...args) => server.log.debug(args[0])
       });
-      startMarketSyncScheduler({
-        info: (...args) => server.log.info(args[0]),
-        warn: (...args) => server.log.warn(args[0]),
-        error: (...args) => server.log.error(args[0]),
-        debug: (...args) => server.log.debug(args[0])
-      });
+
+      if (appConfig.nodeEnv === 'production') {
+        server.log.info(
+          '[MarketSyncScheduler] Skipping in-process scheduler in production; use the cron service instead.'
+        );
+      } else {
+        startMarketSyncScheduler({
+          info: (...args) => server.log.info(args[0]),
+          warn: (...args) => server.log.warn(args[0]),
+          error: (...args) => server.log.error(args[0]),
+          debug: (...args) => server.log.debug(args[0])
+        });
+      }
     } else {
       server.log.debug('EQ content database not configured; skipping pool initialization.');
     }

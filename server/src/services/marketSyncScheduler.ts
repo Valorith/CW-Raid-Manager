@@ -1,4 +1,5 @@
 import { isEqDbConfigured } from '../utils/eqDb.js';
+import { syncMarketListings } from './marketListingsService.js';
 import { syncMarketSaleEvents } from './marketService.js';
 
 const MARKET_SYNC_INTERVAL_MS = 15 * 60 * 1000;
@@ -25,6 +26,14 @@ async function schedulerTick(): Promise<void> {
     });
   } catch (error) {
     logger.error?.('[MarketSyncScheduler] Error syncing market sale events.', error);
+  }
+
+  try {
+    await syncMarketListings({
+      logger
+    });
+  } catch (error) {
+    logger.error?.('[MarketSyncScheduler] Error syncing market listings cache.', error);
   }
 }
 
