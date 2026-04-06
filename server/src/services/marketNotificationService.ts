@@ -37,6 +37,33 @@ function normalizeText(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function formatCopperCurrency(value: number): string {
+  const totalCopper = Math.max(0, Math.trunc(value));
+  const platinum = Math.floor(totalCopper / 1000);
+  const gold = Math.floor((totalCopper % 1000) / 100);
+  const silver = Math.floor((totalCopper % 100) / 10);
+  const copper = totalCopper % 10;
+  const parts: string[] = [];
+
+  if (platinum > 0) {
+    parts.push(`${platinum.toLocaleString()}pp`);
+  }
+
+  if (gold > 0) {
+    parts.push(`${gold}gp`);
+  }
+
+  if (silver > 0) {
+    parts.push(`${silver}sp`);
+  }
+
+  if (copper > 0 || parts.length === 0) {
+    parts.push(`${copper}cp`);
+  }
+
+  return parts.join(' ');
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -154,7 +181,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
       ) {
         const lines = itemLinesByUser.get(favorite.userId) ?? [];
         lines.push(
-          `${event.itemName}: ${event.actorCharacterName} sold for ${event.price.toLocaleString()}c`
+          `${event.itemName}: ${event.actorCharacterName} sold for ${formatCopperCurrency(event.price)}`
         );
         itemLinesByUser.set(favorite.userId, lines);
       }
@@ -166,7 +193,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
       ) {
         const lines = priceRuleLinesByUser.get(favorite.userId) ?? [];
         lines.push(
-          `${event.itemName} traded at ${event.price.toLocaleString()}c (rule <= ${settings.maxTradePriceCopper.toLocaleString()}c)`
+          `${event.itemName} traded at ${formatCopperCurrency(event.price)} (rule <= ${formatCopperCurrency(settings.maxTradePriceCopper)})`
         );
         priceRuleLinesByUser.set(favorite.userId, lines);
       }
@@ -176,9 +203,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         settings.notifyOnTradeActivity !== false
       ) {
         const lines = characterLinesByUser.get(favorite.userId) ?? [];
-        lines.push(
-          `${favorite.characterName}: ${event.itemName} at ${event.price.toLocaleString()}c`
-        );
+        lines.push(`${favorite.characterName}: ${event.itemName} at ${formatCopperCurrency(event.price)}`);
         characterLinesByUser.set(favorite.userId, lines);
       }
     }
@@ -302,7 +327,7 @@ export async function processMarketListingNotifications(options: {
         if (isNewOrChanged && settings.notifyOnListingActivity !== false) {
           const lines = itemLinesByUser.get(favorite.userId) ?? [];
           lines.push(
-            `${listing.itemName} listed by ${listing.sellerCharacterName} for ${listing.price.toLocaleString()}c`
+            `${listing.itemName} listed by ${listing.sellerCharacterName} for ${formatCopperCurrency(listing.price)}`
           );
           itemLinesByUser.set(favorite.userId, lines);
         }
@@ -313,7 +338,7 @@ export async function processMarketListingNotifications(options: {
         ) {
           const lines = itemPriceRuleLinesByUser.get(favorite.userId) ?? [];
           lines.push(
-            `${listing.itemName} listed at ${listing.price.toLocaleString()}c (rule <= ${settings.maxListingPriceCopper.toLocaleString()}c)`
+            `${listing.itemName} listed at ${formatCopperCurrency(listing.price)} (rule <= ${formatCopperCurrency(settings.maxListingPriceCopper)})`
           );
           itemPriceRuleLinesByUser.set(favorite.userId, lines);
         }
@@ -331,7 +356,9 @@ export async function processMarketListingNotifications(options: {
         const previous = previousByFingerprint.get(buildListingFingerprint(listing));
         if (!previous || previous.price !== listing.price) {
           const lines = characterLinesByUser.get(favorite.userId) ?? [];
-          lines.push(`${listing.sellerCharacterName}: ${listing.itemName} at ${listing.price.toLocaleString()}c`);
+          lines.push(
+            `${listing.sellerCharacterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}`
+          );
           characterLinesByUser.set(favorite.userId, lines);
         }
       }
@@ -350,7 +377,9 @@ export async function processMarketListingNotifications(options: {
           const previous = previousByFingerprint.get(buildListingFingerprint(listing));
           if (!previous || previous.price !== listing.price) {
             const lines = traderListingLinesByUser.get(favorite.userId) ?? [];
-            lines.push(`${favorite.characterName}: ${listing.itemName} at ${listing.price.toLocaleString()}c`);
+            lines.push(
+              `${favorite.characterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}`
+            );
             traderListingLinesByUser.set(favorite.userId, lines);
           }
         }
@@ -367,7 +396,9 @@ export async function processMarketListingNotifications(options: {
           }
 
           const lines = traderUndercutLinesByUser.get(favorite.userId) ?? [];
-          lines.push(`${favorite.characterName}: ${listing.itemName} is now undercut at ${listing.price.toLocaleString()}c`);
+          lines.push(
+            `${favorite.characterName}: ${listing.itemName} is now undercut at ${formatCopperCurrency(listing.price)}`
+          );
           traderUndercutLinesByUser.set(favorite.userId, lines);
         }
       }

@@ -5,8 +5,8 @@
         <p class="eyebrow">Trader Listings Cache</p>
         <h2>Listings</h2>
         <p class="muted listings-tab__copy">
-          Browse current bazaar listings cached from EQEmu trader data. The cache only checks for
-          a fresh retrieval when this tab is opened after 15 minutes.
+          Browse current bazaar listings cached from EQEmu trader data. The backend refreshes this
+          cache on a 15-minute schedule.
         </p>
       </div>
       <div class="listings-tab__header-actions">
@@ -29,23 +29,14 @@
       </div>
     </header>
 
-    <section
-      class="listings-cooldown"
-      :class="{ 'listings-cooldown--ready': listingsCooldownReady }"
-      aria-live="polite"
-    >
-      <div class="listings-cooldown__row">
-        <span class="listings-cooldown__label">EQEmu refresh window</span>
-        <strong class="listings-cooldown__value">{{ listingsCooldownStatus }}</strong>
-        <span v-if="listingsCooldownMeta" class="muted listings-cooldown__meta">
-          {{ listingsCooldownMeta }}
-        </span>
+    <section class="listings-sync" aria-live="polite">
+      <div class="listings-sync__item">
+        <span class="listings-sync__label">Last Updated</span>
+        <strong class="listings-sync__value">{{ listingsLastUpdatedLabel }}</strong>
       </div>
-      <div class="listings-cooldown__bar" aria-hidden="true">
-        <span
-          class="listings-cooldown__bar-fill"
-          :style="{ width: `${listingsCooldownProgress}%` }"
-        />
+      <div class="listings-sync__item">
+        <span class="listings-sync__label">Next Update</span>
+        <strong class="listings-sync__value">{{ listingsNextUpdateLabel }}</strong>
       </div>
     </section>
 
@@ -575,7 +566,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import CoinDisplay from '../../components/CoinDisplay.vue';
 import SlotSelectorModal from './SlotSelectorModal.vue';
@@ -627,10 +618,10 @@ const advancedFiltersOpen = ref(false);
 
 let activeRequestToken = 0;
 let filterTimeout: ReturnType<typeof setTimeout> | null = null;
-let cooldownInterval: ReturnType<typeof setInterval> | null = null;
 
 const LISTINGS_PAGE_SIZE = 25;
 const LISTINGS_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+const CRON_EXECUTION_INTERVAL_MS = 5 * 60 * 1000;
 const unavailableMessage = 'Bazaar listings are unavailable right now.';
 const itemTypeOptions = EQEMU_ITEM_TYPE_OPTIONS;
 const itemSlotOptions = EQEMU_ITEM_SLOT_OPTIONS; // Used for chip labels
@@ -659,55 +650,28 @@ const summary = computed(() =>
 const displayListings = computed(() =>
   validationMessage.value ? [] : (listingsPage.value?.listings ?? [])
 );
-const currentTimeMs = ref(Date.now());
 const listingsLastRetrievedAt = computed(
   () => listingsPage.value?.syncStatus.lastRetrievedAt ?? null
 );
-const listingsNextEligibleAtMs = computed(() => {
+const listingsNextUpdateAt = computed(() => {
   if (!listingsLastRetrievedAt.value) {
     return null;
   }
 
-  return new Date(listingsLastRetrievedAt.value).getTime() + LISTINGS_REFRESH_COOLDOWN_MS;
+  const eligibleAtMs =
+    new Date(listingsLastRetrievedAt.value).getTime() + LISTINGS_REFRESH_COOLDOWN_MS;
+  const nextCronTickMs =
+    Math.ceil(eligibleAtMs / CRON_EXECUTION_INTERVAL_MS) * CRON_EXECUTION_INTERVAL_MS;
+  return new Date(nextCronTickMs).toISOString();
 });
-const listingsCooldownRemainingMs = computed(() => {
-  if (!listingsNextEligibleAtMs.value) {
-    return 0;
-  }
-
-  return Math.max(0, listingsNextEligibleAtMs.value - currentTimeMs.value);
-});
-const listingsCooldownReady = computed(
-  () => listingsLastRetrievedAt.value != null && listingsCooldownRemainingMs.value <= 0
+const listingsLastUpdatedLabel = computed(() =>
+  listingsLastRetrievedAt.value
+    ? formatDateTime(listingsLastRetrievedAt.value)
+    : 'Awaiting first retrieval'
 );
-const listingsCooldownProgress = computed(() => {
-  if (!listingsLastRetrievedAt.value) {
-    return 0;
-  }
-
-  const elapsed = LISTINGS_REFRESH_COOLDOWN_MS - listingsCooldownRemainingMs.value;
-  return Math.max(0, Math.min(100, (elapsed / LISTINGS_REFRESH_COOLDOWN_MS) * 100));
-});
-const listingsCooldownStatus = computed(() => {
-  if (!listingsLastRetrievedAt.value) {
-    return 'Awaiting first retrieval';
-  }
-
-  return listingsCooldownReady.value
-    ? 'Ready for refresh'
-    : `Next refresh in ${formatCooldownClock(listingsCooldownRemainingMs.value)}`;
-});
-const listingsCooldownMeta = computed(() => {
-  if (!listingsLastRetrievedAt.value) {
-    return null;
-  }
-
-  const nextEligibleAt = new Date(listingsNextEligibleAtMs.value ?? Date.now()).toISOString();
-
-  return listingsCooldownReady.value
-    ? `Updated ${formatDateTime(listingsLastRetrievedAt.value)}`
-    : `Updated ${formatDateTime(listingsLastRetrievedAt.value)} • Next ${formatRelativeDateTime(listingsLastRetrievedAt.value, nextEligibleAt)}`;
-});
+const listingsNextUpdateLabel = computed(() =>
+  listingsNextUpdateAt.value ? formatDateTime(listingsNextUpdateAt.value) : 'Awaiting first retrieval'
+);
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? '').trim().replace(/\s+/g, ' ');
@@ -899,13 +863,6 @@ function formatCompactDate(value: string | null) {
   );
 }
 
-function formatCooldownClock(totalMs: number) {
-  const totalSeconds = Math.max(0, Math.ceil(totalMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
 function formatTime(value: string | null) {
   if (!value) return 'No listings';
   return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(
@@ -918,27 +875,6 @@ function formatDateTime(value: string | null) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
     new Date(value)
   );
-}
-
-function formatRelativeDateTime(referenceValue: string | null, value: string | null) {
-  if (!value) return 'n/a';
-
-  const target = new Date(value);
-  if (!referenceValue) {
-    return formatDateTime(value);
-  }
-
-  const reference = new Date(referenceValue);
-  const sameDay =
-    target.getFullYear() === reference.getFullYear() &&
-    target.getMonth() === reference.getMonth() &&
-    target.getDate() === reference.getDate();
-
-  if (sameDay) {
-    return new Intl.DateTimeFormat('en-US', { timeStyle: 'short' }).format(target);
-  }
-
-  return formatDateTime(value);
 }
 
 function formatSlot(listing: MarketListing) {
@@ -1257,25 +1193,6 @@ function hideMarketItemTooltip() {
   tooltipStore.hideTooltip();
 }
 
-function startCooldownTicker() {
-  if (cooldownInterval) {
-    return;
-  }
-
-  cooldownInterval = setInterval(() => {
-    currentTimeMs.value = Date.now();
-  }, 1000);
-}
-
-function stopCooldownTicker() {
-  if (!cooldownInterval) {
-    return;
-  }
-
-  clearInterval(cooldownInterval);
-  cooldownInterval = null;
-}
-
 watch(
   () => props.active,
   (isActive) => {
@@ -1318,13 +1235,8 @@ watch(
   { deep: true }
 );
 
-onMounted(() => {
-  startCooldownTicker();
-});
-
 onBeforeUnmount(() => {
   if (filterTimeout) clearTimeout(filterTimeout);
-  stopCooldownTicker();
   tooltipStore.hideTooltipImmediate();
 });
 </script>
@@ -1343,10 +1255,10 @@ onBeforeUnmount(() => {
   box-shadow: 0 18px 44px rgba(2, 6, 23, 0.26);
 }
 
-.listings-cooldown {
+.listings-sync {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.8rem;
   padding: 0.8rem 1rem;
   border-radius: 0.95rem;
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -1354,57 +1266,31 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
-.listings-cooldown--ready {
-  border-color: rgba(52, 211, 153, 0.18);
-  background: rgba(9, 27, 23, 0.45);
-}
-
-.listings-cooldown__row {
+.listings-sync__item {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.75rem;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 0 1 18rem;
+  min-width: 0;
 }
 
-.listings-cooldown__label {
+.listings-sync__item:last-child {
+  margin-left: auto;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.listings-sync__label {
   font-size: 0.73rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #94a3b8;
 }
 
-.listings-cooldown__value {
+.listings-sync__value {
   font-size: 0.95rem;
   font-weight: 700;
   color: #e2e8f0;
-}
-
-.listings-cooldown--ready .listings-cooldown__value {
-  color: #bbf7d0;
-}
-
-.listings-cooldown__meta {
-  font-size: 0.84rem;
-}
-
-.listings-cooldown__bar {
-  position: relative;
-  height: 0.3rem;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(51, 65, 85, 0.55);
-}
-
-.listings-cooldown__bar-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: rgba(125, 211, 252, 0.6);
-  transition: width 1s linear, background 0.2s ease;
-}
-
-.listings-cooldown--ready .listings-cooldown__bar-fill {
-  background: rgba(110, 231, 183, 0.7);
 }
 
 .listings-tab__header {
@@ -2083,14 +1969,19 @@ onBeforeUnmount(() => {
     padding: 1rem;
   }
 
-  .listings-cooldown {
+  .listings-sync {
     padding: 0.75rem 0.9rem;
   }
 
-  .listings-cooldown__row {
-    flex-direction: column;
+  .listings-sync__item {
+    gap: 0.2rem;
+    flex-basis: 100%;
+  }
+
+  .listings-sync__item:last-child {
+    margin-left: 0;
     align-items: flex-start;
-    gap: 0.3rem;
+    text-align: left;
   }
 
   .listings-tab__header,
