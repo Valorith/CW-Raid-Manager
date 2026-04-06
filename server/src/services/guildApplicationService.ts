@@ -4,6 +4,7 @@ import { prisma } from '../utils/prisma.js';
 import { getUserGuildRole, canManageGuild } from './guildService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { queueUserNotification } from './userNotificationService.js';
 
 export async function applyToGuild(guildId: string, userId: string) {
   const guild = await prisma.guild.findUnique({
@@ -202,6 +203,7 @@ export async function approveApplication(applicationId: string, actorUserId: str
     });
 
     return {
+      applicantUserId: application.userId,
       guildId: application.guildId,
       guildName: application.guild.name,
       applicantName: withPreferredDisplayName(application.user).displayName
@@ -219,6 +221,18 @@ export async function approveApplication(applicationId: string, actorUserId: str
     applicantName: approvalContext.applicantName,
     actorName,
     resolvedAt: new Date()
+  });
+
+  await queueUserNotification({
+    userId: approvalContext.applicantUserId,
+    scopeType: 'GUILD',
+    scopeId: approvalContext.guildId,
+    eventKey: 'application.approved',
+    payload: {
+      guildName: approvalContext.guildName,
+      applicantName: approvalContext.applicantName
+    },
+    dedupeSeed: `${applicationId}:approved`
   });
 
   return true;
@@ -276,6 +290,18 @@ export async function denyApplication(applicationId: string, actorUserId: string
     applicantName: withPreferredDisplayName(application.user).displayName,
     actorName,
     resolvedAt: new Date()
+  });
+
+  await queueUserNotification({
+    userId: application.userId,
+    scopeType: 'GUILD',
+    scopeId: application.guildId,
+    eventKey: 'application.denied',
+    payload: {
+      guildName: application.guild.name,
+      applicantName: withPreferredDisplayName(application.user).displayName
+    },
+    dedupeSeed: `${applicationId}:denied`
   });
 }
 

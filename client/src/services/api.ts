@@ -1395,6 +1395,65 @@ export interface LinkedProviders {
   discord: boolean;
 }
 
+export type NotificationProvider = 'TELEGRAM' | 'WHATSAPP';
+export type NotificationScopeType = 'GLOBAL' | 'GUILD';
+export type NotificationChannelStatus = 'PENDING' | 'ACTIVE' | 'DISCONNECTED' | 'FAILED';
+
+export interface NotificationChannelConnection {
+  id: string;
+  provider: NotificationProvider;
+  status: NotificationChannelStatus;
+  displayLabel: string | null;
+  externalUserId: string | null;
+  externalChatId: string | null;
+  externalPhone: string | null;
+  verifiedAt: string | null;
+  lastInboundAt: string | null;
+  lastTestedAt: string | null;
+}
+
+export interface NotificationProviderAvailability {
+  provider: NotificationProvider;
+  isAvailable: boolean;
+  unavailableReason: string | null;
+}
+
+export interface NotificationChannelsSnapshot {
+  channels: NotificationChannelConnection[];
+  availability: NotificationProviderAvailability[];
+}
+
+export interface NotificationLinkSession {
+  provider: NotificationProvider;
+  status: NotificationChannelStatus;
+  deepLinkUrl: string;
+  fallbackText: string;
+  expiresAt: string;
+}
+
+export interface NotificationPreferenceSummary {
+  scopeType: NotificationScopeType;
+  scopeId: string;
+  scopeLabel: string;
+  eventKey: string;
+  eventLabel: string;
+  eventDescription: string;
+  recommended: boolean;
+  isEnabled: boolean;
+  providerTargets: Partial<Record<NotificationProvider, boolean>>;
+}
+
+export interface MarketFavoriteNotificationSettings {
+  notifyOnTradeActivity?: boolean;
+  notifyOnListingActivity?: boolean;
+  notifyOnUndercut?: boolean;
+  undercutOnly?: boolean;
+  onlyNewUndercuts?: boolean;
+  maxListingPriceCopper?: number | null;
+  maxTradePriceCopper?: number | null;
+  listingBelowRecentAveragePercent?: number | null;
+}
+
 export interface AdminUserGuildMembership {
   guild: {
     id: string;
@@ -1957,6 +2016,7 @@ export interface MarketFavoriteItem {
   itemName: string;
   itemIconId: number | null;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   totalSales: number;
   totalUnitsSold: number;
   totalRevenue: number;
@@ -1969,6 +2029,7 @@ export interface MarketFavoriteCharacter {
   id: string;
   characterName: string;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   sellCount: number;
   buyCount: number;
   totalTransactions: number;
@@ -1996,6 +2057,7 @@ export interface MarketFavoriteTrader {
   id: string;
   characterName: string;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   totalListings: number;
   uniqueItems: number;
   leadingListings: number;
@@ -3905,6 +3967,82 @@ export const api = {
       google: Boolean(response.data.providers?.google),
       discord: Boolean(response.data.providers?.discord)
     };
+  },
+
+  async fetchNotificationChannels(): Promise<NotificationChannelsSnapshot> {
+    const response = await axios.get('/api/account/notification-channels');
+    return {
+      channels: Array.isArray(response.data.channels) ? response.data.channels : [],
+      availability: Array.isArray(response.data.availability) ? response.data.availability : []
+    };
+  },
+
+  async createTelegramNotificationLink(): Promise<NotificationLinkSession> {
+    const response = await axios.post('/api/account/notification-channels/telegram/link');
+    return response.data.link;
+  },
+
+  async createWhatsappNotificationLink(): Promise<NotificationLinkSession> {
+    const response = await axios.post('/api/account/notification-channels/whatsapp/link');
+    return response.data.link;
+  },
+
+  async disconnectNotificationChannel(
+    provider: NotificationProvider
+  ): Promise<NotificationChannelConnection[]> {
+    const response = await axios.post(`/api/account/notification-channels/${provider}/disconnect`);
+    return Array.isArray(response.data.channels) ? response.data.channels : [];
+  },
+
+  async sendNotificationTest(
+    provider: NotificationProvider
+  ): Promise<NotificationChannelConnection[]> {
+    const response = await axios.post(`/api/account/notification-channels/${provider}/test`);
+    return Array.isArray(response.data.channels) ? response.data.channels : [];
+  },
+
+  async fetchNotificationPreferences(): Promise<NotificationPreferenceSummary[]> {
+    const response = await axios.get('/api/account/notification-preferences');
+    return Array.isArray(response.data.preferences) ? response.data.preferences : [];
+  },
+
+  async updateNotificationPreferences(
+    updates: Array<{
+      scopeType: NotificationScopeType;
+      scopeId: string;
+      eventKey: string;
+      isEnabled: boolean;
+      providerTargets?: Partial<Record<NotificationProvider, boolean>>;
+    }>
+  ): Promise<NotificationPreferenceSummary[]> {
+    const response = await axios.patch('/api/account/notification-preferences', { updates });
+    return Array.isArray(response.data.preferences) ? response.data.preferences : [];
+  },
+
+  async fetchMarketNotificationSettings(): Promise<{
+    items: Array<{ id: string; notificationSettings: MarketFavoriteNotificationSettings }>;
+    characters: Array<{ id: string; notificationSettings: MarketFavoriteNotificationSettings }>;
+    traders: Array<{ id: string; notificationSettings: MarketFavoriteNotificationSettings }>;
+  }> {
+    const response = await axios.get('/api/account/market-notification-settings');
+    return (
+      response.data.settings ?? {
+        items: [],
+        characters: [],
+        traders: []
+      }
+    );
+  },
+
+  async updateMarketNotificationSettings(
+    favoriteId: string,
+    payload: MarketFavoriteNotificationSettings
+  ): Promise<MarketFavoriteNotificationSettings> {
+    const response = await axios.patch(
+      `/api/account/market-notification-settings/${favoriteId}`,
+      payload
+    );
+    return response.data.notificationSettings;
   },
 
   async fetchRecentAttendance(limit?: number): Promise<RecentAttendanceEntry[]> {

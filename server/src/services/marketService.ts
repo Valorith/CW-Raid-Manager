@@ -4,6 +4,11 @@ import type { RowDataPacket } from 'mysql2/promise';
 import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { getItemIconId } from './eqItemService.js';
+import {
+  normalizeMarketFavoriteNotificationSettings,
+  processMarketSaleNotifications
+} from './marketNotificationService.js';
+import type { MarketFavoriteNotificationSettings } from './notificationConstants.js';
 
 const TRADER_PURCHASE_EVENT_TYPE_ID = 38;
 const TRADER_SELL_EVENT_TYPE_ID = 39;
@@ -255,6 +260,7 @@ export interface MarketFavoriteItem {
   itemName: string;
   itemIconId: number | null;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   totalSales: number;
   totalUnitsSold: number;
   totalRevenue: number;
@@ -267,6 +273,7 @@ export interface MarketFavoriteCharacter {
   id: string;
   characterName: string;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   sellCount: number;
   buyCount: number;
   totalTransactions: number;
@@ -294,6 +301,7 @@ export interface MarketFavoriteTrader {
   id: string;
   characterName: string;
   createdAt: string;
+  notificationSettings: MarketFavoriteNotificationSettings;
   totalListings: number;
   uniqueItems: number;
   leadingListings: number;
@@ -1355,6 +1363,7 @@ export async function syncMarketSaleEvents(
             skipDuplicates: true
           });
           inserted += result.count;
+          await processMarketSaleNotifications(normalizedRows);
         }
 
         processed += rows.length;
@@ -1789,18 +1798,21 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
       itemName: favorite.itemName ?? 'Unknown Item',
       itemIconId: favorite.itemIconId,
       createdAt: favorite.createdAt.toISOString(),
+      notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
       ...itemMetrics[index]
     })),
     characters: characterFavorites.map((favorite, index) => ({
       id: favorite.id,
       characterName: favorite.characterName ?? 'Unknown Character',
       createdAt: favorite.createdAt.toISOString(),
+      notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
       ...characterMetrics[index]
     })),
     traders: traderFavorites.map((favorite) => ({
       id: favorite.id,
       characterName: favorite.characterName ?? 'Unknown Trader',
       createdAt: favorite.createdAt.toISOString(),
+      notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
       ...(
         traderMetricsByKey.get(buildMarketFavoriteTraderKey(favorite.characterName ?? '')) ??
         createEmptyMarketFavoriteTraderMetrics()
@@ -1854,6 +1866,7 @@ export async function addMarketFavoriteItem(
     itemName: favorite.itemName ?? itemName,
     itemIconId: favorite.itemIconId,
     createdAt: favorite.createdAt.toISOString(),
+    notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
     ...metrics
   };
 }
@@ -1908,6 +1921,7 @@ export async function addMarketFavoriteCharacter(
     id: favorite.id,
     characterName: favorite.characterName ?? normalizedCharacterName,
     createdAt: favorite.createdAt.toISOString(),
+    notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
     ...metrics
   };
 }
@@ -1958,6 +1972,7 @@ export async function addMarketTrader(
     id: favorite.id,
     characterName: favorite.characterName ?? normalizedCharacterName,
     createdAt: favorite.createdAt.toISOString(),
+    notificationSettings: normalizeMarketFavoriteNotificationSettings(favorite),
     ...(
       metricsByCharacterKey.get(buildMarketFavoriteTraderKey(favorite.characterName ?? '')) ??
       createEmptyMarketFavoriteTraderMetrics()

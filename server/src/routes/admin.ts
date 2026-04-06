@@ -710,12 +710,12 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             hackCount: activity?.hackCount || 0,
             lastHackAt: activity?.lastHackAt || null,
             lastSaleItemName: activity?.lastSaleItemName || null,
-            lastSaleItemId: activity?.lastSaleItemId || null,
-            lastSaleItemIconId: activity?.lastSaleItemIconId || null,
-            lastSalePrice: activity?.lastSalePrice || null,
-            lastSaleAt: activity?.lastSaleAt || null,
-            totalSalesAmount: activity?.totalSalesAmount || null,
-            totalSalesCount: activity?.totalSalesCount || null
+            lastSaleItemId: activity?.lastSaleItemId ?? null,
+            lastSaleItemIconId: activity?.lastSaleItemIconId ?? null,
+            lastSalePrice: activity?.lastSalePrice ?? null,
+            lastSaleAt: activity?.lastSaleAt ?? null,
+            totalSalesAmount: activity?.totalSalesAmount ?? null,
+            totalSalesCount: activity?.totalSalesCount ?? null
           };
         });
 

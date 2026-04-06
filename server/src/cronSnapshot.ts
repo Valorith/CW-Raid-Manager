@@ -29,6 +29,9 @@ import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
 import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
 import { syncMarketSaleEvents } from './services/marketService.js';
+import { syncMarketListings } from './services/marketListingsService.js';
+import { processNotificationOutbox } from './services/notificationOutboxService.js';
+import { queueDueRaidReminderNotifications } from './services/raidNotificationService.js';
 
 async function main(): Promise<void> {
   console.log('[CronJob] Starting scheduled tasks...');
@@ -43,6 +46,16 @@ async function main(): Promise<void> {
     console.error('[CronJob] Error syncing market sale events:', error);
   }
 
+  console.log('[CronJob] Syncing market listings cache...');
+  try {
+    const listingsResult = await syncMarketListings({ logger: console });
+    console.log(
+      `[CronJob] Market listings sync complete. Retrieved ${listingsResult.retrieved} listings.`
+    );
+  } catch (error) {
+    console.error('[CronJob] Error syncing market listings:', error);
+  }
+
   // Task 1: Check and send NPC respawn notifications
   // This runs every time the cron job fires (every 5 minutes)
   console.log('[CronJob] Checking NPC respawn notifications...');
@@ -52,6 +65,22 @@ async function main(): Promise<void> {
   } catch (error) {
     console.error('[CronJob] Error checking respawn notifications:', error);
     // Continue with other tasks even if this fails
+  }
+
+  console.log('[CronJob] Queueing due raid reminder notifications...');
+  try {
+    const queued = await queueDueRaidReminderNotifications();
+    console.log(`[CronJob] Raid reminder queueing complete. Queued ${queued} deliveries.`);
+  } catch (error) {
+    console.error('[CronJob] Error queueing raid reminder notifications:', error);
+  }
+
+  console.log('[CronJob] Processing notification outbox...');
+  try {
+    const processed = await processNotificationOutbox();
+    console.log(`[CronJob] Notification outbox processing complete. Processed ${processed} rows.`);
+  } catch (error) {
+    console.error('[CronJob] Error processing notification outbox:', error);
   }
 
   // Task 2: Check if money/metallurgy snapshot should be taken

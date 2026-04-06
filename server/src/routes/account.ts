@@ -1,8 +1,21 @@
 import { FastifyInstance } from 'fastify';
+import { NotificationProvider } from '@prisma/client';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
 import { getLinkedProviders, unlinkDiscord, unlinkGoogle } from '../services/authService.js';
+import { updateMarketFavoriteNotificationSettings } from '../services/marketNotificationService.js';
+import { getMarketFavorites } from '../services/marketService.js';
+import { sendNotificationTestMessage } from '../services/notificationOutboxService.js';
+import {
+  createTelegramLinkSession,
+  createWhatsappLinkSession,
+  disconnectNotificationChannel,
+  listNotificationChannels,
+  listNotificationProviderAvailability,
+  listNotificationPreferences,
+  updateNotificationPreferences
+} from '../services/userNotificationService.js';
 import { prisma } from '../utils/prisma.js';
 
 const profileSchema = z.object({
@@ -26,6 +39,8 @@ const profileSchema = z.object({
 });
 
 export async function accountRoutes(server: FastifyInstance): Promise<void> {
+  const notificationProviderSchema = z.enum(['TELEGRAM', 'WHATSAPP']);
+
   server.get('/profile', { preHandler: [authenticate] }, async (request) => {
     const user = await prisma.user.findUnique({
       where: { id: request.user.userId },
@@ -138,4 +153,228 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
       return reply.badRequest(message);
     }
   });
+
+  server.get('/notification-channels', { preHandler: [authenticate] }, async (request, reply) => {
+    try {
+      const channels = await listNotificationChannels(request.user.userId);
+      const availability = listNotificationProviderAvailability();
+      return { channels, availability };
+    } catch (error) {
+      request.log.error({ error }, 'Failed to load notification channels.');
+      return reply.internalServerError('Unable to load notification channels.');
+    }
+  });
+
+  server.post(
+    '/notification-channels/telegram/link',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const link = await createTelegramLinkSession(request.user.userId);
+        return { link };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to create Telegram link.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.post(
+    '/notification-channels/whatsapp/link',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const link = await createWhatsappLinkSession(request.user.userId);
+        return { link };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to create WhatsApp link.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.post(
+    '/notification-channels/:provider/disconnect',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          provider: notificationProviderSchema
+        })
+        .safeParse(request.params);
+
+      if (!parsed.success) {
+        return reply.badRequest('Invalid provider.');
+      }
+
+      try {
+        await disconnectNotificationChannel(request.user.userId, parsed.data.provider);
+        const channels = await listNotificationChannels(request.user.userId);
+        return { channels };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to disconnect notification channel.');
+        return reply.internalServerError('Unable to disconnect notification channel.');
+      }
+    }
+  );
+
+  server.post(
+    '/notification-channels/:provider/test',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          provider: notificationProviderSchema
+        })
+        .safeParse(request.params);
+
+      if (!parsed.success) {
+        return reply.badRequest('Invalid provider.');
+      }
+
+      try {
+        await sendNotificationTestMessage(
+          request.user.userId,
+          parsed.data.provider as NotificationProvider
+        );
+        const channels = await listNotificationChannels(request.user.userId);
+        return { success: true, channels };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to send test message.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.get(
+    '/notification-preferences',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const preferences = await listNotificationPreferences(request.user.userId);
+        return { preferences };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to load notification preferences.');
+        return reply.internalServerError('Unable to load notification preferences.');
+      }
+    }
+  );
+
+  server.patch(
+    '/notification-preferences',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          updates: z.array(
+            z.object({
+              scopeType: z.enum(['GLOBAL', 'GUILD']),
+              scopeId: z.string().trim().min(1).max(191),
+              eventKey: z.string().trim().min(1).max(191),
+              isEnabled: z.boolean(),
+              providerTargets: z
+                .object({
+                  TELEGRAM: z.boolean().optional(),
+                  WHATSAPP: z.boolean().optional()
+                })
+                .partial()
+                .optional()
+            })
+          )
+        })
+        .safeParse(request.body);
+
+      if (!parsed.success) {
+        return reply.badRequest('Invalid notification preference payload.');
+      }
+
+      try {
+        const preferences = await updateNotificationPreferences(
+          request.user.userId,
+          parsed.data.updates
+        );
+        return { preferences };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to update notification preferences.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.get(
+    '/market-notification-settings',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      try {
+        const favorites = await getMarketFavorites(request.user.userId);
+        return {
+          settings: {
+            items: favorites.items.map((item) => ({
+              id: item.id,
+              notificationSettings: item.notificationSettings
+            })),
+            characters: favorites.characters.map((character) => ({
+              id: character.id,
+              notificationSettings: character.notificationSettings
+            })),
+            traders: favorites.traders.map((trader) => ({
+              id: trader.id,
+              notificationSettings: trader.notificationSettings
+            }))
+          }
+        };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to load market notification settings.');
+        return reply.internalServerError('Unable to load market notification settings.');
+      }
+    }
+  );
+
+  server.patch(
+    '/market-notification-settings/:favoriteId',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          favoriteId: z.string().trim().min(1)
+        })
+        .safeParse(request.params);
+      const body = z
+        .object({
+          notifyOnTradeActivity: z.boolean().optional(),
+          notifyOnListingActivity: z.boolean().optional(),
+          notifyOnUndercut: z.boolean().optional(),
+          undercutOnly: z.boolean().optional(),
+          onlyNewUndercuts: z.boolean().optional(),
+          maxListingPriceCopper: z.number().int().min(0).nullable().optional(),
+          maxTradePriceCopper: z.number().int().min(0).nullable().optional(),
+          listingBelowRecentAveragePercent: z.number().min(0).max(100).nullable().optional()
+        })
+        .safeParse(request.body);
+
+      if (!parsed.success || !body.success) {
+        return reply.badRequest('Invalid market notification settings payload.');
+      }
+
+      try {
+        const notificationSettings = await updateMarketFavoriteNotificationSettings(
+          request.user.userId,
+          parsed.data.favoriteId,
+          body.data
+        );
+        return { notificationSettings };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to update market notification settings.';
+        return reply.badRequest(message);
+      }
+    }
+  );
 }

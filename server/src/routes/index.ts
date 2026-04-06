@@ -23,6 +23,7 @@ import { metallurgyRoutes } from './metallurgy.js';
 import { webhookInboxRoutes } from './webhookInbox.js';
 import { bisRoutes } from './bis.js';
 import { marketRoutes } from './market.js';
+import { integrationRoutes } from './integrations.js';
 
 export function registerRoutes(server: FastifyInstance): void {
   server.register(authRoutes, { prefix: '/api/auth' });
@@ -45,6 +46,7 @@ export function registerRoutes(server: FastifyInstance): void {
   server.register(itemRoutes, { prefix: '/api' });
   server.register(bisRoutes, { prefix: '/api/bis' });
   server.register(marketRoutes, { prefix: '/api/market' });
+  server.register(integrationRoutes, { prefix: '/api/integrations' });
   server.register(moneyTrackerRoutes, { prefix: '/api/admin/money-tracker' });
   server.register(metallurgyRoutes, { prefix: '/api/admin/metallurgy' });
   server.register(webhookInboxRoutes, { prefix: '/api/webhook-inbox' });

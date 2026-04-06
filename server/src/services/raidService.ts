@@ -6,6 +6,10 @@ import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
 import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
+import {
+  queueRaidCanceledNotifications,
+  queueRaidChangedNotifications
+} from './raidNotificationService.js';
 import { getUnavailableMainCharacters } from './availabilityService.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
@@ -378,6 +382,7 @@ export async function updateRaidEvent(
   });
 
   const formatted = formatRaidWithRecurrence(updatedRaid);
+  await queueRaidChangedNotifications(raidId);
   return {
     ...formatted,
     hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
@@ -743,6 +748,7 @@ export async function cancelRaidEvent(raidId: string, userId: string) {
     raidName: existing.name,
     canceledAt: updated.canceledAt ?? new Date()
   });
+  await queueRaidCanceledNotifications(raidId);
 
   const formatted = formatRaidWithRecurrence(updated);
   return {

@@ -2260,6 +2260,30 @@ function formatPriceChartTick(value: string | number) {
   }).format(numericValue)} pp`;
 }
 
+function buildCenteredPriceScaleBounds(values: number[]) {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (!finiteValues.length) {
+    return {};
+  }
+
+  const minValue = Math.min(...finiteValues);
+  const maxValue = Math.max(...finiteValues);
+  const midpoint = (minValue + maxValue) / 2;
+  const range = maxValue - minValue;
+  const padding = Math.max(
+    range * 0.18,
+    Math.max(midpoint, maxValue) * 0.05,
+    midpoint >= 2 ? 0.25 : 0.05
+  );
+  const min = Math.max(0, minValue - padding);
+  const max = Math.max(maxValue + padding, min + Math.max(range, midpoint * 0.1, 0.1));
+
+  return {
+    min: Number(min.toFixed(2)),
+    max: Number(max.toFixed(2))
+  };
+}
+
 const overallChartData = computed(() => {
   if (!summary.value?.dailyActivity.length) return null;
   return {
@@ -2308,7 +2332,9 @@ const overallChartOptions = {
 const itemPriceChartData = computed(() => {
   if (!history.value?.pricePoints.length) return null;
 
-  const pointValues = history.value.pricePoints.map((point) => Number((point.price / 1000).toFixed(2)));
+  const pointValues = history.value.pricePoints.map((point) =>
+    Number((point.price / 1000).toFixed(2))
+  );
   const lastIndex = pointValues.length - 1;
 
   return {
@@ -2339,11 +2365,9 @@ const itemPriceChartData = computed(() => {
 });
 
 const itemPriceChartOptions = computed(() => {
-  const pointValues = history.value?.pricePoints.map((point) => Number((point.price / 1000).toFixed(2))) ?? [];
-  const maxValue = pointValues.length ? Math.max(...pointValues) : 0;
-  const minValue = pointValues.length ? Math.min(...pointValues) : 0;
-  const range = Math.max(maxValue - minValue, 0);
-  const topPadding = maxValue > 0 ? Math.max(range * 0.12, maxValue * 0.08, 0.25) : 1;
+  const pointValues =
+    history.value?.pricePoints.map((point) => Number((point.price / 1000).toFixed(2))) ?? [];
+  const priceScaleBounds = buildCenteredPriceScaleBounds(pointValues);
 
   return {
     maintainAspectRatio: false,
@@ -2363,7 +2387,7 @@ const itemPriceChartOptions = computed(() => {
         }
       },
       y: {
-        suggestedMax: maxValue + topPadding,
+        ...priceScaleBounds,
         grid: {
           color: 'rgba(148, 163, 184, 0.16)',
           drawBorder: false
@@ -2385,8 +2409,7 @@ const itemPriceChartOptions = computed(() => {
       tooltip: {
         callbacks: {
           title: (items: Array<{ label?: string }>) => items[0]?.label ?? '',
-          label: (context: { parsed: { y: number | null } }) =>
-            `Price: ${context.parsed.y ?? 0} pp`
+          label: (context: { parsed: { y: number | null } }) => `Price: ${context.parsed.y ?? 0} pp`
         }
       }
     },
@@ -2425,23 +2448,30 @@ const itemDailyChartData = computed(() => {
   };
 });
 
-const itemDailyChartOptions = {
-  maintainAspectRatio: false,
-  interaction: { mode: 'index' as const, intersect: false },
-  scales: {
-    price: {
-      type: 'linear' as const,
-      position: 'left' as const,
-      grid: { color: 'rgba(148, 163, 184, 0.12)' },
-      ticks: { callback: (value: string | number) => `${value} pp` }
-    },
-    units: {
-      type: 'linear' as const,
-      position: 'right' as const,
-      grid: { display: false }
+const itemDailyChartOptions = computed(() => {
+  const dailyPriceValues =
+    history.value?.dailyTrend.map((point) => Number((point.averagePrice / 1000).toFixed(2))) ?? [];
+  const priceScaleBounds = buildCenteredPriceScaleBounds(dailyPriceValues);
+
+  return {
+    maintainAspectRatio: false,
+    interaction: { mode: 'index' as const, intersect: false },
+    scales: {
+      price: {
+        type: 'linear' as const,
+        position: 'left' as const,
+        ...priceScaleBounds,
+        grid: { color: 'rgba(148, 163, 184, 0.12)' },
+        ticks: { callback: (value: string | number) => formatPriceChartTick(value) }
+      },
+      units: {
+        type: 'linear' as const,
+        position: 'right' as const,
+        grid: { display: false }
+      }
     }
-  }
-};
+  };
+});
 
 async function loadSummary(initial = false) {
   if (initial) loading.value = true;

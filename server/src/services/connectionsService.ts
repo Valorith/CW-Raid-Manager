@@ -1087,7 +1087,19 @@ export async function fetchCharacterLastActivity(
     // Query 5: Get total sales for each character (sum of total_cost and count)
     const totalSalesQuery = `
       SELECT character_id, SUM(
-        CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.total_cost')) AS UNSIGNED)
+        COALESCE(
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.total_cost')) AS UNSIGNED),
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.totalCost')) AS UNSIGNED),
+          CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.price')) AS UNSIGNED) *
+            GREATEST(
+              COALESCE(
+                CAST(JSON_UNQUOTE(JSON_EXTRACT(event_data, '$.quantity')) AS UNSIGNED),
+                1
+              ),
+              1
+            ),
+          0
+        )
       ) as total_amount, COUNT(*) as total_count
       FROM player_event_logs
       WHERE character_id IN (${placeholders})
@@ -1100,8 +1112,8 @@ export async function fetchCharacterLastActivity(
     for (const row of totalSalesRows) {
       const activity = result.get(row.character_id);
       if (activity) {
-        activity.totalSalesAmount = row.total_amount || 0;
-        activity.totalSalesCount = row.total_count || 0;
+        activity.totalSalesAmount = Number(row.total_amount ?? 0);
+        activity.totalSalesCount = Number(row.total_count ?? 0);
       }
     }
   } catch (error) {

@@ -50,7 +50,9 @@
       <div class="panel-head">
         <div>
           <h3>Manage Traders</h3>
-          <p class="muted">Search market characters and save the traders you actively price-check.</p>
+          <p class="muted">
+            Search market characters and save the traders you actively price-check.
+          </p>
         </div>
         <span class="pill">{{ props.savedTraders.length }}</span>
       </div>
@@ -106,9 +108,7 @@
     <div v-if="props.favoritesLoading && props.savedTraders.length === 0" class="empty muted">
       Loading trader insights...
     </div>
-    <div v-else-if="props.savedTraders.length === 0" class="empty muted">
-      No saved traders yet.
-    </div>
+    <div v-else-if="props.savedTraders.length === 0" class="empty muted">No saved traders yet.</div>
     <section v-else class="trader-grid">
       <article
         v-for="trader in sortedTraders"
@@ -144,6 +144,48 @@
           <span>Last listed {{ formatCompactDate(trader.lastListedAt) }}</span>
         </div>
 
+        <div class="trader-card__alerts">
+          <label class="alert-toggle">
+            <input
+              type="checkbox"
+              :checked="trader.notificationSettings.notifyOnListingActivity !== false"
+              :disabled="isSettingsBusy(trader.id)"
+              @change="
+                updateTraderNotificationSettings(trader.id, {
+                  notifyOnListingActivity: ($event.target as HTMLInputElement).checked
+                })
+              "
+            />
+            <span>Listing changes</span>
+          </label>
+          <label class="alert-toggle">
+            <input
+              type="checkbox"
+              :checked="trader.notificationSettings.notifyOnUndercut !== false"
+              :disabled="isSettingsBusy(trader.id)"
+              @change="
+                updateTraderNotificationSettings(trader.id, {
+                  notifyOnUndercut: ($event.target as HTMLInputElement).checked
+                })
+              "
+            />
+            <span>Undercuts</span>
+          </label>
+          <label class="alert-toggle">
+            <input
+              type="checkbox"
+              :checked="trader.notificationSettings.undercutOnly === true"
+              :disabled="isSettingsBusy(trader.id)"
+              @change="
+                updateTraderNotificationSettings(trader.id, {
+                  undercutOnly: ($event.target as HTMLInputElement).checked
+                })
+              "
+            />
+            <span>Only notify when newly undercut</span>
+          </label>
+        </div>
+
         <div class="trader-card__stats">
           <span class="stat-chip">
             <strong>{{ formatNumber(trader.totalListings) }}</strong>
@@ -170,71 +212,73 @@
         <div class="trader-card__body">
           <template v-if="trader.attentionListings.length">
             <div class="table-wrap trader-card__table-wrap">
-            <table class="trader-table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th>Status</th>
-                  <th>Your Price</th>
-                  <th>Best</th>
-                  <th>Gap</th>
-                  <th>Rank</th>
-                  <th>Listed</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="listing in getPaginatedAttentionListings(trader)"
-                  :key="buildListingKey(trader, listing)"
-                >
-                  <td>
-                    <button
-                      type="button"
-                      class="table-item"
-                      @mouseenter="showListingTooltip($event, listing)"
-                      @mousemove="updateMarketItemTooltipPosition($event)"
-                      @mouseleave="hideMarketItemTooltip"
-                      @click="
-                        emit('open-item', {
-                          itemId: listing.itemId,
-                          itemName: listing.itemName,
-                          itemIconId: listing.itemIconId
-                        })
-                      "
-                    >
-                      <span v-if="hasValidIconId(listing.itemIconId)" class="item-icon">
-                        <img
-                          :src="getLootIconSrc(listing.itemIconId!)"
-                          :alt="listing.itemName"
-                          loading="lazy"
-                        />
+              <table class="trader-table">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th>Status</th>
+                    <th>Your Price</th>
+                    <th>Best</th>
+                    <th>Gap</th>
+                    <th>Rank</th>
+                    <th>Listed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="listing in getPaginatedAttentionListings(trader)"
+                    :key="buildListingKey(trader, listing)"
+                  >
+                    <td>
+                      <button
+                        type="button"
+                        class="table-item"
+                        @mouseenter="showListingTooltip($event, listing)"
+                        @mousemove="updateMarketItemTooltipPosition($event)"
+                        @mouseleave="hideMarketItemTooltip"
+                        @click="
+                          emit('open-item', {
+                            itemId: listing.itemId,
+                            itemName: listing.itemName,
+                            itemIconId: listing.itemIconId
+                          })
+                        "
+                      >
+                        <span v-if="hasValidIconId(listing.itemIconId)" class="item-icon">
+                          <img
+                            :src="getLootIconSrc(listing.itemIconId!)"
+                            :alt="listing.itemName"
+                            loading="lazy"
+                          />
+                        </span>
+                        <span class="table-item__text">
+                          <strong>{{ listing.itemName }}</strong>
+                          <small class="muted">Slot {{ listing.slotId }}</small>
+                        </span>
+                      </button>
+                    </td>
+                    <td>
+                      <span class="status-pill" :class="getListingStatusClass(listing.status)">
+                        {{ getListingStatusLabel(listing.status) }}
                       </span>
-                      <span class="table-item__text">
-                        <strong>{{ listing.itemName }}</strong>
-                        <small class="muted">Slot {{ listing.slotId }}</small>
-                      </span>
-                    </button>
-                  </td>
-                  <td>
-                    <span class="status-pill" :class="getListingStatusClass(listing.status)">
-                      {{ getListingStatusLabel(listing.status) }}
-                    </span>
-                  </td>
-                  <td><CoinDisplay variant="platinum" :amount-in-copper="listing.price" /></td>
-                  <td><CoinDisplay variant="platinum" :amount-in-copper="listing.bestPrice" /></td>
-                  <td>
-                    <div class="gap-stack">
-                      <CoinDisplay variant="platinum" :amount-in-copper="listing.priceDelta" />
-                      <small v-if="listing.priceDeltaPercent != null" class="muted">
-                        {{ formatPercent(listing.priceDeltaPercent) }}
-                      </small>
-                    </div>
-                  </td>
-                  <td>#{{ formatNumber(listing.priceRank) }}</td>
-                  <td>{{ formatCompactDate(listing.listedAt) }}</td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                    <td><CoinDisplay variant="platinum" :amount-in-copper="listing.price" /></td>
+                    <td>
+                      <CoinDisplay variant="platinum" :amount-in-copper="listing.bestPrice" />
+                    </td>
+                    <td>
+                      <div class="gap-stack">
+                        <CoinDisplay variant="platinum" :amount-in-copper="listing.priceDelta" />
+                        <small v-if="listing.priceDeltaPercent != null" class="muted">
+                          {{ formatPercent(listing.priceDeltaPercent) }}
+                        </small>
+                      </div>
+                    </td>
+                    <td>#{{ formatNumber(listing.priceRank) }}</td>
+                    <td>{{ formatCompactDate(listing.listedAt) }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div v-if="getTraderAttentionTotalPages(trader) > 1" class="trader-pagination">
               <button
@@ -276,6 +320,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import CoinDisplay from '../../components/CoinDisplay.vue';
+import { useToastBus } from '../../components/ToastBus';
+import { useErrorModal } from '../../composables/useErrorModal';
 import {
   api,
   type MarketCharacterSearchResult,
@@ -310,6 +356,9 @@ const tooltipStore = useItemTooltipStore();
 let characterSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 let activeCharacterSearchToken = 0;
 const TRADER_ATTENTION_PAGE_SIZE = 4;
+const settingsBusyIds = ref<string[]>([]);
+const { addToast } = useToastBus();
+const { showErrorFromException } = useErrorModal();
 
 const traderKeySet = computed(
   () => new Set(props.savedTraders.map((trader) => getTraderKey(trader.characterName)))
@@ -368,6 +417,34 @@ function isTraderPending(characterName: string) {
 
 function isCharacterResultBusy(characterName: string) {
   return isTraderPending(characterName);
+}
+
+function isSettingsBusy(favoriteId: string) {
+  return settingsBusyIds.value.includes(favoriteId);
+}
+
+async function updateTraderNotificationSettings(
+  favoriteId: string,
+  payload: Record<string, boolean | number | null>
+) {
+  if (isSettingsBusy(favoriteId)) {
+    return;
+  }
+
+  settingsBusyIds.value = [...settingsBusyIds.value, favoriteId];
+  try {
+    await api.updateMarketNotificationSettings(favoriteId, payload);
+    emit('reload-favorites');
+    addToast({
+      title: 'Trader Alerts Updated',
+      message: 'Notification settings were saved.',
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, 'Unable to update trader notification settings.');
+  } finally {
+    settingsBusyIds.value = settingsBusyIds.value.filter((id) => id !== favoriteId);
+  }
 }
 
 function getCharacterResultStatus(characterName: string) {
@@ -833,6 +910,15 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 0.55rem;
 }
+.trader-card__alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.56);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
 .trader-card__body {
   display: flex;
   flex: 1;
@@ -915,6 +1001,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 0.18rem;
 }
+.alert-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-size: 0.84rem;
+}
+.alert-toggle input {
+  margin: 0;
+}
 .empty {
   border-radius: 1rem;
   padding: 1rem 1.1rem;
@@ -941,6 +1037,10 @@ onBeforeUnmount(() => {
   }
   .trader-pagination {
     flex-direction: column;
+  }
+  .trader-card__alerts {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .traders-summary,
   .trader-grid {

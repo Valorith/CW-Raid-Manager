@@ -50,6 +50,30 @@ const fileConfigSchema = z
           })
           .optional()
       })
+      .optional(),
+    notifications: z
+      .object({
+        telegram: z
+          .object({
+            botToken: z.string().min(1).optional(),
+            botUsername: z.string().min(1).optional(),
+            webhookUrl: z.string().url().optional(),
+            webhookSecret: z.string().min(1).optional()
+          })
+          .optional(),
+        whatsapp: z
+          .object({
+            accessToken: z.string().min(1).optional(),
+            phoneNumber: z.string().min(1).optional(),
+            phoneNumberId: z.string().min(1).optional(),
+            businessAccountId: z.string().min(1).optional(),
+            webhookVerifyToken: z.string().min(1).optional(),
+            appSecret: z.string().min(1).optional(),
+            webhookSecret: z.string().min(1).optional(),
+            templateMap: z.record(z.string(), z.string().min(1)).optional()
+          })
+          .optional()
+      })
       .optional()
   })
   .partial();
@@ -249,6 +273,38 @@ const envGoogleCallbackUrl = readOptionalEnv('GOOGLE_CALLBACK_URL', googleCallba
 const envDiscordClientId = readOptionalEnv('DISCORD_CLIENT_ID', z.string().min(1));
 const envDiscordClientSecret = readOptionalEnv('DISCORD_CLIENT_SECRET', z.string().min(1));
 const envDiscordCallbackUrl = readOptionalEnv('DISCORD_CALLBACK_URL', googleCallbackSchema);
+const envTelegramBotToken = readOptionalEnv('TELEGRAM_BOT_TOKEN', z.string().min(1));
+const envTelegramBotUsername = readOptionalEnv('TELEGRAM_BOT_USERNAME', z.string().min(1));
+const envTelegramWebhookUrl = readOptionalEnv('TELEGRAM_WEBHOOK_URL', googleCallbackSchema);
+const envTelegramWebhookSecret = readOptionalEnv('TELEGRAM_WEBHOOK_SECRET', z.string().min(1));
+const envWhatsappAccessToken = readOptionalEnv('WHATSAPP_ACCESS_TOKEN', z.string().min(1));
+const envWhatsappPhoneNumber = readOptionalEnv('WHATSAPP_PHONE_NUMBER', z.string().min(1));
+const envWhatsappPhoneNumberId = readOptionalEnv('WHATSAPP_PHONE_NUMBER_ID', z.string().min(1));
+const envWhatsappBusinessAccountId = readOptionalEnv(
+  'WHATSAPP_BUSINESS_ACCOUNT_ID',
+  z.string().min(1)
+);
+const envWhatsappWebhookVerifyToken = readOptionalEnv(
+  'WHATSAPP_WEBHOOK_VERIFY_TOKEN',
+  z.string().min(1)
+);
+const envWhatsappAppSecret = readOptionalEnv('WHATSAPP_APP_SECRET', z.string().min(1));
+const envWhatsappWebhookSecret = readOptionalEnv('WHATSAPP_WEBHOOK_SECRET', z.string().min(1));
+
+let envWhatsappTemplateMap: Record<string, string> | undefined;
+if (process.env.WHATSAPP_TEMPLATE_MAP) {
+  try {
+    const parsed = JSON.parse(process.env.WHATSAPP_TEMPLATE_MAP) as unknown;
+    const result = z.record(z.string(), z.string().min(1)).safeParse(parsed);
+    if (result.success) {
+      envWhatsappTemplateMap = result.data;
+    } else {
+      console.warn('Invalid WHATSAPP_TEMPLATE_MAP value. Expected a JSON object of eventKey -> template name.');
+    }
+  } catch (error) {
+    console.warn('Failed to parse WHATSAPP_TEMPLATE_MAP. Expected a JSON object.', error);
+  }
+}
 
 const databaseUrl = envDatabaseUrl ?? fileConfig.database?.url ?? null;
 
@@ -352,6 +408,85 @@ if (envDiscordClientId && envDiscordClientSecret) {
   };
 }
 
+const telegramBotToken = envTelegramBotToken ?? fileConfig.notifications?.telegram?.botToken;
+const telegramBotUsername =
+  envTelegramBotUsername ?? fileConfig.notifications?.telegram?.botUsername;
+const telegramWebhookUrl = envTelegramWebhookUrl ?? fileConfig.notifications?.telegram?.webhookUrl;
+const telegramWebhookSecret =
+  envTelegramWebhookSecret ?? fileConfig.notifications?.telegram?.webhookSecret;
+
+let telegramConfig: {
+  botToken: string;
+  botUsername: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
+} | null = null;
+
+if (telegramBotToken || telegramBotUsername) {
+  if (!telegramBotToken || !telegramBotUsername) {
+    console.warn(
+      'Telegram notifications require both TELEGRAM_BOT_TOKEN and TELEGRAM_BOT_USERNAME. Telegram messaging will be disabled.'
+    );
+  } else {
+    telegramConfig = {
+      botToken: telegramBotToken,
+      botUsername: telegramBotUsername,
+      ...(telegramWebhookUrl ? { webhookUrl: telegramWebhookUrl } : {}),
+      ...(telegramWebhookSecret ? { webhookSecret: telegramWebhookSecret } : {})
+    };
+  }
+}
+
+const whatsappAccessToken =
+  envWhatsappAccessToken ?? fileConfig.notifications?.whatsapp?.accessToken;
+const whatsappPhoneNumberId =
+  envWhatsappPhoneNumberId ?? fileConfig.notifications?.whatsapp?.phoneNumberId;
+const whatsappPhoneNumber = envWhatsappPhoneNumber ?? fileConfig.notifications?.whatsapp?.phoneNumber;
+const whatsappBusinessAccountId =
+  envWhatsappBusinessAccountId ?? fileConfig.notifications?.whatsapp?.businessAccountId;
+const whatsappWebhookVerifyToken =
+  envWhatsappWebhookVerifyToken ?? fileConfig.notifications?.whatsapp?.webhookVerifyToken;
+const whatsappAppSecret = envWhatsappAppSecret ?? fileConfig.notifications?.whatsapp?.appSecret;
+const whatsappWebhookSecret =
+  envWhatsappWebhookSecret ?? fileConfig.notifications?.whatsapp?.webhookSecret;
+const whatsappTemplateMap =
+  envWhatsappTemplateMap ?? fileConfig.notifications?.whatsapp?.templateMap;
+
+let whatsappConfig: {
+  accessToken: string;
+  phoneNumber?: string;
+  phoneNumberId: string;
+  businessAccountId?: string;
+  webhookVerifyToken: string;
+  appSecret?: string;
+  webhookSecret?: string;
+  templateMap: Record<string, string>;
+} | null = null;
+
+if (
+  whatsappAccessToken ||
+  whatsappPhoneNumberId ||
+  whatsappWebhookVerifyToken ||
+  whatsappBusinessAccountId
+) {
+  if (!whatsappAccessToken || !whatsappPhoneNumberId || !whatsappWebhookVerifyToken) {
+    console.warn(
+      'WhatsApp notifications require WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, and WHATSAPP_WEBHOOK_VERIFY_TOKEN. WhatsApp messaging will be disabled.'
+    );
+  } else {
+    whatsappConfig = {
+      accessToken: whatsappAccessToken,
+      phoneNumberId: whatsappPhoneNumberId,
+      webhookVerifyToken: whatsappWebhookVerifyToken,
+      templateMap: whatsappTemplateMap ?? {},
+      ...(whatsappPhoneNumber ? { phoneNumber: whatsappPhoneNumber } : {}),
+      ...(whatsappBusinessAccountId ? { businessAccountId: whatsappBusinessAccountId } : {}),
+      ...(whatsappAppSecret ? { appSecret: whatsappAppSecret } : {}),
+      ...(whatsappWebhookSecret ? { webhookSecret: whatsappWebhookSecret } : {})
+    };
+  }
+}
+
 export const appConfig = {
   nodeEnv,
   host: fileConfig.server?.host ?? '0.0.0.0',
@@ -361,5 +496,7 @@ export const appConfig = {
   sessionSecret,
   eqDatabase: eqDatabaseConfig,
   google: googleConfig,
-  discord: discordConfig
+  discord: discordConfig,
+  telegram: telegramConfig,
+  whatsapp: whatsappConfig
 } as const;

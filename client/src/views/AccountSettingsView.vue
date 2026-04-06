@@ -23,14 +23,17 @@
             placeholder="Optional nickname"
           />
           <p class="hint muted">2–40 characters. Leave blank to fall back to your account name.</p>
-          <p v-if="nicknameValidationMessage" class="form__error">{{ nicknameValidationMessage }}</p>
+          <p v-if="nicknameValidationMessage" class="form__error">
+            {{ nicknameValidationMessage }}
+          </p>
         </div>
 
         <div class="preview">
           <h2>Preview</h2>
           <p class="preview__name">{{ previewName }}</p>
           <p class="muted small">
-            This is how your name will appear to guild members, raid leaders, and across attendance logs.
+            This is how your name will appear to guild members, raid leaders, and across attendance
+            logs.
           </p>
         </div>
 
@@ -109,7 +112,9 @@
             >
               {{ unlinkingGoogle ? 'Unlinking...' : 'Unlink' }}
             </button>
-            <a v-else href="/api/auth/google/link" class="btn btn--success btn--small">Link Google</a>
+            <a v-else href="/api/auth/google/link" class="btn btn--success btn--small"
+              >Link Google</a
+            >
           </div>
 
           <div class="provider-card">
@@ -140,13 +145,360 @@
             >
               {{ unlinkingDiscord ? 'Unlinking...' : 'Unlink' }}
             </button>
-            <a v-else href="/api/auth/discord/link" class="btn btn--success btn--small">Link Discord</a>
+            <a v-else href="/api/auth/discord/link" class="btn btn--success btn--small"
+              >Link Discord</a
+            >
           </div>
         </div>
 
         <div v-if="linkedProvidersError" class="alert alert--error">{{ linkedProvidersError }}</div>
         <div v-if="linkedProvidersSuccess" class="alert alert--success">
           {{ linkedProvidersSuccess }}
+        </div>
+      </section>
+
+      <section class="messenger-notifications">
+        <div class="messenger-notifications__header">
+          <div>
+            <h2>Messenger Notifications</h2>
+            <p class="muted small">
+              Connect Telegram or WhatsApp once, then choose which guild and market alerts should
+              reach you there.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn--outline btn--small"
+            :disabled="notificationsLoading"
+            @click="refreshNotificationChannels"
+          >
+            {{ notificationsLoading ? 'Refreshing...' : 'Refresh Status' }}
+          </button>
+        </div>
+
+        <div class="messenger-grid">
+          <article class="provider-card provider-card--messenger">
+            <div class="provider-card__info">
+              <div class="provider-card__icon provider-card__icon--telegram" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                  <path
+                    d="M21.12 4.52 3.84 11.18c-1.18.47-1.17 1.13-.21 1.42l4.43 1.38 1.71 5.45c.21.59.11.83.73.83.48 0 .69-.22.96-.49l2.42-2.35 5.04 3.72c.93.51 1.6.25 1.83-.86l2.95-13.9c.34-1.36-.52-1.98-1.58-1.5ZM9.02 13.66l10.1-6.37c.5-.3.95-.14.57.2l-8.65 7.8-.34 3.73-1.68-5.36Z"
+                  />
+                </svg>
+              </div>
+              <div class="provider-card__details">
+                <span class="provider-card__name">Telegram</span>
+                <span class="provider-card__status" :class="getMessengerStatus('TELEGRAM').tone">
+                  {{ getMessengerStatus('TELEGRAM').label }}
+                </span>
+                <span class="muted small">{{ getMessengerStatus('TELEGRAM').detail }}</span>
+              </div>
+            </div>
+
+            <div class="provider-card__actions">
+              <button
+                v-if="telegramChannel?.status === 'ACTIVE'"
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="notificationBusyProvider === 'TELEGRAM'"
+                @click="sendTestMessage('TELEGRAM')"
+              >
+                {{ notificationBusyProvider === 'TELEGRAM' ? 'Sending...' : 'Send Test Message' }}
+              </button>
+              <button
+                v-if="telegramChannel?.status === 'ACTIVE'"
+                type="button"
+                class="btn btn--danger btn--small"
+                :disabled="notificationBusyProvider === 'TELEGRAM'"
+                @click="disconnectMessenger('TELEGRAM')"
+              >
+                Disconnect
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn--success btn--small"
+                :disabled="connectingProvider === 'TELEGRAM' || !canStartMessengerConnect('TELEGRAM')"
+                @click="beginMessengerConnect('TELEGRAM')"
+              >
+                {{
+                  !canStartMessengerConnect('TELEGRAM')
+                    ? 'Unavailable'
+                    : connectingProvider === 'TELEGRAM'
+                      ? 'Opening...'
+                      : 'Connect Telegram'
+                }}
+              </button>
+            </div>
+
+            <div v-if="linkSessions.TELEGRAM" class="provider-card__setup">
+              <p class="provider-card__setup-title">What happens next</p>
+              <p class="muted small">
+                Telegram opened the bot link. If it did not, use one of the fallback actions below,
+                then send the command shown here.
+              </p>
+              <code class="provider-card__code">{{ linkSessions.TELEGRAM.fallbackText }}</code>
+              <div class="provider-card__setup-actions">
+                <a
+                  class="btn btn--outline btn--small"
+                  :href="linkSessions.TELEGRAM.deepLinkUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open Telegram Again
+                </a>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  @click="copyText(linkSessions.TELEGRAM.fallbackText, 'Telegram Code Copied')"
+                >
+                  Copy Code
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  @click="refreshNotificationChannels"
+                >
+                  I Already Sent It
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <article class="provider-card provider-card--messenger">
+            <div class="provider-card__info">
+              <div class="provider-card__icon provider-card__icon--whatsapp" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                  <path
+                    d="M19.11 4.89A9.9 9.9 0 0 0 12.06 2C6.56 2 2.08 6.48 2.08 11.98c0 1.76.46 3.48 1.33 5L2 22l5.18-1.36a9.87 9.87 0 0 0 4.87 1.24h.01c5.5 0 9.98-4.48 9.98-9.98a9.9 9.9 0 0 0-2.93-7.01ZM12.06 20.2h-.01a8.2 8.2 0 0 1-4.18-1.15l-.3-.18-3.08.81.82-3-.2-.31a8.18 8.18 0 0 1-1.27-4.39c0-4.52 3.69-8.2 8.22-8.2 2.2 0 4.26.85 5.82 2.4a8.15 8.15 0 0 1 2.4 5.8c0 4.53-3.69 8.22-8.22 8.22Zm4.5-6.13c-.25-.13-1.46-.72-1.69-.8-.23-.08-.4-.13-.57.12-.17.25-.66.8-.8.96-.15.17-.3.19-.55.07-.25-.13-1.07-.39-2.04-1.24-.75-.67-1.26-1.49-1.41-1.74-.15-.25-.02-.39.11-.52.12-.12.25-.3.38-.45.13-.15.17-.25.25-.42.08-.17.04-.32-.02-.45-.06-.13-.57-1.36-.78-1.86-.2-.49-.4-.42-.56-.43l-.48-.01c-.17 0-.44.06-.67.31-.23.25-.88.86-.88 2.1 0 1.24.9 2.43 1.02 2.6.13.17 1.77 2.71 4.29 3.8.6.26 1.08.41 1.45.53.61.19 1.16.16 1.6.1.49-.07 1.46-.6 1.67-1.18.21-.58.21-1.07.15-1.18-.06-.12-.23-.18-.48-.3Z"
+                  />
+                </svg>
+              </div>
+              <div class="provider-card__details">
+                <span class="provider-card__name">WhatsApp</span>
+                <span class="provider-card__status" :class="getMessengerStatus('WHATSAPP').tone">
+                  {{ getMessengerStatus('WHATSAPP').label }}
+                </span>
+                <span class="muted small">{{ getMessengerStatus('WHATSAPP').detail }}</span>
+              </div>
+            </div>
+
+            <div class="provider-card__actions">
+              <button
+                v-if="whatsappChannel?.status === 'ACTIVE'"
+                type="button"
+                class="btn btn--outline btn--small"
+                :disabled="notificationBusyProvider === 'WHATSAPP'"
+                @click="sendTestMessage('WHATSAPP')"
+              >
+                {{ notificationBusyProvider === 'WHATSAPP' ? 'Sending...' : 'Send Test Message' }}
+              </button>
+              <button
+                v-if="whatsappChannel?.status === 'ACTIVE'"
+                type="button"
+                class="btn btn--danger btn--small"
+                :disabled="notificationBusyProvider === 'WHATSAPP'"
+                @click="disconnectMessenger('WHATSAPP')"
+              >
+                Disconnect
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn--success btn--small"
+                :disabled="connectingProvider === 'WHATSAPP' || !canStartMessengerConnect('WHATSAPP')"
+                @click="beginMessengerConnect('WHATSAPP')"
+              >
+                {{
+                  !canStartMessengerConnect('WHATSAPP')
+                    ? 'Unavailable'
+                    : connectingProvider === 'WHATSAPP'
+                      ? 'Opening...'
+                      : 'Connect WhatsApp'
+                }}
+              </button>
+            </div>
+
+            <div v-if="linkSessions.WHATSAPP" class="provider-card__setup">
+              <p class="provider-card__setup-title">What happens next</p>
+              <p class="muted small">
+                WhatsApp should open with a prefilled connect message. If it did not, copy the
+                message below or open the link again.
+              </p>
+              <code class="provider-card__code">{{ linkSessions.WHATSAPP.fallbackText }}</code>
+              <div class="provider-card__setup-actions">
+                <a
+                  class="btn btn--outline btn--small"
+                  :href="linkSessions.WHATSAPP.deepLinkUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open WhatsApp Again
+                </a>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  @click="copyText(linkSessions.WHATSAPP.fallbackText, 'WhatsApp Message Copied')"
+                >
+                  Copy Message
+                </button>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  @click="refreshNotificationChannels"
+                >
+                  I Already Sent It
+                </button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="preferences-grid">
+          <article class="preferences-panel">
+            <header class="preferences-panel__header">
+              <h3>Market Watchlist Alerts</h3>
+              <p class="muted small">
+                These account-level alerts cover watched items, watched characters, and `My Traders`
+                events.
+              </p>
+            </header>
+
+            <div v-if="notificationsLoading" class="muted small">
+              Loading notification preferences...
+            </div>
+            <div v-else class="preference-list">
+              <div
+                v-for="preference in marketAlertPreferences"
+                :key="`${preference.scopeType}:${preference.scopeId}:${preference.eventKey}`"
+                class="preference-row"
+              >
+                <label class="preference-row__main">
+                  <input
+                    type="checkbox"
+                    :checked="preference.isEnabled"
+                    @change="
+                      updateNotificationPreference(preference, {
+                        isEnabled: ($event.target as HTMLInputElement).checked
+                      })
+                    "
+                  />
+                  <span>
+                    <strong>{{ preference.eventLabel }}</strong>
+                    <small class="muted">{{ preference.eventDescription }}</small>
+                  </span>
+                </label>
+                <div class="preference-row__providers">
+                  <label class="provider-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="preference.providerTargets.TELEGRAM !== false"
+                      @change="
+                        updateNotificationPreference(preference, {
+                          providerTargets: {
+                            ...preference.providerTargets,
+                            TELEGRAM: ($event.target as HTMLInputElement).checked
+                          }
+                        })
+                      "
+                    />
+                    <span>Telegram</span>
+                  </label>
+                  <label class="provider-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="preference.providerTargets.WHATSAPP !== false"
+                      @change="
+                        updateNotificationPreference(preference, {
+                          providerTargets: {
+                            ...preference.providerTargets,
+                            WHATSAPP: ($event.target as HTMLInputElement).checked
+                          }
+                        })
+                      "
+                    />
+                    <span>WhatsApp</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="preferences-panel">
+            <header class="preferences-panel__header">
+              <h3>Guild Alerts</h3>
+              <p class="muted small">
+                Per-guild alerts for NPC respawn subscriptions, raid reminders, raid changes, and
+                application outcomes.
+              </p>
+            </header>
+
+            <div v-if="notificationsLoading" class="muted small">Loading guild preferences...</div>
+            <div v-else class="guild-preferences">
+              <section
+                v-for="group in guildAlertGroups"
+                :key="group.scopeId"
+                class="guild-preferences__group"
+              >
+                <h4>{{ group.scopeLabel }}</h4>
+                <div class="preference-list">
+                  <div
+                    v-for="preference in group.preferences"
+                    :key="`${preference.scopeType}:${preference.scopeId}:${preference.eventKey}`"
+                    class="preference-row"
+                  >
+                    <label class="preference-row__main">
+                      <input
+                        type="checkbox"
+                        :checked="preference.isEnabled"
+                        @change="
+                          updateNotificationPreference(preference, {
+                            isEnabled: ($event.target as HTMLInputElement).checked
+                          })
+                        "
+                      />
+                      <span>
+                        <strong>{{ preference.eventLabel }}</strong>
+                        <small class="muted">{{ preference.eventDescription }}</small>
+                      </span>
+                    </label>
+                    <div class="preference-row__providers">
+                      <label class="provider-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="preference.providerTargets.TELEGRAM !== false"
+                          @change="
+                            updateNotificationPreference(preference, {
+                              providerTargets: {
+                                ...preference.providerTargets,
+                                TELEGRAM: ($event.target as HTMLInputElement).checked
+                              }
+                            })
+                          "
+                        />
+                        <span>Telegram</span>
+                      </label>
+                      <label class="provider-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="preference.providerTargets.WHATSAPP !== false"
+                          @change="
+                            updateNotificationPreference(preference, {
+                              providerTargets: {
+                                ...preference.providerTargets,
+                                WHATSAPP: ($event.target as HTMLInputElement).checked
+                              }
+                            })
+                          "
+                        />
+                        <span>WhatsApp</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -178,7 +530,13 @@
             :disabled="defaultLogSaving || !supportsDefaultLog"
             @click="chooseDefaultLogFile"
           >
-            {{ defaultLogSaving ? 'Saving…' : defaultLogFileName ? 'Replace Log File' : 'Select Log File' }}
+            {{
+              defaultLogSaving
+                ? 'Saving…'
+                : defaultLogFileName
+                  ? 'Replace Log File'
+                  : 'Select Log File'
+            }}
           </button>
           <button
             class="btn btn--outline"
@@ -200,13 +558,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type AccountProfile, type LinkedProviders } from '../services/api';
+import { useErrorModal } from '../composables/useErrorModal';
+import {
+  api,
+  type AccountProfile,
+  type LinkedProviders,
+  type NotificationChannelConnection,
+  type NotificationLinkSession,
+  type NotificationPreferenceSummary,
+  type NotificationProviderAvailability,
+  type NotificationProvider
+} from '../services/api';
 import { useAuthStore } from '../stores/auth';
+import { useToastBus } from '../components/ToastBus';
 import {
   deleteDefaultLogHandle,
   getDefaultLogHandle,
@@ -216,6 +585,8 @@ import {
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+const { addToast } = useToastBus();
+const { showErrorFromException } = useErrorModal();
 
 const loading = ref(true);
 const showLoading = useMinimumLoading(loading);
@@ -236,9 +607,56 @@ const linkedProvidersError = ref('');
 const linkedProvidersSuccess = ref('');
 const unlinkingGoogle = ref(false);
 const unlinkingDiscord = ref(false);
+const notificationsLoading = ref(true);
+const notificationChannels = ref<NotificationChannelConnection[]>([]);
+const notificationAvailability = ref<Record<NotificationProvider, NotificationProviderAvailability>>({
+  TELEGRAM: {
+    provider: 'TELEGRAM',
+    isAvailable: true,
+    unavailableReason: null
+  },
+  WHATSAPP: {
+    provider: 'WHATSAPP',
+    isAvailable: true,
+    unavailableReason: null
+  }
+});
+const notificationPreferences = ref<NotificationPreferenceSummary[]>([]);
+const notificationBusyProvider = ref<NotificationProvider | null>(null);
+const connectingProvider = ref<NotificationProvider | null>(null);
+const linkSessions = ref<Partial<Record<NotificationProvider, NotificationLinkSession>>>({});
+let notificationPollTimer: ReturnType<typeof window.setInterval> | null = null;
 
 const canUnlinkGoogle = computed(() => linkedProviders.value.discord);
 const canUnlinkDiscord = computed(() => linkedProviders.value.google);
+const telegramChannel = computed(
+  () => notificationChannels.value.find((channel) => channel.provider === 'TELEGRAM') ?? null
+);
+const whatsappChannel = computed(
+  () => notificationChannels.value.find((channel) => channel.provider === 'WHATSAPP') ?? null
+);
+const telegramAvailability = computed(() => notificationAvailability.value.TELEGRAM);
+const whatsappAvailability = computed(() => notificationAvailability.value.WHATSAPP);
+const marketAlertPreferences = computed(() =>
+  notificationPreferences.value.filter((preference) => preference.scopeType === 'GLOBAL')
+);
+const guildAlertGroups = computed(() => {
+  const groups = new Map<string, NotificationPreferenceSummary[]>();
+
+  for (const preference of notificationPreferences.value.filter(
+    (entry) => entry.scopeType === 'GUILD'
+  )) {
+    const existing = groups.get(preference.scopeLabel) ?? [];
+    existing.push(preference);
+    groups.set(preference.scopeLabel, existing);
+  }
+
+  return [...groups.entries()].map(([scopeLabel, preferences]) => ({
+    scopeLabel,
+    scopeId: preferences[0]?.scopeId ?? '',
+    preferences
+  }));
+});
 
 const previewName = computed(() => {
   const trimmed = nickname.value.trim();
@@ -313,6 +731,24 @@ async function loadLinkedProviders() {
   }
 }
 
+async function loadNotifications() {
+  notificationsLoading.value = true;
+  try {
+    const [channelSnapshot, preferences] = await Promise.all([
+      api.fetchNotificationChannels(),
+      api.fetchNotificationPreferences()
+    ]);
+    notificationChannels.value = channelSnapshot.channels;
+    applyNotificationAvailability(channelSnapshot.availability);
+    notificationPreferences.value = preferences;
+  } catch (error) {
+    console.error('Failed to load notification settings', error);
+  } finally {
+    notificationsLoading.value = false;
+    syncNotificationPolling();
+  }
+}
+
 async function handleUnlinkGoogle() {
   if (unlinkingGoogle.value || !canUnlinkGoogle.value) return;
 
@@ -362,6 +798,261 @@ function handleUrlParams() {
   }
 }
 
+function applyNotificationAvailability(entries: NotificationProviderAvailability[]) {
+  const nextState: Record<NotificationProvider, NotificationProviderAvailability> = {
+    TELEGRAM: {
+      provider: 'TELEGRAM',
+      isAvailable: true,
+      unavailableReason: null
+    },
+    WHATSAPP: {
+      provider: 'WHATSAPP',
+      isAvailable: true,
+      unavailableReason: null
+    }
+  };
+
+  for (const entry of entries) {
+    nextState[entry.provider] = entry;
+  }
+
+  notificationAvailability.value = nextState;
+}
+
+function getProviderAvailability(provider: NotificationProvider) {
+  return provider === 'TELEGRAM' ? telegramAvailability.value : whatsappAvailability.value;
+}
+
+function canStartMessengerConnect(provider: NotificationProvider) {
+  return getProviderAvailability(provider).isAvailable;
+}
+
+function getMessengerStatus(provider: NotificationProvider) {
+  const channel = provider === 'TELEGRAM' ? telegramChannel.value : whatsappChannel.value;
+  const availability = getProviderAvailability(provider);
+
+  if (!availability.isAvailable) {
+    return {
+      label: 'Unavailable',
+      tone: 'provider-card__status--warning',
+      detail:
+        availability.unavailableReason ??
+        'This messenger integration is not enabled on this server yet.'
+    };
+  }
+
+  if (channel?.status === 'ACTIVE') {
+    return {
+      label: 'Connected',
+      tone: 'provider-card__status--linked',
+      detail: channel.displayLabel ?? channel.externalPhone ?? 'Ready for notifications'
+    };
+  }
+
+  if (linkSessions.value[provider] || channel?.status === 'PENDING') {
+    return {
+      label: 'Waiting for verification',
+      tone: 'provider-card__status--pending',
+      detail:
+        provider === 'TELEGRAM'
+          ? 'Open the bot and send the start command.'
+          : 'Send the prefilled WhatsApp message to finish linking.'
+    };
+  }
+
+  if (channel?.status === 'FAILED') {
+    return {
+      label: 'Needs attention',
+      tone: 'provider-card__status--warning',
+      detail: 'Try the connect flow again.'
+    };
+  }
+
+  return {
+    label: 'Not connected',
+    tone: '',
+    detail:
+      provider === 'TELEGRAM'
+        ? 'Connect once to receive personal alerts in Telegram.'
+        : 'Connect once to receive personal alerts in WhatsApp.'
+  };
+}
+
+function clearNotificationPolling() {
+  if (notificationPollTimer != null) {
+    window.clearInterval(notificationPollTimer);
+    notificationPollTimer = null;
+  }
+}
+
+function syncNotificationPolling() {
+  const shouldPoll = ['TELEGRAM', 'WHATSAPP'].some((provider) => {
+    const typedProvider = provider as NotificationProvider;
+    const channel = typedProvider === 'TELEGRAM' ? telegramChannel.value : whatsappChannel.value;
+    return Boolean(linkSessions.value[typedProvider]) || channel?.status === 'PENDING';
+  });
+
+  if (!shouldPoll) {
+    clearNotificationPolling();
+    return;
+  }
+
+  if (notificationPollTimer != null) {
+    return;
+  }
+
+  notificationPollTimer = window.setInterval(async () => {
+    const snapshot = await api.fetchNotificationChannels().catch(() => null);
+    if (!snapshot) {
+      return;
+    }
+
+    notificationChannels.value = snapshot.channels;
+    applyNotificationAvailability(snapshot.availability);
+    for (const provider of ['TELEGRAM', 'WHATSAPP'] as NotificationProvider[]) {
+      const channel = snapshot.channels.find((entry) => entry.provider === provider);
+      if (channel?.status === 'ACTIVE' && linkSessions.value[provider]) {
+        delete linkSessions.value[provider];
+        connectingProvider.value = null;
+        addToast({
+          title: provider === 'TELEGRAM' ? 'Telegram Connected' : 'WhatsApp Connected',
+          message: 'Messenger notifications are ready.',
+          variant: 'success'
+        });
+      }
+    }
+
+    if (!Object.keys(linkSessions.value).length) {
+      clearNotificationPolling();
+    }
+  }, 3000);
+}
+
+async function copyText(value: string, successTitle: string) {
+  await navigator.clipboard.writeText(value);
+  addToast({
+    title: successTitle,
+    message: 'Copied to clipboard.',
+    variant: 'success'
+  });
+}
+
+async function beginMessengerConnect(provider: NotificationProvider) {
+  if (connectingProvider.value || !canStartMessengerConnect(provider)) {
+    if (!canStartMessengerConnect(provider)) {
+      addToast({
+        title: provider === 'TELEGRAM' ? 'Telegram Unavailable' : 'WhatsApp Unavailable',
+        message:
+          getProviderAvailability(provider).unavailableReason ??
+          'This messenger integration is not enabled on this server yet.',
+        variant: 'warning'
+      });
+    }
+    return;
+  }
+
+  connectingProvider.value = provider;
+
+  try {
+    const link =
+      provider === 'TELEGRAM'
+        ? await api.createTelegramNotificationLink()
+        : await api.createWhatsappNotificationLink();
+
+    linkSessions.value = {
+      ...linkSessions.value,
+      [provider]: link
+    };
+    window.open(link.deepLinkUrl, '_blank', 'noopener,noreferrer');
+    addToast({
+      title: provider === 'TELEGRAM' ? 'Telegram Setup Started' : 'WhatsApp Setup Started',
+      message:
+        provider === 'TELEGRAM'
+          ? 'Send the start message in Telegram to finish linking.'
+          : 'Send the WhatsApp message to finish linking.',
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, `Unable to start ${provider.toLowerCase()} setup.`);
+  } finally {
+    connectingProvider.value = null;
+    syncNotificationPolling();
+  }
+}
+
+async function refreshNotificationChannels() {
+  try {
+    const snapshot = await api.fetchNotificationChannels();
+    notificationChannels.value = snapshot.channels;
+    applyNotificationAvailability(snapshot.availability);
+  } catch (error) {
+    showErrorFromException(error, 'Unable to refresh notification status.');
+  } finally {
+    syncNotificationPolling();
+  }
+}
+
+async function disconnectMessenger(provider: NotificationProvider) {
+  if (notificationBusyProvider.value) {
+    return;
+  }
+
+  notificationBusyProvider.value = provider;
+  try {
+    notificationChannels.value = await api.disconnectNotificationChannel(provider);
+    delete linkSessions.value[provider];
+    addToast({
+      title: provider === 'TELEGRAM' ? 'Telegram Disconnected' : 'WhatsApp Disconnected',
+      message: 'Messenger notifications have been disconnected.',
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, `Unable to disconnect ${provider.toLowerCase()}.`);
+  } finally {
+    notificationBusyProvider.value = null;
+    syncNotificationPolling();
+  }
+}
+
+async function sendTestMessage(provider: NotificationProvider) {
+  if (notificationBusyProvider.value) {
+    return;
+  }
+
+  notificationBusyProvider.value = provider;
+  try {
+    notificationChannels.value = await api.sendNotificationTest(provider);
+    addToast({
+      title: 'Test Message Sent',
+      message: `A ${provider.toLowerCase()} test message was sent.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, 'Unable to send a test message.');
+  } finally {
+    notificationBusyProvider.value = null;
+  }
+}
+
+async function updateNotificationPreference(
+  preference: NotificationPreferenceSummary,
+  updates: Partial<Pick<NotificationPreferenceSummary, 'isEnabled' | 'providerTargets'>>
+) {
+  try {
+    notificationPreferences.value = await api.updateNotificationPreferences([
+      {
+        scopeType: preference.scopeType,
+        scopeId: preference.scopeId,
+        eventKey: preference.eventKey,
+        isEnabled: updates.isEnabled ?? preference.isEnabled,
+        providerTargets: updates.providerTargets ?? preference.providerTargets
+      }
+    ]);
+  } catch (error) {
+    showErrorFromException(error, 'Unable to update notification preferences.');
+  }
+}
+
 async function refreshDefaultLogHandleState() {
   if (!authStore.user || !supportsDefaultLog.value) {
     defaultLogHandleAvailable.value = false;
@@ -400,7 +1091,6 @@ watch(nickname, () => {
   successMessage.value = '';
   errorMessage.value = '';
 });
-
 
 function extractErrorMessage(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null) {
@@ -583,6 +1273,11 @@ onMounted(() => {
   handleUrlParams();
   loadProfile();
   loadLinkedProviders();
+  loadNotifications();
+});
+
+onBeforeUnmount(() => {
+  clearNotificationPolling();
 });
 </script>
 
@@ -755,6 +1450,11 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
+.provider-card__icon svg {
+  display: block;
 }
 
 .provider-card__icon--google {
@@ -765,6 +1465,16 @@ onMounted(() => {
 .provider-card__icon--discord {
   background: rgba(88, 101, 242, 0.15);
   color: #5865f2;
+}
+
+.provider-card__icon--telegram {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+}
+
+.provider-card__icon--whatsapp {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
 }
 
 .provider-card__details {
@@ -785,6 +1495,156 @@ onMounted(() => {
 
 .provider-card__status--linked {
   color: #4ade80;
+}
+
+.provider-card__status--pending {
+  color: #fbbf24;
+}
+
+.provider-card__status--warning {
+  color: #fda4af;
+}
+
+.provider-card__actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.provider-card--messenger {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.messenger-notifications {
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  padding-top: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.messenger-notifications__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.messenger-notifications__header h2,
+.preferences-panel__header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5f5;
+}
+
+.messenger-grid,
+.preferences-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.provider-card__setup {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.provider-card__setup-title {
+  margin: 0;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.provider-card__code {
+  display: block;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
+.provider-card__setup-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.preferences-panel {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.preference-list,
+.guild-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.guild-preferences__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.guild-preferences__group h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #f8fafc;
+}
+
+.preference-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+}
+
+.preference-row__main {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  color: #f8fafc;
+}
+
+.preference-row__main span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.preference-row__providers {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.provider-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: #cbd5e1;
 }
 
 .btn--small {
@@ -909,6 +1769,18 @@ onMounted(() => {
     align-self: stretch;
     justify-content: center;
     text-align: center;
+  }
+
+  .messenger-notifications__header,
+  .preference-row {
+    flex-direction: column;
+  }
+
+  .provider-card__actions,
+  .provider-card__setup-actions,
+  .preference-row__providers {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

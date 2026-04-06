@@ -85,6 +85,7 @@
                   <th>Avg Price</th>
                   <th>Last Price</th>
                   <th>Trend</th>
+                  <th>Alerts</th>
                   <th>Sales</th>
                   <th>Units</th>
                   <th>Revenue</th>
@@ -128,6 +129,36 @@
                     >
                       {{ getPriceTrendIcon(item.lastPrice, item.averagePrice) }}
                     </span>
+                  </td>
+                  <td>
+                    <div class="alert-toggle-stack">
+                      <label class="alert-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="item.notificationSettings.notifyOnTradeActivity !== false"
+                          :disabled="isSettingsBusy(item.id)"
+                          @change="
+                            updateFavoriteNotificationSettings(item.id, {
+                              notifyOnTradeActivity: ($event.target as HTMLInputElement).checked
+                            })
+                          "
+                        />
+                        <span>Trades</span>
+                      </label>
+                      <label class="alert-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="item.notificationSettings.notifyOnListingActivity !== false"
+                          :disabled="isSettingsBusy(item.id)"
+                          @change="
+                            updateFavoriteNotificationSettings(item.id, {
+                              notifyOnListingActivity: ($event.target as HTMLInputElement).checked
+                            })
+                          "
+                        />
+                        <span>Listings</span>
+                      </label>
+                    </div>
                   </td>
                   <td>{{ formatNumber(item.totalSales) }}</td>
                   <td>{{ formatNumber(item.totalUnitsSold) }}</td>
@@ -239,6 +270,7 @@
               <thead>
                 <tr>
                   <th>Character</th>
+                  <th>Alerts</th>
                   <th>Sells</th>
                   <th>Buys</th>
                   <th>Total Trades</th>
@@ -259,6 +291,38 @@
                         <strong>{{ character.characterName }}</strong>
                       </span>
                     </button>
+                  </td>
+                  <td>
+                    <div class="alert-toggle-stack">
+                      <label class="alert-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="character.notificationSettings.notifyOnTradeActivity !== false"
+                          :disabled="isSettingsBusy(character.id)"
+                          @change="
+                            updateFavoriteNotificationSettings(character.id, {
+                              notifyOnTradeActivity: ($event.target as HTMLInputElement).checked
+                            })
+                          "
+                        />
+                        <span>Trades</span>
+                      </label>
+                      <label class="alert-toggle">
+                        <input
+                          type="checkbox"
+                          :checked="
+                            character.notificationSettings.notifyOnListingActivity !== false
+                          "
+                          :disabled="isSettingsBusy(character.id)"
+                          @change="
+                            updateFavoriteNotificationSettings(character.id, {
+                              notifyOnListingActivity: ($event.target as HTMLInputElement).checked
+                            })
+                          "
+                        />
+                        <span>Listings</span>
+                      </label>
+                    </div>
                   </td>
                   <td>{{ formatNumber(character.sellCount) }}</td>
                   <td>{{ formatNumber(character.buyCount) }}</td>
@@ -312,6 +376,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import CoinDisplay from '../../components/CoinDisplay.vue';
+import { useToastBus } from '../../components/ToastBus';
+import { useErrorModal } from '../../composables/useErrorModal';
 import {
   api,
   type MarketCharacterSearchResult,
@@ -354,6 +420,9 @@ let characterSearchTimeout: ReturnType<typeof setTimeout> | null = null;
 let activeItemSearchToken = 0;
 let activeCharacterSearchToken = 0;
 const FAVORITES_PAGE_SIZE = 8;
+const settingsBusyIds = ref<string[]>([]);
+const { addToast } = useToastBus();
+const { showErrorFromException } = useErrorModal();
 
 const favoriteItemKeys = computed(
   () => new Set(props.favoriteItems.map((item) => getFavoriteItemKey(item)))
@@ -417,7 +486,10 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-function getPriceTrendDirection(lastPrice: number | null | undefined, averagePrice: number | null | undefined) {
+function getPriceTrendDirection(
+  lastPrice: number | null | undefined,
+  averagePrice: number | null | undefined
+) {
   if (lastPrice == null || averagePrice == null || averagePrice <= 0) {
     return 'unknown';
   }
@@ -433,7 +505,10 @@ function getPriceTrendDirection(lastPrice: number | null | undefined, averagePri
   return 'flat';
 }
 
-function getPriceTrendIcon(lastPrice: number | null | undefined, averagePrice: number | null | undefined) {
+function getPriceTrendIcon(
+  lastPrice: number | null | undefined,
+  averagePrice: number | null | undefined
+) {
   const direction = getPriceTrendDirection(lastPrice, averagePrice);
   if (direction === 'up') return '↗';
   if (direction === 'down') return '↘';
@@ -441,7 +516,10 @@ function getPriceTrendIcon(lastPrice: number | null | undefined, averagePrice: n
   return '•';
 }
 
-function getPriceTrendLabel(lastPrice: number | null | undefined, averagePrice: number | null | undefined) {
+function getPriceTrendLabel(
+  lastPrice: number | null | undefined,
+  averagePrice: number | null | undefined
+) {
   const direction = getPriceTrendDirection(lastPrice, averagePrice);
   if (direction === 'up') return 'Last price is above average';
   if (direction === 'down') return 'Last price is below average';
@@ -449,7 +527,10 @@ function getPriceTrendLabel(lastPrice: number | null | undefined, averagePrice: 
   return 'Last price is unavailable';
 }
 
-function getPriceTrendClass(lastPrice: number | null | undefined, averagePrice: number | null | undefined) {
+function getPriceTrendClass(
+  lastPrice: number | null | undefined,
+  averagePrice: number | null | undefined
+) {
   const direction = getPriceTrendDirection(lastPrice, averagePrice);
   if (direction === 'up') return 'trend-indicator--up';
   if (direction === 'down') return 'trend-indicator--down';
@@ -478,6 +559,34 @@ function isItemPending(item: Pick<MarketFavoriteItem, 'itemId' | 'itemName'>) {
 
 function isCharacterPending(characterName: string) {
   return characterPendingKeySet.value.has(getFavoriteCharacterKey(characterName));
+}
+
+function isSettingsBusy(favoriteId: string) {
+  return settingsBusyIds.value.includes(favoriteId);
+}
+
+async function updateFavoriteNotificationSettings(
+  favoriteId: string,
+  payload: Record<string, boolean | number | null>
+) {
+  if (isSettingsBusy(favoriteId)) {
+    return;
+  }
+
+  settingsBusyIds.value = [...settingsBusyIds.value, favoriteId];
+  try {
+    await api.updateMarketNotificationSettings(favoriteId, payload);
+    emit('reload-favorites');
+    addToast({
+      title: 'Watchlist Alerts Updated',
+      message: 'Notification settings were saved.',
+      variant: 'success'
+    });
+  } catch (error) {
+    showErrorFromException(error, 'Unable to update watchlist notification settings.');
+  } finally {
+    settingsBusyIds.value = settingsBusyIds.value.filter((id) => id !== favoriteId);
+  }
 }
 
 function getItemResultStatus(item: MarketDiscoveredItemSearchResult) {
@@ -835,6 +944,21 @@ onBeforeUnmount(() => {
 }
 .favorites-table__action {
   text-align: right;
+}
+.alert-toggle-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.alert-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+}
+.alert-toggle input {
+  margin: 0;
 }
 .trend-indicator {
   display: inline-flex;

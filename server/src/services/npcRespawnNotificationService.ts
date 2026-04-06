@@ -9,6 +9,7 @@
 
 import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { queueUserNotification } from './userNotificationService.js';
 
 // Logger for this service
 const logger = {
@@ -37,6 +38,13 @@ interface RespawnStatusResult {
   respawnMinTime: Date | null;
   respawnMaxTime: Date | null;
 }
+
+type NpcSubscriptionRecord = {
+  userId: string;
+  npcDefinitionId: string;
+  isInstanceVariant: boolean;
+  notifyMinutes: number;
+};
 
 /**
  * Calculate respawn status for an NPC based on last kill time and respawn timers.
@@ -70,6 +78,87 @@ function calculateRespawnStatus(
   }
 
   return { respawnStatus, respawnMinTime, respawnMaxTime };
+}
+
+function buildNpcVariantKey(npcDefinitionId: string, isInstanceVariant: boolean) {
+  return `${npcDefinitionId}:${isInstanceVariant}`;
+}
+
+async function queueRespawnUserNotifications(options: {
+  guildId: string;
+  guildName: string;
+  now: Date;
+  npcs: Array<NpcWithRespawnData & { status: RespawnStatusResult }>;
+  subscriptionsByVariant: Map<string, NpcSubscriptionRecord[]>;
+}): Promise<void> {
+  const { guildId, guildName, now, npcs, subscriptionsByVariant } = options;
+
+  for (const npc of npcs) {
+    const subscriptions =
+      subscriptionsByVariant.get(buildNpcVariantKey(npc.npcDefinitionId, npc.isInstanceVariant)) ??
+      [];
+
+    if (subscriptions.length === 0 || !npc.lastKillRecordId) {
+      continue;
+    }
+
+    for (const subscription of subscriptions) {
+      if (
+        npc.status.respawnMinTime &&
+        (npc.status.respawnStatus === 'down' || npc.status.respawnStatus === 'window')
+      ) {
+        const thresholdTime = new Date(
+          npc.status.respawnMinTime.getTime() - subscription.notifyMinutes * 60 * 1000
+        );
+
+        if (now >= thresholdTime) {
+          const minutesUntilWindow = Math.max(
+            0,
+            Math.ceil((npc.status.respawnMinTime.getTime() - now.getTime()) / 60000)
+          );
+
+          await queueUserNotification({
+            userId: subscription.userId,
+            scopeType: 'GUILD',
+            scopeId: guildId,
+            eventKey: 'npc.respawn.window_open',
+            payload: {
+              guildId,
+              guildName,
+              npcName: npc.npcName,
+              zoneName: npc.zoneName,
+              isInstanceVariant: npc.isInstanceVariant,
+              killRecordId: npc.lastKillRecordId,
+              respawnMinTime: npc.status.respawnMinTime.toISOString(),
+              respawnMaxTime: npc.status.respawnMaxTime?.toISOString() ?? null,
+              minutesUntilWindow
+            },
+            dedupeSeed: `${npc.lastKillRecordId}:${npc.npcDefinitionId}:${npc.isInstanceVariant}`
+          });
+        }
+      }
+
+      if (npc.status.respawnStatus === 'up') {
+        await queueUserNotification({
+          userId: subscription.userId,
+          scopeType: 'GUILD',
+          scopeId: guildId,
+          eventKey: 'npc.respawn.up',
+          payload: {
+            guildId,
+            guildName,
+            npcName: npc.npcName,
+            zoneName: npc.zoneName,
+            isInstanceVariant: npc.isInstanceVariant,
+            killRecordId: npc.lastKillRecordId,
+            upSinceTime:
+              (npc.status.respawnMaxTime ?? npc.status.respawnMinTime)?.toISOString() ?? null
+          },
+          dedupeSeed: `${npc.lastKillRecordId}:${npc.npcDefinitionId}:${npc.isInstanceVariant}`
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -252,10 +341,31 @@ async function processGuildRespawnNotifications(
   const notificationMap = new Map(
     existingNotifications.map((n) => [`${n.npcDefinitionId}:${n.isInstanceVariant}`, n])
   );
+  const activeSubscriptions = await prisma.npcRespawnSubscription.findMany({
+    where: {
+      npcDefinitionId: { in: npcsWithKills.map((npc) => npc.npcDefinitionId) },
+      isEnabled: true
+    },
+    select: {
+      userId: true,
+      npcDefinitionId: true,
+      isInstanceVariant: true,
+      notifyMinutes: true
+    }
+  });
+  const subscriptionsByVariant = new Map<string, NpcSubscriptionRecord[]>();
+
+  for (const subscription of activeSubscriptions) {
+    const key = buildNpcVariantKey(subscription.npcDefinitionId, subscription.isInstanceVariant);
+    const current = subscriptionsByVariant.get(key) ?? [];
+    current.push(subscription);
+    subscriptionsByVariant.set(key, current);
+  }
 
   // Check each NPC for state transitions
   const windowOpenNpcs: NpcWithRespawnData[] = [];
   const upNpcs: NpcWithRespawnData[] = [];
+  const messengerCandidateNpcs: Array<NpcWithRespawnData & { status: RespawnStatusResult }> = [];
 
   for (const npc of npcsWithKills) {
     const key = `${npc.npcDefinitionId}:${npc.isInstanceVariant}`;
@@ -272,6 +382,18 @@ async function processGuildRespawnNotifications(
 
     logger.debug(`NPC ${npc.npcName}: status=${status.respawnStatus}, killedAt=${npc.killedAt?.toISOString()}, minTime=${status.respawnMinTime?.toISOString()}, maxTime=${status.respawnMaxTime?.toISOString()}, now=${now.toISOString()}`);
     logger.debug(`NPC ${npc.npcName}: isNewKillCycle=${isNewKillCycle}, hasExisting=${!!existing}, existingWindowNotified=${!!existing?.windowNotifiedAt}, existingUpNotified=${!!existing?.upNotifiedAt}`);
+
+    if (
+      subscriptionsByVariant.has(buildNpcVariantKey(npc.npcDefinitionId, npc.isInstanceVariant)) &&
+      (status.respawnStatus === 'down' ||
+        status.respawnStatus === 'window' ||
+        status.respawnStatus === 'up')
+    ) {
+      messengerCandidateNpcs.push({
+        ...npc,
+        status
+      });
+    }
 
     if (status.respawnStatus === 'window') {
       // Check if we should send window notification
@@ -291,6 +413,16 @@ async function processGuildRespawnNotifications(
   }
 
   logger.debug(`NPCs to notify: windowOpen=${windowOpenNpcs.length}, up=${upNpcs.length}`);
+
+  if (messengerCandidateNpcs.length > 0) {
+    await queueRespawnUserNotifications({
+      guildId,
+      guildName,
+      now,
+      npcs: messengerCandidateNpcs,
+      subscriptionsByVariant
+    });
+  }
 
   // Send window open notifications
   if (windowOpenNpcs.length > 0) {
