@@ -110,22 +110,18 @@
           </div>
 
           <div class="filters-shell__row">
-            <div class="filter-group">
-              <span class="filter-group__label">Listed</span>
-              <div class="choice-pills">
-                <button
+            <label class="filter-select filter-select--listed">
+              <span class="filter-field__label">Listed</span>
+              <select v-model="listedWithinDays" class="input" :disabled="loading">
+                <option
                   v-for="option in listedWithinOptions"
                   :key="option.value"
-                  type="button"
-                  class="choice-pill"
-                  :class="{ 'choice-pill--active': listedWithinDays === option.value }"
-                  :aria-pressed="listedWithinDays === option.value"
-                  @click="listedWithinDays = option.value"
+                  :value="option.value"
                 >
                   {{ option.label }}
-                </button>
-              </div>
-            </div>
+                </option>
+              </select>
+            </label>
 
             <div class="filter-group">
               <span class="filter-group__label">Direction</span>
@@ -1499,6 +1495,11 @@ onBeforeUnmount(() => {
 .filter-search__input {
   min-height: 3.25rem;
   font-size: 1rem;
+}
+
+.filter-select--listed {
+  flex: 0 1 11rem;
+  min-width: 10rem;
 }
 
 .filter-group {
