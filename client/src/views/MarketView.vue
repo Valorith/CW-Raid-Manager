@@ -17,6 +17,15 @@
               >Retrieved {{ formatSyncTime(listingsLastRetrievedAt) }}</span
             >
           </template>
+          <template v-else-if="activeTab === 'traders'">
+            <span class="pill">Saved traders</span>
+            <span
+              class="pill"
+              :class="traderAttentionCount > 0 ? 'pill--danger-soft' : 'pill--success-soft'"
+            >
+              {{ traderAttentionMeta }}
+            </span>
+          </template>
           <template v-else>
             <span class="pill pill--muted">Personal watchlist</span>
           </template>
@@ -68,6 +77,21 @@
         @click="activeTab = 'listings'"
       >
         Listings
+      </button>
+      <button
+        id="market-tab-traders"
+        type="button"
+        role="tab"
+        class="market-page-tab"
+        :class="{ 'market-page-tab--active': activeTab === 'traders' }"
+        :aria-selected="activeTab === 'traders'"
+        aria-controls="market-panel-traders"
+        @click="activeTab = 'traders'"
+      >
+        <span>My Traders</span>
+        <span v-if="traderAttentionCount > 0" class="market-page-tab__badge">
+          {{ traderAttentionCount }}
+        </span>
       </button>
       <button
         id="market-tab-favorites"
@@ -462,6 +486,26 @@
         @open-item="openItemModal"
         @open-character="openFavoriteCharacter"
         @sync-status-change="handleListingsSyncStatusChange"
+      />
+    </section>
+
+    <section
+      v-show="activeTab === 'traders'"
+      id="market-panel-traders"
+      role="tabpanel"
+      aria-labelledby="market-tab-traders"
+      class="market-tab-panel"
+    >
+      <MarketTradersTab
+        :saved-traders="favoriteTraders"
+        :trader-summary="traderSummary"
+        :favorites-loading="favoritesLoading"
+        :trader-pending-keys="favoriteTraderPendingKeys"
+        @reload-favorites="reloadFavorites"
+        @add-trader="addMarketTrader"
+        @remove-trader="removeMarketTrader"
+        @open-item="openItemModal"
+        @open-character="openFavoriteCharacter"
       />
     </section>
 
@@ -1511,6 +1555,7 @@ import CoinDisplay from '../components/CoinDisplay.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MarketFavoritesTab from '../components/market/MarketFavoritesTab.vue';
 import MarketListingsTab from '../components/market/MarketListingsTab.vue';
+import MarketTradersTab from '../components/market/MarketTradersTab.vue';
 import { useToastBus } from '../components/ToastBus';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
@@ -1519,6 +1564,7 @@ import {
   type MarketCharacterHistoryType,
   type MarketFavoriteCharacter,
   type MarketFavoriteItem,
+  type MarketFavoriteTrader,
   type MarketItemActivity,
   type MarketItemHistory,
   type MarketListing,
@@ -1528,6 +1574,7 @@ import {
   type MarketRecentSale,
   type MarketRecentSalesPage,
   type MarketSummary,
+  type MarketTraderSummary,
   type MarketTopItemsSort,
   type MarketTopItem
 } from '../services/api';
@@ -1566,16 +1613,29 @@ const itemListingsPage = ref<MarketListingsPage | null>(null);
 const salesPage = ref<MarketRecentSalesPage | null>(null);
 const favoriteItems = ref<MarketFavoriteItem[]>([]);
 const favoriteCharacters = ref<MarketFavoriteCharacter[]>([]);
+const favoriteTraders = ref<MarketFavoriteTrader[]>([]);
+const traderSummary = ref<MarketTraderSummary>({
+  totalTraders: 0,
+  activeTraders: 0,
+  tradersNeedingAttention: 0,
+  totalListings: 0,
+  leadingListings: 0,
+  matchingListings: 0,
+  undercutListings: 0,
+  sourceAvailable: true,
+  message: null
+});
 const listingsLastRetrievedAt = ref<string | null>(null);
 const favoriteItemPendingKeys = ref<string[]>([]);
 const favoriteCharacterPendingKeys = ref<string[]>([]);
+const favoriteTraderPendingKeys = ref<string[]>([]);
 const activeModalItem = ref<MarketSelectableItem | null>(null);
 const activeItemModalTab = ref<MarketItemModalTab>('trends');
 const isItemModalOpen = ref(false);
 const activeCharacterName = ref<string | null>(null);
 const activeCharacterTab = ref<MarketCharacterModalTab>('listings');
 const isCharacterModalOpen = ref(false);
-const activeTab = ref<'market' | 'listings' | 'favorites'>('market');
+const activeTab = ref<'market' | 'listings' | 'traders' | 'favorites'>('market');
 const selectedRangeDays = ref<number | null>(null);
 const topItemsSort = ref<MarketTopItemsSort>('quantity');
 const salesPageNumber = ref(1);
@@ -1696,8 +1756,12 @@ const favoriteCharacterKeys = computed(
       favoriteCharacters.value.map((character) => getFavoriteCharacterKey(character.characterName))
     )
 );
+const favoriteTraderKeys = computed(
+  () => new Set(favoriteTraders.value.map((trader) => getFavoriteTraderKey(trader.characterName)))
+);
 const favoriteItemPendingKeySet = computed(() => new Set(favoriteItemPendingKeys.value));
 const favoriteCharacterPendingKeySet = computed(() => new Set(favoriteCharacterPendingKeys.value));
+const favoriteTraderPendingKeySet = computed(() => new Set(favoriteTraderPendingKeys.value));
 const isRefreshButtonDisabled = computed(
   () => refreshing.value || refreshCooldownRemaining.value > 0
 );
@@ -1737,6 +1801,18 @@ const activeItemFavoriteButtonLabel = computed(() => {
   }
 
   return isActiveItemFavorited.value ? 'Watching' : 'Watch Item';
+});
+const traderAttentionCount = computed(() => traderSummary.value.tradersNeedingAttention);
+const traderAttentionMeta = computed(() => {
+  if (traderAttentionCount.value > 0) {
+    return `${formatNumber(traderAttentionCount.value)} need attention`;
+  }
+
+  if (traderSummary.value.activeTraders > 0) {
+    return 'All active traders are competitive';
+  }
+
+  return 'No active trader listings';
 });
 const itemModalTabSummary = computed(() => {
   if (activeItemModalTab.value === 'listings') {
@@ -1820,8 +1896,15 @@ function getFavoriteCharacterKey(characterName: string) {
   return `character:${normalizeText(characterName).toLowerCase()}`;
 }
 
+function getFavoriteTraderKey(characterName: string) {
+  return `trader:${normalizeText(characterName).toLowerCase()}`;
+}
+
 function addPendingKey(
-  target: typeof favoriteItemPendingKeys | typeof favoriteCharacterPendingKeys,
+  target:
+    | typeof favoriteItemPendingKeys
+    | typeof favoriteCharacterPendingKeys
+    | typeof favoriteTraderPendingKeys,
   key: string
 ) {
   if (target.value.includes(key)) {
@@ -1832,7 +1915,10 @@ function addPendingKey(
 }
 
 function removePendingKey(
-  target: typeof favoriteItemPendingKeys | typeof favoriteCharacterPendingKeys,
+  target:
+    | typeof favoriteItemPendingKeys
+    | typeof favoriteCharacterPendingKeys
+    | typeof favoriteTraderPendingKeys,
   key: string
 ) {
   target.value = target.value.filter((entry) => entry !== key);
@@ -2547,6 +2633,19 @@ async function loadFavorites(showErrorToast = true) {
     const favorites = await api.fetchMarketFavorites();
     favoriteItems.value = favorites.items ?? [];
     favoriteCharacters.value = favorites.characters ?? [];
+    favoriteTraders.value = favorites.traders ?? [];
+    traderSummary.value =
+      favorites.traderSummary ?? {
+        totalTraders: 0,
+        activeTraders: 0,
+        tradersNeedingAttention: 0,
+        totalListings: 0,
+        leadingListings: 0,
+        matchingListings: 0,
+        undercutListings: 0,
+        sourceAvailable: true,
+        message: null
+      };
   } catch (error) {
     console.error('Failed to load market watchlist.', error);
     if (showErrorToast) {
@@ -2666,6 +2765,54 @@ async function addMarketCharacterFavorite(characterName: string) {
   }
 }
 
+function syncTraderSummaryFromFavorites() {
+  traderSummary.value = {
+    totalTraders: favoriteTraders.value.length,
+    activeTraders: favoriteTraders.value.filter((entry) => entry.hasActiveListings).length,
+    tradersNeedingAttention: favoriteTraders.value.filter((entry) => entry.needsAttention).length,
+    totalListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.totalListings, 0),
+    leadingListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.leadingListings, 0),
+    matchingListings: favoriteTraders.value.reduce(
+      (sum, entry) => sum + entry.matchingListings,
+      0
+    ),
+    undercutListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.undercutListings, 0),
+    sourceAvailable: traderSummary.value.sourceAvailable,
+    message: traderSummary.value.message
+  };
+}
+
+async function addMarketTrader(characterName: string) {
+  const normalizedName = normalizeText(characterName);
+  if (!normalizedName) {
+    return;
+  }
+
+  const key = getFavoriteTraderKey(normalizedName);
+  if (favoriteTraderKeys.value.has(key) || favoriteTraderPendingKeySet.value.has(key)) {
+    return;
+  }
+
+  addPendingKey(favoriteTraderPendingKeys, key);
+  try {
+    const trader = await api.addMarketTrader(normalizedName);
+    favoriteTraders.value = [
+      trader,
+      ...favoriteTraders.value.filter((entry) => getFavoriteTraderKey(entry.characterName) !== key)
+    ];
+    syncTraderSummaryFromFavorites();
+  } catch (error) {
+    console.error('Failed to add market trader.', error);
+    addToast({
+      title: 'Save Trader Failed',
+      message: `Unable to save ${normalizedName} to My Traders.`,
+      variant: 'error'
+    });
+  } finally {
+    removePendingKey(favoriteTraderPendingKeys, key);
+  }
+}
+
 async function removeMarketCharacterFavorite(characterName: string) {
   const normalizedName = normalizeText(characterName);
   if (!normalizedName) {
@@ -2692,6 +2839,36 @@ async function removeMarketCharacterFavorite(characterName: string) {
     });
   } finally {
     removePendingKey(favoriteCharacterPendingKeys, key);
+  }
+}
+
+async function removeMarketTrader(characterName: string) {
+  const normalizedName = normalizeText(characterName);
+  if (!normalizedName) {
+    return;
+  }
+
+  const key = getFavoriteTraderKey(normalizedName);
+  if (favoriteTraderPendingKeySet.value.has(key)) {
+    return;
+  }
+
+  addPendingKey(favoriteTraderPendingKeys, key);
+  try {
+    await api.removeMarketTrader(normalizedName);
+    favoriteTraders.value = favoriteTraders.value.filter(
+      (entry) => getFavoriteTraderKey(entry.characterName) !== key
+    );
+    syncTraderSummaryFromFavorites();
+  } catch (error) {
+    console.error('Failed to remove market trader.', error);
+    addToast({
+      title: 'Remove Trader Failed',
+      message: `Unable to remove ${normalizedName} from My Traders.`,
+      variant: 'error'
+    });
+  } finally {
+    removePendingKey(favoriteTraderPendingKeys, key);
   }
 }
 
@@ -3287,6 +3464,16 @@ onBeforeUnmount(() => {
   border-color: rgba(148, 163, 184, 0.15);
   color: #94a3b8;
 }
+.pill--success-soft {
+  background: rgba(22, 101, 52, 0.22);
+  border-color: rgba(34, 197, 94, 0.24);
+  color: #bbf7d0;
+}
+.pill--danger-soft {
+  background: rgba(127, 29, 29, 0.22);
+  border-color: rgba(248, 113, 113, 0.26);
+  color: #fecaca;
+}
 .hero-actions {
   display: flex;
   align-items: center;
@@ -3305,6 +3492,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.45rem;
   padding: 0.65rem 1.35rem;
   border: 1px solid transparent;
   border-bottom: none;
@@ -3330,6 +3518,19 @@ onBeforeUnmount(() => {
 .market-page-tab:focus-visible {
   outline: 2px solid rgba(59, 130, 246, 0.5);
   outline-offset: -2px;
+}
+.market-page-tab__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(185, 28, 28, 0.88);
+  color: #fff;
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 .market-tab-panel {
   display: flex;

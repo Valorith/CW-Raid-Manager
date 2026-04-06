@@ -1975,9 +1975,56 @@ export interface MarketFavoriteCharacter {
   lastSeenAt: string | null;
 }
 
+export type MarketTraderListingStatus = 'leading' | 'matching' | 'undercut';
+
+export interface MarketTraderAttentionListing {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+  price: number;
+  bestPrice: number;
+  priceDelta: number;
+  priceDeltaPercent: number | null;
+  priceRank: number;
+  charges: number | null;
+  slotId: number;
+  listedAt: string | null;
+  status: Exclude<MarketTraderListingStatus, 'leading'>;
+}
+
+export interface MarketFavoriteTrader {
+  id: string;
+  characterName: string;
+  createdAt: string;
+  totalListings: number;
+  uniqueItems: number;
+  leadingListings: number;
+  matchingListings: number;
+  undercutListings: number;
+  attentionListingsCount: number;
+  lastListedAt: string | null;
+  hasActiveListings: boolean;
+  needsAttention: boolean;
+  attentionListings: MarketTraderAttentionListing[];
+}
+
+export interface MarketTraderSummary {
+  totalTraders: number;
+  activeTraders: number;
+  tradersNeedingAttention: number;
+  totalListings: number;
+  leadingListings: number;
+  matchingListings: number;
+  undercutListings: number;
+  sourceAvailable: boolean;
+  message: string | null;
+}
+
 export interface MarketFavorites {
   items: MarketFavoriteItem[];
   characters: MarketFavoriteCharacter[];
+  traders: MarketFavoriteTrader[];
+  traderSummary: MarketTraderSummary;
 }
 
 // Character Admin Types
@@ -4969,7 +5016,24 @@ export const api = {
 
   async fetchMarketFavorites(): Promise<MarketFavorites> {
     const response = await axios.get('/api/market/favorites');
-    return response.data.favorites ?? { items: [], characters: [] };
+    return (
+      response.data.favorites ?? {
+        items: [],
+        characters: [],
+        traders: [],
+        traderSummary: {
+          totalTraders: 0,
+          activeTraders: 0,
+          tradersNeedingAttention: 0,
+          totalListings: 0,
+          leadingListings: 0,
+          matchingListings: 0,
+          undercutListings: 0,
+          sourceAvailable: true,
+          message: null
+        }
+      }
+    );
   },
 
   async addMarketFavoriteItem(input: {
@@ -4999,6 +5063,16 @@ export const api = {
   async removeMarketFavoriteCharacter(characterName: string): Promise<void> {
     const params = new URLSearchParams({ characterName });
     await axios.delete(`/api/market/favorites/characters?${params.toString()}`);
+  },
+
+  async addMarketTrader(characterName: string): Promise<MarketFavoriteTrader> {
+    const response = await axios.post('/api/market/favorites/traders', { characterName });
+    return response.data.favorite;
+  },
+
+  async removeMarketTrader(characterName: string): Promise<void> {
+    const params = new URLSearchParams({ characterName });
+    await axios.delete(`/api/market/favorites/traders?${params.toString()}`);
   },
 
   async fetchMarketItemHistory(options: {

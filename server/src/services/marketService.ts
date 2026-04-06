@@ -89,6 +89,13 @@ type CharacterSearchRow = {
   buyCount: bigint | number | null;
 };
 
+type MarketListingRankRow = {
+  id: string;
+  itemId: number;
+  price: number;
+  listedAt: Date | null;
+};
+
 export interface MarketSyncSummary {
   processed: number;
   inserted: number;
@@ -266,9 +273,56 @@ export interface MarketFavoriteCharacter {
   lastSeenAt: string | null;
 }
 
+export type MarketTraderListingStatus = 'leading' | 'matching' | 'undercut';
+
+export interface MarketTraderAttentionListing {
+  itemId: number;
+  itemName: string;
+  itemIconId: number | null;
+  price: number;
+  bestPrice: number;
+  priceDelta: number;
+  priceDeltaPercent: number | null;
+  priceRank: number;
+  charges: number | null;
+  slotId: number;
+  listedAt: string | null;
+  status: Exclude<MarketTraderListingStatus, 'leading'>;
+}
+
+export interface MarketFavoriteTrader {
+  id: string;
+  characterName: string;
+  createdAt: string;
+  totalListings: number;
+  uniqueItems: number;
+  leadingListings: number;
+  matchingListings: number;
+  undercutListings: number;
+  attentionListingsCount: number;
+  lastListedAt: string | null;
+  hasActiveListings: boolean;
+  needsAttention: boolean;
+  attentionListings: MarketTraderAttentionListing[];
+}
+
+export interface MarketTraderSummary {
+  totalTraders: number;
+  activeTraders: number;
+  tradersNeedingAttention: number;
+  totalListings: number;
+  leadingListings: number;
+  matchingListings: number;
+  undercutListings: number;
+  sourceAvailable: boolean;
+  message: string | null;
+}
+
 export interface MarketFavorites {
   items: MarketFavoriteItem[];
   characters: MarketFavoriteCharacter[];
+  traders: MarketFavoriteTrader[];
+  traderSummary: MarketTraderSummary;
 }
 
 type MarketSaleEventRow = {
@@ -387,6 +441,10 @@ function buildMarketFavoriteCharacterKey(characterName: string): string {
   return `character:${normalizeCharacterNameKey(characterName)}`;
 }
 
+function buildMarketFavoriteTraderKey(characterName: string): string {
+  return `trader:${normalizeCharacterNameKey(characterName)}`;
+}
+
 function createEmptyMarketFavoriteItemMetrics() {
   return {
     totalSales: 0,
@@ -405,6 +463,282 @@ function createEmptyMarketFavoriteCharacterMetrics() {
     totalTransactions: 0,
     lastSeenAt: null as string | null
   };
+}
+
+function createEmptyMarketFavoriteTraderMetrics() {
+  return {
+    totalListings: 0,
+    uniqueItems: 0,
+    leadingListings: 0,
+    matchingListings: 0,
+    undercutListings: 0,
+    attentionListingsCount: 0,
+    lastListedAt: null as string | null,
+    hasActiveListings: false,
+    needsAttention: false,
+    attentionListings: [] as MarketTraderAttentionListing[]
+  };
+}
+
+function createEmptyMarketTraderSummary(
+  totalTraders: number,
+  input: {
+    sourceAvailable?: boolean;
+    message?: string | null;
+  } = {}
+): MarketTraderSummary {
+  return {
+    totalTraders,
+    activeTraders: 0,
+    tradersNeedingAttention: 0,
+    totalListings: 0,
+    leadingListings: 0,
+    matchingListings: 0,
+    undercutListings: 0,
+    sourceAvailable: input.sourceAvailable ?? true,
+    message: input.message ?? null
+  };
+}
+
+function isMarketListingCacheSchemaMissing(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (
+    error.code === 'P2021' &&
+    (error.meta?.modelName === 'MarketListing' || error.meta?.table === 'MarketListing')
+  ) {
+    return true;
+  }
+
+  if (error.code !== 'P2010' || typeof error.meta?.message !== 'string') {
+    return false;
+  }
+
+  return (
+    error.meta?.code === '1146' ||
+    error.meta.message.includes('MarketListing') ||
+    error.meta.message.includes("Unknown column 'itemType'") ||
+    error.meta.message.includes("Unknown column 'itemSlots'")
+  );
+}
+
+function compareMarketListingOrder(
+  left: Pick<MarketListingRankRow, 'price' | 'listedAt' | 'id'>,
+  right: Pick<MarketListingRankRow, 'price' | 'listedAt' | 'id'>
+): number {
+  if (left.price !== right.price) {
+    return left.price - right.price;
+  }
+
+  const leftTime = left.listedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  const rightTime = right.listedAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+async function getMarketFavoriteTraderMetrics(
+  characterNames: string[]
+): Promise<{
+  metricsByCharacterKey: Map<string, ReturnType<typeof createEmptyMarketFavoriteTraderMetrics>>;
+  summary: MarketTraderSummary;
+}> {
+  const normalizedCharacterNames = Array.from(
+    new Set(characterNames.map((value) => normalizeCharacterName(value)).filter(Boolean))
+  );
+  const metricsByCharacterKey = new Map<
+    string,
+    ReturnType<typeof createEmptyMarketFavoriteTraderMetrics>
+  >();
+
+  for (const characterName of normalizedCharacterNames) {
+    metricsByCharacterKey.set(
+      buildMarketFavoriteTraderKey(characterName),
+      createEmptyMarketFavoriteTraderMetrics()
+    );
+  }
+
+  if (normalizedCharacterNames.length === 0) {
+    return {
+      metricsByCharacterKey,
+      summary: createEmptyMarketTraderSummary(0)
+    };
+  }
+
+  try {
+    const traderListings = await prisma.marketListing.findMany({
+      where: {
+        sellerCharacterName: {
+          in: normalizedCharacterNames
+        }
+      },
+      select: {
+        id: true,
+        sellerCharacterName: true,
+        itemId: true,
+        itemName: true,
+        itemIconId: true,
+        price: true,
+        charges: true,
+        slotId: true,
+        listedAt: true
+      }
+    });
+
+    if (traderListings.length === 0) {
+      return {
+        metricsByCharacterKey,
+        summary: createEmptyMarketTraderSummary(normalizedCharacterNames.length)
+      };
+    }
+
+    const relevantItemIds = Array.from(new Set(traderListings.map((listing) => listing.itemId)));
+    const allRelevantListings = await prisma.marketListing.findMany({
+      where: {
+        itemId: {
+          in: relevantItemIds
+        }
+      },
+      select: {
+        id: true,
+        itemId: true,
+        price: true,
+        listedAt: true
+      }
+    });
+
+    const listingRanks = new Map<string, number>();
+    const bestPriceByItemId = new Map<number, number>();
+    const listingsByItemId = new Map<number, MarketListingRankRow[]>();
+
+    for (const listing of allRelevantListings) {
+      const existing = listingsByItemId.get(listing.itemId);
+      if (existing) {
+        existing.push(listing);
+      } else {
+        listingsByItemId.set(listing.itemId, [listing]);
+      }
+    }
+
+    for (const [itemId, itemListings] of listingsByItemId.entries()) {
+      itemListings.sort(compareMarketListingOrder);
+      if (itemListings.length > 0) {
+        bestPriceByItemId.set(itemId, itemListings[0].price);
+      }
+      itemListings.forEach((listing, index) => {
+        listingRanks.set(listing.id, index + 1);
+      });
+    }
+
+    const uniqueItemsByTraderKey = new Map<string, Set<number>>();
+    const latestListingByTraderKey = new Map<string, Date>();
+
+    for (const listing of traderListings) {
+      const traderKey = buildMarketFavoriteTraderKey(listing.sellerCharacterName);
+      const metrics = metricsByCharacterKey.get(traderKey);
+      if (!metrics) {
+        continue;
+      }
+
+      metrics.totalListings += 1;
+      metrics.hasActiveListings = true;
+
+      const existingItems = uniqueItemsByTraderKey.get(traderKey);
+      if (existingItems) {
+        existingItems.add(listing.itemId);
+      } else {
+        uniqueItemsByTraderKey.set(traderKey, new Set([listing.itemId]));
+      }
+
+      if (listing.listedAt) {
+        const currentLatest = latestListingByTraderKey.get(traderKey);
+        if (!currentLatest || currentLatest.getTime() < listing.listedAt.getTime()) {
+          latestListingByTraderKey.set(traderKey, listing.listedAt);
+        }
+      }
+
+      const priceRank = listingRanks.get(listing.id) ?? 1;
+      const bestPrice = bestPriceByItemId.get(listing.itemId) ?? listing.price;
+      if (priceRank === 1) {
+        metrics.leadingListings += 1;
+        continue;
+      }
+
+      const status: Exclude<MarketTraderListingStatus, 'leading'> =
+        listing.price === bestPrice ? 'matching' : 'undercut';
+      if (status === 'matching') {
+        metrics.matchingListings += 1;
+      } else {
+        metrics.undercutListings += 1;
+      }
+
+      metrics.attentionListings.push({
+        itemId: listing.itemId,
+        itemName: listing.itemName,
+        itemIconId: listing.itemIconId,
+        price: listing.price,
+        bestPrice,
+        priceDelta: Math.max(0, listing.price - bestPrice),
+        priceDeltaPercent: bestPrice > 0 ? (listing.price - bestPrice) / bestPrice : null,
+        priceRank,
+        charges: listing.charges,
+        slotId: listing.slotId,
+        listedAt: listing.listedAt?.toISOString() ?? null,
+        status
+      });
+    }
+
+    const traders = Array.from(metricsByCharacterKey.values());
+    for (const [traderKey, metrics] of metricsByCharacterKey.entries()) {
+      metrics.uniqueItems = uniqueItemsByTraderKey.get(traderKey)?.size ?? 0;
+      metrics.attentionListingsCount = metrics.attentionListings.length;
+      metrics.needsAttention = metrics.attentionListingsCount > 0;
+      metrics.lastListedAt = latestListingByTraderKey.get(traderKey)?.toISOString() ?? null;
+      metrics.attentionListings.sort((left, right) => {
+        if (left.status !== right.status) {
+          return left.status === 'undercut' ? -1 : 1;
+        }
+        if (right.priceDelta !== left.priceDelta) {
+          return right.priceDelta - left.priceDelta;
+        }
+        if (right.priceRank !== left.priceRank) {
+          return right.priceRank - left.priceRank;
+        }
+        return left.itemName.localeCompare(right.itemName);
+      });
+    }
+
+    return {
+      metricsByCharacterKey,
+      summary: {
+        totalTraders: normalizedCharacterNames.length,
+        activeTraders: traders.filter((entry) => entry.hasActiveListings).length,
+        tradersNeedingAttention: traders.filter((entry) => entry.needsAttention).length,
+        totalListings: traders.reduce((sum, entry) => sum + entry.totalListings, 0),
+        leadingListings: traders.reduce((sum, entry) => sum + entry.leadingListings, 0),
+        matchingListings: traders.reduce((sum, entry) => sum + entry.matchingListings, 0),
+        undercutListings: traders.reduce((sum, entry) => sum + entry.undercutListings, 0),
+        sourceAvailable: true,
+        message: null
+      }
+    };
+  } catch (error) {
+    if (isMarketListingCacheSchemaMissing(error)) {
+      return {
+        metricsByCharacterKey,
+        summary: createEmptyMarketTraderSummary(normalizedCharacterNames.length, {
+          sourceAvailable: false,
+          message: 'Bazaar listings cache is unavailable. Apply the market listings migrations first.'
+        })
+      };
+    }
+
+    throw error;
+  }
 }
 
 async function getMarketFavoriteItemMetrics(input: {
@@ -1440,6 +1774,13 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
       getMarketFavoriteCharacterMetrics(favorite.characterName ?? '')
     )
   );
+  const traderFavorites = favorites.filter(
+    (favorite) => favorite.listType === MarketFavoriteListType.MY_TRADERS && Boolean(favorite.characterName)
+  );
+  const { metricsByCharacterKey: traderMetricsByKey, summary: traderSummary } =
+    await getMarketFavoriteTraderMetrics(
+      traderFavorites.map((favorite) => favorite.characterName ?? '')
+    );
 
   return {
     items: itemFavorites.map((favorite, index) => ({
@@ -1455,7 +1796,17 @@ export async function getMarketFavorites(userId: string): Promise<MarketFavorite
       characterName: favorite.characterName ?? 'Unknown Character',
       createdAt: favorite.createdAt.toISOString(),
       ...characterMetrics[index]
-    }))
+    })),
+    traders: traderFavorites.map((favorite) => ({
+      id: favorite.id,
+      characterName: favorite.characterName ?? 'Unknown Trader',
+      createdAt: favorite.createdAt.toISOString(),
+      ...(
+        traderMetricsByKey.get(buildMarketFavoriteTraderKey(favorite.characterName ?? '')) ??
+        createEmptyMarketFavoriteTraderMetrics()
+      )
+    })),
+    traderSummary
   };
 }
 
@@ -1570,6 +1921,56 @@ export async function removeMarketFavoriteCharacter(
       userId,
       listType: MarketFavoriteListType.FAVORITE_CHARACTERS,
       targetKey: buildMarketFavoriteCharacterKey(characterName)
+    }
+  });
+}
+
+export async function addMarketTrader(
+  userId: string,
+  characterName: string
+): Promise<MarketFavoriteTrader> {
+  const normalizedCharacterName = normalizeCharacterName(characterName);
+  const targetKey = buildMarketFavoriteTraderKey(normalizedCharacterName);
+
+  const favorite = await prisma.marketFavorite.upsert({
+    where: {
+      userId_listType_targetKey: {
+        userId,
+        listType: MarketFavoriteListType.MY_TRADERS,
+        targetKey
+      }
+    },
+    create: {
+      userId,
+      listType: MarketFavoriteListType.MY_TRADERS,
+      targetKey,
+      characterName: normalizedCharacterName
+    },
+    update: {
+      characterName: normalizedCharacterName
+    }
+  });
+  const { metricsByCharacterKey } = await getMarketFavoriteTraderMetrics([
+    favorite.characterName ?? normalizedCharacterName
+  ]);
+
+  return {
+    id: favorite.id,
+    characterName: favorite.characterName ?? normalizedCharacterName,
+    createdAt: favorite.createdAt.toISOString(),
+    ...(
+      metricsByCharacterKey.get(buildMarketFavoriteTraderKey(favorite.characterName ?? '')) ??
+      createEmptyMarketFavoriteTraderMetrics()
+    )
+  };
+}
+
+export async function removeMarketTrader(userId: string, characterName: string): Promise<void> {
+  await prisma.marketFavorite.deleteMany({
+    where: {
+      userId,
+      listType: MarketFavoriteListType.MY_TRADERS,
+      targetKey: buildMarketFavoriteTraderKey(characterName)
     }
   });
 }

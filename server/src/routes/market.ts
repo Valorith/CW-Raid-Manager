@@ -10,12 +10,14 @@ import {
 import {
   addMarketFavoriteCharacter,
   addMarketFavoriteItem,
+  addMarketTrader,
   getMarketFavorites,
   getMarketCharacterHistoryPage,
   getMarketItemActivity,
   getMarketItemHistory,
   getMarketRecentSalesPage,
   getMarketSummary,
+  removeMarketTrader,
   removeMarketFavoriteCharacter,
   removeMarketFavoriteItem,
   searchMarketCharacters,
@@ -273,6 +275,56 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       } catch (error) {
         request.log.error({ error }, 'Failed to remove market favorite character.');
         return reply.internalServerError('Unable to remove favorite character.');
+      }
+    }
+  );
+
+  server.post(
+    '/favorites/traders',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        characterName: z.string().trim().min(1).max(191)
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid trader payload.');
+      }
+
+      try {
+        const favorite = await addMarketTrader(request.user.userId, parsed.data.characterName);
+        return { favorite };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to add market trader.');
+        return reply.internalServerError('Unable to add trader.');
+      }
+    }
+  );
+
+  server.delete(
+    '/favorites/traders',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        characterName: z.string().trim().min(1).max(191)
+      });
+
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      try {
+        await removeMarketTrader(request.user.userId, parsed.data.characterName);
+        return reply.code(204).send();
+      } catch (error) {
+        request.log.error({ error }, 'Failed to remove market trader.');
+        return reply.internalServerError('Unable to remove trader.');
       }
     }
   );

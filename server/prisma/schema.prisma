@@ -647,6 +647,7 @@ enum MarketLogEventType {
 enum MarketFavoriteListType {
   FAVORITE_ITEMS
   FAVORITE_CHARACTERS
+  MY_TRADERS
 }
 
 enum AvailabilityStatus {
