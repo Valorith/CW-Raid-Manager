@@ -282,7 +282,11 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="sale in displaySales" :key="sale.id">
+                  <tr
+                    v-for="sale in displaySales"
+                    :key="sale.id"
+                    :class="{ 'market-table__row--my-trader': isSaleFromFavoriteTrader(sale) }"
+                  >
                     <td>
                       <button
                         type="button"
@@ -317,7 +321,10 @@
                     <td>
                       <button
                         type="button"
-                        class="character-history-link"
+                        :class="[
+                          'character-history-link',
+                          { 'character-history-link--my-trader': isSaleFromFavoriteTrader(sale) }
+                        ]"
                         @click="openCharacterHistoryModal(sale.sellerCharacterName, 'sell')"
                       >
                         {{ sale.sellerCharacterName }}
@@ -1935,6 +1942,11 @@ function isItemFavoritePending(item: Pick<MarketSelectableItem, 'itemId' | 'item
 function isCharacterFavorited(characterName: string | null | undefined) {
   const normalized = normalizeText(characterName);
   return normalized ? favoriteCharacterKeys.value.has(getFavoriteCharacterKey(normalized)) : false;
+}
+
+function isSaleFromFavoriteTrader(sale: Pick<MarketRecentSale, 'sellerCharacterName'>) {
+  const normalized = normalizeText(sale.sellerCharacterName);
+  return normalized ? favoriteTraderKeys.value.has(getFavoriteTraderKey(normalized)) : false;
 }
 
 function getItemFavoriteLabel(item: Pick<MarketSelectableItem, 'itemId' | 'itemName'>) {
@@ -4082,11 +4094,23 @@ onBeforeUnmount(() => {
   width: 100%;
   border-collapse: collapse;
 }
+.market-table tbody tr {
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
 .market-table th,
 .market-table td {
   padding: 0.82rem 0.88rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
   text-align: left;
+}
+.market-table__row--my-trader {
+  background: rgba(34, 197, 94, 0.1);
+  box-shadow: inset 3px 0 0 rgba(74, 222, 128, 0.8);
+}
+.market-table__row--my-trader:hover {
+  background: rgba(34, 197, 94, 0.16);
 }
 .market-table th {
   font-size: 0.76rem;
@@ -4284,6 +4308,15 @@ onBeforeUnmount(() => {
 .character-history-link:hover,
 .character-history-link:focus-visible {
   color: #bae6fd;
+}
+.character-history-link--my-trader {
+  color: #86efac;
+  text-decoration-color: rgba(134, 239, 172, 0.5);
+  font-weight: 700;
+}
+.character-history-link--my-trader:hover,
+.character-history-link--my-trader:focus-visible {
+  color: #dcfce7;
 }
 .market-modal-backdrop {
   position: fixed;
