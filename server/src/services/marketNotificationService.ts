@@ -114,9 +114,41 @@ function formatCharacterTradeLine(
 
 function formatCharacterListingLine(
   watchedCharacterName: string,
-  listing: Pick<ListingSnapshot, 'itemName' | 'price'>
+  listing: Pick<ListingSnapshot, 'itemName' | 'price'>,
+  previousPrice?: number | null
 ): string {
-  return `${watchedCharacterName.trim()} listed ${listing.itemName} for ${formatCopperCurrency(listing.price)}.`;
+  const priceChange = formatListingPriceChange(previousPrice, listing.price);
+  return `${buildListingChangeEmoji(previousPrice, listing.price)} ${watchedCharacterName.trim()} listed ${listing.itemName} for ${formatCopperCurrency(listing.price)}${priceChange}.`;
+}
+
+function buildListingChangeEmoji(
+  previousPrice: number | null | undefined,
+  currentPrice: number
+): string {
+  if (previousPrice == null) {
+    return '🆕';
+  }
+
+  if (currentPrice < previousPrice) {
+    return '🟢⬇️';
+  }
+
+  if (currentPrice > previousPrice) {
+    return '🔴⬆️';
+  }
+
+  return '🏷️';
+}
+
+function formatListingPriceChange(
+  previousPrice: number | null | undefined,
+  currentPrice: number
+): string {
+  if (previousPrice == null || previousPrice === currentPrice) {
+    return '';
+  }
+
+  return ` (was ${formatCopperCurrency(previousPrice)})`;
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -386,7 +418,7 @@ export async function processMarketListingNotifications(options: {
         if (isNewOrChanged && settings.notifyOnListingActivity !== false) {
           const lines = itemLinesByUser.get(favorite.userId) ?? [];
           lines.push(
-            `${listing.itemName} listed by ${listing.sellerCharacterName} for ${formatCopperCurrency(listing.price)}`
+            `${buildListingChangeEmoji(previous?.price, listing.price)} ${listing.itemName} listed by ${listing.sellerCharacterName} for ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`
           );
           itemLinesByUser.set(favorite.userId, lines);
         }
@@ -419,7 +451,7 @@ export async function processMarketListingNotifications(options: {
         const previous = previousByFingerprint.get(buildListingFingerprint(listing));
         if (!previous || previous.price !== listing.price) {
           const lines = characterLinesByUser.get(favorite.userId) ?? [];
-          lines.push(formatCharacterListingLine(favorite.characterName, listing));
+          lines.push(formatCharacterListingLine(favorite.characterName, listing, previous?.price));
           characterLinesByUser.set(favorite.userId, lines);
         }
       }
@@ -439,7 +471,7 @@ export async function processMarketListingNotifications(options: {
           if (!previous || previous.price !== listing.price) {
             const lines = traderListingLinesByUser.get(favorite.userId) ?? [];
             lines.push(
-              `${favorite.characterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}`
+              `${buildListingChangeEmoji(previous?.price, listing.price)} ${favorite.characterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`
             );
             traderListingLinesByUser.set(favorite.userId, lines);
           }

@@ -213,6 +213,36 @@ function normalizeSearchQuery(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function buildPriceRankSameSellerCondition(candidateAlias: string, currentAlias: string): string {
+  return `
+    (
+      ${candidateAlias}.sellerCharacterId IS NOT NULL
+      AND ${currentAlias}.sellerCharacterId IS NOT NULL
+      AND ${candidateAlias}.sellerCharacterId = ${currentAlias}.sellerCharacterId
+    )
+    OR (
+      ${candidateAlias}.sellerCharacterId IS NULL
+      AND ${currentAlias}.sellerCharacterId IS NULL
+      AND LOWER(TRIM(COALESCE(${candidateAlias}.sellerCharacterName, ''))) =
+        LOWER(TRIM(COALESCE(${currentAlias}.sellerCharacterName, '')))
+    )
+  `;
+}
+
+function buildPriceRankGroupKey(alias: string): string {
+  return `
+    CONCAT(
+      CAST(${alias}.price AS CHAR),
+      ':',
+      CASE
+        WHEN ${alias}.sellerCharacterId IS NOT NULL THEN
+          CONCAT('id:', CAST(${alias}.sellerCharacterId AS CHAR))
+        ELSE CONCAT('name:', LOWER(TRIM(COALESCE(${alias}.sellerCharacterName, ''))))
+      END
+    )
+  `;
+}
+
 function buildPriceRankEarlierListingCondition(
   candidateAlias: string,
   currentAlias: string
@@ -221,11 +251,13 @@ function buildPriceRankEarlierListingCondition(
     ${candidateAlias}.price < ${currentAlias}.price
     OR (
       ${candidateAlias}.price = ${currentAlias}.price
+      AND NOT (${buildPriceRankSameSellerCondition(candidateAlias, currentAlias)})
       AND COALESCE(${candidateAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59')) <
         COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
     )
     OR (
       ${candidateAlias}.price = ${currentAlias}.price
+      AND NOT (${buildPriceRankSameSellerCondition(candidateAlias, currentAlias)})
       AND COALESCE(${candidateAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59')) =
         COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
       AND ${candidateAlias}.id < ${currentAlias}.id
@@ -236,16 +268,14 @@ function buildPriceRankEarlierListingCondition(
 function buildPriceRankExpression(currentAlias: string): string {
   return `
     (
-      SELECT COUNT(*)
+      SELECT COUNT(DISTINCT ${buildPriceRankGroupKey('mlRank')})
       FROM MarketListing mlRank
       WHERE mlRank.itemId = ${currentAlias}.itemId
         AND (
           ${buildPriceRankEarlierListingCondition('mlRank', currentAlias)}
           OR (
             mlRank.price = ${currentAlias}.price
-            AND COALESCE(mlRank.listedAt, TIMESTAMP('9999-12-31 23:59:59')) =
-              COALESCE(${currentAlias}.listedAt, TIMESTAMP('9999-12-31 23:59:59'))
-            AND mlRank.id = ${currentAlias}.id
+            AND (${buildPriceRankSameSellerCondition('mlRank', currentAlias)})
           )
         )
     )
@@ -539,6 +569,8 @@ async function buildPriceRankByListingId(itemIds: number[]): Promise<Map<string,
     select: {
       id: true,
       itemId: true,
+      sellerCharacterId: true,
+      sellerCharacterName: true,
       price: true,
       listedAt: true
     }
@@ -570,9 +602,26 @@ async function buildPriceRankByListingId(itemIds: number[]): Promise<Map<string,
       return left.id.localeCompare(right.id);
     });
 
-    itemListings.forEach((listing, index) => {
-      priceRankByListingId.set(listing.id, index + 1);
-    });
+    const rankByGroupKey = new Map<string, number>();
+    let nextRank = 1;
+
+    for (const listing of itemListings) {
+      const sellerKey =
+        listing.sellerCharacterId != null
+          ? `id:${listing.sellerCharacterId}`
+          : `name:${normalizeSearchQuery(listing.sellerCharacterName)}`;
+      const groupKey = `${listing.price}:${sellerKey}`;
+      const existingRank = rankByGroupKey.get(groupKey);
+
+      if (existingRank != null) {
+        priceRankByListingId.set(listing.id, existingRank);
+        continue;
+      }
+
+      rankByGroupKey.set(groupKey, nextRank);
+      priceRankByListingId.set(listing.id, nextRank);
+      nextRank += 1;
+    }
   }
 
   return priceRankByListingId;

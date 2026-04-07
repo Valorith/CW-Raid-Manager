@@ -106,6 +106,8 @@ type CharacterListingSearchRow = {
 type MarketListingRankRow = {
   id: string;
   itemId: number;
+  sellerCharacterId: number | null;
+  sellerCharacterName: string | null;
   price: number;
   listedAt: Date | null;
 };
@@ -792,6 +794,16 @@ function compareMarketListingOrder(
   return left.id.localeCompare(right.id);
 }
 
+function buildMarketListingRankSellerKey(
+  listing: Pick<MarketListingRankRow, 'sellerCharacterId' | 'sellerCharacterName'>
+): string {
+  if (listing.sellerCharacterId != null) {
+    return `id:${listing.sellerCharacterId}`;
+  }
+
+  return `name:${normalizeCharacterNameKey(listing.sellerCharacterName)}`;
+}
+
 async function getMarketFavoriteTraderMetrics(
   characterNames: string[]
 ): Promise<{
@@ -857,6 +869,8 @@ async function getMarketFavoriteTraderMetrics(
       select: {
         id: true,
         itemId: true,
+        sellerCharacterId: true,
+        sellerCharacterName: true,
         price: true,
         listedAt: true
       }
@@ -880,9 +894,22 @@ async function getMarketFavoriteTraderMetrics(
       if (itemListings.length > 0) {
         bestPriceByItemId.set(itemId, itemListings[0].price);
       }
-      itemListings.forEach((listing, index) => {
-        listingRanks.set(listing.id, index + 1);
-      });
+
+      const rankByGroupKey = new Map<string, number>();
+      let nextRank = 1;
+      for (const listing of itemListings) {
+        const groupKey = `${listing.price}:${buildMarketListingRankSellerKey(listing)}`;
+        const existingRank = rankByGroupKey.get(groupKey);
+
+        if (existingRank != null) {
+          listingRanks.set(listing.id, existingRank);
+          continue;
+        }
+
+        rankByGroupKey.set(groupKey, nextRank);
+        listingRanks.set(listing.id, nextRank);
+        nextRank += 1;
+      }
     }
 
     const uniqueItemsByTraderKey = new Map<string, Set<number>>();

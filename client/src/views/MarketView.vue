@@ -2160,10 +2160,10 @@ function buildCharacterListingKey(listing: MarketListing) {
 function getPriceRankTitle(listing: MarketListing) {
   const itemLabel = listing.itemName || `Item ${listing.itemId}`;
   if (listing.priceRank === 1) {
-    return `Best price for ${itemLabel}. Older listings win ties.`;
+    return `Best price for ${itemLabel}. Older sellers win ties, and duplicate listings from the same seller share a rank.`;
   }
 
-  return `Price rank #${formatNumber(listing.priceRank)} for ${itemLabel}. Older listings win ties.`;
+  return `Price rank #${formatNumber(listing.priceRank)} for ${itemLabel}. Older sellers win ties, and duplicate listings from the same seller share a rank.`;
 }
 
 function getPriceTrendClass(

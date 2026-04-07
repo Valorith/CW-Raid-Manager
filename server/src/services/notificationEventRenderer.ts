@@ -4,6 +4,11 @@ export interface RenderedNotificationMessage {
   text: string;
 }
 
+type NotificationRenderProvider = 'TELEGRAM' | 'WHATSAPP';
+type RenderNotificationOptions = {
+  provider?: NotificationRenderProvider;
+};
+
 function buildAppLink(path: string): string {
   return `${appConfig.clientUrl.replace(/\/+$/, '')}${path}`;
 }
@@ -33,11 +38,53 @@ function formatLines(value: unknown, fallback: string): string {
   return lines.map((line) => `- ${line}`).join('\n');
 }
 
+function formatPlainLines(value: unknown, fallback: string): string {
+  const lines = asStringArray(value);
+  if (lines.length === 0) {
+    return fallback;
+  }
+
+  return lines.join('\n');
+}
+
+function formatEmojiLines(value: unknown, fallback: string, emoji: string): string {
+  const lines = asStringArray(value);
+  if (lines.length === 0) {
+    return `${emoji} ${fallback}`;
+  }
+
+  return lines.map((line) => `${emoji} ${line}`).join('\n');
+}
+
+function stripLeadingListingEmoji(line: string): string {
+  return line.replace(/^(?:🆕|🟢⬇️|🔴⬆️|🏷️)\s+/u, '');
+}
+
+function formatListingLines(
+  value: unknown,
+  fallback: string,
+  options: { preserveEmoji: boolean; bulleted?: boolean }
+): string {
+  const lines = asStringArray(value);
+  if (lines.length === 0) {
+    return fallback;
+  }
+
+  const normalized = options.preserveEmoji ? lines : lines.map(stripLeadingListingEmoji);
+  if (options.bulleted) {
+    return normalized.map((line) => `- ${line}`).join('\n');
+  }
+
+  return normalized.join('\n');
+}
+
 export function renderNotificationEvent(
   eventKey: string,
-  payload: unknown
+  payload: unknown,
+  options: RenderNotificationOptions = {}
 ): RenderedNotificationMessage {
   const data = asObject(payload);
+  const isTelegram = options.provider === 'TELEGRAM';
 
   switch (eventKey) {
     case 'notification.test':
@@ -98,37 +145,78 @@ export function renderNotificationEvent(
       };
     case 'market.item.trade_activity':
       return {
-        text: `Watched item trade activity:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A watched item traded.')}`
+        text: `${isTelegram ? '💰 ' : ''}Watched item trade activity:\n${
+          isTelegram
+            ? formatEmojiLines(data.lines, asString(data.summary, 'A watched item traded.'), '💰')
+            : formatPlainLines(data.lines, asString(data.summary, 'A watched item traded.'))
+        }`
       };
     case 'market.item.listing_activity':
       return {
-        text: `Watched item listings:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A watched item was listed.')}`
+        text: `${isTelegram ? '🏷️ ' : ''}Watched item listings:\n${
+          formatListingLines(data.lines, asString(data.summary, 'A watched item was listed.'), {
+            preserveEmoji: isTelegram
+          })
+        }`
       };
     case 'market.item.price_rule_triggered':
       return {
-        text: `Watched item price rule triggered:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A watched item hit your price rule.')}`
+        text: `${isTelegram ? '🟢⬇️ ' : ''}Watched item price rule triggered:\n${
+          isTelegram
+            ? formatEmojiLines(
+                data.lines,
+                asString(data.summary, 'A watched item hit your price rule.'),
+                '🟢⬇️'
+              )
+            : formatPlainLines(data.lines, asString(data.summary, 'A watched item hit your price rule.'))
+        }`
       };
     case 'market.character.trade_activity':
       return {
-        text: `Character trade alert:\n${formatLines(
-          data.lines,
-          asString(data.summary, 'A watched character appeared in trades.')
-        )}`
+        text: `${isTelegram ? '👤💰 ' : ''}Character trade alert:\n${
+          isTelegram
+            ? formatEmojiLines(
+                data.lines,
+                asString(data.summary, 'A watched character appeared in trades.'),
+                '👤'
+              )
+            : formatLines(data.lines, asString(data.summary, 'A watched character appeared in trades.'))
+        }`
       };
     case 'market.character.listing_activity':
       return {
-        text: `Character listing alert:\n${formatLines(
-          data.lines,
-          asString(data.summary, 'A watched character appeared in listings.')
-        )}`
+        text: `${isTelegram ? '👤🏷️ ' : ''}Character listing alert:\n${
+          formatListingLines(
+            data.lines,
+            asString(data.summary, 'A watched character appeared in listings.'),
+            {
+              preserveEmoji: isTelegram,
+              bulleted: !isTelegram
+            }
+          )
+        }`
       };
     case 'market.trader.listing_activity':
       return {
-        text: `Tracked trader listing changes:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A tracked trader refreshed listings.')}`
+        text: `${isTelegram ? '🧾 ' : ''}Tracked trader listing changes:\n${
+          formatListingLines(
+            data.lines,
+            asString(data.summary, 'A tracked trader refreshed listings.'),
+            { preserveEmoji: isTelegram }
+          )
+        }`
       };
     case 'market.trader.undercut':
       return {
-        text: `Tracked trader undercut alert:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A tracked trader was undercut.')}`
+        text: `${isTelegram ? '⚠️ ' : ''}Tracked trader undercut alert:\n${
+          isTelegram
+            ? formatEmojiLines(
+                data.lines,
+                asString(data.summary, 'A tracked trader was undercut.'),
+                '⚠️'
+              )
+            : formatPlainLines(data.lines, asString(data.summary, 'A tracked trader was undercut.'))
+        }`
       };
     default:
       return {

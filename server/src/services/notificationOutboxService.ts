@@ -96,7 +96,9 @@ async function deliverNotification(deliveryId: string): Promise<void> {
   }
 
   const renderInput = await resolveNotificationRenderInput(delivery);
-  const rendered = renderNotificationEvent(renderInput.eventKey, renderInput.payload);
+  const rendered = renderNotificationEvent(renderInput.eventKey, renderInput.payload, {
+    provider: delivery.provider
+  });
 
   try {
     const result =
@@ -186,7 +188,7 @@ export async function sendNotificationTestMessage(
     throw new Error(`No active ${provider.toLowerCase()} channel is connected.`);
   }
 
-  const rendered = renderNotificationEvent('notification.test', { provider });
+  const rendered = renderNotificationEvent('notification.test', { provider }, { provider });
 
   if (provider === NotificationProvider.TELEGRAM) {
     await sendTelegramMessage({
