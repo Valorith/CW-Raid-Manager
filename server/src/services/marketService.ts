@@ -87,11 +87,20 @@ type ItemDailyTrendRow = {
   totalRevenue: bigint | number | null;
 };
 
+type EqCharacterSearchRow = RowDataPacket & {
+  characterName: string;
+};
+
 type CharacterSearchRow = {
   characterName: string;
-  lastSeenAt: Date;
+  lastSeenAt: Date | string | null;
   sellCount: bigint | number | null;
   buyCount: bigint | number | null;
+};
+
+type CharacterListingSearchRow = {
+  characterName: string;
+  lastSeenAt: Date | string | null;
 };
 
 type MarketListingRankRow = {
@@ -249,7 +258,7 @@ export interface MarketItemActivity {
 
 export interface MarketCharacterSearchResult {
   characterName: string;
-  lastSeenAt: string;
+  lastSeenAt: string | null;
   sellCount: number;
   buyCount: number;
 }
@@ -395,6 +404,15 @@ function toNumber(value: bigint | number | null | undefined): number {
   return Number(value ?? 0);
 }
 
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function isMarketSaleEventTableMissing(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -530,6 +548,231 @@ function isMarketListingCacheSchemaMissing(error: unknown): boolean {
     error.meta.message.includes("Unknown column 'itemType'") ||
     error.meta.message.includes("Unknown column 'itemSlots'")
   );
+}
+
+function compareMarketCharacterSearchResults(
+  left: MarketCharacterSearchResult,
+  right: MarketCharacterSearchResult,
+  normalizedQuery: string
+): number {
+  const getMatchRank = (characterName: string) => {
+    const normalizedName = normalizeCharacterNameKey(characterName);
+    if (normalizedName === normalizedQuery) {
+      return 0;
+    }
+
+    if (normalizedName.startsWith(normalizedQuery)) {
+      return 1;
+    }
+
+    return 2;
+  };
+
+  const rankDifference = getMatchRank(left.characterName) - getMatchRank(right.characterName);
+  if (rankDifference !== 0) {
+    return rankDifference;
+  }
+
+  if (left.lastSeenAt && right.lastSeenAt) {
+    const timeDifference = new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime();
+    if (timeDifference !== 0) {
+      return timeDifference;
+    }
+  } else if (left.lastSeenAt || right.lastSeenAt) {
+    return left.lastSeenAt ? -1 : 1;
+  }
+
+  if (left.sellCount !== right.sellCount) {
+    return right.sellCount - left.sellCount;
+  }
+
+  if (left.buyCount !== right.buyCount) {
+    return right.buyCount - left.buyCount;
+  }
+
+  return left.characterName.localeCompare(right.characterName);
+}
+
+async function searchEqCharactersByName(query: string, limit: number): Promise<string[]> {
+  if (!isEqDbConfigured()) {
+    return [];
+  }
+
+  const characterSchema = await discoverCharacterSchema();
+  if (!characterSchema.exists || !characterSchema.nameColumn) {
+    return [];
+  }
+
+  const rows = await queryEqDb<EqCharacterSearchRow[]>(
+    `
+      SELECT DISTINCT cd.\`${characterSchema.nameColumn}\` as characterName
+      FROM character_data cd
+      WHERE cd.\`${characterSchema.nameColumn}\` IS NOT NULL
+        AND cd.\`${characterSchema.nameColumn}\` <> ''
+        AND LOWER(cd.\`${characterSchema.nameColumn}\`) LIKE ?
+      ORDER BY
+        CASE
+          WHEN LOWER(cd.\`${characterSchema.nameColumn}\`) = ? THEN 0
+          WHEN LOWER(cd.\`${characterSchema.nameColumn}\`) LIKE ? THEN 1
+          ELSE 2
+        END,
+        cd.\`${characterSchema.nameColumn}\` ASC
+      LIMIT ?
+    `,
+    [`%${query}%`, query, `${query}%`, limit]
+  );
+
+  return Array.from(
+    new Set(rows.map((row) => normalizeCharacterName(row.characterName)).filter(Boolean))
+  );
+}
+
+async function loadMarketCharacterSearchMetrics(characterNames: string[]) {
+  const metricsByCharacterKey = new Map<
+    string,
+    Pick<MarketCharacterSearchResult, 'lastSeenAt' | 'sellCount' | 'buyCount'>
+  >();
+  if (characterNames.length === 0) {
+    return metricsByCharacterKey;
+  }
+
+  try {
+    const saleRows = await prisma.$queryRaw<CharacterSearchRow[]>(Prisma.sql`
+      SELECT
+        characterName,
+        MAX(lastSeenAt) as lastSeenAt,
+        COALESCE(SUM(sellCount), 0) as sellCount,
+        COALESCE(SUM(buyCount), 0) as buyCount
+      FROM (
+        SELECT
+          actorCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE actorCharacterName IN (${Prisma.join(characterNames)})
+        GROUP BY actorCharacterName
+
+        UNION ALL
+
+        SELECT
+          counterpartyCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE counterpartyCharacterName IN (${Prisma.join(characterNames)})
+        GROUP BY counterpartyCharacterName
+      ) matchedCharacters
+      GROUP BY characterName
+    `);
+
+    for (const row of saleRows) {
+      metricsByCharacterKey.set(normalizeCharacterNameKey(row.characterName), {
+        lastSeenAt: toIsoString(row.lastSeenAt),
+        sellCount: toNumber(row.sellCount),
+        buyCount: toNumber(row.buyCount)
+      });
+    }
+  } catch (error) {
+    if (!isMarketSaleEventTableMissing(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    const listingRows = await prisma.$queryRaw<CharacterListingSearchRow[]>(Prisma.sql`
+      SELECT
+        sellerCharacterName as characterName,
+        MAX(COALESCE(listedAt, syncedAt)) as lastSeenAt
+      FROM MarketListing
+      WHERE sellerCharacterName IN (${Prisma.join(characterNames)})
+      GROUP BY sellerCharacterName
+    `);
+
+    for (const row of listingRows) {
+      const key = normalizeCharacterNameKey(row.characterName);
+      const existingMetrics = metricsByCharacterKey.get(key) ?? {
+        lastSeenAt: null,
+        sellCount: 0,
+        buyCount: 0
+      };
+      const listingSeenAt = toIsoString(row.lastSeenAt);
+
+      metricsByCharacterKey.set(key, {
+        ...existingMetrics,
+        lastSeenAt:
+          listingSeenAt &&
+          (!existingMetrics.lastSeenAt ||
+            new Date(listingSeenAt).getTime() > new Date(existingMetrics.lastSeenAt).getTime())
+            ? listingSeenAt
+            : existingMetrics.lastSeenAt
+      });
+    }
+  } catch (error) {
+    if (!isMarketListingCacheSchemaMissing(error)) {
+      throw error;
+    }
+  }
+
+  return metricsByCharacterKey;
+}
+
+async function searchMarketCharactersFromMarketData(
+  normalizedQuery: string,
+  limit: number
+): Promise<MarketCharacterSearchResult[]> {
+  let rows: CharacterSearchRow[];
+  try {
+    rows = await prisma.$queryRaw<CharacterSearchRow[]>(Prisma.sql`
+      SELECT
+        characterName,
+        MAX(lastSeenAt) as lastSeenAt,
+        COALESCE(SUM(sellCount), 0) as sellCount,
+        COALESCE(SUM(buyCount), 0) as buyCount
+      FROM (
+        SELECT
+          actorCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE actorCharacterName IS NOT NULL
+          AND actorCharacterName <> ''
+          AND LOWER(actorCharacterName) LIKE ${`%${normalizedQuery}%`}
+        GROUP BY actorCharacterName
+
+        UNION ALL
+
+        SELECT
+          counterpartyCharacterName as characterName,
+          MAX(occurredAt) as lastSeenAt,
+          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
+          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
+        FROM MarketSaleEvent
+        WHERE counterpartyCharacterName IS NOT NULL
+          AND counterpartyCharacterName <> ''
+          AND LOWER(counterpartyCharacterName) LIKE ${`%${normalizedQuery}%`}
+        GROUP BY counterpartyCharacterName
+      ) matchedCharacters
+      GROUP BY characterName
+      ORDER BY lastSeenAt DESC, sellCount DESC, buyCount DESC, characterName ASC
+      LIMIT ${limit}
+    `);
+  } catch (error) {
+    if (isMarketSaleEventTableMissing(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  return rows.map((row) => ({
+    characterName: row.characterName,
+    lastSeenAt: toIsoString(row.lastSeenAt),
+    sellCount: toNumber(row.sellCount),
+    buyCount: toNumber(row.buyCount)
+  }));
 }
 
 function compareMarketListingOrder(
@@ -1702,57 +1945,27 @@ export async function searchMarketCharacters(
     return [];
   }
 
-  let rows: CharacterSearchRow[];
-  try {
-    rows = await prisma.$queryRaw<CharacterSearchRow[]>(Prisma.sql`
-      SELECT
-        characterName,
-        MAX(lastSeenAt) as lastSeenAt,
-        COALESCE(SUM(sellCount), 0) as sellCount,
-        COALESCE(SUM(buyCount), 0) as buyCount
-      FROM (
-        SELECT
-          actorCharacterName as characterName,
-          MAX(occurredAt) as lastSeenAt,
-          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
-          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
-        FROM MarketSaleEvent
-        WHERE actorCharacterName IS NOT NULL
-          AND actorCharacterName <> ''
-          AND LOWER(actorCharacterName) LIKE ${`%${normalizedQuery}%`}
-        GROUP BY actorCharacterName
+  if (isEqDbConfigured()) {
+    const characterNames = await searchEqCharactersByName(normalizedQuery, limit);
+    if (characterNames.length > 0) {
+      const metricsByCharacterKey = await loadMarketCharacterSearchMetrics(characterNames);
 
-        UNION ALL
-
-        SELECT
-          counterpartyCharacterName as characterName,
-          MAX(occurredAt) as lastSeenAt,
-          SUM(CASE WHEN eventType = ${BUYER_EVENT_TYPE} THEN 1 ELSE 0 END) as sellCount,
-          SUM(CASE WHEN eventType = ${SELLER_EVENT_TYPE} THEN 1 ELSE 0 END) as buyCount
-        FROM MarketSaleEvent
-        WHERE counterpartyCharacterName IS NOT NULL
-          AND counterpartyCharacterName <> ''
-          AND LOWER(counterpartyCharacterName) LIKE ${`%${normalizedQuery}%`}
-        GROUP BY counterpartyCharacterName
-      ) matchedCharacters
-      GROUP BY characterName
-      ORDER BY lastSeenAt DESC, sellCount DESC, buyCount DESC, characterName ASC
-      LIMIT ${limit}
-    `);
-  } catch (error) {
-    if (isMarketSaleEventTableMissing(error)) {
-      return [];
+      return characterNames
+        .map((characterName) => {
+          const metrics = metricsByCharacterKey.get(normalizeCharacterNameKey(characterName));
+          return {
+            characterName,
+            lastSeenAt: metrics?.lastSeenAt ?? null,
+            sellCount: metrics?.sellCount ?? 0,
+            buyCount: metrics?.buyCount ?? 0
+          };
+        })
+        .sort((left, right) => compareMarketCharacterSearchResults(left, right, normalizedQuery))
+        .slice(0, limit);
     }
-
-    throw error;
   }
 
-  return rows.map((row) => ({
-    characterName: row.characterName,
-    lastSeenAt: new Date(row.lastSeenAt).toISOString(),
-    sellCount: toNumber(row.sellCount),
-    buyCount: toNumber(row.buyCount)
-  }));
+  return searchMarketCharactersFromMarketData(normalizedQuery, limit);
 }
 
 export async function getMarketFavorites(userId: string): Promise<MarketFavorites> {

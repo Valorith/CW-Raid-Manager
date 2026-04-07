@@ -13,6 +13,65 @@ function buildRetryDate(attemptCount: number): Date {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 
+function asObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function asNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+async function resolveNotificationRenderInput(delivery: {
+  eventKey: string;
+  payload: unknown;
+}): Promise<{ eventKey: string; payload: unknown }> {
+  if (delivery.eventKey !== 'raid.reminder.60m') {
+    return {
+      eventKey: delivery.eventKey,
+      payload: delivery.payload
+    };
+  }
+
+  const payload = asObject(delivery.payload);
+  const raidId = asNonEmptyString(payload.raidId);
+  if (!raidId) {
+    return {
+      eventKey: delivery.eventKey,
+      payload: delivery.payload
+    };
+  }
+
+  const raid = await prisma.raidEvent.findUnique({
+    where: { id: raidId },
+    select: {
+      id: true,
+      name: true,
+      startedAt: true
+    }
+  });
+
+  if (!raid?.startedAt) {
+    return {
+      eventKey: delivery.eventKey,
+      payload: delivery.payload
+    };
+  }
+
+  return {
+    eventKey: 'raid.started',
+    payload: {
+      ...payload,
+      raidId: raid.id,
+      raidName: asNonEmptyString(payload.raidName) ?? raid.name,
+      startedAt: raid.startedAt.toISOString()
+    }
+  };
+}
+
 async function deliverNotification(deliveryId: string): Promise<void> {
   const delivery = await prisma.notificationDelivery.findUnique({
     where: { id: deliveryId }
@@ -36,7 +95,8 @@ async function deliverNotification(deliveryId: string): Promise<void> {
     return;
   }
 
-  const rendered = renderNotificationEvent(delivery.eventKey, delivery.payload);
+  const renderInput = await resolveNotificationRenderInput(delivery);
+  const rendered = renderNotificationEvent(renderInput.eventKey, renderInput.payload);
 
   try {
     const result =

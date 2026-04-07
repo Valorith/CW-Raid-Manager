@@ -1866,7 +1866,7 @@ export interface MarketDiscoveredItemSearchResult {
 
 export interface MarketCharacterSearchResult {
   characterName: string;
-  lastSeenAt: string;
+  lastSeenAt: string | null;
   sellCount: number;
   buyCount: number;
 }

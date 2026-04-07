@@ -64,6 +64,61 @@ function formatCopperCurrency(value: number): string {
   return parts.join(' ');
 }
 
+function namesMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+  const normalizedLeft = normalizeText(left);
+  const normalizedRight = normalizeText(right);
+
+  return Boolean(normalizedLeft) && normalizedLeft === normalizedRight;
+}
+
+function formatCharacterTradeLine(
+  watchedCharacterName: string,
+  event: Pick<
+    SaleEventInput,
+    'eventType' | 'actorCharacterName' | 'counterpartyCharacterName' | 'itemName' | 'price'
+  >
+): string {
+  const watchedIsActor = namesMatch(watchedCharacterName, event.actorCharacterName);
+  const watchedIsCounterparty = namesMatch(watchedCharacterName, event.counterpartyCharacterName);
+  const watchedDisplayName = watchedCharacterName.trim();
+  const counterpartyName = event.counterpartyCharacterName?.trim() || null;
+  const actorName = event.actorCharacterName.trim();
+  const priceText = formatCopperCurrency(event.price);
+
+  if (event.eventType === 'TRADER_SELL') {
+    if (watchedIsActor) {
+      return counterpartyName
+        ? `${watchedDisplayName} sold ${event.itemName} for ${priceText} to ${counterpartyName}.`
+        : `${watchedDisplayName} sold ${event.itemName} for ${priceText}.`;
+    }
+
+    if (watchedIsCounterparty) {
+      return `${watchedDisplayName} bought ${event.itemName} for ${priceText} from ${actorName}.`;
+    }
+  }
+
+  if (event.eventType === 'TRADER_PURCHASE') {
+    if (watchedIsActor) {
+      return counterpartyName
+        ? `${watchedDisplayName} bought ${event.itemName} for ${priceText} from ${counterpartyName}.`
+        : `${watchedDisplayName} bought ${event.itemName} for ${priceText}.`;
+    }
+
+    if (watchedIsCounterparty) {
+      return `${watchedDisplayName} sold ${event.itemName} for ${priceText} to ${actorName}.`;
+    }
+  }
+
+  return `${watchedDisplayName} traded ${event.itemName} for ${priceText}.`;
+}
+
+function formatCharacterListingLine(
+  watchedCharacterName: string,
+  listing: Pick<ListingSnapshot, 'itemName' | 'price'>
+): string {
+  return `${watchedCharacterName.trim()} listed ${listing.itemName} for ${formatCopperCurrency(listing.price)}.`;
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -202,8 +257,12 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         favorite.listType === MarketFavoriteListType.FAVORITE_CHARACTERS &&
         settings.notifyOnTradeActivity !== false
       ) {
+        if (!favorite.characterName) {
+          continue;
+        }
+
         const lines = characterLinesByUser.get(favorite.userId) ?? [];
-        lines.push(`${favorite.characterName}: ${event.itemName} at ${formatCopperCurrency(event.price)}`);
+        lines.push(formatCharacterTradeLine(favorite.characterName, event));
         characterLinesByUser.set(favorite.userId, lines);
       }
     }
@@ -348,6 +407,10 @@ export async function processMarketListingNotifications(options: {
         continue;
       }
 
+      if (!favorite.characterName) {
+        continue;
+      }
+
       for (const listing of currentListings) {
         if (normalizeText(favorite.characterName) !== normalizeText(listing.sellerCharacterName)) {
           continue;
@@ -356,9 +419,7 @@ export async function processMarketListingNotifications(options: {
         const previous = previousByFingerprint.get(buildListingFingerprint(listing));
         if (!previous || previous.price !== listing.price) {
           const lines = characterLinesByUser.get(favorite.userId) ?? [];
-          lines.push(
-            `${listing.sellerCharacterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}`
-          );
+          lines.push(formatCharacterListingLine(favorite.characterName, listing));
           characterLinesByUser.set(favorite.userId, lines);
         }
       }

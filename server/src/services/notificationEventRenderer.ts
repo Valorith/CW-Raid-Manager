@@ -24,6 +24,15 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
 
+function formatLines(value: unknown, fallback: string): string {
+  const lines = asStringArray(value);
+  if (lines.length === 0) {
+    return fallback;
+  }
+
+  return lines.map((line) => `- ${line}`).join('\n');
+}
+
 export function renderNotificationEvent(
   eventKey: string,
   payload: unknown
@@ -63,6 +72,12 @@ export function renderNotificationEvent(
           `/raids/${asString(data.raidId)}`
         )}`
       };
+    case 'raid.started':
+      return {
+        text: `Raid started: ${asString(data.raidName, 'Upcoming raid')} is now live.\n${buildAppLink(
+          `/raids/${asString(data.raidId)}`
+        )}`
+      };
     case 'raid.changed':
       return {
         text: `Raid updated: ${asString(data.raidName, 'Upcoming raid')}.\n${buildAppLink(
@@ -95,11 +110,17 @@ export function renderNotificationEvent(
       };
     case 'market.character.trade_activity':
       return {
-        text: `Watched character trade activity:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A watched character appeared in trades.')}`
+        text: `Character trade alert:\n${formatLines(
+          data.lines,
+          asString(data.summary, 'A watched character appeared in trades.')
+        )}`
       };
     case 'market.character.listing_activity':
       return {
-        text: `Watched character listing activity:\n${asStringArray(data.lines).join('\n') || asString(data.summary, 'A watched character appeared in listings.')}`
+        text: `Character listing alert:\n${formatLines(
+          data.lines,
+          asString(data.summary, 'A watched character appeared in listings.')
+        )}`
       };
     case 'market.trader.listing_activity':
       return {
