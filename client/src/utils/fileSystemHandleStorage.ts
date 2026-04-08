@@ -1,9 +1,14 @@
 const DB_NAME = 'cw-raid-manager';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DEFAULT_LOG_HANDLE_STORE = 'default-log-handles';
 const EQ_GAME_DIRECTORY_HANDLE_STORE = 'eq-game-directory-handles';
+const MARKET_PRICE_WIZARD_TRADER_FILE_HANDLE_STORE = 'market-price-wizard-trader-file-handles';
 
-const REQUIRED_STORES = [DEFAULT_LOG_HANDLE_STORE, EQ_GAME_DIRECTORY_HANDLE_STORE] as const;
+const REQUIRED_STORES = [
+  DEFAULT_LOG_HANDLE_STORE,
+  EQ_GAME_DIRECTORY_HANDLE_STORE,
+  MARKET_PRICE_WIZARD_TRADER_FILE_HANDLE_STORE
+] as const;
 
 function ensureIndexedDbSupport() {
   if (typeof window === 'undefined' || !window.indexedDB) {
@@ -85,4 +90,35 @@ export async function deleteStoredHandle(storeName: string, key: string) {
   });
 }
 
-export { DEFAULT_LOG_HANDLE_STORE, EQ_GAME_DIRECTORY_HANDLE_STORE };
+export async function listStoredHandles<T extends FileSystemHandle>(storeName: string) {
+  return withStore(storeName, 'readonly', async (store) => {
+    const items: Array<{ key: string; handle: T }> = [];
+
+    await new Promise<void>((resolve, reject) => {
+      const request = store.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve();
+          return;
+        }
+
+        items.push({
+          key: String(cursor.key),
+          handle: cursor.value as T
+        });
+        cursor.continue();
+      };
+      request.onerror = () =>
+        reject(request.error ?? new Error('Failed to enumerate persistent handles.'));
+    });
+
+    return items;
+  });
+}
+
+export {
+  DEFAULT_LOG_HANDLE_STORE,
+  EQ_GAME_DIRECTORY_HANDLE_STORE,
+  MARKET_PRICE_WIZARD_TRADER_FILE_HANDLE_STORE
+};

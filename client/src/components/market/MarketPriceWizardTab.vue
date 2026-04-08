@@ -10,7 +10,7 @@
   >
     <div v-if="isDragActive" class="wizard-drop-overlay" aria-hidden="true">
       <div class="wizard-drop-overlay__panel">
-        <strong>Drop bazaar INI to load</strong>
+        <strong>Drop trader INI to link and load</strong>
         <span class="muted">Accepts `BZR_*_CWR.ini` files</span>
       </div>
     </div>
@@ -36,12 +36,12 @@
           <span class="wizard-chip wizard-chip--amber">Instant export</span>
         </div>
       </div>
-      <div v-if="eqGameDirectoryName" class="wizard-trader-picker-shell">
+      <div v-if="traderIniOptions.length > 0" class="wizard-trader-picker-shell">
         <div class="wizard-trader-picker">
           <select
             v-model="selectedTraderIniFileName"
             class="wizard-trader-picker__select"
-            :disabled="eqGameDirectorySelectDisabled"
+            :disabled="traderPickerDisabled"
             @change="handleTraderPickerChange"
           >
             <option value="" disabled>
@@ -55,14 +55,14 @@
               {{ option.characterName }}
             </option>
             <option disabled class="wizard-trader-picker__divider">───────────</option>
-            <option value="__change_directory__">Change Directory</option>
+            <option value="__link_trader_ini__">Link Trader INI</option>
           </select>
           <button
             type="button"
             class="wizard-trader-picker__icon-btn"
-            title="Refresh trader list"
+            title="Refresh linked traders"
             :disabled="eqGameDirectoryScanning || eqGameDirectoryLoading"
-            @click="scanEqGameDirectory()"
+            @click="refreshTraderIniOptions()"
           >
             <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
           </button>
@@ -72,22 +72,17 @@
         <button
           type="button"
           class="wizard-directory-setup__btn"
-          :disabled="eqGameDirectorySaving"
-          @click="chooseEqGameDirectory"
+          :disabled="traderLinkActionDisabled"
+          @click="handleLinkTraderIni"
         >
           <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9.414 4.586A2 2 0 008 4H4zm7 5a1 1 0 10-2 0v1H8a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V9z" clip-rule="evenodd"/></svg>
-          {{ eqGameDirectorySaving ? 'Saving...' : 'Set EQ Directory' }}
+          {{ traderLinkActionDisabled ? 'Linking...' : 'Link Trader INI' }}
         </button>
-        <span class="wizard-directory-setup__hint">Auto-detect trader INIs</span>
+        <span class="wizard-directory-setup__hint">
+          Drop a `BZR_*.ini` file here to link a trader for future sessions.
+        </span>
       </div>
       <div class="wizard-tab__actions">
-        <input
-          ref="fileInputRef"
-          type="file"
-          accept=".ini"
-          class="wizard-tab__file-input"
-          @change="handleFileSelection"
-        />
         <div class="wizard-tab__action-row">
           <div class="wizard-btn-group">
             <button
@@ -402,14 +397,14 @@
       <p class="wizard-controls-shell__eyebrow">Ready to Import</p>
       <h3>Load a bazaar price file</h3>
       <p class="muted">
-        Start with a file like `BZR_YourTrader_CWR.ini`. The wizard reads the `[ItemToSell]`
-        section, surfaces market recommendations, and exports an updated INI for EQ.
+        Drop a file like `BZR_YourTrader_CWR.ini`. The wizard links that trader INI in this
+        browser, reads the `[ItemToSell]` section, and surfaces market recommendations for quick
+        edits.
       </p>
       <div class="wizard-chip-row wizard-chip-row--empty">
-        <span class="wizard-chip wizard-chip--sky">Drop file anywhere in this tab</span>
-        <span class="wizard-chip wizard-chip--amber">Or open it from disk</span>
+        <span class="wizard-chip wizard-chip--sky">Drop trader INI anywhere in this tab</span>
+        <span class="wizard-chip wizard-chip--amber">Links this trader for future sessions</span>
       </div>
-      <button type="button" class="btn btn--accent" @click="openFilePicker">Choose INI</button>
     </div>
 
     <div
@@ -481,10 +476,14 @@ import { useToastBus } from '../../components/ToastBus';
 import { useErrorModal } from '../../composables/useErrorModal';
 import {
   api,
-  type MarketPriceWizardRecommendation,
-  type MarketPriceWizardTraderFile
+  type MarketPriceWizardRecommendation
 } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
+import {
+  deleteMarketPriceWizardTraderFileHandle,
+  listMarketPriceWizardTraderFileHandles,
+  saveMarketPriceWizardTraderFileHandle
+} from '../../utils/marketPriceWizardTraderFileHandles';
 import { getLootIconSrc, hasValidIconId } from '../../utils/itemIcons';
 
 type PickerWindow = Window & {
@@ -504,10 +503,6 @@ type PickerWindow = Window & {
       accept: Record<string, string[]>;
     }>;
   }) => Promise<FileSystemFileHandle>;
-  showDirectoryPicker?: (options?: {
-    id?: string;
-    mode?: 'read' | 'readwrite';
-  }) => Promise<FileSystemDirectoryHandle>;
 };
 
 type DragAndDropItemWithHandle = DataTransferItem & {
@@ -572,20 +567,16 @@ const ROW_HEIGHT = 58;
 const SCROLL_BUFFER = 10;
 
 const wizardRootRef = ref<HTMLElement | null>(null);
-const fileInputRef = ref<HTMLInputElement | null>(null);
 const scrollContainerRef = ref<HTMLElement | null>(null);
 const fileName = ref<string | null>(null);
 const characterName = ref<string | null>(null);
-const eqGameDirectoryName = ref<string | null>(null);
 const eqGameDirectoryLoading = ref(false);
 const eqGameDirectorySaving = ref(false);
 const eqGameDirectoryScanning = ref(false);
-const eqGameDirectoryHandleAvailable = ref(false);
 const eqGameDirectoryScanIssue = ref<string | null>(null);
 const traderIniOptions = ref<TraderIniOption[]>([]);
 const selectedTraderIniFileName = ref('');
-const activeServerDirectoryPath = ref<string | null>(null);
-const activeServerFileName = ref<string | null>(null);
+const traderFileHandleMap = ref<Record<string, FileSystemFileHandle>>({});
 const activeFileHandle = ref<FileSystemFileHandle | null>(null);
 const canOverwriteLoadedFile = ref(false);
 const entries = ref<PriceWizardEntry[]>([]);
@@ -755,6 +746,10 @@ function isWizardVisible() {
   return Boolean(el && el.offsetParent !== null);
 }
 
+function getCurrentUserId() {
+  return authStore.user?.userId ?? null;
+}
+
 function getSuggestedIniFileName() {
   if (fileName.value) {
     return fileName.value;
@@ -788,12 +783,25 @@ async function requestHandlePermission(
   return true;
 }
 
-async function scanEqGameDirectory() {
+function buildTraderIniOption(fileName: string): TraderIniOption | null {
+  const characterNameForFile = parseIniCharacterName(fileName);
+  if (!characterNameForFile) {
+    return null;
+  }
+
+  return {
+    characterName: characterNameForFile,
+    fileName,
+    relativePath: fileName
+  };
+}
+
+async function refreshTraderIniOptions(autoLoadIfNeeded = true) {
   eqGameDirectoryScanning.value = true;
   try {
-    if (!eqGameDirectoryName.value) {
-      eqGameDirectoryHandleAvailable.value = false;
-      eqGameDirectoryScanIssue.value = 'Set the full EQ game directory path to detect trader INIs.';
+    const currentUserId = getCurrentUserId();
+    if (!currentUserId) {
+      traderFileHandleMap.value = {};
       traderIniOptions.value = [];
       if (!fileName.value) {
         selectedTraderIniFileName.value = '';
@@ -801,13 +809,14 @@ async function scanEqGameDirectory() {
       return;
     }
 
-    eqGameDirectoryScanIssue.value = null;
-    const traderFiles = await api.fetchMarketPriceWizardTraderFiles(eqGameDirectoryName.value);
-    const nextOptions: TraderIniOption[] = traderFiles.map((entry: MarketPriceWizardTraderFile) => ({
-      characterName: entry.characterName,
-      fileName: entry.fileName,
-      relativePath: entry.fileName
-    }));
+    const storedHandles = await listMarketPriceWizardTraderFileHandles(currentUserId);
+    const nextHandleMap: Record<string, FileSystemFileHandle> = {};
+    const nextOptions = storedHandles
+      .map((entry) => {
+        nextHandleMap[entry.fileName] = entry.handle;
+        return buildTraderIniOption(entry.fileName);
+      })
+      .filter((entry): entry is TraderIniOption => Boolean(entry));
 
     nextOptions.sort(
       (left, right) =>
@@ -815,8 +824,12 @@ async function scanEqGameDirectory() {
         left.relativePath.localeCompare(right.relativePath)
     );
 
+    traderFileHandleMap.value = nextHandleMap;
     traderIniOptions.value = nextOptions;
-    eqGameDirectoryHandleAvailable.value = true;
+    eqGameDirectoryScanIssue.value =
+      nextOptions.length > 0
+        ? null
+        : 'No linked trader INIs yet. Drop a BZR_*.ini file to add one.';
 
     const currentFileName = fileName.value;
     const selectedOption = nextOptions.find(
@@ -824,8 +837,8 @@ async function scanEqGameDirectory() {
     );
     if (selectedOption && (!currentFileName || selectedOption.fileName === currentFileName)) {
       selectedTraderIniFileName.value = selectedOption.relativePath;
-      if (!currentFileName) {
-        await loadTraderIniFromDirectory(selectedOption.relativePath);
+      if (!currentFileName && autoLoadIfNeeded) {
+        await loadLinkedTraderIni(selectedOption.relativePath);
       }
       return;
     }
@@ -838,9 +851,9 @@ async function scanEqGameDirectory() {
       return;
     }
 
-    if (!currentFileName && nextOptions.length > 0) {
+    if (!currentFileName && nextOptions.length > 0 && autoLoadIfNeeded) {
       selectedTraderIniFileName.value = nextOptions[0].relativePath;
-      await loadTraderIniFromDirectory(nextOptions[0].relativePath);
+      await loadLinkedTraderIni(nextOptions[0].relativePath);
       return;
     }
 
@@ -848,10 +861,10 @@ async function scanEqGameDirectory() {
       selectedTraderIniFileName.value = '';
     }
   } catch (error) {
-    console.warn('Unable to scan the configured EQ game directory.', error);
-    eqGameDirectoryHandleAvailable.value = false;
+    console.warn('Unable to refresh linked trader INIs.', error);
     eqGameDirectoryScanIssue.value =
-      error instanceof Error ? error.message : 'Unable to scan the configured EQ directory.';
+      error instanceof Error ? error.message : 'Unable to refresh linked trader INIs.';
+    traderFileHandleMap.value = {};
     traderIniOptions.value = [];
     selectedTraderIniFileName.value = '';
   } finally {
@@ -870,51 +883,122 @@ async function initializeEqGameDirectory() {
 
   eqGameDirectoryLoading.value = true;
   try {
-    const profile = await api.fetchAccountProfile();
-    eqGameDirectoryName.value = profile?.eqGameDirectoryName ?? null;
-    await scanEqGameDirectory();
+    await refreshTraderIniOptions();
   } catch (error) {
-    console.warn('Unable to load the saved EQ game directory preference.', error);
+    console.warn('Unable to load linked trader INIs.', error);
   } finally {
     eqGameDirectoryLoading.value = false;
   }
 }
 
-async function chooseEqGameDirectory() {
-  if (eqGameDirectorySaving.value) {
+async function linkTraderIniFromHandle(handle: FileSystemFileHandle) {
+  const currentUserId = getCurrentUserId();
+  if (!currentUserId) {
+    return false;
+  }
+
+  if (!parseIniCharacterName(handle.name)) {
+    showError('Expected a file named like BZR_CharacterName_CWR.ini.');
+    return false;
+  }
+
+  await saveMarketPriceWizardTraderFileHandle(currentUserId, handle);
+  await refreshTraderIniOptions(false);
+  return true;
+}
+
+async function pruneLinkedTraderIniHandle(fileName: string) {
+  const currentUserId = getCurrentUserId();
+  if (!currentUserId) {
     return;
   }
 
+  await deleteMarketPriceWizardTraderFileHandle(currentUserId, fileName).catch(() => undefined);
+  await refreshTraderIniOptions().catch(() => undefined);
+}
+
+async function openTraderIniPicker() {
+  if (eqGameDirectorySaving.value) {
+    return false;
+  }
+
   if (!authStore.user) {
-    showError('You must be signed in to configure an EQ game directory.');
-    return;
+    showError('You must be signed in to link a trader INI.');
+    return false;
+  }
+
+  const pickerWindow = getPickerWindow();
+  if (typeof pickerWindow?.showOpenFilePicker !== 'function') {
+    showError('This browser does not support linking local trader INIs directly.');
+    return false;
   }
 
   eqGameDirectorySaving.value = true;
   try {
-    const nextDirectoryPath = await api.pickMarketPriceWizardDirectory();
-    if (!nextDirectoryPath) {
-      return;
+    const handles = await pickerWindow.showOpenFilePicker({
+      multiple: false,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'Bazaar Trader INI Files',
+          accept: {
+            'text/plain': ['.ini']
+          }
+        }
+      ]
+    });
+    const nextFileHandle = handles[0];
+    if (!nextFileHandle) {
+      return false;
     }
 
-    const updatedProfile = await api.updateAccountProfile({
-      eqGameDirectoryName: nextDirectoryPath
+    const hasReadPermission = await requestHandlePermission(nextFileHandle as PermissionCapableHandle, 'read');
+    if (!hasReadPermission) {
+      showError('Read access to the selected trader INI was not granted.');
+      return false;
+    }
+
+    const file = await nextFileHandle.getFile();
+    const canOverwrite = await requestHandlePermission(
+      nextFileHandle as PermissionCapableHandle,
+      'readwrite'
+    ).catch(() => false);
+    const loaded = await loadIniFile(file, {
+      fileHandle: nextFileHandle,
+      canOverwriteLoadedFile: canOverwrite
     });
-    eqGameDirectoryName.value = updatedProfile.eqGameDirectoryName ?? nextDirectoryPath;
-    await scanEqGameDirectory();
+    if (!loaded) {
+      return false;
+    }
+
+    const linked = await linkTraderIniFromHandle(nextFileHandle);
+    if (!linked) {
+      return false;
+    }
+
     addToast({
-      title: 'EQ Directory Saved',
-      message: `Trader INIs will be discovered from ${nextDirectoryPath}.`,
+      title: 'Trader Linked',
+      message: `${file.name} is now available in the Price Wizard dropdown on this browser.`,
       variant: 'success'
     });
+    return true;
   } catch (error) {
-    showErrorFromException(error, 'Unable to save the EQ game directory.');
+    if (isAbortError(error)) {
+      return false;
+    }
+
+    showErrorFromException(error, 'Unable to link the selected trader INI.');
+    return false;
   } finally {
     eqGameDirectorySaving.value = false;
   }
 }
 
-async function loadTraderIniFromDirectory(relativePathToLoad = selectedTraderIniFileName.value) {
+function handleLinkTraderIni() {
+  void openTraderIniPicker();
+}
+
+async function loadLinkedTraderIni(relativePathToLoad = selectedTraderIniFileName.value) {
   if (!relativePathToLoad) {
     return;
   }
@@ -922,35 +1006,57 @@ async function loadTraderIniFromDirectory(relativePathToLoad = selectedTraderIni
   const targetFileName = getFileNameFromRelativePath(relativePathToLoad);
 
   try {
-    if (!eqGameDirectoryName.value) {
-      showError('Set the full EQ game directory path before opening trader INIs.');
+    const fileHandle = traderFileHandleMap.value[targetFileName];
+    if (!fileHandle) {
+      showError(`Reconnect ${targetFileName} by dropping or linking it again in this browser.`);
       return;
     }
 
-    const content = await api.readMarketPriceWizardTraderFile(
-      eqGameDirectoryName.value,
-      targetFileName
+    const hasReadPermission = await requestHandlePermission(
+      fileHandle as PermissionCapableHandle,
+      'read'
     );
-    const file = new File([content], targetFileName, { type: 'text/plain' });
-    await loadIniFile(file, {
-      fileHandle: null,
-      canOverwriteLoadedFile: false,
-      serverDirectoryPath: eqGameDirectoryName.value,
-      serverFileName: targetFileName
+    if (!hasReadPermission) {
+      await pruneLinkedTraderIniHandle(targetFileName);
+      showError(`Read access to ${targetFileName} was not granted.`);
+      return;
+    }
+
+    const canOverwrite = await requestHandlePermission(
+      fileHandle as PermissionCapableHandle,
+      'readwrite'
+    ).catch(() => false);
+    const file = await fileHandle.getFile();
+    const loaded = await loadIniFile(file, {
+      fileHandle,
+      canOverwriteLoadedFile: canOverwrite
     });
+    if (!loaded) {
+      return;
+    }
+
+    if (!canOverwrite) {
+      addToast({
+        title: 'Loaded Read-Only',
+        message:
+          'Write access was not granted for this trader INI. You can still edit prices, but saving will use Save As.',
+        variant: 'info'
+      });
+    }
   } catch (error) {
-    showErrorFromException(error, `Unable to open ${targetFileName} from the EQ game directory.`);
+    await pruneLinkedTraderIniHandle(targetFileName);
+    showErrorFromException(error, `Unable to open linked trader INI ${targetFileName}.`);
   }
 }
 
 async function handleTraderSelection() {
-  await loadTraderIniFromDirectory(selectedTraderIniFileName.value);
+  await loadLinkedTraderIni(selectedTraderIniFileName.value);
 }
 
 async function handleTraderPickerChange() {
-  if (selectedTraderIniFileName.value === '__change_directory__') {
+  if (selectedTraderIniFileName.value === '__link_trader_ini__') {
     selectedTraderIniFileName.value = '';
-    await chooseEqGameDirectory();
+    await openTraderIniPicker();
     return;
   }
 
@@ -1437,19 +1543,11 @@ async function loadDroppedFile(
   }
 }
 
-function resetFileInput() {
-  if (fileInputRef.value) {
-    fileInputRef.value.value = '';
-  }
-}
-
 async function loadIniFile(
   file: File,
   options: {
     fileHandle?: FileSystemFileHandle | null;
     canOverwriteLoadedFile?: boolean;
-    serverDirectoryPath?: string | null;
-    serverFileName?: string | null;
   } = {}
 ) {
   const parsedCharacterName = parseIniCharacterName(file.name);
@@ -1457,22 +1555,19 @@ async function loadIniFile(
     showError(
       'Expected a file name like BZR_CharacterName_CWR.ini so the wizard can identify the trader.'
     );
-    resetFileInput();
-    return;
+    return false;
   }
 
   const text = await file.text();
   const parsed = parseIniText(text);
   if (!parsed.hasItemSection) {
     showError('The selected INI does not contain an [ItemToSell] section.');
-    resetFileInput();
-    return;
+    return false;
   }
 
   if (parsed.entries.length === 0) {
     showError('No valid item price rows were found in the [ItemToSell] section.');
-    resetFileInput();
-    return;
+    return false;
   }
 
   fileName.value = file.name;
@@ -1485,8 +1580,6 @@ async function loadIniFile(
     selectedOption?.fileName === file.name
       ? selectedOption.relativePath
       : matchingOption?.relativePath ?? '';
-  activeServerDirectoryPath.value = options.serverDirectoryPath ?? null;
-  activeServerFileName.value = options.serverFileName ?? null;
   activeFileHandle.value = options.fileHandle ?? null;
   canOverwriteLoadedFile.value = options.canOverwriteLoadedFile ?? false;
   entries.value = parsed.entries;
@@ -1504,84 +1597,7 @@ async function loadIniFile(
     message: `Loaded ${parsed.entries.length} bazaar price ${parsed.entries.length === 1 ? 'entry' : 'entries'}.`,
     variant: 'success'
   });
-  resetFileInput();
-}
-
-async function handleFileSelection(event: Event) {
-  const target = event.target as HTMLInputElement | null;
-  const file = target?.files?.[0];
-  if (!file) {
-    return;
-  }
-
-  try {
-    await loadIniFile(file, { fileHandle: null, canOverwriteLoadedFile: false });
-  } catch (error) {
-    showErrorFromException(error, 'Unable to read the selected INI file.');
-  }
-}
-
-async function openFilePicker() {
-  const pickerWindow = getPickerWindow();
-  if (typeof pickerWindow?.showOpenFilePicker !== 'function') {
-    fileInputRef.value?.click();
-    return;
-  }
-
-  try {
-    const handles = await pickerWindow.showOpenFilePicker({
-      multiple: false,
-      excludeAcceptAllOption: false,
-      types: [
-        {
-          description: 'Bazaar INI Files',
-          accept: {
-            'text/plain': ['.ini']
-          }
-        }
-      ]
-    });
-
-    if (!Array.isArray(handles) || handles.length === 0 || !handles[0]) {
-      return;
-    }
-
-    const handle = handles[0];
-    const hasPermission = await requestHandlePermission(
-      handle as PermissionCapableHandle,
-      'read'
-    );
-    if (!hasPermission) {
-      showError('Read access to the selected INI file was not granted.');
-      return;
-    }
-
-    const canOverwrite = await requestHandlePermission(
-      handle as PermissionCapableHandle,
-      'readwrite'
-    ).catch(() => false);
-
-    const file = await handle.getFile();
-    await loadIniFile(file, {
-      fileHandle: handle,
-      canOverwriteLoadedFile: canOverwrite
-    });
-
-    if (!canOverwrite) {
-      addToast({
-        title: 'Loaded Read-Only',
-        message:
-          'Write access was not granted for this file. You can still edit prices, but saving will use Save As.',
-        variant: 'info'
-      });
-    }
-  } catch (error) {
-    if (isAbortError(error)) {
-      return;
-    }
-
-    showErrorFromException(error, 'Unable to open the selected INI file.');
-  }
+  return true;
 }
 
 function handleDragEnter() {
@@ -1604,6 +1620,14 @@ async function handleDrop(event: DragEvent) {
   dragDepth.value = 0;
   isDragActive.value = false;
   const fileHandle = await getFileHandleFromDrop(event).catch(() => null);
+  const droppedFile =
+    (fileHandle ? await fileHandle.getFile().catch(() => null) : null) ??
+    event.dataTransfer?.files?.[0] ??
+    null;
+  if (!droppedFile) {
+    return;
+  }
+
   if (fileHandle) {
     const hasPermission = await requestHandlePermission(
       fileHandle as PermissionCapableHandle,
@@ -1616,12 +1640,15 @@ async function handleDrop(event: DragEvent) {
       ).catch(() => false);
       const file = await fileHandle.getFile().catch(() => null);
       if (file) {
-        await loadIniFile(file, {
+        const loaded = await loadIniFile(file, {
           fileHandle,
           canOverwriteLoadedFile: canOverwrite
         });
+        if (loaded && parseIniCharacterName(file.name) && getCurrentUserId()) {
+          await linkTraderIniFromHandle(fileHandle).catch(() => false);
+        }
 
-        if (!canOverwrite) {
+        if (loaded && !canOverwrite) {
           addToast({
             title: 'Loaded Read-Only',
             message:
@@ -1634,7 +1661,7 @@ async function handleDrop(event: DragEvent) {
     }
   }
 
-  await loadDroppedFile(event.dataTransfer?.files?.[0], null);
+  await loadDroppedFile(droppedFile, null);
 }
 
 async function saveIniFile() {
@@ -1664,7 +1691,7 @@ async function saveIniFile() {
   }
 
   const targetFileName =
-    activeFileHandle.value?.name ?? activeServerFileName.value ?? getSuggestedIniFileName();
+    activeFileHandle.value?.name ?? getSuggestedIniFileName();
 
   try {
     if (activeFileHandle.value && canOverwriteLoadedFile.value) {
@@ -1683,31 +1710,6 @@ async function saveIniFile() {
       addToast({
         title: 'INI Saved',
         message: `Saved ${formatNumber(editedCount)} edited ${editedCount === 1 ? 'row' : 'rows'} directly to ${activeFileHandle.value.name}.`,
-        variant: 'success'
-      });
-      return;
-    }
-
-    if (activeServerDirectoryPath.value && activeServerFileName.value) {
-      const confirmed = await showSaveConfirmation({
-        targetFileName,
-        editedCount
-      });
-      if (!confirmed) {
-        return;
-      }
-
-      saveInFlight.value = true;
-      await api.saveMarketPriceWizardTraderFile(
-        activeServerDirectoryPath.value,
-        activeServerFileName.value,
-        content
-      );
-      fileName.value = activeServerFileName.value;
-      markEntriesAsSaved();
-      addToast({
-        title: 'INI Saved',
-        message: `Saved ${formatNumber(editedCount)} edited ${editedCount === 1 ? 'row' : 'rows'} directly to ${activeServerFileName.value}.`,
         variant: 'success'
       });
       return;
@@ -1802,24 +1804,24 @@ async function handleGlobalSaveShortcut(event: KeyboardEvent) {
 const hasEntries = computed(() => entries.value.length > 0);
 const traderPickerPlaceholderLabel = computed(() => {
   if (traderIniOptions.value.length > 0) {
-    return 'Select character';
+    return 'Select linked trader';
   }
 
   if (eqGameDirectoryScanning.value || eqGameDirectoryLoading.value) {
-    return 'Scanning...';
+    return 'Refreshing...';
   }
 
   if (eqGameDirectoryScanIssue.value) {
-    return 'Scan failed';
+    return 'Link trader INI';
   }
 
-  return 'No traders found';
+  return 'No linked traders';
 });
-const eqGameDirectorySelectDisabled = computed(
-  () =>
-    !eqGameDirectoryHandleAvailable.value ||
-    eqGameDirectoryScanning.value ||
-    eqGameDirectoryLoading.value
+const traderPickerDisabled = computed(
+  () => eqGameDirectoryScanning.value || eqGameDirectoryLoading.value
+);
+const traderLinkActionDisabled = computed(
+  () => eqGameDirectorySaving.value || eqGameDirectoryLoading.value
 );
 const recommendationCount = computed(() =>
   entries.value.filter((entry) => isRecommendationActionable(entry)).length
@@ -1837,11 +1839,7 @@ const saveButtonLabel = computed(() => {
     return 'Saving...';
   }
 
-  return activeFileHandle.value && canOverwriteLoadedFile.value
-    ? 'Save'
-    : activeServerDirectoryPath.value && activeServerFileName.value
-      ? 'Save'
-      : 'Save As';
+  return activeFileHandle.value && canOverwriteLoadedFile.value ? 'Save' : 'Save As';
 });
 const ignoredLineSummary = computed(() =>
   ignoredLines.value > 0 ? `${ignoredLines.value} lines ignored` : 'All item rows parsed cleanly'
