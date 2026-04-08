@@ -4,9 +4,16 @@ import { z } from 'zod';
 import { EQEMU_ITEM_SLOT_IDS, EQEMU_ITEM_TYPE_VALUES } from '../data/eqItemFilters.js';
 import { authenticate } from '../middleware/authenticate.js';
 import {
+  listMarketPriceWizardTraderFiles,
+  pickMarketPriceWizardDirectory,
+  readMarketPriceWizardTraderFile,
+  saveMarketPriceWizardTraderFile
+} from '../services/marketPriceWizardFileService.js';
+import {
   ensureMarketListingsFresh,
   getMarketListingsPage
 } from '../services/marketListingsService.js';
+import { getMarketPriceWizardRecommendations } from '../services/marketPriceWizardService.js';
 import {
   addMarketFavoriteCharacter,
   addMarketFavoriteItem,
@@ -125,9 +132,7 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
         )
         .refine((value) => value.itemType == null || itemTypeValues.has(value.itemType), {
           message: 'Invalid item type.'
-        })
-;
-
+        });
       const parsed = querySchema.safeParse(request.query);
       if (!parsed.success) {
         return reply.badRequest(parsed.error.issues[0]?.message ?? 'Invalid query parameters.');
@@ -149,6 +154,147 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch cached market listings.');
         return reply.internalServerError('Unable to fetch market listings.');
+      }
+    }
+  );
+
+  server.post(
+    '/price-wizard/recommendations',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        entries: z
+          .array(
+            z.object({
+              itemId: z.coerce.number().int().positive(),
+              variantCharges: z.coerce.number().int().min(0).nullable().optional()
+            })
+          )
+          .min(1)
+          .max(1500),
+        currentSellerName: z.string().trim().min(1).max(191).optional()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid price wizard payload.');
+      }
+
+      try {
+        const recommendations = await getMarketPriceWizardRecommendations(parsed.data.entries, {
+          currentSellerName: parsed.data.currentSellerName
+        });
+        return { recommendations };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to build market price wizard recommendations.');
+        return reply.internalServerError('Unable to build market price recommendations.');
+      }
+    }
+  );
+
+  server.post(
+    '/price-wizard/traders/pick-directory',
+    {
+      preHandler: [authenticate]
+    },
+    async (_request, reply) => {
+      try {
+        const directoryPath = await pickMarketPriceWizardDirectory();
+        return { directoryPath };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to open the EQ directory picker.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.post(
+    '/price-wizard/traders',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        directoryPath: z.string().trim().min(1).max(512)
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid EQ game directory path.');
+      }
+
+      try {
+        const traderFiles = await listMarketPriceWizardTraderFiles(parsed.data.directoryPath);
+        return { traderFiles };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to scan the EQ game directory.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.post(
+    '/price-wizard/traders/read',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        directoryPath: z.string().trim().min(1).max(512),
+        fileName: z.string().trim().min(1).max(255)
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid trader INI request.');
+      }
+
+      try {
+        const traderFile = await readMarketPriceWizardTraderFile(
+          parsed.data.directoryPath,
+          parsed.data.fileName
+        );
+        return { traderFile };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to read the trader INI file.';
+        return reply.badRequest(message);
+      }
+    }
+  );
+
+  server.post(
+    '/price-wizard/traders/save',
+    {
+      preHandler: [authenticate]
+    },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        directoryPath: z.string().trim().min(1).max(512),
+        fileName: z.string().trim().min(1).max(255),
+        content: z.string()
+      });
+
+      const parsed = bodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid trader INI save payload.');
+      }
+
+      try {
+        await saveMarketPriceWizardTraderFile(
+          parsed.data.directoryPath,
+          parsed.data.fileName,
+          parsed.data.content
+        );
+        return { success: true };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to save the trader INI file.';
+        return reply.badRequest(message);
       }
     }
   );

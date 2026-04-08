@@ -196,6 +196,18 @@ export function renderNotificationEvent(
           )
         }`
       };
+    case 'market.trader.trade_activity':
+      return {
+        text: `${isTelegram ? '💸 ' : ''}Tracked trader sale alert:\n${
+          isTelegram
+            ? formatEmojiLines(
+                data.lines,
+                asString(data.summary, 'A tracked trader made a sale.'),
+                '💸'
+              )
+            : formatPlainLines(data.lines, asString(data.summary, 'A tracked trader made a sale.'))
+        }`
+      };
     case 'market.trader.listing_activity':
       return {
         text: `${isTelegram ? '🧾 ' : ''}Tracked trader listing changes:\n${

@@ -1388,6 +1388,7 @@ export interface AccountProfile {
   displayName: string;
   nickname: string | null;
   defaultLogFileName: string | null;
+  eqGameDirectoryName: string | null;
 }
 
 export interface LinkedProviders {
@@ -1980,12 +1981,36 @@ export interface MarketListingsPage {
   syncStatus: MarketListingsSyncStatus;
 }
 
+export type MarketPriceWizardRecommendationSource =
+  | 'listing-undercut'
+  | 'historical-average'
+  | 'none';
+
+export interface MarketPriceWizardRecommendation {
+  itemId: number;
+  variantCharges: number | null;
+  itemName: string;
+  itemIconId: number | null;
+  matchedListings: number;
+  lowestListingPrice: number | null;
+  lowestListingSellerName: string | null;
+  lowestListingCharges: number | null;
+  historicalAveragePrice: number | null;
+  recommendedPrice: number | null;
+  recommendationSource: MarketPriceWizardRecommendationSource;
+}
+
 export interface MarketItemActivityPage {
   entries: MarketRecentSale[];
   page: number;
   pageSize: number;
   total: number;
   totalPages: number;
+}
+
+export interface MarketPriceWizardTraderFile {
+  characterName: string;
+  fileName: string;
 }
 
 export interface MarketItemActivity {
@@ -2900,70 +2925,6 @@ function normalizeGuildBankCharacter(raw: any): GuildBankCharacter {
     createdAt: normalizeDateString(raw?.createdAt) ?? '',
     foundInEq: raw?.foundInEq === true,
     class: typeof raw?.class === 'string' ? (raw.class as CharacterClass) : undefined
-  };
-}
-
-function normalizeGuildBankItem(raw: any): GuildBankItem {
-  const location =
-    raw?.location === 'WORN' ||
-    raw?.location === 'PERSONAL' ||
-    raw?.location === 'CURSOR' ||
-    raw?.location === 'BANK'
-      ? raw.location
-      : 'PERSONAL';
-
-  const itemId =
-    typeof raw?.itemId === 'number'
-      ? raw.itemId
-      : typeof raw?.itemId === 'string'
-        ? Number.parseInt(raw.itemId, 10) || null
-        : null;
-
-  const itemIconId =
-    typeof raw?.itemIconId === 'number'
-      ? raw.itemIconId
-      : typeof raw?.itemIconId === 'string'
-        ? Number.parseInt(raw.itemIconId, 10) || null
-        : null;
-
-  const charges =
-    typeof raw?.charges === 'number'
-      ? raw.charges
-      : typeof raw?.charges === 'string'
-        ? Number.parseInt(raw.charges, 10) || null
-        : null;
-
-  return {
-    characterName: typeof raw?.characterName === 'string' ? raw.characterName : 'Unknown',
-    slotId:
-      typeof raw?.slotId === 'number'
-        ? raw.slotId
-        : typeof raw?.slotId === 'string'
-          ? Number.parseInt(raw.slotId, 10) || 0
-          : 0,
-    location,
-    itemId,
-    itemName: typeof raw?.itemName === 'string' ? raw.itemName : 'Unknown Item',
-    itemIconId,
-    charges: charges ?? null,
-    bagSlots: typeof raw?.bagSlots === 'number' ? raw.bagSlots : null
-  };
-}
-
-function normalizeGuildBankSnapshot(raw: any): GuildBankSnapshot {
-  const characters = Array.isArray(raw?.characters)
-    ? raw.characters.map((entry: any) => normalizeGuildBankCharacter(entry))
-    : [];
-  const items = Array.isArray(raw?.items)
-    ? raw.items.map((entry: any) => normalizeGuildBankItem(entry))
-    : [];
-
-  return {
-    characters,
-    items,
-    missingCharacters: Array.isArray(raw?.missingCharacters)
-      ? raw.missingCharacters.filter((entry: any) => typeof entry === 'string')
-      : []
   };
 }
 
@@ -3926,13 +3887,15 @@ export const api = {
       email: response.data.profile.email,
       displayName: response.data.profile.displayName,
       nickname: response.data.profile.nickname ?? null,
-      defaultLogFileName: response.data.profile.defaultLogFileName ?? null
+      defaultLogFileName: response.data.profile.defaultLogFileName ?? null,
+      eqGameDirectoryName: response.data.profile.eqGameDirectoryName ?? null
     };
   },
 
   async updateAccountProfile(payload: {
     nickname?: string | null;
     defaultLogFileName?: string | null;
+    eqGameDirectoryName?: string | null;
   }): Promise<AccountProfile> {
     const response = await axios.patch('/api/account/profile', payload);
     const profile = response.data.profile;
@@ -3941,7 +3904,8 @@ export const api = {
       email: profile.email,
       displayName: profile.displayName,
       nickname: profile.nickname ?? null,
-      defaultLogFileName: profile.defaultLogFileName ?? null
+      defaultLogFileName: profile.defaultLogFileName ?? null,
+      eqGameDirectoryName: profile.eqGameDirectoryName ?? null
     };
   },
 
@@ -5331,6 +5295,60 @@ export const api = {
     if (options.refreshIfStale) params.append('refreshIfStale', 'true');
     const response = await axios.get(`/api/market/listings?${params.toString()}`);
     return response.data.listingsPage;
+  },
+
+  async fetchMarketPriceWizardRecommendations(
+    entries: Array<{
+      itemId: number;
+      variantCharges?: number | null;
+    }>,
+    options: {
+      currentSellerName?: string | null;
+    } = {}
+  ): Promise<MarketPriceWizardRecommendation[]> {
+    const response = await axios.post('/api/market/price-wizard/recommendations', {
+      entries,
+      currentSellerName: options.currentSellerName ?? undefined
+    });
+    return response.data.recommendations;
+  },
+
+  async fetchMarketPriceWizardTraderFiles(
+    directoryPath: string
+  ): Promise<MarketPriceWizardTraderFile[]> {
+    const response = await axios.post('/api/market/price-wizard/traders', {
+      directoryPath
+    });
+    return Array.isArray(response.data?.traderFiles) ? response.data.traderFiles : [];
+  },
+
+  async pickMarketPriceWizardDirectory(): Promise<string | null> {
+    const response = await axios.post('/api/market/price-wizard/traders/pick-directory');
+    return typeof response.data?.directoryPath === 'string' && response.data.directoryPath.trim()
+      ? response.data.directoryPath.trim()
+      : null;
+  },
+
+  async readMarketPriceWizardTraderFile(directoryPath: string, fileName: string): Promise<string> {
+    const response = await axios.post('/api/market/price-wizard/traders/read', {
+      directoryPath,
+      fileName
+    });
+    return typeof response.data?.traderFile?.content === 'string'
+      ? response.data.traderFile.content
+      : '';
+  },
+
+  async saveMarketPriceWizardTraderFile(
+    directoryPath: string,
+    fileName: string,
+    content: string
+  ): Promise<void> {
+    await axios.post('/api/market/price-wizard/traders/save', {
+      directoryPath,
+      fileName,
+      content
+    });
   },
 
   // Character Admin APIs

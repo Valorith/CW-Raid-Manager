@@ -7,8 +7,7 @@
           <template v-if="activeTab === 'market'">
             <span class="pill">{{ selectedRangeLabel }}</span>
             <span class="pill pill--muted"
-              >Synced
-              {{ formatSyncTime(summary?.syncStatus.lastSyncedAt ?? null) }}</span
+              >Synced {{ formatSyncTime(summary?.syncStatus.lastSyncedAt ?? null) }}</span
             >
           </template>
           <template v-else-if="activeTab === 'listings'">
@@ -25,6 +24,10 @@
             >
               {{ traderAttentionMeta }}
             </span>
+          </template>
+          <template v-else-if="activeTab === 'priceWizard'">
+            <span class="pill">Bazaar pricing</span>
+            <span class="pill pill--muted">Lowest listing undercut by 1 copper</span>
           </template>
           <template v-else>
             <span class="pill pill--muted">Personal watchlist</span>
@@ -104,6 +107,18 @@
         @click="activeTab = 'favorites'"
       >
         Watchlist
+      </button>
+      <button
+        id="market-tab-price-wizard"
+        type="button"
+        role="tab"
+        class="market-page-tab"
+        :class="{ 'market-page-tab--active': activeTab === 'priceWizard' }"
+        :aria-selected="activeTab === 'priceWizard'"
+        aria-controls="market-panel-price-wizard"
+        @click="activeTab = 'priceWizard'"
+      >
+        Price Wizard
       </button>
     </nav>
 
@@ -208,9 +223,13 @@
                 </span>
                 <span
                   class="sales-ticker__trend"
-                  :class="'sales-ticker__trend--' + getPriceTrendDirection(sale.price, sale.itemAveragePrice)"
+                  :class="
+                    'sales-ticker__trend--' +
+                    getPriceTrendDirection(sale.price, sale.itemAveragePrice)
+                  "
                   :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
-                >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span>
+                  >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
+                >
                 <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
                 <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
                 <span class="sales-ticker__sep">&middot;</span>
@@ -235,9 +254,13 @@
                 </span>
                 <span
                   class="sales-ticker__trend"
-                  :class="'sales-ticker__trend--' + getPriceTrendDirection(sale.price, sale.itemAveragePrice)"
+                  :class="
+                    'sales-ticker__trend--' +
+                    getPriceTrendDirection(sale.price, sale.itemAveragePrice)
+                  "
                   :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
-                >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span>
+                  >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
+                >
                 <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
                 <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
                 <span class="sales-ticker__sep">&middot;</span>
@@ -539,6 +562,16 @@
       />
     </section>
 
+    <section
+      v-show="activeTab === 'priceWizard'"
+      id="market-panel-price-wizard"
+      role="tabpanel"
+      aria-labelledby="market-tab-price-wizard"
+      class="market-tab-panel"
+    >
+      <MarketPriceWizardTab />
+    </section>
+
     <Teleport to="body">
       <div
         v-if="isItemModalOpen && activeModalItem"
@@ -634,10 +667,7 @@
               <article class="card card--spotlight">
                 <span class="label">Avg Price</span>
                 <strong>
-                  <CoinDisplay
-                    variant="platinum"
-                    :amount-in-copper="history.stats.averagePrice"
-                  />
+                  <CoinDisplay variant="platinum" :amount-in-copper="history.stats.averagePrice" />
                 </strong>
                 <small>per unit</small>
               </article>
@@ -647,8 +677,7 @@
                   <CoinDisplay variant="platinum" :amount-in-copper="history.stats.minPrice" />
                 </strong>
                 <small
-                  >to
-                  <CoinDisplay variant="platinum" :amount-in-copper="history.stats.maxPrice"
+                  >to <CoinDisplay variant="platinum" :amount-in-copper="history.stats.maxPrice"
                 /></small>
               </article>
               <article class="card">
@@ -659,10 +688,7 @@
               <article class="card">
                 <span class="label">Revenue</span>
                 <strong>
-                  <CoinDisplay
-                    variant="platinum"
-                    :amount-in-copper="history.stats.totalRevenue"
-                  />
+                  <CoinDisplay variant="platinum" :amount-in-copper="history.stats.totalRevenue" />
                 </strong>
                 <small>{{ formatCompactDate(history.stats.lastSoldAt) }}</small>
               </article>
@@ -704,7 +730,10 @@
               </article>
             </div>
           </template>
-          <div v-else-if="activeItemModalTab === 'trends'" class="empty empty--stacked muted market-modal__loading">
+          <div
+            v-else-if="activeItemModalTab === 'trends'"
+            class="empty empty--stacked muted market-modal__loading"
+          >
             <p>No synced bazaar sale history was found for this item yet.</p>
             <button
               type="button"
@@ -717,12 +746,16 @@
             </button>
           </div>
           <div
-            v-else-if="activeItemModalTab === 'listings' && itemListingsLoading && !itemListingsPage"
+            v-else-if="
+              activeItemModalTab === 'listings' && itemListingsLoading && !itemListingsPage
+            "
             class="empty muted market-modal__loading"
           >
             Loading item listings...
           </div>
-          <template v-else-if="activeItemModalTab === 'listings' && activeItemListingsPage?.listings.length">
+          <template
+            v-else-if="activeItemModalTab === 'listings' && activeItemListingsPage?.listings.length"
+          >
             <div class="table-wrap table-wrap--modal">
               <table class="listings-table">
                 <thead>
@@ -842,7 +875,14 @@
                       <button
                         type="button"
                         class="table-item table-item--static"
-                        @mouseenter="showMarketItemTooltip($event, listing.itemId, listing.itemName, listing.itemIconId)"
+                        @mouseenter="
+                          showMarketItemTooltip(
+                            $event,
+                            listing.itemId,
+                            listing.itemName,
+                            listing.itemIconId
+                          )
+                        "
                         @mousemove="updateMarketItemTooltipPosition($event)"
                         @mouseleave="hideMarketItemTooltip"
                         @click="openCharacterListingItem(listing)"
@@ -867,10 +907,7 @@
                         :title="getPriceRankTitle(listing)"
                         :aria-label="getPriceRankTitle(listing)"
                       >
-                        <span
-                          v-if="listing.priceRank === 1"
-                          class="price-rank-badge__leader"
-                        >
+                        <span v-if="listing.priceRank === 1" class="price-rank-badge__leader">
                           <span class="price-rank-badge__leader-medallion" aria-hidden="true">
                             <span class="price-rank-badge__leader-number">1</span>
                           </span>
@@ -881,20 +918,14 @@
                     <td>
                       <div
                         class="listing-analysis"
-                        :class="
-                          getListingAnalysisClass(listing.price, listing.itemAveragePrice)
-                        "
-                        :title="
-                          getListingAnalysisTitle(listing.price, listing.itemAveragePrice)
-                        "
+                        :class="getListingAnalysisClass(listing.price, listing.itemAveragePrice)"
+                        :title="getListingAnalysisTitle(listing.price, listing.itemAveragePrice)"
                       >
                         <span class="listing-analysis__arrow" aria-hidden="true">
                           {{ getListingAnalysisArrow(listing.price, listing.itemAveragePrice) }}
                         </span>
                         <span
-                          v-if="
-                            getListingAnalysisPercent(listing.price, listing.itemAveragePrice)
-                          "
+                          v-if="getListingAnalysisPercent(listing.price, listing.itemAveragePrice)"
                           class="listing-analysis__percent"
                         >
                           {{ getListingAnalysisPercent(listing.price, listing.itemAveragePrice) }}
@@ -942,7 +973,10 @@
               </button>
             </div>
           </template>
-          <p v-else-if="activeItemModalTab === 'listings'" class="empty muted market-modal__loading">
+          <p
+            v-else-if="activeItemModalTab === 'listings'"
+            class="empty muted market-modal__loading"
+          >
             No active bazaar listings are currently cached for this item.
           </p>
           <div
@@ -1095,7 +1129,10 @@
               </article>
             </section>
           </template>
-          <p v-else-if="activeItemModalTab === 'activity'" class="empty muted market-modal__loading">
+          <p
+            v-else-if="activeItemModalTab === 'activity'"
+            class="empty muted market-modal__loading"
+          >
             No synced buyer or seller activity was found for this item yet.
           </p>
         </div>
@@ -1206,10 +1243,7 @@
                 Buy
               </button>
             </div>
-            <span
-              v-if="activeCharacterModalPageMeta"
-              class="muted market-modal__toolbar-meta"
-            >
+            <span v-if="activeCharacterModalPageMeta" class="muted market-modal__toolbar-meta">
               Page {{ activeCharacterModalPageMeta.page }} of
               {{ activeCharacterModalPageMeta.totalPages }} ·
               {{ formatNumber(activeCharacterModalPageMeta.total) }}
@@ -1228,9 +1262,17 @@
           </p>
 
           <div v-if="activeCharacterModalLoading" class="empty muted market-modal__loading">
-            {{ activeCharacterTab === 'listings' ? 'Loading character listings...' : 'Loading character history...' }}
+            {{
+              activeCharacterTab === 'listings'
+                ? 'Loading character listings...'
+                : 'Loading character history...'
+            }}
           </div>
-          <template v-else-if="activeCharacterTab === 'listings' && activeCharacterListingsPage?.listings.length">
+          <template
+            v-else-if="
+              activeCharacterTab === 'listings' && activeCharacterListingsPage?.listings.length
+            "
+          >
             <div class="table-wrap table-wrap--modal">
               <table class="listings-table">
                 <thead>
@@ -1350,7 +1392,14 @@
                       <button
                         type="button"
                         class="table-item table-item-button table-item--static"
-                        @mouseenter="showMarketItemTooltip($event, listing.itemId, listing.itemName, listing.itemIconId)"
+                        @mouseenter="
+                          showMarketItemTooltip(
+                            $event,
+                            listing.itemId,
+                            listing.itemName,
+                            listing.itemIconId
+                          )
+                        "
                         @mousemove="updateMarketItemTooltipPosition($event)"
                         @mouseleave="hideMarketItemTooltip"
                         @click="openCharacterListingItem(listing)"
@@ -1375,10 +1424,7 @@
                         :title="getPriceRankTitle(listing)"
                         :aria-label="getPriceRankTitle(listing)"
                       >
-                        <span
-                          v-if="listing.priceRank === 1"
-                          class="price-rank-badge__leader"
-                        >
+                        <span v-if="listing.priceRank === 1" class="price-rank-badge__leader">
                           <span class="price-rank-badge__leader-medallion" aria-hidden="true">
                             <span class="price-rank-badge__leader-number">1</span>
                           </span>
@@ -1389,20 +1435,14 @@
                     <td>
                       <div
                         class="listing-analysis"
-                        :class="
-                          getListingAnalysisClass(listing.price, listing.itemAveragePrice)
-                        "
-                        :title="
-                          getListingAnalysisTitle(listing.price, listing.itemAveragePrice)
-                        "
+                        :class="getListingAnalysisClass(listing.price, listing.itemAveragePrice)"
+                        :title="getListingAnalysisTitle(listing.price, listing.itemAveragePrice)"
                       >
                         <span class="listing-analysis__arrow" aria-hidden="true">
                           {{ getListingAnalysisArrow(listing.price, listing.itemAveragePrice) }}
                         </span>
                         <span
-                          v-if="
-                            getListingAnalysisPercent(listing.price, listing.itemAveragePrice)
-                          "
+                          v-if="getListingAnalysisPercent(listing.price, listing.itemAveragePrice)"
                           class="listing-analysis__percent"
                         >
                           {{ getListingAnalysisPercent(listing.price, listing.itemAveragePrice) }}
@@ -1425,10 +1465,7 @@
                 </tbody>
               </table>
             </div>
-            <div
-              v-if="activeCharacterListingsPage.totalPages > 1"
-              class="pagination"
-            >
+            <div v-if="activeCharacterListingsPage.totalPages > 1" class="pagination">
               <button
                 type="button"
                 class="btn btn--outline btn--small"
@@ -1543,8 +1580,8 @@
               activeCharacterTab === 'listings'
                 ? 'No active bazaar listings are currently cached for this character.'
                 : activeCharacterTab === 'sell'
-                ? 'No bazaar sell history was found for this character in the selected range.'
-                : 'No bazaar buy history was found for this character in the selected range.'
+                  ? 'No bazaar sell history was found for this character in the selected range.'
+                  : 'No bazaar buy history was found for this character in the selected range.'
             }}
           </p>
         </div>
@@ -1562,6 +1599,7 @@ import CoinDisplay from '../components/CoinDisplay.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import MarketFavoritesTab from '../components/market/MarketFavoritesTab.vue';
 import MarketListingsTab from '../components/market/MarketListingsTab.vue';
+import MarketPriceWizardTab from '../components/market/MarketPriceWizardTab.vue';
 import MarketTradersTab from '../components/market/MarketTradersTab.vue';
 import { useToastBus } from '../components/ToastBus';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
@@ -1642,7 +1680,7 @@ const isItemModalOpen = ref(false);
 const activeCharacterName = ref<string | null>(null);
 const activeCharacterTab = ref<MarketCharacterModalTab>('listings');
 const isCharacterModalOpen = ref(false);
-const activeTab = ref<'market' | 'listings' | 'traders' | 'favorites'>('market');
+const activeTab = ref<'market' | 'listings' | 'traders' | 'favorites' | 'priceWizard'>('market');
 const selectedRangeDays = ref<number | null>(null);
 const topItemsSort = ref<MarketTopItemsSort>('quantity');
 const salesPageNumber = ref(1);
@@ -1710,7 +1748,9 @@ const activeCharacterHistoryEntries = computed<MarketRecentSale[]>(
   () => activeCharacterHistoryPage.value?.entries ?? []
 );
 const activeCharacterHistoryLoading = computed(() =>
-  activeCharacterTab.value === 'listings' ? false : characterHistoryLoading[activeCharacterTab.value]
+  activeCharacterTab.value === 'listings'
+    ? false
+    : characterHistoryLoading[activeCharacterTab.value]
 );
 const activeCharacterModalLoading = computed(() =>
   activeCharacterTab.value === 'listings'
@@ -1847,14 +1887,6 @@ function formatNumber(value: number) {
 
 function formatOptionalNumber(value: number | null) {
   return value == null ? '—' : formatNumber(value);
-}
-
-function formatPlatinum(valueInCopper: number) {
-  const platinum = valueInCopper / 1000;
-  return `${new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: platinum < 100 ? 1 : 0,
-    maximumFractionDigits: 1
-  }).format(platinum)} pp`;
 }
 
 function formatCompactDate(value: string | null) {
@@ -2676,18 +2708,17 @@ async function loadFavorites(showErrorToast = true) {
     favoriteItems.value = favorites.items ?? [];
     favoriteCharacters.value = favorites.characters ?? [];
     favoriteTraders.value = favorites.traders ?? [];
-    traderSummary.value =
-      favorites.traderSummary ?? {
-        totalTraders: 0,
-        activeTraders: 0,
-        tradersNeedingAttention: 0,
-        totalListings: 0,
-        leadingListings: 0,
-        matchingListings: 0,
-        undercutListings: 0,
-        sourceAvailable: true,
-        message: null
-      };
+    traderSummary.value = favorites.traderSummary ?? {
+      totalTraders: 0,
+      activeTraders: 0,
+      tradersNeedingAttention: 0,
+      totalListings: 0,
+      leadingListings: 0,
+      matchingListings: 0,
+      undercutListings: 0,
+      sourceAvailable: true,
+      message: null
+    };
   } catch (error) {
     console.error('Failed to load market watchlist.', error);
     if (showErrorToast) {
@@ -2814,10 +2845,7 @@ function syncTraderSummaryFromFavorites() {
     tradersNeedingAttention: favoriteTraders.value.filter((entry) => entry.needsAttention).length,
     totalListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.totalListings, 0),
     leadingListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.leadingListings, 0),
-    matchingListings: favoriteTraders.value.reduce(
-      (sum, entry) => sum + entry.matchingListings,
-      0
-    ),
+    matchingListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.matchingListings, 0),
     undercutListings: favoriteTraders.value.reduce((sum, entry) => sum + entry.undercutListings, 0),
     sourceAvailable: traderSummary.value.sourceAvailable,
     message: traderSummary.value.message
@@ -3155,10 +3183,6 @@ function changeItemListingsPage(page: number) {
   void loadSelectedItemListingsPage(page);
 }
 
-function getDefaultCharacterModalTab(_type: MarketCharacterModalTab): MarketCharacterModalTab {
-  return 'listings';
-}
-
 function openCharacterHistoryModal(name: string | null, type: MarketCharacterModalTab) {
   const trimmedName = name?.trim() ?? '';
   if (!trimmedName || trimmedName === UNKNOWN_MARKET_CHARACTER_LABEL) {
@@ -3166,7 +3190,7 @@ function openCharacterHistoryModal(name: string | null, type: MarketCharacterMod
   }
 
   const hasCharacterChanged = activeCharacterName.value !== trimmedName;
-  const nextTab = getDefaultCharacterModalTab(type);
+  const nextTab = type;
 
   activeCharacterName.value = trimmedName;
   activeCharacterTab.value = nextTab;
@@ -3229,7 +3253,10 @@ function reloadActiveCharacterHistory() {
     return;
   }
 
-  void loadCharacterHistoryPage(activeCharacterTab.value, activeCharacterHistoryPage.value?.page ?? 1);
+  void loadCharacterHistoryPage(
+    activeCharacterTab.value,
+    activeCharacterHistoryPage.value?.page ?? 1
+  );
 }
 
 function closeCharacterModal() {
@@ -3409,7 +3436,10 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, opacity 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    opacity 0.15s;
 }
 .btn:disabled {
   opacity: 0.5;
@@ -3546,7 +3576,10 @@ onBeforeUnmount(() => {
   font-weight: 600;
   cursor: pointer;
   margin-bottom: -1px;
-  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    background-color 0.15s,
+    border-color 0.15s;
 }
 .market-page-tab:hover {
   color: #e2e8f0;
@@ -3744,8 +3777,12 @@ onBeforeUnmount(() => {
 }
 
 @keyframes ticker-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 .sales-ticker__content {
@@ -4228,8 +4265,12 @@ onBeforeUnmount(() => {
   width: 1.8rem;
   height: 1.8rem;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(236, 253, 245, 0.96), rgba(74, 222, 128, 0.95) 42%, rgba(5, 150, 105, 0.96) 100%);
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(236, 253, 245, 0.96),
+    rgba(74, 222, 128, 0.95) 42%,
+    rgba(5, 150, 105, 0.96) 100%
+  );
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
 }
 .price-rank-badge__leader-number {

@@ -5,8 +5,8 @@
         <p class="eyebrow">Saved Trader Roster</p>
         <h2>My Traders</h2>
         <p class="muted traders-tab__copy">
-          Save your trader characters, then scan active listings that are tied or undercut so you
-          can reprice faster.
+          Save your trader characters, then monitor fresh sales, listing changes, and undercuts so
+          you can reprice faster.
         </p>
       </div>
       <button
@@ -145,6 +145,19 @@
         </div>
 
         <div class="trader-card__alerts">
+          <label class="alert-toggle">
+            <input
+              type="checkbox"
+              :checked="trader.notificationSettings.notifyOnTradeActivity !== false"
+              :disabled="isSettingsBusy(trader.id)"
+              @change="
+                updateTraderNotificationSettings(trader.id, {
+                  notifyOnTradeActivity: ($event.target as HTMLInputElement).checked
+                })
+              "
+            />
+            <span>Sales</span>
+          </label>
           <label class="alert-toggle">
             <input
               type="checkbox"

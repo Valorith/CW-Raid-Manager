@@ -113,6 +113,13 @@ export const MARKET_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[
     recommended: false
   },
   {
+    key: 'market.trader.trade_activity',
+    label: 'My Trader Sales',
+    description: 'Alert when one of your tracked traders makes a sale.',
+    scopeType: 'GLOBAL',
+    recommended: true
+  },
+  {
     key: 'market.trader.listing_activity',
     label: 'Trader Listing Changes',
     description: 'Alert when your tracked traders refresh or change listings.',
@@ -163,6 +170,7 @@ export function getDefaultMarketFavoriteNotificationSettings(
   }
 
   return {
+    notifyOnTradeActivity: true,
     notifyOnListingActivity: true,
     notifyOnUndercut: true,
     undercutOnly: false,

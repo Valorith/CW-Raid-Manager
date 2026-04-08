@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { NotificationProvider } from '@prisma/client';
+import { NotificationProvider, Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
@@ -35,36 +35,99 @@ const profileSchema = z.object({
         .max(255, 'Default log file name cannot exceed 255 characters.'),
       z.null()
     ])
+    .optional(),
+  eqGameDirectoryName: z
+    .union([
+      z
+        .string()
+        .trim()
+        .max(255, 'EQ game directory name cannot exceed 255 characters.'),
+      z.null()
+    ])
     .optional()
 });
+
+const accountProfileSelect = {
+  id: true,
+  email: true,
+  displayName: true,
+  nickname: true,
+  defaultLogFileName: true,
+  eqGameDirectoryName: true
+} satisfies Prisma.UserSelect;
+
+const legacyAccountProfileSelect = {
+  id: true,
+  email: true,
+  displayName: true,
+  nickname: true,
+  defaultLogFileName: true
+} satisfies Prisma.UserSelect;
+
+type AccountProfileRecord =
+  | Prisma.UserGetPayload<{ select: typeof accountProfileSelect }>
+  | Prisma.UserGetPayload<{ select: typeof legacyAccountProfileSelect }>;
+
+function isEqGameDirectoryNameColumnMissing(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code === 'P2022' && typeof error.meta?.column === 'string') {
+    return error.meta.column.includes('eqGameDirectoryName');
+  }
+
+  return (
+    error.code === 'P2010' &&
+    typeof error.meta?.message === 'string' &&
+    error.meta.message.includes('Unknown column') &&
+    error.meta.message.includes('eqGameDirectoryName')
+  );
+}
+
+function serializeAccountProfile(user: AccountProfileRecord) {
+  return {
+    userId: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    nickname: user.nickname ?? null,
+    defaultLogFileName: user.defaultLogFileName ?? null,
+    eqGameDirectoryName:
+      'eqGameDirectoryName' in user ? user.eqGameDirectoryName ?? null : null
+  };
+}
 
 export async function accountRoutes(server: FastifyInstance): Promise<void> {
   const notificationProviderSchema = z.enum(['TELEGRAM', 'WHATSAPP']);
 
   server.get('/profile', { preHandler: [authenticate] }, async (request) => {
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.userId },
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        nickname: true,
-        defaultLogFileName: true
+    let user: AccountProfileRecord | null = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: request.user.userId },
+        select: accountProfileSelect
+      });
+    } catch (error) {
+      if (!isEqGameDirectoryNameColumnMissing(error)) {
+        throw error;
       }
-    });
+
+      request.log.warn(
+        { error },
+        'User.eqGameDirectoryName is unavailable. Falling back to legacy account profile select.'
+      );
+      user = await prisma.user.findUnique({
+        where: { id: request.user.userId },
+        select: legacyAccountProfileSelect
+      });
+    }
 
     if (!user) {
       return { profile: null };
     }
 
     return {
-      profile: {
-        userId: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        nickname: user.nickname ?? null,
-        defaultLogFileName: user.defaultLogFileName ?? null
-      }
+      profile: serializeAccountProfile(user)
     };
   });
 
@@ -92,30 +155,56 @@ export async function accountRoutes(server: FastifyInstance): Promise<void> {
       }
     }
 
+    if (parsed.data.eqGameDirectoryName !== undefined) {
+      if (typeof parsed.data.eqGameDirectoryName === 'string') {
+        const trimmed = parsed.data.eqGameDirectoryName.trim();
+        updateData.eqGameDirectoryName = trimmed.length > 0 ? trimmed : null;
+      } else {
+        updateData.eqGameDirectoryName = null;
+      }
+    }
+
     if (Object.keys(updateData).length === 0) {
       return reply.badRequest('No profile updates provided.');
     }
 
-    const user = await prisma.user.update({
-      where: { id: request.user.userId },
-      data: updateData,
-      select: {
-        id: true,
-        email: true,
-        displayName: true,
-        nickname: true,
-        defaultLogFileName: true
+    let user: AccountProfileRecord;
+    try {
+      user = await prisma.user.update({
+        where: { id: request.user.userId },
+        data: updateData,
+        select: accountProfileSelect
+      });
+    } catch (error) {
+      if (!isEqGameDirectoryNameColumnMissing(error)) {
+        throw error;
       }
-    });
+
+      request.log.warn(
+        { error },
+        'User.eqGameDirectoryName is unavailable. Falling back to legacy account profile update.'
+      );
+      const { eqGameDirectoryName: _ignored, ...legacyUpdateData } = updateData;
+      if (Object.keys(legacyUpdateData).length === 0) {
+        const existingUser = await prisma.user.findUnique({
+          where: { id: request.user.userId },
+          select: legacyAccountProfileSelect
+        });
+        if (!existingUser) {
+          return reply.notFound('Profile not found.');
+        }
+        user = existingUser;
+      } else {
+        user = await prisma.user.update({
+          where: { id: request.user.userId },
+          data: legacyUpdateData,
+          select: legacyAccountProfileSelect
+        });
+      }
+    }
 
     return {
-      profile: {
-        userId: user.id,
-        email: user.email,
-        displayName: user.displayName,
-        nickname: user.nickname ?? null,
-        defaultLogFileName: user.defaultLogFileName ?? null
-      }
+      profile: serializeAccountProfile(user)
     };
   });
 

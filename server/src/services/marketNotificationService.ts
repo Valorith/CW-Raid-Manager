@@ -112,6 +112,19 @@ function formatCharacterTradeLine(
   return `${watchedDisplayName} traded ${event.itemName} for ${priceText}.`;
 }
 
+function formatTraderSaleLine(
+  traderCharacterName: string,
+  event: Pick<SaleEventInput, 'itemName' | 'price' | 'counterpartyCharacterName'>
+): string {
+  const traderDisplayName = traderCharacterName.trim();
+  const buyerName = event.counterpartyCharacterName?.trim() || null;
+  const priceText = formatCopperCurrency(event.price);
+
+  return buyerName
+    ? `${traderDisplayName} sold ${event.itemName} for ${priceText} to ${buyerName}.`
+    : `${traderDisplayName} sold ${event.itemName} for ${priceText}.`;
+}
+
 function formatCharacterListingLine(
   watchedCharacterName: string,
   listing: Pick<ListingSnapshot, 'itemName' | 'price'>,
@@ -231,6 +244,10 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         {
           listType: MarketFavoriteListType.FAVORITE_CHARACTERS,
           targetKey: { in: characterNames.map((name) => `character:${name}`) }
+        },
+        {
+          listType: MarketFavoriteListType.MY_TRADERS,
+          targetKey: { in: characterNames.map((name) => `trader:${name}`) }
         }
       ]
     }
@@ -238,6 +255,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
 
   const itemLinesByUser = new Map<string, string[]>();
   const characterLinesByUser = new Map<string, string[]>();
+  const traderLinesByUser = new Map<string, string[]>();
   const priceRuleLinesByUser = new Map<string, string[]>();
 
   for (const favorite of favorites) {
@@ -247,6 +265,14 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         return (
           (favorite.itemId != null && event.itemId === favorite.itemId) ||
           normalizeText(favorite.itemName) === normalizeText(event.itemName)
+        );
+      }
+
+      if (favorite.listType === MarketFavoriteListType.MY_TRADERS) {
+        const normalizedFavoriteName = normalizeText(favorite.characterName);
+        return (
+          event.eventType === 'TRADER_SELL' &&
+          normalizedFavoriteName === normalizeText(event.actorCharacterName)
         );
       }
 
@@ -297,6 +323,19 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         lines.push(formatCharacterTradeLine(favorite.characterName, event));
         characterLinesByUser.set(favorite.userId, lines);
       }
+
+      if (
+        favorite.listType === MarketFavoriteListType.MY_TRADERS &&
+        settings.notifyOnTradeActivity !== false
+      ) {
+        if (!favorite.characterName) {
+          continue;
+        }
+
+        const lines = traderLinesByUser.get(favorite.userId) ?? [];
+        lines.push(formatTraderSaleLine(favorite.characterName, event));
+        traderLinesByUser.set(favorite.userId, lines);
+      }
     }
   }
 
@@ -317,6 +356,16 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         scopeType: 'GLOBAL',
         scopeId: 'global',
         eventKey: 'market.character.trade_activity',
+        payload: { lines } as Prisma.InputJsonValue,
+        dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
+      })
+    ),
+    ...[...traderLinesByUser.entries()].map(([userId, lines]) =>
+      queueUserNotification({
+        userId,
+        scopeType: 'GLOBAL',
+        scopeId: 'global',
+        eventKey: 'market.trader.trade_activity',
         payload: { lines } as Prisma.InputJsonValue,
         dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
       })
