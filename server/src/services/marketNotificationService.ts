@@ -1,11 +1,14 @@
 import { MarketFavoriteListType, type MarketFavorite, type Prisma } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
 import {
   getDefaultMarketFavoriteNotificationSettings,
   type MarketFavoriteNotificationSettings
 } from './notificationConstants.js';
-import { queueUserNotification } from './userNotificationService.js';
+import {
+  listUserIdsWithEnabledNotificationPreference,
+  queueUserNotification
+} from './userNotificationService.js';
+import { prisma } from '../utils/prisma.js';
 
 type SaleEventInput = {
   eqLogId: bigint | number | string;
@@ -125,6 +128,12 @@ function formatTraderSaleLine(
     : `${traderDisplayName} sold ${event.itemName} for ${priceText}.`;
 }
 
+function formatMarketSaleLine(
+  event: Pick<SaleEventInput, 'actorCharacterName' | 'itemName' | 'price' | 'counterpartyCharacterName'>
+): string {
+  return formatTraderSaleLine(event.actorCharacterName, event);
+}
+
 function formatCharacterListingLine(
   watchedCharacterName: string,
   listing: Pick<ListingSnapshot, 'itemName' | 'price'>,
@@ -220,6 +229,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
     return;
   }
 
+  const sellerEvents = events.filter((event) => event.eventType === 'TRADER_SELL');
   const itemIds = [...new Set(events.map((event) => event.itemId).filter((value): value is number => value != null))];
   const itemNames = [...new Set(events.map((event) => normalizeText(event.itemName)).filter(Boolean))];
   const characterNames = [
@@ -257,6 +267,7 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
   const characterLinesByUser = new Map<string, string[]>();
   const traderLinesByUser = new Map<string, string[]>();
   const priceRuleLinesByUser = new Map<string, string[]>();
+  const allSaleLines = sellerEvents.map((event) => formatMarketSaleLine(event));
 
   for (const favorite of favorites) {
     const settings = normalizeMarketFavoriteNotificationSettings(favorite);
@@ -339,7 +350,26 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
     }
   }
 
+  const allSaleNotificationUserIds =
+    allSaleLines.length > 0
+      ? await listUserIdsWithEnabledNotificationPreference({
+          scopeType: 'GLOBAL',
+          scopeId: 'global',
+          eventKey: 'market.all.trade_activity'
+        })
+      : [];
+
   await Promise.all([
+    ...allSaleNotificationUserIds.map((userId) =>
+      queueUserNotification({
+        userId,
+        scopeType: 'GLOBAL',
+        scopeId: 'global',
+        eventKey: 'market.all.trade_activity',
+        payload: { lines: allSaleLines } as Prisma.InputJsonValue,
+        dedupeSeed: sellerEvents.map((event) => String(event.eqLogId)).join(',')
+      })
+    ),
     ...[...itemLinesByUser.entries()].map(([userId, lines]) =>
       queueUserNotification({
         userId,

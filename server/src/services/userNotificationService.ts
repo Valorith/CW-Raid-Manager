@@ -553,6 +553,27 @@ export async function updateNotificationPreferences(
   return listNotificationPreferences(userId);
 }
 
+export async function listUserIdsWithEnabledNotificationPreference(input: {
+  scopeType: NotificationScopeTypeKey;
+  scopeId: string;
+  eventKey: string;
+}): Promise<string[]> {
+  const normalizedScopeId = input.scopeType === 'GLOBAL' ? GLOBAL_SCOPE_ID : input.scopeId;
+  const rows = await prisma.userNotificationPreference.findMany({
+    where: {
+      scopeType: input.scopeType,
+      scopeId: normalizedScopeId,
+      eventKey: input.eventKey,
+      isEnabled: true
+    },
+    select: {
+      userId: true
+    }
+  });
+
+  return rows.map((row) => row.userId);
+}
+
 export async function getActiveNotificationChannel(
   userId: string,
   provider: NotificationProviderKey

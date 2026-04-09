@@ -151,6 +151,14 @@ export function renderNotificationEvent(
             : formatPlainLines(data.lines, asString(data.summary, 'A watched item traded.'))
         }`
       };
+    case 'market.all.trade_activity':
+      return {
+        text: `${isTelegram ? '🛒 ' : ''}All market sales:\n${
+          isTelegram
+            ? formatEmojiLines(data.lines, asString(data.summary, 'A new market sale was recorded.'), '🛒')
+            : formatPlainLines(data.lines, asString(data.summary, 'A new market sale was recorded.'))
+        }`
+      };
     case 'market.item.listing_activity':
       return {
         text: `${isTelegram ? '🏷️ ' : ''}Watched item listings:\n${

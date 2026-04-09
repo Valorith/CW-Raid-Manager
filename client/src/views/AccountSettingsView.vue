@@ -357,10 +357,10 @@
         <div class="preferences-grid">
           <article class="preferences-panel">
             <header class="preferences-panel__header">
-              <h3>Market Watchlist Alerts</h3>
+              <h3>Market Alerts</h3>
               <p class="muted small">
-                These account-level alerts cover watched items, watched characters, and `My Traders`
-                events.
+                These account-level alerts cover all market sales, watched items, watched
+                characters, and `My Traders` events.
               </p>
             </header>
 

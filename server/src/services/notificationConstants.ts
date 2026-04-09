@@ -78,6 +78,13 @@ export const GUILD_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[]
 
 export const MARKET_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[] = [
   {
+    key: 'market.all.trade_activity',
+    label: 'All Market Sales',
+    description: 'Alert when any new market sale is seen in the bazaar feed.',
+    scopeType: 'GLOBAL',
+    recommended: false
+  },
+  {
     key: 'market.item.trade_activity',
     label: 'Watched Item Trades',
     description: 'Alert when watched items trade on the market.',
