@@ -5,348 +5,438 @@
       ref="tooltipRef"
       class="item-tooltip"
       :style="tooltipStyle"
-      @mouseenter="handleMouseEnter"
-      @mouseleave="handleMouseLeave"
+      aria-hidden="true"
     >
-      <div v-if="store.loading" class="item-tooltip__loading">
-        <span class="item-tooltip__spinner"></span>
-        Loading...
+      <div v-if="store.loading" class="item-tooltip__card">
+        <p class="item-tooltip__eyebrow">Item Preview</p>
+        <p class="item-tooltip__message">Loading item details...</p>
       </div>
 
-      <div v-else-if="store.error" class="item-tooltip__error">
-        {{ store.error }}
+      <div v-else-if="store.error" class="item-tooltip__card">
+        <p class="item-tooltip__eyebrow">Item Preview</p>
+        <p class="item-tooltip__message">Could not load the item tooltip.</p>
       </div>
 
-      <template v-else-if="store.itemStats">
-        <!-- Item Header with Icon and Name -->
-        <div class="item-tooltip__header">
-          <img
-            v-if="store.itemStats.icon"
-            :src="getLootIconSrc(store.itemStats.icon)"
-            class="item-tooltip__icon"
-            alt=""
-          />
-          <div class="item-tooltip__name">{{ store.itemStats.name }}</div>
-        </div>
+      <section v-else-if="detail" class="item-tooltip__card item-tooltip__card--detail">
+        <div class="item-tooltip__content">
+          <div class="item-tooltip__hero">
+            <div class="item-tooltip__hero-icon-shell">
+              <img
+                v-if="detail.icon > 0"
+                :src="getLootIconSrc(detail.icon)"
+                class="item-tooltip__hero-icon"
+                alt=""
+              />
+              <div
+                v-else
+                class="item-tooltip__hero-icon item-tooltip__hero-icon--placeholder"
+              ></div>
+            </div>
 
-        <!-- Item Flags -->
-        <div v-if="itemFlags.length > 0" class="item-tooltip__flags">
-          <span v-for="(flag, index) in itemFlags" :key="flag" class="item-tooltip__flag">
-            {{ flag }}<span v-if="index < itemFlags.length - 1" class="item-tooltip__flag-separator">•</span>
-          </span>
-        </div>
+            <div class="item-tooltip__hero-copy">
+              <h2 class="item-tooltip__title">{{ detail.name }}</h2>
 
-        <!-- Slot & AC Row -->
-        <div class="item-tooltip__row">
-          <span v-if="slotText" class="item-tooltip__slot">Slot: {{ slotText }}</span>
-          <span v-if="store.itemStats.ac > 0" class="item-tooltip__ac">AC: {{ store.itemStats.ac }}</span>
-        </div>
+              <div class="item-tooltip__summary">
+                <div v-for="flag in detail.flags" :key="flag" class="item-tooltip__flag">
+                  {{ flag }}
+                </div>
 
-        <!-- Weapon Stats -->
-        <div v-if="isWeapon" class="item-tooltip__section">
-          <div class="item-tooltip__weapon-row">
-            <span>{{ weaponSkillName }}</span>
-            <span v-if="store.itemStats.damage > 0">
-              Dmg: {{ store.itemStats.damage }} / Dly: {{ store.itemStats.delay }}
-            </span>
-            <span v-if="store.itemStats.damage > 0 && store.itemStats.delay > 0" class="item-tooltip__ratio">
-              ({{ damageRatio }})
-            </span>
-          </div>
-          <div v-if="store.itemStats.backstabdmg > 0 || store.itemStats.range > 0" class="item-tooltip__weapon-extras">
-            <span v-if="store.itemStats.backstabdmg > 0">Backstab: {{ store.itemStats.backstabdmg }}</span>
-            <span v-if="store.itemStats.range > 0">Range: {{ store.itemStats.range }}</span>
-          </div>
-        </div>
+                <div class="item-tooltip__pair">
+                  <span class="item-tooltip__label">Class:</span>
+                  <span class="item-tooltip__value item-tooltip__value--wrap">{{
+                    detail.classDisplay
+                  }}</span>
+                </div>
 
-        <!-- Base Stats Grid -->
-        <div v-if="hasBaseStats" class="item-tooltip__section item-tooltip__stats-grid">
-          <span v-if="store.itemStats.astr !== 0" class="item-tooltip__stat-cell">
-            STR: {{ formatStat(store.itemStats.astr) }}<span v-if="store.itemStats.heroic_str > 0" class="heroic"> +{{ store.itemStats.heroic_str }}</span>
-          </span>
-          <span v-if="store.itemStats.asta !== 0" class="item-tooltip__stat-cell">
-            STA: {{ formatStat(store.itemStats.asta) }}<span v-if="store.itemStats.heroic_sta > 0" class="heroic"> +{{ store.itemStats.heroic_sta }}</span>
-          </span>
-          <span v-if="store.itemStats.aagi !== 0" class="item-tooltip__stat-cell">
-            AGI: {{ formatStat(store.itemStats.aagi) }}<span v-if="store.itemStats.heroic_agi > 0" class="heroic"> +{{ store.itemStats.heroic_agi }}</span>
-          </span>
-          <span v-if="store.itemStats.adex !== 0" class="item-tooltip__stat-cell">
-            DEX: {{ formatStat(store.itemStats.adex) }}<span v-if="store.itemStats.heroic_dex > 0" class="heroic"> +{{ store.itemStats.heroic_dex }}</span>
-          </span>
-          <span v-if="store.itemStats.awis !== 0" class="item-tooltip__stat-cell">
-            WIS: {{ formatStat(store.itemStats.awis) }}<span v-if="store.itemStats.heroic_wis > 0" class="heroic"> +{{ store.itemStats.heroic_wis }}</span>
-          </span>
-          <span v-if="store.itemStats.aint !== 0" class="item-tooltip__stat-cell">
-            INT: {{ formatStat(store.itemStats.aint) }}<span v-if="store.itemStats.heroic_int > 0" class="heroic"> +{{ store.itemStats.heroic_int }}</span>
-          </span>
-          <span v-if="store.itemStats.acha !== 0" class="item-tooltip__stat-cell">
-            CHA: {{ formatStat(store.itemStats.acha) }}<span v-if="store.itemStats.heroic_cha > 0" class="heroic"> +{{ store.itemStats.heroic_cha }}</span>
-          </span>
-        </div>
+                <div class="item-tooltip__pair">
+                  <span class="item-tooltip__label">Race:</span>
+                  <span class="item-tooltip__value item-tooltip__value--wrap">{{
+                    detail.raceDisplay
+                  }}</span>
+                </div>
 
-        <!-- HP/Mana/End Row -->
-        <div v-if="hasResources" class="item-tooltip__section item-tooltip__resources">
-          <span v-if="store.itemStats.hp !== 0">HP: {{ formatNumber(store.itemStats.hp) }}</span>
-          <span v-if="store.itemStats.mana !== 0">Mana: {{ formatNumber(store.itemStats.mana) }}</span>
-          <span v-if="store.itemStats.endur !== 0">End: {{ formatNumber(store.itemStats.endur) }}</span>
-        </div>
-
-        <!-- Resistances Grid -->
-        <div v-if="hasResists" class="item-tooltip__section item-tooltip__resists-grid">
-          <span v-if="store.itemStats.fr !== 0" class="item-tooltip__resist-cell resist-fire">
-            SV Fire: {{ formatStat(store.itemStats.fr) }}<span v-if="store.itemStats.heroic_fr > 0" class="heroic"> +{{ store.itemStats.heroic_fr }}</span>
-          </span>
-          <span v-if="store.itemStats.cr !== 0" class="item-tooltip__resist-cell resist-cold">
-            SV Cold: {{ formatStat(store.itemStats.cr) }}<span v-if="store.itemStats.heroic_cr > 0" class="heroic"> +{{ store.itemStats.heroic_cr }}</span>
-          </span>
-          <span v-if="store.itemStats.mr !== 0" class="item-tooltip__resist-cell resist-magic">
-            SV Magic: {{ formatStat(store.itemStats.mr) }}<span v-if="store.itemStats.heroic_mr > 0" class="heroic"> +{{ store.itemStats.heroic_mr }}</span>
-          </span>
-          <span v-if="store.itemStats.dr !== 0" class="item-tooltip__resist-cell resist-disease">
-            SV Disease: {{ formatStat(store.itemStats.dr) }}<span v-if="store.itemStats.heroic_dr > 0" class="heroic"> +{{ store.itemStats.heroic_dr }}</span>
-          </span>
-          <span v-if="store.itemStats.pr !== 0" class="item-tooltip__resist-cell resist-poison">
-            SV Poison: {{ formatStat(store.itemStats.pr) }}<span v-if="store.itemStats.heroic_pr > 0" class="heroic"> +{{ store.itemStats.heroic_pr }}</span>
-          </span>
-          <span v-if="store.itemStats.svcorruption !== 0" class="item-tooltip__resist-cell resist-corruption">
-            SV Corrupt: {{ formatStat(store.itemStats.svcorruption) }}<span v-if="store.itemStats.heroic_svcorrup > 0" class="heroic"> +{{ store.itemStats.heroic_svcorrup }}</span>
-          </span>
-        </div>
-
-        <!-- Combat Stats Grid -->
-        <div v-if="hasCombatStats" class="item-tooltip__section item-tooltip__combat-grid">
-          <span v-if="store.itemStats.attack > 0">Attack: {{ store.itemStats.attack }}</span>
-          <span v-if="store.itemStats.haste > 0">Haste: {{ store.itemStats.haste }}%</span>
-          <span v-if="store.itemStats.accuracy > 0">Accuracy: {{ store.itemStats.accuracy }}</span>
-          <span v-if="store.itemStats.avoidance > 0">Avoidance: {{ store.itemStats.avoidance }}</span>
-          <span v-if="store.itemStats.strikethrough > 0">Strikethrough: {{ store.itemStats.strikethrough }}%</span>
-          <span v-if="store.itemStats.stunresist > 0">Stun Resist: {{ store.itemStats.stunresist }}%</span>
-          <span v-if="store.itemStats.shielding > 0">Shielding: {{ store.itemStats.shielding }}%</span>
-          <span v-if="store.itemStats.dotshielding > 0">DoT Shield: {{ store.itemStats.dotshielding }}%</span>
-          <span v-if="store.itemStats.spelldmg > 0">Spell Dmg: {{ store.itemStats.spelldmg }}</span>
-          <span v-if="store.itemStats.healamt > 0">Heal Amt: {{ store.itemStats.healamt }}</span>
-          <span v-if="store.itemStats.clairvoyance > 0">Clairvoyance: {{ store.itemStats.clairvoyance }}</span>
-          <span v-if="store.itemStats.damageshield > 0">Dmg Shield: {{ store.itemStats.damageshield }}</span>
-          <span v-if="store.itemStats.combateffects > 0">Combat FX: {{ store.itemStats.combateffects }}</span>
-        </div>
-
-        <!-- Regen Row -->
-        <div v-if="hasRegen" class="item-tooltip__section item-tooltip__regen">
-          <span v-if="store.itemStats.regen > 0">HP Regen: {{ store.itemStats.regen }}</span>
-          <span v-if="store.itemStats.manaregen > 0">Mana Regen: {{ store.itemStats.manaregen }}</span>
-          <span v-if="store.itemStats.enduranceregen > 0">End Regen: {{ store.itemStats.enduranceregen }}</span>
-        </div>
-
-        <!-- Effects -->
-        <div v-if="hasEffects" class="item-tooltip__section item-tooltip__effects">
-          <div v-if="store.itemStats.worneffect > 0" class="item-tooltip__effect">
-            <span class="effect-label">Worn:</span> {{ getSpellName(store.itemStats.worneffect) }}
-          </div>
-          <div v-if="store.itemStats.focuseffect > 0" class="item-tooltip__effect">
-            <span class="effect-label">Focus:</span> {{ getSpellName(store.itemStats.focuseffect) }}
-          </div>
-          <div v-if="store.itemStats.clickeffect > 0" class="item-tooltip__effect">
-            <span class="effect-label">Click:</span> {{ getSpellName(store.itemStats.clickeffect) }}
-            <span class="item-tooltip__effect-meta">({{ clickEffectType }}<span v-if="store.itemStats.casttime > 0">, {{ (store.itemStats.casttime / 1000).toFixed(1) }}s</span>)</span>
-          </div>
-          <div v-if="store.itemStats.proceffect > 0" class="item-tooltip__effect">
-            <span class="effect-label">Proc:</span> {{ getSpellName(store.itemStats.proceffect) }}
-            <span v-if="store.itemStats.procrate > 0" class="item-tooltip__effect-meta">({{ store.itemStats.procrate }}%)</span>
-          </div>
-          <div v-if="store.itemStats.bardeffect > 0" class="item-tooltip__effect">
-            <span class="effect-label">Bard:</span> {{ getSpellName(store.itemStats.bardeffect) }}
-          </div>
-        </div>
-
-        <!-- Container Info -->
-        <div v-if="isContainer" class="item-tooltip__section item-tooltip__container">
-          <span>{{ store.itemStats.bagslots }} Slot Container</span>
-          <span v-if="store.itemStats.bagwr > 0">{{ store.itemStats.bagwr }}% WR</span>
-          <span>{{ containerSizeText }} Capacity</span>
-        </div>
-
-        <!-- Augmentation & Requirements Row -->
-        <div v-if="augSlotCount > 0 || hasRequirements" class="item-tooltip__section item-tooltip__meta-row">
-          <span v-if="augSlotCount > 0">Aug Slots: {{ augSlotCount }}</span>
-          <span v-if="store.itemStats.reqlevel > 0" class="item-tooltip__req">Req Lvl: {{ store.itemStats.reqlevel }}</span>
-          <span v-if="store.itemStats.reclevel > 0" class="item-tooltip__rec">Rec Lvl: {{ store.itemStats.reclevel }}</span>
-        </div>
-
-        <!-- Socketed Augments -->
-        <div v-if="store.augmentStats.length > 0" class="item-tooltip__section item-tooltip__augments">
-          <div class="item-tooltip__augments-header">Augments</div>
-          <div
-            v-for="aug in store.augmentStats"
-            :key="aug.slotIndex"
-            class="item-tooltip__augment"
-          >
-            <img
-              v-if="aug.stats.icon"
-              :src="getLootIconSrc(aug.stats.icon)"
-              class="item-tooltip__augment-icon"
-              alt=""
-            />
-            <div class="item-tooltip__augment-info">
-              <div class="item-tooltip__augment-name">{{ aug.stats.name }}</div>
-              <div class="item-tooltip__augment-stats">
-                {{ formatAugmentStats(aug.stats) }}
-              </div>
-              <div v-if="getAugmentEffect(aug.stats)" class="item-tooltip__augment-effect">
-                {{ getAugmentEffect(aug.stats) }}
+                <div class="item-tooltip__slot-display">{{ detail.slotDisplay }}</div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Class/Race & Weight Footer -->
-        <div class="item-tooltip__footer">
-          <div v-if="classText" class="item-tooltip__classes">Class: {{ classText }}</div>
-          <div v-if="raceText" class="item-tooltip__races">Race: {{ raceText }}</div>
-          <div v-if="store.itemStats.weight > 0" class="item-tooltip__weight">WT: {{ (store.itemStats.weight / 10).toFixed(1) }}</div>
+          <div class="item-tooltip__stats-grid" :style="statGridStyle">
+            <div
+              v-for="(column, index) in detail.topColumns"
+              :key="column.key"
+              class="item-tooltip__column"
+              :style="{ gridColumn: String(index + 1), gridRow: '1' }"
+            >
+              <div
+                v-for="row in column.rows"
+                :key="`${column.key}-${row.label}`"
+                class="item-tooltip__pair item-tooltip__pair--numeric"
+              >
+                <span class="item-tooltip__label">{{ row.label }}:</span>
+                <span class="item-tooltip__value item-tooltip__value--numeric">{{
+                  row.value
+                }}</span>
+              </div>
+            </div>
+
+            <div
+              v-for="(column, index) in detail.lowerColumns"
+              :key="column.key"
+              class="item-tooltip__column"
+              :style="{ gridColumn: String(index + 1), gridRow: '2' }"
+            >
+              <div
+                v-for="row in column.rows"
+                :key="`${column.key}-${row.label}`"
+                class="item-tooltip__pair item-tooltip__pair--numeric"
+              >
+                <span class="item-tooltip__label">{{ row.label }}:</span>
+                <span class="item-tooltip__value item-tooltip__value--numeric">{{
+                  row.value
+                }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="detail.modifierRows.length > 0"
+            class="item-tooltip__section item-tooltip__column"
+          >
+            <div
+              v-for="row in detail.modifierRows"
+              :key="`modifier-${row.label}`"
+              class="item-tooltip__pair"
+            >
+              <span class="item-tooltip__label">{{ row.label }}:</span>
+              <span class="item-tooltip__value item-tooltip__value--wrap">{{ row.value }}</span>
+            </div>
+          </div>
+
+          <div
+            v-if="detail.augmentSlots.length > 0"
+            class="item-tooltip__section item-tooltip__augment-slots"
+          >
+            <div
+              v-for="slot in detail.augmentSlots"
+              :key="`augment-slot-${slot.slot}`"
+              class="item-tooltip__augment-slot"
+            >
+              <span aria-hidden="true" class="item-tooltip__augment-marker"></span>
+              <span class="item-tooltip__augment-text">
+                <span class="item-tooltip__label">Slot {{ slot.slot }}:</span>
+                <span class="item-tooltip__value">Type {{ slot.type }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div v-if="detail.effects.length > 0" class="item-tooltip__section item-tooltip__effects">
+            <div v-for="effect in detail.effects" :key="effect.title" class="item-tooltip__effect">
+              <div>
+                <span class="item-tooltip__label">{{ effect.title }}: </span>
+                <span class="item-tooltip__effect-name">{{ effect.name }}</span>
+              </div>
+
+              <div v-if="effect.level" class="item-tooltip__effect-meta">
+                <span class="item-tooltip__label">Level for effect:</span>
+                <span class="item-tooltip__value">{{ effect.level }}</span>
+              </div>
+
+              <div
+                v-if="typeof effect.chanceModifier === 'number'"
+                class="item-tooltip__effect-meta"
+              >
+                <span class="item-tooltip__label">Effect chance modifier:</span>
+                <span class="item-tooltip__value">{{ effect.chanceModifier }}%</span>
+              </div>
+
+              <div v-if="effect.castType" class="item-tooltip__effect-meta">
+                <span class="item-tooltip__label">Cast type:</span>
+                <span class="item-tooltip__value">{{ effect.castType }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="detail.hasCoinValue" class="item-tooltip__section item-tooltip__coin-row">
+            <span class="item-tooltip__label">Value:</span>
+            <div class="item-tooltip__coins">
+              <span
+                v-if="detail.coinValue.pp > 0"
+                class="item-tooltip__coin item-tooltip__coin--pp"
+              >
+                {{ detail.coinValue.pp }}pp
+              </span>
+              <span
+                v-if="detail.coinValue.gp > 0"
+                class="item-tooltip__coin item-tooltip__coin--gp"
+              >
+                {{ detail.coinValue.gp }}gp
+              </span>
+              <span
+                v-if="detail.coinValue.sp > 0"
+                class="item-tooltip__coin item-tooltip__coin--sp"
+              >
+                {{ detail.coinValue.sp }}sp
+              </span>
+              <span
+                v-if="detail.coinValue.cp > 0"
+                class="item-tooltip__coin item-tooltip__coin--cp"
+              >
+                {{ detail.coinValue.cp }}cp
+              </span>
+            </div>
+          </div>
         </div>
-      </template>
+      </section>
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import type { ItemStats } from '../services/api';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import { getLootIconSrc } from '../utils/itemIcons';
 
+type StatRow = {
+  label: string;
+  value: string | number;
+};
+
+type StatSection =
+  | 'primary'
+  | 'attributes'
+  | 'heroics'
+  | 'resists'
+  | 'offense'
+  | 'defense'
+  | 'utility';
+
+type DetailedStatRow = StatRow & {
+  section: StatSection;
+};
+
+type TooltipColumn = {
+  key: string;
+  rows: StatRow[];
+};
+
+type TooltipEffect = {
+  title: string;
+  name: string;
+  level?: number;
+  chanceModifier?: number;
+  castType?: string;
+};
+
+type CoinValue = {
+  pp: number;
+  gp: number;
+  sp: number;
+  cp: number;
+};
+
+type TooltipDetail = {
+  name: string;
+  icon: number;
+  flags: string[];
+  classDisplay: string;
+  raceDisplay: string;
+  slotDisplay: string;
+  topColumns: TooltipColumn[];
+  lowerColumns: TooltipColumn[];
+  modifierRows: StatRow[];
+  augmentSlots: Array<{ slot: number; type: number }>;
+  effects: TooltipEffect[];
+  coinValue: CoinValue;
+  hasCoinValue: boolean;
+};
+
 const store = useItemTooltipStore();
-
-// Template ref for measuring tooltip height
 const tooltipRef = ref<HTMLElement | null>(null);
-
-// Track measured tooltip height for positioning calculations
 const measuredHeight = ref(0);
+const measuredWidth = ref(0);
 
-// Track if mouse is over tooltip (to prevent hiding while reading)
-const isMouseOverTooltip = ref(false);
-
-function handleMouseEnter() {
-  isMouseOverTooltip.value = true;
-}
-
-function handleMouseLeave() {
-  isMouseOverTooltip.value = false;
-  // Use immediate hide when leaving the tooltip itself (no transform flicker here)
-  store.hideTooltipImmediate();
-}
-
-// Measure tooltip height after content changes
-watch(
-  () => [store.isVisible, store.itemStats, store.augmentStats, store.loading],
-  async () => {
-    if (store.isVisible) {
-      await nextTick();
-      if (tooltipRef.value) {
-        measuredHeight.value = tooltipRef.value.scrollHeight;
-      }
-    }
-  },
-  { deep: true }
-);
-
-// Position the tooltip with top-left anchored near cursor, shifting up if it would exceed viewport
-const tooltipStyle = computed(() => {
-  const edgePadding = 10; // Small padding from viewport edges
-  const tooltipWidth = 380;
-  const cursorOffset = 12; // Offset from cursor to prevent accidental tooltip hover
-
-  // Anchor top-left near cursor position with offset to avoid cursor overlap
-  let x = store.position.x + cursorOffset;
-  let y = store.position.y + cursorOffset;
-
-  // Adjust if tooltip would go off right edge - flip to left of cursor
-  if (x + tooltipWidth > window.innerWidth - edgePadding) {
-    x = store.position.x - tooltipWidth - cursorOffset;
-  }
-
-  // Ensure tooltip doesn't go off left edge
-  if (x < edgePadding) {
-    x = edgePadding;
-  }
-
-  // If tooltip would extend below viewport, anchor bottom to viewport bottom
-  const tooltipHeight = measuredHeight.value || 400; // Use measured height or fallback estimate
-  const tooltipBottom = y + tooltipHeight;
-  const viewportBottom = window.innerHeight - edgePadding;
-
-  if (tooltipBottom > viewportBottom) {
-    // Shift tooltip up so its bottom aligns with viewport bottom
-    y = viewportBottom - tooltipHeight;
-  }
-
-  // Ensure tooltip doesn't go above viewport top
-  if (y < edgePadding) {
-    y = edgePadding;
-  }
-
-  return {
-    left: `${x}px`,
-    top: `${y}px`
-  };
-});
-
-// Item type detection
-const isWeapon = computed(() => {
-  if (!store.itemStats) return false;
-  return store.itemStats.damage > 0 || store.itemStats.delay > 0;
-});
-
-const isContainer = computed(() => {
-  if (!store.itemStats) return false;
-  return store.itemStats.bagslots > 0;
-});
-
-// Damage ratio
-const damageRatio = computed(() => {
-  if (!store.itemStats || store.itemStats.delay === 0) return '0.00';
-  return (store.itemStats.damage / store.itemStats.delay).toFixed(2);
-});
-
-// Weapon skill names
-const WEAPON_SKILLS: Record<number, string> = {
+const ITEM_TYPE_LABELS: Record<number, string> = {
   0: '1H Slashing',
   1: '2H Slashing',
   2: 'Piercing',
   3: '1H Blunt',
   4: '2H Blunt',
   5: 'Archery',
-  7: 'Throwing',
+  6: 'Crossbow',
+  7: 'Throwing v1',
+  8: 'Shield',
+  9: 'Spell',
+  10: 'Armor',
+  11: 'Misc',
+  12: 'Lockpicks',
+  13: 'Fist',
+  14: 'Food',
+  15: 'Drink',
+  16: 'Light',
+  17: 'Combinable',
+  18: 'Bandages',
+  19: 'Throwing v2',
+  20: 'Scroll',
+  21: 'Potion',
+  22: 'Fletched Arrow',
+  23: 'Wind Instrument',
+  24: 'Stringed Instrument',
+  25: 'Brass Instrument',
+  26: 'Percussion Instrument',
+  27: 'Arrow',
+  28: 'Bolt',
+  29: 'Jewelry',
+  30: 'Skull',
+  31: 'Book',
+  32: 'Note',
+  33: 'Key v1',
+  34: 'Coin',
   35: '2H Piercing',
-  36: 'Hand to Hand',
-  45: 'Martial Arts'
+  36: 'Fishing Pole',
+  37: 'Fishing Bait',
+  38: 'Alcohol',
+  39: 'Key v2',
+  40: 'Compass',
+  41: 'Metal Key',
+  42: 'Poison',
+  43: 'Magic Arrow',
+  44: 'Magic Bolt',
+  45: 'Hand to Hand',
+  46: 'Item Has Effect',
+  47: 'Haste Item',
+  48: 'Item Has FT',
+  49: 'Item Has Focus',
+  50: 'Singing Instrument',
+  51: 'All Instruments',
+  52: 'Charm',
+  53: 'Armor Dye',
+  54: 'Augment',
+  55: 'Augment Solvent',
+  56: 'Augment Distiller',
+  57: 'Alternate Ability',
+  58: 'Guild Banner Kit',
+  59: 'Guild Banner Modify Token',
+  60: 'Cultural Armor Recipe Book',
+  61: 'Cultural Weapon Recipe Book',
+  62: 'Book with Spell Effect',
+  63: 'Alternate Currency',
+  64: 'Perfected Augment Distiller',
+  65: 'Placeable',
+  66: 'Collectible',
+  67: 'Container',
+  68: 'Mount',
+  69: 'Illusion',
+  70: 'Familiar',
+  71: 'Unknown71',
+  72: 'Unknown72',
+  255: 'None'
 };
 
-const weaponSkillName = computed(() => {
-  if (!store.itemStats) return 'Unknown';
-  return WEAPON_SKILLS[store.itemStats.itemtype] || 'Unknown';
-});
+const WEAPON_SKILLS: Record<number, string> = {
+  0: '1HS',
+  1: '2HS',
+  2: '1HP',
+  3: '1HB',
+  4: '2HB',
+  5: 'Archery',
+  7: 'Throwing',
+  8: 'Shield',
+  35: '2HP',
+  42: 'H2H'
+};
 
-// Item flags
-// Note: In EQEmu database, nodrop/norent use inverted logic:
-// - 0 means the item HAS the restriction (NO DROP, NO RENT)
-// - 255 (or non-zero) means the item does NOT have the restriction
-// However, notransfer uses normal logic (1 = has restriction)
-const itemFlags = computed(() => {
-  if (!store.itemStats) return [];
-  const flags: string[] = [];
-  if (store.itemStats.magic === 1) flags.push('MAGIC ITEM');
-  // Lore: empty string = not lore, "*" = unique lore, other string = lore group
-  if (store.itemStats.lore && store.itemStats.lore.length > 0) {
-    flags.push('LORE ITEM');
-  }
-  if (store.itemStats.nodrop === 0) flags.push('NO DROP');
-  if (store.itemStats.norent === 0) flags.push('NO RENT');
-  if (store.itemStats.notransfer === 1) flags.push('NO TRADE');
-  if (store.itemStats.questitemflag === 1) flags.push('QUEST ITEM');
-  return flags;
-});
+const EQEMU_SKILL_TYPE_NAMES: Record<number, string> = {
+  [-1]: 'Hit',
+  0: '1H Blunt',
+  1: '1H Slashing',
+  2: '2H Blunt',
+  3: '2H Slashing',
+  4: 'Abjuration',
+  5: 'Alteration',
+  6: 'Apply Poison',
+  7: 'Archery',
+  8: 'Backstab',
+  9: 'Bind Wound',
+  10: 'Bash',
+  11: 'Block',
+  12: 'Brass Instruments',
+  13: 'Channeling',
+  14: 'Conjuration',
+  15: 'Defense',
+  16: 'Disarm',
+  17: 'Disarm Traps',
+  18: 'Divination',
+  19: 'Dodge',
+  20: 'Double Attack',
+  21: 'Dragon Punch',
+  22: 'Dual Wield',
+  23: 'Eagle Strike',
+  24: 'Evocation',
+  25: 'Feign Death',
+  26: 'Flying Kick',
+  27: 'Forage',
+  28: 'Hand to Hand',
+  29: 'Hide',
+  30: 'Kick',
+  31: 'Meditate',
+  32: 'Mend',
+  33: 'Offense',
+  34: 'Parry',
+  35: 'Pick Lock',
+  36: '1H Piercing',
+  37: 'Riposte',
+  38: 'Round Kick',
+  39: 'Safe Fall',
+  40: 'Sense Heading',
+  41: 'Singing',
+  42: 'Sneak',
+  43: 'Specialize Abjuration',
+  44: 'Specialize Alteration',
+  45: 'Specialize Conjuration',
+  46: 'Specialize Divination',
+  47: 'Specialize Evocation',
+  48: 'Pick Pockets',
+  49: 'Stringed Instruments',
+  50: 'Swimming',
+  51: 'Throwing',
+  52: 'Tiger Claw',
+  53: 'Tracking',
+  54: 'Wind Instruments',
+  55: 'Fishing',
+  56: 'Make Poison',
+  57: 'Tinkering',
+  58: 'Research',
+  59: 'Alchemy',
+  60: 'Baking',
+  61: 'Tailoring',
+  62: 'Sense Traps',
+  63: 'Blacksmithing',
+  64: 'Fletching',
+  65: 'Brewing',
+  66: 'Alcohol Tolerance',
+  67: 'Begging',
+  68: 'Jewelry Making',
+  69: 'Pottery',
+  70: 'Percussion Instruments',
+  71: 'Intimidation',
+  72: 'Berserking',
+  73: 'Taunt',
+  74: 'Frenzy',
+  75: 'Remove Traps',
+  76: 'Triple Attack',
+  77: '2H Piercing'
+};
 
-// Equipment slots
+const BARD_SKILL_TYPE_NAMES: Record<number, string> = {
+  23: 'Woodwind',
+  24: 'Strings',
+  25: 'Brass',
+  26: 'Percussion',
+  50: 'Singing',
+  51: 'All Instruments'
+};
+
 const SLOT_NAMES: Record<number, string> = {
   1: 'Charm',
   2: 'Ear',
@@ -373,21 +463,7 @@ const SLOT_NAMES: Record<number, string> = {
   4194304: 'Ammo'
 };
 
-const slotText = computed(() => {
-  if (!store.itemStats || store.itemStats.slots === 0) return '';
-  const slots: string[] = [];
-  for (const [bit, name] of Object.entries(SLOT_NAMES)) {
-    if (store.itemStats.slots & Number(bit)) {
-      if (!slots.includes(name)) {
-        slots.push(name);
-      }
-    }
-  }
-  return slots.join(', ');
-});
-
-// Class names
-const CLASS_NAMES: Record<number, string> = {
+const CLASS_CODES: Record<number, string> = {
   1: 'WAR',
   2: 'CLR',
   4: 'PAL',
@@ -406,22 +482,7 @@ const CLASS_NAMES: Record<number, string> = {
   32768: 'BER'
 };
 
-const classText = computed(() => {
-  if (!store.itemStats) return '';
-  // All classes (65535 or similar) means no restriction
-  if (store.itemStats.classes >= 65535 || store.itemStats.classes === 0) return 'All Classes';
-
-  const classes: string[] = [];
-  for (const [bit, name] of Object.entries(CLASS_NAMES)) {
-    if (store.itemStats.classes & Number(bit)) {
-      classes.push(name);
-    }
-  }
-  return classes.length > 0 ? classes.join(' ') : 'All Classes';
-});
-
-// Race names
-const RACE_NAMES: Record<number, string> = {
+const RACE_CODES: Record<number, string> = {
   1: 'HUM',
   2: 'BAR',
   4: 'ERU',
@@ -440,22 +501,26 @@ const RACE_NAMES: Record<number, string> = {
   32768: 'DRK'
 };
 
-const raceText = computed(() => {
-  if (!store.itemStats) return '';
-  // All races (65535 or similar) means no restriction
-  if (store.itemStats.races >= 65535 || store.itemStats.races === 0) return 'All Races';
+const RACE_NAMES: Record<number, string> = {
+  1: 'Human',
+  2: 'Barbarian',
+  4: 'Erudite',
+  8: 'Wood Elf',
+  16: 'High Elf',
+  32: 'Dark Elf',
+  64: 'Half Elf',
+  128: 'Dwarf',
+  256: 'Troll',
+  512: 'Ogre',
+  1024: 'Halfling',
+  2048: 'Gnome',
+  4096: 'Iksar',
+  8192: 'Vah Shir',
+  16384: 'Froglok',
+  32768: 'Drakkin'
+};
 
-  const races: string[] = [];
-  for (const [bit, name] of Object.entries(RACE_NAMES)) {
-    if (store.itemStats.races & Number(bit)) {
-      races.push(name);
-    }
-  }
-  return races.length > 0 ? races.join(' ') : 'All Races';
-});
-
-// Container size
-const CONTAINER_SIZES: Record<number, string> = {
+const SIZE_NAMES: Record<number, string> = {
   0: 'TINY',
   1: 'SMALL',
   2: 'MEDIUM',
@@ -463,526 +528,821 @@ const CONTAINER_SIZES: Record<number, string> = {
   4: 'GIANT'
 };
 
-const containerSizeText = computed(() => {
-  if (!store.itemStats) return '';
-  return CONTAINER_SIZES[store.itemStats.bagsize] || 'Unknown';
-});
+const CLICK_CAST_TYPES: Record<number, string> = {
+  0: 'Combat',
+  1: 'Clicky',
+  2: 'Clicky',
+  3: 'Clicky',
+  4: 'Must Equip. Clicky',
+  5: 'Inventory Clicky'
+};
 
-// Click effect type
-const clickEffectType = computed(() => {
-  if (!store.itemStats) return 'Must Equip';
-  switch (store.itemStats.clicktype) {
-    case 1: return 'Click Anywhere';
-    case 4: return 'Must Equip';
-    case 5: return 'Click Anywhere';
-    default: return 'Must Equip';
-  }
-});
+const LIGHT_NAMES: Record<number, string> = {
+  9: 'Light',
+  10: 'Greater Light',
+  11: 'Brilliant Light',
+  12: 'Shiny Light'
+};
 
-// Augmentation slots count
-const augSlotCount = computed(() => {
-  if (!store.itemStats) return 0;
-  let count = 0;
-  if (store.itemStats.augslot1type > 0 && store.itemStats.augslot1visible) count++;
-  if (store.itemStats.augslot2type > 0 && store.itemStats.augslot2visible) count++;
-  if (store.itemStats.augslot3type > 0 && store.itemStats.augslot3visible) count++;
-  if (store.itemStats.augslot4type > 0 && store.itemStats.augslot4visible) count++;
-  if (store.itemStats.augslot5type > 0 && store.itemStats.augslot5visible) count++;
-  if (store.itemStats.augslot6type > 0 && store.itemStats.augslot6visible) count++;
-  return count;
-});
+const ITEM_ELEMENT_DAMAGE_TYPE_NAMES: Record<number, string> = {
+  1: 'Magic',
+  2: 'Fire',
+  3: 'Cold',
+  4: 'Poison',
+  5: 'Disease',
+  6: 'Chromatic',
+  7: 'Prismatic',
+  9: 'Corruption'
+};
 
-// Stat checks
-const hasBaseStats = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.astr !== 0 ||
-    store.itemStats.asta !== 0 ||
-    store.itemStats.aagi !== 0 ||
-    store.itemStats.adex !== 0 ||
-    store.itemStats.awis !== 0 ||
-    store.itemStats.aint !== 0 ||
-    store.itemStats.acha !== 0
-  );
-});
+const TWO_HAND_DAMAGE_BONUSES = [
+  0, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+  14, 14, 14, 35, 35, 36, 36, 37, 37, 38, 38, 39, 39, 40, 40, 42, 42, 42, 45, 45, 47, 48, 49, 49,
+  51, 51, 52, 53, 54, 54, 56, 56, 57, 58, 59, 59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 68, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 88
+];
 
-const hasResources = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.hp !== 0 ||
-    store.itemStats.mana !== 0 ||
-    store.itemStats.endur !== 0
-  );
-});
-
-const hasResists = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.fr !== 0 ||
-    store.itemStats.cr !== 0 ||
-    store.itemStats.mr !== 0 ||
-    store.itemStats.dr !== 0 ||
-    store.itemStats.pr !== 0 ||
-    store.itemStats.svcorruption !== 0
-  );
-});
-
-const hasCombatStats = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.attack > 0 ||
-    store.itemStats.haste > 0 ||
-    store.itemStats.accuracy > 0 ||
-    store.itemStats.avoidance > 0 ||
-    store.itemStats.strikethrough > 0 ||
-    store.itemStats.stunresist > 0 ||
-    store.itemStats.shielding > 0 ||
-    store.itemStats.dotshielding > 0 ||
-    store.itemStats.spelldmg > 0 ||
-    store.itemStats.healamt > 0 ||
-    store.itemStats.clairvoyance > 0 ||
-    store.itemStats.damageshield > 0 ||
-    store.itemStats.combateffects > 0
-  );
-});
-
-const hasRegen = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.regen > 0 ||
-    store.itemStats.manaregen > 0 ||
-    store.itemStats.enduranceregen > 0
-  );
-});
-
-const hasEffects = computed(() => {
-  if (!store.itemStats) return false;
-  return (
-    store.itemStats.worneffect > 0 ||
-    store.itemStats.focuseffect > 0 ||
-    store.itemStats.clickeffect > 0 ||
-    store.itemStats.proceffect > 0 ||
-    store.itemStats.bardeffect > 0
-  );
-});
-
-const hasRequirements = computed(() => {
-  if (!store.itemStats) return false;
-  return store.itemStats.reqlevel > 0 || store.itemStats.reclevel > 0;
-});
-
-// Helper functions
-function formatStat(value: number): string {
-  return value > 0 ? `+${value}` : String(value);
+function hasVisibleRows(rows: StatRow[]) {
+  return rows.length > 0;
 }
 
-function formatNumber(value: number): string {
-  return value.toLocaleString();
+function formatMask(mask: number, values: Record<number, string>, allLabel: string) {
+  if (mask <= 0 || mask >= 65535) {
+    return allLabel;
+  }
+
+  const labels = Object.entries(values)
+    .filter(([bit]) => (mask & Number(bit)) !== 0)
+    .map(([, label]) => label);
+
+  return labels.length > 0 ? labels.join(' ') : allLabel;
 }
 
-function getSpellName(spellId: number): string {
-  return store.spellNames[spellId] || `Unknown Spell (${spellId})`;
+function formatSlotDisplay(stats: ItemStats) {
+  if (stats.itemclass !== 0) {
+    return 'Inventory';
+  }
+
+  const slots = Object.entries(SLOT_NAMES)
+    .filter(([bit]) => (stats.slots & Number(bit)) !== 0)
+    .map(([, label]) => label);
+
+  const uniqueSlots = [...new Set(slots)];
+  return uniqueSlots.length > 0 ? uniqueSlots.join(', ') : 'Inventory';
 }
 
-/**
- * Format key stats from an augment for compact display.
- */
-function formatAugmentStats(stats: import('../services/api').ItemStats): string {
-  const parts: string[] = [];
-
-  // Base stats
-  if (stats.astr !== 0) parts.push(`STR ${formatStat(stats.astr)}`);
-  if (stats.asta !== 0) parts.push(`STA ${formatStat(stats.asta)}`);
-  if (stats.aagi !== 0) parts.push(`AGI ${formatStat(stats.aagi)}`);
-  if (stats.adex !== 0) parts.push(`DEX ${formatStat(stats.adex)}`);
-  if (stats.awis !== 0) parts.push(`WIS ${formatStat(stats.awis)}`);
-  if (stats.aint !== 0) parts.push(`INT ${formatStat(stats.aint)}`);
-  if (stats.acha !== 0) parts.push(`CHA ${formatStat(stats.acha)}`);
-
-  // Resources
-  if (stats.hp !== 0) parts.push(`HP ${formatStat(stats.hp)}`);
-  if (stats.mana !== 0) parts.push(`Mana ${formatStat(stats.mana)}`);
-  if (stats.endur !== 0) parts.push(`End ${formatStat(stats.endur)}`);
-
-  // AC
-  if (stats.ac > 0) parts.push(`AC +${stats.ac}`);
-
-  // Combat stats
-  if (stats.attack > 0) parts.push(`Atk +${stats.attack}`);
-  if (stats.haste > 0) parts.push(`Haste ${stats.haste}%`);
-  if (stats.damage > 0) parts.push(`Dmg +${stats.damage}`);
-  if (stats.spelldmg > 0) parts.push(`Spell Dmg +${stats.spelldmg}`);
-  if (stats.healamt > 0) parts.push(`Heal +${stats.healamt}`);
-
-  // Regen stats
-  if (stats.regen > 0) parts.push(`HP Regen +${stats.regen}`);
-  if (stats.manaregen > 0) parts.push(`Mana Regen +${stats.manaregen}`);
-  if (stats.enduranceregen > 0) parts.push(`End Regen +${stats.enduranceregen}`);
-
-  // Resistances (only if significant)
-  if (stats.fr > 0) parts.push(`FR +${stats.fr}`);
-  if (stats.cr > 0) parts.push(`CR +${stats.cr}`);
-  if (stats.mr > 0) parts.push(`MR +${stats.mr}`);
-  if (stats.dr > 0) parts.push(`DR +${stats.dr}`);
-  if (stats.pr > 0) parts.push(`PR +${stats.pr}`);
-
-  return parts.join(', ');
+function formatSize(size: number) {
+  return SIZE_NAMES[size] ?? 'MEDIUM';
 }
 
-/**
- * Get the primary effect from an augment (worn, focus, etc.).
- */
-function getAugmentEffect(stats: import('../services/api').ItemStats): string | null {
-  if (stats.worneffect > 0) {
-    return `Worn: ${getSpellName(stats.worneffect)}`;
-  }
-  if (stats.focuseffect > 0) {
-    return `Focus: ${getSpellName(stats.focuseffect)}`;
-  }
-  if (stats.clickeffect > 0) {
-    return `Click: ${getSpellName(stats.clickeffect)}`;
-  }
-  if (stats.proceffect > 0) {
-    return `Proc: ${getSpellName(stats.proceffect)}`;
-  }
-  return null;
+function formatWeight(weight: number) {
+  const normalized = weight / 10;
+  return Number.isInteger(normalized) ? String(normalized.toFixed(0)) : String(normalized);
 }
+
+function formatItemTypeLabel(stats: ItemStats) {
+  if (stats.damage > 0) {
+    return formatItemType(stats);
+  }
+
+  if (stats.light > 0) {
+    return LIGHT_NAMES[stats.light] ?? 'Light';
+  }
+
+  return formatItemType(stats);
+}
+
+function formatItemType(stats: ItemStats) {
+  if (stats.itemclass === 1) return 'Container';
+  if (stats.itemclass === 2) return 'Book';
+  if (stats.damage > 0 && stats.itemtype < 0) return 'Weapon';
+  return ITEM_TYPE_LABELS[stats.itemtype] ?? 'Item';
+}
+
+function formatSkill(stats: ItemStats) {
+  if (stats.itemclass !== 0) {
+    return 'Container';
+  }
+
+  if (stats.damage <= 0) {
+    return formatItemType(stats);
+  }
+
+  return WEAPON_SKILLS[stats.itemtype] ?? formatItemType(stats);
+}
+
+function formatPercent(value: number) {
+  return `${value}%`;
+}
+
+function calculateDamageBonus(stats: ItemStats) {
+  if (stats.damage <= 0) {
+    return 0;
+  }
+
+  if ([0, 2, 3, 42].includes(stats.itemtype)) {
+    return 13;
+  }
+
+  if ([1, 4, 35].includes(stats.itemtype)) {
+    return TWO_HAND_DAMAGE_BONUSES[stats.delay] ?? 0;
+  }
+
+  return 0;
+}
+
+function formatSkillModifier(value: number, skillType: number) {
+  if (value === 0) {
+    return null;
+  }
+
+  const prefix = value > 0 ? '+' : '';
+  const skillName = EQEMU_SKILL_TYPE_NAMES[skillType] ?? `Skill ${skillType}`;
+  return `${skillName}: ${prefix}${value}%`;
+}
+
+function formatExtraDamageSkillType(skillType: number) {
+  if (skillType <= 0) {
+    return null;
+  }
+
+  return (
+    WEAPON_SKILLS[skillType - 1] ??
+    WEAPON_SKILLS[skillType] ??
+    EQEMU_SKILL_TYPE_NAMES[skillType] ??
+    `Skill ${skillType}`
+  );
+}
+
+function formatBardModifierType(typeId: number) {
+  if (typeId <= 0) {
+    return null;
+  }
+
+  return BARD_SKILL_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
+}
+
+function formatItemElementDamageLabel(typeId: number) {
+  const typeName = ITEM_ELEMENT_DAMAGE_TYPE_NAMES[typeId];
+  return typeName ? `${typeName} Dmg` : 'Elemental Dmg';
+}
+
+function formatBaneBodyType(bodyType: number) {
+  return bodyType > 0 ? `Body Type ${bodyType}` : null;
+}
+
+function formatBaneRace(raceId: number) {
+  if (raceId <= 0) {
+    return null;
+  }
+
+  return RACE_NAMES[raceId] ?? `Race ${raceId}`;
+}
+
+function formatCoinValue(price: number): CoinValue {
+  const totalCopper = Math.max(0, price);
+  return {
+    pp: Math.floor(totalCopper / 1000),
+    gp: Math.floor((totalCopper % 1000) / 100),
+    sp: Math.floor((totalCopper % 100) / 10),
+    cp: totalCopper % 10
+  };
+}
+
+function getSpellName(spellId: number) {
+  return store.spellNames[spellId] ?? `Spell ${spellId}`;
+}
+
+function hasVisibleStatValue(value: string | number) {
+  if (typeof value === 'string') {
+    return value.trim().length > 0 && value !== '0';
+  }
+
+  return Number(value) !== 0;
+}
+
+function buildEffect(
+  title: string,
+  spellId: number,
+  level?: number,
+  extra?: { chanceModifier?: number; castType?: string }
+): TooltipEffect | null {
+  if (spellId <= 0 || spellId >= 65535) {
+    return null;
+  }
+
+  return {
+    title,
+    name: getSpellName(spellId),
+    level: level && level > 0 ? level : undefined,
+    chanceModifier: extra?.chanceModifier,
+    castType: extra?.castType
+  };
+}
+
+const detail = computed<TooltipDetail | null>(() => {
+  const stats = store.itemStats;
+  if (!stats) {
+    return null;
+  }
+
+  const isWeapon = stats.damage > 0;
+  const coinValue = formatCoinValue(stats.price);
+  const hasCoinValue = coinValue.pp > 0 || coinValue.gp > 0 || coinValue.sp > 0 || coinValue.cp > 0;
+
+  const flags = [
+    stats.magic > 0 ? 'Magic' : null,
+    stats.nodrop === 0 ? 'No Drop' : null,
+    stats.attuneable > 0 ? 'Attuneable' : null
+  ].filter((value): value is string => Boolean(value));
+  const statDefinitions = [
+    { label: 'AC', section: 'primary', value: stats.ac },
+    { label: 'HP', section: 'primary', value: stats.hp },
+    { label: 'Mana', section: 'primary', value: stats.mana },
+    { label: 'End', section: 'primary', value: stats.endur },
+    { label: 'Strength', section: 'attributes', value: stats.astr },
+    { label: 'Stamina', section: 'attributes', value: stats.asta },
+    { label: 'Agility', section: 'attributes', value: stats.aagi },
+    { label: 'Dexterity', section: 'attributes', value: stats.adex },
+    { label: 'Intelligence', section: 'attributes', value: stats.aint },
+    { label: 'Wisdom', section: 'attributes', value: stats.awis },
+    { label: 'Charisma', section: 'attributes', value: stats.acha },
+    { label: 'Magic Resist', section: 'resists', value: stats.mr },
+    { label: 'Fire Resist', section: 'resists', value: stats.fr },
+    { label: 'Cold Resist', section: 'resists', value: stats.cr },
+    { label: 'Disease Resist', section: 'resists', value: stats.dr },
+    { label: 'Poison Resist', section: 'resists', value: stats.pr },
+    { label: 'Corruption Resist', section: 'resists', value: stats.svcorruption },
+    { label: 'Heroic Strength', section: 'heroics', value: stats.heroic_str },
+    { label: 'Heroic Stamina', section: 'heroics', value: stats.heroic_sta },
+    { label: 'Heroic Agility', section: 'heroics', value: stats.heroic_agi },
+    { label: 'Heroic Dexterity', section: 'heroics', value: stats.heroic_dex },
+    { label: 'Heroic Intelligence', section: 'heroics', value: stats.heroic_int },
+    { label: 'Heroic Wisdom', section: 'heroics', value: stats.heroic_wis },
+    { label: 'Heroic Charisma', section: 'heroics', value: stats.heroic_cha },
+    { label: 'Heroic Magic Resist', section: 'heroics', value: stats.heroic_mr },
+    { label: 'Heroic Fire Resist', section: 'heroics', value: stats.heroic_fr },
+    { label: 'Heroic Cold Resist', section: 'heroics', value: stats.heroic_cr },
+    { label: 'Heroic Disease Resist', section: 'heroics', value: stats.heroic_dr },
+    { label: 'Heroic Poison Resist', section: 'heroics', value: stats.heroic_pr },
+    { label: 'Heroic Corruption Resist', section: 'heroics', value: stats.heroic_svcorrup },
+    { label: 'Attack', section: 'offense', value: stats.attack },
+    { label: 'Haste', section: 'offense', value: stats.haste ? formatPercent(stats.haste) : 0 },
+    { label: 'Accuracy', section: 'offense', value: stats.accuracy },
+    {
+      label: 'Strike Through',
+      section: 'offense',
+      value: stats.strikethrough ? formatPercent(stats.strikethrough) : 0
+    },
+    { label: 'Backstab Damage', section: 'offense', value: stats.backstabdmg },
+    {
+      label: formatItemElementDamageLabel(stats.elemdmgtype),
+      section: 'offense',
+      value: stats.elemdmgamt !== 0 ? `${stats.elemdmgamt}` : 0
+    },
+    {
+      label: 'Bane Damage',
+      section: 'offense',
+      value:
+        stats.banedmgamt !== 0
+          ? `${stats.banedmgamt}${formatBaneBodyType(stats.banedmgbody) ? ` (${formatBaneBodyType(stats.banedmgbody)})` : ''}`
+          : 0
+    },
+    {
+      label: 'Bane Damage (Race)',
+      section: 'offense',
+      value:
+        stats.banedmgraceamt !== 0
+          ? `${stats.banedmgraceamt}${formatBaneRace(stats.banedmgrace) ? ` (${formatBaneRace(stats.banedmgrace)})` : ''}`
+          : 0
+    },
+    {
+      label: formatExtraDamageSkillType(stats.extradmgskill)
+        ? `${formatExtraDamageSkillType(stats.extradmgskill)} Damage`
+        : 'Extra Damage',
+      section: 'offense',
+      value: stats.extradmgamt !== 0 ? `+${stats.extradmgamt}` : 0
+    },
+    { label: 'Damage Shield', section: 'defense', value: stats.damageshield },
+    { label: 'Damage Shield Mitigation', section: 'defense', value: stats.dsmitigation },
+    {
+      label: 'Shielding',
+      section: 'defense',
+      value: stats.shielding ? formatPercent(stats.shielding) : 0
+    },
+    {
+      label: 'Spell Shield',
+      section: 'defense',
+      value: stats.spellshield ? formatPercent(stats.spellshield) : 0
+    },
+    {
+      label: 'Avoidance',
+      section: 'defense',
+      value: stats.avoidance ? formatPercent(stats.avoidance) : 0
+    },
+    {
+      label: 'Stun Resist',
+      section: 'defense',
+      value: stats.stunresist ? formatPercent(stats.stunresist) : 0
+    },
+    {
+      label: 'DoT Shielding',
+      section: 'defense',
+      value: stats.dotshielding ? formatPercent(stats.dotshielding) : 0
+    },
+    { label: 'HP Regen', section: 'utility', value: stats.regen },
+    { label: 'Mana Regen', section: 'utility', value: stats.manaregen },
+    { label: 'End Regen', section: 'utility', value: stats.enduranceregen },
+    { label: 'Heal Amount', section: 'utility', value: stats.healamt },
+    { label: 'Spell Damage', section: 'utility', value: stats.spelldmg },
+    { label: 'Clairvoyance', section: 'utility', value: stats.clairvoyance },
+    {
+      label: 'Skill Mod',
+      section: 'utility',
+      value: formatSkillModifier(stats.skillmodvalue, stats.skillmodtype) ?? 0
+    },
+    {
+      label: 'Bard Modifier',
+      section: 'utility',
+      value:
+        stats.bardvalue !== 0
+          ? `${formatBardModifierType(stats.bardtype) ?? 'Instrument'}: ${stats.bardvalue}`
+          : 0
+    }
+  ] satisfies DetailedStatRow[];
+  const visibleStats = statDefinitions.filter((entry) => hasVisibleStatValue(entry.value));
+
+  const modifierLabels = new Set(['Skill Mod', 'Bard Modifier']);
+  const isModifierStat = (entry: DetailedStatRow) =>
+    modifierLabels.has(entry.label) ||
+    (entry.section === 'offense' &&
+      entry.label.endsWith(' Damage') &&
+      String(entry.value).startsWith('+'));
+  const isTopDamageStat = (entry: DetailedStatRow) =>
+    entry.section === 'offense' &&
+    !isModifierStat(entry) &&
+    (entry.label.endsWith(' Dmg') ||
+      entry.label === 'Bane Damage' ||
+      entry.label === 'Bane Damage (Race)');
+  const statRowsForSections = (...sections: StatSection[]) =>
+    visibleStats
+      .filter((entry) => sections.includes(entry.section))
+      .map((entry) => ({ label: entry.label, value: entry.value }));
+
+  const overviewRows: StatRow[] = [
+    { label: 'Size', value: formatSize(stats.size) },
+    { label: 'Weight', value: formatWeight(stats.weight) },
+    {
+      label: isWeapon ? 'Skill' : 'Item Type',
+      value: isWeapon ? formatSkill(stats) : formatItemTypeLabel(stats)
+    }
+  ];
+
+  const primaryRows: StatRow[] = statRowsForSections('primary');
+
+  const weaponRows: StatRow[] = isWeapon
+    ? [
+        { label: 'Base Damage', value: stats.damage },
+        ...(stats.delay > 0 ? [{ label: 'Delay', value: stats.delay }] : []),
+        ...(calculateDamageBonus(stats) > 0
+          ? [{ label: 'Damage bonus', value: calculateDamageBonus(stats) }]
+          : []),
+        ...(stats.range > 0 ? [{ label: 'Range', value: stats.range }] : [])
+      ]
+    : [];
+  weaponRows.push(
+    ...visibleStats
+      .filter(isTopDamageStat)
+      .map((entry) => ({ label: entry.label, value: entry.value }))
+  );
+
+  const attributeRows: StatRow[] = statRowsForSections('attributes', 'heroics');
+  const resistRows: StatRow[] = statRowsForSections('resists');
+  const modifierRows: StatRow[] = visibleStats
+    .filter(isModifierStat)
+    .map((entry) => ({ label: entry.label, value: entry.value }));
+  const supportRows: StatRow[] = [
+    ...visibleStats
+      .filter(
+        (entry) =>
+          (entry.section === 'offense' ||
+            entry.section === 'defense' ||
+            entry.section === 'utility') &&
+          !isModifierStat(entry) &&
+          !isTopDamageStat(entry)
+      )
+      .map((entry) => ({ label: entry.label, value: entry.value })),
+    ...(stats.reqlevel > 0 ? [{ label: 'Req Level', value: stats.reqlevel }] : []),
+    ...(stats.reclevel > 0 ? [{ label: 'Rec Level', value: stats.reclevel }] : [])
+  ];
+
+  const topColumns: TooltipColumn[] = [
+    { key: 'overview', rows: overviewRows },
+    { key: 'primary', rows: primaryRows },
+    { key: 'weapon', rows: weaponRows }
+  ].filter((column) => hasVisibleRows(column.rows));
+
+  const showSupportRowsInTop =
+    !isWeapon &&
+    topColumns.length < 3 &&
+    hasVisibleRows(supportRows) &&
+    !hasVisibleRows(attributeRows) &&
+    !hasVisibleRows(resistRows);
+
+  if (showSupportRowsInTop) {
+    topColumns.push({ key: 'support', rows: supportRows });
+  }
+
+  const lowerColumns: TooltipColumn[] = [
+    { key: 'attributes', rows: attributeRows },
+    { key: 'resists', rows: resistRows },
+    ...(showSupportRowsInTop ? [] : [{ key: 'support', rows: supportRows }])
+  ].filter((column) => hasVisibleRows(column.rows));
+
+  const augmentSlots = Array.from({ length: 6 }, (_, index) => index + 1)
+    .map((slot) => ({
+      slot,
+      type: stats[`augslot${slot}type` as keyof ItemStats] as number,
+      visible: stats[`augslot${slot}visible` as keyof ItemStats] as number
+    }))
+    .filter((slot) => slot.visible > 0 && slot.type > 0)
+    .map(({ slot, type }) => ({ slot, type }));
+
+  const effects = [
+    buildEffect(
+      'Combat Effect',
+      stats.proceffect,
+      stats.proclevel2,
+      stats.proceffect > 0 ? { chanceModifier: 100 + stats.procrate } : undefined
+    ),
+    buildEffect('Worn Effect', stats.worneffect, stats.wornlevel),
+    buildEffect('Focus Effect', stats.focuseffect, stats.focuslevel),
+    buildEffect('Click Effect', stats.clickeffect, stats.clicklevel2, {
+      castType: CLICK_CAST_TYPES[stats.clicktype]
+    }),
+    buildEffect('Spell Scroll Effect', stats.scrolleffect)
+  ].filter((effect): effect is TooltipEffect => effect !== null);
+
+  return {
+    name: stats.name,
+    icon: stats.icon,
+    flags,
+    classDisplay: formatMask(stats.classes, CLASS_CODES, 'ALL'),
+    raceDisplay: formatMask(stats.races, RACE_CODES, 'ALL'),
+    slotDisplay: formatSlotDisplay(stats),
+    topColumns,
+    lowerColumns,
+    modifierRows,
+    augmentSlots,
+    effects,
+    coinValue,
+    hasCoinValue
+  };
+});
+
+const statGridStyle = computed(() => {
+  const tooltipDetail = detail.value;
+  const columnCount = tooltipDetail
+    ? Math.max(tooltipDetail.topColumns.length, tooltipDetail.lowerColumns.length, 1)
+    : 1;
+
+  return {
+    gridTemplateColumns: `repeat(${columnCount}, max-content)`
+  };
+});
+
+watch(
+  () => [store.isVisible, store.itemStats, store.loading, store.error],
+  async () => {
+    if (!store.isVisible) {
+      return;
+    }
+
+    await nextTick();
+    if (tooltipRef.value) {
+      measuredHeight.value = tooltipRef.value.offsetHeight;
+      measuredWidth.value = tooltipRef.value.offsetWidth;
+    }
+  },
+  { deep: true }
+);
+
+const tooltipStyle = computed(() => {
+  const padding = 12;
+  const gap = 18;
+  const width = measuredWidth.value || 520;
+  const height = measuredHeight.value || 420;
+  let left = store.position.x + gap;
+  let top = store.position.y + gap;
+
+  if (left + width > window.innerWidth - padding) {
+    left = store.position.x - width - gap;
+  }
+
+  if (left < padding) {
+    left = Math.max(padding, window.innerWidth - width - padding);
+  }
+
+  if (top + height > window.innerHeight - padding) {
+    top = store.position.y - height - gap;
+  }
+
+  if (top < padding) {
+    top = padding;
+  }
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`
+  };
+});
 </script>
 
 <style scoped>
 .item-tooltip {
   position: fixed;
   z-index: 10000;
-  min-width: 300px;
-  max-width: 380px;
-  padding: 10px 12px;
-  background: linear-gradient(
-    135deg,
-    rgba(15, 23, 42, 0.98) 0%,
-    rgba(30, 41, 59, 0.98) 100%
-  );
-  border: 1px solid rgba(100, 116, 139, 0.4);
-  border-radius: 6px;
-  overflow-y: auto;
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #e2e8f0;
-  pointer-events: auto;
+  pointer-events: none;
+  max-width: min(650px, calc(100vw - 24px));
 }
 
-.item-tooltip__loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #94a3b8;
-  font-style: italic;
+.item-tooltip__card {
+  display: inline-block;
+  max-width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(23, 29, 38, 0.96), rgba(14, 19, 27, 0.94));
+  padding: 12px 16px;
+  color: #e6e0d2;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
 }
 
-.item-tooltip__spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(148, 163, 184, 0.3);
-  border-top-color: #38bdf8;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.item-tooltip__card--detail {
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.item-tooltip__error {
-  color: #f87171;
-  font-style: italic;
-}
-
-.item-tooltip__header {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-}
-
-.item-tooltip__icon {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 4px;
-  background: #0f172a;
-  border: 1px solid rgba(100, 116, 139, 0.4);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.item-tooltip__name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f8fafc;
-  flex: 1;
-  align-self: center;
-}
-
-.item-tooltip__flags {
-  font-size: 10px;
-  font-weight: 600;
-  color: #fbbf24;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 4px;
-}
-
-.item-tooltip__flag-separator {
-  margin: 0 6px;
-  color: #64748b;
-  font-weight: 400;
-}
-
-/* Row for inline items */
-.item-tooltip__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.item-tooltip__slot {
-  color: #94a3b8;
-}
-
-.item-tooltip__ac {
-  color: #60a5fa;
-  font-weight: 600;
-}
-
-.item-tooltip__section {
-  margin: 6px 0;
-  padding-top: 6px;
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
-}
-
-/* Weapon stats */
-.item-tooltip__weapon-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  color: #cbd5e1;
-}
-
-.item-tooltip__ratio {
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-.item-tooltip__weapon-extras {
-  display: flex;
-  gap: 12px;
-  margin-top: 3px;
-  color: #94a3b8;
-  font-size: 11px;
-}
-
-/* Stats grid - 2 columns */
-.item-tooltip__stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 2px 12px;
-}
-
-.item-tooltip__stat-cell {
-  color: #cbd5e1;
-  white-space: nowrap;
-}
-
-.heroic {
-  color: #fbbf24;
-  font-weight: 600;
-}
-
-/* Resources row */
-.item-tooltip__resources {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: #86efac;
-  font-weight: 500;
-}
-
-/* Resistances grid - 2 columns */
-.item-tooltip__resists-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 2px 8px;
-}
-
-.item-tooltip__resist-cell {
-  white-space: nowrap;
-  font-size: 11px;
-}
-
-.resist-fire { color: #f97316; }
-.resist-cold { color: #38bdf8; }
-.resist-magic { color: #a78bfa; }
-.resist-disease { color: #84cc16; }
-.resist-poison { color: #22c55e; }
-.resist-corruption { color: #ec4899; }
-
-/* Combat stats grid - 2 columns */
-.item-tooltip__combat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 2px 8px;
-  color: #cbd5e1;
-  font-size: 11px;
-}
-
-/* Regen row */
-.item-tooltip__regen {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: #4ade80;
-  font-size: 11px;
-}
-
-/* Effects */
-.item-tooltip__effects {
-  color: #a5b4fc;
-}
-
-.item-tooltip__effect {
-  margin: 2px 0;
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-.effect-label {
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.item-tooltip__effect-meta {
-  color: #64748b;
-  font-size: 10px;
-}
-
-/* Container info */
-.item-tooltip__container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: #94a3b8;
-}
-
-/* Meta row (aug slots, requirements) */
-.item-tooltip__meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 11px;
-}
-
-.item-tooltip__req {
-  color: #f87171;
-}
-
-.item-tooltip__rec {
-  color: #fbbf24;
-}
-
-/* Footer */
-.item-tooltip__footer {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
+.item-tooltip__content {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 12px;
 }
 
-.item-tooltip__classes,
-.item-tooltip__races {
-  font-size: 11px;
-  color: #94a3b8;
-}
-
-.item-tooltip__weight {
-  font-size: 11px;
-  color: #64748b;
-}
-
-/* Augments Section */
-.item-tooltip__augments {
-  border-top: 1px solid rgba(148, 163, 184, 0.2);
-  padding-top: 8px;
-}
-
-.item-tooltip__augments-header {
+.item-tooltip__eyebrow {
+  margin: 0;
   font-size: 11px;
   font-weight: 600;
-  color: #a78bfa;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 6px;
+  color: #b99a67;
 }
 
-.item-tooltip__augment {
+.item-tooltip__message {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #d7cfbf;
+}
+
+.item-tooltip__hero {
   display: flex;
-  gap: 8px;
-  padding: 6px;
-  background: rgba(167, 139, 250, 0.08);
-  border: 1px solid rgba(167, 139, 250, 0.2);
-  border-radius: 4px;
-  margin-bottom: 4px;
+  gap: 10px;
+  align-items: flex-start;
 }
 
-.item-tooltip__augment:last-child {
-  margin-bottom: 0;
-}
-
-.item-tooltip__augment-icon {
-  width: 32px;
-  height: 32px;
+.item-tooltip__hero-icon-shell {
   flex-shrink: 0;
-  border-radius: 3px;
-  background: #0f172a;
-  border: 1px solid rgba(100, 116, 139, 0.3);
+  padding-top: 2px;
 }
 
-.item-tooltip__augment-info {
-  flex: 1;
+.item-tooltip__hero-icon {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+
+.item-tooltip__hero-icon--placeholder {
+  border: 1px solid rgba(122, 135, 152, 0.7);
+  background: linear-gradient(180deg, rgba(90, 101, 118, 0.95), rgba(53, 62, 75, 0.95));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.item-tooltip__hero-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.item-tooltip__title {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: #f2ead9;
+}
+
+.item-tooltip__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.item-tooltip__flag {
+  color: #e9dfc5;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.item-tooltip__slot-display {
+  color: #e9dfc5;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.item-tooltip__stats-grid {
+  display: grid;
+  justify-content: start;
+  gap: 10px 16px;
+}
+
+.item-tooltip__column {
+  min-width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.item-tooltip__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item-tooltip__pair {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.item-tooltip__pair--numeric {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.item-tooltip__label {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-weight: 600;
+  color: #d8ceb4;
+}
+
+.item-tooltip__value {
+  min-width: 0;
+  color: #e6e0d2;
+}
+
+.item-tooltip__value--numeric {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.item-tooltip__value--wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.item-tooltip__augment-slots {
   gap: 2px;
 }
 
-.item-tooltip__augment-name {
-  font-size: 11px;
+.item-tooltip__augment-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.item-tooltip__augment-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(122, 135, 152, 0.7);
+  background: linear-gradient(180deg, rgba(90, 101, 118, 0.95), rgba(53, 62, 75, 0.95));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.item-tooltip__augment-text {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.item-tooltip__effects {
+  gap: 4px;
+}
+
+.item-tooltip__effect {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.item-tooltip__effect-name {
+  color: #7dd3fc;
   font-weight: 600;
-  color: #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.item-tooltip__augment-stats {
-  font-size: 10px;
-  color: #94a3b8;
-  line-height: 1.3;
+.item-tooltip__effect-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.item-tooltip__augment-effect {
-  font-size: 10px;
-  color: #a5b4fc;
-  font-style: italic;
+.item-tooltip__coin-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-tooltip__coins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.item-tooltip__coin {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.item-tooltip__coin--pp {
+  background: rgba(229, 231, 235, 0.16);
+  color: #f8fafc;
+}
+
+.item-tooltip__coin--gp {
+  background: rgba(234, 179, 8, 0.16);
+  color: #facc15;
+}
+
+.item-tooltip__coin--sp {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+.item-tooltip__coin--cp {
+  background: rgba(180, 83, 9, 0.18);
+  color: #fdba74;
+}
+
+@media (max-width: 640px) {
+  .item-tooltip__card {
+    padding: 10px 12px;
+  }
+
+  .item-tooltip__title {
+    font-size: 18px;
+  }
+
+  .item-tooltip__stats-grid {
+    gap: 8px 12px;
+  }
+
+  .item-tooltip__pair,
+  .item-tooltip__flag,
+  .item-tooltip__slot-display,
+  .item-tooltip__effect,
+  .item-tooltip__augment-slot {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 1099px) {
+  .item-tooltip {
+    display: none;
+  }
 }
 </style>

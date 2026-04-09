@@ -329,6 +329,7 @@ export interface ItemStats {
 
   // Item flags
   magic: number;
+  attuneable: number;
   nodrop: number;
   norent: number;
   notransfer: number;
@@ -371,6 +372,8 @@ export interface ItemStats {
 
   // Combat stats
   backstabdmg: number;
+  elemdmgtype: number;
+  elemdmgamt: number;
   skillmodvalue: number;
   skillmodtype: number;
   strikethrough: number;
@@ -378,6 +381,8 @@ export interface ItemStats {
   spelldmg: number;
   healamt: number;
   clairvoyance: number;
+  bardtype: number;
+  bardvalue: number;
 
   // Weapon details
   banedmgamt: number;
@@ -410,6 +415,7 @@ export interface ItemStats {
 
   // Misc
   idfile: string;
+  light: number;
   ldonsold: number;
   ldonsellbackrate: number;
   ldonprice: number;
@@ -423,6 +429,7 @@ export interface ItemStats {
   avoidance: number;
   combateffects: number;
   shielding: number;
+  spellshield: number;
   dotshielding: number;
   damageshield: number;
   dsmitigation: number;

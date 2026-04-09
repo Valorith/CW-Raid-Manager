@@ -78,6 +78,7 @@ export interface ItemStats {
 
   // Item flags
   magic: number;
+  attuneable: number;
   nodrop: number;
   norent: number;
   notransfer: number;
@@ -120,6 +121,8 @@ export interface ItemStats {
 
   // Combat stats
   backstabdmg: number;
+  elemdmgtype: number;
+  elemdmgamt: number;
   skillmodvalue: number;
   skillmodtype: number;
   strikethrough: number;
@@ -127,6 +130,8 @@ export interface ItemStats {
   spelldmg: number;
   healamt: number;
   clairvoyance: number;
+  bardtype: number;
+  bardvalue: number;
 
   // Weapon details
   banedmgamt: number;
@@ -159,6 +164,7 @@ export interface ItemStats {
 
   // Misc
   idfile: string;
+  light: number;
   ldonsold: number;
   ldonsellbackrate: number;
   ldonprice: number;
@@ -172,6 +178,7 @@ export interface ItemStats {
   avoidance: number;
   combateffects: number;
   shielding: number;
+  spellshield: number;
   dotshielding: number;
   damageshield: number;
   dsmitigation: number;
@@ -192,11 +199,73 @@ type ItemStatsRow = RowDataPacket & ItemStats;
 const itemStatsCache = new Map<number, ItemStats | null>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const cacheTimestamps = new Map<number, number>();
+const tableColumnsCache = new Map<string, string[]>();
+let cachedItemStatsSelectClause: string | null = null;
 
 function isCacheValid(itemId: number): boolean {
   const timestamp = cacheTimestamps.get(itemId);
   if (!timestamp) return false;
   return Date.now() - timestamp < CACHE_TTL_MS;
+}
+
+async function getTableColumns(tableName: string): Promise<string[]> {
+  const cached = tableColumnsCache.get(tableName);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const rows = await queryEqDb<RowDataPacket[]>(
+      `SELECT COLUMN_NAME as columnName
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+      [tableName]
+    );
+    const columns = rows.map((row) => String(row.columnName).toLowerCase());
+    tableColumnsCache.set(tableName, columns);
+    return columns;
+  } catch {
+    return [];
+  }
+}
+
+async function getItemStatsSelectClause(): Promise<string> {
+  if (cachedItemStatsSelectClause) {
+    return cachedItemStatsSelectClause;
+  }
+
+  const columns = new Set(await getTableColumns('items'));
+  const optionalColumn = (columnName: string, fallback = '0') =>
+    columns.has(columnName.toLowerCase()) ? columnName : `${fallback} as ${columnName}`;
+
+  cachedItemStatsSelectClause = `
+        id, Name as name, icon, itemtype, itemclass, slots,
+        ac, damage, delay, \`range\`,
+        astr, asta, aagi, adex, awis, aint, acha,
+        heroic_str, heroic_sta, heroic_agi, heroic_dex, heroic_wis, heroic_int, heroic_cha,
+        hp, mana, endur,
+        fr, cr, dr, mr, pr, svcorruption,
+        heroic_fr, heroic_cr, heroic_dr, heroic_mr, heroic_pr, heroic_svcorrup,
+        reqlevel, reclevel, classes, races, deity,
+        bagslots, bagsize, bagtype, bagwr,
+        magic, ${optionalColumn('attuneable')}, nodrop, norent, notransfer, questitemflag, lore, lorefile,
+        proceffect, proctype, proclevel2, proclevel, procrate,
+        worneffect, worntype, wornlevel2, wornlevel,
+        clickeffect, clicktype, clicklevel2, clicklevel, casttime,
+        focuseffect, focustype, focuslevel2, focuslevel,
+        scrolleffect, scrolltype, scrolllevel2, scrolllevel,
+        bardeffect, bardeffecttype, bardlevel2, bardlevel,
+        backstabdmg, ${optionalColumn('elemdmgtype')}, ${optionalColumn('elemdmgamt')}, skillmodvalue, skillmodtype, strikethrough, stunresist, spelldmg, healamt, clairvoyance, ${optionalColumn('bardtype')}, ${optionalColumn('bardvalue')},
+        banedmgamt, banedmgraceamt, banedmgbody, banedmgrace,
+        augtype, augslot1type, augslot2type, augslot3type, augslot4type, augslot5type, augslot6type,
+        augslot1visible, augslot2visible, augslot3visible, augslot4visible, augslot5visible, augslot6visible,
+        weight, size, stackable, stacksize,
+        idfile, ${optionalColumn('light')}, ldonsold, ldonsellbackrate, ldonprice, price, sellrate,
+        attack, haste, accuracy, avoidance, combateffects, shielding, ${optionalColumn('spellshield')}, dotshielding, damageshield, dsmitigation,
+        regen, manaregen, enduranceregen,
+        extradmgamt, extradmgskill`;
+
+  return cachedItemStatsSelectClause;
 }
 
 /**
@@ -217,34 +286,9 @@ export async function getItemStats(itemId: number): Promise<ItemStats | null> {
   }
 
   try {
+    const selectClause = await getItemStatsSelectClause();
     const rows = await queryEqDb<ItemStatsRow[]>(
-      `SELECT
-        id, Name as name, icon, itemtype, itemclass, slots,
-        ac, damage, delay, \`range\`,
-        astr, asta, aagi, adex, awis, aint, acha,
-        heroic_str, heroic_sta, heroic_agi, heroic_dex, heroic_wis, heroic_int, heroic_cha,
-        hp, mana, endur,
-        fr, cr, dr, mr, pr, svcorruption,
-        heroic_fr, heroic_cr, heroic_dr, heroic_mr, heroic_pr, heroic_svcorrup,
-        reqlevel, reclevel, classes, races, deity,
-        bagslots, bagsize, bagtype, bagwr,
-        magic, nodrop, norent, notransfer, questitemflag, lore, lorefile,
-        proceffect, proctype, proclevel2, proclevel, procrate,
-        worneffect, worntype, wornlevel2, wornlevel,
-        clickeffect, clicktype, clicklevel2, clicklevel, casttime,
-        focuseffect, focustype, focuslevel2, focuslevel,
-        scrolleffect, scrolltype, scrolllevel2, scrolllevel,
-        bardeffect, bardeffecttype, bardlevel2, bardlevel,
-        backstabdmg, skillmodvalue, skillmodtype, strikethrough, stunresist, spelldmg, healamt, clairvoyance,
-        banedmgamt, banedmgraceamt, banedmgbody, banedmgrace,
-        augtype, augslot1type, augslot2type, augslot3type, augslot4type, augslot5type, augslot6type,
-        augslot1visible, augslot2visible, augslot3visible, augslot4visible, augslot5visible, augslot6visible,
-        weight, size, stackable, stacksize,
-        idfile, ldonsold, ldonsellbackrate, ldonprice, price, sellrate,
-        attack, haste, accuracy, avoidance, combateffects, shielding, dotshielding, damageshield, dsmitigation,
-        regen, manaregen, enduranceregen,
-        extradmgamt, extradmgskill
-      FROM items WHERE id = ? LIMIT 1`,
+      `SELECT ${selectClause} FROM items WHERE id = ? LIMIT 1`,
       [itemId]
     );
 
@@ -294,35 +338,10 @@ export async function getItemStatsBatch(itemIds: number[]): Promise<Map<number, 
   }
 
   try {
+    const selectClause = await getItemStatsSelectClause();
     const placeholders = uncachedIds.map(() => '?').join(', ');
     const rows = await queryEqDb<ItemStatsRow[]>(
-      `SELECT
-        id, Name as name, icon, itemtype, itemclass, slots,
-        ac, damage, delay, \`range\`,
-        astr, asta, aagi, adex, awis, aint, acha,
-        heroic_str, heroic_sta, heroic_agi, heroic_dex, heroic_wis, heroic_int, heroic_cha,
-        hp, mana, endur,
-        fr, cr, dr, mr, pr, svcorruption,
-        heroic_fr, heroic_cr, heroic_dr, heroic_mr, heroic_pr, heroic_svcorrup,
-        reqlevel, reclevel, classes, races, deity,
-        bagslots, bagsize, bagtype, bagwr,
-        magic, nodrop, norent, notransfer, questitemflag, lore, lorefile,
-        proceffect, proctype, proclevel2, proclevel, procrate,
-        worneffect, worntype, wornlevel2, wornlevel,
-        clickeffect, clicktype, clicklevel2, clicklevel, casttime,
-        focuseffect, focustype, focuslevel2, focuslevel,
-        scrolleffect, scrolltype, scrolllevel2, scrolllevel,
-        bardeffect, bardeffecttype, bardlevel2, bardlevel,
-        backstabdmg, skillmodvalue, skillmodtype, strikethrough, stunresist, spelldmg, healamt, clairvoyance,
-        banedmgamt, banedmgraceamt, banedmgbody, banedmgrace,
-        augtype, augslot1type, augslot2type, augslot3type, augslot4type, augslot5type, augslot6type,
-        augslot1visible, augslot2visible, augslot3visible, augslot4visible, augslot5visible, augslot6visible,
-        weight, size, stackable, stacksize,
-        idfile, ldonsold, ldonsellbackrate, ldonprice, price, sellrate,
-        attack, haste, accuracy, avoidance, combateffects, shielding, dotshielding, damageshield, dsmitigation,
-        regen, manaregen, enduranceregen,
-        extradmgamt, extradmgskill
-      FROM items WHERE id IN (${placeholders})`,
+      `SELECT ${selectClause} FROM items WHERE id IN (${placeholders})`,
       uncachedIds
     );
 
