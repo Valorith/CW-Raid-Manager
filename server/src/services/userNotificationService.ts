@@ -77,6 +77,7 @@ export interface QueueUserNotificationInput {
   payload: Prisma.InputJsonValue;
   dedupeSeed: string;
   deliverAt?: Date;
+  providers?: NotificationProviderKey[];
 }
 
 function toIso(value: Date | null | undefined): string | null {
@@ -648,12 +649,17 @@ export async function resolveNotificationTargets(input: {
 export async function queueUserNotification(
   input: QueueUserNotificationInput
 ): Promise<number> {
-  const targets = await resolveNotificationTargets({
+  let targets = await resolveNotificationTargets({
     userId: input.userId,
     scopeType: input.scopeType,
     scopeId: input.scopeId,
     eventKey: input.eventKey
   });
+
+  if (input.providers && input.providers.length > 0) {
+    const allowedProviders = new Set(input.providers);
+    targets = targets.filter((channel) => allowedProviders.has(channel.provider));
+  }
 
   if (targets.length === 0) {
     return 0;

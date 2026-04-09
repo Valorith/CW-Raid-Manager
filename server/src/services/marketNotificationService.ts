@@ -1,7 +1,10 @@
 import { MarketFavoriteListType, type MarketFavorite, type Prisma } from '@prisma/client';
 
 import {
+  DEFAULT_PROVIDER_TARGETS,
   getDefaultMarketFavoriteNotificationSettings,
+  NOTIFICATION_EVENT_DEFINITION_MAP,
+  type NotificationProviderKey,
   type MarketFavoriteNotificationSettings
 } from './notificationConstants.js';
 import {
@@ -22,6 +25,46 @@ type SaleEventInput = {
   totalCost: number;
 };
 
+type CanonicalTradeEvent = {
+  eqLogIds: string[];
+  occurredAt: Date;
+  sellerCharacterName: string;
+  buyerCharacterName: string | null;
+  itemId?: number | null;
+  itemName: string;
+  price: number;
+  totalCost: number;
+};
+
+type MarketNotificationEventKey =
+  | 'market.all.trade_activity'
+  | 'market.item.trade_activity'
+  | 'market.item.listing_activity'
+  | 'market.item.price_rule_triggered'
+  | 'market.character.trade_activity'
+  | 'market.character.listing_activity'
+  | 'market.trader.trade_activity'
+  | 'market.trader.listing_activity'
+  | 'market.trader.undercut';
+
+type NotificationCandidate = {
+  eventKey: MarketNotificationEventKey;
+  line: string;
+  priority: number;
+};
+
+type NotificationBucket = {
+  userId: string;
+  provider: NotificationProviderKey;
+  eventKey: MarketNotificationEventKey;
+  lines: string[];
+};
+
+type EnabledProvidersMatrix = Map<
+  string,
+  Map<MarketNotificationEventKey, Set<NotificationProviderKey>>
+>;
+
 type ListingSnapshot = {
   id: string;
   sellerCharacterName: string;
@@ -35,6 +78,30 @@ type ListingSnapshot = {
 };
 
 type ListingRankStatus = 'leading' | 'matching' | 'undercut';
+
+const TRADE_NOTIFICATION_PRIORITY: Record<MarketNotificationEventKey, number> = {
+  'market.all.trade_activity': 0,
+  'market.trader.trade_activity': 1,
+  'market.character.trade_activity': 2,
+  'market.item.price_rule_triggered': 3,
+  'market.item.trade_activity': 4,
+  'market.trader.undercut': 99,
+  'market.trader.listing_activity': 99,
+  'market.character.listing_activity': 99,
+  'market.item.listing_activity': 99
+};
+
+const LISTING_NOTIFICATION_PRIORITY: Record<MarketNotificationEventKey, number> = {
+  'market.trader.undercut': 0,
+  'market.trader.listing_activity': 1,
+  'market.character.listing_activity': 2,
+  'market.item.price_rule_triggered': 3,
+  'market.item.listing_activity': 4,
+  'market.all.trade_activity': 99,
+  'market.trader.trade_activity': 99,
+  'market.character.trade_activity': 99,
+  'market.item.trade_activity': 99
+};
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -74,42 +141,300 @@ function namesMatch(left: string | null | undefined, right: string | null | unde
   return Boolean(normalizedLeft) && normalizedLeft === normalizedRight;
 }
 
-function formatCharacterTradeLine(
-  watchedCharacterName: string,
-  event: Pick<
-    SaleEventInput,
-    'eventType' | 'actorCharacterName' | 'counterpartyCharacterName' | 'itemName' | 'price'
-  >
-): string {
-  const watchedIsActor = namesMatch(watchedCharacterName, event.actorCharacterName);
-  const watchedIsCounterparty = namesMatch(watchedCharacterName, event.counterpartyCharacterName);
-  const watchedDisplayName = watchedCharacterName.trim();
-  const counterpartyName = event.counterpartyCharacterName?.trim() || null;
-  const actorName = event.actorCharacterName.trim();
-  const priceText = formatCopperCurrency(event.price);
+function toCanonicalTradeEvent(event: SaleEventInput): CanonicalTradeEvent | null {
+  const sellerCharacterName =
+    event.eventType === 'TRADER_SELL'
+      ? event.actorCharacterName.trim()
+      : (event.counterpartyCharacterName?.trim() ?? '');
+  const buyerCharacterName =
+    event.eventType === 'TRADER_SELL'
+      ? (event.counterpartyCharacterName?.trim() ?? null)
+      : event.actorCharacterName.trim() || null;
+  const itemName = event.itemName.trim();
 
-  if (event.eventType === 'TRADER_SELL') {
-    if (watchedIsActor) {
-      return counterpartyName
-        ? `${watchedDisplayName} sold ${event.itemName} for ${priceText} to ${counterpartyName}.`
-        : `${watchedDisplayName} sold ${event.itemName} for ${priceText}.`;
+  if (!sellerCharacterName || !itemName) {
+    return null;
+  }
+
+  return {
+    eqLogIds: [String(event.eqLogId)],
+    occurredAt: event.occurredAt,
+    sellerCharacterName,
+    buyerCharacterName,
+    itemId: event.itemId ?? null,
+    itemName,
+    price: event.price,
+    totalCost: event.totalCost
+  };
+}
+
+function buildCanonicalTradeFingerprint(event: CanonicalTradeEvent): string {
+  return [
+    event.occurredAt.toISOString(),
+    normalizeText(event.sellerCharacterName),
+    normalizeText(event.buyerCharacterName),
+    event.itemId ?? `name:${normalizeText(event.itemName)}`,
+    event.price,
+    event.totalCost
+  ].join('|');
+}
+
+function canonicalizeTradeEvents(events: SaleEventInput[]): CanonicalTradeEvent[] {
+  const tradesByFingerprint = new Map<string, CanonicalTradeEvent>();
+
+  for (const event of events) {
+    const canonicalEvent = toCanonicalTradeEvent(event);
+    if (!canonicalEvent) {
+      continue;
     }
 
-    if (watchedIsCounterparty) {
-      return `${watchedDisplayName} bought ${event.itemName} for ${priceText} from ${actorName}.`;
+    const fingerprint = buildCanonicalTradeFingerprint(canonicalEvent);
+    const existing = tradesByFingerprint.get(fingerprint);
+    if (!existing) {
+      tradesByFingerprint.set(fingerprint, canonicalEvent);
+      continue;
+    }
+
+    existing.eqLogIds = Array.from(new Set([...existing.eqLogIds, ...canonicalEvent.eqLogIds]));
+
+    if (event.eventType === 'TRADER_SELL') {
+      existing.sellerCharacterName = canonicalEvent.sellerCharacterName;
+      existing.buyerCharacterName = canonicalEvent.buyerCharacterName;
+    } else if (!existing.buyerCharacterName && canonicalEvent.buyerCharacterName) {
+      existing.buyerCharacterName = canonicalEvent.buyerCharacterName;
     }
   }
 
-  if (event.eventType === 'TRADER_PURCHASE') {
-    if (watchedIsActor) {
-      return counterpartyName
-        ? `${watchedDisplayName} bought ${event.itemName} for ${priceText} from ${counterpartyName}.`
-        : `${watchedDisplayName} bought ${event.itemName} for ${priceText}.`;
+  return [...tradesByFingerprint.values()];
+}
+
+function buildTradeNotificationDedupeSeed(events: CanonicalTradeEvent[]): string {
+  return Array.from(new Set(events.flatMap((event) => event.eqLogIds)))
+    .sort()
+    .join(',');
+}
+
+function normalizeProviderTargets(value: unknown): Record<NotificationProviderKey, boolean> {
+  const parsed = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const targets = parsed as Record<string, unknown>;
+
+  return {
+    TELEGRAM:
+      typeof targets.TELEGRAM === 'boolean'
+        ? targets.TELEGRAM
+        : (DEFAULT_PROVIDER_TARGETS.TELEGRAM ?? false),
+    WHATSAPP:
+      typeof targets.WHATSAPP === 'boolean'
+        ? targets.WHATSAPP
+        : (DEFAULT_PROVIDER_TARGETS.WHATSAPP ?? false)
+  };
+}
+
+function getEnabledProvidersForEvent(
+  matrix: EnabledProvidersMatrix,
+  userId: string,
+  eventKey: MarketNotificationEventKey
+): Set<NotificationProviderKey> {
+  return matrix.get(userId)?.get(eventKey) ?? new Set<NotificationProviderKey>();
+}
+
+async function buildEnabledProvidersMatrix(
+  userIds: string[],
+  eventKeys: MarketNotificationEventKey[]
+): Promise<EnabledProvidersMatrix> {
+  const normalizedUserIds = [...new Set(userIds.filter(Boolean))];
+  const normalizedEventKeys = [...new Set(eventKeys)];
+
+  if (normalizedUserIds.length === 0 || normalizedEventKeys.length === 0) {
+    return new Map();
+  }
+
+  const [channels, preferences] = await Promise.all([
+    prisma.userNotificationChannel.findMany({
+      where: {
+        userId: { in: normalizedUserIds },
+        status: 'ACTIVE'
+      },
+      select: {
+        userId: true,
+        provider: true
+      }
+    }),
+    prisma.userNotificationPreference.findMany({
+      where: {
+        userId: { in: normalizedUserIds },
+        scopeType: 'GLOBAL',
+        scopeId: 'global',
+        eventKey: { in: normalizedEventKeys }
+      },
+      select: {
+        userId: true,
+        eventKey: true,
+        isEnabled: true,
+        providerTargets: true
+      }
+    })
+  ]);
+
+  const activeProvidersByUser = new Map<string, Set<NotificationProviderKey>>();
+  for (const channel of channels) {
+    const providers =
+      activeProvidersByUser.get(channel.userId) ?? new Set<NotificationProviderKey>();
+    providers.add(channel.provider);
+    activeProvidersByUser.set(channel.userId, providers);
+  }
+
+  const preferenceMap = new Map(
+    preferences.map(
+      (preference) => [`${preference.userId}:${preference.eventKey}`, preference] as const
+    )
+  );
+
+  const matrix: EnabledProvidersMatrix = new Map();
+
+  for (const userId of normalizedUserIds) {
+    const activeProviders = activeProvidersByUser.get(userId);
+    if (!activeProviders || activeProviders.size === 0) {
+      continue;
     }
 
-    if (watchedIsCounterparty) {
-      return `${watchedDisplayName} sold ${event.itemName} for ${priceText} to ${actorName}.`;
+    const eventsByUser = new Map<MarketNotificationEventKey, Set<NotificationProviderKey>>();
+
+    for (const eventKey of normalizedEventKeys) {
+      const definition = NOTIFICATION_EVENT_DEFINITION_MAP.get(eventKey);
+      if (!definition) {
+        continue;
+      }
+
+      const preference = preferenceMap.get(`${userId}:${eventKey}`);
+      const isEnabled = preference?.isEnabled ?? definition.recommended;
+      if (!isEnabled) {
+        continue;
+      }
+
+      const providerTargets = preference
+        ? normalizeProviderTargets(preference.providerTargets)
+        : normalizeProviderTargets(DEFAULT_PROVIDER_TARGETS);
+      const enabledProviders = new Set<NotificationProviderKey>();
+
+      for (const provider of activeProviders) {
+        if (providerTargets[provider] !== false) {
+          enabledProviders.add(provider);
+        }
+      }
+
+      if (enabledProviders.size > 0) {
+        eventsByUser.set(eventKey, enabledProviders);
+      }
     }
+
+    if (eventsByUser.size > 0) {
+      matrix.set(userId, eventsByUser);
+    }
+  }
+
+  return matrix;
+}
+
+function addNotificationCandidate(
+  candidatesByUser: Map<string, Map<string, NotificationCandidate[]>>,
+  userId: string,
+  fingerprint: string,
+  candidate: NotificationCandidate
+): void {
+  const candidatesByFingerprint =
+    candidatesByUser.get(userId) ?? new Map<string, NotificationCandidate[]>();
+  const candidates = candidatesByFingerprint.get(fingerprint) ?? [];
+  candidates.push(candidate);
+  candidatesByFingerprint.set(fingerprint, candidates);
+  candidatesByUser.set(userId, candidatesByFingerprint);
+}
+
+function finalizeNotificationBuckets(
+  candidatesByUser: Map<string, Map<string, NotificationCandidate[]>>,
+  enabledProvidersMatrix: EnabledProvidersMatrix
+): NotificationBucket[] {
+  const buckets = new Map<string, NotificationBucket>();
+
+  for (const [userId, candidatesByFingerprint] of candidatesByUser.entries()) {
+    for (const candidates of candidatesByFingerprint.values()) {
+      const relevantProviders = new Set<NotificationProviderKey>();
+
+      for (const candidate of candidates) {
+        for (const provider of getEnabledProvidersForEvent(
+          enabledProvidersMatrix,
+          userId,
+          candidate.eventKey
+        )) {
+          relevantProviders.add(provider);
+        }
+      }
+
+      for (const provider of relevantProviders) {
+        const providerCandidates = candidates.filter((candidate) =>
+          getEnabledProvidersForEvent(enabledProvidersMatrix, userId, candidate.eventKey).has(
+            provider
+          )
+        );
+        const bestCandidate = providerCandidates
+          .slice()
+          .sort((left, right) => left.priority - right.priority)[0];
+
+        if (!bestCandidate) {
+          continue;
+        }
+
+        const bucketKey = `${userId}:${provider}:${bestCandidate.eventKey}`;
+        const bucket =
+          buckets.get(bucketKey) ??
+          ({
+            userId,
+            provider,
+            eventKey: bestCandidate.eventKey,
+            lines: []
+          } satisfies NotificationBucket);
+
+        const winningLines = new Set(
+          providerCandidates
+            .filter(
+              (candidate) =>
+                candidate.priority === bestCandidate.priority &&
+                candidate.eventKey === bestCandidate.eventKey
+            )
+            .map((candidate) => candidate.line)
+        );
+
+        bucket.lines.push(...winningLines);
+        buckets.set(bucketKey, bucket);
+      }
+    }
+  }
+
+  return [...buckets.values()];
+}
+
+function formatCharacterTradeLine(
+  watchedCharacterName: string,
+  event: Pick<
+    CanonicalTradeEvent,
+    'sellerCharacterName' | 'buyerCharacterName' | 'itemName' | 'price'
+  >
+): string {
+  const watchedIsSeller = namesMatch(watchedCharacterName, event.sellerCharacterName);
+  const watchedIsBuyer = namesMatch(watchedCharacterName, event.buyerCharacterName);
+  const watchedDisplayName = watchedCharacterName.trim();
+  const buyerName = event.buyerCharacterName?.trim() || null;
+  const sellerName = event.sellerCharacterName.trim();
+  const priceText = formatCopperCurrency(event.price);
+
+  if (watchedIsSeller) {
+    return buyerName
+      ? `${watchedDisplayName} sold ${event.itemName} for ${priceText} to ${buyerName}.`
+      : `${watchedDisplayName} sold ${event.itemName} for ${priceText}.`;
+  }
+
+  if (watchedIsBuyer) {
+    return `${watchedDisplayName} bought ${event.itemName} for ${priceText} from ${sellerName}.`;
   }
 
   return `${watchedDisplayName} traded ${event.itemName} for ${priceText}.`;
@@ -117,10 +442,10 @@ function formatCharacterTradeLine(
 
 function formatTraderSaleLine(
   traderCharacterName: string,
-  event: Pick<SaleEventInput, 'itemName' | 'price' | 'counterpartyCharacterName'>
+  event: Pick<CanonicalTradeEvent, 'itemName' | 'price' | 'buyerCharacterName'>
 ): string {
   const traderDisplayName = traderCharacterName.trim();
-  const buyerName = event.counterpartyCharacterName?.trim() || null;
+  const buyerName = event.buyerCharacterName?.trim() || null;
   const priceText = formatCopperCurrency(event.price);
 
   return buyerName
@@ -129,9 +454,12 @@ function formatTraderSaleLine(
 }
 
 function formatMarketSaleLine(
-  event: Pick<SaleEventInput, 'actorCharacterName' | 'itemName' | 'price' | 'counterpartyCharacterName'>
+  event: Pick<
+    CanonicalTradeEvent,
+    'sellerCharacterName' | 'itemName' | 'price' | 'buyerCharacterName'
+  >
 ): string {
-  return formatTraderSaleLine(event.actorCharacterName, event);
+  return formatTraderSaleLine(event.sellerCharacterName, event);
 }
 
 function formatCharacterListingLine(
@@ -229,13 +557,23 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
     return;
   }
 
-  const sellerEvents = events.filter((event) => event.eventType === 'TRADER_SELL');
-  const itemIds = [...new Set(events.map((event) => event.itemId).filter((value): value is number => value != null))];
-  const itemNames = [...new Set(events.map((event) => normalizeText(event.itemName)).filter(Boolean))];
+  const canonicalEvents = canonicalizeTradeEvents(events);
+  if (canonicalEvents.length === 0) {
+    return;
+  }
+
+  const itemIds = [
+    ...new Set(
+      canonicalEvents.map((event) => event.itemId).filter((value): value is number => value != null)
+    )
+  ];
+  const itemNames = [
+    ...new Set(canonicalEvents.map((event) => normalizeText(event.itemName)).filter(Boolean))
+  ];
   const characterNames = [
     ...new Set(
-      events
-        .flatMap((event) => [event.actorCharacterName, event.counterpartyCharacterName ?? null])
+      canonicalEvents
+        .flatMap((event) => [event.sellerCharacterName, event.buyerCharacterName])
         .map((name) => normalizeText(name))
         .filter(Boolean)
     )
@@ -248,7 +586,9 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
           listType: MarketFavoriteListType.FAVORITE_ITEMS,
           OR: [
             itemIds.length > 0 ? { itemId: { in: itemIds } } : undefined,
-            itemNames.length > 0 ? { targetKey: { in: itemNames.map((name) => `item-name:${name}`) } } : undefined
+            itemNames.length > 0
+              ? { targetKey: { in: itemNames.map((name) => `item-name:${name}`) } }
+              : undefined
           ].filter(Boolean) as Prisma.MarketFavoriteWhereInput[]
         },
         {
@@ -262,16 +602,39 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
       ]
     }
   });
+  const allSaleNotificationUserIds =
+    canonicalEvents.length > 0
+      ? await listUserIdsWithEnabledNotificationPreference({
+          scopeType: 'GLOBAL',
+          scopeId: 'global',
+          eventKey: 'market.all.trade_activity'
+        })
+      : [];
+  const relevantUserIds = [
+    ...new Set([...favorites.map((favorite) => favorite.userId), ...allSaleNotificationUserIds])
+  ];
+  const enabledProvidersMatrix = await buildEnabledProvidersMatrix(relevantUserIds, [
+    'market.all.trade_activity',
+    'market.item.trade_activity',
+    'market.item.price_rule_triggered',
+    'market.character.trade_activity',
+    'market.trader.trade_activity'
+  ]);
+  const candidatesByUser = new Map<string, Map<string, NotificationCandidate[]>>();
 
-  const itemLinesByUser = new Map<string, string[]>();
-  const characterLinesByUser = new Map<string, string[]>();
-  const traderLinesByUser = new Map<string, string[]>();
-  const priceRuleLinesByUser = new Map<string, string[]>();
-  const allSaleLines = sellerEvents.map((event) => formatMarketSaleLine(event));
+  for (const userId of allSaleNotificationUserIds) {
+    for (const event of canonicalEvents) {
+      addNotificationCandidate(candidatesByUser, userId, buildCanonicalTradeFingerprint(event), {
+        eventKey: 'market.all.trade_activity',
+        line: formatMarketSaleLine(event),
+        priority: TRADE_NOTIFICATION_PRIORITY['market.all.trade_activity']
+      });
+    }
+  }
 
   for (const favorite of favorites) {
     const settings = normalizeMarketFavoriteNotificationSettings(favorite);
-    const matchingEvents = events.filter((event) => {
+    const matchingEvents = canonicalEvents.filter((event) => {
       if (favorite.listType === MarketFavoriteListType.FAVORITE_ITEMS) {
         return (
           (favorite.itemId != null && event.itemId === favorite.itemId) ||
@@ -281,16 +644,13 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
 
       if (favorite.listType === MarketFavoriteListType.MY_TRADERS) {
         const normalizedFavoriteName = normalizeText(favorite.characterName);
-        return (
-          event.eventType === 'TRADER_SELL' &&
-          normalizedFavoriteName === normalizeText(event.actorCharacterName)
-        );
+        return normalizedFavoriteName === normalizeText(event.sellerCharacterName);
       }
 
       const normalizedFavoriteName = normalizeText(favorite.characterName);
       return (
-        normalizedFavoriteName === normalizeText(event.actorCharacterName) ||
-        normalizedFavoriteName === normalizeText(event.counterpartyCharacterName)
+        normalizedFavoriteName === normalizeText(event.sellerCharacterName) ||
+        normalizedFavoriteName === normalizeText(event.buyerCharacterName)
       );
     });
 
@@ -299,15 +659,17 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
     }
 
     for (const event of matchingEvents) {
+      const fingerprint = buildCanonicalTradeFingerprint(event);
+
       if (
         favorite.listType === MarketFavoriteListType.FAVORITE_ITEMS &&
         settings.notifyOnTradeActivity !== false
       ) {
-        const lines = itemLinesByUser.get(favorite.userId) ?? [];
-        lines.push(
-          `${event.itemName}: ${event.actorCharacterName} sold for ${formatCopperCurrency(event.price)}`
-        );
-        itemLinesByUser.set(favorite.userId, lines);
+        addNotificationCandidate(candidatesByUser, favorite.userId, fingerprint, {
+          eventKey: 'market.item.trade_activity',
+          line: `${event.itemName}: ${event.sellerCharacterName} sold for ${formatCopperCurrency(event.price)}`,
+          priority: TRADE_NOTIFICATION_PRIORITY['market.item.trade_activity']
+        });
       }
 
       if (
@@ -315,11 +677,11 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
         settings.maxTradePriceCopper != null &&
         event.price <= settings.maxTradePriceCopper
       ) {
-        const lines = priceRuleLinesByUser.get(favorite.userId) ?? [];
-        lines.push(
-          `${event.itemName} traded at ${formatCopperCurrency(event.price)} (rule <= ${formatCopperCurrency(settings.maxTradePriceCopper)})`
-        );
-        priceRuleLinesByUser.set(favorite.userId, lines);
+        addNotificationCandidate(candidatesByUser, favorite.userId, fingerprint, {
+          eventKey: 'market.item.price_rule_triggered',
+          line: `${event.itemName} traded at ${formatCopperCurrency(event.price)} (rule <= ${formatCopperCurrency(settings.maxTradePriceCopper)})`,
+          priority: TRADE_NOTIFICATION_PRIORITY['market.item.price_rule_triggered']
+        });
       }
 
       if (
@@ -330,9 +692,11 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
           continue;
         }
 
-        const lines = characterLinesByUser.get(favorite.userId) ?? [];
-        lines.push(formatCharacterTradeLine(favorite.characterName, event));
-        characterLinesByUser.set(favorite.userId, lines);
+        addNotificationCandidate(candidatesByUser, favorite.userId, fingerprint, {
+          eventKey: 'market.character.trade_activity',
+          line: formatCharacterTradeLine(favorite.characterName, event),
+          priority: TRADE_NOTIFICATION_PRIORITY['market.character.trade_activity']
+        });
       }
 
       if (
@@ -343,71 +707,27 @@ export async function processMarketSaleNotifications(events: SaleEventInput[]): 
           continue;
         }
 
-        const lines = traderLinesByUser.get(favorite.userId) ?? [];
-        lines.push(formatTraderSaleLine(favorite.characterName, event));
-        traderLinesByUser.set(favorite.userId, lines);
+        addNotificationCandidate(candidatesByUser, favorite.userId, fingerprint, {
+          eventKey: 'market.trader.trade_activity',
+          line: formatTraderSaleLine(favorite.characterName, event),
+          priority: TRADE_NOTIFICATION_PRIORITY['market.trader.trade_activity']
+        });
       }
     }
   }
-
-  const allSaleNotificationUserIds =
-    allSaleLines.length > 0
-      ? await listUserIdsWithEnabledNotificationPreference({
-          scopeType: 'GLOBAL',
-          scopeId: 'global',
-          eventKey: 'market.all.trade_activity'
-        })
-      : [];
+  const tradeDedupeSeed = buildTradeNotificationDedupeSeed(canonicalEvents);
+  const notificationBuckets = finalizeNotificationBuckets(candidatesByUser, enabledProvidersMatrix);
 
   await Promise.all([
-    ...allSaleNotificationUserIds.map((userId) =>
+    ...notificationBuckets.map((bucket) =>
       queueUserNotification({
-        userId,
+        userId: bucket.userId,
         scopeType: 'GLOBAL',
         scopeId: 'global',
-        eventKey: 'market.all.trade_activity',
-        payload: { lines: allSaleLines } as Prisma.InputJsonValue,
-        dedupeSeed: sellerEvents.map((event) => String(event.eqLogId)).join(',')
-      })
-    ),
-    ...[...itemLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.item.trade_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
-      })
-    ),
-    ...[...characterLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.character.trade_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
-      })
-    ),
-    ...[...traderLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.trader.trade_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
-      })
-    ),
-    ...[...priceRuleLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.item.price_rule_triggered',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: events.map((event) => String(event.eqLogId)).join(',')
+        eventKey: bucket.eventKey,
+        payload: { lines: bucket.lines } as Prisma.InputJsonValue,
+        dedupeSeed: tradeDedupeSeed,
+        providers: [bucket.provider]
       })
     )
   ]);
@@ -420,6 +740,13 @@ function buildListingFingerprint(listing: ListingSnapshot): string {
     listing.slotId,
     listing.charges ?? 'na'
   ].join(':');
+}
+
+function buildListingNotificationFingerprint(
+  listing: ListingSnapshot,
+  previousPrice?: number | null
+): string {
+  return `${buildListingFingerprint(listing)}:${previousPrice ?? 'na'}:${listing.price}`;
 }
 
 function getRankedStatuses(listings: ListingSnapshot[]): Map<string, ListingRankStatus> {
@@ -473,12 +800,15 @@ export async function processMarketListingNotifications(options: {
       }
     }
   });
-
-  const itemLinesByUser = new Map<string, string[]>();
-  const characterLinesByUser = new Map<string, string[]>();
-  const traderListingLinesByUser = new Map<string, string[]>();
-  const traderUndercutLinesByUser = new Map<string, string[]>();
-  const itemPriceRuleLinesByUser = new Map<string, string[]>();
+  const relevantUserIds = [...new Set(favoriteItems.map((favorite) => favorite.userId))];
+  const enabledProvidersMatrix = await buildEnabledProvidersMatrix(relevantUserIds, [
+    'market.item.listing_activity',
+    'market.item.price_rule_triggered',
+    'market.character.listing_activity',
+    'market.trader.listing_activity',
+    'market.trader.undercut'
+  ]);
+  const candidatesByUser = new Map<string, Map<string, NotificationCandidate[]>>();
 
   for (const favorite of favoriteItems) {
     const settings = normalizeMarketFavoriteNotificationSettings(favorite);
@@ -493,24 +823,28 @@ export async function processMarketListingNotifications(options: {
         }
 
         const previous = previousByFingerprint.get(buildListingFingerprint(listing));
+        const notificationFingerprint = buildListingNotificationFingerprint(
+          listing,
+          previous?.price
+        );
         const isNewOrChanged = !previous || previous.price !== listing.price;
         if (isNewOrChanged && settings.notifyOnListingActivity !== false) {
-          const lines = itemLinesByUser.get(favorite.userId) ?? [];
-          lines.push(
-            `${buildListingChangeEmoji(previous?.price, listing.price)} ${listing.itemName} listed by ${listing.sellerCharacterName} for ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`
-          );
-          itemLinesByUser.set(favorite.userId, lines);
+          addNotificationCandidate(candidatesByUser, favorite.userId, notificationFingerprint, {
+            eventKey: 'market.item.listing_activity',
+            line: `${buildListingChangeEmoji(previous?.price, listing.price)} ${listing.itemName} listed by ${listing.sellerCharacterName} for ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`,
+            priority: LISTING_NOTIFICATION_PRIORITY['market.item.listing_activity']
+          });
         }
 
         if (
           settings.maxListingPriceCopper != null &&
           listing.price <= settings.maxListingPriceCopper
         ) {
-          const lines = itemPriceRuleLinesByUser.get(favorite.userId) ?? [];
-          lines.push(
-            `${listing.itemName} listed at ${formatCopperCurrency(listing.price)} (rule <= ${formatCopperCurrency(settings.maxListingPriceCopper)})`
-          );
-          itemPriceRuleLinesByUser.set(favorite.userId, lines);
+          addNotificationCandidate(candidatesByUser, favorite.userId, notificationFingerprint, {
+            eventKey: 'market.item.price_rule_triggered',
+            line: `${listing.itemName} listed at ${formatCopperCurrency(listing.price)} (rule <= ${formatCopperCurrency(settings.maxListingPriceCopper)})`,
+            priority: LISTING_NOTIFICATION_PRIORITY['market.item.price_rule_triggered']
+          });
         }
       }
     } else if (favorite.listType === MarketFavoriteListType.FAVORITE_CHARACTERS) {
@@ -529,9 +863,16 @@ export async function processMarketListingNotifications(options: {
 
         const previous = previousByFingerprint.get(buildListingFingerprint(listing));
         if (!previous || previous.price !== listing.price) {
-          const lines = characterLinesByUser.get(favorite.userId) ?? [];
-          lines.push(formatCharacterListingLine(favorite.characterName, listing, previous?.price));
-          characterLinesByUser.set(favorite.userId, lines);
+          addNotificationCandidate(
+            candidatesByUser,
+            favorite.userId,
+            buildListingNotificationFingerprint(listing, previous?.price),
+            {
+              eventKey: 'market.character.listing_activity',
+              line: formatCharacterListingLine(favorite.characterName, listing, previous?.price),
+              priority: LISTING_NOTIFICATION_PRIORITY['market.character.listing_activity']
+            }
+          );
         }
       }
     } else {
@@ -548,11 +889,16 @@ export async function processMarketListingNotifications(options: {
         for (const listing of relevantListings) {
           const previous = previousByFingerprint.get(buildListingFingerprint(listing));
           if (!previous || previous.price !== listing.price) {
-            const lines = traderListingLinesByUser.get(favorite.userId) ?? [];
-            lines.push(
-              `${buildListingChangeEmoji(previous?.price, listing.price)} ${favorite.characterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`
+            addNotificationCandidate(
+              candidatesByUser,
+              favorite.userId,
+              buildListingNotificationFingerprint(listing, previous?.price),
+              {
+                eventKey: 'market.trader.listing_activity',
+                line: `${buildListingChangeEmoji(previous?.price, listing.price)} ${favorite.characterName}: ${listing.itemName} at ${formatCopperCurrency(listing.price)}${formatListingPriceChange(previous?.price, listing.price)}`,
+                priority: LISTING_NOTIFICATION_PRIORITY['market.trader.listing_activity']
+              }
             );
-            traderListingLinesByUser.set(favorite.userId, lines);
           }
         }
       }
@@ -567,67 +913,37 @@ export async function processMarketListingNotifications(options: {
             continue;
           }
 
-          const lines = traderUndercutLinesByUser.get(favorite.userId) ?? [];
-          lines.push(
-            `${favorite.characterName}: ${listing.itemName} is now undercut at ${formatCopperCurrency(listing.price)}`
+          addNotificationCandidate(
+            candidatesByUser,
+            favorite.userId,
+            buildListingNotificationFingerprint(
+              listing,
+              previousByFingerprint.get(fingerprint)?.price
+            ),
+            {
+              eventKey: 'market.trader.undercut',
+              line: `${favorite.characterName}: ${listing.itemName} is now undercut at ${formatCopperCurrency(listing.price)}`,
+              priority: LISTING_NOTIFICATION_PRIORITY['market.trader.undercut']
+            }
           );
-          traderUndercutLinesByUser.set(favorite.userId, lines);
         }
       }
     }
   }
 
   const dedupeSeed = syncedAt.toISOString();
+  const notificationBuckets = finalizeNotificationBuckets(candidatesByUser, enabledProvidersMatrix);
 
   await Promise.all([
-    ...[...itemLinesByUser.entries()].map(([userId, lines]) =>
+    ...notificationBuckets.map((bucket) =>
       queueUserNotification({
-        userId,
+        userId: bucket.userId,
         scopeType: 'GLOBAL',
         scopeId: 'global',
-        eventKey: 'market.item.listing_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: `${dedupeSeed}:item-listings`
-      })
-    ),
-    ...[...characterLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.character.listing_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: `${dedupeSeed}:character-listings`
-      })
-    ),
-    ...[...traderListingLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.trader.listing_activity',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: `${dedupeSeed}:trader-listings`
-      })
-    ),
-    ...[...traderUndercutLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.trader.undercut',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: `${dedupeSeed}:trader-undercut`
-      })
-    ),
-    ...[...itemPriceRuleLinesByUser.entries()].map(([userId, lines]) =>
-      queueUserNotification({
-        userId,
-        scopeType: 'GLOBAL',
-        scopeId: 'global',
-        eventKey: 'market.item.price_rule_triggered',
-        payload: { lines } as Prisma.InputJsonValue,
-        dedupeSeed: `${dedupeSeed}:item-price-rules`
+        eventKey: bucket.eventKey,
+        payload: { lines: bucket.lines } as Prisma.InputJsonValue,
+        dedupeSeed: dedupeSeed,
+        providers: [bucket.provider]
       })
     )
   ]);
