@@ -1,14 +1,15 @@
 import { MarketFavoriteListType, Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
+import type { MarketFavoriteNotificationSettings } from './notificationConstants.js';
 
 import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { getItemIconId } from './eqItemService.js';
+import { getMarketListingsPage, type MarketListingsPage } from './marketListingsService.js';
 import {
   normalizeMarketFavoriteNotificationSettings,
   processMarketSaleNotifications
 } from './marketNotificationService.js';
-import type { MarketFavoriteNotificationSettings } from './notificationConstants.js';
 
 const TRADER_PURCHASE_EVENT_TYPE_ID = 38;
 const TRADER_SELL_EVENT_TYPE_ID = 39;
@@ -256,6 +257,16 @@ export interface MarketItemActivity {
   rangeDays: number | null;
   buyers: MarketItemActivityPage;
   sellers: MarketItemActivityPage;
+}
+
+export interface PublicMarketItemData {
+  itemId: number;
+  rangeDays: number;
+  hasMarketData: boolean;
+  hasSalesHistory: boolean;
+  hasActiveListings: boolean;
+  history: MarketItemHistory | null;
+  listings: MarketListingsPage;
 }
 
 export interface MarketCharacterSearchResult {
@@ -2546,4 +2557,46 @@ export async function getMarketItemActivity(options: {
 
     throw error;
   }
+}
+
+export async function getPublicMarketItemData(options: {
+  itemId: number;
+  rangeDays?: number;
+  pointLimit?: number;
+  listingLimit?: number;
+}): Promise<PublicMarketItemData> {
+  const {
+    itemId,
+    rangeDays = 180,
+    pointLimit = 120,
+    listingLimit = 10
+  } = options;
+
+  const [history, listings] = await Promise.all([
+    getMarketItemHistory({
+      itemId,
+      rangeDays,
+      pointLimit
+    }),
+    getMarketListingsPage({
+      itemId,
+      page: 1,
+      pageSize: listingLimit,
+      sortBy: 'price',
+      sortOrder: 'asc'
+    })
+  ]);
+
+  const hasSalesHistory = history != null;
+  const hasActiveListings = listings.listings.length > 0;
+
+  return {
+    itemId,
+    rangeDays,
+    hasMarketData: hasSalesHistory || hasActiveListings,
+    hasSalesHistory,
+    hasActiveListings,
+    history,
+    listings
+  };
 }

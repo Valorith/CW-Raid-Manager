@@ -3,16 +3,17 @@ import { z } from 'zod';
 
 import { EQEMU_ITEM_SLOT_IDS, EQEMU_ITEM_TYPE_VALUES } from '../data/eqItemFilters.js';
 import { authenticate } from '../middleware/authenticate.js';
+import { createIpRateLimitPreHandler } from '../middleware/rateLimit.js';
+import {
+  ensureMarketListingsFresh,
+  getMarketListingsPage
+} from '../services/marketListingsService.js';
 import {
   listMarketPriceWizardTraderFiles,
   pickMarketPriceWizardDirectory,
   readMarketPriceWizardTraderFile,
   saveMarketPriceWizardTraderFile
 } from '../services/marketPriceWizardFileService.js';
-import {
-  ensureMarketListingsFresh,
-  getMarketListingsPage
-} from '../services/marketListingsService.js';
 import { getMarketPriceWizardRecommendations } from '../services/marketPriceWizardService.js';
 import {
   addMarketFavoriteCharacter,
@@ -21,6 +22,7 @@ import {
   getMarketFavorites,
   getMarketCharacterHistoryPage,
   getMarketItemActivity,
+  getPublicMarketItemData,
   getMarketItemHistory,
   getMarketRecentSalesPage,
   getMarketSummary,
@@ -35,6 +37,70 @@ import { searchDiscoveredItems } from '../services/npcRespawnService.js';
 export async function marketRoutes(server: FastifyInstance): Promise<void> {
   const itemTypeValues = new Set<number>(EQEMU_ITEM_TYPE_VALUES);
   const itemSlotIds = new Set<number>(EQEMU_ITEM_SLOT_IDS);
+  const publicMarketItemRateLimit = createIpRateLimitPreHandler({
+    key: 'market-public-item',
+    maxRequests: 60,
+    windowMs: 60_000
+  });
+  const applyPublicMarketCors = (reply: { header: (name: string, value: string) => void }) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', 'Content-Type');
+  };
+
+  server.options('/public/items/:itemId', async (_request, reply) => {
+    applyPublicMarketCors(reply);
+    return reply.code(204).send();
+  });
+
+  server.get(
+    '/public/items/:itemId',
+    {
+      preHandler: [publicMarketItemRateLimit]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        itemId: z.coerce.number().int().positive()
+      });
+      const querySchema = z.object({
+        days: z.coerce.number().int().min(1).max(3650).default(180),
+        pointLimit: z.coerce.number().int().min(20).max(300).default(120),
+        listingLimit: z.coerce.number().int().min(1).max(25).default(10)
+      });
+
+      const parsedParams = paramsSchema.safeParse(request.params);
+      if (!parsedParams.success) {
+        return reply.badRequest('Invalid item ID.');
+      }
+
+      const parsedQuery = querySchema.safeParse(request.query ?? {});
+      if (!parsedQuery.success) {
+        return reply.badRequest(parsedQuery.error.issues[0]?.message ?? 'Invalid query parameters.');
+      }
+
+      try {
+        await ensureMarketListingsFresh({ logger: request.log });
+
+        const marketData = await getPublicMarketItemData({
+          itemId: parsedParams.data.itemId,
+          rangeDays: parsedQuery.data.days,
+          pointLimit: parsedQuery.data.pointLimit,
+          listingLimit: parsedQuery.data.listingLimit
+        });
+
+        applyPublicMarketCors(reply);
+        reply.header('Cache-Control', 'public, max-age=60');
+
+        return {
+          ...marketData,
+          message: marketData.hasMarketData ? null : 'No market data found for this item.'
+        };
+      } catch (error) {
+        request.log.error({ error }, 'Failed to fetch public market item data.');
+        return reply.internalServerError('Unable to fetch market item data.');
+      }
+    }
+  );
 
   server.get(
     '/listings',
