@@ -4383,7 +4383,7 @@ onBeforeUnmount(() => {
   box-shadow: 0 32px 80px rgba(2, 6, 23, 0.48);
 }
 .market-modal--character {
-  width: min(1080px, calc(100vw - 2rem));
+  width: min(1360px, calc(100vw - 2rem));
 }
 .market-modal__header {
   display: flex;
