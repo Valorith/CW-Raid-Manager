@@ -558,7 +558,11 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        const summary = await getMarketSummary(parsed.data.days, parsed.data.topItemsSort);
+        const summary = await getMarketSummary(
+          parsed.data.days,
+          parsed.data.topItemsSort,
+          request.user.userId
+        );
         return { summary };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch market summary.');

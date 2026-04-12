@@ -171,6 +171,7 @@ export interface MarketSummary {
   lastSaleAt: string | null;
   syncStatus: MarketSyncStatus;
   dailyActivity: MarketDailyActivityPoint[];
+  myTraderDailyActivity: MarketDailyActivityPoint[];
   topItems: MarketTopItem[];
   recentSales: MarketRecentSale[];
 }
@@ -463,9 +464,59 @@ function createEmptyMarketSummary(
     lastSaleAt: null,
     syncStatus,
     dailyActivity: [],
+    myTraderDailyActivity: [],
     topItems: [],
     recentSales: []
   };
+}
+
+async function getMyTraderDailyActivity(
+  userId: string,
+  occurredAtRange: Prisma.DateTimeFilter | undefined
+): Promise<MarketDailyActivityPoint[]> {
+  const trackedTraders = await prisma.marketFavorite.findMany({
+    where: {
+      userId,
+      listType: MarketFavoriteListType.MY_TRADERS
+    },
+    select: {
+      characterName: true
+    }
+  });
+
+  const trackedTraderKeys = Array.from(
+    new Set(
+      trackedTraders
+        .map((favorite) => normalizeCharacterNameKey(favorite.characterName))
+        .filter(Boolean)
+    )
+  );
+
+  if (trackedTraderKeys.length === 0) {
+    return [];
+  }
+
+  const rangeFilterSql = occurredAtRange ? Prisma.sql`AND occurredAt >= ${occurredAtRange.gte}` : Prisma.empty;
+  const dailyActivityRaw = await prisma.$queryRaw<DailyActivityRow[]>(Prisma.sql`
+    SELECT
+      DATE(occurredAt) as saleDate,
+      COUNT(*) as salesCount,
+      COALESCE(SUM(quantity), 0) as unitsSold,
+      COALESCE(SUM(totalCost), 0) as totalRevenue
+    FROM MarketSaleEvent
+    WHERE eventType = ${SELLER_EVENT_TYPE}
+      AND LOWER(actorCharacterName) IN (${Prisma.join(trackedTraderKeys)})
+      ${rangeFilterSql}
+    GROUP BY DATE(occurredAt)
+    ORDER BY saleDate ASC
+  `);
+
+  return dailyActivityRaw.map((row) => ({
+    saleDate: serializeSqlDate(row.saleDate),
+    salesCount: toNumber(row.salesCount),
+    unitsSold: toNumber(row.unitsSold),
+    totalRevenue: toNumber(row.totalRevenue)
+  }));
 }
 
 function buildMarketFavoriteItemKey(itemId: number | null | undefined, itemName: string): string {
@@ -1734,7 +1785,8 @@ export async function ensureMarketSalesFresh(
 
 export async function getMarketSummary(
   rangeDays: number | null = null,
-  topItemsSort: MarketTopItemsSort = 'quantity'
+  topItemsSort: MarketTopItemsSort = 'quantity',
+  userId?: string
 ): Promise<MarketSummary> {
   const occurredAtRange = buildOccurredAtRange(rangeDays);
   const where: Prisma.MarketSaleEventWhereInput = {
@@ -1750,7 +1802,15 @@ export async function getMarketSummary(
       : Prisma.sql`unitsSold DESC, salesCount DESC, totalRevenue DESC, lastSoldAt DESC`;
 
   try {
-    const [aggregate, topItemsRaw, dailyActivityRaw, recentSales, syncStatus, uniqueItems] =
+    const [
+      aggregate,
+      topItemsRaw,
+      dailyActivityRaw,
+      myTraderDailyActivity,
+      recentSales,
+      syncStatus,
+      uniqueItems
+    ] =
       await Promise.all([
         prisma.marketSaleEvent.aggregate({
           where,
@@ -1788,6 +1848,7 @@ export async function getMarketSummary(
         GROUP BY DATE(occurredAt)
         ORDER BY saleDate ASC
       `),
+        userId ? getMyTraderDailyActivity(userId, occurredAtRange) : Promise.resolve([]),
         fetchRecentSales(occurredAtRange ? { occurredAt: occurredAtRange } : {}, 14),
         getMarketSyncStatus(),
         prisma.marketSaleEvent.groupBy({
@@ -1811,6 +1872,7 @@ export async function getMarketSummary(
         unitsSold: toNumber(row.unitsSold),
         totalRevenue: toNumber(row.totalRevenue)
       })),
+      myTraderDailyActivity,
       topItems: topItemsRaw.map((row) => ({
         itemId: row.itemId,
         itemName: row.itemName,

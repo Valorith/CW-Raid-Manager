@@ -2330,6 +2330,14 @@ function buildCenteredPriceScaleBounds(values: number[]) {
 
 const overallChartData = computed(() => {
   if (!summary.value?.dailyActivity.length) return null;
+  const myTraderRevenueByDate = new Map(
+    (summary.value.myTraderDailyActivity ?? []).map((point) => [
+      point.saleDate,
+      Number((point.totalRevenue / 1000).toFixed(1))
+    ])
+  );
+  const hasMyTraderRevenue = Array.from(myTraderRevenueByDate.values()).some((value) => value > 0);
+
   return {
     labels: summary.value.dailyActivity.map((point) => buildDateLabel(point.saleDate)),
     datasets: [
@@ -2343,6 +2351,24 @@ const overallChartData = computed(() => {
         fill: true,
         yAxisID: 'revenue'
       },
+      ...(hasMyTraderRevenue
+        ? [
+            {
+              label: 'My Trader Sales (pp)',
+              data: summary.value.dailyActivity.map(
+                (point) => myTraderRevenueByDate.get(point.saleDate) ?? 0
+              ),
+              borderColor: '#22c55e',
+              backgroundColor: 'rgba(34, 197, 94, 0.16)',
+              borderWidth: 4,
+              pointRadius: 0,
+              pointHoverRadius: 5,
+              tension: 0.22,
+              fill: false,
+              yAxisID: 'revenue'
+            }
+          ]
+        : []),
       {
         label: 'Units Sold',
         data: summary.value.dailyActivity.map((point) => point.unitsSold),

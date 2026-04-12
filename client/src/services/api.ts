@@ -1853,6 +1853,7 @@ export interface MarketSummary {
   lastSaleAt: string | null;
   syncStatus: MarketSyncStatus;
   dailyActivity: MarketDailyActivityPoint[];
+  myTraderDailyActivity: MarketDailyActivityPoint[];
   topItems: MarketTopItem[];
   recentSales: MarketRecentSale[];
 }
