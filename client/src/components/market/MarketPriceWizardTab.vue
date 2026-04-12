@@ -428,7 +428,7 @@
             </svg>
           </div>
           <div class="wizard-save-modal__hero-copy">
-            <p class="wizard-save-modal__eyebrow">Confirm Save</p>
+            <p class="wizard-save-modal__eyebrow">{{ saveConfirmEyebrow }}</p>
             <h3 id="wizard-save-modal-title">{{ saveConfirmTitle }}</h3>
             <p class="wizard-save-modal__description">
               {{ saveConfirmDescription }}
@@ -444,7 +444,7 @@
             </strong>
           </div>
           <div class="wizard-save-stat wizard-save-stat--accent">
-            <span class="wizard-save-stat__label">Edits To Save</span>
+            <span class="wizard-save-stat__label">{{ saveConfirmCountLabel }}</span>
             <strong class="wizard-save-stat__value">
               {{ formatNumber(saveConfirmEditedCount) }}
             </strong>
@@ -452,7 +452,7 @@
         </div>
 
         <div class="wizard-save-modal__note">
-          Only modified rows will be written back into the loaded INI. Unchanged entries stay as-is.
+          {{ saveConfirmNote }}
         </div>
 
         <div class="wizard-save-modal__actions">
@@ -460,7 +460,7 @@
             Cancel
           </button>
           <button type="button" class="btn wizard-save-modal__confirm" @click="resolveSaveConfirmation(true)">
-            Save Changes
+            {{ saveConfirmButtonLabel }}
           </button>
         </div>
       </div>
@@ -598,9 +598,15 @@ const scrollTop = ref(0);
 const viewportHeight = ref(700);
 const saveConfirmVisible = ref(false);
 const saveConfirmTitle = ref('Save Price File');
+const saveConfirmEyebrow = ref('Confirm Save');
 const saveConfirmDescription = ref('');
 const saveConfirmTargetFileName = ref('');
 const saveConfirmEditedCount = ref(0);
+const saveConfirmCountLabel = ref('Edits To Save');
+const saveConfirmNote = ref(
+  'Only modified rows will be written back into the loaded INI. Unchanged entries stay as-is.'
+);
+const saveConfirmButtonLabel = ref('Save Changes');
 
 let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let resizeObserver: ResizeObserver | undefined;
@@ -1160,13 +1166,41 @@ function showSaveConfirmation(options: {
   targetFileName: string;
   editedCount: number;
 }) {
+  saveConfirmEyebrow.value = 'Confirm Save';
   saveConfirmTitle.value = `Overwrite ${options.targetFileName}?`;
   saveConfirmTargetFileName.value = options.targetFileName;
   saveConfirmEditedCount.value = options.editedCount;
+  saveConfirmCountLabel.value = 'Edits To Save';
   saveConfirmDescription.value =
     options.editedCount === 1
       ? 'One edited price will be written back to the loaded INI file.'
       : `${formatNumber(options.editedCount)} edited prices will be written back to the loaded INI file.`;
+  saveConfirmNote.value =
+    'Only modified rows will be written back into the loaded INI. Unchanged entries stay as-is.';
+  saveConfirmButtonLabel.value = 'Save Changes';
+  saveConfirmVisible.value = true;
+
+  return new Promise<boolean>((resolve) => {
+    saveConfirmResolver = resolve;
+  });
+}
+
+function showReloadConfirmation(options: {
+  targetFileName: string;
+  editedCount: number;
+}) {
+  saveConfirmEyebrow.value = 'Confirm Reload';
+  saveConfirmTitle.value = `Reload ${options.targetFileName}?`;
+  saveConfirmTargetFileName.value = options.targetFileName;
+  saveConfirmEditedCount.value = options.editedCount;
+  saveConfirmCountLabel.value = 'Unsaved Edits';
+  saveConfirmDescription.value =
+    options.editedCount === 1
+      ? 'One unsaved price change will be discarded and replaced with the latest INI contents.'
+      : `${formatNumber(options.editedCount)} unsaved price changes will be discarded and replaced with the latest INI contents.`;
+  saveConfirmNote.value =
+    'Reload reads the current INI file from disk and rebuilds the wizard rows and recommendations.';
+  saveConfirmButtonLabel.value = 'Reload From INI';
   saveConfirmVisible.value = true;
 
   return new Promise<boolean>((resolve) => {
@@ -1177,9 +1211,14 @@ function showSaveConfirmation(options: {
 function resolveSaveConfirmation(confirmed: boolean) {
   saveConfirmVisible.value = false;
   saveConfirmTitle.value = 'Save Price File';
+  saveConfirmEyebrow.value = 'Confirm Save';
   saveConfirmDescription.value = '';
   saveConfirmTargetFileName.value = '';
   saveConfirmEditedCount.value = 0;
+  saveConfirmCountLabel.value = 'Edits To Save';
+  saveConfirmNote.value =
+    'Only modified rows will be written back into the loaded INI. Unchanged entries stay as-is.';
+  saveConfirmButtonLabel.value = 'Save Changes';
   const resolver = saveConfirmResolver;
   saveConfirmResolver = null;
   resolver?.(confirmed);
@@ -1525,6 +1564,59 @@ async function fetchRecommendationsForEntries(targetEntries: PriceWizardEntry[])
 }
 
 async function refreshRecommendations() {
+  if (saveConfirmVisible.value) {
+    return;
+  }
+
+  const activeHandle = activeFileHandle.value;
+  const linkedTraderPath = selectedTraderIniFileName.value;
+  const editedCount = editedEntryCount.value;
+
+  if (activeHandle || linkedTraderPath) {
+    if (editedCount > 0) {
+      const targetFileName = activeHandle?.name ?? getFileNameFromRelativePath(linkedTraderPath);
+      const confirmed = await showReloadConfirmation({
+        targetFileName,
+        editedCount
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    if (activeHandle) {
+      recommendationsLoading.value = true;
+      try {
+        const hasReadPermission = await requestHandlePermission(
+          activeHandle as PermissionCapableHandle,
+          'read'
+        );
+        if (!hasReadPermission) {
+          throw new Error(`Read access to ${activeHandle.name} was not granted.`);
+        }
+
+        const canOverwrite = await requestHandlePermission(
+          activeHandle as PermissionCapableHandle,
+          'readwrite'
+        ).catch(() => false);
+        const file = await activeHandle.getFile();
+        await loadIniFile(file, {
+          fileHandle: activeHandle,
+          canOverwriteLoadedFile: canOverwrite
+        });
+        return;
+      } catch (error) {
+        showErrorFromException(error, `Unable to reload ${activeHandle.name} from disk.`);
+        return;
+      } finally {
+        recommendationsLoading.value = false;
+      }
+    }
+
+    await loadLinkedTraderIni(linkedTraderPath);
+    return;
+  }
+
   await fetchRecommendationsForEntries(entries.value);
 }
 
