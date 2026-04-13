@@ -156,6 +156,61 @@ export interface PlayerEventLogStats {
   };
 }
 
+export type ConnectionRelationshipOverlayType =
+  | 'trade'
+  | 'bazaar'
+  | 'group'
+  | 'raid'
+  | 'rez'
+  | 'give'
+  | 'money';
+
+export type ConnectionActivityIndicatorType =
+  | 'kill'
+  | 'loot'
+  | 'death'
+  | 'task'
+  | 'level'
+  | 'zone'
+  | 'craft'
+  | 'handin'
+  | 'discovery'
+  | 'merchant';
+
+export interface ConnectionOverlayParticipant {
+  characterId: number;
+  characterName: string;
+}
+
+export interface ConnectionRelationshipOverlay {
+  id: string;
+  type: ConnectionRelationshipOverlayType;
+  sourceCharacterId: number;
+  sourceCharacterName: string;
+  targetCharacterId: number;
+  targetCharacterName: string;
+  count: number;
+  strength: number;
+  label: string;
+  lastSeenAt: string;
+}
+
+export interface ConnectionActivityIndicator {
+  characterId: number;
+  type: ConnectionActivityIndicatorType;
+  count: number;
+  intensity: 'low' | 'medium' | 'high';
+  label: string;
+  lastSeenAt: string;
+}
+
+export interface ConnectionEventOverlaySnapshot {
+  relationshipOverlays: ConnectionRelationshipOverlay[];
+  activityIndicators: ConnectionActivityIndicator[];
+  windowHours: number;
+  generatedAt: string;
+}
+
 type EventLogRow = RowDataPacket & {
   id: number;
   account_id: number;
@@ -168,6 +223,33 @@ type EventLogRow = RowDataPacket & {
   event_data: string | null;
   created_at: string;
 };
+
+type EventOverlayRow = RowDataPacket & {
+  id: number;
+  character_id: number;
+  event_type_id: number;
+  event_data: string | null;
+  created_at: string;
+};
+
+type ConnectedCharacterLookup = {
+  byId: Map<number, ConnectionOverlayParticipant>;
+  byName: Map<string, ConnectionOverlayParticipant>;
+};
+
+type RelationshipOverlayAccumulator = ConnectionRelationshipOverlay;
+
+type ActivityIndicatorAccumulator = Omit<ConnectionActivityIndicator, 'intensity'>;
+
+const DEFAULT_CONNECTION_OVERLAY_WINDOW_HOURS = 6;
+
+const RELATIONSHIP_EVENT_TYPES = [17, 18, 19, 20, 27, 28, 30, 35, 39] as const;
+const ACTIVITY_EVENT_TYPES = [
+  2, 12, 13, 14, 15, 16, 22, 24, 25, 26, 31, 32, 33, 38, 39, 42, 44, 45, 46, 47
+] as const;
+const CONNECTION_OVERLAY_EVENT_TYPES = Array.from(
+  new Set<number>([...RELATIONSHIP_EVENT_TYPES, ...ACTIVITY_EVENT_TYPES])
+);
 
 // Cache for zone schema discovery
 let zoneSchemaCache: {
@@ -209,7 +291,7 @@ async function getTableColumns(tableName: string): Promise<string[]> {
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
       [tableName]
     );
-    return rows.map(r => String(r.col).toLowerCase());
+    return rows.map((r) => String(r.col).toLowerCase());
   } catch {
     return [];
   }
@@ -222,15 +304,20 @@ async function discoverZoneSchema(): Promise<typeof zoneSchemaCache> {
 
   const columns = await getTableColumns('zone');
   if (columns.length === 0) {
-    zoneSchemaCache = { exists: false, idColumn: null, longNameColumn: null, hasVersionColumn: false };
+    zoneSchemaCache = {
+      exists: false,
+      idColumn: null,
+      longNameColumn: null,
+      hasVersionColumn: false
+    };
     return zoneSchemaCache;
   }
 
   const idCandidates = ['zoneidnumber', 'id', 'zoneid', 'zone_id'];
-  const idColumn = idCandidates.find(c => columns.includes(c)) || null;
+  const idColumn = idCandidates.find((c) => columns.includes(c)) || null;
 
   const longNameCandidates = ['long_name', 'longname', 'long'];
-  const longNameColumn = longNameCandidates.find(c => columns.includes(c)) || null;
+  const longNameColumn = longNameCandidates.find((c) => columns.includes(c)) || null;
 
   // Check if version column exists (zone table often has multiple entries per zone for different versions)
   const hasVersionColumn = columns.includes('version');
@@ -256,10 +343,10 @@ async function discoverCharacterSchema(): Promise<typeof characterSchemaCache> {
   }
 
   const idCandidates = ['id', 'charid', 'character_id'];
-  const idColumn = idCandidates.find(c => columns.includes(c)) || null;
+  const idColumn = idCandidates.find((c) => columns.includes(c)) || null;
 
   const nameCandidates = ['name', 'character_name', 'charname'];
-  const nameColumn = nameCandidates.find(c => columns.includes(c)) || null;
+  const nameColumn = nameCandidates.find((c) => columns.includes(c)) || null;
 
   characterSchemaCache = {
     exists: true,
@@ -267,6 +354,554 @@ async function discoverCharacterSchema(): Promise<typeof characterSchemaCache> {
     nameColumn
   };
   return characterSchemaCache;
+}
+
+function normalizeCharacterName(name: string | null | undefined): string {
+  return String(name || '')
+    .trim()
+    .toLowerCase();
+}
+
+function parseEventData(eventData: string | null): Record<string, unknown> | null {
+  if (!eventData) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(eventData);
+  } catch {
+    return null;
+  }
+}
+
+function buildConnectedCharacterLookup(
+  participants: ConnectionOverlayParticipant[]
+): ConnectedCharacterLookup {
+  const byId = new Map<number, ConnectionOverlayParticipant>();
+  const byName = new Map<string, ConnectionOverlayParticipant>();
+
+  for (const participant of participants) {
+    byId.set(participant.characterId, participant);
+    const normalizedName = normalizeCharacterName(participant.characterName);
+    if (normalizedName && !byName.has(normalizedName)) {
+      byName.set(normalizedName, participant);
+    }
+  }
+
+  return { byId, byName };
+}
+
+function resolveConnectedParticipant(
+  lookup: ConnectedCharacterLookup,
+  candidateName: unknown,
+  candidateId?: unknown
+): ConnectionOverlayParticipant | null {
+  const numericCandidateId =
+    typeof candidateId === 'number'
+      ? candidateId
+      : typeof candidateId === 'string' && /^\d+$/.test(candidateId)
+        ? Number(candidateId)
+        : null;
+
+  if (numericCandidateId !== null) {
+    const byIdMatch = lookup.byId.get(numericCandidateId);
+    if (byIdMatch) {
+      return byIdMatch;
+    }
+  }
+
+  if (typeof candidateName !== 'string') {
+    return null;
+  }
+
+  return lookup.byName.get(normalizeCharacterName(candidateName)) ?? null;
+}
+
+function createRelationshipKey(
+  type: ConnectionRelationshipOverlayType,
+  sourceCharacterId: number,
+  targetCharacterId: number,
+  symmetric: boolean
+): string {
+  if (!symmetric) {
+    return `${type}:${sourceCharacterId}:${targetCharacterId}`;
+  }
+
+  const [first, second] = [sourceCharacterId, targetCharacterId].sort((a, b) => a - b);
+  return `${type}:${first}:${second}`;
+}
+
+function updateRelationshipOverlay(
+  relationshipMap: Map<string, RelationshipOverlayAccumulator>,
+  nextOverlay: Omit<ConnectionRelationshipOverlay, 'count' | 'strength'>
+): void {
+  const existing = relationshipMap.get(nextOverlay.id);
+  if (!existing) {
+    relationshipMap.set(nextOverlay.id, {
+      ...nextOverlay,
+      count: 1,
+      strength: 1
+    });
+    return;
+  }
+
+  existing.count += 1;
+  existing.strength += 1;
+  if (new Date(nextOverlay.lastSeenAt) >= new Date(existing.lastSeenAt)) {
+    existing.lastSeenAt = nextOverlay.lastSeenAt;
+    existing.label = nextOverlay.label;
+    existing.sourceCharacterName = nextOverlay.sourceCharacterName;
+    existing.targetCharacterName = nextOverlay.targetCharacterName;
+  }
+}
+
+function updateActivityIndicator(
+  activityMap: Map<string, ActivityIndicatorAccumulator>,
+  characterId: number,
+  type: ConnectionActivityIndicatorType,
+  label: string,
+  lastSeenAt: string
+): void {
+  const key = `${characterId}:${type}`;
+  const existing = activityMap.get(key);
+  if (!existing) {
+    activityMap.set(key, {
+      characterId,
+      type,
+      count: 1,
+      label,
+      lastSeenAt
+    });
+    return;
+  }
+
+  existing.count += 1;
+  if (new Date(lastSeenAt) >= new Date(existing.lastSeenAt)) {
+    existing.lastSeenAt = lastSeenAt;
+    existing.label = label;
+  }
+}
+
+function formatIndicatorIntensity(count: number): ConnectionActivityIndicator['intensity'] {
+  if (count >= 4) {
+    return 'high';
+  }
+  if (count >= 2) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function buildTradeLabel(eventData: Record<string, unknown> | null): string {
+  if (!eventData) {
+    return 'Trade exchange';
+  }
+
+  const firstItems = Array.isArray(eventData.character_1_give_items)
+    ? eventData.character_1_give_items.length
+    : 0;
+  const secondItems = Array.isArray(eventData.character_2_give_items)
+    ? eventData.character_2_give_items.length
+    : 0;
+  const fallbackItems = Array.isArray(eventData.items) ? eventData.items.length : 0;
+  const totalItems = firstItems + secondItems + fallbackItems;
+  if (totalItems > 0) {
+    return `Trade: ${totalItems} item${totalItems === 1 ? '' : 's'}`;
+  }
+  if (eventData.character_1_give_money || eventData.character_2_give_money || eventData.money) {
+    return 'Trade: coin exchange';
+  }
+  return 'Trade exchange';
+}
+
+function buildRelationshipOverlay(
+  row: EventOverlayRow,
+  eventData: Record<string, unknown> | null,
+  lookup: ConnectedCharacterLookup
+): Omit<ConnectionRelationshipOverlay, 'count' | 'strength'> | null {
+  const sourceParticipant = lookup.byId.get(row.character_id);
+  if (!sourceParticipant) {
+    return null;
+  }
+
+  switch (row.event_type_id) {
+    case 27: {
+      const firstParticipant =
+        resolveConnectedParticipant(
+          lookup,
+          eventData?.character_1_name,
+          eventData?.character_1_id
+        ) ?? sourceParticipant;
+      const secondParticipant =
+        resolveConnectedParticipant(
+          lookup,
+          eventData?.character_2_name,
+          eventData?.character_2_id
+        ) ??
+        resolveConnectedParticipant(lookup, eventData?.with ?? eventData?.target) ??
+        null;
+      if (!secondParticipant || firstParticipant.characterId === secondParticipant.characterId) {
+        return null;
+      }
+
+      const [first, second] =
+        firstParticipant.characterId < secondParticipant.characterId
+          ? [firstParticipant, secondParticipant]
+          : [secondParticipant, firstParticipant];
+
+      return {
+        id: createRelationshipKey('trade', first.characterId, second.characterId, true),
+        type: 'trade',
+        sourceCharacterId: first.characterId,
+        sourceCharacterName: first.characterName,
+        targetCharacterId: second.characterId,
+        targetCharacterName: second.characterName,
+        label: buildTradeLabel(eventData),
+        lastSeenAt: row.created_at
+      };
+    }
+    case 28: {
+      const targetParticipant = resolveConnectedParticipant(
+        lookup,
+        eventData?.target_name ?? eventData?.target ?? eventData?.with,
+        eventData?.target_id
+      );
+      if (!targetParticipant || targetParticipant.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      const itemName =
+        typeof eventData?.item_name === 'string'
+          ? eventData.item_name
+          : typeof eventData?.item === 'string'
+            ? eventData.item
+            : null;
+
+      return {
+        id: createRelationshipKey(
+          'give',
+          sourceParticipant.characterId,
+          targetParticipant.characterId,
+          false
+        ),
+        type: 'give',
+        sourceCharacterId: sourceParticipant.characterId,
+        sourceCharacterName: sourceParticipant.characterName,
+        targetCharacterId: targetParticipant.characterId,
+        targetCharacterName: targetParticipant.characterName,
+        label: itemName ? `Gave ${itemName}` : 'Gave item',
+        lastSeenAt: row.created_at
+      };
+    }
+    case 30: {
+      const rezzer = resolveConnectedParticipant(
+        lookup,
+        eventData?.resurrecter_name ?? eventData?.rezzer ?? eventData?.from,
+        eventData?.resurrecter_id ?? eventData?.rezzer_id
+      );
+      if (!rezzer || rezzer.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      const spellName = typeof eventData?.spell_name === 'string' ? eventData.spell_name : null;
+      return {
+        id: createRelationshipKey('rez', rezzer.characterId, sourceParticipant.characterId, false),
+        type: 'rez',
+        sourceCharacterId: rezzer.characterId,
+        sourceCharacterName: rezzer.characterName,
+        targetCharacterId: sourceParticipant.characterId,
+        targetCharacterName: sourceParticipant.characterName,
+        label: spellName ? `Rez: ${spellName}` : 'Resurrection',
+        lastSeenAt: row.created_at
+      };
+    }
+    case 35: {
+      const targetParticipant = resolveConnectedParticipant(
+        lookup,
+        eventData?.target_name ?? eventData?.target ?? eventData?.with,
+        eventData?.target_id
+      );
+      if (!targetParticipant || targetParticipant.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      return {
+        id: createRelationshipKey(
+          'money',
+          sourceParticipant.characterId,
+          targetParticipant.characterId,
+          false
+        ),
+        type: 'money',
+        sourceCharacterId: sourceParticipant.characterId,
+        sourceCharacterName: sourceParticipant.characterName,
+        targetCharacterId: targetParticipant.characterId,
+        targetCharacterName: targetParticipant.characterName,
+        label: 'Split coin',
+        lastSeenAt: row.created_at
+      };
+    }
+    case 39: {
+      const buyer = resolveConnectedParticipant(lookup, eventData?.buyer_name, eventData?.buyer_id);
+      if (!buyer || buyer.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      const itemName = typeof eventData?.item_name === 'string' ? eventData.item_name : null;
+      return {
+        id: createRelationshipKey(
+          'bazaar',
+          sourceParticipant.characterId,
+          buyer.characterId,
+          false
+        ),
+        type: 'bazaar',
+        sourceCharacterId: sourceParticipant.characterId,
+        sourceCharacterName: sourceParticipant.characterName,
+        targetCharacterId: buyer.characterId,
+        targetCharacterName: buyer.characterName,
+        label: itemName ? `Sold ${itemName}` : 'Bazaar sale',
+        lastSeenAt: row.created_at
+      };
+    }
+    case 17:
+    case 18: {
+      const leader = resolveConnectedParticipant(
+        lookup,
+        eventData?.leader ?? eventData?.group_leader,
+        eventData?.leader_id ?? eventData?.group_leader_id
+      );
+      if (!leader || leader.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      return {
+        id: createRelationshipKey(
+          'group',
+          sourceParticipant.characterId,
+          leader.characterId,
+          false
+        ),
+        type: 'group',
+        sourceCharacterId: sourceParticipant.characterId,
+        sourceCharacterName: sourceParticipant.characterName,
+        targetCharacterId: leader.characterId,
+        targetCharacterName: leader.characterName,
+        label: row.event_type_id === 17 ? 'Joined group' : 'Left group',
+        lastSeenAt: row.created_at
+      };
+    }
+    case 19:
+    case 20: {
+      const leader = resolveConnectedParticipant(
+        lookup,
+        eventData?.leader ?? eventData?.group_leader,
+        eventData?.leader_id ?? eventData?.group_leader_id
+      );
+      if (!leader || leader.characterId === sourceParticipant.characterId) {
+        return null;
+      }
+
+      return {
+        id: createRelationshipKey('raid', sourceParticipant.characterId, leader.characterId, false),
+        type: 'raid',
+        sourceCharacterId: sourceParticipant.characterId,
+        sourceCharacterName: sourceParticipant.characterName,
+        targetCharacterId: leader.characterId,
+        targetCharacterName: leader.characterName,
+        label: row.event_type_id === 19 ? 'Joined raid' : 'Left raid',
+        lastSeenAt: row.created_at
+      };
+    }
+    default:
+      return null;
+  }
+}
+
+function buildActivityDescriptor(
+  row: EventOverlayRow,
+  eventData: Record<string, unknown> | null
+): { type: ConnectionActivityIndicatorType; label: string } | null {
+  switch (row.event_type_id) {
+    case 2:
+      return {
+        type: 'zone',
+        label:
+          typeof eventData?.to_zone_long_name === 'string'
+            ? `Zoned to ${eventData.to_zone_long_name}`
+            : typeof eventData?.to === 'string'
+              ? `Zoned to ${eventData.to}`
+              : 'Zoned'
+      };
+    case 12:
+    case 13:
+      return {
+        type: 'level',
+        label:
+          typeof eventData?.to_level === 'number' || typeof eventData?.new_level === 'number'
+            ? `Level ${eventData.to_level ?? eventData.new_level}`
+            : row.event_type_id === 12
+              ? 'Level gain'
+              : 'Level loss'
+      };
+    case 14:
+      return {
+        type: 'loot',
+        label:
+          typeof eventData?.item_name === 'string' ? `Looted ${eventData.item_name}` : 'Looted item'
+      };
+    case 15:
+    case 16:
+    case 38:
+    case 39:
+      return {
+        type: 'merchant',
+        label:
+          typeof eventData?.item_name === 'string'
+            ? `${row.event_type_id === 39 ? 'Sold' : 'Moved'} ${eventData.item_name}`
+            : 'Market activity'
+      };
+    case 22:
+      return {
+        type: 'handin',
+        label:
+          typeof eventData?.npc_name === 'string' ? `Handin to ${eventData.npc_name}` : 'NPC handin'
+      };
+    case 24:
+    case 25:
+    case 26:
+      return {
+        type: 'task',
+        label:
+          typeof eventData?.task_name === 'string'
+            ? eventData.task_name
+            : row.event_type_id === 26
+              ? 'Task complete'
+              : 'Task activity'
+      };
+    case 31:
+      return {
+        type: 'death',
+        label:
+          typeof eventData?.killer_name === 'string'
+            ? `Killed by ${eventData.killer_name}`
+            : 'Death'
+      };
+    case 32:
+    case 33:
+    case 47:
+      return {
+        type: 'craft',
+        label:
+          typeof eventData?.recipe_name === 'string'
+            ? eventData.recipe_name
+            : row.event_type_id === 33
+              ? 'Combine success'
+              : 'Craft activity'
+      };
+    case 42:
+      return {
+        type: 'discovery',
+        label:
+          typeof eventData?.item_name === 'string'
+            ? `Discovered ${eventData.item_name}`
+            : 'Item discovery'
+      };
+    case 44:
+    case 45:
+    case 46:
+      return {
+        type: 'kill',
+        label:
+          typeof eventData?.npc_name === 'string'
+            ? `Killed ${eventData.npc_name}`
+            : row.event_type_id === 46
+              ? 'Raid kill'
+              : 'Kill'
+      };
+    default:
+      return null;
+  }
+}
+
+export async function fetchConnectionEventOverlaySnapshot(
+  participants: ConnectionOverlayParticipant[],
+  windowHours: number = DEFAULT_CONNECTION_OVERLAY_WINDOW_HOURS
+): Promise<ConnectionEventOverlaySnapshot> {
+  if (!isEqDbConfigured() || participants.length === 0) {
+    return {
+      relationshipOverlays: [],
+      activityIndicators: [],
+      windowHours,
+      generatedAt: new Date().toISOString()
+    };
+  }
+
+  const lookup = buildConnectedCharacterLookup(participants);
+  const placeholders = participants.map(() => '?').join(', ');
+  const cutoffDate = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+  const rows = await queryEqDb<EventOverlayRow[]>(
+    `
+      SELECT id, character_id, event_type_id, event_data, created_at
+      FROM player_event_logs
+      WHERE character_id IN (${placeholders})
+        AND created_at >= ?
+        AND event_type_id IN (${CONNECTION_OVERLAY_EVENT_TYPES.map(() => '?').join(', ')})
+      ORDER BY created_at DESC
+    `,
+    [
+      ...participants.map((participant) => participant.characterId),
+      cutoffDate,
+      ...CONNECTION_OVERLAY_EVENT_TYPES
+    ]
+  );
+
+  const relationshipMap = new Map<string, RelationshipOverlayAccumulator>();
+  const activityMap = new Map<string, ActivityIndicatorAccumulator>();
+
+  for (const row of rows) {
+    const eventData = parseEventData(row.event_data);
+    const relationshipOverlay = buildRelationshipOverlay(row, eventData, lookup);
+    if (relationshipOverlay) {
+      updateRelationshipOverlay(relationshipMap, relationshipOverlay);
+    }
+
+    const activityDescriptor = buildActivityDescriptor(row, eventData);
+    if (activityDescriptor) {
+      updateActivityIndicator(
+        activityMap,
+        row.character_id,
+        activityDescriptor.type,
+        activityDescriptor.label,
+        row.created_at
+      );
+    }
+  }
+
+  return {
+    relationshipOverlays: Array.from(relationshipMap.values()).sort((a, b) => {
+      if (b.count !== a.count) {
+        return b.count - a.count;
+      }
+      return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+    }),
+    activityIndicators: Array.from(activityMap.values())
+      .map((indicator) => ({
+        ...indicator,
+        intensity: formatIndicatorIntensity(indicator.count)
+      }))
+      .sort((a, b) => {
+        if (a.characterId !== b.characterId) {
+          return a.characterId - b.characterId;
+        }
+        if (b.count !== a.count) {
+          return b.count - a.count;
+        }
+        return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+      }),
+    windowHours,
+    generatedAt: new Date().toISOString()
+  };
 }
 
 /**
@@ -395,7 +1030,9 @@ export async function fetchPlayerEventLogs(
   // Validate sort column to prevent SQL injection
   const validSortColumns: Record<string, string> = {
     created_at: 'pel.created_at',
-    character_name: characterSchema?.nameColumn ? `cd.${characterSchema.nameColumn}` : 'pel.character_id',
+    character_name: characterSchema?.nameColumn
+      ? `cd.${characterSchema.nameColumn}`
+      : 'pel.character_id',
     event_type_id: 'pel.event_type_id',
     zone_id: 'pel.zone_id'
   };
@@ -480,16 +1117,12 @@ export async function getPlayerEventLogStats(): Promise<PlayerEventLogStats> {
 
   // Return cached stats if still valid
   const now = Date.now();
-  if (statsCache.data && (now - statsCache.timestamp) < STATS_CACHE_TTL_MS) {
+  if (statsCache.data && now - statsCache.timestamp < STATS_CACHE_TTL_MS) {
     return statsCache.data;
   }
 
   // Run queries in parallel for better performance
-  const [
-    [summaryResult],
-    eventTypeRows,
-    [recentResult]
-  ] = await Promise.all([
+  const [[summaryResult], eventTypeRows, [recentResult]] = await Promise.all([
     // Combined query for total, unique characters, unique zones
     queryEqDb<RowDataPacket[]>(`
       SELECT
@@ -568,7 +1201,7 @@ export async function getEventLogZones(): Promise<Array<{ zoneId: number; zoneNa
 
   // Return cached zones if still valid
   const now = Date.now();
-  if (zonesCache.data && (now - zonesCache.timestamp) < ZONES_CACHE_TTL_MS) {
+  if (zonesCache.data && now - zonesCache.timestamp < ZONES_CACHE_TTL_MS) {
     return zonesCache.data;
   }
 

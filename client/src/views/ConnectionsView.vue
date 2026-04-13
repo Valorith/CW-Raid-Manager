@@ -147,12 +147,64 @@
             {{ filteredIpGroups.length }} IPs</span
           >
         </div>
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="input input--search"
-          placeholder="Search by name, zone, or guild..."
-        />
+        <div class="card__header-controls">
+          <div class="view-switcher" role="tablist" aria-label="View mode">
+            <button
+              type="button"
+              class="view-switcher__btn"
+              :class="{ 'view-switcher__btn--active': activeView === 'zones' }"
+              @click="activeView = 'zones'"
+              :aria-pressed="activeView === 'zones'"
+              title="Zone atlas view showing characters by location"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" class="view-switcher__icon">
+                <path
+                  fill-rule="evenodd"
+                  d="M4.25 2A2.25 2.25 0 002 4.25v2.5A2.25 2.25 0 004.25 9h2.5A2.25 2.25 0 009 6.75v-2.5A2.25 2.25 0 006.75 2h-2.5zm0 9A2.25 2.25 0 002 13.25v2.5A2.25 2.25 0 004.25 18h2.5A2.25 2.25 0 009 15.75v-2.5A2.25 2.25 0 006.75 11h-2.5zm9-9A2.25 2.25 0 0011 4.25v2.5A2.25 2.25 0 0013.25 9h2.5A2.25 2.25 0 0018 6.75v-2.5A2.25 2.25 0 0015.75 2h-2.5zm0 9A2.25 2.25 0 0011 13.25v2.5A2.25 2.25 0 0013.25 18h2.5A2.25 2.25 0 0018 15.75v-2.5A2.25 2.25 0 0015.75 11h-2.5z"
+                  clip-rule="evenodd"
+                />
+              </svg>
+              <span>Zones</span>
+            </button>
+            <button
+              type="button"
+              class="view-switcher__btn"
+              :class="{ 'view-switcher__btn--active': activeView === 'table' }"
+              @click="activeView = 'table'"
+              :aria-pressed="activeView === 'table'"
+              title="Table view grouped by IP address"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" class="view-switcher__icon">
+                <path
+                  d="M2 4.5A1.5 1.5 0 013.5 3h13A1.5 1.5 0 0118 4.5v1A1.5 1.5 0 0116.5 7h-13A1.5 1.5 0 012 5.5v-1zM2 9.5A1.5 1.5 0 013.5 8h13A1.5 1.5 0 0118 9.5v1a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 012 10.5v-1zM2 14.5A1.5 1.5 0 013.5 13h13a1.5 1.5 0 011.5 1.5v1a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 012 15.5v-1z"
+                />
+              </svg>
+              <span>Table</span>
+            </button>
+            <button
+              type="button"
+              class="view-switcher__btn"
+              :class="{ 'view-switcher__btn--active': activeView === 'network' }"
+              @click="activeView = 'network'"
+              :aria-pressed="activeView === 'network'"
+              title="Node graph showing IP relationships"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" class="view-switcher__icon">
+                <path
+                  d="M10 2a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 2zm0 13a.75.75 0 01.75.75v1.5a.75.75 0 01-1.5 0v-1.5A.75.75 0 0110 15zm-8-5a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5A.75.75 0 012 10zm13 0a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5A.75.75 0 0115 10zM4.343 4.343a.75.75 0 011.06 0l1.061 1.06a.75.75 0 01-1.06 1.061l-1.061-1.06a.75.75 0 010-1.061zm9.193 9.193a.75.75 0 011.06 0l1.061 1.06a.75.75 0 11-1.06 1.061l-1.061-1.06a.75.75 0 010-1.061zM4.343 15.657a.75.75 0 010-1.06l1.06-1.061a.75.75 0 111.061 1.06l-1.06 1.061a.75.75 0 01-1.061 0zm9.193-9.193a.75.75 0 010-1.06l1.06-1.061a.75.75 0 111.061 1.06l-1.06 1.061a.75.75 0 01-1.061 0z"
+                />
+                <path fill-rule="evenodd" d="M10 7a3 3 0 100 6 3 3 0 000-6z" clip-rule="evenodd" />
+              </svg>
+              <span>Node</span>
+            </button>
+          </div>
+          <input
+            v-model="searchQuery"
+            type="search"
+            class="input input--search"
+            placeholder="Search by name, zone, or guild..."
+          />
+        </div>
       </header>
 
       <GlobalLoadingSpinner v-if="showLoading" />
@@ -164,6 +216,43 @@
           searchQuery ? 'No characters match your search.' : 'No characters currently connected.'
         }}
       </p>
+
+      <!-- Zone Atlas View -->
+      <ConnectionsZoneAtlas
+        v-else-if="activeView === 'zones'"
+        :connections="connections"
+        :ip-exemptions="ipExemptions"
+        :search-query="searchQuery"
+        :watched-character-ids="watchedCharacterIds"
+        :watched-account-ids="watchedAccountIds"
+        :direct-associated-ids="directAssociatedIds"
+        :indirect-associated-ids="indirectAssociatedIds"
+        :server-hack-average="serverHackAverage"
+        :recent-changes="recentChanges"
+        @open-character-admin="(id: number) => characterAdminStore.openById(id)"
+        @open-hack-events="openHackEvents"
+        @open-trader-sales="openTraderSales"
+      />
+
+      <!-- Network Graph View -->
+      <ConnectionsNetworkGraph
+        v-else-if="activeView === 'network'"
+        :connections="connections"
+        :ip-exemptions="ipExemptions"
+        :relationship-overlays="relationshipOverlays"
+        :activity-indicators="activityIndicators"
+        :overlay-window-hours="overlayWindowHours"
+        :search-query="searchQuery"
+        :watched-character-ids="watchedCharacterIds"
+        :watched-account-ids="watchedAccountIds"
+        :direct-associated-ids="directAssociatedIds"
+        :indirect-associated-ids="indirectAssociatedIds"
+        :server-hack-average="serverHackAverage"
+        :recent-changes="recentChanges"
+        @open-character-admin="(id: number) => characterAdminStore.openById(id)"
+        @open-hack-events="openHackEvents"
+        @open-trader-sales="openTraderSales"
+      />
 
       <div v-else class="ip-groups">
         <div
@@ -451,7 +540,7 @@
         </div>
       </div>
 
-      <div v-if="totalPages > 1" class="pagination">
+      <div v-if="activeView === 'table' && totalPages > 1" class="pagination">
         <button
           class="pagination__button"
           :disabled="currentPage === 1"
@@ -619,16 +708,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import CoinDisplay from '../components/CoinDisplay.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import ConfirmationModal from '../components/ConfirmationModal.vue';
 import AutoLinkProgressModal from '../components/AutoLinkProgressModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
+import ConnectionsZoneAtlas from '../components/connections/ConnectionsZoneAtlas.vue';
+import ConnectionsNetworkGraph from '../components/connections/ConnectionsNetworkGraph.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 import {
   api,
+  type ConnectionActivityIndicator,
+  type ConnectionsResponse,
+  type ConnectionRelationshipOverlay,
   type AdminItemOwnershipResult,
   type AdminItemSearchResult,
   type GuildBankLocation,
@@ -644,6 +738,10 @@ import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 const authStore = useAuthStore();
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
+
+// View mode
+type ViewMode = 'table' | 'zones' | 'network';
+const activeView = ref<ViewMode>('zones');
 
 // Use shared watch list from characterAdmin store
 const characterAdminStore = useCharacterAdminStore();
@@ -678,6 +776,9 @@ function isTrader(conn: ServerConnection): boolean {
 
 const connections = ref<ServerConnection[]>([]);
 const ipExemptions = ref<IpExemption[]>([]);
+const relationshipOverlays = ref<ConnectionRelationshipOverlay[]>([]);
+const activityIndicators = ref<ConnectionActivityIndicator[]>([]);
+const overlayWindowHours = ref(6);
 const loading = ref(true);
 const showLoading = useMinimumLoading(loading);
 const error = ref<string | null>(null);
@@ -689,6 +790,53 @@ const lastUpdated = ref<Date | null>(null);
 const showAutoLinkConfirmation = ref(false);
 const showAutoLinkProgress = ref(false);
 const lastAutoLinkDate = ref<Date | null>(null);
+let pendingSuspiciousRefresh: {
+  response: ConnectionsResponse;
+  repeatCount: number;
+} | null = null;
+const SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED = 3;
+
+// Change tracking for transition effects
+const recentChanges = ref<Set<number>>(new Set());
+let changeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+watch(connections, (newConns, oldConns) => {
+  if (!oldConns || oldConns.length === 0) return;
+
+  const prevMap = new Map<number, ServerConnection>();
+  for (const conn of oldConns) {
+    prevMap.set(conn.characterId, conn);
+  }
+
+  const changes = new Set<number>();
+  for (const conn of newConns) {
+    const prev = prevMap.get(conn.characterId);
+    if (!prev) {
+      // Newly connected character
+      changes.add(conn.characterId);
+    } else if (prev.zoneName !== conn.zoneName) {
+      // Moved zones
+      changes.add(conn.characterId);
+    } else if (prev.lastKillNpcName !== conn.lastKillNpcName && conn.lastKillNpcName) {
+      // New kill
+      changes.add(conn.characterId);
+    } else if (prev.lastSaleItemName !== conn.lastSaleItemName && conn.lastSaleItemName) {
+      // New sale
+      changes.add(conn.characterId);
+    } else if (prev.hackCount !== conn.hackCount && conn.hackCount > prev.hackCount) {
+      // New hack event
+      changes.add(conn.characterId);
+    }
+  }
+
+  if (changes.size > 0) {
+    recentChanges.value = changes;
+    if (changeTimeout) clearTimeout(changeTimeout);
+    changeTimeout = setTimeout(() => {
+      recentChanges.value = new Set();
+    }, 3500);
+  }
+});
 
 // Global character search
 const globalSearchQuery = ref('');
@@ -1286,6 +1434,11 @@ function getIpGroupHackStatus(group: IpGroup): 'critical' | 'warning' | null {
 function getRowClass(conn: ServerConnection, group: IpGroup): string {
   const classes: string[] = [];
 
+  // Recent change pulse effect
+  if (recentChanges.value.has(conn.characterId)) {
+    classes.push('row--changed');
+  }
+
   // Check watch status:
   // Orange: directly watched OR same account as watched OR direct association
   // Yellow: indirect association (IP-based)
@@ -1325,9 +1478,43 @@ async function loadConnections(isRefresh = false) {
   error.value = null;
   try {
     const response = await api.fetchAdminConnections();
+
+    const previousCount = connections.value.length;
+    const nextCount = response.connections.length;
+    const isSuspiciousShrinkRefresh =
+      !isRefresh &&
+      previousCount >= 10 &&
+      (nextCount === 0 || nextCount <= Math.max(1, Math.floor(previousCount * 0.2)));
+
+    if (isSuspiciousShrinkRefresh) {
+      const pendingRepeatCount = pendingSuspiciousRefresh?.repeatCount ?? 0;
+      const sameCountAsPending =
+        pendingSuspiciousRefresh?.response.connections.length === nextCount;
+      pendingSuspiciousRefresh = {
+        response,
+        repeatCount: sameCountAsPending ? pendingRepeatCount + 1 : 1
+      };
+
+      console.warn(
+        `[ConnectionsView] Deferring suspicious connections refresh ${previousCount} -> ${nextCount} (confirmation ${pendingSuspiciousRefresh.repeatCount}/${SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED}).`
+      );
+
+      if (
+        pendingSuspiciousRefresh.repeatCount < SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED
+      ) {
+        return;
+      }
+    } else {
+      pendingSuspiciousRefresh = null;
+    }
+
     connections.value = response.connections;
     ipExemptions.value = response.ipExemptions;
+    relationshipOverlays.value = response.eventOverlays.relationshipOverlays;
+    activityIndicators.value = response.eventOverlays.activityIndicators;
+    overlayWindowHours.value = response.eventOverlays.windowHours;
     lastUpdated.value = new Date();
+    pendingSuspiciousRefresh = null;
 
     // Sync IP group associations in the background
     syncIpAssociations(response.connections);
@@ -1457,6 +1644,9 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
   if (globalSearchTimeout) {
     clearTimeout(globalSearchTimeout);
+  }
+  if (changeTimeout) {
+    clearTimeout(changeTimeout);
   }
 });
 </script>
@@ -1781,6 +1971,58 @@ onUnmounted(() => {
   color: #e2e8f0;
 }
 
+.card__header-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* View Switcher */
+.view-switcher {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.65rem;
+}
+
+.view-switcher__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-switcher__btn:hover {
+  color: #e2e8f0;
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.view-switcher__btn--active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+}
+
+.view-switcher__icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
 .input--search {
   width: 280px;
   padding: 0.5rem 0.75rem;
@@ -1909,6 +2151,24 @@ onUnmounted(() => {
 
 .connections-table tbody tr {
   transition: background 0.15s ease;
+}
+
+.connections-table tbody tr.row--changed {
+  animation: rowChangePulse 0.6s ease-out 3;
+}
+
+@keyframes rowChangePulse {
+  0% {
+    box-shadow: none;
+  }
+  40% {
+    box-shadow:
+      inset 0 0 0 1px rgba(96, 165, 250, 0.5),
+      0 0 12px rgba(96, 165, 250, 0.2);
+  }
+  100% {
+    box-shadow: none;
+  }
 }
 
 .connections-table tbody tr:hover {
@@ -2696,6 +2956,16 @@ onUnmounted(() => {
   .card__header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .card__header-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .view-switcher {
+    width: 100%;
+    justify-content: center;
   }
 
   .input--search {

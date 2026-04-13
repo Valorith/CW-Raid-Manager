@@ -39,6 +39,7 @@ import {
 } from '../services/connectionsService.js';
 import {
   fetchPlayerEventLogs,
+  fetchConnectionEventOverlaySnapshot,
   getPlayerEventLogStats,
   getEventTypes,
   getEventLogZones
@@ -719,7 +720,14 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           };
         });
 
-        return { connections, ipExemptions };
+        const eventOverlays = await fetchConnectionEventOverlaySnapshot(
+          connections.map((connection) => ({
+            characterId: connection.characterId,
+            characterName: connection.characterName
+          }))
+        );
+
+        return { connections, ipExemptions, eventOverlays };
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch server connections.');
         if (error instanceof Error) {

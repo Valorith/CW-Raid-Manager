@@ -1712,9 +1712,60 @@ export interface IpExemption {
   exemptionAmount: number;
 }
 
+export type ConnectionRelationshipOverlayType =
+  | 'trade'
+  | 'bazaar'
+  | 'group'
+  | 'raid'
+  | 'rez'
+  | 'give'
+  | 'money';
+
+export type ConnectionActivityIndicatorType =
+  | 'kill'
+  | 'loot'
+  | 'death'
+  | 'task'
+  | 'level'
+  | 'zone'
+  | 'craft'
+  | 'handin'
+  | 'discovery'
+  | 'merchant';
+
+export interface ConnectionRelationshipOverlay {
+  id: string;
+  type: ConnectionRelationshipOverlayType;
+  sourceCharacterId: number;
+  sourceCharacterName: string;
+  targetCharacterId: number;
+  targetCharacterName: string;
+  count: number;
+  strength: number;
+  label: string;
+  lastSeenAt: string;
+}
+
+export interface ConnectionActivityIndicator {
+  characterId: number;
+  type: ConnectionActivityIndicatorType;
+  count: number;
+  intensity: 'low' | 'medium' | 'high';
+  label: string;
+  lastSeenAt: string;
+}
+
+export interface ConnectionEventOverlaySnapshot {
+  relationshipOverlays: ConnectionRelationshipOverlay[];
+  activityIndicators: ConnectionActivityIndicator[];
+  windowHours: number;
+  generatedAt: string;
+}
+
 export interface ConnectionsResponse {
   connections: ServerConnection[];
   ipExemptions: IpExemption[];
+  eventOverlays: ConnectionEventOverlaySnapshot;
 }
 
 export interface AdminItemSearchResult {
@@ -4279,9 +4330,29 @@ export const api = {
 
   async fetchAdminConnections(): Promise<ConnectionsResponse> {
     const response = await axios.get('/api/admin/connections');
+    if (!response.data || !Array.isArray(response.data.connections)) {
+      throw new Error('Invalid connections response.');
+    }
+
     return {
-      connections: Array.isArray(response.data.connections) ? response.data.connections : [],
-      ipExemptions: Array.isArray(response.data.ipExemptions) ? response.data.ipExemptions : []
+      connections: response.data.connections,
+      ipExemptions: Array.isArray(response.data.ipExemptions) ? response.data.ipExemptions : [],
+      eventOverlays: {
+        relationshipOverlays: Array.isArray(response.data.eventOverlays?.relationshipOverlays)
+          ? response.data.eventOverlays.relationshipOverlays
+          : [],
+        activityIndicators: Array.isArray(response.data.eventOverlays?.activityIndicators)
+          ? response.data.eventOverlays.activityIndicators
+          : [],
+        windowHours:
+          typeof response.data.eventOverlays?.windowHours === 'number'
+            ? response.data.eventOverlays.windowHours
+            : 6,
+        generatedAt:
+          typeof response.data.eventOverlays?.generatedAt === 'string'
+            ? response.data.eventOverlays.generatedAt
+            : new Date().toISOString()
+      }
     };
   },
 
