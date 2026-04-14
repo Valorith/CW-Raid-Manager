@@ -32,6 +32,24 @@
         </button>
       </div>
 
+      <div class="toolbar-group">
+        <span class="toolbar-caption">Group By</span>
+        <button
+          class="toolbar-btn"
+          :class="{ 'toolbar-btn--active': groupingMode === 'ip' }"
+          @click="groupingMode = 'ip'"
+        >
+          IP
+        </button>
+        <button
+          class="toolbar-btn"
+          :class="{ 'toolbar-btn--active': groupingMode === 'zone' }"
+          @click="groupingMode = 'zone'"
+        >
+          Zone
+        </button>
+      </div>
+
       <div class="toolbar-group toolbar-group--events">
         <span class="toolbar-caption">
           Events {{ overlayWindowHours }}h / live {{ EVENT_VISUAL_MAX_AGE_MINUTES }}m
@@ -103,19 +121,25 @@
         </defs>
 
         <g class="network-edges">
-          <line
+          <g
             v-for="edge in edges"
             :key="edge.id"
-            :x1="edge.x1"
-            :y1="edge.y1"
-            :x2="edge.x2"
-            :y2="edge.y2"
-            class="edge-line"
-            :class="{
-              'edge-line--dimmed': isEdgeDimmed(edge),
-              'edge-line--danger': edge.overLimit
-            }"
-          />
+            class="edge-wrap"
+            :class="{ 'edge-wrap--intro': shouldAnimateIntro }"
+            :style="getEdgeStyle(edge)"
+          >
+            <line
+              :x1="0"
+              :y1="0"
+              :x2="edge.dx"
+              :y2="edge.dy"
+              class="edge-line"
+              :class="{
+                'edge-line--dimmed': isEdgeDimmed(edge),
+                'edge-line--danger': edge.overLimit
+              }"
+            />
+          </g>
         </g>
 
         <g v-if="visibleRelationshipOverlays.length > 0" class="relationship-overlays">
@@ -165,7 +189,10 @@
               <path d="M-2.75 -2.5L-1 0.75" class="relationship-marker__icon-stroke" />
               <path d="M1 -2.5L2.75 0.75" class="relationship-marker__icon-stroke" />
               <path d="M1 -2.5L4.5 0.75" class="relationship-marker__icon-stroke" />
-              <path d="M-4.5 0.75C-4 2.35 -1.5 2.35 -1 0.75" class="relationship-marker__icon-stroke" />
+              <path
+                d="M-4.5 0.75C-4 2.35 -1.5 2.35 -1 0.75"
+                class="relationship-marker__icon-stroke"
+              />
               <path d="M1 0.75C1.5 2.35 4 2.35 4.5 0.75" class="relationship-marker__icon-stroke" />
             </g>
             <g
@@ -195,14 +222,16 @@
         <g class="network-hubs">
           <g
             v-for="hub in hubs"
-            :key="hub.ip"
+            :key="hub.id"
             class="hub-node"
             :class="{
+              'hub-node--staged': hub.isStaged,
               'hub-node--dimmed': isHubDimmed(hub),
               'hub-node--warning': hub.hackStatus === 'warning',
               'hub-node--critical': hub.hackStatus === 'critical'
             }"
           >
+            <title>{{ hub.label }}</title>
             <circle
               :cx="hub.x"
               :cy="hub.y"
@@ -226,39 +255,50 @@
                 'hub-circle--critical': hub.hackStatus === 'critical'
               }"
             />
-            <text :x="hub.x" :y="hub.y - hub.radius - 8" class="hub-label" text-anchor="middle">
-              {{ hub.ip }}
+            <text
+              :x="hub.x"
+              :y="getHubLabelY(hub)"
+              class="hub-label"
+              :class="{ 'hub-label--zone': groupingMode === 'zone' }"
+              text-anchor="middle"
+            >
+              <tspan
+                v-for="(line, index) in hub.labelLines"
+                :key="`${hub.id}-label-${index}`"
+                :x="hub.x"
+                :dy="index === 0 ? 0 : '1.1em'"
+              >
+                {{ line }}
+              </tspan>
             </text>
-            <text :x="hub.x" :y="hub.y + 4" class="hub-count" text-anchor="middle">
+            <text
+              :x="hub.x"
+              :y="getHubCountY(hub)"
+              class="hub-count"
+              :class="{ 'hub-count--zone': groupingMode === 'zone' }"
+              text-anchor="middle"
+            >
               {{ hub.charCount }}
             </text>
             <text
               :x="hub.x"
               :y="hub.y + hub.radius + 16"
               class="hub-active"
-              :class="{
-                'hub-active--warning': hub.outsideCount > 0 && hub.outsideCount <= hub.limit,
-                'hub-active--danger': hub.outsideCount > hub.limit
-              }"
+              :class="`hub-active--${hub.footerTone}`"
               text-anchor="middle"
             >
-              {{ hub.outsideCount }}/{{ hub.limit }}
+              {{ hub.footerText }}
             </text>
           </g>
         </g>
 
-        <TransitionGroup
-          tag="g"
-          class="network-nodes"
-          @before-enter="handleNodeBeforeEnter"
-          @enter="handleNodeEnter"
-          @leave="handleNodeLeave"
-        >
+        <g class="network-nodes">
           <g
             v-for="node in nodes"
             :key="node.characterId"
             class="char-node"
             :class="{
+              'char-node--intro': shouldAnimateIntro,
               'char-node--dimmed': isNodeDimmed(node),
               'char-node--watched': node.isWatched,
               'char-node--associated': node.isAssociated,
@@ -266,10 +306,6 @@
               'char-node--changed': node.recentlyChanged
             }"
             :style="getNodeStyle(node)"
-            :data-hub-x="node.hubX"
-            :data-hub-y="node.hubY"
-            :data-node-x="node.x"
-            :data-node-y="node.y"
             @click="$emit('open-character-admin', node.characterId)"
             @mouseenter="hoveredNode = node"
             @mouseleave="hoveredNode = null"
@@ -287,15 +323,16 @@
               ]"
               :filter="node.hackRisk !== 'normal' ? 'url(#glow-soft)' : undefined"
             />
-            <foreignObject :x="-9" :y="-9" width="18" height="18">
-              <img
-                v-if="node.classIcon"
-                :src="node.classIcon"
-                :alt="node.classLabel"
-                style="width: 18px; height: 18px; border-radius: 2px; object-fit: contain"
-                loading="lazy"
-              />
-            </foreignObject>
+            <image
+              v-if="node.classIcon"
+              :href="node.classIcon"
+              :x="-9"
+              :y="-9"
+              :width="18"
+              :height="18"
+              class="char-icon"
+              preserveAspectRatio="xMidYMid meet"
+            />
             <text
               v-if="showLabels"
               :x="0"
@@ -306,7 +343,7 @@
               {{ node.name }}
             </text>
           </g>
-        </TransitionGroup>
+        </g>
 
         <g v-if="showActivitySignals && visibleNodeSignals.length > 0" class="node-signals">
           <g
@@ -387,11 +424,14 @@
           {{ formatRelativeTime(hoveredOverlay.lastSeenAt) }}
         </div>
       </div>
-
     </div>
 
     <div
-      v-if="overlayMode !== 'none' && visibleRelationshipOverlays.length === 0 && filteredConnections.length > 0"
+      v-if="
+        overlayMode !== 'none' &&
+        visibleRelationshipOverlays.length === 0 &&
+        filteredConnections.length > 0
+      "
       class="overlay-empty"
     >
       No visible
@@ -406,7 +446,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
 import type {
   ConnectionActivityIndicator,
@@ -447,17 +487,22 @@ defineEmits<{
 
 type HighlightMode = 'none' | 'watched' | 'multi' | 'hack';
 type OverlayMode = 'none' | 'all' | ConnectionRelationshipOverlayType;
+type GroupingMode = 'ip' | 'zone';
 
 interface HubNode {
-  ip: string;
+  id: string;
+  label: string;
+  displayLabel: string;
+  labelLines: string[];
   x: number;
   y: number;
   radius: number;
   charCount: number;
-  outsideCount: number;
-  limit: number;
+  footerText: string;
+  footerTone: 'muted' | 'warning' | 'danger';
   hackStatus: 'critical' | 'warning' | null;
   characters: ServerConnection[];
+  isStaged: boolean;
 }
 
 interface CharNode {
@@ -483,16 +528,19 @@ interface CharNode {
   activitySignals: ConnectionActivityIndicator[];
   hubX: number;
   hubY: number;
+  introDelay: number;
 }
 
 interface Edge {
   id: string;
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
+  characterId: number;
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
   overLimit: boolean;
   ip: string;
+  introDelay: number;
 }
 
 interface RenderedRelationshipOverlay extends ConnectionRelationshipOverlay {
@@ -510,22 +558,40 @@ interface RenderedNodeSignal extends ConnectionActivityIndicator {
   fadeOpacity: number;
 }
 
+interface LayoutGroup {
+  key: string;
+  characters: ServerConnection[];
+  displayCount: number;
+  stagedIpCount: number | null;
+  isStaged: boolean;
+}
+
+interface OrbitSlot {
+  angle: number;
+  radius: number;
+}
+
 const containerRef = ref<HTMLElement | null>(null);
 const canvasRef = ref<HTMLElement | null>(null);
 const hoveredNode = ref<CharNode | null>(null);
 const hoveredOverlay = ref<RenderedRelationshipOverlay | null>(null);
 const highlightMode = ref<HighlightMode>('none');
 const overlayMode = ref<OverlayMode>('all');
+const groupingMode = ref<GroupingMode>('zone');
 const showLabels = ref(true);
 const showActivitySignals = ref(true);
+const renderedConnections = ref<ServerConnection[]>(props.connections);
+const stagedZoneHubs = ref<Map<string, { count: number; ipCount: number }>>(new Map());
 
 const DEFAULT_OUTSIDE_LIMIT = 2;
 const INACTIVE_ZONES = ["Clumsy's Home", 'The Bazaar', 'Guild Hall'];
 const HUB_RADIUS_BASE = 24;
 const HUB_RADIUS_SCALE = 4;
+const HUB_RADIUS_ZONE = 44;
 const NODE_RADIUS = 14;
 const ORBIT_RADIUS_BASE = 80;
 const ORBIT_RADIUS_PER_CHAR = 10;
+const ZONE_SECOND_RING_THRESHOLD = 11;
 const MIN_CELL_SIZE = 280;
 const HACK_RISK_MIN_COUNTS = { elevated: 5, high: 10, critical: 15 } as const;
 
@@ -602,7 +668,14 @@ const currentTimeMs = ref(Date.now());
 const EVENT_VISUAL_FULL_OPACITY_MS = 2 * 60 * 1000;
 const EVENT_VISUAL_MAX_AGE_MS = 20 * 60 * 1000;
 const EVENT_VISUAL_MAX_AGE_MINUTES = Math.round(EVENT_VISUAL_MAX_AGE_MS / 60000);
-const NODE_TRANSITION_DURATION_MS = 520;
+const HUB_INTRO_STAGGER_MS = 0;
+const NODE_INTRO_STAGGER_MS = 68;
+const EDGE_TRANSITION_DURATION_MS = 560;
+const NODE_TRANSITION_DURATION_MS = 620;
+const ZONE_HUB_STAGE_DELAY_MS = 170;
+const INTRO_EDGE_START_SCALE = 0.08;
+const INTRO_NODE_START_SCALE = 0.26;
+const INTRO_TRANSITION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1.08)';
 
 function measureContainer() {
   if (canvasRef.value) {
@@ -612,6 +685,7 @@ function measureContainer() {
 
 let resizeObserver: ResizeObserver | null = null;
 let nowInterval: ReturnType<typeof setInterval> | null = null;
+let zoneStageTimeout: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(() => {
   measureContainer();
@@ -629,6 +703,10 @@ onUnmounted(() => {
   if (nowInterval) {
     clearInterval(nowInterval);
     nowInterval = null;
+  }
+  if (zoneStageTimeout) {
+    clearTimeout(zoneStageTimeout);
+    zoneStageTimeout = null;
   }
 });
 
@@ -739,8 +817,259 @@ function formatActivitySignalSummary(signal: ConnectionActivityIndicator): strin
   return `${signal.label}${countSuffix} ${formatRelativeTime(signal.lastSeenAt)}`;
 }
 
+function splitHubLabel(label: string, mode: GroupingMode): string[] {
+  if (mode === 'ip') {
+    return [label.length > 22 ? `${label.slice(0, 19)}...` : label];
+  }
+
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [label];
+
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const nextLine = currentLine ? `${currentLine} ${word}` : word;
+    if (nextLine.length <= 14 || currentLine.length === 0) {
+      currentLine = nextLine;
+      continue;
+    }
+
+    lines.push(currentLine);
+    currentLine = word;
+  }
+
+  if (currentLine) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
+function formatHubLabel(label: string, mode: GroupingMode): string {
+  return splitHubLabel(label, mode).join(' ');
+}
+
+function getHubLabelY(hub: HubNode): number {
+  if (groupingMode.value === 'zone') {
+    return hub.y - (hub.labelLines.length - 1) * 8 - 6;
+  }
+
+  return hub.y - hub.radius - (hub.labelLines.length > 1 ? 20 : 10);
+}
+
+function getHubCountY(hub: HubNode): number {
+  return groupingMode.value === 'zone' ? hub.y + hub.radius - 14 : hub.y + 4;
+}
+
+function getZoneHubRadius(labelLines: string[]): number {
+  const longestLineLength = Math.max(...labelLines.map((line) => line.length), 0);
+  const widthDrivenRadius = 18 + longestLineLength * 4;
+  const heightDrivenRadius = 28 + Math.max(0, labelLines.length - 1) * 10;
+  return Math.max(HUB_RADIUS_ZONE, widthDrivenRadius, heightDrivenRadius);
+}
+
+function buildOrbitSlots(
+  characterCount: number,
+  hubRadius: number,
+  mode: GroupingMode
+): OrbitSlot[] {
+  if (characterCount <= 0) {
+    return [];
+  }
+
+  const singleRingRadius =
+    Math.max(ORBIT_RADIUS_BASE, hubRadius + 38) +
+    Math.min(characterCount, 12) * ORBIT_RADIUS_PER_CHAR;
+
+  if (mode !== 'zone' || characterCount < ZONE_SECOND_RING_THRESHOLD) {
+    const step = (2 * Math.PI) / characterCount;
+    return Array.from({ length: characterCount }, (_, index) => ({
+      angle: step * index - Math.PI / 2,
+      radius: singleRingRadius
+    }));
+  }
+
+  const innerCount = Math.ceil(characterCount / 2);
+  const outerCount = Math.floor(characterCount / 2);
+  const innerRadius = Math.max(ORBIT_RADIUS_BASE - 8, hubRadius + 30) + Math.min(innerCount, 8) * 3;
+  const outerRadius = innerRadius + 54 + Math.min(outerCount, 8) * 2;
+  const innerStep = (2 * Math.PI) / innerCount;
+  const omittedGapIndex = outerCount < innerCount ? Math.floor(innerCount / 2) : -1;
+
+  const slots: OrbitSlot[] = [];
+  for (let innerIndex = 0; innerIndex < innerCount; innerIndex += 1) {
+    const baseAngle = innerStep * innerIndex - Math.PI / 2;
+    slots.push({
+      angle: baseAngle,
+      radius: innerRadius
+    });
+
+    if (innerIndex !== omittedGapIndex && slots.length < characterCount) {
+      slots.push({
+        angle: baseAngle + innerStep / 2,
+        radius: outerRadius
+      });
+    }
+  }
+
+  return slots.slice(0, characterCount);
+}
+
+function getGroupingKey(connection: ServerConnection): string {
+  return groupingMode.value === 'zone' ? connection.zoneName : connection.ip;
+}
+
+function getOverlayLayoutWeight(overlay: ConnectionRelationshipOverlay): number {
+  const baseWeight = 1 + overlay.count + overlay.strength;
+  switch (overlay.type) {
+    case 'trade':
+      return baseWeight + 6;
+    case 'bazaar':
+      return baseWeight + 5;
+    case 'give':
+      return baseWeight + 4;
+    case 'money':
+      return baseWeight + 3;
+    case 'group':
+    case 'raid':
+      return baseWeight + 2;
+    case 'rez':
+      return baseWeight + 1;
+    default:
+      return baseWeight;
+  }
+}
+
+function getLayoutRelevantOverlays(): ConnectionRelationshipOverlay[] {
+  if (overlayMode.value === 'none') {
+    return [];
+  }
+
+  if (overlayMode.value === 'all') {
+    return props.relationshipOverlays;
+  }
+
+  return props.relationshipOverlays.filter((overlay) => overlay.type === overlayMode.value);
+}
+
+function orderCharactersByInteraction(
+  characters: ServerConnection[],
+  overlays: ConnectionRelationshipOverlay[]
+): ServerConnection[] {
+  if (characters.length <= 2 || overlays.length === 0) {
+    return characters;
+  }
+
+  const characterIds = new Set(characters.map((character) => character.characterId));
+  const connectionById = new Map(
+    characters.map((character, index) => [character.characterId, { character, index }] as const)
+  );
+  const pairWeights = new Map<string, number>();
+  const strongestNeighbor = new Map<number, number>();
+
+  const getPairKey = (leftId: number, rightId: number) =>
+    leftId < rightId ? `${leftId}:${rightId}` : `${rightId}:${leftId}`;
+
+  for (const overlay of overlays) {
+    if (
+      !characterIds.has(overlay.sourceCharacterId) ||
+      !characterIds.has(overlay.targetCharacterId) ||
+      overlay.sourceCharacterId === overlay.targetCharacterId
+    ) {
+      continue;
+    }
+
+    const pairKey = getPairKey(overlay.sourceCharacterId, overlay.targetCharacterId);
+    const nextWeight = (pairWeights.get(pairKey) ?? 0) + getOverlayLayoutWeight(overlay);
+    pairWeights.set(pairKey, nextWeight);
+  }
+
+  if (pairWeights.size === 0) {
+    return characters;
+  }
+
+  for (const [pairKey, weight] of pairWeights.entries()) {
+    const [leftIdRaw, rightIdRaw] = pairKey.split(':');
+    const leftId = Number(leftIdRaw);
+    const rightId = Number(rightIdRaw);
+    strongestNeighbor.set(leftId, Math.max(strongestNeighbor.get(leftId) ?? 0, weight));
+    strongestNeighbor.set(rightId, Math.max(strongestNeighbor.get(rightId) ?? 0, weight));
+  }
+
+  const originalIndex = (characterId: number) =>
+    connectionById.get(characterId)?.index ?? Number.MAX_SAFE_INTEGER;
+  const getWeight = (leftId: number, rightId: number) =>
+    pairWeights.get(getPairKey(leftId, rightId)) ?? 0;
+
+  const strongestPair = Array.from(pairWeights.entries())
+    .sort((left, right) => right[1] - left[1])[0]?.[0]
+    ?.split(':')
+    .map(Number);
+
+  if (!strongestPair || strongestPair.length !== 2) {
+    return characters;
+  }
+
+  const orderedIds = [...strongestPair];
+  const remainingIds = new Set(Array.from(characterIds).filter((id) => !orderedIds.includes(id)));
+
+  while (remainingIds.size > 0) {
+    let bestCandidateId: number | null = null;
+    let bestWeight = -1;
+    let insertAtStart = false;
+
+    for (const candidateId of remainingIds) {
+      const leftWeight = getWeight(candidateId, orderedIds[0]);
+      const rightWeight = getWeight(candidateId, orderedIds[orderedIds.length - 1]);
+      const candidateWeight = Math.max(
+        leftWeight,
+        rightWeight,
+        strongestNeighbor.get(candidateId) ?? 0
+      );
+
+      if (
+        candidateWeight > bestWeight ||
+        (candidateWeight === bestWeight &&
+          originalIndex(candidateId) < originalIndex(bestCandidateId ?? Number.MAX_SAFE_INTEGER))
+      ) {
+        bestCandidateId = candidateId;
+        bestWeight = candidateWeight;
+        insertAtStart = leftWeight > rightWeight;
+      }
+    }
+
+    if (bestCandidateId === null) {
+      break;
+    }
+
+    if (insertAtStart) {
+      orderedIds.unshift(bestCandidateId);
+    } else {
+      orderedIds.push(bestCandidateId);
+    }
+    remainingIds.delete(bestCandidateId);
+  }
+
+  return orderedIds
+    .map((characterId) => connectionById.get(characterId)?.character ?? null)
+    .filter((character): character is ServerConnection => character !== null);
+}
+
+function getIntroDelay(hubIndex: number, nodeIndex: number): number {
+  return hubIndex * HUB_INTRO_STAGGER_MS + nodeIndex * NODE_INTRO_STAGGER_MS;
+}
+
 function buildNodeTransform(x: number, y: number, scale: number = 1): string {
   return `translate(${x}px, ${y}px) scale(${scale})`;
+}
+
+function buildEdgeTransform(x: number, y: number, scale: number = 1): string {
+  return `translate(${x}px, ${y}px) scale(${scale})`;
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
 function getEventFadeOpacity(timestamp: string): number {
@@ -760,9 +1089,9 @@ function getEventFadeOpacity(timestamp: string): number {
 
 const filteredConnections = computed(() => {
   const query = props.searchQuery.trim().toLowerCase();
-  if (!query) return props.connections;
+  if (!query) return renderedConnections.value;
 
-  return props.connections.filter((connection) => {
+  return renderedConnections.value.filter((connection) => {
     return (
       connection.characterName.toLowerCase().includes(query) ||
       connection.zoneName.toLowerCase().includes(query) ||
@@ -803,27 +1132,167 @@ const activitySignalsByCharacterId = computed(() => {
   return result;
 });
 
+watch(
+  () => props.connections,
+  (nextConnections) => {
+    if (zoneStageTimeout) {
+      clearTimeout(zoneStageTimeout);
+      zoneStageTimeout = null;
+    }
+
+    if (groupingMode.value !== 'zone' || prefersReducedMotion()) {
+      stagedZoneHubs.value = new Map();
+      renderedConnections.value = nextConnections;
+      return;
+    }
+
+    const previousConnections = renderedConnections.value;
+    const previousZones = new Set(previousConnections.map((connection) => connection.zoneName));
+    const previousByCharacterId = new Map(
+      previousConnections.map((connection) => [connection.characterId, connection] as const)
+    );
+    const stagedDestinations = new Map<string, { count: number; ips: Set<string> }>();
+
+    for (const connection of nextConnections) {
+      const previous = previousByCharacterId.get(connection.characterId);
+      if (!previous || previous.zoneName === connection.zoneName) {
+        continue;
+      }
+      if (previousZones.has(connection.zoneName)) {
+        continue;
+      }
+
+      const existing = stagedDestinations.get(connection.zoneName);
+      if (existing) {
+        existing.count += 1;
+        existing.ips.add(connection.ip);
+      } else {
+        stagedDestinations.set(connection.zoneName, {
+          count: 1,
+          ips: new Set([connection.ip])
+        });
+      }
+    }
+
+    if (stagedDestinations.size === 0) {
+      stagedZoneHubs.value = new Map();
+      renderedConnections.value = nextConnections;
+      return;
+    }
+
+    stagedZoneHubs.value = new Map(
+      Array.from(stagedDestinations.entries()).map(([zoneName, data]) => [
+        zoneName,
+        { count: data.count, ipCount: data.ips.size }
+      ])
+    );
+
+    zoneStageTimeout = setTimeout(() => {
+      renderedConnections.value = nextConnections;
+      stagedZoneHubs.value = new Map();
+      zoneStageTimeout = null;
+    }, ZONE_HUB_STAGE_DELAY_MS);
+  },
+  { deep: false }
+);
+
+watch(
+  groupingMode,
+  () => {
+    if (zoneStageTimeout) {
+      clearTimeout(zoneStageTimeout);
+      zoneStageTimeout = null;
+    }
+    stagedZoneHubs.value = new Map();
+    renderedConnections.value = props.connections;
+  },
+  { flush: 'sync' }
+);
+
+const ipCharacterCounts = computed(() => {
+  const counts = new Map<string, number>();
+  for (const connection of filteredConnections.value) {
+    counts.set(connection.ip, (counts.get(connection.ip) ?? 0) + 1);
+  }
+  return counts;
+});
+
+const ipOutsideHomeCounts = computed(() => {
+  const counts = new Map<string, number>();
+  for (const connection of filteredConnections.value) {
+    if (!isOutsideHome(connection)) {
+      continue;
+    }
+    counts.set(connection.ip, (counts.get(connection.ip) ?? 0) + 1);
+  }
+  return counts;
+});
+
 const layout = computed(() => {
   const connections = filteredConnections.value;
   if (connections.length === 0) {
     return { hubs: [], nodes: [], edges: [], width: 0, height: 0 };
   }
 
-  const ipMap = new Map<string, ServerConnection[]>();
+  const groupMap = new Map<string, ServerConnection[]>();
   for (const connection of connections) {
-    const existing = ipMap.get(connection.ip);
+    const groupKey = getGroupingKey(connection);
+    const existing = groupMap.get(groupKey);
     if (existing) {
       existing.push(connection);
     } else {
-      ipMap.set(connection.ip, [connection]);
+      groupMap.set(groupKey, [connection]);
     }
   }
 
-  const ipGroups = Array.from(ipMap.entries()).sort(
-    (left, right) => right[1].length - left[1].length
+  const groups: LayoutGroup[] = Array.from(groupMap.entries()).map(([key, characters]) => ({
+    key,
+    characters,
+    displayCount: characters.length,
+    stagedIpCount: null,
+    isStaged: false
+  }));
+
+  if (groupingMode.value === 'zone') {
+    for (const [zoneName, stagedHub] of stagedZoneHubs.value.entries()) {
+      if (groupMap.has(zoneName)) {
+        continue;
+      }
+
+      groups.push({
+        key: zoneName,
+        characters: [],
+        displayCount: stagedHub.count,
+        stagedIpCount: stagedHub.ipCount,
+        isStaged: true
+      });
+    }
+  }
+
+  groups.sort(
+    (left, right) => right.displayCount - left.displayCount || left.key.localeCompare(right.key)
   );
-  const maxCharacters = Math.max(...ipGroups.map(([, characters]) => characters.length), 1);
-  const maxOrbit = ORBIT_RADIUS_BASE + Math.min(maxCharacters, 12) * ORBIT_RADIUS_PER_CHAR;
+
+  const relevantOverlays = getLayoutRelevantOverlays();
+  const maxHubRadius = Math.max(
+    ...groups.map((group) =>
+      groupingMode.value === 'zone'
+        ? getZoneHubRadius(splitHubLabel(group.key, groupingMode.value))
+        : HUB_RADIUS_BASE + Math.min(group.displayCount, 8) * HUB_RADIUS_SCALE
+    ),
+    HUB_RADIUS_BASE
+  );
+  const maxOrbit = Math.max(
+    ...groups.map((group) => {
+      const hubRadius =
+        groupingMode.value === 'zone'
+          ? getZoneHubRadius(splitHubLabel(group.key, groupingMode.value))
+          : HUB_RADIUS_BASE + Math.min(group.displayCount, 8) * HUB_RADIUS_SCALE;
+      const orbitSlots = buildOrbitSlots(group.displayCount, hubRadius, groupingMode.value);
+      return Math.max(...orbitSlots.map((slot) => slot.radius), hubRadius + 38);
+    }),
+    Math.max(ORBIT_RADIUS_BASE, maxHubRadius + 38)
+  );
   const dynamicCellSize = Math.max(MIN_CELL_SIZE, (maxOrbit + NODE_RADIUS + 30) * 2);
   const availableWidth = Math.max(containerWidth.value - 4, 600);
   const columns = Math.max(1, Math.floor(availableWidth / dynamicCellSize));
@@ -835,35 +1304,64 @@ const layout = computed(() => {
   const nodes: CharNode[] = [];
   const edges: Edge[] = [];
 
-  ipGroups.forEach(([ip, characters], index) => {
+  groups.forEach((group, index) => {
+    const { key: groupKey, characters } = group;
+    const orderedCharacters = orderCharactersByInteraction(characters, relevantOverlays);
     const column = index % columns;
     const row = Math.floor(index / columns);
     const hubX = padding + column * cellWidth + cellWidth / 2;
     const hubY = padding + row * cellHeight + cellHeight / 2;
-    const outsideCount = characters.filter(isOutsideHome).length;
-    const limit = getIpLimit(ip);
-    const hubRadius = HUB_RADIUS_BASE + Math.min(characters.length, 8) * HUB_RADIUS_SCALE;
+    const outsideCount = orderedCharacters.filter(isOutsideHome).length;
+    const limit = groupingMode.value === 'ip' ? getIpLimit(groupKey) : 0;
+    const hubRadius =
+      groupingMode.value === 'zone'
+        ? getZoneHubRadius(splitHubLabel(groupKey, groupingMode.value))
+        : HUB_RADIUS_BASE + Math.min(group.displayCount, 8) * HUB_RADIUS_SCALE;
+    const uniqueIpCount =
+      group.stagedIpCount ?? new Set(characters.map((character) => character.ip)).size;
+    const footerText =
+      groupingMode.value === 'ip'
+        ? `${outsideCount}/${limit}`
+        : `${uniqueIpCount} IP${uniqueIpCount === 1 ? '' : 's'}`;
+    const footerTone =
+      groupingMode.value === 'ip'
+        ? outsideCount > limit
+          ? 'danger'
+          : outsideCount > 0
+            ? 'warning'
+            : 'muted'
+        : 'muted';
 
     hubs.push({
-      ip,
+      id: groupKey,
+      label: groupKey,
+      displayLabel: formatHubLabel(groupKey, groupingMode.value),
+      labelLines: splitHubLabel(groupKey, groupingMode.value),
       x: hubX,
       y: hubY,
       radius: hubRadius,
       charCount: characters.length,
-      outsideCount,
-      limit,
-      hackStatus: getIpHackStatus(characters),
-      characters
+      footerText,
+      footerTone,
+      hackStatus: getIpHackStatus(orderedCharacters),
+      characters: orderedCharacters,
+      isStaged: group.isStaged
     });
 
-    const orbitRadius = ORBIT_RADIUS_BASE + Math.min(characters.length, 12) * ORBIT_RADIUS_PER_CHAR;
-    const angleStep = (2 * Math.PI) / characters.length;
+    if (orderedCharacters.length === 0) {
+      return;
+    }
 
-    characters.forEach((connection, indexWithinIp) => {
-      const angle = angleStep * indexWithinIp - Math.PI / 2;
-      const nodeX = hubX + orbitRadius * Math.cos(angle);
-      const nodeY = hubY + orbitRadius * Math.sin(angle);
-      const overLimit = isOutsideHome(connection) && outsideCount > limit;
+    const orbitSlots = buildOrbitSlots(orderedCharacters.length, hubRadius, groupingMode.value);
+
+    orderedCharacters.forEach((connection, indexWithinIp) => {
+      const orbitSlot = orbitSlots[indexWithinIp];
+      const nodeX = hubX + orbitSlot.radius * Math.cos(orbitSlot.angle);
+      const nodeY = hubY + orbitSlot.radius * Math.sin(orbitSlot.angle);
+      const overLimit =
+        isOutsideHome(connection) &&
+        (ipOutsideHomeCounts.value.get(connection.ip) ?? 0) > getIpLimit(connection.ip);
+      const introDelay = getIntroDelay(index, indexWithinIp);
 
       nodes.push({
         characterId: connection.characterId,
@@ -888,22 +1386,25 @@ const layout = computed(() => {
         recentlyChanged: props.recentChanges.has(connection.characterId),
         activitySignals: activitySignalsByCharacterId.value.get(connection.characterId) ?? [],
         hubX,
-        hubY
+        hubY,
+        introDelay
       });
 
       edges.push({
-        id: `${ip}-${connection.characterId}`,
-        x1: hubX,
-        y1: hubY,
-        x2: nodeX,
-        y2: nodeY,
+        id: `${groupKey}-${connection.characterId}`,
+        characterId: connection.characterId,
+        x: hubX,
+        y: hubY,
+        dx: nodeX - hubX,
+        dy: nodeY - hubY,
         overLimit,
-        ip
+        ip: connection.ip,
+        introDelay
       });
     });
   });
 
-  const maxRow = Math.floor(Math.max(ipGroups.length - 1, 0) / columns);
+  const maxRow = Math.floor(Math.max(groups.length - 1, 0) / columns);
   const width = availableWidth;
   const height = padding * 2 + (maxRow + 1) * cellHeight;
 
@@ -990,12 +1491,13 @@ const visibleNodeSignals = computed<RenderedNodeSignal[]>(() => {
   return results.filter((signal) => signal.fadeOpacity > 0);
 });
 
+const shouldAnimateIntro = computed(() => !prefersReducedMotion());
+
 function isNodeDimmed(node: CharNode): boolean {
   if (highlightMode.value === 'watched' && !node.isWatched && !node.isAssociated) return true;
 
-  if (highlightMode.value === 'multi') {
-    const hub = hubs.value.find((entry) => entry.ip === node.ip);
-    if (!hub || hub.charCount <= 1) return true;
+  if (highlightMode.value === 'multi' && (ipCharacterCounts.value.get(node.ip) ?? 0) <= 1) {
+    return true;
   }
 
   if (highlightMode.value === 'hack' && node.hackRisk === 'normal') return true;
@@ -1017,7 +1519,12 @@ function isHubDimmed(hub: HubNode): boolean {
     }
   }
 
-  if (highlightMode.value === 'multi' && hub.charCount <= 1) return true;
+  if (
+    highlightMode.value === 'multi' &&
+    !hub.characters.some((character) => (ipCharacterCounts.value.get(character.ip) ?? 0) > 1)
+  ) {
+    return true;
+  }
 
   if (highlightMode.value === 'hack') {
     if (!hub.characters.some((character) => getHackRisk(character) !== 'normal')) {
@@ -1036,7 +1543,7 @@ function isHubDimmed(hub: HubNode): boolean {
 }
 
 function isEdgeDimmed(edge: Edge): boolean {
-  const node = nodeMap.value.get(Number(edge.id.split('-')[1]));
+  const node = nodeMap.value.get(edge.characterId);
   return node ? isNodeDimmed(node) : true;
 }
 
@@ -1054,49 +1561,31 @@ function isSignalDimmed(signal: RenderedNodeSignal): boolean {
 
 function getNodeStyle(node: CharNode): Record<string, string> {
   return {
+    '--hub-x': `${node.hubX}px`,
+    '--hub-y': `${node.hubY}px`,
+    '--node-x': `${node.x}px`,
+    '--node-y': `${node.y}px`,
+    '--node-start-scale': String(INTRO_NODE_START_SCALE),
+    '--node-intro-duration': `${NODE_TRANSITION_DURATION_MS}ms`,
+    '--node-intro-ease': INTRO_TRANSITION_EASING,
     transform: buildNodeTransform(node.x, node.y),
+    animationDelay: `${node.introDelay}ms`,
     transformOrigin: 'center',
     transformBox: 'fill-box'
   };
 }
 
-function getNumericDatasetValue(
-  dataset: DOMStringMap,
-  key: 'hubX' | 'hubY' | 'nodeX' | 'nodeY'
-): number {
-  const rawValue = dataset[key];
-  return rawValue ? Number(rawValue) : 0;
-}
-
-function handleNodeBeforeEnter(element: Element) {
-  const nodeElement = element as SVGGElement;
-  const hubX = getNumericDatasetValue(nodeElement.dataset, 'hubX');
-  const hubY = getNumericDatasetValue(nodeElement.dataset, 'hubY');
-  nodeElement.style.opacity = '0';
-  nodeElement.style.transform = buildNodeTransform(hubX, hubY, 0.72);
-}
-
-function handleNodeEnter(element: Element, done: () => void) {
-  const nodeElement = element as SVGGElement;
-  const nodeX = getNumericDatasetValue(nodeElement.dataset, 'nodeX');
-  const nodeY = getNumericDatasetValue(nodeElement.dataset, 'nodeY');
-
-  requestAnimationFrame(() => {
-    nodeElement.style.opacity = '1';
-    nodeElement.style.transform = buildNodeTransform(nodeX, nodeY, 1);
-  });
-
-  window.setTimeout(done, NODE_TRANSITION_DURATION_MS);
-}
-
-function handleNodeLeave(element: Element, done: () => void) {
-  const nodeElement = element as SVGGElement;
-  const hubX = getNumericDatasetValue(nodeElement.dataset, 'hubX');
-  const hubY = getNumericDatasetValue(nodeElement.dataset, 'hubY');
-  nodeElement.style.pointerEvents = 'none';
-  nodeElement.style.opacity = '0';
-  nodeElement.style.transform = buildNodeTransform(hubX, hubY, 0.72);
-  window.setTimeout(done, NODE_TRANSITION_DURATION_MS);
+function getEdgeStyle(edge: Edge): Record<string, string> {
+  return {
+    '--edge-x': `${edge.x}px`,
+    '--edge-y': `${edge.y}px`,
+    '--edge-start-scale': String(INTRO_EDGE_START_SCALE),
+    '--edge-intro-duration': `${EDGE_TRANSITION_DURATION_MS}ms`,
+    '--edge-intro-ease': INTRO_TRANSITION_EASING,
+    transform: buildEdgeTransform(edge.x, edge.y),
+    animationDelay: `${edge.introDelay}ms`,
+    transformOrigin: '0 0'
+  };
 }
 </script>
 
@@ -1212,6 +1701,18 @@ function handleNodeLeave(element: Element, done: () => void) {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.edge-wrap {
+  transition:
+    opacity 0.3s ease,
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+}
+
+.edge-wrap--intro {
+  animation: edgeIntro var(--edge-intro-duration)
+    var(--edge-intro-ease, cubic-bezier(0.22, 1, 0.36, 1.08)) both;
 }
 
 .edge-line {
@@ -1367,6 +1868,10 @@ function handleNodeLeave(element: Element, done: () => void) {
   transition: opacity 0.3s ease;
 }
 
+.hub-node--staged .hub-glow {
+  animation: hubStageGlow 0.28s ease-out both;
+}
+
 .hub-node--dimmed .hub-glow {
   opacity: 0.15;
 }
@@ -1378,6 +1883,13 @@ function handleNodeLeave(element: Element, done: () => void) {
   transition:
     opacity 0.3s ease,
     stroke 0.3s ease;
+}
+
+.hub-node--staged .hub-circle,
+.hub-node--staged .hub-label,
+.hub-node--staged .hub-count,
+.hub-node--staged .hub-active {
+  animation: hubStagePop 0.24s ease-out both;
 }
 
 .hub-node--dimmed .hub-circle {
@@ -1404,6 +1916,34 @@ function handleNodeLeave(element: Element, done: () => void) {
   }
 }
 
+@keyframes hubStagePop {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+    transform-origin: center;
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: center;
+  }
+}
+
+@keyframes hubStageGlow {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+    transform-origin: center;
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: center;
+  }
+}
+
 .hub-label {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 10px;
@@ -1417,6 +1957,16 @@ function handleNodeLeave(element: Element, done: () => void) {
   pointer-events: none;
 }
 
+.hub-label--zone {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  fill: rgba(241, 245, 249, 0.98);
+  stroke: rgba(8, 12, 28, 0.96);
+  stroke-width: 3px;
+}
+
 .hub-node--dimmed .hub-label {
   opacity: 0.15;
 }
@@ -1428,6 +1978,14 @@ function handleNodeLeave(element: Element, done: () => void) {
   fill: #e2e8f0;
   transition: opacity 0.3s ease;
   pointer-events: none;
+}
+
+.hub-count--zone {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  fill: rgba(191, 219, 254, 0.92);
 }
 
 .hub-node--dimmed .hub-count {
@@ -1451,6 +2009,10 @@ function handleNodeLeave(element: Element, done: () => void) {
   fill: #fca5a5;
 }
 
+.hub-active--muted {
+  fill: #64748b;
+}
+
 .hub-node--dimmed .hub-active {
   opacity: 0.15;
 }
@@ -1461,6 +2023,11 @@ function handleNodeLeave(element: Element, done: () => void) {
     opacity 0.28s ease,
     transform 0.52s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform, opacity;
+}
+
+.char-node--intro {
+  animation: nodeIntro var(--node-intro-duration)
+    var(--node-intro-ease, cubic-bezier(0.22, 1, 0.36, 1.08)) both;
 }
 
 .char-node--dimmed {
@@ -1477,6 +2044,10 @@ function handleNodeLeave(element: Element, done: () => void) {
   transition:
     stroke-width 0.15s ease,
     stroke 0.2s ease;
+}
+
+.char-icon {
+  pointer-events: none;
 }
 
 .char-circle--TANK {
@@ -1547,21 +2118,29 @@ function handleNodeLeave(element: Element, done: () => void) {
 }
 
 .char-node--changed .char-circle {
-  animation: nodeChangePulse 0.6s ease-out 3;
+  animation: nodeChangePulse 0.82s cubic-bezier(0.22, 1, 0.36, 1) 1;
 }
 
 @keyframes nodeChangePulse {
   0% {
     stroke-width: 2;
     filter: none;
+    opacity: 1;
   }
-  40% {
-    stroke-width: 5;
+  32% {
+    stroke-width: 7;
     filter: url(#glow-soft);
+    opacity: 1;
+  }
+  62% {
+    stroke-width: 6;
+    filter: url(#glow-soft);
+    opacity: 0.96;
   }
   100% {
     stroke-width: 2;
     filter: none;
+    opacity: 1;
   }
 }
 
@@ -1577,6 +2156,38 @@ function handleNodeLeave(element: Element, done: () => void) {
   stroke-linejoin: round;
   pointer-events: none;
   transition: opacity 0.3s ease;
+}
+
+@keyframes edgeIntro {
+  from {
+    opacity: 0;
+    transform: translate(var(--edge-x), var(--edge-y)) scale(var(--edge-start-scale));
+  }
+
+  30% {
+    opacity: 0.7;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(var(--edge-x), var(--edge-y)) scale(1);
+  }
+}
+
+@keyframes nodeIntro {
+  from {
+    opacity: 0;
+    transform: translate(var(--hub-x), var(--hub-y)) scale(var(--node-start-scale));
+  }
+
+  45% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(var(--node-x), var(--node-y)) scale(1);
+  }
 }
 
 .char-node--dimmed .char-label {
@@ -1763,6 +2374,5 @@ function handleNodeLeave(element: Element, done: () => void) {
   .toolbar-group--toggles {
     justify-content: flex-start;
   }
-
 }
 </style>

@@ -799,6 +799,30 @@ const SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED = 3;
 // Change tracking for transition effects
 const recentChanges = ref<Set<number>>(new Set());
 let changeTimeout: ReturnType<typeof setTimeout> | null = null;
+let hasSeenActivitySnapshot = false;
+
+function queueRecentChanges(characterIds: Iterable<number>) {
+  const nextIds = new Set(recentChanges.value);
+  let didAdd = false;
+
+  for (const characterId of characterIds) {
+    if (nextIds.has(characterId)) {
+      continue;
+    }
+    nextIds.add(characterId);
+    didAdd = true;
+  }
+
+  if (!didAdd) {
+    return;
+  }
+
+  recentChanges.value = nextIds;
+  if (changeTimeout) clearTimeout(changeTimeout);
+  changeTimeout = setTimeout(() => {
+    recentChanges.value = new Set();
+  }, 2200);
+}
 
 watch(connections, (newConns, oldConns) => {
   if (!oldConns || oldConns.length === 0) return;
@@ -829,13 +853,31 @@ watch(connections, (newConns, oldConns) => {
     }
   }
 
-  if (changes.size > 0) {
-    recentChanges.value = changes;
-    if (changeTimeout) clearTimeout(changeTimeout);
-    changeTimeout = setTimeout(() => {
-      recentChanges.value = new Set();
-    }, 3500);
+  queueRecentChanges(changes);
+});
+
+watch(activityIndicators, (newIndicators, oldIndicators) => {
+  if (!hasSeenActivitySnapshot) {
+    hasSeenActivitySnapshot = true;
+    return;
   }
+
+  const previousSignatures = new Set(
+    (oldIndicators ?? []).map(
+      (indicator) =>
+        `${indicator.characterId}:${indicator.type}:${indicator.lastSeenAt}:${indicator.count}`
+    )
+  );
+
+  const changedCharacters = new Set<number>();
+  for (const indicator of newIndicators) {
+    const signature = `${indicator.characterId}:${indicator.type}:${indicator.lastSeenAt}:${indicator.count}`;
+    if (!previousSignatures.has(signature)) {
+      changedCharacters.add(indicator.characterId);
+    }
+  }
+
+  queueRecentChanges(changedCharacters);
 });
 
 // Global character search
@@ -1499,9 +1541,7 @@ async function loadConnections(isRefresh = false) {
         `[ConnectionsView] Deferring suspicious connections refresh ${previousCount} -> ${nextCount} (confirmation ${pendingSuspiciousRefresh.repeatCount}/${SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED}).`
       );
 
-      if (
-        pendingSuspiciousRefresh.repeatCount < SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED
-      ) {
+      if (pendingSuspiciousRefresh.repeatCount < SUSPICIOUS_REFRESH_CONFIRMATIONS_REQUIRED) {
         return;
       }
     } else {
