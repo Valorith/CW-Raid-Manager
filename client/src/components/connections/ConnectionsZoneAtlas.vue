@@ -91,7 +91,60 @@
             </div>
           </div>
 
-          <div class="zone-tile__body">
+          <div
+            class="zone-tile__body"
+            :ref="(el) => setTileBodyRef(zone.name, el)"
+          >
+            <svg
+              v-if="getTileOverlays(zone.name).length > 0"
+              class="zone-tile__overlay"
+              :viewBox="`0 0 ${getTileLayout(zone.name).width} ${getTileLayout(zone.name).height}`"
+              :width="getTileLayout(zone.name).width"
+              :height="getTileLayout(zone.name).height"
+              preserveAspectRatio="none"
+            >
+              <g class="zone-tile__overlay-paths">
+                <path
+                  v-for="overlay in getTileOverlays(zone.name)"
+                  :key="`${overlay.id}-path`"
+                  :d="overlay.path"
+                  class="zone-overlay-path"
+                  :class="`zone-overlay-path--${overlay.type}`"
+                  :style="{
+                    strokeWidth: `${overlay.strokeWidth}px`,
+                    opacity: String(overlay.fadeOpacity)
+                  }"
+                />
+              </g>
+              <g class="zone-tile__overlay-markers">
+                <g
+                  v-for="overlay in getTileOverlays(zone.name)"
+                  :key="`${overlay.id}-marker`"
+                  class="zone-overlay-marker"
+                  :class="`zone-overlay-marker--${overlay.type}`"
+                  :style="{ opacity: String(overlay.fadeOpacity) }"
+                  @mouseenter="showOverlayTooltip($event, overlay)"
+                  @mousemove="moveOverlayTooltip($event)"
+                  @mouseleave="hideOverlayTooltip()"
+                >
+                  <circle
+                    :cx="overlay.midX"
+                    :cy="overlay.midY"
+                    r="9"
+                    class="zone-overlay-marker__disc"
+                  />
+                  <text
+                    :x="overlay.midX"
+                    :y="overlay.midY + 3"
+                    text-anchor="middle"
+                    class="zone-overlay-marker__glyph"
+                  >
+                    {{ relationshipTypeGlyphs[overlay.type] }}
+                  </text>
+                </g>
+              </g>
+            </svg>
+
             <div class="zone-tile__characters">
               <button
                 v-for="char in zone.characters"
@@ -101,10 +154,14 @@
                 :class="[
                   getCharBadgeClass(char),
                   { 'char-badge--hack': getHackRisk(char) !== 'normal' },
-                  { 'char-badge--changed': recentChanges.has(char.characterId) }
+                  { 'char-badge--changed': recentChanges.has(char.characterId) },
+                  { 'char-badge--interacting': characterInteractionMap.get(char.characterId) }
                 ]"
                 :title="getCharTooltip(char)"
                 @click="$emit('open-character-admin', char.characterId)"
+                @mouseenter="showCharSignalTooltip($event, char)"
+                @mousemove="moveOverlayTooltip($event)"
+                @mouseleave="hideOverlayTooltip()"
               >
                 <img
                   v-if="getClassIcon(char.className)"
@@ -130,6 +187,26 @@
                   @click.stop="$emit('open-trader-sales', char.characterId)"
                 >
                   $
+                </span>
+                <span
+                  v-for="signal in getCharSignals(char.characterId)"
+                  :key="`${char.characterId}-${signal.type}`"
+                  class="char-badge__signal"
+                  :class="[
+                    `char-badge__signal--${signal.type}`,
+                    `char-badge__signal--${signal.intensity}`
+                  ]"
+                  :title="formatActivitySignalSummary(signal)"
+                >
+                  {{ activityTypeGlyphs[signal.type] }}
+                </span>
+                <span
+                  v-if="characterInteractionMap.get(char.characterId)"
+                  class="char-badge__interactions"
+                  :title="getInteractionTooltip(char.characterId)"
+                >
+                  <span class="char-badge__interactions-glyph">&#8644;</span>
+                  {{ characterInteractionMap.get(char.characterId) }}
                 </span>
               </button>
             </div>
@@ -171,13 +248,45 @@
     <div v-if="sortedZones.length === 0" class="atlas-empty">
       <p>No characters match your current filter.</p>
     </div>
+
+    <div
+      v-if="hoverTooltip"
+      class="zone-overlay-tooltip"
+      :style="{ left: `${hoverTooltip.x + 14}px`, top: `${hoverTooltip.y + 14}px` }"
+    >
+      <div class="zone-overlay-tooltip__title">
+        {{ hoverTooltip.title }}
+      </div>
+      <div
+        v-for="(line, index) in hoverTooltip.lines"
+        :key="index"
+        class="zone-overlay-tooltip__line"
+      >
+        {{ line }}
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue';
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+  type ComponentPublicInstance
+} from 'vue';
 import CoinDisplay from '../CoinDisplay.vue';
-import type { ServerConnection, IpExemption } from '../../services/api';
+import type {
+  ConnectionActivityIndicator,
+  ConnectionActivityIndicatorType,
+  ConnectionRelationshipOverlay,
+  ConnectionRelationshipOverlayType,
+  ServerConnection,
+  IpExemption
+} from '../../services/api';
 import {
   characterClassLabels,
   characterClassIcons,
@@ -187,6 +296,8 @@ import {
 const props = defineProps<{
   connections: ServerConnection[];
   ipExemptions: IpExemption[];
+  relationshipOverlays?: ConnectionRelationshipOverlay[];
+  activityIndicators?: ConnectionActivityIndicator[];
   searchQuery: string;
   watchedCharacterIds: Set<number>;
   watchedAccountIds: Set<number>;
@@ -533,7 +644,511 @@ onUnmounted(() => {
     clearTimeout(timeout);
   }
   movingBadgeTimeouts.clear();
+  if (tileResizeObserver) {
+    tileResizeObserver.disconnect();
+    tileResizeObserver = null;
+  }
+  if (nowInterval) {
+    clearInterval(nowInterval);
+    nowInterval = null;
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Player-to-player interaction overlays (relationships + activity signals)
+// ---------------------------------------------------------------------------
+
+const EVENT_VISUAL_FULL_OPACITY_MS = 2 * 60 * 1000;
+const EVENT_VISUAL_MAX_AGE_MS = 20 * 60 * 1000;
+const RELATIONSHIP_CURVATURE: Record<ConnectionRelationshipOverlayType, number> = {
+  trade: 18,
+  bazaar: -20,
+  group: 10,
+  raid: 24,
+  rez: -10,
+  give: 14,
+  money: -14
+};
+
+const relationshipTypeGlyphs: Record<ConnectionRelationshipOverlayType, string> = {
+  trade: 'T',
+  bazaar: '$',
+  group: 'G',
+  raid: 'R',
+  rez: '+',
+  give: 'I',
+  money: 'M'
+};
+
+const relationshipTypeLabels: Record<ConnectionRelationshipOverlayType, string> = {
+  trade: 'Trade',
+  bazaar: 'Bazaar Sale',
+  group: 'Group',
+  raid: 'Raid',
+  rez: 'Rez',
+  give: 'Give Item',
+  money: 'Split Money'
+};
+
+const activityTypeGlyphs: Record<ConnectionActivityIndicatorType, string> = {
+  kill: 'K',
+  loot: 'L',
+  death: 'D',
+  task: 'Q',
+  level: 'Lv',
+  zone: 'Z',
+  craft: 'C',
+  handin: 'H',
+  discovery: '*',
+  merchant: '$'
+};
+
+const activityPriority: Record<ConnectionActivityIndicatorType, number> = {
+  death: 0,
+  kill: 1,
+  loot: 2,
+  task: 3,
+  merchant: 4,
+  level: 5,
+  craft: 6,
+  handin: 7,
+  discovery: 8,
+  zone: 9
+};
+
+interface TileBadgePosition {
+  cx: number;
+  cy: number;
+  width: number;
+  height: number;
+}
+
+interface TileLayout {
+  width: number;
+  height: number;
+  badges: Map<number, TileBadgePosition>;
+}
+
+interface RenderedTileOverlay {
+  id: string;
+  type: ConnectionRelationshipOverlayType;
+  sourceCharacterId: number;
+  sourceCharacterName: string;
+  targetCharacterId: number;
+  targetCharacterName: string;
+  count: number;
+  strength: number;
+  label: string;
+  lastSeenAt: string;
+  path: string;
+  midX: number;
+  midY: number;
+  strokeWidth: number;
+  fadeOpacity: number;
+}
+
+interface HoverTooltip {
+  x: number;
+  y: number;
+  title: string;
+  lines: string[];
+}
+
+const tileBodyElements = new Map<string, HTMLElement>();
+const tileLayouts = ref<Map<string, TileLayout>>(new Map());
+const layoutVersion = ref(0);
+const currentTimeMs = ref(Date.now());
+const hoverTooltip = ref<HoverTooltip | null>(null);
+let tileResizeObserver: ResizeObserver | null = null;
+let nowInterval: ReturnType<typeof setInterval> | null = null;
+let layoutFrame: number | null = null;
+
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    tileResizeObserver = new ResizeObserver(() => scheduleLayoutRecompute());
+  }
+  nowInterval = setInterval(() => {
+    currentTimeMs.value = Date.now();
+  }, 15000);
+  scheduleLayoutRecompute();
+});
+
+function setTileBodyRef(zoneName: string, element: Element | ComponentPublicInstance | null) {
+  const resolved = resolveRefElement(element);
+  if (resolved) {
+    const previous = tileBodyElements.get(zoneName);
+    if (previous && previous !== resolved && tileResizeObserver) {
+      tileResizeObserver.unobserve(previous);
+    }
+    tileBodyElements.set(zoneName, resolved);
+    if (tileResizeObserver) {
+      tileResizeObserver.observe(resolved);
+    }
+    scheduleLayoutRecompute();
+    return;
+  }
+  const previous = tileBodyElements.get(zoneName);
+  if (previous && tileResizeObserver) {
+    tileResizeObserver.unobserve(previous);
+  }
+  tileBodyElements.delete(zoneName);
+}
+
+function scheduleLayoutRecompute() {
+  if (layoutFrame !== null) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    recomputeAllTileLayouts();
+  });
+}
+
+function recomputeAllTileLayouts() {
+  const next = new Map<string, TileLayout>();
+  for (const [zoneName, body] of tileBodyElements.entries()) {
+    const bodyRect = body.getBoundingClientRect();
+    if (bodyRect.width === 0 || bodyRect.height === 0) continue;
+    const badges = new Map<number, TileBadgePosition>();
+    const zone = sortedZones.value.find((z) => z.name === zoneName);
+    if (!zone) continue;
+    for (const character of zone.characters) {
+      const badge = badgeElements.get(character.characterId);
+      if (!badge) continue;
+      const r = badge.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      badges.set(character.characterId, {
+        cx: r.left - bodyRect.left + r.width / 2,
+        cy: r.top - bodyRect.top + r.height / 2,
+        width: r.width,
+        height: r.height
+      });
+    }
+    next.set(zoneName, {
+      width: bodyRect.width,
+      height: bodyRect.height,
+      badges
+    });
+  }
+  tileLayouts.value = next;
+  layoutVersion.value += 1;
+}
+
+const characterZoneMap = computed(() => {
+  const result = new Map<number, string>();
+  for (const conn of renderedConnections.value) {
+    result.set(conn.characterId, conn.zoneName);
+  }
+  return result;
+});
+
+const characterNameMap = computed(() => {
+  const result = new Map<number, string>();
+  for (const conn of renderedConnections.value) {
+    result.set(conn.characterId, conn.characterName);
+  }
+  return result;
+});
+
+const visibleCharacterIds = computed(() => {
+  const ids = new Set<number>();
+  for (const conn of filteredConnections.value) {
+    ids.add(conn.characterId);
+  }
+  return ids;
+});
+
+function getEventFadeOpacity(timestamp: string): number {
+  const ageMs = Math.max(0, currentTimeMs.value - new Date(timestamp).getTime());
+  if (ageMs <= EVENT_VISUAL_FULL_OPACITY_MS) return 1;
+  if (ageMs >= EVENT_VISUAL_MAX_AGE_MS) return 0;
+  const fadeProgress =
+    (ageMs - EVENT_VISUAL_FULL_OPACITY_MS) /
+    (EVENT_VISUAL_MAX_AGE_MS - EVENT_VISUAL_FULL_OPACITY_MS);
+  return Math.max(0, 1 - fadeProgress);
+}
+
+function buildCurvePath(
+  sourceX: number,
+  sourceY: number,
+  targetX: number,
+  targetY: number,
+  curvature: number
+): { path: string; midX: number; midY: number } {
+  const dx = targetX - sourceX;
+  const dy = targetY - sourceY;
+  const distance = Math.hypot(dx, dy) || 1;
+  const normalX = -dy / distance;
+  const normalY = dx / distance;
+  const controlX = (sourceX + targetX) / 2 + normalX * curvature;
+  const controlY = (sourceY + targetY) / 2 + normalY * curvature;
+  const midX = 0.25 * sourceX + 0.5 * controlX + 0.25 * targetX;
+  const midY = 0.25 * sourceY + 0.5 * controlY + 0.25 * targetY;
+  return {
+    path: `M ${sourceX} ${sourceY} Q ${controlX} ${controlY} ${targetX} ${targetY}`,
+    midX,
+    midY
+  };
+}
+
+const tileOverlaysByZone = computed<Map<string, RenderedTileOverlay[]>>(() => {
+  // Touch the layoutVersion to ensure recomputation when layout changes.
+  layoutVersion.value;
+  const result = new Map<string, RenderedTileOverlay[]>();
+  const overlays = props.relationshipOverlays ?? [];
+  if (overlays.length === 0) return result;
+
+  const visibleIds = visibleCharacterIds.value;
+  const charZone = characterZoneMap.value;
+
+  for (const overlay of overlays) {
+    if (overlay.sourceCharacterId === overlay.targetCharacterId) continue;
+    if (!visibleIds.has(overlay.sourceCharacterId)) continue;
+    if (!visibleIds.has(overlay.targetCharacterId)) continue;
+    const sourceZone = charZone.get(overlay.sourceCharacterId);
+    const targetZone = charZone.get(overlay.targetCharacterId);
+    if (!sourceZone || sourceZone !== targetZone) continue;
+    const layout = tileLayouts.value.get(sourceZone);
+    if (!layout) continue;
+    const sourcePos = layout.badges.get(overlay.sourceCharacterId);
+    const targetPos = layout.badges.get(overlay.targetCharacterId);
+    if (!sourcePos || !targetPos) continue;
+    const fadeOpacity = getEventFadeOpacity(overlay.lastSeenAt);
+    if (fadeOpacity <= 0) continue;
+
+    const curvature = RELATIONSHIP_CURVATURE[overlay.type] ?? 14;
+    const curve = buildCurvePath(
+      sourcePos.cx,
+      sourcePos.cy,
+      targetPos.cx,
+      targetPos.cy,
+      curvature
+    );
+    const rendered: RenderedTileOverlay = {
+      id: overlay.id,
+      type: overlay.type,
+      sourceCharacterId: overlay.sourceCharacterId,
+      sourceCharacterName: overlay.sourceCharacterName,
+      targetCharacterId: overlay.targetCharacterId,
+      targetCharacterName: overlay.targetCharacterName,
+      count: overlay.count,
+      strength: overlay.strength,
+      label: overlay.label,
+      lastSeenAt: overlay.lastSeenAt,
+      path: curve.path,
+      midX: curve.midX,
+      midY: curve.midY,
+      strokeWidth: 1.6 + Math.min(overlay.strength, 5) * 0.45,
+      fadeOpacity
+    };
+
+    const list = result.get(sourceZone);
+    if (list) {
+      list.push(rendered);
+    } else {
+      result.set(sourceZone, [rendered]);
+    }
+  }
+
+  return result;
+});
+
+const characterInteractionMap = computed<Map<number, number>>(() => {
+  const counts = new Map<number, number>();
+  const overlays = props.relationshipOverlays ?? [];
+  if (overlays.length === 0) return counts;
+  const visibleIds = visibleCharacterIds.value;
+  for (const overlay of overlays) {
+    if (overlay.sourceCharacterId === overlay.targetCharacterId) continue;
+    if (
+      !visibleIds.has(overlay.sourceCharacterId) ||
+      !visibleIds.has(overlay.targetCharacterId)
+    ) {
+      continue;
+    }
+    if (getEventFadeOpacity(overlay.lastSeenAt) <= 0) continue;
+    counts.set(
+      overlay.sourceCharacterId,
+      (counts.get(overlay.sourceCharacterId) ?? 0) + overlay.count
+    );
+    counts.set(
+      overlay.targetCharacterId,
+      (counts.get(overlay.targetCharacterId) ?? 0) + overlay.count
+    );
+  }
+  return counts;
+});
+
+const characterInteractionDetails = computed<Map<number, ConnectionRelationshipOverlay[]>>(() => {
+  const result = new Map<number, ConnectionRelationshipOverlay[]>();
+  const overlays = props.relationshipOverlays ?? [];
+  if (overlays.length === 0) return result;
+  const visibleIds = visibleCharacterIds.value;
+  for (const overlay of overlays) {
+    if (overlay.sourceCharacterId === overlay.targetCharacterId) continue;
+    if (
+      !visibleIds.has(overlay.sourceCharacterId) ||
+      !visibleIds.has(overlay.targetCharacterId)
+    ) {
+      continue;
+    }
+    if (getEventFadeOpacity(overlay.lastSeenAt) <= 0) continue;
+    for (const id of [overlay.sourceCharacterId, overlay.targetCharacterId]) {
+      const existing = result.get(id);
+      if (existing) {
+        existing.push(overlay);
+      } else {
+        result.set(id, [overlay]);
+      }
+    }
+  }
+  return result;
+});
+
+const characterSignalsMap = computed<Map<number, ConnectionActivityIndicator[]>>(() => {
+  const result = new Map<number, ConnectionActivityIndicator[]>();
+  const indicators = props.activityIndicators ?? [];
+  if (indicators.length === 0) return result;
+  const visibleIds = visibleCharacterIds.value;
+  for (const indicator of indicators) {
+    if (!visibleIds.has(indicator.characterId)) continue;
+    if (getEventFadeOpacity(indicator.lastSeenAt) <= 0) continue;
+    const existing = result.get(indicator.characterId);
+    if (existing) {
+      existing.push(indicator);
+    } else {
+      result.set(indicator.characterId, [indicator]);
+    }
+  }
+  for (const list of result.values()) {
+    list.sort((a, b) => {
+      const priorityDelta = activityPriority[a.type] - activityPriority[b.type];
+      if (priorityDelta !== 0) return priorityDelta;
+      if (b.count !== a.count) return b.count - a.count;
+      return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+    });
+  }
+  return result;
+});
+
+function getTileOverlays(zoneName: string): RenderedTileOverlay[] {
+  return tileOverlaysByZone.value.get(zoneName) ?? [];
+}
+
+function getTileLayout(zoneName: string): { width: number; height: number } {
+  const layout = tileLayouts.value.get(zoneName);
+  return layout ? { width: layout.width, height: layout.height } : { width: 0, height: 0 };
+}
+
+function getCharSignals(characterId: number): ConnectionActivityIndicator[] {
+  const list = characterSignalsMap.value.get(characterId);
+  if (!list) return [];
+  return list.slice(0, 2);
+}
+
+function formatRelativeTime(timestamp: string): string {
+  const deltaMs = Date.now() - new Date(timestamp).getTime();
+  const deltaMinutes = Math.floor(deltaMs / 60000);
+  if (deltaMinutes < 1) return 'moments ago';
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h ago`;
+  const deltaDays = Math.floor(deltaHours / 24);
+  return `${deltaDays}d ago`;
+}
+
+function formatActivitySignalSummary(signal: ConnectionActivityIndicator): string {
+  const countSuffix = signal.count > 1 ? ` x${signal.count}` : '';
+  return `${signal.label}${countSuffix} - ${formatRelativeTime(signal.lastSeenAt)}`;
+}
+
+function getInteractionTooltip(characterId: number): string {
+  const list = characterInteractionDetails.value.get(characterId);
+  if (!list || list.length === 0) return '';
+  const grouped = new Map<ConnectionRelationshipOverlayType, number>();
+  for (const overlay of list) {
+    grouped.set(overlay.type, (grouped.get(overlay.type) ?? 0) + overlay.count);
+  }
+  const parts: string[] = [];
+  for (const [type, count] of grouped.entries()) {
+    parts.push(`${relationshipTypeLabels[type]} x${count}`);
+  }
+  return parts.join('\n');
+}
+
+function showOverlayTooltip(event: MouseEvent, overlay: RenderedTileOverlay) {
+  hoverTooltip.value = {
+    x: event.clientX,
+    y: event.clientY,
+    title: relationshipTypeLabels[overlay.type],
+    lines: [
+      `${overlay.sourceCharacterName} <-> ${overlay.targetCharacterName}`,
+      overlay.label,
+      `Count: ${overlay.count}`,
+      formatRelativeTime(overlay.lastSeenAt)
+    ]
+  };
+}
+
+function showCharSignalTooltip(event: MouseEvent, conn: ServerConnection) {
+  const signals = characterSignalsMap.value.get(conn.characterId);
+  const interactions = characterInteractionDetails.value.get(conn.characterId);
+  if ((!signals || signals.length === 0) && (!interactions || interactions.length === 0)) {
+    return;
+  }
+  const lines: string[] = [];
+  if (interactions && interactions.length > 0) {
+    lines.push('Interactions:');
+    for (const overlay of interactions.slice(0, 4)) {
+      const otherId =
+        overlay.sourceCharacterId === conn.characterId
+          ? overlay.targetCharacterId
+          : overlay.sourceCharacterId;
+      const otherName = characterNameMap.value.get(otherId) ?? `#${otherId}`;
+      const countSuffix = overlay.count > 1 ? ` x${overlay.count}` : '';
+      lines.push(
+        `${relationshipTypeLabels[overlay.type]}: ${otherName}${countSuffix} - ${formatRelativeTime(overlay.lastSeenAt)}`
+      );
+    }
+  }
+  if (signals && signals.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push('Recent Activity:');
+    for (const signal of signals.slice(0, 4)) {
+      lines.push(formatActivitySignalSummary(signal));
+    }
+  }
+  hoverTooltip.value = {
+    x: event.clientX,
+    y: event.clientY,
+    title: conn.characterName,
+    lines
+  };
+}
+
+function moveOverlayTooltip(event: MouseEvent) {
+  if (!hoverTooltip.value) return;
+  hoverTooltip.value = {
+    ...hoverTooltip.value,
+    x: event.clientX,
+    y: event.clientY
+  };
+}
+
+function hideOverlayTooltip() {
+  hoverTooltip.value = null;
+}
+
+watch(
+  () => [
+    renderedConnections.value,
+    props.searchQuery,
+    props.relationshipOverlays,
+    props.activityIndicators
+  ],
+  () => {
+    nextTick(() => scheduleLayoutRecompute());
+  },
+  { deep: false }
+);
 </script>
 
 <style scoped>
@@ -1087,5 +1702,281 @@ onUnmounted(() => {
   .char-badge__name {
     font-size: 0.84rem;
   }
+}
+
+/* Activity / relationship overlays */
+.zone-tile__body {
+  position: relative;
+}
+
+.zone-tile__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+.zone-tile__overlay-markers {
+  pointer-events: auto;
+}
+
+.zone-tile__characters {
+  position: relative;
+  z-index: 2;
+}
+
+.zone-overlay-path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+  animation: zoneOverlayDash 12s linear infinite;
+  transition: opacity 0.25s ease;
+  filter: drop-shadow(0 0 6px rgba(15, 23, 42, 0.45));
+}
+
+.zone-overlay-path--trade {
+  stroke: rgba(251, 191, 36, 0.85);
+  stroke-dasharray: 7 6;
+}
+.zone-overlay-path--bazaar {
+  stroke: rgba(16, 185, 129, 0.85);
+  stroke-dasharray: 3 6;
+}
+.zone-overlay-path--group {
+  stroke: rgba(125, 211, 252, 0.8);
+  stroke-dasharray: 10 5;
+}
+.zone-overlay-path--raid {
+  stroke: rgba(192, 132, 252, 0.82);
+  stroke-dasharray: 12 6;
+}
+.zone-overlay-path--rez {
+  stroke: rgba(103, 232, 249, 0.86);
+  stroke-dasharray: 2 4;
+}
+.zone-overlay-path--give {
+  stroke: rgba(249, 115, 22, 0.82);
+  stroke-dasharray: 8 7;
+}
+.zone-overlay-path--money {
+  stroke: rgba(74, 222, 128, 0.82);
+  stroke-dasharray: 5 5;
+}
+
+@keyframes zoneOverlayDash {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -220;
+  }
+}
+
+.zone-overlay-marker {
+  cursor: help;
+}
+
+.zone-overlay-marker__disc {
+  fill: rgba(8, 12, 28, 0.94);
+  stroke-width: 1.6;
+  animation: zoneMarkerPulse 2.2s ease-in-out infinite;
+}
+
+.zone-overlay-marker__glyph {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  fill: #f8fafc;
+  pointer-events: none;
+}
+
+.zone-overlay-marker--trade .zone-overlay-marker__disc {
+  stroke: rgba(251, 191, 36, 0.95);
+}
+.zone-overlay-marker--bazaar .zone-overlay-marker__disc {
+  stroke: rgba(16, 185, 129, 0.95);
+}
+.zone-overlay-marker--group .zone-overlay-marker__disc {
+  stroke: rgba(125, 211, 252, 0.95);
+}
+.zone-overlay-marker--raid .zone-overlay-marker__disc {
+  stroke: rgba(192, 132, 252, 0.95);
+}
+.zone-overlay-marker--rez .zone-overlay-marker__disc {
+  stroke: rgba(103, 232, 249, 0.95);
+}
+.zone-overlay-marker--give .zone-overlay-marker__disc {
+  stroke: rgba(249, 115, 22, 0.95);
+}
+.zone-overlay-marker--money .zone-overlay-marker__disc {
+  stroke: rgba(74, 222, 128, 0.95);
+}
+
+@keyframes zoneMarkerPulse {
+  0%,
+  100% {
+    opacity: 0.9;
+    stroke-width: 1.6;
+  }
+  50% {
+    opacity: 1;
+    stroke-width: 2.6;
+  }
+}
+
+/* Activity signal chips on character badges */
+.char-badge__signal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 0.28rem;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5f5;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  line-height: 1;
+}
+
+.char-badge__signal--high {
+  background: rgba(96, 165, 250, 0.25);
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.5);
+  animation: signalPulse 2.4s ease-in-out infinite;
+}
+
+.char-badge__signal--medium {
+  background: rgba(96, 165, 250, 0.15);
+  color: #c7d2fe;
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.char-badge__signal--kill {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+}
+.char-badge__signal--death {
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.18);
+  border-color: rgba(244, 63, 94, 0.45);
+}
+.char-badge__signal--loot {
+  color: #fcd34d;
+  background: rgba(234, 179, 8, 0.18);
+  border-color: rgba(234, 179, 8, 0.4);
+}
+.char-badge__signal--task,
+.char-badge__signal--handin {
+  color: #c4b5fd;
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+.char-badge__signal--level {
+  color: #86efac;
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+.char-badge__signal--craft,
+.char-badge__signal--discovery {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+.char-badge__signal--merchant {
+  color: #5eead4;
+  background: rgba(45, 212, 191, 0.18);
+  border-color: rgba(45, 212, 191, 0.4);
+}
+.char-badge__signal--zone {
+  color: #93c5fd;
+  background: rgba(96, 165, 250, 0.18);
+  border-color: rgba(96, 165, 250, 0.35);
+}
+
+@keyframes signalPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 1px rgba(96, 165, 250, 0.45);
+  }
+}
+
+/* Interaction count chip */
+.char-badge__interactions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0.1rem 0.34rem;
+  border-radius: 4px;
+  background: rgba(125, 211, 252, 0.18);
+  color: #bae6fd;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  cursor: help;
+}
+
+.char-badge__interactions-glyph {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.char-badge--interacting {
+  border-color: rgba(125, 211, 252, 0.45);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.18);
+  animation: badgeInteractionGlow 3s ease-in-out infinite;
+}
+
+@keyframes badgeInteractionGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(125, 211, 252, 0.32),
+      0 0 12px rgba(125, 211, 252, 0.28);
+  }
+}
+
+/* Floating tooltip */
+.zone-overlay-tooltip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  padding: 0.55rem 0.75rem;
+  background: rgba(8, 12, 28, 0.96);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  border-radius: 0.55rem;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  font-family: 'DM Sans', sans-serif;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  max-width: 320px;
+  white-space: pre-line;
+}
+
+.zone-overlay-tooltip__title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #bfdbfe;
+  margin-bottom: 0.25rem;
+}
+
+.zone-overlay-tooltip__line {
+  font-size: 0.76rem;
+  color: rgba(226, 232, 240, 0.86);
+  line-height: 1.35;
 }
 </style>
