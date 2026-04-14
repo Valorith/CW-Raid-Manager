@@ -222,6 +222,8 @@
         v-else-if="activeView === 'zones'"
         :connections="connections"
         :ip-exemptions="ipExemptions"
+        :relationship-overlays="relationshipOverlays"
+        :activity-indicators="activityIndicators"
         :search-query="searchQuery"
         :watched-character-ids="watchedCharacterIds"
         :watched-account-ids="watchedAccountIds"
