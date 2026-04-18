@@ -498,7 +498,7 @@
         </ul>
       </article>
 
-      <article class="nx-card nx-card--activity">
+      <article ref="activityCardRef" class="nx-card nx-card--activity">
         <header class="nx-card__head">
           <div class="nx-card__title">
             <span class="nx-card__glyph nx-card__glyph--activity" aria-hidden="true"></span>
@@ -512,6 +512,7 @@
         </p>
         <ul
           v-else
+          ref="activityListRef"
           class="feed-list feed-list--activity dashboard-list-intro"
           :class="{ 'dashboard-list-intro--ready': lootIntroReady }"
         >
@@ -537,7 +538,7 @@
         </ul>
       </article>
 
-      <article class="nx-card nx-card--market">
+      <article ref="marketCardRef" class="nx-card nx-card--market">
         <header class="nx-card__head">
           <div class="nx-card__title">
             <span class="nx-card__glyph nx-card__glyph--market" aria-hidden="true"></span>
@@ -550,17 +551,18 @@
 
         <GlobalLoadingSpinner v-if="showLoadingMarketCard" />
         <p v-else-if="marketError" class="error">{{ marketError }}</p>
-        <div v-else class="market-grid">
-          <section class="market-col">
+        <div v-else ref="marketGridRef" class="market-grid">
+          <section ref="marketRecentSectionRef" class="market-col">
             <div class="market-col__head">
               <span>Recent Sales</span>
             </div>
-            <p v-if="trackedRecentSales.length === 0" class="market-list__empty">
+            <p v-if="trackedRecentSalesAll.length === 0" class="market-list__empty">
               No recent sales found for your
               {{ usingSavedTraderListings ? 'saved traders' : 'tracked mains' }}.
             </p>
             <ul
               v-else
+              ref="marketRecentListRef"
               class="market-list dashboard-list-intro"
               :class="{ 'dashboard-list-intro--ready': lootIntroReady }"
             >
@@ -593,15 +595,16 @@
             </ul>
           </section>
 
-          <section class="market-col">
+          <section ref="marketTrendingSectionRef" class="market-col">
             <div class="market-col__head">
               <span>Trending · 24h</span>
             </div>
-            <p v-if="marketTrendingItems.length === 0" class="muted">
+            <p v-if="marketTrendingItemsAll.length === 0" class="muted">
               Trending items will appear as bazaar data accumulates.
             </p>
             <ul
               v-else
+              ref="marketTrendingListRef"
               class="market-list dashboard-list-intro"
               :class="{ 'dashboard-list-intro--ready': lootIntroReady }"
             >
@@ -780,6 +783,12 @@ const MIN_LOOT_PAGE_SIZE = 2;
 const DEFAULT_LOOT_PAGE_SIZE = 4;
 const LOOT_ROW_FALLBACK_HEIGHT = 74;
 const LOOT_PAGINATION_GAP = 12;
+const DEFAULT_ACTIVITY_ROW_LIMIT = 5;
+const MIN_ACTIVITY_ROW_LIMIT = 1;
+const ACTIVITY_ROW_FALLBACK_HEIGHT = 92;
+const DEFAULT_MARKET_RECENT_ROW_LIMIT = 4;
+const DEFAULT_MARKET_TREND_ROW_LIMIT = 3;
+const MARKET_ROW_FALLBACK_HEIGHT = 54;
 const DASHBOARD_ATTENDANCE_EVENT_LIMIT = 90;
 const DASHBOARD_ATTENDANCE_FETCH_LIMIT = 500;
 const DASHBOARD_GUILD_ACTIVITY_LOOKBACK_DAYS = 120;
@@ -818,6 +827,9 @@ const lootPageSize = ref(DEFAULT_LOOT_PAGE_SIZE);
 const lootCardRef = ref<HTMLElement | null>(null);
 const lootListRef = ref<HTMLElement | null>(null);
 const lootPaginationRef = ref<HTMLElement | null>(null);
+const activityRowLimit = ref(DEFAULT_ACTIVITY_ROW_LIMIT);
+const activityCardRef = ref<HTMLElement | null>(null);
+const activityListRef = ref<HTMLElement | null>(null);
 
 const upcomingRaids = ref<RaidEventSummary[]>([]);
 const loadingUpcomingRaids = ref(false);
@@ -835,11 +847,23 @@ const marketFavoriteTraders = ref<MarketFavoriteTrader[]>([]);
 const loadingMarketCard = ref(false);
 const showLoadingMarketCard = useMinimumLoading(loadingMarketCard);
 const marketError = ref<string | null>(null);
+const marketRecentRowLimit = ref(DEFAULT_MARKET_RECENT_ROW_LIMIT);
+const marketTrendRowLimit = ref(DEFAULT_MARKET_TREND_ROW_LIMIT);
+const marketCardRef = ref<HTMLElement | null>(null);
+const marketGridRef = ref<HTMLElement | null>(null);
+const marketRecentSectionRef = ref<HTMLElement | null>(null);
+const marketRecentListRef = ref<HTMLElement | null>(null);
+const marketTrendingSectionRef = ref<HTMLElement | null>(null);
+const marketTrendingListRef = ref<HTMLElement | null>(null);
 const attendanceAnimationsReady = ref(false);
 const attendanceAnimatedRatePercent = ref(0);
 
 let lootResizeObserver: ResizeObserver | null = null;
 let lootMeasureFrame: number | null = null;
+let activityResizeObserver: ResizeObserver | null = null;
+let activityMeasureFrame: number | null = null;
+let marketResizeObserver: ResizeObserver | null = null;
+let marketMeasureFrame: number | null = null;
 let attendanceIntroFrame: number | null = null;
 let attendanceRateAnimationFrame: number | null = null;
 let attendanceOverlayWaitFrame: number | null = null;
@@ -1023,7 +1047,7 @@ const attendanceRatePercent = computed(() => {
   return eventCount > 0 ? Math.round((attendanceAttendedCount.value / eventCount) * 100) : 0;
 });
 
-const guildActivityFeed = computed<DashboardActivityItem[]>(() => {
+const guildActivityFeedAll = computed<DashboardActivityItem[]>(() => {
   const feed: DashboardActivityItem[] = [];
 
   (guildActivityMetrics.value?.lootEvents ?? [])
@@ -1099,26 +1123,33 @@ const guildActivityFeed = computed<DashboardActivityItem[]>(() => {
     });
   });
 
-  return feed
-    .sort(
-      (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime()
-    )
-    .slice(0, 5);
+  return feed.sort(
+    (left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime()
+  );
 });
-const trackedRecentSales = computed<MarketRecentSale[]>(() => {
+
+const guildActivityFeed = computed<DashboardActivityItem[]>(() =>
+  guildActivityFeedAll.value.slice(0, activityRowLimit.value)
+);
+const trackedRecentSalesAll = computed<MarketRecentSale[]>(() => {
   if (!marketSummary.value) return [];
   const trackedNames = new Set(
     dashboardMarketSellerNames.value.map((name) => name.trim().toLowerCase()).filter(Boolean)
   );
   if (trackedNames.size === 0) return [];
-  return marketSummary.value.recentSales
-    .filter((sale) => trackedNames.has(sale.sellerCharacterName.trim().toLowerCase()))
-    .slice(0, 4);
+  return marketSummary.value.recentSales.filter((sale) =>
+    trackedNames.has(sale.sellerCharacterName.trim().toLowerCase())
+  );
 });
-const marketTrendingItems = computed<DashboardMarketTrendItem[]>(() => {
+
+const trackedRecentSales = computed<MarketRecentSale[]>(() =>
+  trackedRecentSalesAll.value.slice(0, marketRecentRowLimit.value)
+);
+
+const marketTrendingItemsAll = computed<DashboardMarketTrendItem[]>(() => {
   if (!marketSummary.value) return [];
 
-  return marketSummary.value.topItems.slice(0, 3).map((item) => {
+  return marketSummary.value.topItems.map((item) => {
     const matchingSales = marketSummary.value!.recentSales.filter(
       (sale) =>
         (item.itemId != null && sale.itemId === item.itemId) ||
@@ -1146,6 +1177,10 @@ const marketTrendingItems = computed<DashboardMarketTrendItem[]>(() => {
     };
   });
 });
+
+const marketTrendingItems = computed<DashboardMarketTrendItem[]>(() =>
+  marketTrendingItemsAll.value.slice(0, marketTrendRowLimit.value)
+);
 
 watch(mainCount, (value) => {
   if (value < 2 && characterError.value) {
@@ -1199,6 +1234,26 @@ watch(
   }
 );
 
+watch(
+  () =>
+    guildActivityFeedAll.value
+      .map((item) => `${item.id}:${item.headline}:${item.detail}:${item.occurredAt}`)
+      .join('|'),
+  () => {
+    scheduleActivityLayoutSync();
+  }
+);
+
+watch(
+  () =>
+    trackedRecentSalesAll.value.map((sale) => marketRecentSaleKey(sale)).join('|') +
+    '::' +
+    marketTrendingItemsAll.value.map((item) => item.key).join('|'),
+  () => {
+    scheduleMarketLayoutSync();
+  }
+);
+
 watch(lootCardRef, (element) => {
   if (lootResizeObserver) {
     lootResizeObserver.disconnect();
@@ -1208,6 +1263,30 @@ watch(lootCardRef, (element) => {
       scheduleLootLayoutSync();
     });
     lootResizeObserver.observe(element);
+  }
+});
+
+watch(marketCardRef, (element) => {
+  if (marketResizeObserver) {
+    marketResizeObserver.disconnect();
+  }
+  if (element && typeof ResizeObserver !== 'undefined') {
+    marketResizeObserver = new ResizeObserver(() => {
+      scheduleMarketLayoutSync();
+    });
+    marketResizeObserver.observe(element);
+  }
+});
+
+watch(activityCardRef, (element) => {
+  if (activityResizeObserver) {
+    activityResizeObserver.disconnect();
+  }
+  if (element && typeof ResizeObserver !== 'undefined') {
+    activityResizeObserver = new ResizeObserver(() => {
+      scheduleActivityLayoutSync();
+    });
+    activityResizeObserver.observe(element);
   }
 });
 
@@ -1254,6 +1333,20 @@ watch(
   },
   { flush: 'post' }
 );
+
+function clearActivityLayoutSync() {
+  if (typeof window !== 'undefined' && activityMeasureFrame !== null) {
+    window.cancelAnimationFrame(activityMeasureFrame);
+  }
+  activityMeasureFrame = null;
+}
+
+function clearMarketLayoutSync() {
+  if (typeof window !== 'undefined' && marketMeasureFrame !== null) {
+    window.cancelAnimationFrame(marketMeasureFrame);
+  }
+  marketMeasureFrame = null;
+}
 
 function clearLootLayoutSync() {
   if (typeof window !== 'undefined' && lootMeasureFrame !== null) {
@@ -1421,6 +1514,134 @@ function measureLootPageSize() {
   );
 }
 
+function measureActivityRowLimit() {
+  if (typeof window === 'undefined') return null;
+  const card = activityCardRef.value;
+  const list = activityListRef.value;
+  if (!card || !list) return null;
+
+  const firstItem = list.querySelector<HTMLElement>('.feed-list__item');
+  if (!firstItem) return null;
+
+  const header = card.querySelector<HTMLElement>('.nx-card__head');
+  const headerStyles = header ? window.getComputedStyle(header) : null;
+  const listStyles = window.getComputedStyle(list);
+  const cardStyles = window.getComputedStyle(card);
+  const listGap = parseFloat(listStyles.rowGap || listStyles.gap || '0') || 0;
+  const paddingBottom = parseFloat(cardStyles.paddingBottom || '0') || 0;
+  const headerMarginBottom = parseFloat(headerStyles?.marginBottom || '0') || 0;
+  const contentTop =
+    (header?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top) +
+    headerMarginBottom;
+  const availableHeight = Math.max(
+    0,
+    card.getBoundingClientRect().bottom - paddingBottom - contentTop
+  );
+  const rowHeight = firstItem.offsetHeight || ACTIVITY_ROW_FALLBACK_HEIGHT;
+
+  return Math.max(
+    MIN_ACTIVITY_ROW_LIMIT,
+    Math.floor((availableHeight + listGap) / Math.max(rowHeight + listGap, 1))
+  );
+}
+
+function marketListHeight(rowCount: number, rowHeight: number, rowGap: number) {
+  if (rowCount <= 0) return 0;
+  return rowCount * rowHeight + Math.max(0, rowCount - 1) * rowGap;
+}
+
+function measureMarketRowLimits() {
+  if (typeof window === 'undefined') return null;
+  const card = marketCardRef.value;
+  const grid = marketGridRef.value;
+  const recentSection = marketRecentSectionRef.value;
+  const trendingSection = marketTrendingSectionRef.value;
+  if (!card || !grid || !recentSection || !trendingSection) {
+    return null;
+  }
+
+  const recentAvailable = trackedRecentSalesAll.value.length;
+  const trendingAvailable = marketTrendingItemsAll.value.length;
+  if (recentAvailable === 0 && trendingAvailable === 0) {
+    return null;
+  }
+
+  const cardStyles = window.getComputedStyle(card);
+  const paddingBottom = parseFloat(cardStyles.paddingBottom || '0') || 0;
+  const availableHeight = Math.max(
+    0,
+    card.getBoundingClientRect().bottom - paddingBottom - grid.getBoundingClientRect().top
+  );
+
+  const recentList = marketRecentListRef.value;
+  const trendingList = marketTrendingListRef.value;
+  const recentListStyles = recentList ? window.getComputedStyle(recentList) : null;
+  const trendingListStyles = trendingList ? window.getComputedStyle(trendingList) : null;
+  const recentGap = parseFloat(recentListStyles?.rowGap || recentListStyles?.gap || '0') || 0;
+  const trendingGap = parseFloat(trendingListStyles?.rowGap || trendingListStyles?.gap || '0') || 0;
+  const recentRowHeight =
+    recentList?.querySelector<HTMLElement>('.market-list__item')?.offsetHeight ??
+    MARKET_ROW_FALLBACK_HEIGHT;
+  const trendingRowHeight =
+    trendingList?.querySelector<HTMLElement>('.market-list__item')?.offsetHeight ??
+    MARKET_ROW_FALLBACK_HEIGHT;
+  const recentFixedHeight = recentSection.offsetHeight - (recentList?.offsetHeight ?? 0);
+  const trendingFixedHeight = trendingSection.offsetHeight - (trendingList?.offsetHeight ?? 0);
+  const sectionGap = Math.max(
+    0,
+    trendingSection.getBoundingClientRect().top - recentSection.getBoundingClientRect().bottom
+  );
+
+  let bestRecent = recentAvailable > 0 ? 1 : 0;
+  let bestTrending = trendingAvailable > 0 ? 1 : 0;
+  let bestTotalRows = -1;
+  let bestBalanceDelta = Number.POSITIVE_INFINITY;
+
+  for (
+    let recentRows = recentAvailable > 0 ? 1 : 0;
+    recentRows <= recentAvailable;
+    recentRows += 1
+  ) {
+    for (
+      let trendingRows = trendingAvailable > 0 ? 1 : 0;
+      trendingRows <= trendingAvailable;
+      trendingRows += 1
+    ) {
+      const usedHeight =
+        recentFixedHeight +
+        marketListHeight(recentRows, recentRowHeight, recentGap) +
+        sectionGap +
+        trendingFixedHeight +
+        marketListHeight(trendingRows, trendingRowHeight, trendingGap);
+      if (usedHeight > availableHeight) {
+        continue;
+      }
+
+      const totalRows = recentRows + trendingRows;
+      const preferredRecentRows = totalRows * (4 / 7);
+      const balanceDelta = Math.abs(recentRows - preferredRecentRows);
+      if (
+        totalRows > bestTotalRows ||
+        (totalRows === bestTotalRows && balanceDelta < bestBalanceDelta)
+      ) {
+        bestRecent = recentRows;
+        bestTrending = trendingRows;
+        bestTotalRows = totalRows;
+        bestBalanceDelta = balanceDelta;
+      }
+    }
+  }
+
+  if (bestTotalRows >= 0) {
+    return { recentRows: bestRecent, trendingRows: bestTrending };
+  }
+
+  return {
+    recentRows: recentAvailable > 0 ? 1 : 0,
+    trendingRows: trendingAvailable > 0 ? 1 : 0
+  };
+}
+
 function scheduleLootLayoutSync() {
   if (typeof window === 'undefined') return;
   clearLootLayoutSync();
@@ -1441,6 +1662,41 @@ function scheduleLootLayoutSync() {
       lootPage.value = nextPage;
       void loadRecentLoot(nextPage);
     }
+  });
+}
+
+function scheduleMarketLayoutSync() {
+  if (typeof window === 'undefined') return;
+  clearMarketLayoutSync();
+  marketMeasureFrame = window.requestAnimationFrame(async () => {
+    marketMeasureFrame = null;
+    await nextTick();
+    const measuredLimits = measureMarketRowLimits();
+    if (!measuredLimits) {
+      return;
+    }
+    if (
+      measuredLimits.recentRows === marketRecentRowLimit.value &&
+      measuredLimits.trendingRows === marketTrendRowLimit.value
+    ) {
+      return;
+    }
+    marketRecentRowLimit.value = measuredLimits.recentRows;
+    marketTrendRowLimit.value = measuredLimits.trendingRows;
+  });
+}
+
+function scheduleActivityLayoutSync() {
+  if (typeof window === 'undefined') return;
+  clearActivityLayoutSync();
+  activityMeasureFrame = window.requestAnimationFrame(async () => {
+    activityMeasureFrame = null;
+    await nextTick();
+    const measuredRowLimit = measureActivityRowLimit();
+    if (!measuredRowLimit || measuredRowLimit === activityRowLimit.value) {
+      return;
+    }
+    activityRowLimit.value = measuredRowLimit;
   });
 }
 
@@ -2038,12 +2294,20 @@ onMounted(async () => {
   ]);
   await nextTick();
   scheduleLootLayoutSync();
+  scheduleActivityLayoutSync();
+  scheduleMarketLayoutSync();
 });
 
 onBeforeUnmount(() => {
+  clearMarketLayoutSync();
+  clearActivityLayoutSync();
   clearLootLayoutSync();
   clearAttendanceIntroAnimation();
   clearLootIntroAnimation();
+  marketResizeObserver?.disconnect();
+  marketResizeObserver = null;
+  activityResizeObserver?.disconnect();
+  activityResizeObserver = null;
   lootResizeObserver?.disconnect();
   lootResizeObserver = null;
 });
