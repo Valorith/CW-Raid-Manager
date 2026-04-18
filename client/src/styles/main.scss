@@ -1,8 +1,40 @@
 :root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color-scheme: dark;
-  color: #e2e8f0;
-  background-color: #0f172a;
+  color: #dde8f4;
+  background-color: #070b16;
+
+  /* Nexus design tokens — available globally */
+  --nx-accent: #22d3ee;
+  --nx-accent-soft: rgba(34, 211, 238, 0.14);
+  --nx-accent-border: rgba(34, 211, 238, 0.45);
+  --nx-bg-0: #070b16;
+  --nx-bg-1: #0b1122;
+  --nx-bg-2: #0f172a;
+  --nx-surface-1: rgba(17, 25, 48, 0.72);
+  --nx-surface-2: rgba(22, 33, 62, 0.55);
+  --nx-border-1: rgba(80, 120, 170, 0.22);
+  --nx-border-2: rgba(110, 150, 210, 0.32);
+  --nx-ink-0: #f1f6fb;
+  --nx-ink-1: #dde8f4;
+  --nx-ink-2: #a6b6cd;
+  --nx-ink-3: #6e7e98;
+  --nx-ink-4: #4a5670;
+  --nx-gold-300: #fde68a;
+  --nx-gold-400: #fbbf24;
+  --nx-gold-500: #d97706;
+  --nx-sky-300: #7dd3fc;
+  --nx-sky-400: #38bdf8;
+  --nx-rose-400: #fb7185;
+  --nx-emerald-400: #34d399;
+  --nx-indigo-400: #818cf8;
+  --nx-indigo-500: #6366f1;
+  --nx-violet-400: #a78bfa;
+  --nx-font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --nx-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --nx-r: 10px;
+  --nx-r-md: 14px;
+  --nx-r-lg: 18px;
 }
 
 *,
@@ -13,11 +45,28 @@
 
 body {
   margin: 0;
-  background: radial-gradient(circle at top, rgba(37, 99, 235, 0.25), transparent 50%),
-    radial-gradient(circle at bottom, rgba(56, 189, 248, 0.18), transparent 55%),
-    #0f172a;
   min-height: 100vh;
+  background:
+    radial-gradient(1200px 800px at 12% -5%, rgba(34, 211, 238, 0.10), transparent 55%),
+    radial-gradient(1000px 700px at 100% 10%, rgba(99, 102, 241, 0.12), transparent 55%),
+    radial-gradient(900px 700px at 50% 115%, rgba(56, 189, 248, 0.08), transparent 55%),
+    linear-gradient(180deg, #060a14 0%, #080d1a 40%, #0a1124 100%);
 }
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(120, 160, 220, 0.030) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 160, 220, 0.030) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 0%, #000 40%, transparent 80%);
+  z-index: 0;
+}
+
+#app { position: relative; z-index: 1; }
 
 body.modal-open {
   overflow: hidden;

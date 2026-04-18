@@ -4068,9 +4068,18 @@ export const api = {
     return response.data.notificationSettings;
   },
 
-  async fetchRecentAttendance(limit?: number): Promise<RecentAttendanceEntry[]> {
+  async fetchRecentAttendance(
+    limitOrOptions?: number | { limit?: number; days?: number; includeMissed?: boolean }
+  ): Promise<RecentAttendanceEntry[]> {
+    const params =
+      typeof limitOrOptions === 'number'
+        ? { limit: limitOrOptions }
+        : limitOrOptions &&
+            (limitOrOptions.limit || limitOrOptions.days || limitOrOptions.includeMissed)
+          ? limitOrOptions
+          : undefined;
     const response = await axios.get('/api/attendance/user/recent', {
-      params: limit ? { limit } : undefined
+      params
     });
     const attendance = response.data.attendance ?? [];
     if (!Array.isArray(attendance)) {

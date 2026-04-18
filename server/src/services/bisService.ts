@@ -479,6 +479,23 @@ async function findOrCreateCandidate(
     return existing;
   }
 
+  const existingSubmissionForClass = await tx.bisSlotCandidate.findFirst({
+    where: {
+      characterClass: input.characterClass,
+      submittedById: input.submittedById
+    },
+    select: {
+      itemName: true,
+      slotId: true
+    }
+  });
+
+  if (existingSubmissionForClass) {
+    throw new Error(
+      `You already submitted ${existingSubmissionForClass.itemName} to the ${BIS_SLOT_LABELS[existingSubmissionForClass.slotId]} board for ${input.characterClass}. Each user can only have one item on a class vote board at a time.`
+    );
+  }
+
   try {
     return await tx.bisSlotCandidate.create({
       data: input

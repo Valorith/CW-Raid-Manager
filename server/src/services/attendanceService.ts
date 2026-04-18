@@ -332,7 +332,11 @@ export async function overwriteAttendanceEventRecords(input: {
   return updated;
 }
 
-export async function listRecentAttendanceForUser(userId: string, limit = 10) {
+export async function listRecentAttendanceForUser(
+  userId: string,
+  options: { limit?: number; since?: Date; includeMissed?: boolean } = {}
+) {
+  const { limit = 10, since, includeMissed = false } = options;
   const [memberships, characters] = await Promise.all([
     prisma.guildMembership.findMany({
       where: { userId },
@@ -348,7 +352,7 @@ export async function listRecentAttendanceForUser(userId: string, limit = 10) {
     })
   ]);
 
-  if (characters.length === 0) {
+  if (characters.length === 0 || memberships.length === 0) {
     return [];
   }
 
@@ -369,23 +373,30 @@ export async function listRecentAttendanceForUser(userId: string, limit = 10) {
   }
 
   const guildIds = memberships.map((membership) => membership.guildId);
-  const raidGuildFilter =
-    guildIds.length > 0
-      ? {
-          guildId: {
-            in: guildIds
-          }
-        }
-      : undefined;
+  const raidFilter: Prisma.RaidEventWhereInput = {};
+
+  if (guildIds.length > 0) {
+    raidFilter.guildId = {
+      in: guildIds
+    };
+  }
+
+  if (since) {
+    raidFilter.startTime = {
+      gte: since
+    };
+  }
 
   const attendanceEvents = await prisma.attendanceEvent.findMany({
     where: {
-      raid: raidGuildFilter ? { ...raidGuildFilter } : undefined,
-      records: {
-        some: {
-          OR: recordFilters
-        }
-      }
+      raid: Object.keys(raidFilter).length > 0 ? raidFilter : undefined,
+      records: includeMissed
+        ? undefined
+        : {
+            some: {
+              OR: recordFilters
+            }
+          }
     },
     orderBy: {
       createdAt: 'desc'

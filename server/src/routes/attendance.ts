@@ -33,7 +33,9 @@ const attendanceRecordArraySchema = z.array(attendanceRecordSchema);
 export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
   server.get('/user/recent', { preHandler: [authenticate] }, async (request, reply) => {
     const querySchema = z.object({
-      limit: z.coerce.number().int().min(1).max(50).optional()
+      limit: z.coerce.number().int().min(1).max(500).optional(),
+      days: z.coerce.number().int().min(1).max(365).optional(),
+      includeMissed: z.coerce.boolean().optional()
     });
 
     const parsedQuery = querySchema.safeParse(request.query ?? {});
@@ -42,8 +44,17 @@ export async function attendanceRoutes(server: FastifyInstance): Promise<void> {
     }
 
     const limit = parsedQuery.data.limit ?? 10;
+    const since =
+      parsedQuery.data.days !== undefined
+        ? new Date(Date.now() - parsedQuery.data.days * 24 * 60 * 60 * 1000)
+        : undefined;
+    const includeMissed = parsedQuery.data.includeMissed ?? parsedQuery.data.days !== undefined;
 
-    const attendance = await listRecentAttendanceForUser(request.user.userId, limit);
+    const attendance = await listRecentAttendanceForUser(request.user.userId, {
+      limit,
+      since,
+      includeMissed
+    });
     return { attendance };
   });
 
