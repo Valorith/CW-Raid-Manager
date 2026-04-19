@@ -10,6 +10,30 @@ const EQ_DONATION_STATUS_PENDING = 1;
 // Cache TTL for guild ID mapping (5 minutes)
 const GUILD_ID_CACHE_TTL_MS = 5 * 60 * 1000;
 
+// Explicit app guild -> EQ guild ID mapping for guild donations.
+// Security note: we intentionally avoid auto-matching by guild name because users can
+// create app guilds with arbitrary names.
+const eqGuildIdMappingRaw = process.env.GUILD_DONATIONS_EQ_GUILD_MAP ?? '{}';
+
+function parseEqGuildIdMapping(): Record<string, number> {
+  try {
+    const parsed = JSON.parse(eqGuildIdMappingRaw) as Record<string, unknown>;
+    const mapping: Record<string, number> = {};
+    for (const [appGuildId, eqGuildId] of Object.entries(parsed)) {
+      const id = Number(eqGuildId);
+      if (Number.isInteger(id) && id > 0) {
+        mapping[appGuildId] = id;
+      }
+    }
+    return mapping;
+  } catch {
+    console.warn('Invalid GUILD_DONATIONS_EQ_GUILD_MAP value; guild donations will be disabled.');
+    return {};
+  }
+}
+
+const eqGuildIdMapping = parseEqGuildIdMapping();
+
 export interface EqGuildDonation {
   id: number;
   guildId: number;
@@ -60,7 +84,7 @@ function mapEqStatusToStatus(eqStatus: unknown): 'PENDING' | 'REJECTED' {
 }
 
 /**
- * Get the EQEmu guild ID by matching guild name from the app database.
+ * Get the EQEmu guild ID from explicit configuration.
  * Results are cached for 5 minutes to avoid repeated lookups during polling.
  */
 async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | null> {
@@ -70,33 +94,15 @@ async function getEqGuildIdByAppGuildId(appGuildId: string): Promise<number | nu
     return cached.eqGuildId;
   }
 
-  // First get the guild name from the app database
+  // Ensure the app guild exists before using a mapping.
   const appGuild = await prisma.guild.findUnique({
     where: { id: appGuildId },
-    select: { name: true }
+    select: { id: true }
   });
 
-  if (!appGuild) {
-    // Cache the null result too to avoid repeated lookups for invalid guilds
-    guildIdCache.set(appGuildId, { eqGuildId: null, expiresAt: Date.now() + GUILD_ID_CACHE_TTL_MS });
-    return null;
-  }
-
-  // Then find the matching guild in EQEmu by name
-  try {
-    const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT id FROM guilds WHERE name = ? LIMIT 1`,
-      [appGuild.name]
-    );
-    const eqGuildId = rows.length > 0 ? Number(rows[0].id) : null;
-
-    // Cache the result
-    guildIdCache.set(appGuildId, { eqGuildId, expiresAt: Date.now() + GUILD_ID_CACHE_TTL_MS });
-
-    return eqGuildId;
-  } catch {
-    return null;
-  }
+  const eqGuildId = appGuild ? eqGuildIdMapping[appGuildId] ?? null : null;
+  guildIdCache.set(appGuildId, { eqGuildId, expiresAt: Date.now() + GUILD_ID_CACHE_TTL_MS });
+  return eqGuildId;
 }
 
 export interface PaginatedDonationsResult {
