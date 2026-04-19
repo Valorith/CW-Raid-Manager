@@ -1216,6 +1216,24 @@ export type CrashInspectionResult = {
   errorType: 'native_crash' | 'script_error' | 'unknown';
 };
 
+const VALID_HIGHLIGHT_CATEGORIES = new Set([
+  'exception',
+  'address',
+  'module',
+  'function',
+  'stack_frame',
+  'error_message',
+  'script',
+  'variable',
+  'path',
+  'other'
+]);
+
+function sanitizeHighlightCategory(value: unknown): string {
+  if (typeof value !== 'string') return 'other';
+  return VALID_HIGHLIGHT_CATEGORIES.has(value) ? value : 'other';
+}
+
 const INSPECTOR_PROMPT = `You are a crash report analysis expert for an EverQuest emulator server (zone.exe, world.exe, eqgame.exe).
 
 Analyze the crash report and identify SPECIFIC, NARROW sections that are notable for debugging. Return highlights that are as small and precise as possible - individual values, function names, addresses, or short phrases rather than entire lines or blocks.
@@ -1293,8 +1311,10 @@ export async function inspectCrashReport(crashReportText: string): Promise<Crash
       const h = item as Record<string, unknown>;
       const rawText = typeof h.text === 'string' ? h.text : '';
       const comment = typeof h.comment === 'string' ? h.comment : '';
-      const severity = ['critical', 'important', 'info'].includes(h.severity as string) ? (h.severity as 'critical' | 'important' | 'info') : 'info';
-      const category = typeof h.category === 'string' ? h.category : 'other';
+      const severity = ['critical', 'important', 'info'].includes(h.severity as string)
+        ? (h.severity as 'critical' | 'important' | 'info')
+        : 'info';
+      const category = sanitizeHighlightCategory(h.category);
 
       if (!rawText || rawText.length < 2) continue;
 

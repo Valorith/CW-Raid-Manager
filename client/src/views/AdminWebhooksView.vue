@@ -4300,9 +4300,10 @@ const highlightedReportHtml = computed(() => {
     const highlightText = text.slice(h.startIndex, h.endIndex);
     const escapedText = escapeHtml(highlightText);
     const escapedComment = escapeHtml(h.comment).replace(/"/g, '&quot;');
+    const escapedCategory = escapeHtml(h.category).replace(/"/g, '&quot;');
     const severityClass = `highlight--${h.severity}`;
     parts.push(
-      `<span class="inspector-highlight ${severityClass}" data-tooltip="${escapedComment}" data-category="${h.category}">${escapedText}</span>`
+      `<span class="inspector-highlight ${severityClass}" data-tooltip="${escapedComment}" data-category="${escapedCategory}">${escapedText}</span>`
     );
 
     lastIndex = h.endIndex;
