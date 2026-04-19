@@ -40,8 +40,8 @@ export async function upsertGoogleUser(profile: GoogleUserProfile) {
 }
 
 export async function upsertDiscordUser(profile: DiscordUserProfile) {
-  if (!profile.email) {
-    throw new Error('Discord profile missing email. Ensure the email scope is granted.');
+  if (!profile.email || profile.verified !== true) {
+    throw new Error('Discord profile must include a verified email.');
   }
 
   const displayName = profile.global_name ?? profile.username ?? profile.email.split('@')[0];

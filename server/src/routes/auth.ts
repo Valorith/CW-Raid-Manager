@@ -229,9 +229,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         return reply.internalServerError('Unable to complete Discord sign-in.');
       }
 
-      // Step 3: Validate email exists
-      if (!profile.email) {
-        request.log.error('Discord profile missing email. User may not have granted email scope.');
+      // Step 3: Validate email exists and is verified by Discord
+      if (!profile.email || profile.verified !== true) {
+        request.log.error(
+          { hasEmail: Boolean(profile.email), verified: profile.verified },
+          'Discord profile missing verified email.'
+        );
         if (linkingUserId) {
           return reply.redirect(
             `${appConfig.clientUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
