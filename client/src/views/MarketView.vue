@@ -1,6 +1,15 @@
 <template>
-  <section class="market-view">
-    <header class="hero">
+  <section
+    class="market-view"
+    :class="{ 'dashboard-list-intro--ready': marketIntroReady && activeTab === 'market' }"
+  >
+    <header
+      class="hero"
+      :class="activeTab === 'market' ? 'dashboard-list-intro__item' : undefined"
+      :style="
+        activeTab === 'market' ? { '--dashboard-list-delay': marketIntroDelay(0) } : undefined
+      "
+    >
       <div class="hero__left">
         <h1>Market</h1>
         <div class="hero-meta">
@@ -56,7 +65,15 @@
       </div>
     </header>
 
-    <nav class="market-page-tabs" role="tablist" aria-label="Market page tabs">
+    <nav
+      class="market-page-tabs"
+      role="tablist"
+      aria-label="Market page tabs"
+      :class="activeTab === 'market' ? 'dashboard-list-intro__item' : undefined"
+      :style="
+        activeTab === 'market' ? { '--dashboard-list-delay': marketIntroDelay(1) } : undefined
+      "
+    >
       <button
         id="market-tab-market"
         type="button"
@@ -129,7 +146,14 @@
       aria-labelledby="market-tab-market"
       class="market-tab-panel"
     >
-      <article class="panel panel--search" ref="searchPanelRef">
+      <article
+        class="panel panel--search"
+        :class="activeTab === 'market' ? 'dashboard-list-intro__item' : undefined"
+        :style="
+          activeTab === 'market' ? { '--dashboard-list-delay': marketIntroDelay(2) } : undefined
+        "
+        ref="searchPanelRef"
+      >
         <div class="panel-head">
           <div>
             <h2>Item Search</h2>
@@ -202,305 +226,333 @@
       <GlobalLoadingSpinner v-if="showLoading" />
 
       <template v-else>
-        <div v-if="displaySales.length" class="sales-ticker">
-          <div class="sales-ticker__track">
-            <div class="sales-ticker__content">
-              <span
-                v-for="sale in tickerSales"
-                :key="sale.id"
-                class="sales-ticker__item"
-                @click="selectSaleItem(sale)"
-              >
-                <img
-                  v-if="hasValidIconId(sale.itemIconId)"
-                  :src="getLootIconSrc(sale.itemIconId!)"
-                  class="sales-ticker__icon"
-                  alt=""
-                />
-                <span class="sales-ticker__name">{{ sale.itemName }}</span>
-                <span class="sales-ticker__price">
-                  <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
-                </span>
+        <div class="market-intro">
+          <div
+            v-if="displaySales.length"
+            class="sales-ticker dashboard-list-intro__item"
+            :style="{ '--dashboard-list-delay': marketIntroDelay(3) }"
+          >
+            <div class="sales-ticker__track">
+              <div class="sales-ticker__content">
                 <span
-                  class="sales-ticker__trend"
-                  :class="
-                    'sales-ticker__trend--' +
-                    getPriceTrendDirection(sale.price, sale.itemAveragePrice)
-                  "
-                  :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
-                  >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
+                  v-for="sale in tickerSales"
+                  :key="sale.id"
+                  class="sales-ticker__item"
+                  @click="selectSaleItem(sale)"
                 >
-                <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
-                <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
-                <span class="sales-ticker__sep">&middot;</span>
-              </span>
-            </div>
-            <div class="sales-ticker__content" aria-hidden="true">
-              <span
-                v-for="sale in tickerSales"
-                :key="'dup-' + sale.id"
-                class="sales-ticker__item"
-                @click="selectSaleItem(sale)"
-              >
-                <img
-                  v-if="hasValidIconId(sale.itemIconId)"
-                  :src="getLootIconSrc(sale.itemIconId!)"
-                  class="sales-ticker__icon"
-                  alt=""
-                />
-                <span class="sales-ticker__name">{{ sale.itemName }}</span>
-                <span class="sales-ticker__price">
-                  <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
-                </span>
-                <span
-                  class="sales-ticker__trend"
-                  :class="
-                    'sales-ticker__trend--' +
-                    getPriceTrendDirection(sale.price, sale.itemAveragePrice)
-                  "
-                  :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
-                  >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
-                >
-                <span v-if="sale.quantity > 1" class="sales-ticker__qty">x{{ sale.quantity }}</span>
-                <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
-                <span class="sales-ticker__sep">&middot;</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <article class="panel panel--chart-fill">
-          <div class="panel-head">
-            <div>
-              <h2>Market Flow</h2>
-              <p class="muted">Revenue and units sold across the selected timeline.</p>
-            </div>
-          </div>
-          <div class="chart-box">
-            <Line v-if="overallChartData" :data="overallChartData" :options="overallChartOptions" />
-            <p v-else class="empty muted">No synced sales are available for this timeline.</p>
-          </div>
-        </article>
-
-        <section class="market-summary-layout">
-          <article class="panel">
-            <div class="panel-head">
-              <div>
-                <h2>Recent Bazaar Sales</h2>
-                <p class="muted">Latest synced seller-side transactions.</p>
-              </div>
-            </div>
-            <div v-if="displaySales.length" class="table-wrap">
-              <table class="market-table">
-                <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th>Price</th>
-                    <th>Trend</th>
-                    <th>Qty</th>
-                    <th>Total</th>
-                    <th>Seller</th>
-                    <th>Buyer</th>
-                    <th>Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="sale in displaySales"
-                    :key="sale.id"
-                    :class="{ 'market-table__row--my-trader': isSaleFromFavoriteTrader(sale) }"
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        class="table-item table-item-button"
-                        @mouseenter="showMarketSaleTooltip($event, sale)"
-                        @mousemove="updateMarketItemTooltipPosition($event)"
-                        @mouseleave="hideMarketItemTooltip"
-                        @click="selectSaleItem(sale)"
-                      >
-                        <span v-if="hasValidIconId(sale.itemIconId)" class="item-icon">
-                          <img
-                            :src="getLootIconSrc(sale.itemIconId!)"
-                            :alt="sale.itemName"
-                            loading="lazy"
-                          />
-                        </span>
-                        <span>{{ sale.itemName }}</span>
-                      </button>
-                    </td>
-                    <td><CoinDisplay variant="platinum" :amount-in-copper="sale.price" /></td>
-                    <td>
-                      <span
-                        class="trend-indicator"
-                        :class="getPriceTrendClass(sale.price, sale.itemAveragePrice)"
-                        :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
-                      >
-                        {{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}
-                      </span>
-                    </td>
-                    <td>{{ formatNumber(sale.quantity) }}</td>
-                    <td><CoinDisplay variant="platinum" :amount-in-copper="sale.totalCost" /></td>
-                    <td>
-                      <button
-                        type="button"
-                        :class="[
-                          'character-history-link',
-                          { 'character-history-link--my-trader': isSaleFromFavoriteTrader(sale) }
-                        ]"
-                        @click="openCharacterHistoryModal(sale.sellerCharacterName, 'sell')"
-                      >
-                        {{ sale.sellerCharacterName }}
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        v-if="canOpenCharacterHistory(sale.buyerCharacterName)"
-                        type="button"
-                        class="character-history-link"
-                        @click="openCharacterHistoryModal(sale.buyerCharacterName, 'buy')"
-                      >
-                        {{ sale.buyerCharacterName }}
-                      </button>
-                      <span v-else class="muted">—</span>
-                    </td>
-                    <td>{{ formatDateTime(sale.occurredAt) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div v-if="salesPage && salesPage.totalPages > 1" class="pagination">
-              <button
-                type="button"
-                class="btn btn--outline btn--small"
-                :disabled="salesLoading || salesPage.page <= 1"
-                @click="changeSalesPage(salesPage.page - 1)"
-              >
-                Previous
-              </button>
-              <span class="pagination__meta muted">
-                Page {{ salesPage.page }} of {{ salesPage.totalPages }} ·
-                {{ formatNumber(salesPage.total) }} sales
-              </span>
-              <button
-                type="button"
-                class="btn btn--outline btn--small"
-                :disabled="salesLoading || salesPage.page >= salesPage.totalPages"
-                @click="changeSalesPage(salesPage.page + 1)"
-              >
-                Next
-              </button>
-            </div>
-            <p v-else class="empty muted">No recent market sales have been synced yet.</p>
-          </article>
-
-          <article class="panel market-summary-layout__sidebar">
-            <div class="panel-head">
-              <div>
-                <h2>Top Movers</h2>
-                <p class="muted">Click an item to inspect its history.</p>
-              </div>
-              <div class="segmented-control" role="group" aria-label="Sort top movers">
-                <button
-                  type="button"
-                  class="segmented-control__button"
-                  :class="{ 'segmented-control__button--active': topItemsSort === 'quantity' }"
-                  :disabled="refreshing"
-                  @click="setTopItemsSort('quantity')"
-                >
-                  Quantity
-                </button>
-                <button
-                  type="button"
-                  class="segmented-control__button"
-                  :class="{ 'segmented-control__button--active': topItemsSort === 'value' }"
-                  :disabled="refreshing"
-                  @click="setTopItemsSort('value')"
-                >
-                  Value
-                </button>
-              </div>
-            </div>
-            <div v-if="summary?.topItems.length" class="movers">
-              <article
-                v-for="item in summary.topItems"
-                :key="`${item.itemId ?? 'name'}-${item.itemName}`"
-                class="mover"
-                :class="{ 'mover--favorited': isItemFavorited(item) }"
-              >
-                <button
-                  type="button"
-                  class="mover__body"
-                  @mouseenter="
-                    showMarketItemTooltip($event, item.itemId, item.itemName, item.itemIconId)
-                  "
-                  @mousemove="updateMarketItemTooltipPosition($event)"
-                  @mouseleave="hideMarketItemTooltip"
-                  @click="selectTopItem(item)"
-                >
-                  <div class="mover__main">
-                    <span v-if="hasValidIconId(item.itemIconId)" class="item-icon">
-                      <img
-                        :src="getLootIconSrc(item.itemIconId!)"
-                        :alt="item.itemName"
-                        loading="lazy"
-                      />
-                    </span>
-                    <div>
-                      <strong>{{ item.itemName }}</strong>
-                      <small class="muted"
-                        >{{ item.salesCount }} sales · {{ item.unitsSold }} units</small
-                      >
-                    </div>
-                  </div>
-                  <div class="mover__meta">
-                    <strong class="mover__meta-primary">
-                      <CoinDisplay variant="platinum" :amount-in-copper="item.totalRevenue" />
-                    </strong>
-                    <span class="mover__meta-secondary muted">
-                      <span class="mover__meta-label">Avg Price</span>
-                      <span class="mover__meta-value">
-                        <CoinDisplay variant="platinum" :amount-in-copper="item.averagePrice" />
-                      </span>
-                    </span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  class="favorite-toggle favorite-toggle--mover"
-                  :class="{ 'favorite-toggle--active': isItemFavorited(item) }"
-                  :disabled="isItemFavoritePending(item)"
-                  :aria-pressed="isItemFavorited(item)"
-                  :aria-label="getItemFavoriteLabel(item)"
-                  :title="getItemFavoriteLabel(item)"
-                  @click.stop="toggleMarketItemFavorite(item)"
-                >
-                  <span class="favorite-toggle__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                      <path
-                        d="M1.5 12s4.5-7.5 10.5-7.5S22.5 12 22.5 12s-4.5 7.5-10.5 7.5S1.5 12 1.5 12Z"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                      />
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="3.25"
-                        :fill="isItemFavorited(item) ? 'currentColor' : 'none'"
-                        stroke="currentColor"
-                        stroke-width="1.8"
-                      />
-                    </svg>
+                  <img
+                    v-if="hasValidIconId(sale.itemIconId)"
+                    :src="getLootIconSrc(sale.itemIconId!)"
+                    class="sales-ticker__icon"
+                    alt=""
+                  />
+                  <span class="sales-ticker__name">{{ sale.itemName }}</span>
+                  <span class="sales-ticker__price">
+                    <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
                   </span>
-                </button>
-              </article>
+                  <span
+                    class="sales-ticker__trend"
+                    :class="
+                      'sales-ticker__trend--' +
+                      getPriceTrendDirection(sale.price, sale.itemAveragePrice)
+                    "
+                    :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
+                    >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
+                  >
+                  <span v-if="sale.quantity > 1" class="sales-ticker__qty"
+                    >x{{ sale.quantity }}</span
+                  >
+                  <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
+                  <span class="sales-ticker__sep">&middot;</span>
+                </span>
+              </div>
+              <div class="sales-ticker__content" aria-hidden="true">
+                <span
+                  v-for="sale in tickerSales"
+                  :key="'dup-' + sale.id"
+                  class="sales-ticker__item"
+                  @click="selectSaleItem(sale)"
+                >
+                  <img
+                    v-if="hasValidIconId(sale.itemIconId)"
+                    :src="getLootIconSrc(sale.itemIconId!)"
+                    class="sales-ticker__icon"
+                    alt=""
+                  />
+                  <span class="sales-ticker__name">{{ sale.itemName }}</span>
+                  <span class="sales-ticker__price">
+                    <CoinDisplay variant="platinum" :amount-in-copper="sale.price" />
+                  </span>
+                  <span
+                    class="sales-ticker__trend"
+                    :class="
+                      'sales-ticker__trend--' +
+                      getPriceTrendDirection(sale.price, sale.itemAveragePrice)
+                    "
+                    :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
+                    >{{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}</span
+                  >
+                  <span v-if="sale.quantity > 1" class="sales-ticker__qty"
+                    >x{{ sale.quantity }}</span
+                  >
+                  <span class="sales-ticker__time">{{ formatTickerTime(sale.occurredAt) }}</span>
+                  <span class="sales-ticker__sep">&middot;</span>
+                </span>
+              </div>
             </div>
-            <p v-else class="empty muted">Top movers will appear once sales have been synced.</p>
+          </div>
+
+          <article
+            class="panel panel--chart-fill dashboard-list-intro__item"
+            :style="{ '--dashboard-list-delay': marketIntroDelay(4) }"
+          >
+            <div class="panel-head">
+              <div>
+                <h2>Market Flow</h2>
+                <p class="muted">Revenue and units sold across the selected timeline.</p>
+              </div>
+            </div>
+            <div class="chart-box">
+              <Line
+                v-if="overallChartData"
+                :data="overallChartData"
+                :options="overallChartOptions"
+              />
+              <p v-else class="empty muted">No synced sales are available for this timeline.</p>
+            </div>
           </article>
-        </section>
+
+          <section class="market-summary-layout">
+            <article
+              class="panel dashboard-list-intro__item"
+              :style="{ '--dashboard-list-delay': marketIntroDelay(5) }"
+            >
+              <div class="panel-head">
+                <div>
+                  <h2>Recent Bazaar Sales</h2>
+                  <p class="muted">Latest synced seller-side transactions.</p>
+                </div>
+              </div>
+              <div v-if="displaySales.length" class="table-wrap">
+                <table class="market-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Price</th>
+                      <th>Trend</th>
+                      <th>Qty</th>
+                      <th>Total</th>
+                      <th>Seller</th>
+                      <th>Buyer</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="(sale, index) in displaySales"
+                      :key="sale.id"
+                      :class="[
+                        'dashboard-list-intro__item',
+                        { 'market-table__row--my-trader': isSaleFromFavoriteTrader(sale) }
+                      ]"
+                      :style="{ '--dashboard-list-delay': marketIntroDelay(index + 6, 70) }"
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          class="table-item table-item-button"
+                          @mouseenter="showMarketSaleTooltip($event, sale)"
+                          @mousemove="updateMarketItemTooltipPosition($event)"
+                          @mouseleave="hideMarketItemTooltip"
+                          @click="selectSaleItem(sale)"
+                        >
+                          <span v-if="hasValidIconId(sale.itemIconId)" class="item-icon">
+                            <img
+                              :src="getLootIconSrc(sale.itemIconId!)"
+                              :alt="sale.itemName"
+                              loading="lazy"
+                            />
+                          </span>
+                          <span>{{ sale.itemName }}</span>
+                        </button>
+                      </td>
+                      <td><CoinDisplay variant="platinum" :amount-in-copper="sale.price" /></td>
+                      <td>
+                        <span
+                          class="trend-indicator"
+                          :class="getPriceTrendClass(sale.price, sale.itemAveragePrice)"
+                          :title="getPriceTrendLabel(sale.price, sale.itemAveragePrice)"
+                        >
+                          {{ getPriceTrendIcon(sale.price, sale.itemAveragePrice) }}
+                        </span>
+                      </td>
+                      <td>{{ formatNumber(sale.quantity) }}</td>
+                      <td><CoinDisplay variant="platinum" :amount-in-copper="sale.totalCost" /></td>
+                      <td>
+                        <button
+                          type="button"
+                          :class="[
+                            'character-history-link',
+                            { 'character-history-link--my-trader': isSaleFromFavoriteTrader(sale) }
+                          ]"
+                          @click="openCharacterHistoryModal(sale.sellerCharacterName, 'sell')"
+                        >
+                          {{ sale.sellerCharacterName }}
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          v-if="canOpenCharacterHistory(sale.buyerCharacterName)"
+                          type="button"
+                          class="character-history-link"
+                          @click="openCharacterHistoryModal(sale.buyerCharacterName, 'buy')"
+                        >
+                          {{ sale.buyerCharacterName }}
+                        </button>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td>{{ formatDateTime(sale.occurredAt) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="salesPage && salesPage.totalPages > 1" class="pagination">
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  :disabled="salesLoading || salesPage.page <= 1"
+                  @click="changeSalesPage(salesPage.page - 1)"
+                >
+                  Previous
+                </button>
+                <span class="pagination__meta muted">
+                  Page {{ salesPage.page }} of {{ salesPage.totalPages }} ·
+                  {{ formatNumber(salesPage.total) }} sales
+                </span>
+                <button
+                  type="button"
+                  class="btn btn--outline btn--small"
+                  :disabled="salesLoading || salesPage.page >= salesPage.totalPages"
+                  @click="changeSalesPage(salesPage.page + 1)"
+                >
+                  Next
+                </button>
+              </div>
+              <p v-else class="empty muted">No recent market sales have been synced yet.</p>
+            </article>
+
+            <article
+              class="panel market-summary-layout__sidebar dashboard-list-intro__item"
+              :style="{ '--dashboard-list-delay': marketIntroDelay(6) }"
+            >
+              <div class="panel-head">
+                <div>
+                  <h2>Top Movers</h2>
+                  <p class="muted">Click an item to inspect its history.</p>
+                </div>
+                <div class="segmented-control" role="group" aria-label="Sort top movers">
+                  <button
+                    type="button"
+                    class="segmented-control__button"
+                    :class="{ 'segmented-control__button--active': topItemsSort === 'quantity' }"
+                    :disabled="refreshing"
+                    @click="setTopItemsSort('quantity')"
+                  >
+                    Quantity
+                  </button>
+                  <button
+                    type="button"
+                    class="segmented-control__button"
+                    :class="{ 'segmented-control__button--active': topItemsSort === 'value' }"
+                    :disabled="refreshing"
+                    @click="setTopItemsSort('value')"
+                  >
+                    Value
+                  </button>
+                </div>
+              </div>
+              <div v-if="summary?.topItems.length" class="movers">
+                <article
+                  v-for="(item, index) in summary.topItems"
+                  :key="`${item.itemId ?? 'name'}-${item.itemName}`"
+                  class="mover dashboard-list-intro__item"
+                  :class="{ 'mover--favorited': isItemFavorited(item) }"
+                  :style="{ '--dashboard-list-delay': marketIntroDelay(index + 7, 70) }"
+                >
+                  <button
+                    type="button"
+                    class="mover__body"
+                    @mouseenter="
+                      showMarketItemTooltip($event, item.itemId, item.itemName, item.itemIconId)
+                    "
+                    @mousemove="updateMarketItemTooltipPosition($event)"
+                    @mouseleave="hideMarketItemTooltip"
+                    @click="selectTopItem(item)"
+                  >
+                    <div class="mover__main">
+                      <span v-if="hasValidIconId(item.itemIconId)" class="item-icon">
+                        <img
+                          :src="getLootIconSrc(item.itemIconId!)"
+                          :alt="item.itemName"
+                          loading="lazy"
+                        />
+                      </span>
+                      <div>
+                        <strong>{{ item.itemName }}</strong>
+                        <small class="muted"
+                          >{{ item.salesCount }} sales · {{ item.unitsSold }} units</small
+                        >
+                      </div>
+                    </div>
+                    <div class="mover__meta">
+                      <strong class="mover__meta-primary">
+                        <CoinDisplay variant="platinum" :amount-in-copper="item.totalRevenue" />
+                      </strong>
+                      <span class="mover__meta-secondary muted">
+                        <span class="mover__meta-label">Avg Price</span>
+                        <span class="mover__meta-value">
+                          <CoinDisplay variant="platinum" :amount-in-copper="item.averagePrice" />
+                        </span>
+                      </span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    class="favorite-toggle favorite-toggle--mover"
+                    :class="{ 'favorite-toggle--active': isItemFavorited(item) }"
+                    :disabled="isItemFavoritePending(item)"
+                    :aria-pressed="isItemFavorited(item)"
+                    :aria-label="getItemFavoriteLabel(item)"
+                    :title="getItemFavoriteLabel(item)"
+                    @click.stop="toggleMarketItemFavorite(item)"
+                  >
+                    <span class="favorite-toggle__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path
+                          d="M1.5 12s4.5-7.5 10.5-7.5S22.5 12 22.5 12s-4.5 7.5-10.5 7.5S1.5 12 1.5 12Z"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.8"
+                        />
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="3.25"
+                          :fill="isItemFavorited(item) ? 'currentColor' : 'none'"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                        />
+                      </svg>
+                    </span>
+                  </button>
+                </article>
+              </div>
+              <p v-else class="empty muted">Top movers will appear once sales have been synced.</p>
+            </article>
+          </section>
+        </div>
       </template>
     </section>
 
@@ -1592,7 +1644,7 @@
 
 <script setup lang="ts">
 import { isAxiosError } from 'axios';
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { Line } from 'vue-chartjs';
 
 import CoinDisplay from '../components/CoinDisplay.vue';
@@ -1642,6 +1694,7 @@ const { addToast } = useToastBus();
 const tooltipStore = useItemTooltipStore();
 const loading = ref(true);
 const showLoading = useMinimumLoading(loading, 900);
+const marketIntroReady = ref(false);
 const refreshing = ref(false);
 const searchLoading = ref(false);
 const historyLoading = ref(false);
@@ -1722,6 +1775,7 @@ let refreshCooldownInterval: ReturnType<typeof setInterval> | null = null;
 let activeSearchToken = 0;
 let activeItemActivityRequestToken = 0;
 let activeItemListingsRequestToken = 0;
+let marketIntroFrame: number | null = null;
 const marketModalTitleId = 'market-item-trend-title';
 const characterHistoryModalTitleId = 'market-character-history-title';
 const UNKNOWN_MARKET_CHARACTER_LABEL = 'Unknown Trader';
@@ -3350,6 +3404,35 @@ function changeCharacterHistoryPage(page: number) {
   void loadCharacterHistoryPage(activeCharacterTab.value, page);
 }
 
+function clearMarketIntroAnimation() {
+  if (typeof window === 'undefined') return;
+  if (marketIntroFrame !== null) {
+    window.cancelAnimationFrame(marketIntroFrame);
+  }
+  marketIntroFrame = null;
+}
+
+function runMarketIntroAnimation() {
+  marketIntroReady.value = false;
+
+  if (typeof window === 'undefined') {
+    marketIntroReady.value = true;
+    return;
+  }
+
+  clearMarketIntroAnimation();
+  marketIntroFrame = window.requestAnimationFrame(() => {
+    marketIntroFrame = window.requestAnimationFrame(() => {
+      marketIntroFrame = null;
+      marketIntroReady.value = true;
+    });
+  });
+}
+
+function marketIntroDelay(index: number, stepMs = 90) {
+  return `${index * stepMs}ms`;
+}
+
 function handleSearchFocus() {
   if (searchResults.value.length > 0) showSearchResults.value = true;
 }
@@ -3396,6 +3479,27 @@ watch(selectedRangeDays, async () => {
   await loadSalesPage(1);
 });
 
+watch(
+  [showLoading, activeTab],
+  async ([isStillLoading, currentTab]) => {
+    if (currentTab !== 'market') {
+      clearMarketIntroAnimation();
+      marketIntroReady.value = true;
+      return;
+    }
+
+    if (isStillLoading) {
+      clearMarketIntroAnimation();
+      marketIntroReady.value = false;
+      return;
+    }
+
+    await nextTick();
+    runMarketIntroAnimation();
+  },
+  { flush: 'post' }
+);
+
 watch(searchQuery, (value) => {
   if (searchTimeout) clearTimeout(searchTimeout);
   const query = value.trim();
@@ -3435,6 +3539,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleWindowKeydown);
   if (searchTimeout) clearTimeout(searchTimeout);
   clearRefreshCooldownInterval();
+  clearMarketIntroAnimation();
   tooltipStore.hideTooltipImmediate();
 });
 </script>
@@ -3445,6 +3550,23 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 1.25rem;
   color: #e5edf5;
+}
+.market-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.dashboard-list-intro__item {
+  opacity: 0;
+  transform: translateY(-1rem) scale(0.985);
+  transition:
+    opacity 0.42s ease,
+    transform 0.56s cubic-bezier(0.18, 0.84, 0.22, 1);
+  transition-delay: var(--dashboard-list-delay, 0ms);
+}
+.dashboard-list-intro--ready .dashboard-list-intro__item {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 .btn,
 .input {
