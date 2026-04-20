@@ -34,9 +34,11 @@ export type LootCouncilEvent =
       timestamp: Date;
       rawLine: string;
       itemName: string;
+      itemId?: number | null;
       requests: Array<{
         playerName: string;
         replacing?: string | null;
+        replacingItemId?: number | null;
         mode: LootCouncilInterestMode;
         votes?: number | null;
       }>;
@@ -140,12 +142,14 @@ function extractItemIdFromName(nameWithId: string): { name: string; itemId: numb
 
 interface LootCouncilSyncBlock {
   itemName: string;
+  itemId: number | null;
   timestamp: Date;
   rawLine: string;
   requests: Array<{
     playerName: string;
     votes?: number | null;
     replacing?: string | null;
+    replacingItemId?: number | null;
     mode: LootCouncilInterestMode;
   }>;
   markedEmpty: boolean;
@@ -182,6 +186,7 @@ export function parseLootCouncilEvents(
 
   interface PendingSnapshotEntry {
     itemName: string;
+    itemId: number | null;
     rawLine: string;
     timestamp: Date;
   }
@@ -201,7 +206,8 @@ export function parseLootCouncilEvents(
             key: buildEventKey(timestamp, `${entry.itemName}::pending-discard`),
             timestamp,
             rawLine: entry.rawLine,
-            itemName: entry.itemName
+            itemName: entry.itemName,
+            itemId: entry.itemId
           });
         }
       }
@@ -264,6 +270,7 @@ export function parseLootCouncilEvents(
       timestamp: currentSync.timestamp,
       rawLine: currentSync.rawLine,
       itemName: currentSync.itemName,
+      itemId: currentSync.itemId,
       requests: currentSync.requests,
       empty: currentSync.markedEmpty && currentSync.requests.length === 0,
       sessionId: currentSync.sessionId,
@@ -322,7 +329,7 @@ export function parseLootCouncilEvents(
     if (considerMatch?.groups?.item) {
       finalizeSyncBlock();
       const ordinalMatch = trimmed.match(/^(?<ordinal>\d+)\)/);
-      const itemExtract = extractItemIdFromName(cleanItemName(considerMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(considerMatch.groups.item);
       events.push({
         type: 'ITEM_CONSIDERED',
         key: buildEventKey(timestamp, `${considerMatch.groups.item}::considered`),
@@ -342,13 +349,14 @@ export function parseLootCouncilEvents(
     if (pendingListMatch?.groups?.item) {
       handledPendingBlockLine = true;
       finalizeSyncBlock();
-      const cleanedItem = cleanItemName(pendingListMatch.groups.item);
+      const itemExtract = parseLootCouncilItemReference(pendingListMatch.groups.item);
       if (pendingBuildingSnapshot) {
         const zoneKey = pendingListMatch.groups.zone?.trim().toLowerCase() ?? 'unknown-zone';
         const npcKey = pendingListMatch.groups.npc?.trim().toLowerCase() ?? 'unknown-npc';
-        const normalizedKey = `${cleanedItem.toLowerCase()}::${zoneKey}::${npcKey}`;
+        const normalizedKey = `${itemExtract.name.toLowerCase()}::${zoneKey}::${npcKey}`;
         pendingBuildingSnapshot.set(normalizedKey, {
-          itemName: cleanedItem,
+          itemName: itemExtract.name,
+          itemId: itemExtract.itemId,
           rawLine,
           timestamp
         });
@@ -358,7 +366,8 @@ export function parseLootCouncilEvents(
         key: buildEventKey(timestamp, `${pendingListMatch.groups.item}::pending`),
         timestamp,
         rawLine,
-        itemName: cleanedItem,
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         ordinal: pendingListMatch.groups.ordinal
           ? Number(pendingListMatch.groups.ordinal)
           : null,
@@ -390,8 +399,8 @@ export function parseLootCouncilEvents(
     );
     if (requestReplaceMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(requestReplaceMatch.groups.item));
-      const replaceExtract = extractItemIdFromName(requestReplaceMatch.groups.replace.trim());
+      const itemExtract = parseLootCouncilItemReference(requestReplaceMatch.groups.item);
+      const replaceExtract = parseLootCouncilItemReference(requestReplaceMatch.groups.replace);
       events.push({
         type: 'REQUEST',
         key: buildEventKey(timestamp, `${requestReplaceMatch.groups.item}::${requestReplaceMatch.groups.player}::request`),
@@ -412,7 +421,7 @@ export function parseLootCouncilEvents(
     );
     if (requestNoReplaceMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(requestNoReplaceMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(requestNoReplaceMatch.groups.item);
       events.push({
         type: 'REQUEST',
         key: buildEventKey(timestamp, `${requestNoReplaceMatch.groups.item}::${requestNoReplaceMatch.groups.player}::request`),
@@ -433,7 +442,7 @@ export function parseLootCouncilEvents(
     );
     if (withdrawalMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(withdrawalMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(withdrawalMatch.groups.item);
       events.push({
         type: 'WITHDRAWAL',
         key: buildEventKey(timestamp, `${withdrawalMatch.groups.item}::${withdrawalMatch.groups.player}::withdrawal`),
@@ -459,7 +468,7 @@ export function parseLootCouncilEvents(
         ),
         timestamp,
         rawLine,
-        itemName: cleanItemName(voteMatch.groups.item),
+        itemName: parseLootCouncilItemReference(voteMatch.groups.item).name,
         candidateName: voteMatch.groups.candidate.trim(),
         voterName: voteMatch.groups.voter.trim()
       });
@@ -472,7 +481,7 @@ export function parseLootCouncilEvents(
     );
     if (lootCouncilAwardMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(lootCouncilAwardMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(lootCouncilAwardMatch.groups.item);
       const playerName = lootCouncilAwardMatch.groups.player.trim();
       events.push({
         type: 'AWARD',
@@ -492,7 +501,7 @@ export function parseLootCouncilEvents(
     );
     if (masterLooterAwardMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(masterLooterAwardMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(masterLooterAwardMatch.groups.item);
       const playerName = masterLooterAwardMatch.groups.player.trim();
       events.push({
         type: 'MASTER_LOOTER_AWARD',
@@ -514,7 +523,7 @@ export function parseLootCouncilEvents(
     );
     if (randomAwardMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(randomAwardMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(randomAwardMatch.groups.item);
       const playerName = randomAwardMatch.groups.player.trim();
       events.push({
         type: 'RANDOM_AWARD',
@@ -534,7 +543,7 @@ export function parseLootCouncilEvents(
     );
     if (masterLootedMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(masterLootedMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(masterLootedMatch.groups.item);
       events.push({
         type: 'MASTER_LOOTED',
         key: buildEventKey(timestamp, `${itemExtract.name}::master-looted::${lineIndex}`),
@@ -551,7 +560,7 @@ export function parseLootCouncilEvents(
     );
     if (dispositionMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(dispositionMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(dispositionMatch.groups.item);
       const isDonation = /donated to the Master Looter/i.test(trimmed);
       if (isDonation) {
         events.push({
@@ -578,7 +587,7 @@ export function parseLootCouncilEvents(
     const discardedMatch = trimmed.match(/(?:.*\.\s+)?(?<item>[^.]+?)\s+discarded!$/i);
     if (discardedMatch?.groups) {
       finalizeSyncBlock();
-      const itemExtract = extractItemIdFromName(cleanItemName(discardedMatch.groups.item));
+      const itemExtract = parseLootCouncilItemReference(discardedMatch.groups.item);
       events.push({
         type: 'DISCARDED',
         key: buildEventKey(timestamp, `${itemExtract.name}::discarded::${lineIndex}`),
@@ -599,8 +608,10 @@ export function parseLootCouncilEvents(
         beginSyncSession(false);
       }
       syncSessionBlockOrder = syncSessionActive ? syncSessionBlockOrder + 1 : syncSessionBlockOrder;
+      const itemExtract = parseLootCouncilItemReference(syncHeaderMatch.groups.item);
       currentSync = {
-        itemName: cleanItemName(syncHeaderMatch.groups.item),
+        itemName: itemExtract.name,
+        itemId: itemExtract.itemId,
         timestamp,
         rawLine,
         requests: [],
@@ -629,6 +640,7 @@ export function parseLootCouncilEvents(
             playerName: pendingSyncRequest.playerName,
             votes: pendingSyncRequest.votes ?? null,
             replacing: null,
+            replacingItemId: null,
             mode: 'REPLACING'
           });
         }
@@ -643,10 +655,12 @@ export function parseLootCouncilEvents(
 
       const syncReplaceMatch = lineBody.match(/^Item Replaced:\s+(?<replacement>.+?)\s+-->/i);
       if (syncReplaceMatch?.groups && pendingSyncRequest) {
+        const replaceExtract = parseLootCouncilItemReference(syncReplaceMatch.groups.replacement);
         currentSync.requests.push({
           playerName: pendingSyncRequest.playerName,
           votes: pendingSyncRequest.votes ?? null,
-          replacing: syncReplaceMatch.groups.replacement.trim(),
+          replacing: replaceExtract.name,
+          replacingItemId: replaceExtract.itemId,
           mode: 'REPLACING'
         });
         pendingSyncRequest = null;
@@ -683,15 +697,27 @@ function isWithinRaid(timestamp: Date, start: Date, end?: Date | null) {
 }
 
 function cleanItemName(value: string) {
-  return value
+  return parseLootCouncilItemReference(value).name;
+}
+
+function parseLootCouncilItemReference(value: string) {
+  const normalized = value
     .replace(/^\s*\d+\)\s*/, '')
-    .replace(/\s*\(\d+\)\s*$/, '')
     .replace(/^\s*\[[^\]]+]\s*/, '')
     .trim();
+  return extractItemIdFromName(normalized);
 }
 
 function sanitizeLogLine(value: string) {
-  return value.replace(/[\u0000-\u001F\u007F]/g, '');
+  let sanitized = '';
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    if ((code >= 0 && code <= 31) || code === 127) {
+      continue;
+    }
+    sanitized += char;
+  }
+  return sanitized;
 }
 
 function isSummaryEndLine(value: string) {

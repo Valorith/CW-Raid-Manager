@@ -1584,7 +1584,7 @@ function getDispositionBadgeClass(actionType: LootDispositionActionType): string
 
 function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemState) {
   if (!item.itemId) return;
-  tooltipStore.showTooltip(
+  void tooltipStore.showTooltip(
     { itemId: item.itemId, itemName: item.itemName, itemIconId: item.itemIconId ?? undefined },
     { x: event.clientX, y: event.clientY }
   );
@@ -1592,8 +1592,12 @@ function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemStat
 
 function showLootCouncilReplacingTooltip(event: MouseEvent, interest: LootCouncilInterestState) {
   if (!interest.replacingItemId || !interest.replacing) return;
-  tooltipStore.showTooltip(
-    { itemId: interest.replacingItemId, itemName: interest.replacing, itemIconId: interest.replacingItemIconId ?? undefined },
+  void tooltipStore.showTooltip(
+    {
+      itemId: interest.replacingItemId,
+      itemName: interest.replacing,
+      itemIconId: interest.replacingItemIconId ?? undefined
+    },
     { x: event.clientX, y: event.clientY }
   );
 }
@@ -1799,10 +1803,10 @@ const lootCouncilState = reactive<{
   lastUpdatedAt: null
 });
 const resolvedLootCouncilItems = new Map<string, Date>();
-const itemNameToIdCache = new Map<string, { itemId: number; itemIconId: number } | null>();
-let itemResolutionPending = false;
-let itemResolutionNeeded = false; // Flag to re-run resolution after current completes
-let itemResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
+const itemIdToIconCache = new Map<number, number | null>();
+let itemIconResolutionPending = false;
+let itemIconResolutionNeeded = false;
+let itemIconResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
 let dispositionPersistDebounceId: ReturnType<typeof setTimeout> | null = null;
 const lootCouncilActiveItems = computed(() =>
   lootCouncilState.items.filter((item) => item.status === 'ACTIVE')
@@ -2090,9 +2094,8 @@ function recordLootDisposition(
     lootDispositionHistory.value = [entry, ...lootDispositionHistory.value];
     persistLootDispositionHistory();
 
-    // If item IDs are missing, trigger resolution to fill them in
-    if (entry.itemId == null || entry.itemIconId == null) {
-      scheduleLootCouncilItemResolution();
+    if (entry.itemId != null && entry.itemIconId == null) {
+      scheduleLootCouncilItemIconResolution();
     }
   } catch (error) {
     // Disposition recording should never interrupt monitoring
@@ -2428,19 +2431,19 @@ function handleLootCouncilEvents(events: LootCouncilEvent[]) {
     if (lootCouncilActiveItems.value.length === 0) {
       lootCouncilState.suppressed = false;
     }
-    scheduleLootCouncilItemResolution();
+    scheduleLootCouncilItemIconResolution();
     // Broadcast the updated state to the server so other users can see it
     scheduleLootCouncilStateBroadcast();
   }
 }
 
-function scheduleLootCouncilItemResolution() {
-  if (itemResolutionDebounceId !== null) {
-    clearTimeout(itemResolutionDebounceId);
+function scheduleLootCouncilItemIconResolution() {
+  if (itemIconResolutionDebounceId !== null) {
+    clearTimeout(itemIconResolutionDebounceId);
   }
-  itemResolutionDebounceId = setTimeout(() => {
-    itemResolutionDebounceId = null;
-    void resolveLootCouncilItemIds();
+  itemIconResolutionDebounceId = setTimeout(() => {
+    itemIconResolutionDebounceId = null;
+    void resolveLootCouncilItemIcons();
   }, 200);
 }
 
@@ -2581,9 +2584,7 @@ async function fetchAndApplySharedLootCouncilState(force = false) {
     if (lootCouncilState.items.length > 0) {
       lootCouncilState.lastUpdatedAt = new Date();
       lootCouncilState.suppressed = false;
-      // Resolve any missing item icons - the shared state may have items with null iconIds
-      // if they weren't fully resolved before being broadcast
-      scheduleLootCouncilItemResolution();
+      scheduleLootCouncilItemIconResolution();
     }
   } catch (error) {
     // Log but don't interrupt the user
@@ -2591,117 +2592,90 @@ async function fetchAndApplySharedLootCouncilState(force = false) {
   }
 }
 
-async function resolveLootCouncilItemIds() {
-  if (itemResolutionPending) {
-    // Mark that resolution is needed so we re-run after current completes
-    itemResolutionNeeded = true;
+async function resolveLootCouncilItemIcons() {
+  if (itemIconResolutionPending) {
+    itemIconResolutionNeeded = true;
     return;
   }
-  itemResolutionPending = true;
-  itemResolutionNeeded = false;
+  itemIconResolutionPending = true;
+  itemIconResolutionNeeded = false;
   try {
-    // Collect all item names that need resolution
-    const namesToResolve = new Set<string>();
+    const itemIdsToResolve = new Set<number>();
     for (const item of lootCouncilState.items) {
-      if (item.itemId == null) {
-        const cacheKey = item.itemName.trim().toLowerCase();
-        if (!itemNameToIdCache.has(cacheKey)) {
-          namesToResolve.add(item.itemName);
-        }
+      if (item.itemId != null && item.itemIconId == null && !itemIdToIconCache.has(item.itemId)) {
+        itemIdsToResolve.add(item.itemId);
       }
       for (const interest of item.interests) {
-        if (interest.replacing && interest.replacingItemId == null) {
-          const cacheKey = interest.replacing.trim().toLowerCase();
-          if (!itemNameToIdCache.has(cacheKey)) {
-            namesToResolve.add(interest.replacing);
-          }
+        if (
+          interest.replacingItemId != null &&
+          interest.replacingItemIconId == null &&
+          !itemIdToIconCache.has(interest.replacingItemId)
+        ) {
+          itemIdsToResolve.add(interest.replacingItemId);
         }
       }
     }
 
-    // Also include item names from disposition history that need resolution
     for (const entry of lootDispositionHistory.value) {
-      if (entry.itemId == null || entry.itemIconId == null) {
-        const cacheKey = entry.itemName.trim().toLowerCase();
-        if (!itemNameToIdCache.has(cacheKey)) {
-          namesToResolve.add(entry.itemName);
-        }
+      if (entry.itemId != null && entry.itemIconId == null && !itemIdToIconCache.has(entry.itemId)) {
+        itemIdsToResolve.add(entry.itemId);
       }
     }
 
-    if (namesToResolve.size === 0) {
-      applyItemResolutionFromCache();
+    if (itemIdsToResolve.size === 0) {
+      applyItemIconResolutionFromCache();
       return;
     }
 
-    // Fetch item IDs from server
-    const response = await api.searchItemsByName(Array.from(namesToResolve));
+    const response = await api.fetchItemStatsBatch(Array.from(itemIdsToResolve));
 
-    // Update cache with results
-    for (const name of namesToResolve) {
-      const cacheKey = name.trim().toLowerCase();
-      const result = response.items[name];
-      if (result) {
-        itemNameToIdCache.set(cacheKey, {
-          itemId: result.itemId,
-          itemIconId: result.itemIconId
-        });
-      } else {
-        itemNameToIdCache.set(cacheKey, null);
+    for (const itemId of itemIdsToResolve) {
+      const stats = response.items[itemId];
+      if (stats) {
+        itemIdToIconCache.set(itemId, stats.icon ?? null);
       }
     }
 
-    applyItemResolutionFromCache();
+    applyItemIconResolutionFromCache();
   } catch (error) {
-    console.error('Failed to resolve loot council item IDs:', error);
+    console.error('Failed to resolve loot council item icons:', error);
   } finally {
-    itemResolutionPending = false;
-    // If new items were added while we were resolving, schedule another resolution
-    if (itemResolutionNeeded) {
-      itemResolutionNeeded = false;
-      scheduleLootCouncilItemResolution();
+    itemIconResolutionPending = false;
+    if (itemIconResolutionNeeded) {
+      itemIconResolutionNeeded = false;
+      scheduleLootCouncilItemIconResolution();
     }
   }
 }
 
-function applyItemResolutionFromCache() {
+function applyItemIconResolutionFromCache() {
+  let lootCouncilUpdated = false;
   for (const item of lootCouncilState.items) {
-    if (item.itemId == null) {
-      const cacheKey = item.itemName.trim().toLowerCase();
-      const cached = itemNameToIdCache.get(cacheKey);
-      if (cached) {
-        item.itemId = cached.itemId;
-        item.itemIconId = cached.itemIconId;
-      }
+    if (item.itemId != null && item.itemIconId == null && itemIdToIconCache.has(item.itemId)) {
+      item.itemIconId = itemIdToIconCache.get(item.itemId) ?? null;
+      lootCouncilUpdated = true;
     }
     for (const interest of item.interests) {
-      if (interest.replacing && interest.replacingItemId == null) {
-        const cacheKey = interest.replacing.trim().toLowerCase();
-        const cached = itemNameToIdCache.get(cacheKey);
-        if (cached) {
-          interest.replacingItemId = cached.itemId;
-          interest.replacingItemIconId = cached.itemIconId;
-        }
+      if (
+        interest.replacingItemId != null &&
+        interest.replacingItemIconId == null &&
+        itemIdToIconCache.has(interest.replacingItemId)
+      ) {
+        interest.replacingItemIconId = itemIdToIconCache.get(interest.replacingItemId) ?? null;
+        lootCouncilUpdated = true;
       }
     }
   }
 
-  // Also update disposition history entries with missing item IDs
+  if (lootCouncilUpdated) {
+    scheduleLootCouncilStateBroadcast();
+  }
+
   let dispositionUpdated = false;
   for (const entry of lootDispositionHistory.value) {
-    if (entry.itemId == null || entry.itemIconId == null) {
-      const cacheKey = entry.itemName.trim().toLowerCase();
-      const cached = itemNameToIdCache.get(cacheKey);
-      if (cached) {
-        if (entry.itemId == null) {
-          entry.itemId = cached.itemId;
-          dispositionUpdated = true;
-        }
-        if (entry.itemIconId == null) {
-          entry.itemIconId = cached.itemIconId;
-          dispositionUpdated = true;
-        }
-      }
+    if (entry.itemId != null && entry.itemIconId == null && itemIdToIconCache.has(entry.itemId)) {
+      entry.itemIconId = itemIdToIconCache.get(entry.itemId) ?? null;
+      dispositionUpdated = true;
     }
   }
   if (dispositionUpdated) {
@@ -2849,12 +2823,6 @@ function getDispositionItemInfo(itemName: string): { itemId: number | null; item
   const item = lootCouncilState.items.find((entry) => entry.nameKey === nameKey);
   if (item) {
     return { itemId: item.itemId ?? null, itemIconId: item.itemIconId ?? null };
-  }
-  // Also check the cache
-  const cacheKey = itemName.trim().toLowerCase();
-  const cached = itemNameToIdCache.get(cacheKey);
-  if (cached) {
-    return { itemId: cached.itemId, itemIconId: cached.itemIconId };
   }
   return null;
 }
@@ -3234,6 +3202,9 @@ function applyLootCouncilSyncSummary(
   if (!item) {
     return activated;
   }
+  if (event.itemId && !item.itemId) {
+    item.itemId = event.itemId;
+  }
   if (event.empty) {
     const hadInterests = item.interests.length > 0;
     if (hadInterests) {
@@ -3252,6 +3223,8 @@ function applyLootCouncilSyncSummary(
       playerKey,
       playerName: request.playerName,
       replacing: request.replacing ?? null,
+      replacingItemId: request.replacingItemId ?? existing?.replacingItemId ?? null,
+      replacingItemIconId: existing?.replacingItemIconId ?? null,
       mode: request.mode,
       votes: request.votes ?? 0,
       lastUpdatedAt: event.timestamp,
@@ -6839,9 +6812,8 @@ onMounted(() => {
   window.addEventListener('active-raid-updated', handleActiveRaidUpdated);
   document.addEventListener('visibilitychange', handleVisibilityChange);
   lootDispositionHistory.value = loadLootDispositionHistory();
-  // Trigger item resolution for any disposition entries with missing IDs
-  if (lootDispositionHistory.value.some((entry) => entry.itemId == null || entry.itemIconId == null)) {
-    scheduleLootCouncilItemResolution();
+  if (lootDispositionHistory.value.some((entry) => entry.itemId != null && entry.itemIconId == null)) {
+    scheduleLootCouncilItemIconResolution();
   }
   loadData();
 });

@@ -862,6 +862,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: flex;
   gap: 2px;
   align-items: center;
+  min-width: 0;
 }
 
 .nav__item {
@@ -915,6 +916,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   align-items: center;
   gap: 0.75rem;
   margin-left: auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .nav-attention {
@@ -1163,6 +1167,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .nav-monitor {
   margin-left: 0.5rem;
+  min-width: 0;
 }
 
 .nav-monitor__button {
@@ -1180,6 +1185,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
     border-color 0.2s ease,
     background 0.2s ease,
     color 0.2s ease;
+  max-width: 100%;
 }
 
 .nav-monitor__button:hover,
@@ -1213,6 +1219,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   flex-direction: column;
   align-items: flex-start;
   line-height: 1.1;
+  min-width: 0;
 }
 
 .nav-monitor__label {
@@ -1226,6 +1233,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-size: 0.85rem;
   font-weight: 600;
   color: inherit;
+  max-width: min(16rem, 28vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-monitor--attention .nav-monitor__button {
@@ -1277,6 +1288,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border: 1px solid rgba(139, 92, 246, 0.45);
   color: #ede9fe;
   box-shadow: 0 8px 16px rgba(76, 29, 149, 0.25);
+  max-width: 100%;
 }
 
 .nav-zone-pill__label {
@@ -1290,6 +1302,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-weight: 700;
   font-size: 0.95rem;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @keyframes navMonitorPulseAlert {
@@ -1323,6 +1337,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* Nexus icon button (settings, etc.) */
@@ -1359,6 +1376,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-radius: 999px;
   background: rgba(120, 160, 220, 0.06);
   border: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  min-width: 0;
 }
 
 .nav__avatar {
@@ -1380,6 +1398,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-size: 13px;
   color: var(--nx-ink-1, #dde8f4);
   white-space: nowrap;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav__user-role {
@@ -1596,23 +1617,83 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .app-header {
     flex-wrap: wrap;
-    align-items: flex-start;
-    gap: 1rem;
+    align-items: center;
+    column-gap: 1rem;
+    row-gap: 0.85rem;
   }
 
   .brand {
-    flex: 1 1 100%;
+    margin-right: auto;
   }
 
   .nav {
     order: 3;
-    flex-wrap: wrap;
+    flex: 1 1 30rem;
     justify-content: flex-start;
     gap: 0.5rem;
+  }
+
+  .nav-alerts {
+    order: 4;
+    flex: 1 1 24rem;
+    margin-left: 0;
+  }
+
+  .nav-monitor {
+    flex: 1 1 16rem;
+    margin-left: 0;
+  }
+
+  .nav-monitor__button {
     width: 100%;
+    justify-content: center;
+  }
+
+  .nav-zone-pill {
+    flex: 1 1 12rem;
+    justify-content: center;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand . auth'
+      'nav nav alerts';
+    align-items: center;
+    column-gap: 0.9rem;
+    row-gap: 0.75rem;
+  }
+
+  .brand {
+    grid-area: brand;
+    flex: initial;
+    margin-right: 0;
+    padding-right: 0.75rem;
+  }
+
+  .nav {
+    grid-area: nav;
+    order: initial;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding-right: 0.35rem;
+  }
+
+  .nav::-webkit-scrollbar {
+    display: none;
   }
 
   .nav__dropdown {
@@ -1631,34 +1712,55 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
 
   .nav-alerts {
-    order: 4;
-    width: 100%;
-    justify-content: flex-start;
+    grid-area: alerts;
+    order: initial;
+    width: auto;
+    justify-content: flex-end;
+    align-self: center;
     margin-left: 0;
   }
 
   .nav-monitor {
-    width: 100%;
+    width: auto;
     margin-left: 0;
   }
 
   .nav-monitor__button {
-    width: 100%;
+    width: auto;
     justify-content: center;
   }
 
   .nav-zone-pill {
-    width: 100%;
+    width: auto;
     justify-content: center;
     margin-left: 0;
   }
 
   .auth {
-    order: 2;
-    width: 100%;
+    grid-area: auth;
+    order: initial;
+    width: auto;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 0.5rem;
+  }
+
+  .nav__tab,
+  .nav__link {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    font-size: 12.5px;
+    gap: 5px;
+  }
+
+  .nav__tab-ico,
+  .nav__chevron {
+    width: 13px;
+    height: 13px;
+  }
+
+  .nav__chevron-btn {
+    padding: 0.35rem 0.4rem;
   }
 }
 
@@ -1669,10 +1771,21 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
 
   .app-header {
+    display: flex;
+    grid-template-columns: none;
+    grid-template-areas: none;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
     padding: 0.75rem 1.25rem;
     padding-top: max(0.75rem, env(safe-area-inset-top, 0px));
     padding-left: max(1.25rem, env(safe-area-inset-left, 0px));
     padding-right: max(1.25rem, env(safe-area-inset-right, 0px));
+  }
+
+  .brand {
+    flex: 1 1 100%;
+    padding-right: 0;
   }
 
   .brand__home {
@@ -1690,12 +1803,38 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
 
   .nav {
+    order: 3;
     justify-content: flex-start;
   }
 
+  .nav-alerts {
+    order: 4;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .nav-monitor {
+    width: 100%;
+  }
+
+  .nav-monitor__button {
+    width: 100%;
+  }
+
+  .nav-zone-pill {
+    width: 100%;
+  }
+
   .auth {
+    order: 2;
+    width: 100%;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .nav__user-name {
+    max-width: 8rem;
   }
 
   .auth__user {
@@ -1744,8 +1883,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
     overflow-x: auto;
     gap: 0.5rem;
     padding-bottom: 0.25rem;
+    flex-wrap: nowrap;
   }
 
+  .nav__tab,
   .nav__link {
     flex: 0 0 auto;
   }
