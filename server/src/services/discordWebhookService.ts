@@ -450,6 +450,7 @@ type DiscordWebhookPayloadMap = {
     raidName: string;
     assignments: Array<{
       itemName: string;
+      itemId?: number | null;
       looterName: string;
       emoji?: string | null;
       itemIconId?: number | null;
@@ -967,7 +968,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         .map((assignment) => {
           const countLabel = assignment.count > 1 ? ` ×${assignment.count}` : '';
           const emoji = assignment.emoji ?? '🎁';
-          const itemUrl = buildAllaItemUrl(assignment.itemName);
+          const itemUrl = buildAllaItemUrl(assignment.itemName, assignment.itemId);
           const itemLabel = itemUrl
             ? `[**${assignment.itemName}**${countLabel}](${itemUrl})`
             : `**${assignment.itemName}**${countLabel}`;
@@ -1266,8 +1267,8 @@ const ALLA_ITEM_SEARCH_BASE =
 
 function buildAllaItemUrl(itemName: string | null | undefined, itemId?: number | null) {
   // Prefer direct item ID lookup if available
-  if (itemId != null) {
-    return `https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`;
+  if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
+    return `https://alla.clumsysworld.com/items/${Math.trunc(itemId)}`;
   }
   // Fall back to name search
   if (!itemName) {

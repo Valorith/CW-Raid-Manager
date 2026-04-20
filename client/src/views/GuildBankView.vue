@@ -351,7 +351,7 @@
                 <a
                   v-if="item.itemId"
                   class="pill pill--link pill--link-button"
-                  :href="`https://alla.clumsysworld.com/?a=item&id=${item.itemId}`"
+                  :href="`https://alla.clumsysworld.com/items/${Math.trunc(item.itemId)}`"
                   target="_blank"
                   rel="noreferrer"
                   title="View on Alla"

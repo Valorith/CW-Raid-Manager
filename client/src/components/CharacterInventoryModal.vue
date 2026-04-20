@@ -747,7 +747,7 @@ function closeContextMenu() {
 function openAlla() {
   const item = contextMenu.value.item;
   if (item && item.itemId) {
-    window.open(`https://alla.clumsysworld.com/?a=item&id=${item.itemId}`, '_blank');
+    window.open(`https://alla.clumsysworld.com/items/${Math.trunc(item.itemId)}`, '_blank');
   }
   closeContextMenu();
 }

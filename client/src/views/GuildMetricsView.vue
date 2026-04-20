@@ -4846,7 +4846,7 @@ const visibleLootDetailRows = computed(() => {
 
 function openAllaSearch(itemName: string, itemId?: number | null) {
   if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
-    window.open(`https://alla.clumsysworld.com/?a=item&id=${Math.trunc(itemId)}`, '_blank');
+    window.open(`https://alla.clumsysworld.com/items/${Math.trunc(itemId)}`, '_blank');
     return;
   }
   const base =

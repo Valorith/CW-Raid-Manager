@@ -377,6 +377,7 @@ function mergeWithAwardingDefaults(patterns: ParserPattern[]) {
 
 interface LootAssignmentSummary {
   itemName: string;
+  itemId?: number | null;
   looterName: string;
   emoji?: string | null;
   itemIconId?: number | null;
@@ -389,6 +390,7 @@ async function emitLootAssignedWebhook(options: {
   createdById: string;
   events: Array<{
     itemName: string;
+    itemId?: number | null;
     looterName: string;
     emoji: string | null;
     itemIconId?: number | null;
@@ -447,7 +449,13 @@ async function emitLootAssignedWebhook(options: {
 }
 
 function summarizeLootAssignments(
-  events: Array<{ itemName: string; looterName: string; emoji: string | null; itemIconId?: number | null }>
+  events: Array<{
+    itemName: string;
+    itemId?: number | null;
+    looterName: string;
+    emoji: string | null;
+    itemIconId?: number | null;
+  }>
 ) {
   const map = new Map<string, LootAssignmentSummary>();
   for (const event of events) {
@@ -455,12 +463,16 @@ function summarizeLootAssignments(
     const existing = map.get(key);
     if (existing) {
       existing.count += 1;
+      if (existing.itemId == null && event.itemId != null) {
+        existing.itemId = event.itemId;
+      }
       if (!existing.itemIconId && event.itemIconId != null) {
         existing.itemIconId = event.itemIconId;
       }
     } else {
       map.set(key, {
         itemName: event.itemName,
+        itemId: event.itemId ?? null,
         looterName: event.looterName,
         emoji: event.emoji ?? null,
         itemIconId: event.itemIconId ?? null,

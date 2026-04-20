@@ -4148,7 +4148,7 @@ function getNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefin
 }
 
 function buildAllaItemUrl(itemId: number): string {
-  return `https://alla.clumsysworld.com/?a=item&id=${itemId}`;
+  return `https://alla.clumsysworld.com/items/${Math.trunc(itemId)}`;
 }
 
 interface NodeItemLink {
