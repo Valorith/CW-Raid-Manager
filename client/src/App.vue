@@ -1659,13 +1659,14 @@ function hasRaidStarted(raid: RaidEventSummary) {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   .app-header {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
       'brand . auth'
-      'nav nav alerts';
+      'nav nav nav'
+      'alerts alerts alerts';
     align-items: center;
     column-gap: 0.9rem;
     row-gap: 0.75rem;
@@ -1714,24 +1715,25 @@ function hasRaidStarted(raid: RaidEventSummary) {
   .nav-alerts {
     grid-area: alerts;
     order: initial;
-    width: auto;
+    width: 100%;
     justify-content: flex-end;
     align-self: center;
     margin-left: 0;
+    gap: 0.65rem;
   }
 
   .nav-monitor {
-    width: auto;
+    flex: 1 1 18rem;
     margin-left: 0;
   }
 
   .nav-monitor__button {
-    width: auto;
+    width: 100%;
     justify-content: center;
   }
 
   .nav-zone-pill {
-    width: auto;
+    flex: 0 1 18rem;
     justify-content: center;
     margin-left: 0;
   }
@@ -1761,6 +1763,39 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
   .nav__chevron-btn {
     padding: 0.35rem 0.4rem;
+  }
+
+  .nav__user-name {
+    max-width: 8rem;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand . auth'
+      'nav nav nav'
+      'alerts alerts alerts';
+    column-gap: 0.75rem;
+    row-gap: 0.7rem;
+  }
+
+  .brand {
+    padding-right: 0.65rem;
+  }
+
+  .nav-alerts {
+    justify-content: flex-start;
+  }
+
+  .nav-monitor,
+  .nav-zone-pill {
+    flex: 1 1 100%;
+  }
+
+  .nav__user-name {
+    max-width: 6.5rem;
   }
 }
 
