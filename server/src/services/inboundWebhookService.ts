@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
-import { prisma } from '../utils/prisma.js';
+
 import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
+
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
 import { appConfig } from '../config/appConfig.js';
+import { prisma } from '../utils/prisma.js';
 
 // ============================================================================
 // SERVICE LOADED - AUTO-MERGE VERSION 2.0
@@ -10,12 +12,20 @@ import { appConfig } from '../config/appConfig.js';
 
 // Server identifier for per-server settings (e.g., 'production', 'local', 'dev')
 const SERVER_ID = process.env.SERVER_ID || 'default';
+const WEBHOOK_DEBUG_LOGS =
+  appConfig.nodeEnv === 'development' || process.env.WEBHOOK_DEBUG_LOGS === 'true';
 
-console.log('========================================');
-console.log('[InboundWebhookService] LOADED - AUTO-MERGE v2.0');
-console.log('[InboundWebhookService] Delayed processing ENABLED');
-console.log(`[InboundWebhookService] Server ID: ${SERVER_ID}`);
-console.log('========================================');
+function debugLog(...args: unknown[]): void {
+  if (WEBHOOK_DEBUG_LOGS) {
+    console.log(...args);
+  }
+}
+
+debugLog('========================================');
+debugLog('[InboundWebhookService] LOADED - AUTO-MERGE v2.0');
+debugLog('[InboundWebhookService] Delayed processing ENABLED');
+debugLog(`[InboundWebhookService] Server ID: ${SERVER_ID}`);
+debugLog('========================================');
 
 // ============================================================================
 // System Settings Helpers
@@ -72,7 +82,7 @@ export async function setWebhookProcessingEnabled(enabled: boolean): Promise<voi
     update: { value: enabled ? 'true' : 'false' },
     create: { key: PROCESSING_ENABLED_KEY, value: enabled ? 'true' : 'false' }
   });
-  console.log(`[InboundWebhookService] Webhook processing ${enabled ? 'ENABLED' : 'DISABLED'} for server "${SERVER_ID}"`);
+  debugLog(`[InboundWebhookService] Webhook processing ${enabled ? 'ENABLED' : 'DISABLED'} for server "${SERVER_ID}"`);
 }
 
 // ============================================================================
@@ -223,6 +233,7 @@ const MODULES_MAX_CHARS = 60_000;
 const RAW_HEAD_CHARS = 25_000;
 const RAW_TAIL_CHARS = 25_000;
 const EXTRACT_MAX_CHARS = 120_000;
+const RETENTION_DELETE_BATCH_SIZE = 500;
 
 export function generateWebhookToken(): string {
   return randomBytes(24).toString('base64url');
@@ -245,6 +256,43 @@ export function normalizeRetentionPolicy(input?: InboundWebhookRetentionPolicy |
   }
 
   return { mode: 'indefinite' } satisfies InboundWebhookRetentionPolicy;
+}
+
+function toRetentionPolicy(value: unknown): InboundWebhookRetentionPolicy {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return normalizeRetentionPolicy(null);
+  }
+  return normalizeRetentionPolicy(value as InboundWebhookRetentionPolicy);
+}
+
+function compactActionRunResult(result: Prisma.JsonValue | null): Prisma.JsonValue | null {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return result;
+  }
+
+  const record = result as Record<string, unknown>;
+  const telemetry =
+    record.telemetry && typeof record.telemetry === 'object' && !Array.isArray(record.telemetry)
+      ? (record.telemetry as Record<string, unknown>)
+      : null;
+  const compactTelemetry = telemetry
+    ? {
+        model: telemetry.model,
+        inputChars: telemetry.inputChars,
+        outputChars: telemetry.outputChars,
+        attempts: telemetry.attempts,
+        finishReason: telemetry.finishReason,
+        thinkingTokens: telemetry.thinkingTokens,
+        outputTokens: telemetry.outputTokens,
+        totalTokens: telemetry.totalTokens
+      }
+    : undefined;
+
+  return {
+    summary: record.summary,
+    signature: record.signature,
+    telemetry: compactTelemetry
+  } as Prisma.JsonObject;
 }
 
 export async function listInboundWebhooks() {
@@ -616,13 +664,13 @@ export async function retryCrashReviewForMessage(messageId: string) {
 }
 
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
-  console.log(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
-  console.log(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);
+  debugLog(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
+  debugLog(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);
 
   // Check if webhook processing is disabled (for testing with shared database)
   const processingEnabled = await isWebhookProcessingEnabled();
   if (!processingEnabled) {
-    console.log(`[WEBHOOK RECEIVE] Processing DISABLED - skipping (enable in Webhook Settings or remove DISABLE_WEBHOOK_PROCESSING env var)`);
+    debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - skipping (enable in Webhook Settings or remove DISABLE_WEBHOOK_PROCESSING env var)`);
     return { id: 'skipped', webhookId: input.webhookId, status: 'SKIPPED' as const };
   }
 
@@ -639,7 +687,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
     throw new Error('Webhook is disabled.');
   }
 
-  console.log(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
+  debugLog(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
 
   // Check if the message has any meaningful crash report content
   // This specifically looks for crashReportText, message, content, or rawBody
@@ -649,10 +697,10 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   // Log payload structure for debugging
   const payloadType = typeof input.payload;
   const payloadKeys = input.payload && typeof input.payload === 'object' ? Object.keys(input.payload as object) : [];
-  console.log(`[WEBHOOK RECEIVE] Payload type: ${payloadType}, keys: [${payloadKeys.join(', ')}], rawBody: ${input.rawBody ? 'present' : 'null'}`);
-  console.log(`[WEBHOOK RECEIVE] Content check: hasContent=${!!messageContent}, contentLength=${messageContent?.length ?? 0}`);
+  debugLog(`[WEBHOOK RECEIVE] Payload type: ${payloadType}, keys: [${payloadKeys.join(', ')}], rawBody: ${input.rawBody ? 'present' : 'null'}`);
+  debugLog(`[WEBHOOK RECEIVE] Content check: hasContent=${!!messageContent}, contentLength=${messageContent?.length ?? 0}`);
   if (!messageContent || messageContent.trim().length === 0) {
-    console.log(`[WEBHOOK RECEIVE] >>>>>> DISCARDING MESSAGE - NO CONTENT <<<<<<`);
+    debugLog(`[WEBHOOK RECEIVE] >>>>>> DISCARDING MESSAGE - NO CONTENT <<<<<<`);
     // Return a minimal response but don't create a message record
     return { id: 'discarded', webhookId: webhook.id, status: 'DISCARDED' as const };
   }
@@ -680,10 +728,10 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   // Add message to pending merge group with fixed timer from first message
   const mergeWindow = webhook.mergeWindowSeconds ?? 60;
   const groupKey = extractCrashFileIdentifier(input.payload, input.rawBody ?? null) || 'default';
-  console.log(`[WEBHOOK RECEIVE] Message created: ${message.id}, adding to group "${groupKey}" (merge window: ${mergeWindow}s)`);
+  debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, adding to group "${groupKey}" (merge window: ${mergeWindow}s)`);
   addMessageToPendingGroup(webhook.id, message.id, groupKey, mergeWindow);
 
-  console.log(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+  debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
   return message;
 }
 
@@ -792,7 +840,7 @@ async function runInboundWebhookActions(
         // ClawdBot relay is deferred until after AI review completes
         // This ensures we send the final merged crash report, not the initial payload
         // The relay will be triggered in retryCrashReviewForMessage after AI processing
-        console.log(`[ClawdBot] Skipping immediate relay - will send after AI review`);
+        debugLog(`[ClawdBot] Skipping immediate relay - will send after AI review`);
         summary.push({ actionId: action.id, status: 'PENDING_REVIEW' });
         continue;
       }
@@ -1687,26 +1735,19 @@ export async function markMessageRead(messageId: string, userId: string, read: b
 }
 
 export async function getUnreadCount(userId: string, webhookId?: string) {
-  const whereMessage: Record<string, unknown> = {
-    archivedAt: null
+  const whereMessage: Prisma.InboundWebhookMessageWhereInput = {
+    archivedAt: null,
+    readStatuses: {
+      none: { userId }
+    }
   };
   if (webhookId) {
     whereMessage.webhookId = webhookId;
   }
 
-  // Count messages that don't have a read status for this user
-  const totalMessages = await prisma.inboundWebhookMessage.count({
+  return prisma.inboundWebhookMessage.count({
     where: whereMessage
   });
-
-  const readMessages = await prisma.webhookMessageReadStatus.count({
-    where: {
-      userId,
-      message: whereMessage
-    }
-  });
-
-  return totalMessages - readMessages;
 }
 
 // ============================================================================
@@ -1944,7 +1985,7 @@ async function applyImmediateLabels(
       });
     }
 
-    console.log(`[WEBHOOK RECEIVE] Applied immediate labels to message ${messageId}: [${labelNames.join(', ')}]`);
+    debugLog(`[WEBHOOK RECEIVE] Applied immediate labels to message ${messageId}: [${labelNames.join(', ')}]`);
   } catch (error) {
     // Don't fail the whole process if immediate labeling fails
     console.error('Immediate labeling failed:', error);
@@ -2061,7 +2102,7 @@ export async function mergeWebhookMessages(messageIds: string[], combinedText: s
     // 4. Create merged message using the client-provided combined text
     // No actions are triggered - user must manually start AI review
     const mergedId = generateCuid();
-    const merged = await tx.inboundWebhookMessage.create({
+    await tx.inboundWebhookMessage.create({
       data: {
         id: mergedId,
         webhookId: messages[0].webhookId,
@@ -2222,7 +2263,7 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   } = options;
 
   // Build base where clause
-  const where: Record<string, unknown> = {};
+  const where: Prisma.InboundWebhookMessageWhereInput = {};
   if (webhookId) {
     where.webhookId = webhookId;
   }
@@ -2248,32 +2289,14 @@ export async function listInboundWebhookMessagesEnhanced(options: {
     };
   }
 
-  // Read status filter requires a subquery approach
-  let messageIdsToInclude: string[] | undefined;
-  let messageIdsToExclude: string[] | undefined;
-
   if (readStatus === 'read') {
-    // Get message IDs that have been read by this user
-    const readStatuses = await prisma.webhookMessageReadStatus.findMany({
-      where: { userId },
-      select: { messageId: true }
-    });
-    messageIdsToInclude = readStatuses.map((r) => r.messageId);
-    if (messageIdsToInclude.length === 0) {
-      // No read messages, return empty
-      return { messages: [], total: 0 };
-    }
-    where.id = { in: messageIdsToInclude };
+    where.readStatuses = {
+      some: { userId }
+    };
   } else if (readStatus === 'unread') {
-    // Get message IDs that have been read by this user (to exclude)
-    const readStatuses = await prisma.webhookMessageReadStatus.findMany({
-      where: { userId },
-      select: { messageId: true }
-    });
-    messageIdsToExclude = readStatuses.map((r) => r.messageId);
-    if (messageIdsToExclude.length > 0) {
-      where.id = { notIn: messageIdsToExclude };
-    }
+    where.readStatuses = {
+      none: { userId }
+    };
   }
 
   const [messages, total] = await Promise.all([
@@ -2282,15 +2305,53 @@ export async function listInboundWebhookMessagesEnhanced(options: {
       orderBy: { receivedAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: {
+      select: {
+        id: true,
+        webhookId: true,
+        receivedAt: true,
+        sourceIp: true,
+        status: true,
+        actionSummary: true,
+        assignedAdminId: true,
+        assignedAt: true,
+        archivedAt: true,
+        mergedFromIds: true,
+        mergedAt: true,
         webhook: {
-          include: { actions: true }
+          select: {
+            id: true,
+            label: true,
+            description: true,
+            isEnabled: true,
+            token: true,
+            retentionPolicy: true,
+            mergeWindowSeconds: true,
+            autoMerge: true,
+            devMode: true,
+            createdById: true,
+            createdAt: true,
+            updatedAt: true,
+            lastReceivedAt: true,
+            actions: {
+              orderBy: { sortOrder: 'asc' }
+            }
+          }
         },
         assignedAdmin: {
           select: { id: true, displayName: true, nickname: true, email: true }
         },
         actionRuns: {
-          include: { action: true },
+          select: {
+            id: true,
+            messageId: true,
+            actionId: true,
+            status: true,
+            error: true,
+            result: true,
+            durationMs: true,
+            createdAt: true,
+            action: true
+          },
           orderBy: { createdAt: 'asc' }
         },
         labelAssignments: {
@@ -2312,6 +2373,13 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   // Transform to include computed fields
   const enhancedMessages = messages.map((msg) => ({
     ...msg,
+    headers: {},
+    payload: null,
+    rawBody: null,
+    actionRuns: msg.actionRuns.map((run) => ({
+      ...run,
+      result: compactActionRunResult(run.result)
+    })),
     isRead: msg.readStatuses.length > 0,
     isStarred: msg.stars.length > 0,
     labels: msg.labelAssignments.map((la) => la.label),
@@ -2322,6 +2390,83 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   }));
 
   return { messages: enhancedMessages, total };
+}
+
+export async function enforceInboundWebhookRetention(now = new Date()) {
+  const webhooks = await prisma.inboundWebhook.findMany({
+    select: {
+      id: true,
+      retentionPolicy: true
+    }
+  });
+
+  let deletedByAge = 0;
+  let deletedByMaxCount = 0;
+
+  for (const webhook of webhooks) {
+    const policy = toRetentionPolicy(webhook.retentionPolicy);
+
+    if (policy.mode === 'days') {
+      const cutoff = new Date(now);
+      cutoff.setUTCDate(cutoff.getUTCDate() - (policy.days ?? 30));
+      const result = await prisma.inboundWebhookMessage.deleteMany({
+        where: {
+          webhookId: webhook.id,
+          receivedAt: { lt: cutoff }
+        }
+      });
+      deletedByAge += result.count;
+      continue;
+    }
+
+    if (policy.mode === 'maxCount') {
+      const keepCount = policy.maxCount ?? 5000;
+      const oldestMessageToKeep = await prisma.inboundWebhookMessage.findFirst({
+        where: { webhookId: webhook.id },
+        orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }],
+        skip: keepCount - 1,
+        select: { id: true, receivedAt: true }
+      });
+
+      if (!oldestMessageToKeep) {
+        continue;
+      }
+
+      let hasMoreStaleMessages = true;
+      while (hasMoreStaleMessages) {
+        const staleMessages = await prisma.inboundWebhookMessage.findMany({
+          where: {
+            webhookId: webhook.id,
+            OR: [
+              { receivedAt: { lt: oldestMessageToKeep.receivedAt } },
+              {
+                receivedAt: oldestMessageToKeep.receivedAt,
+                id: { lt: oldestMessageToKeep.id }
+              }
+            ]
+          },
+          orderBy: [{ receivedAt: 'asc' }, { id: 'asc' }],
+          take: RETENTION_DELETE_BATCH_SIZE,
+          select: { id: true }
+        });
+        const ids = staleMessages.map((message) => message.id);
+        if (ids.length === 0) {
+          hasMoreStaleMessages = false;
+          break;
+        }
+        const result = await prisma.inboundWebhookMessage.deleteMany({
+          where: { id: { in: ids } }
+        });
+        deletedByMaxCount += result.count;
+      }
+    }
+  }
+
+  return {
+    webhooksScanned: webhooks.length,
+    deletedByAge,
+    deletedByMaxCount
+  };
 }
 
 // ============================================================================
@@ -2349,14 +2494,14 @@ function addMessageToPendingGroup(
     if (existingWebhookGroup) {
       targetGroupKey = existingWebhookGroup.groupKey;
       compositeKey = `${webhookId}:${targetGroupKey}`;
-      console.log(`[Webhook ${webhookId}] Message ${messageId} has no identifier, joining existing group "${targetGroupKey}"`);
+      debugLog(`[Webhook ${webhookId}] Message ${messageId} has no identifier, joining existing group "${targetGroupKey}"`);
     }
   } else {
     // This message HAS an identifier - check if there's a 'default' group we should merge into this one
     const defaultGroup = pendingMergeGroups.get(`${webhookId}:default`);
     if (defaultGroup) {
       // Move all messages from 'default' group to this new identified group
-      console.log(`[Webhook ${webhookId}] Found identifier "${groupKey}" - absorbing ${defaultGroup.messageIds.length} messages from 'default' group`);
+      debugLog(`[Webhook ${webhookId}] Found identifier "${groupKey}" - absorbing ${defaultGroup.messageIds.length} messages from 'default' group`);
 
       // Clear the default group's timer
       if (defaultGroup.timer) {
@@ -2370,7 +2515,7 @@ function addMessageToPendingGroup(
         // Add default group's messages to existing group
         existingGroup.messageIds.push(...defaultGroup.messageIds);
         existingGroup.messageIds.push(messageId);
-        console.log(`[Webhook ${webhookId}] Merged into existing group "${groupKey}" (${existingGroup.messageIds.length} messages)`);
+        debugLog(`[Webhook ${webhookId}] Merged into existing group "${groupKey}" (${existingGroup.messageIds.length} messages)`);
         return;
       } else {
         // Create new group with default group's messages + this message
@@ -2378,7 +2523,7 @@ function addMessageToPendingGroup(
         const remainingMs = expiresAt.getTime() - now.getTime();
 
         const timer = setTimeout(() => {
-          console.log(`[Webhook ${webhookId}] Group "${groupKey}" timer FIRED at ${new Date().toISOString()}`);
+          debugLog(`[Webhook ${webhookId}] Group "${groupKey}" timer FIRED at ${new Date().toISOString()}`);
           void processGroupWhenReady(compositeKey);
         }, Math.max(remainingMs, 1000)); // At least 1 second
 
@@ -2393,7 +2538,7 @@ function addMessageToPendingGroup(
         };
 
         pendingMergeGroups.set(compositeKey, group);
-        console.log(`[Webhook ${webhookId}] Created group "${groupKey}" with ${group.messageIds.length} messages (absorbed from default)`);
+        debugLog(`[Webhook ${webhookId}] Created group "${groupKey}" with ${group.messageIds.length} messages (absorbed from default)`);
         return;
       }
     }
@@ -2404,13 +2549,13 @@ function addMessageToPendingGroup(
   if (existingGroup) {
     // Add message to existing group - timer stays fixed from first message
     existingGroup.messageIds.push(messageId);
-    console.log(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${targetGroupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
+    debugLog(`[Webhook ${webhookId}] Added message ${messageId} to existing group "${targetGroupKey}" (${existingGroup.messageIds.length} messages, expires at ${existingGroup.expiresAt.toISOString()})`);
   } else {
     // Create new group with fixed timer
     const expiresAt = new Date(now.getTime() + mergeWindowSeconds * 1000);
 
     const timer = setTimeout(() => {
-      console.log(`[Webhook ${webhookId}] Group "${targetGroupKey}" timer FIRED at ${new Date().toISOString()}`);
+      debugLog(`[Webhook ${webhookId}] Group "${targetGroupKey}" timer FIRED at ${new Date().toISOString()}`);
       void processGroupWhenReady(compositeKey);
     }, mergeWindowSeconds * 1000);
 
@@ -2425,7 +2570,7 @@ function addMessageToPendingGroup(
     };
 
     pendingMergeGroups.set(compositeKey, group);
-    console.log(`[Webhook ${webhookId}] Created NEW group "${targetGroupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
+    debugLog(`[Webhook ${webhookId}] Created NEW group "${targetGroupKey}" with message ${messageId}, expires at ${expiresAt.toISOString()} (in ${mergeWindowSeconds}s)`);
   }
 }
 
@@ -2434,7 +2579,7 @@ function addMessageToPendingGroup(
  * Used when a message has no identifier but should probably join an existing group.
  */
 function findExistingGroupForWebhook(webhookId: string): PendingMergeGroup | null {
-  for (const [key, group] of pendingMergeGroups) {
+  for (const group of pendingMergeGroups.values()) {
     if (group.webhookId === webhookId) {
       return group;
     }
@@ -2448,21 +2593,21 @@ function findExistingGroupForWebhook(webhookId: string): PendingMergeGroup | nul
 async function processGroupWhenReady(compositeKey: string) {
   const group = pendingMergeGroups.get(compositeKey);
   if (!group) {
-    console.log(`[processGroupWhenReady] Group ${compositeKey} not found, already processed?`);
+    debugLog(`[processGroupWhenReady] Group ${compositeKey} not found, already processed?`);
     return;
   }
 
   // Mark as processing (don't delete yet - keep showing in UI)
   group.status = 'processing';
   group.timer = null;
-  console.log(`[processGroupWhenReady] Group ${compositeKey} now processing`);
+  debugLog(`[processGroupWhenReady] Group ${compositeKey} now processing`);
 
   try {
     await processSpecificGroup(group);
   } finally {
     // Remove from pending after processing completes
     pendingMergeGroups.delete(compositeKey);
-    console.log(`[processGroupWhenReady] Group ${compositeKey} processing complete, removed from pending`);
+    debugLog(`[processGroupWhenReady] Group ${compositeKey} processing complete, removed from pending`);
   }
 }
 
@@ -2474,7 +2619,7 @@ export async function processGroupNow(webhookId: string, groupKey: string): Prom
   const group = pendingMergeGroups.get(compositeKey);
 
   if (!group) {
-    console.log(`[processGroupNow] Group ${compositeKey} not found`);
+    debugLog(`[processGroupNow] Group ${compositeKey} not found`);
     return false;
   }
 
@@ -2485,14 +2630,14 @@ export async function processGroupNow(webhookId: string, groupKey: string): Prom
   group.status = 'processing';
   group.timer = null;
 
-  console.log(`[Webhook ${webhookId}] Manually processing group "${groupKey}" with ${group.messageIds.length} messages`);
+  debugLog(`[Webhook ${webhookId}] Manually processing group "${groupKey}" with ${group.messageIds.length} messages`);
 
   try {
     await processSpecificGroup(group);
   } finally {
     // Remove from pending after processing completes
     pendingMergeGroups.delete(compositeKey);
-    console.log(`[processGroupNow] Group ${compositeKey} processing complete, removed from pending`);
+    debugLog(`[processGroupNow] Group ${compositeKey} processing complete, removed from pending`);
   }
 
   return true;
@@ -2530,7 +2675,7 @@ export function getPendingMergeGroups(): Array<{
  * Legacy function for backwards compatibility - schedules using old approach.
  * @deprecated Use addMessageToPendingGroup instead
  */
-function scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
+function _scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
   // This is kept for any code paths that haven't been migrated yet
   const existingTimer = pendingProcessingTimers.get(webhookId);
   if (existingTimer) {
@@ -2580,7 +2725,7 @@ async function processSpecificGroup(group: PendingMergeGroup) {
 
   // Prevent concurrent processing for the same group
   if (processingGroups.has(compositeKey)) {
-    console.log(`[Webhook ${webhookId}] Group "${groupKey}" already processing, skipping`);
+    debugLog(`[Webhook ${webhookId}] Group "${groupKey}" already processing, skipping`);
     return;
   }
 
@@ -2594,7 +2739,7 @@ async function processSpecificGroup(group: PendingMergeGroup) {
     });
 
     if (!webhook) {
-      console.log(`[Webhook ${webhookId}] Webhook not found, skipping group "${groupKey}"`);
+      debugLog(`[Webhook ${webhookId}] Webhook not found, skipping group "${groupKey}"`);
       return;
     }
 
@@ -2615,20 +2760,20 @@ async function processSpecificGroup(group: PendingMergeGroup) {
     });
 
     if (messages.length === 0) {
-      console.log(`[Webhook ${webhookId}] No messages found for group "${groupKey}" (already processed?)`);
+      debugLog(`[Webhook ${webhookId}] No messages found for group "${groupKey}" (already processed?)`);
       return;
     }
 
-    console.log(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${messages.length} message(s), autoMerge=${webhook.autoMerge}`);
+    debugLog(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${messages.length} message(s), autoMerge=${webhook.autoMerge}`);
 
     if (messages.length === 1) {
       // Single message - process actions normally
       const message = messages[0];
-      console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
+      debugLog(`[Webhook ${webhookId}] Processing single message ${message.id}`);
       await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
     } else if (webhook.autoMerge) {
       // Multiple messages with auto-merge enabled - merge and process
-      console.log(`[Webhook ${webhookId}] Auto-merging ${messages.length} messages for "${groupKey}"`);
+      debugLog(`[Webhook ${webhookId}] Auto-merging ${messages.length} messages for "${groupKey}"`);
       try {
         await processAutoMergeGroup(messages, webhook);
       } catch (error) {
@@ -2638,7 +2783,7 @@ async function processSpecificGroup(group: PendingMergeGroup) {
       }
     } else {
       // Multiple messages without auto-merge - mark as pending merge decision
-      console.log(`[Webhook ${webhookId}] Marking ${messages.length} messages as pending merge (auto-merge disabled)`);
+      debugLog(`[Webhook ${webhookId}] Marking ${messages.length} messages as pending merge (auto-merge disabled)`);
       await markMessagesAsPendingMerge(messages.map(m => m.id));
 
       // Send a notification about pending review
@@ -2680,7 +2825,7 @@ async function processSpecificGroup(group: PendingMergeGroup) {
 async function processWebhookMessages(webhookId: string, isRetry = false) {
   // Prevent concurrent processing for the same webhook
   if (processingWebhooks.has(webhookId)) {
-    console.log(`[Webhook ${webhookId}] Already processing, skipping`);
+    debugLog(`[Webhook ${webhookId}] Already processing, skipping`);
     return;
   }
 
@@ -2695,15 +2840,11 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
     });
 
     if (!webhook) {
-      console.log(`[Webhook ${webhookId}] Webhook not found, skipping`);
+      debugLog(`[Webhook ${webhookId}] Webhook not found, skipping`);
       return;
     }
 
-    const mergeWindowSeconds = webhook.mergeWindowSeconds ?? 60;
-
     // Find all RECEIVED messages from this webhook within the merge window
-    const windowStart = new Date(Date.now() - mergeWindowSeconds * 1000);
-
     const pendingMessages = await prisma.inboundWebhookMessage.findMany({
       where: {
         webhookId,
@@ -2720,30 +2861,30 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
     });
 
     if (pendingMessages.length === 0) {
-      console.log(`[Webhook ${webhookId}] No pending messages to process`);
+      debugLog(`[Webhook ${webhookId}] No pending messages to process`);
       autoMergeRetryCounts.delete(retryKey);
       return;
     }
 
-    console.log(`[Webhook ${webhookId}] Processing ${pendingMessages.length} pending message(s), autoMerge=${webhook.autoMerge}`);
+    debugLog(`[Webhook ${webhookId}] Processing ${pendingMessages.length} pending message(s), autoMerge=${webhook.autoMerge}`);
 
     // Group messages by crash file identifier (e.g., crash_xxx.log)
     // This ensures chunks from the same crash are merged together, while unrelated crashes stay separate
     const messageGroups = groupMessagesByCrashFile(pendingMessages);
-    console.log(`[Webhook ${webhookId}] Grouped into ${messageGroups.length} crash file group(s)`);
+    debugLog(`[Webhook ${webhookId}] Grouped into ${messageGroups.length} crash file group(s)`);
 
     for (const group of messageGroups) {
       const groupKey = extractCrashFileIdentifier(group[0].payload, group[0].rawBody) || 'unknown';
-      console.log(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${group.length} message(s)`);
+      debugLog(`[Webhook ${webhookId}] Processing group "${groupKey}" with ${group.length} message(s)`);
 
       if (group.length === 1) {
         // Single message - process actions normally
         const message = group[0];
-        console.log(`[Webhook ${webhookId}] Processing single message ${message.id}`);
+        debugLog(`[Webhook ${webhookId}] Processing single message ${message.id}`);
         await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
       } else if (webhook.autoMerge) {
         // Multiple messages with auto-merge enabled - merge and process
-        console.log(`[Webhook ${webhookId}] Auto-merging ${group.length} messages for "${groupKey}"`);
+        debugLog(`[Webhook ${webhookId}] Auto-merging ${group.length} messages for "${groupKey}"`);
         try {
           await processAutoMergeGroup(group, webhook);
         } catch (error) {
@@ -2753,7 +2894,7 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
         }
       } else {
         // Multiple messages without auto-merge - mark as pending merge decision
-        console.log(`[Webhook ${webhookId}] Marking ${group.length} messages as pending merge (auto-merge disabled)`);
+        debugLog(`[Webhook ${webhookId}] Marking ${group.length} messages as pending merge (auto-merge disabled)`);
         await markMessagesAsPendingMerge(group.map(m => m.id));
 
         // Send a single Discord notification about pending review
@@ -2771,7 +2912,7 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
       const currentRetries = autoMergeRetryCounts.get(retryKey) ?? 0;
       if (currentRetries < AUTO_MERGE_MAX_RETRIES) {
         autoMergeRetryCounts.set(retryKey, currentRetries + 1);
-        console.log(`[Webhook ${webhookId}] Scheduling retry`);
+        debugLog(`[Webhook ${webhookId}] Scheduling retry`);
         setTimeout(() => {
           void processWebhookMessages(webhookId, true);
         }, 5000);
@@ -2796,7 +2937,7 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
     });
 
     if (newMessages.length > 0) {
-      console.log(`[Webhook ${webhookId}] Found ${newMessages.length} new message(s) that arrived during processing - will process shortly`);
+      debugLog(`[Webhook ${webhookId}] Found ${newMessages.length} new message(s) that arrived during processing - will process shortly`);
       // Clear any pending timer and schedule immediate reprocessing
       const existingTimer = pendingProcessingTimers.get(webhookId);
       if (existingTimer) {
@@ -2848,14 +2989,14 @@ async function sendPendingMergeNotification(
   );
 
   if (!discordAction) {
-    console.log(`[Webhook ${webhook.id}] No Discord action configured, skipping notification`);
+    debugLog(`[Webhook ${webhook.id}] No Discord action configured, skipping notification`);
     return;
   }
 
   const config = normalizeActionConfig(discordAction.config);
   const discordUrl = getDiscordUrl(config, webhook.devMode);
   if (!discordUrl) {
-    console.log(`[Webhook ${webhook.id}] No Discord webhook URL configured, skipping notification`);
+    debugLog(`[Webhook ${webhook.id}] No Discord webhook URL configured, skipping notification`);
     return;
   }
 
@@ -2922,7 +3063,7 @@ async function sendPendingMergeNotification(
       const errorText = await response.text();
       console.error(`[Webhook ${webhook.id}] Failed to send pending merge notification: ${response.status} ${errorText}`);
     } else {
-      console.log(`[Webhook ${webhook.id}] Sent pending merge notification for ${messages.length} messages`);
+      debugLog(`[Webhook ${webhook.id}] Sent pending merge notification for ${messages.length} messages`);
     }
   } catch (error) {
     console.error(`[Webhook ${webhook.id}] Error sending pending merge notification:`, error);
@@ -3048,7 +3189,6 @@ function groupMessagesByCrashFile(messages: Array<{
   labelAssignments: Array<{ labelId: string; label: { id: string; name: string } }>;
 }>): Array<typeof messages> {
   const groups = new Map<string, typeof messages>();
-  let unknownCounter = 0;
 
   for (const message of messages) {
     let key = extractCrashFileIdentifier(message.payload, message.rawBody);
@@ -3073,7 +3213,7 @@ function groupMessagesByCrashFile(messages: Array<{
  * Messages with identical label sets can be merged together.
  * @deprecated Use groupMessagesByCrashFile instead
  */
-function groupMessagesForMerge(messages: Array<{
+function _groupMessagesForMerge(messages: Array<{
   id: string;
   labelAssignments: Array<{ labelId: string; label: { id: string; name: string } }>;
   payload: unknown;
@@ -3179,7 +3319,7 @@ async function processAutoMergeGroup(
   // Run AI review on the merged message
   try {
     await retryCrashReviewForMessage(mergedMessage.id);
-    console.log(`[Auto-merge] Completed: ${messageIds.length} messages merged into ${mergedMessage.id}`);
+    debugLog(`[Auto-merge] Completed: ${messageIds.length} messages merged into ${mergedMessage.id}`);
   } catch (error) {
     console.error('[Auto-merge] AI review failed after merge:', error);
     // The merge succeeded, AI review failed - leave for manual intervention

@@ -10,7 +10,8 @@
       </header>
 
       <p class="muted">
-        Review and adjust the roster before saving. Fields can be edited inline and empty values will be ignored.
+        Review and adjust the roster before saving. Fields can be edited inline and empty values
+        will be ignored.
       </p>
 
       <div class="table-wrapper">
@@ -32,7 +33,9 @@
                   min="1"
                   max="12"
                   :value="entry.groupNumber ?? ''"
-                  @input="updateEntry(index, 'groupNumber', toOptionalNumber(getEventValue($event)))"
+                  @input="
+                    updateEntry(index, 'groupNumber', toOptionalNumber(getEventValue($event)))
+                  "
                 />
               </td>
               <td>
@@ -57,11 +60,7 @@
                   @change="updateEntry(index, 'class', getSelectClassValue($event))"
                 >
                   <option value="">—</option>
-                  <option
-                    v-for="className in classOptions"
-                    :key="className"
-                    :value="className"
-                  >
+                  <option v-for="className in classOptions" :key="className" :value="className">
                     {{ className }}
                   </option>
                 </select>
@@ -116,26 +115,27 @@ watch(
   { deep: true }
 );
 
-const classOptions = computed(() =>
-  [
-    'BARD',
-    'BEASTLORD',
-    'BERSERKER',
-    'CLERIC',
-    'DRUID',
-    'ENCHANTER',
-    'MAGICIAN',
-    'MONK',
-    'NECROMANCER',
-    'PALADIN',
-    'RANGER',
-    'ROGUE',
-    'SHADOWKNIGHT',
-    'SHAMAN',
-    'WARRIOR',
-    'WIZARD',
-    'UNKNOWN'
-  ] as CharacterClass[]
+const classOptions = computed(
+  () =>
+    [
+      'BARD',
+      'BEASTLORD',
+      'BERSERKER',
+      'CLERIC',
+      'DRUID',
+      'ENCHANTER',
+      'MAGICIAN',
+      'MONK',
+      'NECROMANCER',
+      'PALADIN',
+      'RANGER',
+      'ROGUE',
+      'SHADOWKNIGHT',
+      'SHAMAN',
+      'WARRIOR',
+      'WIZARD',
+      'UNKNOWN'
+    ] as CharacterClass[]
 );
 
 function cloneEntries(entries: AttendanceRecordInput[]) {
@@ -152,7 +152,11 @@ function getSelectClassValue(event: Event): CharacterClass | null {
   return value ? (value as CharacterClass) : null;
 }
 
-function updateEntry<K extends keyof AttendanceRecordInput>(index: number, key: K, value: AttendanceRecordInput[K]) {
+function updateEntry<K extends keyof AttendanceRecordInput>(
+  index: number,
+  key: K,
+  value: AttendanceRecordInput[K]
+) {
   const next = [...editableEntries.value];
   next[index] = { ...next[index], [key]: value };
   editableEntries.value = next;
@@ -286,7 +290,9 @@ select:focus {
   color: #0f172a;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
 }
 
 .btn:hover {

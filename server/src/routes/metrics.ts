@@ -2,8 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { ensureUserCanViewGuild } from '../services/raidService.js';
 import { getGuildMetrics } from '../services/metricsService.js';
+import { ensureUserCanViewGuild } from '../services/raidService.js';
 
 function parseDate(value?: string | null): { date: Date | null; original: string | null } {
   if (!value) {
@@ -46,7 +46,7 @@ export async function guildMetricsRoutes(server: FastifyInstance): Promise<void>
     }
 
     const { startDate: startRaw, endDate: endRaw } = parsedQuery.data;
-    const { date: parsedStart, original: startOriginal } = parseDate(startRaw ?? null);
+    const { date: parsedStart } = parseDate(startRaw ?? null);
     const { date: parsedEnd, original: endOriginal } = parseDate(endRaw ?? null);
 
     if (startRaw && !parsedStart) {

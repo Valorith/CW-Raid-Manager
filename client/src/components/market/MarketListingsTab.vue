@@ -50,9 +50,7 @@
         </div>
         <span class="pill">
           {{
-            activeFilterChips.length
-              ? `${activeFilterChips.length} filters active`
-              : 'All listings'
+            activeFilterChips.length ? `${activeFilterChips.length} filters active` : 'All listings'
           }}
         </span>
       </div>
@@ -322,7 +320,9 @@
           </span>
           <span class="listings-summary-bar__sep"></span>
           <span class="listings-stat">
-            <span class="listings-stat__value">{{ formatCompactDate(summary.newestListingAt) }}</span>
+            <span class="listings-stat__value">{{
+              formatCompactDate(summary.newestListingAt)
+            }}</span>
             <span class="listings-stat__label">Newest</span>
           </span>
         </div>
@@ -445,10 +445,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr
-                  v-for="listing in displayListings"
-                  :key="buildListingKey(listing)"
-                >
+                <tr v-for="listing in displayListings" :key="buildListingKey(listing)">
                   <td>
                     <button
                       type="button"
@@ -478,10 +475,7 @@
                       :title="getPriceRankTitle(listing)"
                       :aria-label="getPriceRankTitle(listing)"
                     >
-                      <span
-                        v-if="listing.priceRank === 1"
-                        class="price-rank-badge__leader"
-                      >
+                      <span v-if="listing.priceRank === 1" class="price-rank-badge__leader">
                         <span class="price-rank-badge__leader-medallion" aria-hidden="true">
                           <span class="price-rank-badge__leader-number">1</span>
                         </span>
@@ -670,7 +664,9 @@ const listingsLastUpdatedLabel = computed(() =>
     : 'Awaiting first retrieval'
 );
 const listingsNextUpdateLabel = computed(() =>
-  listingsNextUpdateAt.value ? formatDateTime(listingsNextUpdateAt.value) : 'Awaiting first retrieval'
+  listingsNextUpdateAt.value
+    ? formatDateTime(listingsNextUpdateAt.value)
+    : 'Awaiting first retrieval'
 );
 
 function normalizeText(value: string | null | undefined) {
@@ -760,9 +756,7 @@ const activeFilterChips = computed(() => {
     });
   }
   if (activeFilters.value.equipSlots != null && activeFilters.value.equipSlots.length > 0) {
-    const slotLabels = activeFilters.value.equipSlots
-      .map((id) => getEquipSlotLabel(id))
-      .join(', ');
+    const slotLabels = activeFilters.value.equipSlots.map((id) => getEquipSlotLabel(id)).join(', ');
     chips.push({
       key: 'equipSlots',
       label: `Slots: ${slotLabels}`
@@ -859,13 +853,6 @@ function formatPlatinum(valueInCopper: number) {
 function formatCompactDate(value: string | null) {
   if (!value) return 'n/a';
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-    new Date(value)
-  );
-}
-
-function formatTime(value: string | null) {
-  if (!value) return 'No listings';
-  return new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(
     new Date(value)
   );
 }
@@ -1835,8 +1822,12 @@ onBeforeUnmount(() => {
   width: 1.8rem;
   height: 1.8rem;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(236, 253, 245, 0.96), rgba(74, 222, 128, 0.95) 42%, rgba(5, 150, 105, 0.96) 100%);
+  background: radial-gradient(
+    circle at 30% 30%,
+    rgba(236, 253, 245, 0.96),
+    rgba(74, 222, 128, 0.95) 42%,
+    rgba(5, 150, 105, 0.96) 100%
+  );
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
 }
 

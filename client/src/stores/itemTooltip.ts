@@ -84,12 +84,18 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
 
     // Collect augment IDs
     const augmentIds: { slotIndex: number; itemId: number }[] = [];
-    if (item.augSlot1 && item.augSlot1 > 0) augmentIds.push({ slotIndex: 1, itemId: item.augSlot1 });
-    if (item.augSlot2 && item.augSlot2 > 0) augmentIds.push({ slotIndex: 2, itemId: item.augSlot2 });
-    if (item.augSlot3 && item.augSlot3 > 0) augmentIds.push({ slotIndex: 3, itemId: item.augSlot3 });
-    if (item.augSlot4 && item.augSlot4 > 0) augmentIds.push({ slotIndex: 4, itemId: item.augSlot4 });
-    if (item.augSlot5 && item.augSlot5 > 0) augmentIds.push({ slotIndex: 5, itemId: item.augSlot5 });
-    if (item.augSlot6 && item.augSlot6 > 0) augmentIds.push({ slotIndex: 6, itemId: item.augSlot6 });
+    if (item.augSlot1 && item.augSlot1 > 0)
+      augmentIds.push({ slotIndex: 1, itemId: item.augSlot1 });
+    if (item.augSlot2 && item.augSlot2 > 0)
+      augmentIds.push({ slotIndex: 2, itemId: item.augSlot2 });
+    if (item.augSlot3 && item.augSlot3 > 0)
+      augmentIds.push({ slotIndex: 3, itemId: item.augSlot3 });
+    if (item.augSlot4 && item.augSlot4 > 0)
+      augmentIds.push({ slotIndex: 4, itemId: item.augSlot4 });
+    if (item.augSlot5 && item.augSlot5 > 0)
+      augmentIds.push({ slotIndex: 5, itemId: item.augSlot5 });
+    if (item.augSlot6 && item.augSlot6 > 0)
+      augmentIds.push({ slotIndex: 6, itemId: item.augSlot6 });
 
     // Check cache first
     if (isCacheValid(item.itemId)) {
@@ -157,7 +163,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     // Fetch uncached augments
     if (uncachedAugments.length > 0) {
       try {
-        const augItemIds = uncachedAugments.map(a => a.itemId);
+        const augItemIds = uncachedAugments.map((a) => a.itemId);
         const response = await api.fetchItemStatsBatch(augItemIds);
         const now = Date.now();
 
@@ -244,7 +250,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
    * Prefetch item stats for multiple items (e.g., when opening inventory).
    */
   async function prefetchStats(itemIds: number[]) {
-    const uncachedIds = itemIds.filter(id => id > 0 && !isCacheValid(id));
+    const uncachedIds = itemIds.filter((id) => id > 0 && !isCacheValid(id));
     if (uncachedIds.length === 0) return;
 
     try {

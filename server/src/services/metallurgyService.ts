@@ -1,7 +1,7 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
-import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { prisma } from '../utils/prisma.js';
 
 // Metallurgy ore item IDs (ordered from most rare to least rare)
 export const METALLURGY_ORES = [

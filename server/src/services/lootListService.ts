@@ -1,5 +1,4 @@
 import {
-  GuildLootListEntry,
   LootListMatchType,
   LootListType,
   Prisma

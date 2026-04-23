@@ -1,8 +1,9 @@
-import { FastifyInstance } from 'fastify';
 import { QuestAssignmentStatus, QuestNodeProgressStatus, QuestNodeType, QuestBlueprintVisibility } from '@prisma/client';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
+import { searchEqTasks } from '../services/eqTaskService.js';
 import { getUserGuildRole } from '../services/guildService.js';
 import {
   applyAssignmentProgressUpdates,
@@ -27,7 +28,6 @@ import {
   QUEST_BLUEPRINT_FOLDER_LOCKED_ERROR,
   updateQuestFolderOrder
 } from '../services/questTrackerService.js';
-import { searchEqTasks } from '../services/eqTaskService.js';
 import { prisma } from '../utils/prisma.js';
 
 export async function questTrackerRoutes(server: FastifyInstance) {

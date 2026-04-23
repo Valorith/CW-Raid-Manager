@@ -41,6 +41,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   // Refresh interval for live updates
   let refreshInterval: number | null = null;
+  let serverRefreshInterval: number | null = null;
+  let activeRefreshGuildId: string | null = null;
 
   // Computed
   const canRefreshNow = computed(() => {
@@ -92,7 +94,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   });
 
   const subscribedNpcIds = computed(() => {
-    return new Set(subscriptions.value.filter(s => s.isEnabled).map(s => s.npcDefinitionId));
+    return new Set(subscriptions.value.filter((s) => s.isEnabled).map((s) => s.npcDefinitionId));
   });
 
   // Helper to create a unique key for variant subscriptions
@@ -112,7 +114,9 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   // Set of favorited NPC keys for fast lookup
   const favoritedNpcKeys = computed(() => {
-    return new Set(favorites.value.map(f => getFavoriteKey(f.npcNameNormalized, f.isInstanceVariant)));
+    return new Set(
+      favorites.value.map((f) => getFavoriteKey(f.npcNameNormalized, f.isInstanceVariant))
+    );
   });
 
   // Check if a specific NPC variant is favorited
@@ -123,7 +127,12 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   // Actions
   async function fetchRespawnTracker(guildId: string, force = false) {
     if (loading.value) return;
-    if (!force && !canRefreshNow.value && npcs.value.length > 0 && loadedGuildId.value === guildId) {
+    if (
+      !force &&
+      !canRefreshNow.value &&
+      npcs.value.length > 0 &&
+      loadedGuildId.value === guildId
+    ) {
       return;
     }
 
@@ -144,7 +153,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       // Check for notifications after loading fresh data
       checkForNotifications();
     } catch (err: any) {
-      error.value = err?.response?.data?.message ?? err?.message ?? 'Failed to load NPC respawn tracker.';
+      error.value =
+        err?.response?.data?.message ?? err?.message ?? 'Failed to load NPC respawn tracker.';
       console.error('[NpcRespawnStore] Error loading respawn tracker:', err);
     } finally {
       loading.value = false;
@@ -179,7 +189,10 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     }
   }
 
-  async function createDefinition(guildId: string, input: NpcDefinitionInput): Promise<NpcDefinition> {
+  async function createDefinition(
+    guildId: string,
+    input: NpcDefinitionInput
+  ): Promise<NpcDefinition> {
     const definition = await api.createNpcDefinition(guildId, input);
     definitions.value.push(definition);
     // Refresh tracker to get updated data
@@ -193,7 +206,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     input: NpcDefinitionInput
   ): Promise<NpcDefinition> {
     const definition = await api.updateNpcDefinition(guildId, npcDefinitionId, input);
-    const index = definitions.value.findIndex(d => d.id === npcDefinitionId);
+    const index = definitions.value.findIndex((d) => d.id === npcDefinitionId);
     if (index >= 0) {
       definitions.value[index] = definition;
     }
@@ -204,8 +217,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   async function deleteDefinition(guildId: string, npcDefinitionId: string): Promise<void> {
     await api.deleteNpcDefinition(guildId, npcDefinitionId);
-    definitions.value = definitions.value.filter(d => d.id !== npcDefinitionId);
-    npcs.value = npcs.value.filter(n => n.id !== npcDefinitionId);
+    definitions.value = definitions.value.filter((d) => d.id !== npcDefinitionId);
+    npcs.value = npcs.value.filter((n) => n.id !== npcDefinitionId);
   }
 
   async function recordKill(guildId: string, input: NpcKillRecordInput): Promise<NpcKillRecord> {
@@ -231,7 +244,11 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     return record;
   }
 
-  async function toggleSubscription(guildId: string, npcDefinitionId: string, isInstanceVariant: boolean): Promise<void> {
+  async function toggleSubscription(
+    guildId: string,
+    npcDefinitionId: string,
+    isInstanceVariant: boolean
+  ): Promise<void> {
     const variantKey = getVariantKey(npcDefinitionId, isInstanceVariant);
     const isCurrentlySubscribed = subscribedVariants.value.has(variantKey);
 
@@ -242,7 +259,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       // Delete the backend subscription for this specific variant
       await api.deleteNpcSubscription(guildId, npcDefinitionId, isInstanceVariant);
       subscriptions.value = subscriptions.value.filter(
-        s => !(s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant)
+        (s) => !(s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant)
       );
     } else {
       // Subscribe this variant
@@ -250,7 +267,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
       // Create backend subscription for this specific variant
       const existing = subscriptions.value.find(
-        s => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
+        (s) => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
       );
       if (!existing?.isEnabled) {
         const subscription = await api.upsertNpcSubscription(guildId, {
@@ -261,7 +278,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
         });
         if (existing) {
           const index = subscriptions.value.findIndex(
-            s => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
+            (s) =>
+              s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
           );
           if (index >= 0) {
             subscriptions.value[index] = subscription;
@@ -273,7 +291,9 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
       // If the NPC variant is already in up/window status, mark current state as dismissed
       // so we don't immediately alarm for an NPC that's already up
-      const npc = npcs.value.find(n => n.id === npcDefinitionId && n.isInstanceVariant === isInstanceVariant);
+      const npc = npcs.value.find(
+        (n) => n.id === npcDefinitionId && n.isInstanceVariant === isInstanceVariant
+      );
       if (npc && (npc.respawnStatus === 'up' || npc.respawnStatus === 'window')) {
         const notificationKey = getNotificationKey(npc, npc.respawnStatus);
         dismissedNotificationKeys.value.add(notificationKey);
@@ -281,12 +301,17 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     }
   }
 
-  async function toggleFavorite(guildId: string, npcNameNormalized: string, isInstanceVariant: boolean): Promise<void> {
+  async function toggleFavorite(
+    guildId: string,
+    npcNameNormalized: string,
+    isInstanceVariant: boolean
+  ): Promise<void> {
     const currentlyFavorited = isFavorited(npcNameNormalized, isInstanceVariant);
     if (currentlyFavorited) {
       await api.removeNpcFavorite(guildId, npcNameNormalized, isInstanceVariant);
       favorites.value = favorites.value.filter(
-        f => !(f.npcNameNormalized === npcNameNormalized && f.isInstanceVariant === isInstanceVariant)
+        (f) =>
+          !(f.npcNameNormalized === npcNameNormalized && f.isInstanceVariant === isInstanceVariant)
       );
     } else {
       const favorite = await api.addNpcFavorite(guildId, npcNameNormalized, isInstanceVariant);
@@ -296,18 +321,20 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   function startAutoRefresh(guildId: string) {
     stopAutoRefresh();
+    activeRefreshGuildId = guildId;
     refreshInterval = window.setInterval(() => {
       // Recalculate respawn progress without hitting the server
       updateProgressLocally();
     }, 1000);
 
     // Periodically refresh from server
-    const serverRefreshInterval = window.setInterval(() => {
-      fetchRespawnTracker(guildId, true).catch(console.error);
+    serverRefreshInterval = window.setInterval(() => {
+      if (!document.hidden) {
+        fetchRespawnTracker(guildId, true).catch(console.error);
+      }
     }, 60000); // Every minute
 
-    // Store the server refresh interval separately
-    (window as any).__npcRespawnServerInterval = serverRefreshInterval;
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
   function stopAutoRefresh() {
@@ -315,10 +342,17 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       clearInterval(refreshInterval);
       refreshInterval = null;
     }
-    const serverInterval = (window as any).__npcRespawnServerInterval;
-    if (serverInterval) {
-      clearInterval(serverInterval);
-      (window as any).__npcRespawnServerInterval = null;
+    if (serverRefreshInterval) {
+      clearInterval(serverRefreshInterval);
+      serverRefreshInterval = null;
+    }
+    activeRefreshGuildId = null;
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  function handleVisibilityChange() {
+    if (!document.hidden && activeRefreshGuildId) {
+      fetchRespawnTracker(activeRefreshGuildId, true).catch(console.error);
     }
   }
 
@@ -350,9 +384,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       if (dismissedNotificationKeys.value.has(notificationKey)) continue;
 
       // Skip if already in active notifications
-      const alreadyActive = activeNotifications.value.some(
-        n => n.id === notificationKey
-      );
+      const alreadyActive = activeNotifications.value.some((n) => n.id === notificationKey);
       if (alreadyActive) continue;
 
       // Create a new notification
@@ -385,7 +417,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
     // Remove from active notifications
     activeNotifications.value = activeNotifications.value.filter(
-      n => !notificationIds.includes(n.id)
+      (n) => !notificationIds.includes(n.id)
     );
   }
 
@@ -405,9 +437,10 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
       const killedTime = new Date(npc.lastKill.killedAt).getTime();
       const respawnMinTimeMs = killedTime + npc.respawnMinMinutes * 60 * 1000;
-      const respawnMaxTimeMs = npc.respawnMaxMinutes !== null
-        ? killedTime + npc.respawnMaxMinutes * 60 * 1000
-        : respawnMinTimeMs;
+      const respawnMaxTimeMs =
+        npc.respawnMaxMinutes !== null
+          ? killedTime + npc.respawnMaxMinutes * 60 * 1000
+          : respawnMinTimeMs;
 
       const totalWindowMs = (npc.respawnMaxMinutes ?? npc.respawnMinMinutes) * 60 * 1000;
       const elapsedMs = now - killedTime;

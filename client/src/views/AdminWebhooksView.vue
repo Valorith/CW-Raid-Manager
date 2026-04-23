@@ -34,7 +34,9 @@
         @click="activeTab = 'inbox'"
       >
         Inbox
-        <span v-if="unreadCount > 0" class="tab__badge">{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
+        <span v-if="unreadCount > 0" class="tab__badge">{{
+          unreadCount > 99 ? '99+' : unreadCount
+        }}</span>
       </button>
       <button
         type="button"
@@ -98,11 +100,21 @@
         <div class="form-grid">
           <label class="form-field">
             <span>Label</span>
-            <input v-model="createForm.label" class="input" maxlength="120" placeholder="Crash Reports" />
+            <input
+              v-model="createForm.label"
+              class="input"
+              maxlength="120"
+              placeholder="Crash Reports"
+            />
           </label>
           <label class="form-field">
             <span>Description</span>
-            <input v-model="createForm.description" class="input" maxlength="500" placeholder="Optional notes" />
+            <input
+              v-model="createForm.description"
+              class="input"
+              maxlength="500"
+              placeholder="Optional notes"
+            />
           </label>
           <label class="form-field form-field--inline">
             <span>Enabled</span>
@@ -122,7 +134,12 @@
           </label>
           <label v-if="createForm.retentionMode === 'maxCount'" class="form-field">
             <span>Max Messages</span>
-            <input v-model.number="createForm.retentionMaxCount" type="number" min="1" class="input" />
+            <input
+              v-model.number="createForm.retentionMaxCount"
+              type="number"
+              min="1"
+              class="input"
+            />
           </label>
         </div>
         <div class="card__actions">
@@ -245,7 +262,11 @@
             <section class="detail-panel">
               <header class="panel-header">
                 <h4>Webhook URL</h4>
-                <button class="btn btn--outline btn--small" type="button" @click="copyUrl(selectedWebhook)">
+                <button
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  @click="copyUrl(selectedWebhook)"
+                >
                   Copy URL
                 </button>
               </header>
@@ -313,7 +334,9 @@
             <section class="detail-panel">
               <header class="panel-header">
                 <h4>Actions</h4>
-                <span class="muted small">{{ selectedWebhook.actions?.length || 0 }} configured</span>
+                <span class="muted small"
+                  >{{ selectedWebhook.actions?.length || 0 }} configured</span
+                >
               </header>
 
               <div v-if="(selectedWebhook.actions?.length || 0) === 0" class="muted small">
@@ -356,83 +379,100 @@
                       <option value="RAW">Send raw</option>
                     </select>
                   </label>
-                <label
-                  v-if="action.type === 'DISCORD_RELAY' && action.config.discordMode !== 'RAW'"
-                  class="form-field"
-                >
-                  <span>Wrap Template</span>
-                  <textarea
-                    v-model="action.config.discordTemplate"
-                    class="textarea"
-                    rows="4"
-                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                  ></textarea>
-                </label>
-                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                  <span>ClawdBot Webhook URL</span>
-                  <input
-                    v-model="action.config.clawdbotWebhookUrl"
-                    class="input"
-                    placeholder="https://your-clawdbot-instance/api/webhook/..."
-                  />
-                </label>
-                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                  <span>Dev ClawdBot Webhook URL</span>
-                  <input
-                    v-model="action.config.devClawdbotWebhookUrl"
-                    class="input"
-                    placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
-                  />
-                </label>
-                <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                  <span>Relay Mode</span>
-                  <select v-model="action.config.clawdbotMode" class="select">
-                    <option value="WRAP">Wrap payload</option>
-                    <option value="RAW">Send raw</option>
-                  </select>
-                </label>
-                <label
-                  v-if="action.type === 'CLAWDBOT_RELAY' && action.config.clawdbotMode !== 'RAW'"
-                  class="form-field"
-                >
-                  <span>Wrap Template</span>
-                  <textarea
-                    v-model="action.config.clawdbotTemplate"
-                    class="textarea"
-                    rows="4"
-                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                  ></textarea>
-                </label>
-                <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                  <span>Model</span>
-                  <select v-model="action.config.crashModel" class="select">
-                    <option v-for="model in crashModelOptions" :key="model" :value="model">
-                      {{ model }}
-                    </option>
-                  </select>
-                </label>
-                <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                  <span>Max Input Chars</span>
-                  <input v-model.number="action.config.crashMaxInputChars" type="number" min="1000" class="input" />
-                </label>
-                <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                  <span>Max Output Tokens</span>
-                  <input v-model.number="action.config.crashMaxOutputTokens" type="number" min="256" class="input" />
-                </label>
-                <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                  <span>Temperature</span>
-                  <input v-model.number="action.config.crashTemperature" type="number" min="0" max="1" step="0.05" class="input" />
-                </label>
-                <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                  <span>Prompt Template</span>
-                  <textarea
-                    v-model="action.config.crashPromptTemplate"
-                    class="textarea"
-                    rows="4"
-                    placeholder="Use {{crashReport}} to insert the crash text"
-                  ></textarea>
-                </label>
-              </div>
+                  <label
+                    v-if="action.type === 'DISCORD_RELAY' && action.config.discordMode !== 'RAW'"
+                    class="form-field"
+                  >
+                    <span>Wrap Template</span>
+                    <textarea
+                      v-model="action.config.discordTemplate"
+                      class="textarea"
+                      rows="4"
+                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                    ></textarea>
+                  </label>
+                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                    <span>ClawdBot Webhook URL</span>
+                    <input
+                      v-model="action.config.clawdbotWebhookUrl"
+                      class="input"
+                      placeholder="https://your-clawdbot-instance/api/webhook/..."
+                    />
+                  </label>
+                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                    <span>Dev ClawdBot Webhook URL</span>
+                    <input
+                      v-model="action.config.devClawdbotWebhookUrl"
+                      class="input"
+                      placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
+                    />
+                  </label>
+                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
+                    <span>Relay Mode</span>
+                    <select v-model="action.config.clawdbotMode" class="select">
+                      <option value="WRAP">Wrap payload</option>
+                      <option value="RAW">Send raw</option>
+                    </select>
+                  </label>
+                  <label
+                    v-if="action.type === 'CLAWDBOT_RELAY' && action.config.clawdbotMode !== 'RAW'"
+                    class="form-field"
+                  >
+                    <span>Wrap Template</span>
+                    <textarea
+                      v-model="action.config.clawdbotTemplate"
+                      class="textarea"
+                      rows="4"
+                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                    ></textarea>
+                  </label>
+                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                    <span>Model</span>
+                    <select v-model="action.config.crashModel" class="select">
+                      <option v-for="model in crashModelOptions" :key="model" :value="model">
+                        {{ model }}
+                      </option>
+                    </select>
+                  </label>
+                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                    <span>Max Input Chars</span>
+                    <input
+                      v-model.number="action.config.crashMaxInputChars"
+                      type="number"
+                      min="1000"
+                      class="input"
+                    />
+                  </label>
+                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                    <span>Max Output Tokens</span>
+                    <input
+                      v-model.number="action.config.crashMaxOutputTokens"
+                      type="number"
+                      min="256"
+                      class="input"
+                    />
+                  </label>
+                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                    <span>Temperature</span>
+                    <input
+                      v-model.number="action.config.crashTemperature"
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      class="input"
+                    />
+                  </label>
+                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                    <span>Prompt Template</span>
+                    <textarea
+                      v-model="action.config.crashPromptTemplate"
+                      class="textarea"
+                      rows="4"
+                      placeholder="Use {{crashReport}} to insert the crash text"
+                    ></textarea>
+                  </label>
+                </div>
                 <div class="action-row__actions">
                   <button
                     class="btn btn--outline btn--small"
@@ -573,7 +613,10 @@
                     placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
                   ></textarea>
                 </label>
-                <label v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'" class="form-field">
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                  class="form-field"
+                >
                   <span>Model</span>
                   <select v-model="actionDrafts[selectedWebhook.id].crashModel" class="select">
                     <option v-for="model in crashModelOptions" :key="model" :value="model">
@@ -581,19 +624,48 @@
                     </option>
                   </select>
                 </label>
-                <label v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'" class="form-field">
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                  class="form-field"
+                >
                   <span>Max Input Chars</span>
-                  <input v-model.number="actionDrafts[selectedWebhook.id].crashMaxInputChars" type="number" min="1000" class="input" />
+                  <input
+                    v-model.number="actionDrafts[selectedWebhook.id].crashMaxInputChars"
+                    type="number"
+                    min="1000"
+                    class="input"
+                  />
                 </label>
-                <label v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'" class="form-field">
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                  class="form-field"
+                >
                   <span>Max Output Tokens</span>
-                  <input v-model.number="actionDrafts[selectedWebhook.id].crashMaxOutputTokens" type="number" min="256" class="input" />
+                  <input
+                    v-model.number="actionDrafts[selectedWebhook.id].crashMaxOutputTokens"
+                    type="number"
+                    min="256"
+                    class="input"
+                  />
                 </label>
-                <label v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'" class="form-field">
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                  class="form-field"
+                >
                   <span>Temperature</span>
-                  <input v-model.number="actionDrafts[selectedWebhook.id].crashTemperature" type="number" min="0" max="1" step="0.05" class="input" />
+                  <input
+                    v-model.number="actionDrafts[selectedWebhook.id].crashTemperature"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    class="input"
+                  />
                 </label>
-                <label v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'" class="form-field">
+                <label
+                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                  class="form-field"
+                >
                   <span>Prompt Template</span>
                   <textarea
                     v-model="actionDrafts[selectedWebhook.id].crashPromptTemplate"
@@ -626,9 +698,7 @@
           <div>
             <div class="inbox-title-row">
               <h2>Webhook Inbox</h2>
-              <span v-if="isAutoMergeActive" class="auto-merge-badge">
-                Auto-Merge Active
-              </span>
+              <span v-if="isAutoMergeActive" class="auto-merge-badge"> Auto-Merge Active </span>
               <span v-if="processingStatus.hasPendingProcessing" class="processing-badge">
                 Processing...
               </span>
@@ -700,7 +770,11 @@
           <button class="btn btn--outline btn--small" type="button" @click="openWebhookSettings">
             Webhook Settings
           </button>
-          <button class="btn btn--outline btn--small" type="button" @click="showLabelManager = true">
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            @click="showLabelManager = true"
+          >
             Manage Labels
           </button>
         </div>
@@ -715,370 +789,488 @@
       <template v-else>
         <!-- Bulk Actions Toolbar -->
         <div v-if="selectedMessageIds.size > 0" class="bulk-actions-bar">
-        <span class="bulk-actions-bar__count">{{ selectedMessageIds.size }} selected</span>
-        <div class="bulk-actions-bar__actions">
-          <button class="btn btn--outline btn--small" type="button" @click="clearSelection" :disabled="bulkActionInProgress">
-            Clear
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkMarkRead" :disabled="bulkActionInProgress">
-            Mark Read
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkMarkUnread" :disabled="bulkActionInProgress">
-            Mark Unread
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkStar(true)" :disabled="bulkActionInProgress">
-            Star
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkStar(false)" :disabled="bulkActionInProgress">
-            Unstar
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkArchive" :disabled="bulkActionInProgress">
-            Archive
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="openMergeModal" :disabled="bulkActionInProgress || selectedMessageIds.size < 2">
-            Combine
-          </button>
-          <button class="btn btn--outline btn--small" type="button" @click="bulkRerunCrashReview" :disabled="bulkActionInProgress">
-            Re-run AI
-          </button>
-          <button class="btn btn--danger btn--small" type="button" @click="bulkDelete" :disabled="bulkActionInProgress">
-            Delete
-          </button>
-        </div>
-      </div>
-
-      <article class="card card--table">
-        <table class="table">
-          <thead>
-            <tr>
-              <th class="table__checkbox-col">
-                <input
-                  type="checkbox"
-                  :checked="allSelected"
-                  :indeterminate="someSelected"
-                  @change="selectAllMessages"
-                  title="Select all"
-                />
-              </th>
-              <th class="table__star-col"></th>
-              <th>Received</th>
-              <th>Webhook</th>
-              <th>Status</th>
-              <th>Actions</th>
-              <th>Labels</th>
-              <th>Assigned</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Pending Merge Group Placeholders -->
-            <tr
-              v-for="group in pendingMergeGroups"
-              :key="group.compositeKey"
-              :class="['pending-group-row', { 'pending-group-row--processing': group.status === 'processing' }]"
+          <span class="bulk-actions-bar__count">{{ selectedMessageIds.size }} selected</span>
+          <div class="bulk-actions-bar__actions">
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="clearSelection"
+              :disabled="bulkActionInProgress"
             >
-              <td class="table__checkbox-col"></td>
-              <td class="table__star-col"></td>
-              <td colspan="6">
-                <div class="pending-group-placeholder" :class="{ 'pending-group-placeholder--processing': group.status === 'processing' }">
-                  <div class="pending-group-icon">
-                    <!-- Spinner icon when processing -->
-                    <svg v-if="group.status === 'processing'" class="pending-group-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="32" />
-                    </svg>
-                    <!-- Clock icon when pending -->
-                    <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12,6 12,12 16,14" />
-                    </svg>
-                  </div>
-                  <div class="pending-group-info">
-                    <div class="pending-group-title">
-                      <span class="pending-group-count">{{ group.messageCount }} messages</span>
-                      <span class="pending-group-key">{{ group.groupKey !== 'default' ? group.groupKey : 'pending auto-merge' }}</span>
-                    </div>
-                    <div class="pending-group-timer">
-                      <template v-if="group.status === 'processing'">
-                        <strong>Processing with AI...</strong>
-                      </template>
-                      <template v-else>
-                        Processing in <strong>{{ group.remainingSeconds }}s</strong>
-                      </template>
-                    </div>
-                  </div>
-                  <div class="pending-group-actions" v-if="group.status !== 'processing'">
-                    <button
-                      class="btn btn--small btn--accent"
-                      type="button"
-                      :disabled="processingGroupKey === group.compositeKey"
-                      @click="processGroupNow(group.webhookId, group.groupKey)"
-                    >
-                      {{ processingGroupKey === group.compositeKey ? 'Processing...' : 'Process Now' }}
-                    </button>
-                  </div>
-                </div>
-              </td>
-              <td></td>
-            </tr>
+              Clear
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkMarkRead"
+              :disabled="bulkActionInProgress"
+            >
+              Mark Read
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkMarkUnread"
+              :disabled="bulkActionInProgress"
+            >
+              Mark Unread
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkStar(true)"
+              :disabled="bulkActionInProgress"
+            >
+              Star
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkStar(false)"
+              :disabled="bulkActionInProgress"
+            >
+              Unstar
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkArchive"
+              :disabled="bulkActionInProgress"
+            >
+              Archive
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="openMergeModal"
+              :disabled="bulkActionInProgress || selectedMessageIds.size < 2"
+            >
+              Combine
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="bulkRerunCrashReview"
+              :disabled="bulkActionInProgress"
+            >
+              Re-run AI
+            </button>
+            <button
+              class="btn btn--danger btn--small"
+              type="button"
+              @click="bulkDelete"
+              :disabled="bulkActionInProgress"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
 
-            <template v-for="message in filteredInboxMessages" :key="message.id">
-              <!-- Regular message row (excludes messages in pending groups) -->
+        <article class="card card--table">
+          <table class="table">
+            <thead>
+              <tr>
+                <th class="table__checkbox-col">
+                  <input
+                    type="checkbox"
+                    :checked="allSelected"
+                    :indeterminate="someSelected"
+                    @change="selectAllMessages"
+                    title="Select all"
+                  />
+                </th>
+                <th class="table__star-col"></th>
+                <th>Received</th>
+                <th>Webhook</th>
+                <th>Status</th>
+                <th>Actions</th>
+                <th>Labels</th>
+                <th>Assigned</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Pending Merge Group Placeholders -->
               <tr
-                :class="{
-                  'inbox-row--unread': !message.isRead,
-                  'inbox-row--archived': message.archivedAt,
-                  'merge-group-row': getMessageMergeGroup(message.id),
-                  'merge-group-row--first': isFirstInMergeGroupDisplay(message.id),
-                  'merge-group-row--last': isLastInMergeGroupDisplay(message.id)
-                }"
+                v-for="group in pendingMergeGroups"
+                :key="group.compositeKey"
+                :class="[
+                  'pending-group-row',
+                  { 'pending-group-row--processing': group.status === 'processing' }
+                ]"
               >
-              <td class="table__checkbox-col" @click.stop>
-                <input
-                  type="checkbox"
-                  :checked="selectedMessageIds.has(message.id)"
-                  @change="toggleMessageSelection(message.id)"
-                />
-              </td>
-              <td class="table__star-col" @click.stop>
-                <button
-                  class="star-button"
-                  :class="{ 'star-button--active': message.isStarred }"
-                  type="button"
-                  @click="toggleStar(message)"
-                  :title="message.isStarred ? 'Unstar' : 'Star'"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                      :fill="message.isStarred ? 'currentColor' : 'none'"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    />
-                  </svg>
-                </button>
-              </td>
-              <td>
-                <span :class="{ 'text-bold': !message.isRead }">{{ formatDate(message.receivedAt) }}</span>
-                <span v-if="message.mergedFromIds" class="badge badge--info" title="Combined message">
-                  {{ message.mergedFromIds.length }} merged
-                </span>
-              </td>
-              <td>{{ message.webhook?.label || message.webhookId }}</td>
-              <td>
-                <div class="status-cell">
-                  <span :class="['badge', statusBadge(message.status)]">{{ message.status }}</span>
-                  <span v-if="getPendingRun(message)" class="pending-indicator">
-                    <span class="spinner"></span>
-                    Under AI Review {{ formatDuration(getPendingDuration(message)) }}
-                  </span>
-                </div>
-              </td>
-              <td class="actions-cell">
-                <div v-if="message.actionRuns?.length || message.webhook?.actions?.length" class="action-pills">
-                  <!-- Show only the latest run of each action type -->
-                  <template v-for="run in getLatestRunsByType(message)" :key="run.id">
-                    <span
-                      v-if="run.status === 'PENDING_REVIEW'"
-                      class="action-pill-wrapper"
-                      :title="`${run.action?.type || 'Action'}: In Progress`"
-                    >
-                      <svg class="action-pill-border" viewBox="0 0 100 28" preserveAspectRatio="none">
-                        <rect x="1" y="1" width="98" height="26" rx="13" ry="13" />
+                <td class="table__checkbox-col"></td>
+                <td class="table__star-col"></td>
+                <td colspan="6">
+                  <div
+                    class="pending-group-placeholder"
+                    :class="{
+                      'pending-group-placeholder--processing': group.status === 'processing'
+                    }"
+                  >
+                    <div class="pending-group-icon">
+                      <!-- Spinner icon when processing -->
+                      <svg
+                        v-if="group.status === 'processing'"
+                        class="pending-group-spinner"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <circle
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke-dasharray="32"
+                          stroke-dashoffset="32"
+                        />
                       </svg>
-                      <span class="action-pill action-pill--pending">
-                        {{ getActionLabel(run.action?.type) }}
-                      </span>
-                    </span>
-                    <span
-                      v-else
-                      class="action-pill"
-                      :class="getActionPillClass(run.status)"
-                      :title="run.status === 'FAILED' && run.error ? `${run.action?.type || 'Action'}: FAILED\n\n${run.error}` : `${run.action?.type || 'Action'}: ${run.status}`"
-                    >
-                      {{ getActionLabel(run.action?.type) }}
-                    </span>
-                  </template>
-                  <!-- Show actions that haven't started yet (not in actionRuns) -->
-                  <span
-                    v-for="action in getNotStartedActions(message)"
-                    :key="'notstarted-' + action.id"
-                    class="action-pill action-pill--not-run"
-                    :title="`${action.type}: Not run`"
-                  >
-                    {{ getActionLabel(action.type) }}
-                  </span>
-                </div>
-                <span v-else class="muted">-</span>
-                <p v-if="getCrashSummary(message)" class="crash-summary-text">
-                  {{ getCrashSummary(message) }}
-                </p>
-              </td>
-              <td class="labels-cell" @click.stop>
-                <div class="label-chips">
-                  <span
-                    v-for="label in sortedLabels(message.labels)"
-                    :key="label.id"
-                    class="label-chip"
-                    :style="getLabelStyle(label.color)"
-                    :title="label.name"
-                  >
-                    {{ label.name }}
-                    <button
-                      class="label-chip__remove"
-                      type="button"
-                      @click.stop="removeLabel(message, label.id)"
-                      aria-label="Remove label"
-                    >×</button>
-                  </span>
-                  <div class="label-add-wrapper">
-                    <button
-                      v-if="labelInputMessageId !== message.id"
-                      class="label-add-btn"
-                      type="button"
-                      @click.stop="showLabelInput(message.id)"
-                      title="Add label"
-                    >+</button>
-                    <input
-                      v-else
-                      :ref="(el) => el && (el as HTMLInputElement).focus()"
-                      v-model="labelInputValue"
-                      class="label-input"
-                      type="text"
-                      placeholder="Label name..."
-                      @keydown.enter.stop="submitLabelInput(message)"
-                      @keydown.escape.stop="closeLabelInput"
-                      @blur="closeLabelInput"
-                      @click.stop
-                    />
-                  </div>
-                </div>
-              </td>
-              <td>
-                <select
-                  v-model="message.assignedAdminId"
-                  class="select select--compact"
-                  @change.stop="updateAssignment(message)"
-                  @click.stop
-                >
-                  <option value="">Unassigned</option>
-                  <option v-for="user in adminAssignableUsers" :key="user.id" :value="user.id">
-                    {{ formatAdminName(user) }}
-                  </option>
-                </select>
-              </td>
-              <td class="table__actions">
-                <div class="table-action-group">
-                  <button class="btn btn--outline btn--small" type="button" @click="openMessage(message)">
-                    View
-                  </button>
-                  <button
-                    class="icon-button"
-                    type="button"
-                    :title="message.archivedAt ? 'Restore' : 'Archive'"
-                    @click="toggleArchive(message)"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  </button>
-                  <button
-                    class="icon-button icon-button--danger"
-                    type="button"
-                    title="Delete"
-                    @click="deleteMessage(message)"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
-                    </svg>
-                  </button>
-                </div>
-              </td>
-            </tr>
-
-              <!-- Merge group footer (after last message in group) -->
-              <tr v-if="isLastInMergeGroupDisplay(message.id)" class="merge-group-footer">
-                <td colspan="9">
-                  <div class="merge-group-banner">
-                    <span class="merge-group-icon">🔗</span>
-                    <span class="merge-group-text">
-                      {{ getMessageMergeGroup(message.id)?.messages.length }} related messages detected
-                      <span class="muted">(within {{ getMessageMergeGroup(message.id)?.timeWindow }}s)</span>
-                    </span>
-                    <button
-                      class="btn btn--small btn--accent"
-                      type="button"
-                      @click="startMergeFromGroup(getMessageMergeGroup(message.id)!)"
-                    >
-                      Merge these
-                    </button>
-                    <button
-                      class="btn btn--small btn--ghost"
-                      type="button"
-                      @click="dismissMergeGroup(getMessageMergeGroup(message.id)!.id)"
-                    >
-                      Dismiss
-                    </button>
+                      <!-- Clock icon when pending -->
+                      <svg
+                        v-else
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12,6 12,12 16,14" />
+                      </svg>
+                    </div>
+                    <div class="pending-group-info">
+                      <div class="pending-group-title">
+                        <span class="pending-group-count">{{ group.messageCount }} messages</span>
+                        <span class="pending-group-key">{{
+                          group.groupKey !== 'default' ? group.groupKey : 'pending auto-merge'
+                        }}</span>
+                      </div>
+                      <div class="pending-group-timer">
+                        <template v-if="group.status === 'processing'">
+                          <strong>Processing with AI...</strong>
+                        </template>
+                        <template v-else>
+                          Processing in <strong>{{ group.remainingSeconds }}s</strong>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="pending-group-actions" v-if="group.status !== 'processing'">
+                      <button
+                        class="btn btn--small btn--accent"
+                        type="button"
+                        :disabled="processingGroupKey === group.compositeKey"
+                        @click="processGroupNow(group.webhookId, group.groupKey)"
+                      >
+                        {{
+                          processingGroupKey === group.compositeKey
+                            ? 'Processing...'
+                            : 'Process Now'
+                        }}
+                      </button>
+                    </div>
                   </div>
                 </td>
+                <td></td>
               </tr>
-            </template>
-          </tbody>
-        </table>
 
-        <div class="pagination" v-if="inboxTotalPages > 1">
-          <div class="pagination__meta">
-            Showing {{ inboxRangeStart }}–{{ inboxRangeEnd }} of {{ inboxTotal }}
-          </div>
-          <div class="pagination__controls">
-            <button
-              class="pagination__button"
-              :disabled="inboxFilters.page === 1"
-              @click="setInboxPage(1)"
-            >
-              First
-            </button>
-            <button
-              class="pagination__button"
-              :disabled="inboxFilters.page === 1"
-              @click="setInboxPage(inboxFilters.page - 1)"
-            >
-              Previous
-            </button>
-            <template v-for="(item, index) in inboxPageButtons" :key="`page-${item}-${index}`">
+              <template v-for="message in filteredInboxMessages" :key="message.id">
+                <!-- Regular message row (excludes messages in pending groups) -->
+                <tr
+                  :class="{
+                    'inbox-row--unread': !message.isRead,
+                    'inbox-row--archived': message.archivedAt,
+                    'merge-group-row': getMessageMergeGroup(message.id),
+                    'merge-group-row--first': isFirstInMergeGroupDisplay(message.id),
+                    'merge-group-row--last': isLastInMergeGroupDisplay(message.id)
+                  }"
+                >
+                  <td class="table__checkbox-col" @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="selectedMessageIds.has(message.id)"
+                      @change="toggleMessageSelection(message.id)"
+                    />
+                  </td>
+                  <td class="table__star-col" @click.stop>
+                    <button
+                      class="star-button"
+                      :class="{ 'star-button--active': message.isStarred }"
+                      type="button"
+                      @click="toggleStar(message)"
+                      :title="message.isStarred ? 'Unstar' : 'Star'"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+                          :fill="message.isStarred ? 'currentColor' : 'none'"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        />
+                      </svg>
+                    </button>
+                  </td>
+                  <td>
+                    <span :class="{ 'text-bold': !message.isRead }">{{
+                      formatDate(message.receivedAt)
+                    }}</span>
+                    <span
+                      v-if="message.mergedFromIds"
+                      class="badge badge--info"
+                      title="Combined message"
+                    >
+                      {{ message.mergedFromIds.length }} merged
+                    </span>
+                  </td>
+                  <td>{{ message.webhook?.label || message.webhookId }}</td>
+                  <td>
+                    <div class="status-cell">
+                      <span :class="['badge', statusBadge(message.status)]">{{
+                        message.status
+                      }}</span>
+                      <span v-if="getPendingRun(message)" class="pending-indicator">
+                        <span class="spinner"></span>
+                        Under AI Review {{ formatDuration(getPendingDuration(message)) }}
+                      </span>
+                    </div>
+                  </td>
+                  <td class="actions-cell">
+                    <div
+                      v-if="message.actionRuns?.length || message.webhook?.actions?.length"
+                      class="action-pills"
+                    >
+                      <!-- Show only the latest run of each action type -->
+                      <template v-for="run in getLatestRunsByType(message)" :key="run.id">
+                        <span
+                          v-if="run.status === 'PENDING_REVIEW'"
+                          class="action-pill-wrapper"
+                          :title="`${run.action?.type || 'Action'}: In Progress`"
+                        >
+                          <svg
+                            class="action-pill-border"
+                            viewBox="0 0 100 28"
+                            preserveAspectRatio="none"
+                          >
+                            <rect x="1" y="1" width="98" height="26" rx="13" ry="13" />
+                          </svg>
+                          <span class="action-pill action-pill--pending">
+                            {{ getActionLabel(run.action?.type) }}
+                          </span>
+                        </span>
+                        <span
+                          v-else
+                          class="action-pill"
+                          :class="getActionPillClass(run.status)"
+                          :title="
+                            run.status === 'FAILED' && run.error
+                              ? `${run.action?.type || 'Action'}: FAILED\n\n${run.error}`
+                              : `${run.action?.type || 'Action'}: ${run.status}`
+                          "
+                        >
+                          {{ getActionLabel(run.action?.type) }}
+                        </span>
+                      </template>
+                      <!-- Show actions that haven't started yet (not in actionRuns) -->
+                      <span
+                        v-for="action in getNotStartedActions(message)"
+                        :key="'notstarted-' + action.id"
+                        class="action-pill action-pill--not-run"
+                        :title="`${action.type}: Not run`"
+                      >
+                        {{ getActionLabel(action.type) }}
+                      </span>
+                    </div>
+                    <span v-else class="muted">-</span>
+                    <p v-if="getCrashSummary(message)" class="crash-summary-text">
+                      {{ getCrashSummary(message) }}
+                    </p>
+                  </td>
+                  <td class="labels-cell" @click.stop>
+                    <div class="label-chips">
+                      <span
+                        v-for="label in sortedLabels(message.labels)"
+                        :key="label.id"
+                        class="label-chip"
+                        :style="getLabelStyle(label.color)"
+                        :title="label.name"
+                      >
+                        {{ label.name }}
+                        <button
+                          class="label-chip__remove"
+                          type="button"
+                          @click.stop="removeLabel(message, label.id)"
+                          aria-label="Remove label"
+                        >
+                          ×
+                        </button>
+                      </span>
+                      <div class="label-add-wrapper">
+                        <button
+                          v-if="labelInputMessageId !== message.id"
+                          class="label-add-btn"
+                          type="button"
+                          @click.stop="showLabelInput(message.id)"
+                          title="Add label"
+                        >
+                          +
+                        </button>
+                        <input
+                          v-else
+                          :ref="(el) => el && (el as HTMLInputElement).focus()"
+                          v-model="labelInputValue"
+                          class="label-input"
+                          type="text"
+                          placeholder="Label name..."
+                          @keydown.enter.stop="submitLabelInput(message)"
+                          @keydown.escape.stop="closeLabelInput"
+                          @blur="closeLabelInput"
+                          @click.stop
+                        />
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <select
+                      v-model="message.assignedAdminId"
+                      class="select select--compact"
+                      @change.stop="updateAssignment(message)"
+                      @click.stop
+                    >
+                      <option value="">Unassigned</option>
+                      <option v-for="user in adminAssignableUsers" :key="user.id" :value="user.id">
+                        {{ formatAdminName(user) }}
+                      </option>
+                    </select>
+                  </td>
+                  <td class="table__actions">
+                    <div class="table-action-group">
+                      <button
+                        class="btn btn--outline btn--small"
+                        type="button"
+                        @click="openMessage(message)"
+                      >
+                        View
+                      </button>
+                      <button
+                        class="icon-button"
+                        type="button"
+                        :title="message.archivedAt ? 'Restore' : 'Archive'"
+                        @click="toggleArchive(message)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                            fill="currentColor"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        class="icon-button icon-button--danger"
+                        type="button"
+                        title="Delete"
+                        @click="deleteMessage(message)"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="3 6 5 6 21 6" />
+                          <path
+                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                          />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Merge group footer (after last message in group) -->
+                <tr v-if="isLastInMergeGroupDisplay(message.id)" class="merge-group-footer">
+                  <td colspan="9">
+                    <div class="merge-group-banner">
+                      <span class="merge-group-icon">🔗</span>
+                      <span class="merge-group-text">
+                        {{ getMessageMergeGroup(message.id)?.messages.length }} related messages
+                        detected
+                        <span class="muted"
+                          >(within {{ getMessageMergeGroup(message.id)?.timeWindow }}s)</span
+                        >
+                      </span>
+                      <button
+                        class="btn btn--small btn--accent"
+                        type="button"
+                        @click="startMergeFromGroup(getMessageMergeGroup(message.id)!)"
+                      >
+                        Merge these
+                      </button>
+                      <button
+                        class="btn btn--small btn--ghost"
+                        type="button"
+                        @click="dismissMergeGroup(getMessageMergeGroup(message.id)!.id)"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <div class="pagination" v-if="inboxTotalPages > 1">
+            <div class="pagination__meta">
+              Showing {{ inboxRangeStart }}–{{ inboxRangeEnd }} of {{ inboxTotal }}
+            </div>
+            <div class="pagination__controls">
               <button
-                v-if="typeof item === 'number'"
                 class="pagination__button"
-                :class="{ 'pagination__button--active': item === inboxFilters.page }"
-                :disabled="item === inboxFilters.page"
-                @click="setInboxPage(item)"
+                :disabled="inboxFilters.page === 1"
+                @click="setInboxPage(1)"
               >
-                {{ item }}
+                First
               </button>
-              <span v-else class="pagination__ellipsis">{{ item }}</span>
-            </template>
-            <button
-              class="pagination__button"
-              :disabled="inboxFilters.page === inboxTotalPages"
-              @click="setInboxPage(inboxFilters.page + 1)"
-            >
-              Next
-            </button>
-            <button
-              class="pagination__button"
-              :disabled="inboxFilters.page === inboxTotalPages"
-              @click="setInboxPage(inboxTotalPages)"
-            >
-              Last
-            </button>
+              <button
+                class="pagination__button"
+                :disabled="inboxFilters.page === 1"
+                @click="setInboxPage(inboxFilters.page - 1)"
+              >
+                Previous
+              </button>
+              <template v-for="(item, index) in inboxPageButtons" :key="`page-${item}-${index}`">
+                <button
+                  v-if="typeof item === 'number'"
+                  class="pagination__button"
+                  :class="{ 'pagination__button--active': item === inboxFilters.page }"
+                  :disabled="item === inboxFilters.page"
+                  @click="setInboxPage(item)"
+                >
+                  {{ item }}
+                </button>
+                <span v-else class="pagination__ellipsis">{{ item }}</span>
+              </template>
+              <button
+                class="pagination__button"
+                :disabled="inboxFilters.page === inboxTotalPages"
+                @click="setInboxPage(inboxFilters.page + 1)"
+              >
+                Next
+              </button>
+              <button
+                class="pagination__button"
+                :disabled="inboxFilters.page === inboxTotalPages"
+                @click="setInboxPage(inboxTotalPages)"
+              >
+                Last
+              </button>
+            </div>
           </div>
-        </div>
-      </article>
+        </article>
       </template>
     </section>
 
@@ -1088,223 +1280,263 @@
         <header class="modal__header">
           <div class="modal__titles">
             <h3>Webhook Payload</h3>
-            <p class="muted small">{{ selectedMessage.webhook?.label || selectedMessage.webhookId }}</p>
+            <p class="muted small">
+              {{ selectedMessage.webhook?.label || selectedMessage.webhookId }}
+            </p>
           </div>
-          <button class="icon-button" @click="closeMessage" aria-label="Close message">
-            ✕
-          </button>
+          <button class="icon-button" @click="closeMessage" aria-label="Close message">✕</button>
         </header>
 
         <div class="modal__content modal__content--split">
-            <section class="payload-block crash-pane">
-              <header class="panel-header">
-                <h4>Crash Report</h4>
-              </header>
-              <pre class="crash-report">{{ getCrashReportText(selectedMessage) }}</pre>
-              <div class="result-actions">
-                <button class="btn btn--outline btn--small" type="button" @click="copyReport">
-                  Copy Report
-                </button>
-                <button
-                  class="btn btn--accent btn--small"
-                  type="button"
-                  @click="openCrashInspector"
-                  :disabled="!getCrashReportText(selectedMessage)"
-                >
-                  <span class="ai-icon" aria-hidden="true">✦</span> Inspect Report
-                </button>
+          <section class="payload-block crash-pane">
+            <header class="panel-header">
+              <h4>Crash Report</h4>
+            </header>
+            <pre class="crash-report">{{ getCrashReportText(selectedMessage) }}</pre>
+            <div class="result-actions">
+              <button class="btn btn--outline btn--small" type="button" @click="copyReport">
+                Copy Report
+              </button>
+              <button
+                class="btn btn--accent btn--small"
+                type="button"
+                @click="openCrashInspector"
+                :disabled="!getCrashReportText(selectedMessage)"
+              >
+                <span class="ai-icon" aria-hidden="true">✦</span> Inspect Report
+              </button>
+            </div>
+          </section>
+
+          <section class="payload-block llm-pane">
+            <header class="panel-header">
+              <div class="panel-title">
+                <span class="ai-icon" aria-hidden="true">✦</span>
+                <h4>AI Review</h4>
               </div>
-            </section>
+              <div class="panel-badges">
+                <span class="badge" :class="statusBadge(getCrashRunStatus(selectedMessage))">
+                  {{ getCrashRunStatus(selectedMessage) }}
+                </span>
+                <span v-if="getCrashRunModel(selectedMessage)" class="badge badge--neutral">
+                  {{ getCrashRunModel(selectedMessage) }}
+                </span>
+              </div>
+            </header>
 
-            <section class="payload-block llm-pane">
-              <header class="panel-header">
-                <div class="panel-title">
-                  <span class="ai-icon" aria-hidden="true">✦</span>
-                  <h4>AI Review</h4>
-                </div>
-                <div class="panel-badges">
-                  <span class="badge" :class="statusBadge(getCrashRunStatus(selectedMessage))">
-                    {{ getCrashRunStatus(selectedMessage) }}
-                  </span>
-                  <span v-if="getCrashRunModel(selectedMessage)" class="badge badge--neutral">
-                    {{ getCrashRunModel(selectedMessage) }}
-                  </span>
-                </div>
-              </header>
+            <div v-if="isCrashReviewPending(selectedMessage)" class="llm-loading">
+              <span class="spinner spinner--large"></span>
+              <p class="muted">
+                Analyzing crash report...
+                <span v-if="getPendingDuration(selectedMessage) > 0">
+                  Waiting {{ formatDuration(getPendingDuration(selectedMessage)) }}
+                </span>
+              </p>
+            </div>
 
-              <div v-if="isCrashReviewPending(selectedMessage)" class="llm-loading">
-                <span class="spinner spinner--large"></span>
-                <p class="muted">
-                  Analyzing crash report...
-                  <span v-if="getPendingDuration(selectedMessage) > 0">
-                    Waiting {{ formatDuration(getPendingDuration(selectedMessage)) }}
+            <div
+              v-else-if="
+                getCrashRunStatus(selectedMessage) === 'SUCCESS' &&
+                getCrashRunResult(selectedMessage)
+              "
+              class="llm-content"
+            >
+              <p class="llm-summary">{{ getCrashRunResult(selectedMessage)?.summary }}</p>
+
+              <!-- Token usage bar -->
+              <div v-if="getCrashRunTokenUsage(selectedMessage)" class="token-usage">
+                <div class="token-usage__header">
+                  <span class="token-usage__title">Token Usage</span>
+                  <span
+                    v-if="getCrashRunTokenUsage(selectedMessage)?.finishReason === 'MAX_TOKENS'"
+                    class="token-usage__warning"
+                  >
+                    Truncated
                   </span>
-                </p>
+                </div>
+                <div class="token-usage__bar-container">
+                  <div class="token-usage__bar">
+                    <div
+                      class="token-usage__segment token-usage__segment--thinking"
+                      :style="{
+                        width: `${(getCrashRunTokenUsage(selectedMessage)!.thinkingTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
+                      }"
+                      :title="`Thinking: ${getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString()} tokens`"
+                    ></div>
+                    <div
+                      class="token-usage__segment token-usage__segment--output"
+                      :style="{
+                        width: `${(getCrashRunTokenUsage(selectedMessage)!.outputTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
+                      }"
+                      :title="`Output: ${getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString()} tokens`"
+                    ></div>
+                  </div>
+                </div>
+                <div class="token-usage__details">
+                  <div class="token-usage__stat">
+                    <span class="token-usage__dot token-usage__dot--thinking"></span>
+                    <span
+                      >Thinking:
+                      {{
+                        getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString()
+                      }}</span
+                    >
+                  </div>
+                  <div class="token-usage__stat">
+                    <span class="token-usage__dot token-usage__dot--output"></span>
+                    <span
+                      >Output:
+                      {{
+                        getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString()
+                      }}</span
+                    >
+                  </div>
+                  <div class="token-usage__stat token-usage__stat--budget">
+                    <span
+                      >Budget:
+                      {{
+                        getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens.toLocaleString()
+                      }}</span
+                    >
+                  </div>
+                </div>
+                <div class="token-usage__input-row">
+                  <span class="token-usage__input-label">Input (est):</span>
+                  <span
+                    >~{{
+                      getCrashRunTokenUsage(selectedMessage)!.inputTokens.toLocaleString()
+                    }}
+                    tokens</span
+                  >
+                </div>
               </div>
 
               <div
-                v-else-if="getCrashRunStatus(selectedMessage) === 'SUCCESS' && getCrashRunResult(selectedMessage)"
-                class="llm-content"
+                v-if="getCrashRunResult(selectedMessage)?.hypotheses?.length"
+                class="llm-section"
               >
-                <p class="llm-summary">{{ getCrashRunResult(selectedMessage)?.summary }}</p>
-
-                <!-- Token usage bar -->
-                <div v-if="getCrashRunTokenUsage(selectedMessage)" class="token-usage">
-                  <div class="token-usage__header">
-                    <span class="token-usage__title">Token Usage</span>
-                    <span
-                      v-if="getCrashRunTokenUsage(selectedMessage)?.finishReason === 'MAX_TOKENS'"
-                      class="token-usage__warning"
+                <h5>Possible Causes</h5>
+                <ol class="llm-list">
+                  <li
+                    v-for="item in getCrashRunResult(selectedMessage)?.hypotheses"
+                    :key="item.title"
+                  >
+                    <strong>{{ item.title }}</strong>
+                    <span class="muted small"
+                      >({{ Math.round(item.confidence * 100) }}% confidence)</span
                     >
-                      Truncated
-                    </span>
-                  </div>
-                  <div class="token-usage__bar-container">
-                    <div class="token-usage__bar">
-                      <div
-                        class="token-usage__segment token-usage__segment--thinking"
-                        :style="{
-                          width: `${(getCrashRunTokenUsage(selectedMessage)!.thinkingTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
-                        }"
-                        :title="`Thinking: ${getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString()} tokens`"
-                      ></div>
-                      <div
-                        class="token-usage__segment token-usage__segment--output"
-                        :style="{
-                          width: `${(getCrashRunTokenUsage(selectedMessage)!.outputTokens / getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens) * 100}%`
-                        }"
-                        :title="`Output: ${getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString()} tokens`"
-                      ></div>
-                    </div>
-                  </div>
-                  <div class="token-usage__details">
-                    <div class="token-usage__stat">
-                      <span class="token-usage__dot token-usage__dot--thinking"></span>
-                      <span>Thinking: {{ getCrashRunTokenUsage(selectedMessage)!.thinkingTokens.toLocaleString() }}</span>
-                    </div>
-                    <div class="token-usage__stat">
-                      <span class="token-usage__dot token-usage__dot--output"></span>
-                      <span>Output: {{ getCrashRunTokenUsage(selectedMessage)!.outputTokens.toLocaleString() }}</span>
-                    </div>
-                    <div class="token-usage__stat token-usage__stat--budget">
-                      <span>Budget: {{ getCrashRunTokenUsage(selectedMessage)!.maxOutputTokens.toLocaleString() }}</span>
-                    </div>
-                  </div>
-                  <div class="token-usage__input-row">
-                    <span class="token-usage__input-label">Input (est):</span>
-                    <span>~{{ getCrashRunTokenUsage(selectedMessage)!.inputTokens.toLocaleString() }} tokens</span>
-                  </div>
-                </div>
-
-                <div v-if="getCrashRunResult(selectedMessage)?.hypotheses?.length" class="llm-section">
-                  <h5>Possible Causes</h5>
-                  <ol class="llm-list">
-                    <li v-for="item in getCrashRunResult(selectedMessage)?.hypotheses" :key="item.title">
-                      <strong>{{ item.title }}</strong>
-                      <span class="muted small">({{ Math.round(item.confidence * 100) }}% confidence)</span>
-                      <ul v-if="item.evidence?.length" class="evidence-list">
-                        <li v-for="(e, idx) in item.evidence" :key="idx" v-html="renderLinkedText(e)"></li>
-                      </ul>
-                    </li>
-                  </ol>
-                </div>
-
-                <div v-if="getCrashRunResult(selectedMessage)?.missingInfo?.length" class="llm-section">
-                  <h5>Missing Information</h5>
-                  <ul class="llm-list">
-                    <li v-for="info in getCrashRunResult(selectedMessage)?.missingInfo" :key="info">
-                      {{ info }}
-                    </li>
-                  </ul>
-                </div>
-
-                <div v-if="getCrashRunResult(selectedMessage)?.recommendedNextSteps?.length" class="llm-section">
-                  <h5>Recommended Next Steps</h5>
-                  <ol class="llm-list llm-list--numbered">
-                    <li
-                      v-for="(step, idx) in getCrashRunResult(selectedMessage)?.recommendedNextSteps"
-                      :key="idx"
-                      v-html="renderLinkedText(step)"
-                    >
-                    </li>
-                  </ol>
-                </div>
-
-                <div class="result-actions">
-                  <button
-                    class="btn btn--outline btn--small"
-                    type="button"
-                    @click="copyFindings(getCrashRun(selectedMessage))"
-                  >
-                    Copy AI Review
-                  </button>
-                  <button
-                    class="btn btn--outline btn--small"
-                    type="button"
-                    @click="copyFindingsJson(getCrashRun(selectedMessage))"
-                  >
-                    Copy JSON
-                  </button>
-                  <button
-                    v-if="getCrashRunPrompt(selectedMessage)"
-                    class="btn btn--outline btn--small"
-                    type="button"
-                    @click="showPromptModal = true"
-                  >
-                    View Prompt
-                  </button>
-                  <button
-                    class="btn btn--outline btn--small"
-                    type="button"
-                    @click="retryCrashReview(selectedMessage)"
-                    :disabled="isCrashReviewPending(selectedMessage)"
-                  >
-                    <span class="ai-icon" aria-hidden="true">✦</span> Re-run AI Review
-                  </button>
-                </div>
+                    <ul v-if="item.evidence?.length" class="evidence-list">
+                      <li
+                        v-for="(e, idx) in item.evidence"
+                        :key="idx"
+                        v-html="renderLinkedText(e)"
+                      ></li>
+                    </ul>
+                  </li>
+                </ol>
               </div>
 
-              <div v-else class="llm-empty">
-                <p class="muted">No AI review has been run yet.</p>
+              <div
+                v-if="getCrashRunResult(selectedMessage)?.missingInfo?.length"
+                class="llm-section"
+              >
+                <h5>Missing Information</h5>
+                <ul class="llm-list">
+                  <li v-for="info in getCrashRunResult(selectedMessage)?.missingInfo" :key="info">
+                    {{ info }}
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                v-if="getCrashRunResult(selectedMessage)?.recommendedNextSteps?.length"
+                class="llm-section"
+              >
+                <h5>Recommended Next Steps</h5>
+                <ol class="llm-list llm-list--numbered">
+                  <li
+                    v-for="(step, idx) in getCrashRunResult(selectedMessage)?.recommendedNextSteps"
+                    :key="idx"
+                    v-html="renderLinkedText(step)"
+                  ></li>
+                </ol>
+              </div>
+
+              <div class="result-actions">
                 <button
-                  class="btn btn--accent"
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  @click="copyFindings(getCrashRun(selectedMessage))"
+                >
+                  Copy AI Review
+                </button>
+                <button
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  @click="copyFindingsJson(getCrashRun(selectedMessage))"
+                >
+                  Copy JSON
+                </button>
+                <button
+                  v-if="getCrashRunPrompt(selectedMessage)"
+                  class="btn btn--outline btn--small"
+                  type="button"
+                  @click="showPromptModal = true"
+                >
+                  View Prompt
+                </button>
+                <button
+                  class="btn btn--outline btn--small"
                   type="button"
                   @click="retryCrashReview(selectedMessage)"
                   :disabled="isCrashReviewPending(selectedMessage)"
                 >
-                  <span class="ai-icon" aria-hidden="true">✦</span> Run AI Review
+                  <span class="ai-icon" aria-hidden="true">✦</span> Re-run AI Review
                 </button>
-              </div>
-            </section>
-          </div>
-
-          <!-- Prompt Modal inside Message modal -->
-          <div v-if="showPromptModal" class="modal-backdrop" @click.self="showPromptModal = false">
-            <div class="modal modal--wide" role="dialog" aria-modal="true">
-              <header class="modal__header">
-                <div class="modal__titles">
-                  <h3>LLM Prompt Payload</h3>
-                  <p class="muted small">Sent to Gemini for analysis</p>
-                </div>
-                <button class="icon-button" @click="showPromptModal = false" aria-label="Close prompt">
-                  ✕
-                </button>
-              </header>
-              <div class="modal__content">
-                <section class="payload-block">
-                  <pre>{{ formatJson(getCrashRunPrompt(selectedMessage)) }}</pre>
-                  <div class="result-actions">
-                    <button
-                      class="btn btn--outline btn--small"
-                      type="button"
-                      @click="copyPromptJson"
-                    >
-                      Copy Prompt JSON
-                    </button>
-                  </div>
-                </section>
               </div>
             </div>
+
+            <div v-else class="llm-empty">
+              <p class="muted">No AI review has been run yet.</p>
+              <button
+                class="btn btn--accent"
+                type="button"
+                @click="retryCrashReview(selectedMessage)"
+                :disabled="isCrashReviewPending(selectedMessage)"
+              >
+                <span class="ai-icon" aria-hidden="true">✦</span> Run AI Review
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <!-- Prompt Modal inside Message modal -->
+        <div v-if="showPromptModal" class="modal-backdrop" @click.self="showPromptModal = false">
+          <div class="modal modal--wide" role="dialog" aria-modal="true">
+            <header class="modal__header">
+              <div class="modal__titles">
+                <h3>LLM Prompt Payload</h3>
+                <p class="muted small">Sent to Gemini for analysis</p>
+              </div>
+              <button
+                class="icon-button"
+                @click="showPromptModal = false"
+                aria-label="Close prompt"
+              >
+                ✕
+              </button>
+            </header>
+            <div class="modal__content">
+              <section class="payload-block">
+                <pre>{{ formatJson(getCrashRunPrompt(selectedMessage)) }}</pre>
+                <div class="result-actions">
+                  <button class="btn btn--outline btn--small" type="button" @click="copyPromptJson">
+                    Copy Prompt JSON
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1325,22 +1557,28 @@
               <span v-else class="ai-icon">✦</span>
               {{ sortingWithAi ? 'Sorting...' : 'Sort with AI' }}
             </button>
-            <button class="icon-button" @click="closeMergeModal" aria-label="Close">
-              ✕
-            </button>
+            <button class="icon-button" @click="closeMergeModal" aria-label="Close">✕</button>
           </div>
         </header>
         <div class="modal__body">
           <div v-if="aiSortApplied && aiSortResult" class="ai-sort-banner">
             <span class="ai-icon">✦</span>
             <span>Sorted with AI</span>
-            <span class="ai-confidence">({{ Math.round(aiSortResult.confidence * 100) }}% confidence)</span>
+            <span class="ai-confidence"
+              >({{ Math.round(aiSortResult.confidence * 100) }}% confidence)</span
+            >
             <span v-if="aiSortResult.removeIds?.length" class="ai-removed">
-              | Deleted {{ aiSortResult.removeIds.length }} redundant segment{{ aiSortResult.removeIds.length > 1 ? 's' : '' }}
+              | Deleted {{ aiSortResult.removeIds.length }} redundant segment{{
+                aiSortResult.removeIds.length > 1 ? 's' : ''
+              }}
             </span>
-            <span v-if="aiSortResult.reasoning" class="ai-reasoning muted small">{{ aiSortResult.reasoning }}</span>
+            <span v-if="aiSortResult.reasoning" class="ai-reasoning muted small">{{
+              aiSortResult.reasoning
+            }}</span>
           </div>
-          <p class="muted small">Drag to reorder. Messages will be combined in the order shown below.</p>
+          <p class="muted small">
+            Drag to reorder. Messages will be combined in the order shown below.
+          </p>
           <div class="merge-list">
             <div
               v-for="(id, index) in mergeOrdering"
@@ -1359,20 +1597,24 @@
             >
               <div class="merge-item__handle" title="Drag to reorder">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-                  <circle cx="9" cy="6" r="1.5"/>
-                  <circle cx="15" cy="6" r="1.5"/>
-                  <circle cx="9" cy="12" r="1.5"/>
-                  <circle cx="15" cy="12" r="1.5"/>
-                  <circle cx="9" cy="18" r="1.5"/>
-                  <circle cx="15" cy="18" r="1.5"/>
+                  <circle cx="9" cy="6" r="1.5" />
+                  <circle cx="15" cy="6" r="1.5" />
+                  <circle cx="9" cy="12" r="1.5" />
+                  <circle cx="15" cy="12" r="1.5" />
+                  <circle cx="9" cy="18" r="1.5" />
+                  <circle cx="15" cy="18" r="1.5" />
                 </svg>
               </div>
               <div class="merge-item__content">
                 <div class="merge-item__header">
                   <div class="merge-item__info">
                     <strong>Part {{ index + 1 }}</strong>
-                    <span class="muted small">{{ formatDate(getMergeMessage(id)?.receivedAt) }}</span>
-                    <span class="muted small">{{ getMergeMessage(id)?.webhook?.label || 'Unknown' }}</span>
+                    <span class="muted small">{{
+                      formatDate(getMergeMessage(id)?.receivedAt)
+                    }}</span>
+                    <span class="muted small">{{
+                      getMergeMessage(id)?.webhook?.label || 'Unknown'
+                    }}</span>
                   </div>
                   <div class="merge-item__actions">
                     <button
@@ -1400,13 +1642,12 @@
             </div>
           </div>
           <p class="muted small merge-warning">
-            This will create a new combined message and delete the {{ mergeOrdering.length }} original messages.
+            This will create a new combined message and delete the
+            {{ mergeOrdering.length }} original messages.
           </p>
         </div>
         <footer class="modal__footer">
-          <button class="btn btn--outline" type="button" @click="closeMergeModal">
-            Cancel
-          </button>
+          <button class="btn btn--outline" type="button" @click="closeMergeModal">Cancel</button>
           <button class="btn btn--accent" type="button" @click="openMergePreview">
             Preview Combined Report
           </button>
@@ -1423,23 +1664,32 @@
             <button class="btn btn--outline btn--small" type="button" @click="copyMergedPreview">
               Copy to Clipboard
             </button>
-            <button class="icon-button" @click="closeMergePreview" aria-label="Close">
-              ✕
-            </button>
+            <button class="icon-button" @click="closeMergePreview" aria-label="Close">✕</button>
           </div>
         </header>
         <div class="modal__body merge-preview-body">
-          <p class="muted small">Review the combined crash report below. The {{ mergeOrdering.length }} messages will be merged in this order.</p>
+          <p class="muted small">
+            Review the combined crash report below. The {{ mergeOrdering.length }} messages will be
+            merged in this order.
+          </p>
           <pre class="merge-preview-content">{{ getMergedPreviewText() }}</pre>
         </div>
         <footer class="modal__footer merge-preview-footer">
-          <button class="btn btn--outline" type="button" @click="backToMergeOrder">
-            Back
-          </button>
-          <button class="btn btn--danger" type="button" @click="cancelMergeAll" :disabled="mergingMessages">
+          <button class="btn btn--outline" type="button" @click="backToMergeOrder">Back</button>
+          <button
+            class="btn btn--danger"
+            type="button"
+            @click="cancelMergeAll"
+            :disabled="mergingMessages"
+          >
             Cancel
           </button>
-          <button class="btn btn--success" type="button" @click="confirmMerge" :disabled="mergingMessages">
+          <button
+            class="btn btn--success"
+            type="button"
+            @click="confirmMerge"
+            :disabled="mergingMessages"
+          >
             {{ mergingMessages ? 'Combining...' : 'Accept & Combine' }}
           </button>
         </footer>
@@ -1459,11 +1709,7 @@
           <div class="label-manager">
             <div class="label-manager__list">
               <div v-if="webhookLabels.length === 0" class="muted">No labels yet.</div>
-              <div
-                v-for="label in webhookLabels"
-                :key="label.id"
-                class="label-manager__item"
-              >
+              <div v-for="label in webhookLabels" :key="label.id" class="label-manager__item">
                 <template v-if="labelToEdit?.id === label.id">
                   <input
                     v-model="labelToEdit.name"
@@ -1471,29 +1717,34 @@
                     maxlength="50"
                     @keyup.enter="updateLabel"
                   />
-                  <input
-                    v-model="labelToEdit.color"
-                    type="color"
-                    class="color-picker"
-                  />
+                  <input v-model="labelToEdit.color" type="color" class="color-picker" />
                   <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
                     Save
                   </button>
-                  <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = null">
+                  <button
+                    class="btn btn--small btn--outline"
+                    type="button"
+                    @click="labelToEdit = null"
+                  >
                     Cancel
                   </button>
                 </template>
                 <template v-else>
-                  <span
-                    class="label-chip"
-                    :style="{ backgroundColor: label.color }"
-                  >
+                  <span class="label-chip" :style="{ backgroundColor: label.color }">
                     {{ label.name }}
                   </span>
-                  <button class="btn btn--small btn--outline" type="button" @click="labelToEdit = { ...label }">
+                  <button
+                    class="btn btn--small btn--outline"
+                    type="button"
+                    @click="labelToEdit = { ...label }"
+                  >
                     Edit
                   </button>
-                  <button class="btn btn--small btn--danger" type="button" @click="deleteLabel(label)">
+                  <button
+                    class="btn btn--small btn--danger"
+                    type="button"
+                    @click="deleteLabel(label)"
+                  >
                     Delete
                   </button>
                 </template>
@@ -1509,11 +1760,7 @@
                   maxlength="50"
                   @keyup.enter="createLabel"
                 />
-                <input
-                  v-model="newLabelForm.color"
-                  type="color"
-                  class="color-picker"
-                />
+                <input v-model="newLabelForm.color" type="color" class="color-picker" />
                 <button
                   class="btn btn--accent"
                   type="button"
@@ -1530,7 +1777,11 @@
     </div>
 
     <!-- Webhook Settings Modal -->
-    <div v-if="showWebhookSettings" class="modal-backdrop" @click.self="showWebhookSettings = false">
+    <div
+      v-if="showWebhookSettings"
+      class="modal-backdrop"
+      @click.self="showWebhookSettings = false"
+    >
       <div class="modal modal--settings" role="dialog" aria-modal="true">
         <header class="modal__header">
           <h3>Webhook Settings</h3>
@@ -1544,7 +1795,8 @@
             <div class="settings-section-header">
               <h4 class="settings-section-title">Server Processing</h4>
               <p class="settings-section-description">
-                Control webhook processing for this server instance. Each server (identified by SERVER_ID env var) has its own setting.
+                Control webhook processing for this server instance. Each server (identified by
+                SERVER_ID env var) has its own setting.
               </p>
             </div>
             <div class="settings-fields">
@@ -1560,7 +1812,9 @@
                     Process Incoming Webhooks
                   </label>
                   <p class="settings-field-hint">
-                    When disabled, incoming webhooks will be stored but not processed by the "{{ webhookProcessingStatus.serverId }}" server.
+                    When disabled, incoming webhooks will be stored but not processed by the "{{
+                      webhookProcessingStatus.serverId
+                    }}" server.
                   </p>
                 </div>
                 <div class="settings-field-control">
@@ -1575,7 +1829,14 @@
                       />
                       <span class="toggle-slider"></span>
                     </label>
-                    <span :class="['toggle-status', webhookProcessingStatus.effectivelyEnabled ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                    <span
+                      :class="[
+                        'toggle-status',
+                        webhookProcessingStatus.effectivelyEnabled
+                          ? 'toggle-status--enabled'
+                          : 'toggle-status--disabled'
+                      ]"
+                    >
                       {{ webhookProcessingStatus.effectivelyEnabled ? 'Enabled' : 'Disabled' }}
                     </span>
                   </div>
@@ -1588,7 +1849,11 @@
           <div class="settings-section settings-section--selector">
             <label class="form-field">
               <span class="form-label">Select Webhook</span>
-              <select v-model="webhookSettingsForm.webhookId" class="select" @change="onWebhookSettingsSelect">
+              <select
+                v-model="webhookSettingsForm.webhookId"
+                class="select"
+                @change="onWebhookSettingsSelect"
+              >
                 <option value="" disabled>Choose a webhook to configure...</option>
                 <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
                   {{ hook.label }}
@@ -1603,20 +1868,30 @@
             <div class="settings-info-banner">
               <div class="settings-info-item">
                 <span class="settings-info-label">Status</span>
-                <span :class="['settings-info-value', selectedWebhookForSettings?.isEnabled ? 'text-success' : 'text-muted']">
+                <span
+                  :class="[
+                    'settings-info-value',
+                    selectedWebhookForSettings?.isEnabled ? 'text-success' : 'text-muted'
+                  ]"
+                >
                   {{ selectedWebhookForSettings?.isEnabled ? 'Enabled' : 'Disabled' }}
                 </span>
               </div>
               <div class="settings-info-item">
                 <span class="settings-info-label">Last Received</span>
                 <span class="settings-info-value">
-                  {{ selectedWebhookForSettings?.lastReceivedAt ? formatRelativeTime(selectedWebhookForSettings.lastReceivedAt) : 'Never' }}
+                  {{
+                    selectedWebhookForSettings?.lastReceivedAt
+                      ? formatRelativeTime(selectedWebhookForSettings.lastReceivedAt)
+                      : 'Never'
+                  }}
                 </span>
               </div>
               <div class="settings-info-item">
                 <span class="settings-info-label">Actions</span>
                 <span class="settings-info-value">
-                  {{ selectedWebhookForSettings?.actions?.filter(a => a.isEnabled).length ?? 0 }} active
+                  {{ selectedWebhookForSettings?.actions?.filter((a) => a.isEnabled).length ?? 0 }}
+                  active
                 </span>
               </div>
             </div>
@@ -1625,18 +1900,24 @@
             <div class="settings-section">
               <div class="settings-section-header">
                 <h4 class="settings-section-title">Message Processing</h4>
-                <p class="settings-section-description">Configure how incoming messages are handled and processed.</p>
+                <p class="settings-section-description">
+                  Configure how incoming messages are handled and processed.
+                </p>
               </div>
 
               <div class="settings-fields">
                 <!-- Merge Window -->
                 <div class="settings-field">
                   <div class="settings-field-main">
-                    <label class="settings-field-label" :for="`merge-window-${webhookSettingsForm.webhookId}`">
+                    <label
+                      class="settings-field-label"
+                      :for="`merge-window-${webhookSettingsForm.webhookId}`"
+                    >
                       Merge Detection Window
                     </label>
                     <p class="settings-field-hint">
-                      Messages received within this time window will be grouped together for potential merging.
+                      Messages received within this time window will be grouped together for
+                      potential merging.
                     </p>
                   </div>
                   <div class="settings-field-control">
@@ -1657,11 +1938,15 @@
                 <!-- Auto-Merge Toggle -->
                 <div class="settings-field settings-field--toggle">
                   <div class="settings-field-main">
-                    <label class="settings-field-label" :for="`auto-merge-${webhookSettingsForm.webhookId}`">
+                    <label
+                      class="settings-field-label"
+                      :for="`auto-merge-${webhookSettingsForm.webhookId}`"
+                    >
                       Automatic Merge Processing
                     </label>
                     <p class="settings-field-hint">
-                      Automatically sort, combine, and process grouped messages with AI review when the merge window closes.
+                      Automatically sort, combine, and process grouped messages with AI review when
+                      the merge window closes.
                     </p>
                   </div>
                   <div class="settings-field-control">
@@ -1674,7 +1959,14 @@
                         />
                         <span class="toggle-slider"></span>
                       </label>
-                      <span :class="['toggle-status', webhookSettingsForm.autoMerge ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                      <span
+                        :class="[
+                          'toggle-status',
+                          webhookSettingsForm.autoMerge
+                            ? 'toggle-status--enabled'
+                            : 'toggle-status--disabled'
+                        ]"
+                      >
                         {{ webhookSettingsForm.autoMerge ? 'Enabled' : 'Disabled' }}
                       </span>
                     </div>
@@ -1686,7 +1978,8 @@
                   <div class="settings-field-label">
                     <label :for="`dev-mode-${webhookSettingsForm.webhookId}`">Dev Mode</label>
                     <p class="settings-field-hint">
-                      When enabled, Discord messages are sent to the Dev Discord Webhook URL instead of the production URL.
+                      When enabled, Discord messages are sent to the Dev Discord Webhook URL instead
+                      of the production URL.
                     </p>
                   </div>
                   <div class="settings-field-control">
@@ -1699,7 +1992,14 @@
                         />
                         <span class="toggle-slider"></span>
                       </label>
-                      <span :class="['toggle-status', webhookSettingsForm.devMode ? 'toggle-status--enabled' : 'toggle-status--disabled']">
+                      <span
+                        :class="[
+                          'toggle-status',
+                          webhookSettingsForm.devMode
+                            ? 'toggle-status--enabled'
+                            : 'toggle-status--disabled'
+                        ]"
+                      >
                         {{ webhookSettingsForm.devMode ? 'Enabled' : 'Disabled' }}
                       </span>
                     </div>
@@ -1716,7 +2016,9 @@
           </div>
         </div>
         <footer class="modal__footer modal__footer--settings">
-          <button class="btn btn--outline" type="button" @click="showWebhookSettings = false">Cancel</button>
+          <button class="btn btn--outline" type="button" @click="showWebhookSettings = false">
+            Cancel
+          </button>
           <button
             class="btn btn--primary"
             type="button"
@@ -1739,9 +2041,7 @@
             <p v-else-if="inspectorLoading" class="muted small">Analyzing crash report...</p>
             <p v-else class="muted small">Click "Inspect with AI" to analyze the crash report</p>
           </div>
-          <button class="icon-button" @click="closeCrashInspector" aria-label="Close">
-            ✕
-          </button>
+          <button class="icon-button" @click="closeCrashInspector" aria-label="Close">✕</button>
         </header>
 
         <div class="modal__body inspector-body">
@@ -1757,7 +2057,9 @@
             </div>
             <div class="ai-loading-text">
               <p class="ai-loading-title">Analyzing Crash Report</p>
-              <p class="ai-loading-subtitle">AI is identifying notable sections and potential issues...</p>
+              <p class="ai-loading-subtitle">
+                AI is identifying notable sections and potential issues...
+              </p>
             </div>
             <div class="ai-loading-dots">
               <span class="ai-dot"></span>
@@ -1786,25 +2088,40 @@
               <span class="legend-item">
                 <span class="highlight-sample highlight--info"></span> Info
               </span>
-              <span class="legend-count">{{ inspectorResult.highlights.length }} highlights found</span>
+              <span class="legend-count"
+                >{{ inspectorResult.highlights.length }} highlights found</span
+              >
             </div>
 
             <!-- Debug: Show highlight positions if none are rendering -->
             <details v-if="inspectorResult.highlights.length > 0" class="inspector-debug">
-              <summary class="muted small">Debug: Highlight positions ({{ inspectorResult.highlights.length }} items)</summary>
+              <summary class="muted small">
+                Debug: Highlight positions ({{ inspectorResult.highlights.length }} items)
+              </summary>
               <ul class="debug-list">
                 <li v-for="(h, idx) in inspectorResult.highlights" :key="idx" class="debug-item">
-                  <strong>{{ h.severity }}:</strong> "{{ h.text.slice(0, 50) }}{{ h.text.length > 50 ? '...' : '' }}"
+                  <strong>{{ h.severity }}:</strong> "{{ h.text.slice(0, 50)
+                  }}{{ h.text.length > 50 ? '...' : '' }}"
                   <span class="muted">[{{ h.startIndex }}-{{ h.endIndex }}]</span>
                 </li>
               </ul>
-              <p class="muted small" style="margin-top: 0.5rem;">
-                HTML contains spans: {{ highlightedReportHtml.includes('inspector-highlight') ? 'YES' : 'NO' }}
-                | Crash text length: {{ inspectorCrashText.length }}
+              <p class="muted small" style="margin-top: 0.5rem">
+                HTML contains spans:
+                {{ highlightedReportHtml.includes('inspector-highlight') ? 'YES' : 'NO' }} | Crash
+                text length: {{ inspectorCrashText.length }}
               </p>
-              <details style="margin-top: 0.5rem;">
+              <details style="margin-top: 0.5rem">
                 <summary class="muted small">Raw HTML preview (first 500 chars)</summary>
-                <pre style="font-size: 0.65rem; max-height: 100px; overflow: auto; background: #000; padding: 0.5rem;">{{ highlightedReportHtml.slice(0, 500) }}</pre>
+                <pre
+                  style="
+                    font-size: 0.65rem;
+                    max-height: 100px;
+                    overflow: auto;
+                    background: #000;
+                    padding: 0.5rem;
+                  "
+                  >{{ highlightedReportHtml.slice(0, 500) }}</pre
+                >
               </details>
             </details>
 
@@ -1861,7 +2178,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import {
   api,
   type InboundWebhook,
@@ -1872,13 +2189,11 @@ import {
   type AdminUserSummary,
   type WebhookMessageLabel,
   type CrashInspectionResult,
-  type CrashHighlight,
   type CrashSegmentSortResult
 } from '../services/api';
 import { useToastBus } from '../components/ToastBus';
 
 const route = useRoute();
-const router = useRouter();
 
 const loading = ref(true);
 const componentReady = ref(false);
@@ -2017,8 +2332,18 @@ const inboxPageButtons = computed(() => {
   if (total <= 7) {
     return Array.from({ length: total }, (_, index) => index + 1);
   }
-  const pages = new Set<number>([1, total, current - 1, current, current + 1, current - 2, current + 2]);
-  const validPages = Array.from(pages).filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+  const pages = new Set<number>([
+    1,
+    total,
+    current - 1,
+    current,
+    current + 1,
+    current - 2,
+    current + 2
+  ]);
+  const validPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= total)
+    .sort((a, b) => a - b);
   const output: Array<number | string> = [];
   for (let i = 0; i < validPages.length; i += 1) {
     const page = validPages[i];
@@ -2030,11 +2355,11 @@ const inboxPageButtons = computed(() => {
   }
   return output;
 });
-const failedCount = computed(() =>
-  inboxMessages.value.filter((message) => message.status === 'FAILED').length
+const failedCount = computed(
+  () => inboxMessages.value.filter((message) => message.status === 'FAILED').length
 );
-const selectedWebhook = computed(() =>
-  webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
+const selectedWebhook = computed(
+  () => webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
 const isAutoMergeActive = computed(() => {
   // Auto-Merge is a global setting - check if any webhook has it enabled
@@ -2075,7 +2400,7 @@ const pendingGroupMessageIds = computed(() => {
 });
 
 const filteredInboxMessages = computed(() => {
-  return inboxMessages.value.filter(m => !pendingGroupMessageIds.value.has(m.id));
+  return inboxMessages.value.filter((m) => !pendingGroupMessageIds.value.has(m.id));
 });
 
 async function pollPendingMergeGroups() {
@@ -2117,6 +2442,8 @@ async function processGroupNow(webhookId: string, groupKey: string) {
 }
 
 async function pollProcessingStatus() {
+  if (document.hidden) return;
+
   try {
     const status = await api.getWebhookProcessingStatus();
     processingStatus.hasPendingProcessing = status.hasPendingProcessing;
@@ -2146,6 +2473,18 @@ function stopProcessingStatusPolling() {
   if (processingStatusInterval) {
     clearInterval(processingStatusInterval);
     processingStatusInterval = null;
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) return;
+  if (shouldPollInbox()) {
+    refreshPendingInboxMessages().catch((error) => {
+      console.warn('Failed to refresh webhook inbox after tab became visible:', error);
+    });
+  }
+  if (isAutoMergeActive.value) {
+    pollProcessingStatus();
   }
 }
 
@@ -2181,7 +2520,10 @@ function getCrashType(message: InboundWebhookMessage): 'crash' | 'script_error' 
 function getMessageLabelSignature(message: InboundWebhookMessage): string {
   // Create a signature from sorted label names to compare messages
   const labels = message.labels ?? [];
-  return labels.map((l) => l.name).sort().join('|');
+  return labels
+    .map((l) => l.name)
+    .sort()
+    .join('|');
 }
 
 const detectedMergeGroups = computed<MergeGroup[]>(() => {
@@ -2316,7 +2658,8 @@ function buildActionDraft() {
     clawdbotWebhookUrl: '',
     devClawdbotWebhookUrl: '',
     clawdbotMode: 'WRAP',
-    clawdbotTemplate: '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
+    clawdbotTemplate:
+      '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
     crashModel: 'gemini-2.5-pro',
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 16384,
@@ -2343,11 +2686,14 @@ async function loadWebhooks() {
         discordWebhookUrl: action.config?.discordWebhookUrl,
         devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
         discordMode: action.config?.discordMode ?? 'WRAP',
-        discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+        discordTemplate:
+          action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
         clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
         devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
         clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-        clawdbotTemplate: action.config?.clawdbotTemplate ?? '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
+        clawdbotTemplate:
+          action.config?.clawdbotTemplate ??
+          '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
         crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
         crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
         crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2361,7 +2707,6 @@ async function loadWebhooks() {
     actionDrafts[webhook.id] = buildActionDraft();
     testDrafts[webhook.id] = buildTestDraft();
   }
-
 }
 
 function toggleWebhook(webhookId: string) {
@@ -2406,9 +2751,7 @@ async function loadLabels() {
 
 async function loadUnreadCount() {
   try {
-    unreadCount.value = await api.fetchWebhookInboxUnreadCount(
-      inboxFilters.webhookId || undefined
-    );
+    unreadCount.value = await api.fetchWebhookInboxUnreadCount(inboxFilters.webhookId || undefined);
   } catch (err) {
     console.error('Failed to load unread count:', err);
   }
@@ -2420,6 +2763,32 @@ async function loadSelectedMessage(messageId: string) {
   const inboxIndex = inboxMessages.value.findIndex((item) => item.id === messageId);
   if (inboxIndex >= 0) {
     inboxMessages.value[inboxIndex] = updated;
+  }
+}
+
+function hasFullMessageBody(message: InboundWebhookMessage): boolean {
+  return message.payload !== null || Boolean(message.rawBody);
+}
+
+async function ensureFullInboxMessage(messageId: string): Promise<InboundWebhookMessage | null> {
+  const existing = inboxMessages.value.find((message) => message.id === messageId);
+  if (existing && hasFullMessageBody(existing)) {
+    return existing;
+  }
+
+  try {
+    const full = await api.fetchInboundWebhookMessage(messageId);
+    const inboxIndex = inboxMessages.value.findIndex((message) => message.id === messageId);
+    if (inboxIndex >= 0) {
+      inboxMessages.value[inboxIndex] = { ...inboxMessages.value[inboxIndex], ...full };
+    }
+    if (selectedMessage.value?.id === messageId) {
+      selectedMessage.value = full;
+    }
+    return full;
+  } catch (error) {
+    console.error('Failed to load full webhook message:', error);
+    return existing ?? null;
   }
 }
 
@@ -2527,6 +2896,7 @@ function shouldPollInbox(): boolean {
 function startInboxPolling() {
   if (inboxPollTimer) return;
   inboxPollTimer = setInterval(() => {
+    if (document.hidden) return;
     if (shouldPollInbox()) {
       if (inboxPollInFlight) return;
       inboxPollInFlight = true;
@@ -2543,6 +2913,7 @@ function startInboxPolling() {
 function startMessagePolling(messageId: string) {
   if (messagePollTimer) return;
   messagePollTimer = setInterval(() => {
+    if (document.hidden) return;
     if (selectedMessage.value?.id !== messageId) {
       clearInterval(messagePollTimer as ReturnType<typeof setInterval>);
       messagePollTimer = null;
@@ -2557,11 +2928,6 @@ function startMessagePolling(messageId: string) {
   }, 1500);
 }
 
-function applyInboxFilters() {
-  inboxFilters.page = 1;
-  loadInbox();
-}
-
 async function loadAdminUsers() {
   adminUsers.value = await api.fetchAdminUsers();
 }
@@ -2569,7 +2935,14 @@ async function loadAdminUsers() {
 async function refreshAll() {
   loading.value = true;
   try {
-    await Promise.all([loadWebhooks(), loadInbox(), loadAdminUsers(), loadLabels(), loadUnreadCount(), loadWebhookProcessingStatus()]);
+    await Promise.all([
+      loadWebhooks(),
+      loadInbox(),
+      loadAdminUsers(),
+      loadLabels(),
+      loadUnreadCount(),
+      loadWebhookProcessingStatus()
+    ]);
     if (shouldPollInbox()) {
       startInboxPolling();
     }
@@ -2687,17 +3060,19 @@ async function createAction(webhook: InboundWebhook) {
                 devClawdbotWebhookUrl: draft.devClawdbotWebhookUrl?.trim() || undefined,
                 clawdbotMode: draft.clawdbotMode,
                 clawdbotTemplate:
-                  draft.clawdbotMode === 'RAW' ? undefined : draft.clawdbotTemplate?.trim() || undefined
+                  draft.clawdbotMode === 'RAW'
+                    ? undefined
+                    : draft.clawdbotTemplate?.trim() || undefined
               }
-          : draft.type === 'CRASH_REVIEW'
-            ? {
-                crashModel: draft.crashModel?.trim() || undefined,
-                crashMaxInputChars: draft.crashMaxInputChars,
-                crashMaxOutputTokens: draft.crashMaxOutputTokens,
-                crashTemperature: draft.crashTemperature,
-                crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined
-              }
-          : {}
+            : draft.type === 'CRASH_REVIEW'
+              ? {
+                  crashModel: draft.crashModel?.trim() || undefined,
+                  crashMaxInputChars: draft.crashMaxInputChars,
+                  crashMaxOutputTokens: draft.crashMaxOutputTokens,
+                  crashTemperature: draft.crashTemperature,
+                  crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined
+                }
+              : {}
     });
     webhook.actions = [
       ...(webhook.actions ?? []),
@@ -2707,11 +3082,14 @@ async function createAction(webhook: InboundWebhook) {
           discordWebhookUrl: action.config?.discordWebhookUrl,
           devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
           discordMode: action.config?.discordMode ?? 'WRAP',
-          discordTemplate: action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+          discordTemplate:
+            action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
           clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
           devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
           clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-          clawdbotTemplate: action.config?.clawdbotTemplate ?? '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
+          clawdbotTemplate:
+            action.config?.clawdbotTemplate ??
+            '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
           crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
           crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
@@ -2753,15 +3131,15 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                     ? undefined
                     : action.config.clawdbotTemplate?.trim() || undefined
               }
-          : action.type === 'CRASH_REVIEW'
-            ? {
-                crashModel: action.config.crashModel?.trim() || undefined,
-                crashMaxInputChars: action.config.crashMaxInputChars,
-                crashMaxOutputTokens: action.config.crashMaxOutputTokens,
-                crashTemperature: action.config.crashTemperature,
-                crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined
-              }
-          : {}
+            : action.type === 'CRASH_REVIEW'
+              ? {
+                  crashModel: action.config.crashModel?.trim() || undefined,
+                  crashMaxInputChars: action.config.crashMaxInputChars,
+                  crashMaxOutputTokens: action.config.crashMaxOutputTokens,
+                  crashTemperature: action.config.crashTemperature,
+                  crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined
+                }
+              : {}
     });
     webhook.actions = (webhook.actions ?? []).map((item) =>
       item.id === action.id
@@ -2853,9 +3231,10 @@ async function sendTest(webhook: InboundWebhook) {
     await loadInbox();
     addToast({
       title: 'Test Payload Sent',
-      message: repeatCount > 1
-        ? `Sent ${repeatCount} test payloads for ${webhook.label}.`
-        : `Queued test payload for ${webhook.label}.`
+      message:
+        repeatCount > 1
+          ? `Sent ${repeatCount} test payloads for ${webhook.label}.`
+          : `Queued test payload for ${webhook.label}.`
     });
   } catch (error) {
     const detail =
@@ -3008,7 +3387,11 @@ function formatRelativeTime(value?: string | null) {
   return formatDate(value);
 }
 
-function formatAdminName(user?: { displayName?: string; nickname?: string | null; email?: string }) {
+function formatAdminName(user?: {
+  displayName?: string;
+  nickname?: string | null;
+  email?: string;
+}) {
   if (!user) return 'Unassigned';
   return user.nickname || user.displayName || user.email || 'Admin';
 }
@@ -3031,11 +3414,6 @@ function getPendingDuration(message: InboundWebhookMessage) {
     return Math.max(0, nowTs.value - new Date(message.receivedAt).getTime());
   }
   return 0;
-}
-
-function getRunDuration(run: { createdAt?: string | null }) {
-  if (!run.createdAt) return 0;
-  return Math.max(0, nowTs.value - new Date(run.createdAt).getTime());
 }
 
 function isPendingRunFresh(run: { createdAt?: string | null }) {
@@ -3069,7 +3447,9 @@ function getCrashSummary(message: InboundWebhookMessage) {
 
 function getCrashRun(message: InboundWebhookMessage) {
   const runs = (message.actionRuns ?? []).filter((run) => run.action?.type === 'CRASH_REVIEW');
-  return runs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+  return runs.sort(
+    (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+  )[0];
 }
 
 function getCrashRunStatus(message: InboundWebhookMessage) {
@@ -3078,9 +3458,10 @@ function getCrashRunStatus(message: InboundWebhookMessage) {
 
 function getCrashRunModel(message: InboundWebhookMessage) {
   const run = getCrashRun(message);
-  const telemetry = run?.result && typeof run.result === 'object'
-    ? (run.result as Record<string, unknown>).telemetry
-    : null;
+  const telemetry =
+    run?.result && typeof run.result === 'object'
+      ? (run.result as Record<string, unknown>).telemetry
+      : null;
   if (telemetry && typeof telemetry === 'object') {
     const model = (telemetry as Record<string, unknown>).model;
     return typeof model === 'string' ? model : '';
@@ -3155,26 +3536,32 @@ interface TokenUsageData {
 function getCrashRunTokenUsage(message: InboundWebhookMessage): TokenUsageData | null {
   const run = getCrashRun(message);
   if (!run?.result || typeof run.result !== 'object') return null;
-  const telemetry = (run.result as Record<string, unknown>).telemetry as Record<string, unknown> | undefined;
+  const telemetry = (run.result as Record<string, unknown>).telemetry as
+    | Record<string, unknown>
+    | undefined;
   if (!telemetry || typeof telemetry !== 'object') return null;
 
   // Extract token counts from telemetry
   const outputTokens = typeof telemetry.outputTokens === 'number' ? telemetry.outputTokens : 0;
-  const thinkingTokens = typeof telemetry.thinkingTokens === 'number' ? telemetry.thinkingTokens : 0;
+  const thinkingTokens =
+    typeof telemetry.thinkingTokens === 'number' ? telemetry.thinkingTokens : 0;
   const totalTokens = typeof telemetry.totalTokens === 'number' ? telemetry.totalTokens : 0;
   const finishReason = typeof telemetry.finishReason === 'string' ? telemetry.finishReason : '';
 
   // Estimate input tokens from the request payload if available
   const requestPayload = telemetry.requestPayload as Record<string, unknown> | undefined;
   const analysisPayload = requestPayload?.analysis as Record<string, unknown> | undefined;
-  const contents = analysisPayload?.contents as Array<{ parts?: Array<{ text?: string }> }> | undefined;
+  const contents = analysisPayload?.contents as
+    | Array<{ parts?: Array<{ text?: string }> }>
+    | undefined;
   const promptText = contents?.[0]?.parts?.[0]?.text;
   // Rough estimate: ~4 chars per token for input
   const inputTokens = promptText ? Math.ceil(promptText.length / 4) : 0;
 
   // Get max output tokens from the config
   const config = analysisPayload?.config as Record<string, unknown> | undefined;
-  const maxOutputTokens = typeof config?.maxOutputTokens === 'number' ? config.maxOutputTokens : 16384;
+  const maxOutputTokens =
+    typeof config?.maxOutputTokens === 'number' ? config.maxOutputTokens : 16384;
 
   // Only return if we have meaningful data
   if (totalTokens === 0 && outputTokens === 0) return null;
@@ -3193,29 +3580,23 @@ function getCrashRunPrompt(message: InboundWebhookMessage | null) {
   if (!message) return null;
   const run = getCrashRun(message);
   if (!run?.result || typeof run.result !== 'object') return null;
-  const telemetry = (run.result as Record<string, unknown>).telemetry as Record<string, unknown> | undefined;
+  const telemetry = (run.result as Record<string, unknown>).telemetry as
+    | Record<string, unknown>
+    | undefined;
   if (!telemetry || typeof telemetry !== 'object') return null;
   const requestPayload = telemetry.requestPayload;
   if (!requestPayload || typeof requestPayload !== 'object') return null;
   return sanitizePromptPayload(requestPayload as Record<string, unknown>);
 }
 
-function getCrashRunError(message: InboundWebhookMessage) {
-  const run = getCrashRun(message);
-  if (!run || run.status !== 'FAILED') return '';
-  return run.error || 'Crash review failed. No error details were returned.';
-}
-
-async function copyCrashError(message: InboundWebhookMessage) {
-  const errorText = getCrashRunError(message);
-  if (!errorText) return;
-  await navigator.clipboard.writeText(errorText);
-}
-
 function getCrashReportText(message: InboundWebhookMessage) {
   const payload = message.payload as Record<string, unknown> | null;
   // Check crashReportText (primary field for crash reports)
-  if (payload && typeof payload.crashReportText === 'string' && payload.crashReportText.trim().length > 0) {
+  if (
+    payload &&
+    typeof payload.crashReportText === 'string' &&
+    payload.crashReportText.trim().length > 0
+  ) {
     return payload.crashReportText;
   }
   // Check message field
@@ -3239,9 +3620,10 @@ function getCrashReportText(message: InboundWebhookMessage) {
     return payload.raw;
   }
   // Check crashReport.rawHead (legacy format)
-  const rawHead = payload?.crashReport && typeof payload.crashReport === 'object'
-    ? (payload.crashReport as Record<string, unknown>).rawHead
-    : null;
+  const rawHead =
+    payload?.crashReport && typeof payload.crashReport === 'object'
+      ? (payload.crashReport as Record<string, unknown>).rawHead
+      : null;
   if (typeof rawHead === 'string' && rawHead.trim().length > 0) {
     return rawHead;
   }
@@ -3277,7 +3659,9 @@ function formatFindingsText(result: unknown) {
     const record = item as Record<string, unknown>;
     const title = typeof record.title === 'string' ? record.title : `Hypothesis ${index + 1}`;
     const confidence =
-      typeof record.confidence === 'number' ? ` (${Math.round(record.confidence * 100)}% confidence)` : '';
+      typeof record.confidence === 'number'
+        ? ` (${Math.round(record.confidence * 100)}% confidence)`
+        : '';
     const evidence = Array.isArray(record.evidence)
       ? record.evidence.map((entry) => `  - ${entry}`)
       : [];
@@ -3348,7 +3732,9 @@ async function copyPromptJson() {
 function sanitizePromptPayload(payload: Record<string, unknown>) {
   const sanitized = { ...payload } as Record<string, unknown>;
   if (typeof sanitized.contents === 'string') {
-    sanitized.contents = sanitized.contents.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim();
+    sanitized.contents = sanitized.contents
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+      .trim();
   }
   return sanitized;
 }
@@ -3415,11 +3801,13 @@ function clearSelection() {
   selectedMessageIds.value = new Set();
 }
 
-const allSelected = computed(() =>
-  inboxMessages.value.length > 0 && selectedMessageIds.value.size === inboxMessages.value.length
+const allSelected = computed(
+  () =>
+    inboxMessages.value.length > 0 && selectedMessageIds.value.size === inboxMessages.value.length
 );
-const someSelected = computed(() =>
-  selectedMessageIds.value.size > 0 && selectedMessageIds.value.size < inboxMessages.value.length
+const someSelected = computed(
+  () =>
+    selectedMessageIds.value.size > 0 && selectedMessageIds.value.size < inboxMessages.value.length
 );
 
 async function bulkMarkRead() {
@@ -3548,7 +3936,10 @@ async function bulkStar(starred: boolean) {
       messageIds: Array.from(selectedMessageIds.value),
       action: starred ? 'star' : 'unstar'
     });
-    addToast({ title: 'Success', message: `${starred ? 'Starred' : 'Unstarred'} ${result.success} messages` });
+    addToast({
+      title: 'Success',
+      message: `${starred ? 'Starred' : 'Unstarred'} ${result.success} messages`
+    });
     inboxMessages.value.forEach((m) => {
       if (selectedMessageIds.value.has(m.id)) m.isStarred = starred;
     });
@@ -3710,7 +4101,10 @@ async function submitLabelInput(message: InboundWebhookMessage) {
 
 async function removeLabel(message: InboundWebhookMessage, labelId: string) {
   const currentIds = getMessageLabelIds(message);
-  await setMessageLabels(message.id, currentIds.filter((id) => id !== labelId));
+  await setMessageLabels(
+    message.id,
+    currentIds.filter((id) => id !== labelId)
+  );
 }
 
 function sortedLabels(labels: WebhookMessageLabel[] | undefined): WebhookMessageLabel[] {
@@ -3744,11 +4138,12 @@ function handleGlobalClick(event: MouseEvent) {
 
 // ==================== Message Merging ====================
 
-function openMergeModal() {
+async function openMergeModal() {
   if (selectedMessageIds.value.size < 2) {
     addToast({ title: 'Warning', message: 'Select at least 2 messages to combine' });
     return;
   }
+  await Promise.all(Array.from(selectedMessageIds.value).map((id) => ensureFullInboxMessage(id)));
   // Order by receivedAt (chronological)
   const selectedMsgs = inboxMessages.value
     .filter((m) => selectedMessageIds.value.has(m.id))
@@ -3805,9 +4200,10 @@ async function sortWithAi() {
 
     // Build toast message
     const removedCount = removeIds.length;
-    const toastMessage = removedCount > 0
-      ? `Confidence: ${Math.round(result.confidence * 100)}% | Deleted ${removedCount} redundant segment${removedCount > 1 ? 's' : ''}`
-      : `Confidence: ${Math.round(result.confidence * 100)}%`;
+    const toastMessage =
+      removedCount > 0
+        ? `Confidence: ${Math.round(result.confidence * 100)}% | Deleted ${removedCount} redundant segment${removedCount > 1 ? 's' : ''}`
+        : `Confidence: ${Math.round(result.confidence * 100)}%`;
 
     addToast({
       title: 'Sorted with AI',
@@ -4085,23 +4481,29 @@ async function openMessageFromUrl(messageId: string) {
 
       // Auto-mark as read (don't await to avoid blocking)
       if (!message.isRead) {
-        api.markWebhookMessageRead(message.id, true).then(() => {
-          if (selectedMessage.value?.id === message.id) {
-            selectedMessage.value.isRead = true;
-          }
-          const index = inboxMessages.value.findIndex((m) => m.id === message.id);
-          if (index >= 0) {
-            inboxMessages.value[index].isRead = true;
-          }
-          unreadCount.value = Math.max(0, unreadCount.value - 1);
-        }).catch((err) => {
-          console.error('Failed to mark message as read:', err);
-        });
+        api
+          .markWebhookMessageRead(message.id, true)
+          .then(() => {
+            if (selectedMessage.value?.id === message.id) {
+              selectedMessage.value.isRead = true;
+            }
+            const index = inboxMessages.value.findIndex((m) => m.id === message.id);
+            if (index >= 0) {
+              inboxMessages.value[index].isRead = true;
+            }
+            unreadCount.value = Math.max(0, unreadCount.value - 1);
+          })
+          .catch((err) => {
+            console.error('Failed to mark message as read:', err);
+          });
       }
 
       // Don't clear URL - let the messageId persist
       await nextTick();
-      console.log('[Webhook Inbox] Modal should now be visible, selectedMessage:', selectedMessage.value?.id);
+      console.log(
+        '[Webhook Inbox] Modal should now be visible, selectedMessage:',
+        selectedMessage.value?.id
+      );
     }
   } catch (err) {
     console.warn('[Webhook Inbox] Failed to load message from URL:', err);
@@ -4127,7 +4529,12 @@ watch(
 
     // Only open modal if there's a new messageId (not when clearing)
     if (id && typeof id === 'string') {
-      console.log('[Webhook Inbox] Watcher detected messageId:', id, 'componentReady:', componentReady.value);
+      console.log(
+        '[Webhook Inbox] Watcher detected messageId:',
+        id,
+        'componentReady:',
+        componentReady.value
+      );
       processingUrlMessage = true;
       try {
         if (componentReady.value) {
@@ -4152,6 +4559,7 @@ onMounted(async () => {
 
   // Add global click handler to close label dropdown
   document.addEventListener('click', handleGlobalClick);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 
   // Start processing status polling if auto-merge is active
   if (isAutoMergeActive.value) {
@@ -4183,6 +4591,7 @@ onBeforeUnmount(() => {
   }
   stopProcessingStatusPolling();
   document.removeEventListener('click', handleGlobalClick);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 // ============================================================================
@@ -4219,8 +4628,8 @@ function handleHighlightHover(event: MouseEvent) {
   const severity = target.classList.contains('highlight--critical')
     ? 'critical'
     : target.classList.contains('highlight--important')
-    ? 'important'
-    : 'info';
+      ? 'important'
+      : 'info';
 
   if (!tooltip) return;
 
@@ -4324,7 +4733,6 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
 </script>
 
 <style scoped>
@@ -4707,7 +5115,7 @@ function escapeHtml(text: string): string {
 }
 
 .auto-merge-badge::before {
-  content: "";
+  content: '';
   width: 6px;
   height: 6px;
   background: #22c55e;
@@ -4716,8 +5124,13 @@ function escapeHtml(text: string): string {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
 }
 
 .processing-badge {
@@ -4736,7 +5149,7 @@ function escapeHtml(text: string): string {
 }
 
 .processing-badge::before {
-  content: "";
+  content: '';
   width: 6px;
   height: 6px;
   background: #f59e0b;
@@ -4781,7 +5194,7 @@ function escapeHtml(text: string): string {
   white-space: nowrap;
 }
 
-.filter-toggle input[type="checkbox"] {
+.filter-toggle input[type='checkbox'] {
   width: 1rem;
   height: 1rem;
   cursor: pointer;
@@ -4827,7 +5240,9 @@ function escapeHtml(text: string): string {
   border: 1px solid rgba(148, 163, 184, 0.3);
   background: rgba(15, 23, 42, 0.8);
   color: #e2e8f0;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.4), 0 6px 20px rgba(15, 23, 42, 0.25);
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.4),
+    0 6px 20px rgba(15, 23, 42, 0.25);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
@@ -4858,7 +5273,10 @@ function escapeHtml(text: string): string {
     calc(100% - 20px) calc(50% - 3px),
     calc(100% - 14px) calc(50% - 3px),
     calc(100% - 2.4rem) 50%;
-  background-size: 6px 6px, 6px 6px, 1px 60%;
+  background-size:
+    6px 6px,
+    6px 6px,
+    1px 60%;
   background-repeat: no-repeat;
   padding-right: 2.8rem;
 }
@@ -5370,7 +5788,10 @@ input[type='checkbox']:checked::after {
   color: rgba(226, 232, 240, 0.85);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -5492,7 +5913,7 @@ input[type='checkbox']:checked::after {
   font-size: 0.875rem;
   font-weight: 600;
   color: #60a5fa;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .settings-info-banner {
@@ -5646,7 +6067,7 @@ input[type='checkbox']:checked::after {
 
 .toggle-slider::before {
   position: absolute;
-  content: "";
+  content: '';
   height: 18px;
   width: 18px;
   left: 3px;
@@ -5842,7 +6263,7 @@ input[type='checkbox']:checked::after {
 .code-link {
   color: #60a5fa;
   text-decoration: none;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.9em;
   background: rgba(96, 165, 250, 0.1);
   padding: 0.1em 0.3em;
@@ -5857,7 +6278,7 @@ input[type='checkbox']:checked::after {
 
 /* Inline code for non-linked file paths */
 .inline-code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.9em;
   background: rgba(148, 163, 184, 0.15);
   padding: 0.1em 0.3em;
@@ -6030,8 +6451,13 @@ input[type='checkbox']:checked::after {
 }
 
 @keyframes pendingGroupPulse {
-  0%, 100% { background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%); }
-  50% { background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(30, 41, 59, 0.5) 100%); }
+  0%,
+  100% {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(30, 41, 59, 0.5) 100%);
+  }
 }
 
 .pending-group-row--processing {
@@ -6041,8 +6467,13 @@ input[type='checkbox']:checked::after {
 }
 
 @keyframes processingGroupPulse {
-  0%, 100% { background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%); }
-  50% { background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 41, 59, 0.5) 100%); }
+  0%,
+  100% {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(30, 41, 59, 0.4) 100%);
+  }
+  50% {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(30, 41, 59, 0.5) 100%);
+  }
 }
 
 .pending-group-placeholder {
@@ -6088,7 +6519,7 @@ input[type='checkbox']:checked::after {
 
 .pending-group-key {
   color: #94a3b8;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 0.8rem;
 }
 
@@ -6100,7 +6531,7 @@ input[type='checkbox']:checked::after {
 
 .pending-group-timer strong {
   color: #fbbf24;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
 .pending-group-actions {
@@ -6130,8 +6561,12 @@ input[type='checkbox']:checked::after {
 }
 
 @keyframes spinnerRotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Merge group visual styling */
@@ -6238,7 +6673,9 @@ input[type='checkbox']:checked::after {
   border-radius: 50%;
   cursor: pointer;
   opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
 }
 
 .label-chip__remove:hover {
@@ -6323,7 +6760,10 @@ input[type='checkbox']:checked::after {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.5rem;
   cursor: grab;
-  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s,
+    opacity 0.15s;
 }
 
 .merge-item:active {
@@ -6687,12 +7127,17 @@ input[type='checkbox']:checked::after {
 }
 
 @keyframes ring-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes icon-pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 1;
   }
@@ -6732,12 +7177,20 @@ input[type='checkbox']:checked::after {
   animation: dot-bounce 1.4s ease-in-out infinite;
 }
 
-.ai-dot:nth-child(1) { animation-delay: 0s; }
-.ai-dot:nth-child(2) { animation-delay: 0.2s; }
-.ai-dot:nth-child(3) { animation-delay: 0.4s; }
+.ai-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+.ai-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.ai-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
 
 @keyframes dot-bounce {
-  0%, 80%, 100% {
+  0%,
+  80%,
+  100% {
     transform: scale(0.6);
     opacity: 0.5;
   }
@@ -6933,5 +7386,4 @@ input[type='checkbox']:checked::after {
 .inspector-tooltip.tooltip--info .tooltip-category {
   color: #93c5fd;
 }
-
 </style>

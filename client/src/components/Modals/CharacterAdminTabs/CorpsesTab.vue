@@ -35,15 +35,25 @@
               </td>
               <td class="col-location">
                 <span class="coords">
-                  {{ formatCoord(corpse.x) }}, {{ formatCoord(corpse.y) }}, {{ formatCoord(corpse.z) }}
+                  {{ formatCoord(corpse.x) }}, {{ formatCoord(corpse.y) }},
+                  {{ formatCoord(corpse.z) }}
                 </span>
               </td>
               <td class="col-status">
                 <div class="status-flags">
-                  <span v-if="corpse.isRezzed" class="status-flag status-flag--success">Rezzed</span>
-                  <span v-if="corpse.isBuried" class="status-flag status-flag--warning">Buried</span>
-                  <span v-if="corpse.wasAtGraveyard" class="status-flag status-flag--info">Graveyard</span>
-                  <span v-if="!corpse.isRezzed && !corpse.isBuried" class="status-flag status-flag--neutral">
+                  <span v-if="corpse.isRezzed" class="status-flag status-flag--success"
+                    >Rezzed</span
+                  >
+                  <span v-if="corpse.isBuried" class="status-flag status-flag--warning"
+                    >Buried</span
+                  >
+                  <span v-if="corpse.wasAtGraveyard" class="status-flag status-flag--info"
+                    >Graveyard</span
+                  >
+                  <span
+                    v-if="!corpse.isRezzed && !corpse.isBuried"
+                    class="status-flag status-flag--neutral"
+                  >
                     Active
                   </span>
                 </div>
@@ -67,9 +77,7 @@
           </tbody>
         </table>
 
-        <div v-else class="no-data">
-          No corpses found for this character
-        </div>
+        <div v-else class="no-data">No corpses found for this character</div>
       </div>
     </template>
   </div>
@@ -138,7 +146,8 @@ function hasMoney(corpse: CharacterCorpse): boolean {
   width: 100%;
   border-collapse: collapse;
 
-  th, td {
+  th,
+  td {
     padding: 0.75rem;
     text-align: left;
     border-bottom: 1px solid #334155;

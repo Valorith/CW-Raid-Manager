@@ -1,6 +1,5 @@
-import type { GuildDiscordWebhookSettings } from './api';
-
-const timestampRegex = /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
+const timestampRegex =
+  /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
 
 export interface GuildLootParserPattern {
   id: string;
@@ -86,9 +85,7 @@ export function parseLootLog(
 
         const itemIdRaw = match.groups?.itemId ?? null;
         const parsedItemId =
-          typeof itemIdRaw === 'string' && itemIdRaw.trim().length > 0
-            ? Number(itemIdRaw)
-            : null;
+          typeof itemIdRaw === 'string' && itemIdRaw.trim().length > 0 ? Number(itemIdRaw) : null;
         const { itemName: normalizedItemName, itemId: derivedItemId } = parseItemDetails(
           itemSource,
           Number.isFinite(parsedItemId) ? parsedItemId : null

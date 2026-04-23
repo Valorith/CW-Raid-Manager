@@ -18,8 +18,17 @@
       <div class="wizard-tab__hero-copy">
         <div class="wizard-tab__title-row">
           <div class="wizard-tab__title-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
           <div>
@@ -64,7 +73,13 @@
             :disabled="eqGameDirectoryScanning || eqGameDirectoryLoading"
             @click="refreshTraderIniOptions()"
           >
-            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+            <svg viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fill-rule="evenodd"
+                d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                clip-rule="evenodd"
+              />
+            </svg>
           </button>
         </div>
       </div>
@@ -75,7 +90,13 @@
           :disabled="traderLinkActionDisabled"
           @click="handleLinkTraderIni"
         >
-          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9.414 4.586A2 2 0 008 4H4zm7 5a1 1 0 10-2 0v1H8a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V9z" clip-rule="evenodd"/></svg>
+          <svg viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fill-rule="evenodd"
+              d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9.414 4.586A2 2 0 008 4H4zm7 5a1 1 0 10-2 0v1H8a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V9z"
+              clip-rule="evenodd"
+            />
+          </svg>
           {{ traderLinkActionDisabled ? 'Linking...' : 'Link Trader INI' }}
         </button>
         <span class="wizard-directory-setup__hint">
@@ -107,7 +128,13 @@
               :disabled="!hasEntries || hasInvalidPriceInputs || saveInFlight"
               @click="saveIniFile"
             >
-              <svg class="wizard-btn-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+              <svg class="wizard-btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path
+                  fill-rule="evenodd"
+                  d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z"
+                  clip-rule="evenodd"
+                />
+              </svg>
               {{ saveButtonLabel }}
             </button>
           </div>
@@ -118,7 +145,11 @@
     <div v-if="fileName" class="wizard-summary">
       <article class="wizard-stat wizard-stat--file">
         <div class="wizard-stat__head">
-          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor"><path d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7.414A2 2 0 0017.414 6L14 2.586A2 2 0 0012.586 2H4zm8 1.414L15.586 7H13a1 1 0 01-1-1V3.414zM4 4h6v2a3 3 0 003 3h2v7H4V4z"/></svg>
+          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M4 2a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V7.414A2 2 0 0017.414 6L14 2.586A2 2 0 0012.586 2H4zm8 1.414L15.586 7H13a1 1 0 01-1-1V3.414zM4 4h6v2a3 3 0 003 3h2v7H4V4z"
+            />
+          </svg>
           <span class="wizard-stat__label">File</span>
         </div>
         <strong class="wizard-stat__value wizard-stat__value--sm">{{ fileName }}</strong>
@@ -128,7 +159,11 @@
       </article>
       <article class="wizard-stat wizard-stat--entries">
         <div class="wizard-stat__head">
-          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h8a1 1 0 110 2H4a1 1 0 01-1-1z"/></svg>
+          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h8a1 1 0 110 2H4a1 1 0 01-1-1z"
+            />
+          </svg>
           <span class="wizard-stat__label">Entries</span>
         </div>
         <strong class="wizard-stat__value">{{ formatNumber(entries.length) }}</strong>
@@ -136,7 +171,11 @@
       </article>
       <article class="wizard-stat wizard-stat--recommendations">
         <div class="wizard-stat__head">
-          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.615 1.738 4.346a1 1 0 01-.025.846A3.955 3.955 0 0114.6 14H14a3.98 3.98 0 01-3-1.357A3.98 3.98 0 018 14h-.6a3.955 3.955 0 01-3.327-1.298 1 1 0 01-.025-.846l1.738-4.346-1.233-.617a1 1 0 11.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1z"/></svg>
+          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.615 1.738 4.346a1 1 0 01-.025.846A3.955 3.955 0 0114.6 14H14a3.98 3.98 0 01-3-1.357A3.98 3.98 0 018 14h-.6a3.955 3.955 0 01-3.327-1.298 1 1 0 01-.025-.846l1.738-4.346-1.233-.617a1 1 0 11.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1z"
+            />
+          </svg>
           <span class="wizard-stat__label">Recommendations</span>
         </div>
         <strong class="wizard-stat__value">{{ formatNumber(recommendationCount) }}</strong>
@@ -144,7 +183,11 @@
       </article>
       <article class="wizard-stat wizard-stat--edited">
         <div class="wizard-stat__head">
-          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-8.793 8.793-3.536.707.707-3.536 8.793-8.793z"/></svg>
+          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              d="M13.586 3.586a2 2 0 112.828 2.828l-8.793 8.793-3.536.707.707-3.536 8.793-8.793z"
+            />
+          </svg>
           <span class="wizard-stat__label">Edited</span>
         </div>
         <strong class="wizard-stat__value">{{ formatNumber(editedEntryCount) }}</strong>
@@ -154,7 +197,13 @@
       </article>
       <article class="wizard-stat wizard-stat--status">
         <div class="wizard-stat__head">
-          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          <svg class="wizard-stat__icon" viewBox="0 0 20 20" fill="currentColor">
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clip-rule="evenodd"
+            />
+          </svg>
           <span class="wizard-stat__label">Export</span>
         </div>
         <strong class="wizard-stat__value">{{ formatNumber(invalidPriceEntryCount) }}</strong>
@@ -168,7 +217,13 @@
       <div class="wizard-controls">
         <label class="wizard-control wizard-control--search">
           <span class="wizard-control__label">
-            <svg class="wizard-control__icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+            <svg class="wizard-control__icon" viewBox="0 0 20 20" fill="currentColor">
+              <path
+                fill-rule="evenodd"
+                d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z"
+                clip-rule="evenodd"
+              />
+            </svg>
             Search
           </span>
           <input
@@ -242,7 +297,11 @@
             <span class="wizard-grid__hdr-label wizard-grid__hdr-label--center">Actions</span>
           </div>
 
-          <div v-if="topSpacerHeight > 0" :style="{ height: topSpacerHeight + 'px' }" aria-hidden="true"></div>
+          <div
+            v-if="topSpacerHeight > 0"
+            :style="{ height: topSpacerHeight + 'px' }"
+            aria-hidden="true"
+          ></div>
 
           <div
             v-for="row in visibleRows"
@@ -264,10 +323,9 @@
                 <strong>{{ row.name }}</strong>
                 <div class="wizard-item__meta">
                   <small class="muted">ID {{ formatNumber(row.entry.itemId) }}</small>
-                  <span
-                    v-if="row.entry.variantCharges != null"
-                    class="wizard-suffix-tag"
-                  >:{{ formatNumber(row.entry.variantCharges) }}</span>
+                  <span v-if="row.entry.variantCharges != null" class="wizard-suffix-tag"
+                    >:{{ formatNumber(row.entry.variantCharges) }}</span
+                  >
                   <span v-else class="wizard-suffix-tag wizard-suffix-tag--base">Base</span>
                   <span
                     v-if="row.isAppliedRecommendation"
@@ -318,10 +376,42 @@
                 :class="'wizard-arrow--' + row.direction"
                 :title="row.directionLabel"
               >
-                <svg v-if="row.direction === 'lower'" class="wizard-arrow__svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 14l-5-6h10z" /></svg>
-                <svg v-else-if="row.direction === 'raise'" class="wizard-arrow__svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 6l5 6H5z" /></svg>
-                <svg v-else-if="row.direction === 'keep'" class="wizard-arrow__svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M14 10l-5 5V5z" /></svg>
-                <svg v-else class="wizard-arrow__svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="10" r="2.5" /></svg>
+                <svg
+                  v-if="row.direction === 'lower'"
+                  class="wizard-arrow__svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M10 14l-5-6h10z" />
+                </svg>
+                <svg
+                  v-else-if="row.direction === 'raise'"
+                  class="wizard-arrow__svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M10 6l5 6H5z" />
+                </svg>
+                <svg
+                  v-else-if="row.direction === 'keep'"
+                  class="wizard-arrow__svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M14 10l-5 5V5z" />
+                </svg>
+                <svg
+                  v-else
+                  class="wizard-arrow__svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <circle cx="10" cy="10" r="2.5" />
+                </svg>
               </div>
               <span v-else class="wizard-no-arrow">--</span>
             </div>
@@ -339,7 +429,9 @@
                 >
                   Applied to this row. Save to persist it.
                 </small>
-                <small v-else-if="row.recHeadline" class="muted wizard-rec-source">{{ row.recHeadline }}</small>
+                <small v-else-if="row.recHeadline" class="muted wizard-rec-source">{{
+                  row.recHeadline
+                }}</small>
               </template>
               <span v-else class="muted">No signal</span>
             </div>
@@ -349,7 +441,9 @@
               <template v-if="row.rec && row.rec.lowestListingPrice != null">
                 <div class="wizard-intel-row">
                   <span class="wizard-intel-label">Lowest</span>
-                  <strong><CoinDisplay variant="platinum" :amount-in-copper="row.rec.lowestListingPrice" /></strong>
+                  <strong
+                    ><CoinDisplay variant="platinum" :amount-in-copper="row.rec.lowestListingPrice"
+                  /></strong>
                 </div>
                 <div class="wizard-intel-row">
                   <span class="wizard-intel-label">Listings</span>
@@ -363,7 +457,11 @@
               <template v-else-if="row.rec && row.rec.historicalAveragePrice != null">
                 <div class="wizard-intel-row">
                   <span class="wizard-intel-label">Avg</span>
-                  <strong><CoinDisplay variant="platinum" :amount-in-copper="row.rec.historicalAveragePrice" /></strong>
+                  <strong
+                    ><CoinDisplay
+                      variant="platinum"
+                      :amount-in-copper="row.rec.historicalAveragePrice"
+                  /></strong>
                 </div>
                 <small class="muted">Historical average</small>
               </template>
@@ -383,7 +481,11 @@
             </div>
           </div>
 
-          <div v-if="bottomSpacerHeight > 0" :style="{ height: bottomSpacerHeight + 'px' }" aria-hidden="true"></div>
+          <div
+            v-if="bottomSpacerHeight > 0"
+            :style="{ height: bottomSpacerHeight + 'px' }"
+            aria-hidden="true"
+          ></div>
 
           <p v-if="enrichedRows.length === 0" class="empty muted wizard-grid__empty">
             No entries match the current filter.
@@ -397,9 +499,8 @@
       <p class="wizard-controls-shell__eyebrow">Ready to Import</p>
       <h3>Load a bazaar price file</h3>
       <p class="muted">
-        Drop a file like `BZR_YourTrader_CWR.ini`. The wizard links that trader INI in this
-        browser, reads the `[ItemToSell]` section, and surfaces market recommendations for quick
-        edits.
+        Drop a file like `BZR_YourTrader_CWR.ini`. The wizard links that trader INI in this browser,
+        reads the `[ItemToSell]` section, and surfaces market recommendations for quick edits.
       </p>
       <div class="wizard-chip-row wizard-chip-row--empty">
         <span class="wizard-chip wizard-chip--sky">Drop trader INI anywhere in this tab</span>
@@ -459,7 +560,11 @@
           <button type="button" class="btn btn--outline" @click="resolveSaveConfirmation(false)">
             Cancel
           </button>
-          <button type="button" class="btn wizard-save-modal__confirm" @click="resolveSaveConfirmation(true)">
+          <button
+            type="button"
+            class="btn wizard-save-modal__confirm"
+            @click="resolveSaveConfirmation(true)"
+          >
             {{ saveConfirmButtonLabel }}
           </button>
         </div>
@@ -474,10 +579,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import CoinDisplay from '../../components/CoinDisplay.vue';
 import { useToastBus } from '../../components/ToastBus';
 import { useErrorModal } from '../../composables/useErrorModal';
-import {
-  api,
-  type MarketPriceWizardRecommendation
-} from '../../services/api';
+import { api, type MarketPriceWizardRecommendation } from '../../services/api';
 import { useAuthStore } from '../../stores/auth';
 import {
   deleteMarketPriceWizardTraderFileHandle,
@@ -651,14 +753,11 @@ function handleGridWheel(event: WheelEvent) {
   const isAtTop = el.scrollTop <= 1;
   const isAtBottom = el.scrollTop >= maxScrollTop - 1;
   const canScrollVertically =
-    Math.abs(deltaY) > 0.01
-    && ((deltaY < 0 && !isAtTop) || (deltaY > 0 && !isAtBottom));
+    Math.abs(deltaY) > 0.01 && ((deltaY < 0 && !isAtTop) || (deltaY > 0 && !isAtBottom));
   const canScrollHorizontally =
-    Math.abs(deltaX) > 0.01
-    && (
-      (deltaX < 0 && el.scrollLeft > 1)
-      || (deltaX > 0 && el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
-    );
+    Math.abs(deltaX) > 0.01 &&
+    ((deltaX < 0 && el.scrollLeft > 1) ||
+      (deltaX > 0 && el.scrollLeft < el.scrollWidth - el.clientWidth - 1));
 
   if (canScrollVertically || canScrollHorizontally) {
     return;
@@ -958,7 +1057,10 @@ async function openTraderIniPicker() {
       return false;
     }
 
-    const hasReadPermission = await requestHandlePermission(nextFileHandle as PermissionCapableHandle, 'read');
+    const hasReadPermission = await requestHandlePermission(
+      nextFileHandle as PermissionCapableHandle,
+      'read'
+    );
     if (!hasReadPermission) {
       showError('Read access to the selected trader INI was not granted.');
       return false;
@@ -1088,7 +1190,9 @@ async function getFileHandleFromDrop(event: DragEvent): Promise<FileSystemFileHa
   return null;
 }
 
-function buildIniEntryLine(entry: Pick<PriceWizardEntry, 'itemId' | 'variantCharges' | 'priceCopper'>) {
+function buildIniEntryLine(
+  entry: Pick<PriceWizardEntry, 'itemId' | 'variantCharges' | 'priceCopper'>
+) {
   const key =
     entry.variantCharges != null ? `${entry.itemId}:${entry.variantCharges}` : String(entry.itemId);
   return `${key}=${entry.priceCopper}`;
@@ -1101,8 +1205,13 @@ function buildSavedIniContent() {
   }
 
   if (originalIniLines.value.length === 0) {
-    const orderedEntries = [...editedEntries].sort((left, right) => left.originalOrder - right.originalOrder);
-    const fallbackLines = ['[ItemToSell]', ...orderedEntries.map((entry) => buildIniEntryLine(entry))];
+    const orderedEntries = [...editedEntries].sort(
+      (left, right) => left.originalOrder - right.originalOrder
+    );
+    const fallbackLines = [
+      '[ItemToSell]',
+      ...orderedEntries.map((entry) => buildIniEntryLine(entry))
+    ];
     return `${fallbackLines.join('\r\n')}\r\n`;
   }
 
@@ -1162,10 +1271,7 @@ async function writeContentToHandle(handle: FileSystemFileHandle, content: strin
   await writable.close();
 }
 
-function showSaveConfirmation(options: {
-  targetFileName: string;
-  editedCount: number;
-}) {
+function showSaveConfirmation(options: { targetFileName: string; editedCount: number }) {
   saveConfirmEyebrow.value = 'Confirm Save';
   saveConfirmTitle.value = `Overwrite ${options.targetFileName}?`;
   saveConfirmTargetFileName.value = options.targetFileName;
@@ -1185,10 +1291,7 @@ function showSaveConfirmation(options: {
   });
 }
 
-function showReloadConfirmation(options: {
-  targetFileName: string;
-  editedCount: number;
-}) {
+function showReloadConfirmation(options: { targetFileName: string; editedCount: number }) {
   saveConfirmEyebrow.value = 'Confirm Reload';
   saveConfirmTitle.value = `Reload ${options.targetFileName}?`;
   saveConfirmTargetFileName.value = options.targetFileName;
@@ -1305,10 +1408,6 @@ function getEntryName(entry: Pick<PriceWizardEntry, 'itemId' | 'variantCharges'>
   return getRecommendation(entry)?.itemName ?? `Item ${entry.itemId}`;
 }
 
-function getEntryIconId(entry: Pick<PriceWizardEntry, 'itemId' | 'variantCharges'>) {
-  return getRecommendation(entry)?.itemIconId ?? null;
-}
-
 function isEntryPriceInvalid(entry: PriceWizardEntry) {
   return parsePriceInputToCopper(entry.priceInput) == null;
 }
@@ -1338,7 +1437,11 @@ function isEntryEdited(entry: PriceWizardEntry) {
 
 function isAppliedRecommendation(entry: PriceWizardEntry) {
   const recommendation = getRecommendation(entry);
-  return isEntryEdited(entry) && recommendation?.recommendedPrice != null && !isRecommendationActionable(entry);
+  return (
+    isEntryEdited(entry) &&
+    recommendation?.recommendedPrice != null &&
+    !isRecommendationActionable(entry)
+  );
 }
 
 function getRecommendationHeadline(recommendation: MarketPriceWizardRecommendation) {
@@ -1406,14 +1509,6 @@ function getRecommendationDirection(entry: PriceWizardEntry): 'lower' | 'raise' 
   return 'keep';
 }
 
-function getRecommendationDirectionArrow(entry: PriceWizardEntry) {
-  const direction = getRecommendationDirection(entry);
-  if (direction === 'lower') return '↓';
-  if (direction === 'raise') return '↑';
-  if (direction === 'keep') return '→';
-  return '•';
-}
-
 function getRecommendationDirectionLabel(entry: PriceWizardEntry) {
   if (getRecommendation(entry)?.recommendedPrice != null && !isRecommendationActionable(entry)) {
     return 'On target';
@@ -1424,14 +1519,6 @@ function getRecommendationDirectionLabel(entry: PriceWizardEntry) {
   if (direction === 'raise') return 'Raise price';
   if (direction === 'keep') return 'Keep price';
   return 'No recommendation';
-}
-
-function getRecommendationDirectionClass(entry: PriceWizardEntry) {
-  const direction = getRecommendationDirection(entry);
-  if (direction === 'lower') return 'wizard-direction-badge--lower';
-  if (direction === 'raise') return 'wizard-direction-badge--raise';
-  if (direction === 'keep') return 'wizard-direction-badge--keep';
-  return 'wizard-direction-badge--none';
 }
 
 function formatCopperAsCurrency(valueInCopper: number): string {
@@ -1671,7 +1758,7 @@ async function loadIniFile(
   selectedTraderIniFileName.value =
     selectedOption?.fileName === file.name
       ? selectedOption.relativePath
-      : matchingOption?.relativePath ?? '';
+      : (matchingOption?.relativePath ?? '');
   activeFileHandle.value = options.fileHandle ?? null;
   canOverwriteLoadedFile.value = options.canOverwriteLoadedFile ?? false;
   entries.value = parsed.entries;
@@ -1782,8 +1869,7 @@ async function saveIniFile() {
     return;
   }
 
-  const targetFileName =
-    activeFileHandle.value?.name ?? getSuggestedIniFileName();
+  const targetFileName = activeFileHandle.value?.name ?? getSuggestedIniFileName();
 
   try {
     if (activeFileHandle.value && canOverwriteLoadedFile.value) {
@@ -1915,8 +2001,8 @@ const traderPickerDisabled = computed(
 const traderLinkActionDisabled = computed(
   () => eqGameDirectorySaving.value || eqGameDirectoryLoading.value
 );
-const recommendationCount = computed(() =>
-  entries.value.filter((entry) => isRecommendationActionable(entry)).length
+const recommendationCount = computed(
+  () => entries.value.filter((entry) => isRecommendationActionable(entry)).length
 );
 const editedEntryCount = computed(
   () => entries.value.filter((entry) => isEntryEdited(entry)).length
@@ -2253,7 +2339,10 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   background-repeat: no-repeat;
   background-position: right 0.45rem center;
   background-size: 1rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .wizard-trader-picker__select:hover:not(:disabled) {
@@ -2265,7 +2354,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
 .wizard-trader-picker__select:focus {
   outline: none;
   border-color: #22d3ee;
-  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.18), 0 2px 8px rgba(34, 211, 238, 0.08);
+  box-shadow:
+    0 0 0 2px rgba(34, 211, 238, 0.18),
+    0 2px 8px rgba(34, 211, 238, 0.08);
   background-color: rgba(2, 6, 23, 0.85);
 }
 
@@ -2286,7 +2377,11 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   background: rgba(2, 6, 23, 0.5);
   color: rgba(148, 163, 184, 0.7);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 
 .wizard-trader-picker__icon-btn:hover:not(:disabled) {
@@ -2325,7 +2420,11 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
   white-space: nowrap;
 }
 
@@ -2514,26 +2613,66 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   opacity: 0.8;
 }
 
-.wizard-stat--file { background: radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.08), transparent 60%), var(--wizard-surface); }
-.wizard-stat--entries { background: radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.08), transparent 60%), var(--wizard-surface); }
-.wizard-stat--recommendations { background: radial-gradient(circle at bottom right, rgba(52, 211, 153, 0.08), transparent 60%), var(--wizard-surface); }
-.wizard-stat--edited { background: radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.08), transparent 60%), var(--wizard-surface); }
-.wizard-stat--status { background: radial-gradient(circle at bottom right, rgba(248, 113, 113, 0.08), transparent 60%), var(--wizard-surface); }
+.wizard-stat--file {
+  background:
+    radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.08), transparent 60%),
+    var(--wizard-surface);
+}
+.wizard-stat--entries {
+  background:
+    radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.08), transparent 60%),
+    var(--wizard-surface);
+}
+.wizard-stat--recommendations {
+  background:
+    radial-gradient(circle at bottom right, rgba(52, 211, 153, 0.08), transparent 60%),
+    var(--wizard-surface);
+}
+.wizard-stat--edited {
+  background:
+    radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.08), transparent 60%),
+    var(--wizard-surface);
+}
+.wizard-stat--status {
+  background:
+    radial-gradient(circle at bottom right, rgba(248, 113, 113, 0.08), transparent 60%),
+    var(--wizard-surface);
+}
 
-.wizard-stat--file::before { background: linear-gradient(180deg, #38bdf8, #0ea5e9); }
-.wizard-stat--file .wizard-stat__icon { color: #38bdf8; }
+.wizard-stat--file::before {
+  background: linear-gradient(180deg, #38bdf8, #0ea5e9);
+}
+.wizard-stat--file .wizard-stat__icon {
+  color: #38bdf8;
+}
 
-.wizard-stat--entries::before { background: linear-gradient(180deg, #818cf8, #38bdf8); }
-.wizard-stat--entries .wizard-stat__icon { color: #818cf8; }
+.wizard-stat--entries::before {
+  background: linear-gradient(180deg, #818cf8, #38bdf8);
+}
+.wizard-stat--entries .wizard-stat__icon {
+  color: #818cf8;
+}
 
-.wizard-stat--recommendations::before { background: linear-gradient(180deg, #34d399, #22c55e); }
-.wizard-stat--recommendations .wizard-stat__icon { color: #34d399; }
+.wizard-stat--recommendations::before {
+  background: linear-gradient(180deg, #34d399, #22c55e);
+}
+.wizard-stat--recommendations .wizard-stat__icon {
+  color: #34d399;
+}
 
-.wizard-stat--edited::before { background: linear-gradient(180deg, #f59e0b, #f97316); }
-.wizard-stat--edited .wizard-stat__icon { color: #f59e0b; }
+.wizard-stat--edited::before {
+  background: linear-gradient(180deg, #f59e0b, #f97316);
+}
+.wizard-stat--edited .wizard-stat__icon {
+  color: #f59e0b;
+}
 
-.wizard-stat--status::before { background: linear-gradient(180deg, #f87171, #fb7185); }
-.wizard-stat--status .wizard-stat__icon { color: #f87171; }
+.wizard-stat--status::before {
+  background: linear-gradient(180deg, #f87171, #fb7185);
+}
+.wizard-stat--status .wizard-stat__icon {
+  color: #f87171;
+}
 
 .wizard-stat__value {
   font-size: 1.5rem;
@@ -2611,7 +2750,10 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   background-color: rgba(2, 6, 23, 0.6);
   color: #e2e8f0;
   font-size: 0.88rem;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .wizard-control .input:hover {
@@ -2622,7 +2764,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
 .wizard-control .input:focus {
   outline: none;
   border-color: #22d3ee;
-  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.2), 0 2px 8px rgba(34, 211, 238, 0.1);
+  box-shadow:
+    0 0 0 2px rgba(34, 211, 238, 0.2),
+    0 2px 8px rgba(34, 211, 238, 0.1);
   background-color: rgba(2, 6, 23, 0.85);
 }
 
@@ -2675,7 +2819,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   border: 1px solid rgba(148, 163, 184, 0.18);
   background: rgba(2, 6, 23, 0.6);
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .wizard-toggle:hover {
@@ -2767,7 +2913,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
 
 .wizard-grid__hdr {
   display: grid;
-  grid-template-columns: minmax(18rem, 2fr) minmax(10rem, 1fr) 3.5rem minmax(11rem, 1.2fr) minmax(11rem, 1.2fr) 6rem;
+  grid-template-columns:
+    minmax(18rem, 2fr) minmax(10rem, 1fr) 3.5rem minmax(11rem, 1.2fr) minmax(11rem, 1.2fr)
+    6rem;
   gap: 0;
   position: sticky;
   top: 0;
@@ -2793,7 +2941,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
 
 .wizard-grid__row {
   display: grid;
-  grid-template-columns: minmax(18rem, 2fr) minmax(10rem, 1fr) 3.5rem minmax(11rem, 1.2fr) minmax(11rem, 1.2fr) 6rem;
+  grid-template-columns:
+    minmax(18rem, 2fr) minmax(10rem, 1fr) 3.5rem minmax(11rem, 1.2fr) minmax(11rem, 1.2fr)
+    6rem;
   gap: 0;
   align-items: center;
   padding: 0.65rem 0.9rem;
@@ -2815,12 +2965,7 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
 
 .wizard-grid__row--applied {
   background:
-    linear-gradient(
-      90deg,
-      rgba(245, 158, 11, 0.08),
-      rgba(245, 158, 11, 0.02) 42%,
-      transparent 75%
-    ),
+    linear-gradient(90deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02) 42%, transparent 75%),
     rgba(30, 41, 59, 0.1);
 }
 
@@ -2932,7 +3077,9 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   border: 1px solid rgba(226, 232, 240, 0.16);
   background: rgba(255, 255, 255, 0.04);
   overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .wizard-price-wrap:focus-within {
@@ -3142,8 +3289,7 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   place-items: center;
   padding: 1.5rem;
   background:
-    radial-gradient(circle at top, rgba(34, 211, 238, 0.14), transparent 28%),
-    rgba(2, 6, 23, 0.78);
+    radial-gradient(circle at top, rgba(34, 211, 238, 0.14), transparent 28%), rgba(2, 6, 23, 0.78);
   backdrop-filter: blur(10px);
 }
 
@@ -3177,8 +3323,7 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   display: grid;
   place-items: center;
   color: #67e8f9;
-  background:
-    linear-gradient(135deg, rgba(6, 182, 212, 0.22), rgba(14, 165, 233, 0.14));
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.22), rgba(14, 165, 233, 0.14));
   border: 1px solid rgba(103, 232, 249, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
@@ -3345,7 +3490,6 @@ watch([debouncedSearch, sortBy, sortOrder, showOnlyActionable], () => {
   .wizard-trader-picker-shell {
     align-items: center;
   }
-
 
   .wizard-tab__action-row {
     flex-direction: column;

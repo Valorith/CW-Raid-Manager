@@ -1,21 +1,21 @@
 <template>
   <div class="inventory-tab">
     <div class="inventory-info">
-      <p>View the full inventory for <strong>{{ store.character?.name }}</strong></p>
+      <p>
+        View the full inventory for <strong>{{ store.character?.name }}</strong>
+      </p>
       <p class="info-hint">
         The inventory viewer shows all equipped items, bags, bank slots, and their contents.
       </p>
     </div>
 
     <div class="inventory-actions">
-      <button class="btn btn--primary" @click="openInventoryModal">
-        Open Inventory Viewer
-      </button>
+      <button class="btn btn--primary" @click="openInventoryModal">Open Inventory Viewer</button>
     </div>
 
     <div class="inventory-note">
-      <strong>Note:</strong> The inventory viewer will open in a separate modal window.
-      This uses the same inventory viewer available throughout the application.
+      <strong>Note:</strong> The inventory viewer will open in a separate modal window. This uses
+      the same inventory viewer available throughout the application.
     </div>
   </div>
 </template>

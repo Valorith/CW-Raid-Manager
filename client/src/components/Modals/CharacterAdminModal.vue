@@ -45,7 +45,9 @@
             @click="toggleWatch"
           >
             <span class="watch-icon">{{ store.isWatched ? '&#9733;' : '&#9734;' }}</span>
-            <span class="watch-label">{{ store.watchLoading ? 'Loading...' : (store.isWatched ? 'Watching' : 'Watch') }}</span>
+            <span class="watch-label">{{
+              store.watchLoading ? 'Loading...' : store.isWatched ? 'Watching' : 'Watch'
+            }}</span>
           </button>
         </div>
       </div>

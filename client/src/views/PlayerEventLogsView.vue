@@ -6,9 +6,7 @@
         <p class="muted">View and search player events from the EQEmu server.</p>
       </div>
       <div class="section-header__actions">
-        <router-link to="/admin" class="btn btn--outline">
-          Back to Admin
-        </router-link>
+        <router-link to="/admin" class="btn btn--outline"> Back to Admin </router-link>
         <button
           type="button"
           class="btn btn--outline"
@@ -31,16 +29,14 @@
       </div>
       <div class="stat-card">
         <span class="stat-card__label">Last 24 Hours</span>
-        <strong class="stat-card__value">{{ formatNumber(stats.recentActivity.last24Hours) }}</strong>
+        <strong class="stat-card__value">{{
+          formatNumber(stats.recentActivity.last24Hours)
+        }}</strong>
       </div>
       <div class="stat-card">
         <span class="stat-card__label">Auto-Refresh</span>
         <strong class="stat-card__value">{{ autoRefreshEnabled ? 'ON' : 'OFF' }}</strong>
-        <button
-          type="button"
-          class="stat-card__toggle"
-          @click="toggleAutoRefresh"
-        >
+        <button type="button" class="stat-card__toggle" @click="toggleAutoRefresh">
           {{ autoRefreshEnabled ? 'Disable' : 'Enable' }}
         </button>
       </div>
@@ -53,11 +49,7 @@
           <span class="muted small">{{ total }} events found</span>
         </div>
         <div class="card__header-right">
-          <button
-            type="button"
-            class="btn btn--outline btn--small"
-            @click="toggleFilters"
-          >
+          <button type="button" class="btn btn--outline btn--small" @click="toggleFilters">
             {{ showFilters ? 'Hide Filters' : 'Show Filters' }}
           </button>
         </div>
@@ -102,14 +94,14 @@
             <div class="searchable-dropdown" ref="eventTypeDropdownRef">
               <div class="dropdown-trigger" @click="toggleEventTypeDropdown">
                 <div class="selected-tags">
-                  <span v-if="filters.eventTypes.length === 0" class="placeholder">All Event Types</span>
-                  <span
-                    v-for="typeId in filters.eventTypes"
-                    :key="typeId"
-                    class="tag"
+                  <span v-if="filters.eventTypes.length === 0" class="placeholder"
+                    >All Event Types</span
                   >
+                  <span v-for="typeId in filters.eventTypes" :key="typeId" class="tag">
                     {{ getEventTypeLabel(typeId) }}
-                    <button type="button" class="tag-remove" @click.stop="removeEventType(typeId)">&times;</button>
+                    <button type="button" class="tag-remove" @click.stop="removeEventType(typeId)">
+                      &times;
+                    </button>
                   </span>
                 </div>
                 <span class="dropdown-arrow">&#9662;</span>
@@ -131,7 +123,9 @@
                     :class="{ 'dropdown-option--selected': filters.eventTypes.includes(et.id) }"
                     @click.stop="toggleEventType(et.id)"
                   >
-                    <span class="option-checkbox">{{ filters.eventTypes.includes(et.id) ? '☑' : '☐' }}</span>
+                    <span class="option-checkbox">{{
+                      filters.eventTypes.includes(et.id) ? '☑' : '☐'
+                    }}</span>
                     <span class="option-label">{{ et.label }}</span>
                   </div>
                   <div v-if="filteredEventTypes.length === 0" class="dropdown-empty">
@@ -297,16 +291,16 @@
       </div>
 
       <div v-if="totalPages > 1" class="pagination">
-        <button
-          class="pagination__button"
-          :disabled="page === 1"
-          @click="setPage(page - 1)"
-        >
+        <button class="pagination__button" :disabled="page === 1" @click="setPage(page - 1)">
           Previous
         </button>
         <div class="pagination__info">
           <span class="pagination__label">Page {{ page }} of {{ totalPages }}</span>
-          <select v-model.number="filters.pageSize" class="select select--small" @change="applyFilters">
+          <select
+            v-model.number="filters.pageSize"
+            class="select select--small"
+            @change="applyFilters"
+          >
             <option :value="25">25 per page</option>
             <option :value="50">50 per page</option>
             <option :value="100">100 per page</option>
@@ -322,9 +316,7 @@
       </div>
     </article>
 
-    <p v-if="lastUpdated" class="last-updated muted small">
-      Last updated: {{ formatLastUpdated }}
-    </p>
+    <p v-if="lastUpdated" class="last-updated muted small">Last updated: {{ formatLastUpdated }}</p>
   </section>
 </template>
 
@@ -406,9 +398,8 @@ const filteredEventTypes = computed(() => {
     return eventTypes.value;
   }
   const search = eventTypeSearch.value.toLowerCase();
-  return eventTypes.value.filter(et =>
-    et.label.toLowerCase().includes(search) ||
-    et.name.toLowerCase().includes(search)
+  return eventTypes.value.filter(
+    (et) => et.label.toLowerCase().includes(search) || et.name.toLowerCase().includes(search)
   );
 });
 
@@ -440,7 +431,20 @@ function formatDate(dateStr: string): string {
     return dateStr;
   }
 
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec'
+  ];
   const month = months[parseInt(match[2], 10) - 1];
   const day = parseInt(match[3], 10);
 
@@ -449,7 +453,14 @@ function formatDate(dateStr: string): string {
 
 function getEventRowClass(event: PlayerEventLog): string {
   const dangerEvents = ['DEATH', 'POSSIBLE_HACK', 'ITEM_DESTROY'];
-  const successEvents = ['LEVEL_GAIN', 'AA_GAIN', 'LOOT_ITEM', 'COMBINE_SUCCESS', 'TASK_COMPLETE', 'DISCOVER_ITEM'];
+  const successEvents = [
+    'LEVEL_GAIN',
+    'AA_GAIN',
+    'LOOT_ITEM',
+    'COMBINE_SUCCESS',
+    'TASK_COMPLETE',
+    'DISCOVER_ITEM'
+  ];
 
   if (dangerEvents.includes(event.eventTypeName)) {
     return 'row--danger';
@@ -462,8 +473,26 @@ function getEventRowClass(event: PlayerEventLog): string {
 
 function getEventBadgeClass(eventTypeName: string): string {
   const dangerEvents = ['DEATH', 'POSSIBLE_HACK', 'ITEM_DESTROY', 'LEVEL_LOSS', 'COMBINE_FAILURE'];
-  const successEvents = ['LEVEL_GAIN', 'AA_GAIN', 'AA_PURCHASE', 'LOOT_ITEM', 'COMBINE_SUCCESS', 'TASK_COMPLETE', 'DISCOVER_ITEM', 'FORAGE_SUCCESS', 'FISH_SUCCESS'];
-  const socialEvents = ['GROUP_JOIN', 'GROUP_LEAVE', 'RAID_JOIN', 'RAID_LEAVE', 'TRADE', 'GIVE_ITEM', 'SAY'];
+  const successEvents = [
+    'LEVEL_GAIN',
+    'AA_GAIN',
+    'AA_PURCHASE',
+    'LOOT_ITEM',
+    'COMBINE_SUCCESS',
+    'TASK_COMPLETE',
+    'DISCOVER_ITEM',
+    'FORAGE_SUCCESS',
+    'FISH_SUCCESS'
+  ];
+  const socialEvents = [
+    'GROUP_JOIN',
+    'GROUP_LEAVE',
+    'RAID_JOIN',
+    'RAID_LEAVE',
+    'TRADE',
+    'GIVE_ITEM',
+    'SAY'
+  ];
   const combatEvents = ['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'];
 
   if (dangerEvents.includes(eventTypeName)) {
@@ -504,7 +533,7 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 function getEventTypeLabel(typeId: number): string {
-  const eventType = eventTypes.value.find(et => et.id === typeId);
+  const eventType = eventTypes.value.find((et) => et.id === typeId);
   return eventType?.label || `Type ${typeId}`;
 }
 
@@ -703,9 +732,12 @@ function stopAutoRefresh() {
   }
 }
 
-watch(() => filters.pageSize, () => {
-  applyFilters();
-});
+watch(
+  () => filters.pageSize,
+  () => {
+    applyFilters();
+  }
+);
 
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside);
@@ -771,7 +803,10 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 0.4rem;
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.45);
-  transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .stat-card:hover {
@@ -809,7 +844,9 @@ onUnmounted(() => {
   border-radius: 0.5rem;
   color: #bae6fd;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .stat-card__toggle:hover {
@@ -911,7 +948,9 @@ onUnmounted(() => {
   background: rgba(15, 23, 42, 0.6);
   min-height: 38px;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .dropdown-trigger:hover {
@@ -1049,7 +1088,9 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.6);
   color: #f8fafc;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .input:focus {
@@ -1073,7 +1114,9 @@ onUnmounted(() => {
     no-repeat right 0.75rem center/10px 6px;
   color: #f8fafc;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .select:focus {
@@ -1309,7 +1352,10 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1349,7 +1395,9 @@ onUnmounted(() => {
   border: none;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
   text-decoration: none;
   display: inline-flex;
   align-items: center;

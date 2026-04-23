@@ -1,7 +1,7 @@
 import { SignupStatus } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
 import { queueUserNotification } from './userNotificationService.js';
+import { prisma } from '../utils/prisma.js';
 
 async function getConfirmedRaidSignupUsers(raidId: string): Promise<string[]> {
   const signups = await prisma.raidSignup.findMany({

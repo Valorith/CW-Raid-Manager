@@ -1,18 +1,19 @@
-import fastify, { type FastifyInstance } from 'fastify';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
 import fastifySensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
-import { existsSync, readFileSync } from 'fs';
-import { dirname, join, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import fastify, { type FastifyInstance } from 'fastify';
 
 import { appConfig } from './config/appConfig.js';
 import { discordOAuthPlugin } from './plugins/discordOAuth.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
 import { registerRoutes } from './routes/index.js';
-import { initSentry, Sentry } from './utils/sentry.js';
+import { captureException, initSentry } from './utils/sentry.js';
 
 // Initialize Sentry before anything else
 initSentry();
@@ -100,7 +101,7 @@ export function buildServer(): FastifyInstance {
 
   // Sentry error handler — capture all unhandled route errors
   server.addHook('onError', (_request, _reply, error, done) => {
-    Sentry.captureException(error);
+    captureException(error);
     done();
   });
 

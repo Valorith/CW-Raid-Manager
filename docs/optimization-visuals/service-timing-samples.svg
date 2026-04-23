@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="620" viewBox="0 0 980 620" role="img" aria-labelledby="title desc">
+  <title id="title">Service timing samples</title>
+  <desc id="desc">Range chart for min, median, and max service timings from baseline and optimized measurements.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .panel { fill: #ffffff; stroke: #d8dee9; stroke-width: 1; }
+    .title { font: 700 28px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .subtitle { font: 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5b6472; }
+    .label { font: 700 14px system-ui, -apple-system, Segoe UI, sans-serif; fill: #273142; }
+    .axis { font: 12px system-ui, -apple-system, Segoe UI, sans-serif; fill: #6b7280; }
+    .note { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #4b5563; }
+    .baseline-line { stroke: #64748b; stroke-width: 7; stroke-linecap: round; }
+    .optimized-line { stroke: #7c3aed; stroke-width: 7; stroke-linecap: round; }
+    .summary-line { stroke: #0f766e; stroke-width: 7; stroke-linecap: round; }
+    .median { fill: #ffffff; stroke-width: 4; }
+    .baseline-dot { stroke: #64748b; }
+    .optimized-dot { stroke: #7c3aed; }
+    .summary-dot { stroke: #0f766e; }
+    .grid { stroke: #e5e7eb; stroke-width: 1; }
+    .legend-text { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #374151; }
+  </style>
+
+  <rect class="bg" width="980" height="620" />
+  <rect class="panel" x="28" y="26" width="924" height="568" rx="8" />
+
+  <text class="title" x="56" y="74">Service Timing Samples</text>
+  <text class="subtitle" x="56" y="101">Min-to-max range with median marker. Remote database variance makes these directional.</text>
+
+  <line class="baseline-line" x1="625" y1="74" x2="670" y2="74" />
+  <text class="legend-text" x="684" y="79">Baseline/full</text>
+  <line class="optimized-line" x1="770" y1="74" x2="815" y2="74" />
+  <text class="legend-text" x="829" y="79">Optimized/full</text>
+  <line class="summary-line" x1="625" y1="98" x2="670" y2="98" />
+  <text class="legend-text" x="684" y="103">Optimized summary</text>
+
+  <g transform="translate(260,150)">
+    <line class="grid" x1="0" y1="0" x2="0" y2="348" />
+    <line class="grid" x1="100" y1="0" x2="100" y2="348" />
+    <line class="grid" x1="200" y1="0" x2="200" y2="348" />
+    <line class="grid" x1="300" y1="0" x2="300" y2="348" />
+    <line class="grid" x1="400" y1="0" x2="400" y2="348" />
+    <line class="grid" x1="500" y1="0" x2="500" y2="348" />
+    <line class="grid" x1="600" y1="0" x2="600" y2="348" />
+    <text class="axis" x="0" y="374" text-anchor="middle">0 ms</text>
+    <text class="axis" x="100" y="374" text-anchor="middle">100</text>
+    <text class="axis" x="200" y="374" text-anchor="middle">200</text>
+    <text class="axis" x="300" y="374" text-anchor="middle">300</text>
+    <text class="axis" x="400" y="374" text-anchor="middle">400</text>
+    <text class="axis" x="500" y="374" text-anchor="middle">500</text>
+    <text class="axis" x="600" y="374" text-anchor="middle">600</text>
+
+    <text class="label" x="-204" y="44">Webhook list, before</text>
+    <line class="baseline-line" x1="187" y1="40" x2="581" y2="40" />
+    <circle class="median baseline-dot" cx="246" cy="40" r="8" />
+    <text class="axis" x="590" y="45">187 / 246 / 581 ms</text>
+
+    <text class="label" x="-204" y="110">Webhook list, after</text>
+    <line class="optimized-line" x1="195" y1="106" x2="516" y2="106" />
+    <circle class="median optimized-dot" cx="224" cy="106" r="8" />
+    <text class="axis" x="525" y="111">195 / 224 / 516 ms</text>
+
+    <text class="label" x="-204" y="190">Money full snapshot</text>
+    <line class="baseline-line" x1="332" y1="186" x2="439" y2="186" />
+    <circle class="median baseline-dot" cx="392" cy="186" r="8" />
+    <text class="axis" x="448" y="191">332 / 392 / 439 ms</text>
+
+    <text class="label" x="-204" y="256">Money full, after</text>
+    <line class="optimized-line" x1="228" y1="252" x2="464" y2="252" />
+    <circle class="median optimized-dot" cx="361" cy="252" r="8" />
+    <text class="axis" x="473" y="257">228 / 361 / 464 ms</text>
+
+    <text class="label" x="-204" y="322">Money summary, after</text>
+    <line class="summary-line" x1="25" y1="318" x2="51" y2="318" />
+    <circle class="median summary-dot" cx="27" cy="318" r="8" />
+    <text class="axis" x="64" y="323">25 / 27 / 51 ms</text>
+  </g>
+
+  <text class="note" x="56" y="554">Labels show min / median / max. Payload-size reductions are the stronger signal; timings depend on remote DB conditions.</text>
+</svg>

@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
+import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
+import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
 import {
   listNpcDefinitions,
   getNpcDefinition,
@@ -21,10 +22,9 @@ import {
   getEnabledContentFlags,
   NPC_CONTENT_FLAGS
 } from '../services/npcRespawnService.js';
-import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
-import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
-import { prisma } from '../utils/prisma.js';
+import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 // Schema definitions
 const npcDefinitionBodySchema = z.object({

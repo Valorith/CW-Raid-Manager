@@ -82,12 +82,7 @@
           </div>
         </div>
       </div>
-      <div
-        v-for="row in statRows"
-        :key="row.key"
-        class="inspector__row"
-        role="row"
-      >
+      <div v-for="row in statRows" :key="row.key" class="inspector__row" role="row">
         <div class="inspector__cell inspector__cell--label" role="rowheader">
           {{ row.label }}
         </div>
@@ -108,7 +103,9 @@
             </span>
           </div>
           <div
-            v-if="row.key !== 'lastLootDate' && diffs.has(row.key) && diffs.get(row.key)?.has(entry.key)"
+            v-if="
+              row.key !== 'lastLootDate' && diffs.has(row.key) && diffs.get(row.key)?.has(entry.key)
+            "
             class="inspector__diff"
             :class="diffClass(row.key, entry.key)"
           >
@@ -157,8 +154,8 @@ const emit = defineEmits<{
 }>();
 
 const linkMode = computed<'character' | 'plain'>(() => props.linkMode ?? 'character');
-const inspectorTitle = computed(() =>
-  props.title ?? (linkMode.value === 'character' ? 'Character Inspector' : 'Member Inspector')
+const inspectorTitle = computed(
+  () => props.title ?? (linkMode.value === 'character' ? 'Character Inspector' : 'Member Inspector')
 );
 const inspectorPlaceholder = computed(() =>
   linkMode.value === 'character'
@@ -482,7 +479,12 @@ const diffs = computed(() => {
             continue;
           }
 
-          if (entryDate !== null && baseDate !== null && !Number.isNaN(entryDate) && !Number.isNaN(baseDate)) {
+          if (
+            entryDate !== null &&
+            baseDate !== null &&
+            !Number.isNaN(entryDate) &&
+            !Number.isNaN(baseDate)
+          ) {
             const diffDays = Math.round((entryDate - baseDate) / MS_PER_DAY);
             diffMap.set(entry.key, diffDays);
             continue;

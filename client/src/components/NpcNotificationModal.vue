@@ -21,7 +21,9 @@
             :class="['notification-item', `notification-item--${notification.status}`]"
           >
             <div class="notification-status">
-              <span :class="['status-indicator', `status-indicator--${notification.status}`]"></span>
+              <span
+                :class="['status-indicator', `status-indicator--${notification.status}`]"
+              ></span>
               <span class="status-text">{{ getStatusText(notification.status) }}</span>
             </div>
 
@@ -30,7 +32,12 @@
                 {{ notification.npcName }}
                 <span
                   v-if="notification.hasInstanceVersion"
-                  :class="['variant-tag', notification.isInstanceVariant ? 'variant-tag--instance' : 'variant-tag--overworld']"
+                  :class="[
+                    'variant-tag',
+                    notification.isInstanceVariant
+                      ? 'variant-tag--instance'
+                      : 'variant-tag--overworld'
+                  ]"
                 >
                   {{ notification.isInstanceVariant ? 'Instance' : 'Overworld' }}
                 </span>
@@ -40,9 +47,14 @@
 
             <div class="notification-timer" v-if="notification.status === 'window'">
               <span class="timer-label">Window closes in:</span>
-              <span class="timer-value">{{ formatTimeRemaining(notification.respawnMaxTime) }}</span>
+              <span class="timer-value">{{
+                formatTimeRemaining(notification.respawnMaxTime)
+              }}</span>
             </div>
-            <div class="notification-timer notification-timer--up" v-else-if="notification.status === 'up'">
+            <div
+              class="notification-timer notification-timer--up"
+              v-else-if="notification.status === 'up'"
+            >
               <span class="timer-label">Should be spawned!</span>
             </div>
           </div>
@@ -62,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, onUnmounted } from 'vue';
+import { watch, onUnmounted } from 'vue';
 import { startNpcAlarm, stopNpcAlarm } from '../utils/npcAlarm';
 
 export interface NpcNotification {
@@ -128,7 +140,10 @@ function formatTimeRemaining(isoString: string | null): string {
 
 function dismissAll() {
   stopNpcAlarm();
-  emit('dismiss', props.notifications.map(n => n.id));
+  emit(
+    'dismiss',
+    props.notifications.map((n) => n.id)
+  );
 }
 </script>
 
@@ -198,13 +213,16 @@ function dismissAll() {
 }
 
 @keyframes ring {
-  0%, 100% {
+  0%,
+  100% {
     transform: rotate(0deg);
   }
-  10%, 30% {
+  10%,
+  30% {
     transform: rotate(-10deg);
   }
-  20%, 40% {
+  20%,
+  40% {
     transform: rotate(10deg);
   }
   50% {
@@ -287,7 +305,8 @@ function dismissAll() {
 }
 
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
     transform: scale(1);
   }

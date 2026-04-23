@@ -1,10 +1,6 @@
 <template>
   <section
-    :class="[
-      'eq-window',
-      'bis-equipment-grid',
-      { 'bis-equipment-grid--large': scale === 'large' }
-    ]"
+    :class="['eq-window', 'bis-equipment-grid', { 'bis-equipment-grid--large': scale === 'large' }]"
   >
     <div class="eq-window__header bis-equipment-grid__header">
       <div class="eq-window__title">
@@ -220,8 +216,7 @@ function hideItemTooltip() {
 }
 
 .bis-equipment-grid__header {
-  background:
-    linear-gradient(180deg, rgba(22, 22, 22, 0.985), rgba(10, 10, 10, 0.99));
+  background: linear-gradient(180deg, rgba(22, 22, 22, 0.985), rgba(10, 10, 10, 0.99));
   border-bottom: 1px solid rgba(74, 74, 74, 0.88);
 }
 
@@ -260,9 +255,7 @@ function hideItemTooltip() {
 }
 
 .bis-equipment-grid__class-icon {
-  filter:
-    drop-shadow(0 0 16px rgba(0, 0, 0, 0.65))
-    drop-shadow(0 0 10px rgba(191, 145, 77, 0.12));
+  filter: drop-shadow(0 0 16px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 10px rgba(191, 145, 77, 0.12));
   opacity: 0.88;
 }
 

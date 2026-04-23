@@ -3,7 +3,11 @@
     <header class="section-header raid-detail__header">
       <div class="raid-detail__title-block">
         <div class="raid-detail__title-top">
-          <button class="btn btn--outline btn--icon raid-detail__back" type="button" @click="goBackToRaids">
+          <button
+            class="btn btn--outline btn--icon raid-detail__back"
+            type="button"
+            @click="goBackToRaids"
+          >
             <span aria-hidden="true">←</span>
             <span>Back</span>
           </button>
@@ -34,9 +38,12 @@
             </button>
           </div>
         </div>
-        <span :class="['raid-status-badge', raidStatusBadge.variant]">{{ raidStatusBadge.label }}</span>
+        <span :class="['raid-status-badge', raidStatusBadge.variant]">{{
+          raidStatusBadge.label
+        }}</span>
         <p class="muted">
-          {{ formatDate(raid.startTime) }} • Targets: {{ formattedTargetZonesHeader || 'Not specified' }}
+          {{ formatDate(raid.startTime) }} • Targets:
+          {{ formattedTargetZonesHeader || 'Not specified' }}
         </p>
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
       </div>
@@ -69,33 +76,25 @@
             :disabled="updatingDiscordVoice"
             @click="promptDiscordVoiceLink"
           >
-            {{ updatingDiscordVoice
-              ? 'Saving…'
-              : raid.discordVoiceUrl
-                ? 'Edit Discord Link'
-                : 'Add Discord Link' }}
+            {{
+              updatingDiscordVoice
+                ? 'Saving…'
+                : raid.discordVoiceUrl
+                  ? 'Edit Discord Link'
+                  : 'Add Discord Link'
+            }}
           </button>
         </div>
         <button class="btn btn--outline share-btn" type="button" @click="copyRaidLink">
           <span aria-hidden="true">🔗</span>
           Share
         </button>
-        <button
-          class="btn btn--danger"
-          :disabled="!canManageRaid"
-          @click="confirmDeleteRaid"
-        >
+        <button class="btn btn--danger" :disabled="!canManageRaid" @click="confirmDeleteRaid">
           Delete Raid
         </button>
       </div>
       <div v-if="shareStatus" class="share-toast">{{ shareStatus }}</div>
-      <input
-        ref="fileInput"
-        type="file"
-        accept=".txt"
-        hidden
-        @change="handleFileUpload"
-      />
+      <input ref="fileInput" type="file" accept=".txt" hidden @change="handleFileUpload" />
     </header>
 
     <section class="card raid-signups-card">
@@ -146,7 +145,11 @@
             class="raid-signups__collapsed-group"
           >
             <header class="raid-signups__collapsed-group-header">
-              <span class="raid-signups__collapsed-group-indicator" :data-role="group.category" aria-hidden="true"></span>
+              <span
+                class="raid-signups__collapsed-group-indicator"
+                :data-role="group.category"
+                aria-hidden="true"
+              ></span>
               <span class="raid-signups__collapsed-group-label">{{ group.label }}</span>
               <span class="raid-signups__collapsed-group-count">{{ group.total }}</span>
             </header>
@@ -157,14 +160,17 @@
                 :class="[
                   'raid-signups__collapsed-item',
                   { 'raid-signups__collapsed-item--self': isViewerSignup(entry) },
-                  { 'raid-signups__collapsed-item--not-attending': entry.status === 'NOT_ATTENDING' }
+                  {
+                    'raid-signups__collapsed-item--not-attending': entry.status === 'NOT_ATTENDING'
+                  }
                 ]"
               >
                 <div
                   class="raid-signups__collapsed-avatar"
                   :class="{
                     'raid-signups__collapsed-avatar--self': isViewerSignup(entry),
-                    'raid-signups__collapsed-avatar--not-attending': entry.status === 'NOT_ATTENDING'
+                    'raid-signups__collapsed-avatar--not-attending':
+                      entry.status === 'NOT_ATTENDING'
                   }"
                 >
                   <img
@@ -204,7 +210,10 @@
                 </span>
               </li>
             </ul>
-            <footer v-if="group.total > collapsedGroupPreviewSize" class="raid-signups__collapsed-more muted small">
+            <footer
+              v-if="group.total > collapsedGroupPreviewSize"
+              class="raid-signups__collapsed-more muted small"
+            >
               +{{ group.total - collapsedGroupPreviewSize }} more…
             </footer>
           </div>
@@ -219,12 +228,17 @@
           <div class="raid-signups__column raid-signups__column--your">
             <div class="raid-signups__column-header">
               <h3>Your Signup</h3>
-              <span class="raid-signups__slot-count">{{ signupDraftCount }} / {{ maxSignupSlots }} slots</span>
+              <span class="raid-signups__slot-count"
+                >{{ signupDraftCount }} / {{ maxSignupSlots }} slots</span
+              >
             </div>
             <div v-if="loadingUserCharacters" class="raid-signups__empty muted">
               Loading your characters…
             </div>
-            <div v-else-if="characterLoadError" class="raid-signups__empty raid-signups__feedback raid-signups__feedback--error">
+            <div
+              v-else-if="characterLoadError"
+              class="raid-signups__empty raid-signups__feedback raid-signups__feedback--error"
+            >
               {{ characterLoadError }}
             </div>
             <div v-else-if="sortedCharacters.length === 0" class="raid-signups__empty muted">
@@ -240,15 +254,26 @@
                   type="button"
                   class="raid-signups__character"
                   :class="{
-                    'raid-signups__character--selected': selectedCharacterIds.has(character.id) && !notAttendingDraft.has(character.id),
-                    'raid-signups__character--not-attending': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id),
+                    'raid-signups__character--selected':
+                      selectedCharacterIds.has(character.id) &&
+                      !notAttendingDraft.has(character.id),
+                    'raid-signups__character--not-attending':
+                      selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id),
                     'raid-signups__character--locked':
-                      (!selectedCharacterIds.has(character.id) && signupLimitReached) || signupsLocked
+                      (!selectedCharacterIds.has(character.id) && signupLimitReached) ||
+                      signupsLocked
                   }"
                   :disabled="signupSaving || signupsLocked"
                   @click="handleCharacterSelect(character.id)"
                 >
-                  <span class="raid-signups__avatar" :class="{ 'raid-signups__avatar--dimmed': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id) }">
+                  <span
+                    class="raid-signups__avatar"
+                    :class="{
+                      'raid-signups__avatar--dimmed':
+                        selectedCharacterIds.has(character.id) &&
+                        notAttendingDraft.has(character.id)
+                    }"
+                  >
                     <img
                       v-if="characterClassIcons[character.class]"
                       :src="characterClassIcons[character.class] ?? undefined"
@@ -259,7 +284,10 @@
                       {{ characterClassLabels[character.class] }}
                     </span>
                     <span
-                      v-if="selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id)"
+                      v-if="
+                        selectedCharacterIds.has(character.id) &&
+                        notAttendingDraft.has(character.id)
+                      "
                       class="raid-signups__avatar-not-attending"
                       aria-label="Not attending"
                     >
@@ -267,7 +295,14 @@
                     </span>
                   </span>
                   <div class="raid-signups__character-meta">
-                    <span class="raid-signups__character-name" :class="{ 'raid-signups__character-name--strikethrough': selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id) }">
+                    <span
+                      class="raid-signups__character-name"
+                      :class="{
+                        'raid-signups__character-name--strikethrough':
+                          selectedCharacterIds.has(character.id) &&
+                          notAttendingDraft.has(character.id)
+                      }"
+                    >
                       {{ character.name }}
                       <span v-if="character.isMain" class="raid-signups__tag">Main</span>
                     </span>
@@ -275,8 +310,21 @@
                       Lv {{ character.level }} • {{ characterClassLabels[character.class] }}
                     </span>
                   </div>
-                  <span v-if="selectedCharacterIds.has(character.id) && !notAttendingDraft.has(character.id)" class="raid-signups__character-check" aria-hidden="true">✓</span>
-                  <span v-else-if="selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id)" class="raid-signups__character-status-badge">NOT ATTENDING</span>
+                  <span
+                    v-if="
+                      selectedCharacterIds.has(character.id) && !notAttendingDraft.has(character.id)
+                    "
+                    class="raid-signups__character-check"
+                    aria-hidden="true"
+                    >✓</span
+                  >
+                  <span
+                    v-else-if="
+                      selectedCharacterIds.has(character.id) && notAttendingDraft.has(character.id)
+                    "
+                    class="raid-signups__character-status-badge"
+                    >NOT ATTENDING</span
+                  >
                 </button>
                 <!-- Status toggle buttons - appear when character is selected -->
                 <div
@@ -286,7 +334,9 @@
                   <button
                     type="button"
                     class="raid-signups__status-btn"
-                    :class="{ 'raid-signups__status-btn--active': !notAttendingDraft.has(character.id) }"
+                    :class="{
+                      'raid-signups__status-btn--active': !notAttendingDraft.has(character.id)
+                    }"
                     :disabled="signupSaving"
                     @click.stop="setCharacterStatus(character.id, 'CONFIRMED')"
                   >
@@ -296,7 +346,9 @@
                   <button
                     type="button"
                     class="raid-signups__status-btn raid-signups__status-btn--not-attending"
-                    :class="{ 'raid-signups__status-btn--active': notAttendingDraft.has(character.id) }"
+                    :class="{
+                      'raid-signups__status-btn--active': notAttendingDraft.has(character.id)
+                    }"
                     :disabled="signupSaving"
                     @click.stop="setCharacterStatus(character.id, 'NOT_ATTENDING')"
                   >
@@ -307,10 +359,7 @@
               </div>
             </div>
             <div class="raid-signups__messages">
-              <p
-                v-if="signupsLocked"
-                class="raid-signups__feedback raid-signups__feedback--muted"
-              >
+              <p v-if="signupsLocked" class="raid-signups__feedback raid-signups__feedback--muted">
                 Raid has started. Signups are locked for this event.
               </p>
               <p
@@ -327,7 +376,8 @@
               </p>
               <template v-else>
                 <p class="raid-signups__feedback raid-signups__feedback--muted">
-                  Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots. Press Confirm to submit.
+                  Selected {{ signupDraftCount }} of {{ maxSignupSlots }} slots. Press Confirm to
+                  submit.
                 </p>
                 <p v-if="signupDraftCount > 0" class="raid-signups__hint">
                   Use the buttons below each character to mark as "Attending" or "Not Attending".
@@ -338,7 +388,11 @@
               <button
                 class="btn btn--danger btn--outline"
                 type="button"
-                :disabled="signupsLocked || signupSaving || (savedSignupIds.length === 0 && signupDraftCount === 0)"
+                :disabled="
+                  signupsLocked ||
+                  signupSaving ||
+                  (savedSignupIds.length === 0 && signupDraftCount === 0)
+                "
                 @click="handleWithdrawAll"
               >
                 Withdraw All
@@ -378,7 +432,10 @@
                   @blur="handleSignupSearchBlur"
                 />
                 <span v-if="signupSearch.loading" class="raid-signups__search-loading">...</span>
-                <div v-if="signupSearch.showDropdown && signupSearch.results.length > 0" class="raid-signups__search-dropdown">
+                <div
+                  v-if="signupSearch.showDropdown && signupSearch.results.length > 0"
+                  class="raid-signups__search-dropdown"
+                >
                   <button
                     v-for="character in signupSearch.results"
                     :key="character.id"
@@ -398,14 +455,25 @@
                       <span class="raid-signups__search-result-name">{{ character.name }}</span>
                       <span class="raid-signups__search-result-meta muted small">
                         <template v-if="character.level">Lv {{ character.level }} • </template>
-                        {{ characterClassLabels[character.class] }} · {{ character.userDisplayName }}
+                        {{ characterClassLabels[character.class] }} ·
+                        {{ character.userDisplayName }}
                       </span>
                     </div>
-                    <span v-if="character.isSignedUp" class="raid-signups__search-result-badge">Signed up</span>
+                    <span v-if="character.isSignedUp" class="raid-signups__search-result-badge"
+                      >Signed up</span
+                    >
                     <span v-else class="raid-signups__search-result-add">+ Add</span>
                   </button>
                 </div>
-                <div v-if="signupSearch.showDropdown && signupSearch.query.length >= 2 && signupSearch.results.length === 0 && !signupSearch.loading" class="raid-signups__search-dropdown raid-signups__search-dropdown--empty">
+                <div
+                  v-if="
+                    signupSearch.showDropdown &&
+                    signupSearch.query.length >= 2 &&
+                    signupSearch.results.length === 0 &&
+                    !signupSearch.loading
+                  "
+                  class="raid-signups__search-dropdown raid-signups__search-dropdown--empty"
+                >
                   <span class="muted">No characters found</span>
                 </div>
               </div>
@@ -421,7 +489,9 @@
               >
                 <header class="raid-signups__role-header">
                   <span class="raid-signups__role-label">{{ roleCategoryLabels[category] }}</span>
-                  <span class="raid-signups__role-count">{{ (groupedSignups[category] ?? []).length }}</span>
+                  <span class="raid-signups__role-count">{{
+                    (groupedSignups[category] ?? []).length
+                  }}</span>
                 </header>
                 <p
                   v-if="(groupedSignups[category] ?? []).length === 0"
@@ -435,13 +505,23 @@
                     :key="entry.id"
                     :class="[
                       'raid-signups__role-item',
-                      { 'raid-signups__role-item--self': viewerUserId && entry.userId === viewerUserId },
-                      { 'raid-signups__role-item--not-attending': entry.status === 'NOT_ATTENDING' },
+                      {
+                        'raid-signups__role-item--self':
+                          viewerUserId && entry.userId === viewerUserId
+                      },
+                      {
+                        'raid-signups__role-item--not-attending': entry.status === 'NOT_ATTENDING'
+                      },
                       { 'raid-signups__role-item--admin': canManageRaid && !signupsLocked }
                     ]"
                     @contextmenu="openSignupContextMenu($event, entry)"
                   >
-                    <span class="raid-signups__role-icon" :class="{ 'raid-signups__role-icon--not-attending': entry.status === 'NOT_ATTENDING' }">
+                    <span
+                      class="raid-signups__role-icon"
+                      :class="{
+                        'raid-signups__role-icon--not-attending': entry.status === 'NOT_ATTENDING'
+                      }"
+                    >
                       <img
                         v-if="characterClassIcons[entry.characterClass]"
                         :src="characterClassIcons[entry.characterClass] ?? undefined"
@@ -450,7 +530,12 @@
                       <span v-else class="raid-signups__role-icon-fallback">
                         {{ characterClassLabels[entry.characterClass] }}
                       </span>
-                      <span v-if="entry.status === 'NOT_ATTENDING'" class="raid-signups__role-icon-x" aria-label="Not attending">✕</span>
+                      <span
+                        v-if="entry.status === 'NOT_ATTENDING'"
+                        class="raid-signups__role-icon-x"
+                        aria-label="Not attending"
+                        >✕</span
+                      >
                     </span>
                     <div class="raid-signups__role-meta">
                       <span
@@ -461,11 +546,18 @@
                         @keydown.enter.stop="openInventory(entry.characterName)"
                       >
                         {{ entry.characterName }}
-                        <span v-if="entry.status === 'NOT_ATTENDING'" class="raid-signups__not-attending-label">(Not Attending)</span>
+                        <span
+                          v-if="entry.status === 'NOT_ATTENDING'"
+                          class="raid-signups__not-attending-label"
+                          >(Not Attending)</span
+                        >
                       </span>
                       <span class="raid-signups__role-sub muted small">
-                        <template v-if="entry.characterLevel">Lv {{ entry.characterLevel }} • </template>
-                        {{ characterClassLabels[entry.characterClass] }} · {{ entry.user.displayName }}
+                        <template v-if="entry.characterLevel"
+                          >Lv {{ entry.characterLevel }} •
+                        </template>
+                        {{ characterClassLabels[entry.characterClass] }} ·
+                        {{ entry.user.displayName }}
                       </span>
                     </div>
                   </li>
@@ -542,7 +634,10 @@
         </div>
       </transition>
 
-      <div class="recurrence-form" :class="{ 'recurrence-form--collapsed': !recurrenceForm.enabled }">
+      <div
+        class="recurrence-form"
+        :class="{ 'recurrence-form--collapsed': !recurrenceForm.enabled }"
+      >
         <transition name="recurrence-collapse">
           <div v-if="recurrenceForm.enabled" class="recurrence-fields">
             <div class="recurrence-fields__grid">
@@ -559,17 +654,17 @@
                 <input
                   v-model.number="recurrenceForm.interval"
                   type="number"
-                min="1"
-                class="recurrence-interval"
-                :disabled="!canManageRaid"
-              />
-              <span class="recurrence-interval__suffix">{{ recurrenceIntervalSuffix }}</span>
-            </label>
-            <label class="form__field">
-              <span>Series End (optional)</span>
-              <input v-model="recurrenceForm.endDate" type="date" :disabled="!canManageRaid" />
-              <small class="form__hint">Leave empty to repeat until disabled.</small>
-            </label>
+                  min="1"
+                  class="recurrence-interval"
+                  :disabled="!canManageRaid"
+                />
+                <span class="recurrence-interval__suffix">{{ recurrenceIntervalSuffix }}</span>
+              </label>
+              <label class="form__field">
+                <span>Series End (optional)</span>
+                <input v-model="recurrenceForm.endDate" type="date" :disabled="!canManageRaid" />
+                <small class="form__hint">Leave empty to repeat until disabled.</small>
+              </label>
             </div>
             <div v-if="recurrenceForm.endDate" class="recurrence-note">
               <span class="recurrence-note__icon" aria-hidden="true">📅</span>
@@ -584,15 +679,14 @@
       </div>
     </section>
 
-    <section
-      class="card raid-notes-card"
-      :class="{ 'card--collapsed': !notesPanelExpanded }"
-    >
+    <section class="card raid-notes-card" :class="{ 'card--collapsed': !notesPanelExpanded }">
       <header class="card__header raid-notes-card__header" @click="toggleNotesPanel">
         <div class="card-header-main">
           <h2>Raid Notes</h2>
           <p v-if="!notesPanelExpanded" class="card-header-subtle">Tap to edit raid notes</p>
-          <p v-if="notesPanelExpanded" class="muted">Share strategy details, reminders, or links with raiders.</p>
+          <p v-if="notesPanelExpanded" class="muted">
+            Share strategy details, reminders, or links with raiders.
+          </p>
         </div>
         <div class="raid-notes-card__actions">
           <button
@@ -645,10 +739,7 @@
       </transition>
     </section>
 
-    <section
-      class="card raid-targets-card"
-      :class="{ 'card--collapsed': !targetsPanelExpanded }"
-    >
+    <section class="card raid-targets-card" :class="{ 'card--collapsed': !targetsPanelExpanded }">
       <header class="card__header raid-targets-card__header" @click="toggleTargetsPanel">
         <div class="card-header-main">
           <div class="raid-targets-header">
@@ -658,7 +749,9 @@
             </span>
           </div>
           <p v-if="!targetsPanelExpanded" class="card-header-subtle">Tap to view raid goals</p>
-          <p v-if="targetsPanelExpanded" class="muted">Keep everyone aligned on zones and targets for this raid.</p>
+          <p v-if="targetsPanelExpanded" class="muted">
+            Keep everyone aligned on zones and targets for this raid.
+          </p>
         </div>
         <div class="raid-targets-card__actions">
           <button
@@ -804,7 +897,12 @@
           >
             <span class="raid-kills-grid__name">
               <span>{{ kill.npcName }}</span>
-              <span v-if="kill.isTargetBoss" class="raid-kills-grid__icon" title="Target boss defeated">⭐</span>
+              <span
+                v-if="kill.isTargetBoss"
+                class="raid-kills-grid__icon"
+                title="Target boss defeated"
+                >⭐</span
+              >
               <span
                 v-if="npcHasNote(kill.npcName)"
                 class="raid-kills-grid__icon raid-kills-grid__icon--note"
@@ -814,7 +912,10 @@
               </span>
             </span>
             <span v-if="kill.zoneName" class="raid-kills-grid__zone">{{ kill.zoneName }}</span>
-            <span class="raid-kills-grid__badge" :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }">
+            <span
+              class="raid-kills-grid__badge"
+              :class="{ 'raid-kills-grid__badge--target': kill.isTargetBoss }"
+            >
               {{ kill.killCount }}
             </span>
           </article>
@@ -825,8 +926,7 @@
     <div
       v-if="killContextMenu.visible"
       class="loot-context-menu kill-context-menu"
-      :style="{ top: `${killContextMenu.y}px`, left: `${killContextMenu.x}px` }
-      "
+      :style="{ top: `${killContextMenu.y}px`, left: `${killContextMenu.x}px` }"
     >
       <button class="loot-context-menu__action" type="button" @click="copyKillNpcName">
         Copy Name
@@ -849,7 +949,11 @@
       <button class="loot-context-menu__action" type="button" @click="handleAssociationContextEdit">
         Edit
       </button>
-      <button class="loot-context-menu__action" type="button" @click="handleAssociationContextDelete">
+      <button
+        class="loot-context-menu__action"
+        type="button"
+        @click="handleAssociationContextDelete"
+      >
         Delete
       </button>
     </div>
@@ -911,7 +1015,9 @@
             @click="handleStartRaid"
           >
             <span class="raid-action-btn__icon" aria-hidden="true">⚡</span>
-            <span>{{ startingRaid ? 'Starting…' : hasEffectiveStarted ? 'Started' : 'Start Raid' }}</span>
+            <span>{{
+              startingRaid ? 'Starting…' : hasEffectiveStarted ? 'Started' : 'Start Raid'
+            }}</span>
           </button>
           <button
             class="raid-action-btn raid-action-btn--end"
@@ -987,7 +1093,11 @@
         >
           Reset
         </button>
-        <button class="btn" :disabled="!timesDirty || savingTimes || !canManageRaid" @click="saveTiming">
+        <button
+          class="btn"
+          :disabled="!timesDirty || savingTimes || !canManageRaid"
+          @click="saveTiming"
+        >
           {{ savingTimes ? 'Saving…' : 'Save Times' }}
         </button>
       </div>
@@ -1088,9 +1198,9 @@
           :class="['raid-loot-card', { 'raid-loot-card--needs-assignment': entry.isMasterLooter }]"
           role="button"
           tabindex="0"
-        @click="handleLootCardClick($event, entry.itemName, entry.itemId)"
-        @contextmenu.prevent="openLootContextMenu($event, entry)"
-        @keyup.enter="handleLootCardKeyEnter($event, entry.itemName, entry.itemId)"
+          @click="handleLootCardClick($event, entry.itemName, entry.itemId)"
+          @contextmenu.prevent="openLootContextMenu($event, entry)"
+          @keyup.enter="handleLootCardKeyEnter($event, entry.itemName, entry.itemId)"
         >
           <span
             v-if="entry.isWhitelisted"
@@ -1188,8 +1298,7 @@
         Remove from Blacklist
       </button>
     </div>
-
-      </section>
+  </section>
   <GlobalLoadingSpinner v-else-if="showLoading" />
 
   <RosterPreviewModal
@@ -1208,7 +1317,12 @@
           <h3>Edit Loot Entry</h3>
           <p class="muted small">Adjust the assignee or quantity for this loot record.</p>
         </div>
-        <button class="icon-button" type="button" :disabled="editLootModal.saving" @click="closeEditLootModal">
+        <button
+          class="icon-button"
+          type="button"
+          :disabled="editLootModal.saving"
+          @click="closeEditLootModal"
+        >
           ✕
         </button>
       </header>
@@ -1271,7 +1385,12 @@
           <h3>Edit Raid Goals</h3>
           <p class="muted small">Fine-tune the zones and key targets for this raid.</p>
         </div>
-        <button class="icon-button" type="button" :disabled="targetsModal.saving" @click="closeTargetsModal">
+        <button
+          class="icon-button"
+          type="button"
+          :disabled="targetsModal.saving"
+          @click="closeTargetsModal"
+        >
           ✕
         </button>
       </header>
@@ -1282,7 +1401,9 @@
               <div>
                 <p class="targets-panel__eyebrow">Current Plan</p>
                 <h4 class="targets-panel__title">Current Raid Goals</h4>
-                <p class="muted small">Share the latest zones and boss objectives with your raid.</p>
+                <p class="muted small">
+                  Share the latest zones and boss objectives with your raid.
+                </p>
               </div>
               <div class="targets-metrics">
                 <div class="targets-metric">
@@ -1303,12 +1424,11 @@
                     <small class="muted small">{{ displayTargetZones.length }} saved</small>
                   </div>
                   <div class="targets-field__input">
-                    <div class="targets-pill-list" :class="{ 'targets-pill-list--empty': targetsModal.zones.length === 0 }">
-                      <span
-                        v-for="(zone, index) in targetsModal.zones"
-                        :key="zone.id"
-                        class="target-pill"
-                      >
+                    <div
+                      class="targets-pill-list"
+                      :class="{ 'targets-pill-list--empty': targetsModal.zones.length === 0 }"
+                    >
+                      <span v-for="zone in targetsModal.zones" :key="zone.id" class="target-pill">
                         <span class="target-pill__label">{{ zone.value }}</span>
                         <button
                           class="target-pill__remove"
@@ -1319,7 +1439,10 @@
                           ✕<span class="sr-only">Remove {{ zone.value }}</span>
                         </button>
                       </span>
-                      <span v-if="targetsModal.zones.length === 0" class="targets-pill-empty muted small">
+                      <span
+                        v-if="targetsModal.zones.length === 0"
+                        class="targets-pill-empty muted small"
+                      >
                         No target zones yet.
                       </span>
                     </div>
@@ -1331,7 +1454,9 @@
                       :disabled="targetsModal.saving"
                       @keydown.enter.prevent="commitTargetInput('zones')"
                     />
-                    <small class="form__hint">Press Enter to add a zone. This list is visible to all raiders.</small>
+                    <small class="form__hint"
+                      >Press Enter to add a zone. This list is visible to all raiders.</small
+                    >
                   </div>
                 </label>
                 <label class="form__field targets-field">
@@ -1340,12 +1465,11 @@
                     <small class="muted small">{{ displayTargetBosses.length }} saved</small>
                   </div>
                   <div class="targets-field__input">
-                    <div class="targets-pill-list" :class="{ 'targets-pill-list--empty': targetsModal.bosses.length === 0 }">
-                      <span
-                        v-for="(boss, index) in targetsModal.bosses"
-                        :key="boss.id"
-                        class="target-pill"
-                      >
+                    <div
+                      class="targets-pill-list"
+                      :class="{ 'targets-pill-list--empty': targetsModal.bosses.length === 0 }"
+                    >
+                      <span v-for="boss in targetsModal.bosses" :key="boss.id" class="target-pill">
                         <span class="target-pill__label">{{ boss.value }}</span>
                         <button
                           class="target-pill__remove"
@@ -1356,7 +1480,10 @@
                           ✕<span class="sr-only">Remove {{ boss.value }}</span>
                         </button>
                       </span>
-                      <span v-if="targetsModal.bosses.length === 0" class="targets-pill-empty muted small">
+                      <span
+                        v-if="targetsModal.bosses.length === 0"
+                        class="targets-pill-empty muted small"
+                      >
                         No bosses added yet.
                       </span>
                     </div>
@@ -1369,7 +1496,8 @@
                       @keydown.enter.prevent="commitTargetInput('bosses')"
                     />
                     <small class="form__hint"
-                      >Press Enter to add each objective. Use this for key bosses or milestones.</small
+                      >Press Enter to add each objective. Use this for key bosses or
+                      milestones.</small
                     >
                   </div>
                 </label>
@@ -1381,7 +1509,9 @@
               <div>
                 <p class="targets-panel__eyebrow">Reuse Plan</p>
                 <h4 class="targets-panel__title">Copy From Another Raid</h4>
-                <p class="muted small">Search past raids, preview their goals, and copy them instantly.</p>
+                <p class="muted small">
+                  Search past raids, preview their goals, and copy them instantly.
+                </p>
               </div>
               <button
                 class="btn btn--outline btn--modal-outline"
@@ -1462,7 +1592,8 @@
                     <div class="targets-copy__empty">
                       <p class="targets-copy__empty-title">Select a raid to preview its goals.</p>
                       <p class="muted small">
-                        Use the search on the left to find past events and preview their saved targets.
+                        Use the search on the left to find past events and preview their saved
+                        targets.
                       </p>
                     </div>
                   </template>
@@ -1470,7 +1601,9 @@
               </div>
               <div class="targets-copy__status">
                 <p class="muted small" v-if="targetsCopyState.loading">Loading raids…</p>
-                <p class="error" v-else-if="targetsCopyState.loadError">{{ targetsCopyState.loadError }}</p>
+                <p class="error" v-else-if="targetsCopyState.loadError">
+                  {{ targetsCopyState.loadError }}
+                </p>
                 <p class="muted small" v-else-if="!copyableRaidOptions.length">
                   No other raid events are available to copy from yet.
                 </p>
@@ -1502,434 +1635,484 @@
             {{ targetsModal.saving ? 'Saving…' : 'Save Goals' }}
           </button>
         </footer>
-  </form>
-</div>
-</div>
-<div v-if="addKillModal.visible" class="modal-backdrop" @click.self="closeAddKillModal()">
-  <div class="modal manual-kill-modal">
-    <header class="modal__header">
-      <div>
-        <h3>Add Kill</h3>
-        <p class="muted small">Record a kill manually when log lines are unavailable.</p>
-      </div>
-      <button class="icon-button" type="button" @click="closeAddKillModal()">✕</button>
-    </header>
-    <form class="manual-kill-form" @submit.prevent="submitManualKill">
-      <label class="manual-kill-field">
-        <span>NPC Name</span>
-        <input
-          v-model="addKillModal.npcName"
-          class="manual-kill-input"
-          type="text"
-          name="npcName"
-          maxlength="191"
-          required
-        />
-      </label>
-      <label class="manual-kill-field">
-        <span>Killer (optional)</span>
-        <input
-          v-model="addKillModal.killerName"
-          class="manual-kill-input"
-          type="text"
-          name="killerName"
-          maxlength="191"
-        />
-      </label>
-      <label class="manual-kill-field">
-        <span>Occurred At</span>
-        <input
-          v-model="addKillModal.occurredAt"
-          class="manual-kill-input"
-          type="datetime-local"
-          name="occurredAt"
-          required
-        />
-      </label>
-      <p v-if="addKillModal.error" class="error manual-kill-error">{{ addKillModal.error }}</p>
-      <footer class="modal__actions">
-        <button
-          class="btn btn--outline btn--modal-outline"
-          type="button"
-          :disabled="addKillModal.saving"
-          @click="closeAddKillModal()"
-        >
-          Cancel
-        </button>
-        <button class="btn btn--modal-primary" type="submit" :disabled="addKillModal.saving">
-          {{ addKillModal.saving ? 'Saving…' : 'Save Kill' }}
-        </button>
-      </footer>
-    </form>
-  </div>
-</div>
-<div v-if="npcNotesState.visible" class="modal-backdrop" @click.self="closeNpcNotesModal()">
-  <div class="modal npc-notes-modal">
-    <header class="modal__header">
-      <div>
-        <h3>NPC Notes</h3>
-        <p class="muted small">Guild bestiary and intel on priority targets.</p>
-      </div>
-      <button class="icon-button" type="button" @click="closeNpcNotesModal()">✕</button>
-    </header>
-    <div class="npc-notes-body">
-      <aside class="npc-notes-sidebar">
-        <div class="npc-notes-search">
-          <input
-            v-model="npcNotesState.search"
-            type="search"
-            placeholder="Search NPCs"
-            aria-label="Search NPC notes"
-          />
-        </div>
-        <ul class="npc-notes-list">
-          <li
-            v-for="note in filteredNpcNotes"
-            :key="note.id || note.npcName"
-            class="npc-notes-list__row"
-            :class="{
-              'npc-notes-list__row--active': note.npcName === npcNotesState.draft.npcName,
-              'npc-notes-list__row--pending': note.deletionRequestedAt
-            }"
-          >
-            <button
-              class="npc-notes-list__item"
-              type="button"
-              @click="selectNpcNotesEntry(note.npcName)"
-            >
-              <span>{{ note.npcName }}</span>
-              <span v-if="note.deletionRequestedAt" class="npc-notes-list__pill">Pending</span>
-            </button>
-            <div
-              v-if="npcNotesState.canApproveDeletion && note.deletionRequestedAt"
-              class="npc-notes-approval"
-            >
-              <button
-                class="npc-notes-approval__btn npc-notes-approval__btn--approve"
-                type="button"
-                @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'APPROVE')"
-              >
-                👍
-              </button>
-              <button
-                class="npc-notes-approval__btn npc-notes-approval__btn--deny"
-                type="button"
-                @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'DENY')"
-              >
-                👎
-              </button>
-            </div>
-          </li>
-        </ul>
-        <p v-if="!npcNotesState.loading && filteredNpcNotes.length === 0" class="muted small">
-          No NPC notes yet.
-        </p>
-        <button
-          v-if="npcNotesState.canEdit"
-          class="npc-notes-btn npc-notes-btn--ghost npc-notes-new"
-          type="button"
-          @click="startNewNpcNoteEntry()"
-        >
-          New NPC
-        </button>
-      </aside>
-      <section class="npc-notes-content">
-        <div v-if="npcNotesState.loading" class="npc-notes-placeholder">
-          Loading NPC notes…
-        </div>
-        <template v-else>
-          <header class="npc-notes-content-header">
-            <div>
-              <p class="npc-notes-eyebrow">
-                {{ npcNotesReadOnly ? 'Viewing entry' : 'Editing entry' }}
-              </p>
-              <h3>{{ npcNotesState.draft.npcName || 'New NPC' }}</h3>
-              <p v-if="selectedNpcNote?.lastEditedByName" class="npc-notes-meta">
-                Last edited by {{ selectedNpcNote.lastEditedByName }}
-              </p>
-              <p v-else-if="selectedNpcNote?.updatedAt" class="npc-notes-meta">
-                Last updated {{ formatDate(selectedNpcNote.updatedAt) }}
-              </p>
-              <p v-if="selectedNpcNotePendingDeletion" class="npc-notes-pending-hint">
-                Deletion requested
-                {{ selectedNpcNote?.deletionRequestedAt ? formatDate(selectedNpcNote.deletionRequestedAt) : '' }}
-                by {{ selectedNpcNote?.deletionRequestedByName ?? 'a guild member' }}
-              </p>
-              <p v-if="npcNotesState.deletionStatus" class="npc-notes-status">
-                {{ npcNotesState.deletionStatus }}
-              </p>
-            </div>
-            <div class="npc-notes-header-actions">
-              <a
-                v-if="npcNotesExternalLink"
-                class="npc-notes-link"
-                :href="npcNotesExternalLink"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View Alla Entry ↗
-              </a>
-              <span v-if="npcNotesReadOnly" class="npc-notes-badge">View only</span>
-              <button
-                v-if="!npcNotesReadOnly && selectedNpcNote && !selectedNpcNotePendingDeletion && !npcNotesState.canApproveDeletion"
-                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
-                type="button"
-                :disabled="!npcNotesState.selectedName"
-                @click="requestNpcNoteDeletion"
-              >
-                Request Deletion
-              </button>
-              <button
-                v-else-if="npcNotesState.canApproveDeletion && selectedNpcNote && !selectedNpcNotePendingDeletion"
-                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
-                type="button"
-                :disabled="!npcNotesState.selectedName"
-                @click="confirmImmediateNpcDeletion"
-              >
-                Delete
-              </button>
-              <span
-                v-else-if="selectedNpcNotePendingDeletion"
-                class="npc-notes-pending-pill"
-              >
-                Pending approval
-              </span>
-            </div>
-          </header>
-          <div class="npc-notes-grid">
-            <section class="npc-notes-panel">
-              <div class="npc-notes-field">
-                <span>NPC Name</span>
-                <input
-                  v-model="npcNotesState.draft.npcName"
-                  class="npc-notes-input"
-                  type="text"
-                  maxlength="191"
-                  :disabled="npcNotesReadOnly"
-                />
-              </div>
-              <div class="npc-notes-field">
-                <span>Alla Link</span>
-                <input
-                  v-model="npcNotesState.draft.allaLink"
-                  class="npc-notes-input"
-                  type="url"
-                  placeholder="https://alla.clumsysworld.com/..."
-                  :disabled="npcNotesReadOnly"
-                />
-              </div>
-            </section>
-            <section class="npc-notes-panel npc-notes-panel--notes">
-              <div class="npc-notes-field">
-                <span>Notes</span>
-                <textarea
-                  v-model="npcNotesState.draft.notes"
-                  class="npc-notes-textarea"
-                  rows="10"
-                  :disabled="npcNotesReadOnly"
-                />
-              </div>
-            </section>
-          </div>
-          <div class="npc-notes-grid">
-            <section class="npc-notes-panel">
-            <header>
-              <div>
-                <h4>Spells</h4>
-                <p class="muted small">Document dangerous abilities with Alla references.</p>
-              </div>
-              <button
-                v-if="!npcNotesReadOnly"
-                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
-                type="button"
-                @click="addNpcNoteAssociationRow('spells')"
-              >
-                Add Spell
-              </button>
-            </header>
-            <div v-if="npcNotesState.draft.spells.length === 0" class="npc-notes-empty muted small">
-              No spells tracked yet.
-            </div>
-            <div class="npc-notes-chip-grid">
-              <div
-                v-for="spell in npcNotesState.draft.spells"
-                :key="spell.localId"
-                class="npc-notes-chip-wrapper"
-                :class="{ 'npc-notes-chip-wrapper--active': isEditingAssociation('spells', spell.localId) }"
-              >
-                <template v-if="npcNotesReadOnly">
-                  <a
-                    v-if="getAssociationDisplayLink('spells', spell)"
-                    class="npc-notes-chip"
-                    :href="getAssociationDisplayLink('spells', spell) || undefined"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
-                  >
-                    {{ getAssociationDisplayName('spells', spell) }}
-                  </a>
-                  <span v-else class="npc-notes-chip npc-notes-chip--disabled">
-                    {{ getAssociationDisplayName('spells', spell) }}
-                  </span>
-                </template>
-                <template v-else>
-                  <button
-                    class="npc-notes-chip npc-notes-chip--button"
-                    type="button"
-                    @click="handleAssociationChipClick('spells', spell)"
-                    @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
-                  >
-                    {{ getAssociationDisplayName('spells', spell) }}
-                    <span v-if="getAssociationDisplayLink('spells', spell)" aria-hidden="true">↗</span>
-                  </button>
-                  <button
-                    class="icon-button icon-button--chip-delete"
-                    type="button"
-                    @click.stop="confirmAssociationDelete('spells', spell.localId)"
-                  >
-                    ✕
-                  </button>
-                </template>
-              </div>
-            </div>
-            <div
-              v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'spells'"
-              class="npc-notes-association-form"
-            >
-              <div class="npc-notes-association-edit">
-                <input
-                  v-model="npcNotesState.associationEditor.name"
-                  class="npc-notes-input"
-                  type="text"
-                  placeholder="Spell name"
-                />
-                <input
-                  v-model="npcNotesState.associationEditor.allaLink"
-                  class="npc-notes-input"
-                  type="url"
-                  placeholder="https://alla.clumsysworld.com/..."
-                />
-                <button class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact" type="button" @click="confirmAssociationEdit()" :disabled="!associationEditorActive()">
-                  Apply
-                </button>
-              </div>
-              <div class="npc-notes-association-actions">
-                <button class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact" type="button" @click="resetAssociationEditor()">
-                  Cancel
-                </button>
-              </div>
-            </div>
-            </section>
-            <section class="npc-notes-panel">
-            <header>
-              <div>
-                <h4>Associated NPCs</h4>
-                <p class="muted small">Track adds, escorts, or other linked encounters.</p>
-              </div>
-              <button
-                v-if="!npcNotesReadOnly"
-                class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
-                type="button"
-                @click="addNpcNoteAssociationRow('relatedNpcs')"
-              >
-                Add NPC
-              </button>
-            </header>
-            <div v-if="npcNotesState.draft.relatedNpcs.length === 0" class="npc-notes-empty muted small">
-              No associated NPCs listed.
-            </div>
-            <div class="npc-notes-chip-grid">
-              <div
-                v-for="assoc in npcNotesState.draft.relatedNpcs"
-                :key="assoc.localId"
-                class="npc-notes-chip-wrapper"
-                :class="{ 'npc-notes-chip-wrapper--active': isEditingAssociation('relatedNpcs', assoc.localId) }"
-              >
-                <template v-if="npcNotesReadOnly">
-                  <a
-                    v-if="getAssociationDisplayLink('relatedNpcs', assoc)"
-                    class="npc-notes-chip"
-                    :href="getAssociationDisplayLink('relatedNpcs', assoc) || undefined"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
-                  >
-                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
-                  </a>
-                  <span v-else class="npc-notes-chip npc-notes-chip--disabled">
-                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
-                  </span>
-                </template>
-                <template v-else>
-                  <button
-                    class="npc-notes-chip npc-notes-chip--button"
-                    type="button"
-                    @click="handleAssociationChipClick('relatedNpcs', assoc)"
-                    @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
-                  >
-                    {{ getAssociationDisplayName('relatedNpcs', assoc) }}
-                    <span v-if="getAssociationDisplayLink('relatedNpcs', assoc)" aria-hidden="true">↗</span>
-                  </button>
-                  <button
-                    class="icon-button icon-button--chip-delete"
-                    type="button"
-                    @click.stop="confirmAssociationDelete('relatedNpcs', assoc.localId)"
-                  >
-                    ✕
-                  </button>
-                </template>
-              </div>
-            </div>
-            <div
-              v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'relatedNpcs'"
-              class="npc-notes-association-form"
-            >
-              <div class="npc-notes-association-edit">
-                <input
-                  v-model="npcNotesState.associationEditor.name"
-                  class="npc-notes-input"
-                  type="text"
-                  placeholder="NPC name"
-                />
-                <input
-                  v-model="npcNotesState.associationEditor.allaLink"
-                  class="npc-notes-input"
-                  type="url"
-                  placeholder="https://alla.clumsysworld.com/..."
-                />
-                <button class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact" type="button" @click="confirmAssociationEdit()" :disabled="!associationEditorActive()">
-                  Apply
-                </button>
-              </div>
-              <div class="npc-notes-association-actions">
-                <button class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact" type="button" @click="resetAssociationEditor()">
-                  Cancel
-                </button>
-              </div>
-            </div>
-            </section>
-          </div>
-          <p v-if="npcNotesState.error" class="error npc-notes-error">{{ npcNotesState.error }}</p>
-          <footer class="modal__actions npc-notes-actions">
-            <button
-              v-if="!npcNotesReadOnly"
-              class="npc-notes-btn npc-notes-btn--primary"
-              type="button"
-              :disabled="npcNotesState.saving"
-              @click="saveNpcNote"
-            >
-              {{ npcNotesState.saving ? 'Saving…' : 'Save Notes' }}
-            </button>
-          </footer>
-        </template>
-      </section>
+      </form>
     </div>
   </div>
-</div>
-<AttendanceEventModal
-  v-if="selectedAttendanceEvent"
-  :event="selectedAttendanceEvent"
-  :can-edit="canManageRaid"
+  <div v-if="addKillModal.visible" class="modal-backdrop" @click.self="closeAddKillModal()">
+    <div class="modal manual-kill-modal">
+      <header class="modal__header">
+        <div>
+          <h3>Add Kill</h3>
+          <p class="muted small">Record a kill manually when log lines are unavailable.</p>
+        </div>
+        <button class="icon-button" type="button" @click="closeAddKillModal()">✕</button>
+      </header>
+      <form class="manual-kill-form" @submit.prevent="submitManualKill">
+        <label class="manual-kill-field">
+          <span>NPC Name</span>
+          <input
+            v-model="addKillModal.npcName"
+            class="manual-kill-input"
+            type="text"
+            name="npcName"
+            maxlength="191"
+            required
+          />
+        </label>
+        <label class="manual-kill-field">
+          <span>Killer (optional)</span>
+          <input
+            v-model="addKillModal.killerName"
+            class="manual-kill-input"
+            type="text"
+            name="killerName"
+            maxlength="191"
+          />
+        </label>
+        <label class="manual-kill-field">
+          <span>Occurred At</span>
+          <input
+            v-model="addKillModal.occurredAt"
+            class="manual-kill-input"
+            type="datetime-local"
+            name="occurredAt"
+            required
+          />
+        </label>
+        <p v-if="addKillModal.error" class="error manual-kill-error">{{ addKillModal.error }}</p>
+        <footer class="modal__actions">
+          <button
+            class="btn btn--outline btn--modal-outline"
+            type="button"
+            :disabled="addKillModal.saving"
+            @click="closeAddKillModal()"
+          >
+            Cancel
+          </button>
+          <button class="btn btn--modal-primary" type="submit" :disabled="addKillModal.saving">
+            {{ addKillModal.saving ? 'Saving…' : 'Save Kill' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+  </div>
+  <div v-if="npcNotesState.visible" class="modal-backdrop" @click.self="closeNpcNotesModal()">
+    <div class="modal npc-notes-modal">
+      <header class="modal__header">
+        <div>
+          <h3>NPC Notes</h3>
+          <p class="muted small">Guild bestiary and intel on priority targets.</p>
+        </div>
+        <button class="icon-button" type="button" @click="closeNpcNotesModal()">✕</button>
+      </header>
+      <div class="npc-notes-body">
+        <aside class="npc-notes-sidebar">
+          <div class="npc-notes-search">
+            <input
+              v-model="npcNotesState.search"
+              type="search"
+              placeholder="Search NPCs"
+              aria-label="Search NPC notes"
+            />
+          </div>
+          <ul class="npc-notes-list">
+            <li
+              v-for="note in filteredNpcNotes"
+              :key="note.id || note.npcName"
+              class="npc-notes-list__row"
+              :class="{
+                'npc-notes-list__row--active': note.npcName === npcNotesState.draft.npcName,
+                'npc-notes-list__row--pending': note.deletionRequestedAt
+              }"
+            >
+              <button
+                class="npc-notes-list__item"
+                type="button"
+                @click="selectNpcNotesEntry(note.npcName)"
+              >
+                <span>{{ note.npcName }}</span>
+                <span v-if="note.deletionRequestedAt" class="npc-notes-list__pill">Pending</span>
+              </button>
+              <div
+                v-if="npcNotesState.canApproveDeletion && note.deletionRequestedAt"
+                class="npc-notes-approval"
+              >
+                <button
+                  class="npc-notes-approval__btn npc-notes-approval__btn--approve"
+                  type="button"
+                  @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'APPROVE')"
+                >
+                  👍
+                </button>
+                <button
+                  class="npc-notes-approval__btn npc-notes-approval__btn--deny"
+                  type="button"
+                  @click.stop="handleNpcNoteDeletionDecision(note.npcName, 'DENY')"
+                >
+                  👎
+                </button>
+              </div>
+            </li>
+          </ul>
+          <p v-if="!npcNotesState.loading && filteredNpcNotes.length === 0" class="muted small">
+            No NPC notes yet.
+          </p>
+          <button
+            v-if="npcNotesState.canEdit"
+            class="npc-notes-btn npc-notes-btn--ghost npc-notes-new"
+            type="button"
+            @click="startNewNpcNoteEntry()"
+          >
+            New NPC
+          </button>
+        </aside>
+        <section class="npc-notes-content">
+          <div v-if="npcNotesState.loading" class="npc-notes-placeholder">Loading NPC notes…</div>
+          <template v-else>
+            <header class="npc-notes-content-header">
+              <div>
+                <p class="npc-notes-eyebrow">
+                  {{ npcNotesReadOnly ? 'Viewing entry' : 'Editing entry' }}
+                </p>
+                <h3>{{ npcNotesState.draft.npcName || 'New NPC' }}</h3>
+                <p v-if="selectedNpcNote?.lastEditedByName" class="npc-notes-meta">
+                  Last edited by {{ selectedNpcNote.lastEditedByName }}
+                </p>
+                <p v-else-if="selectedNpcNote?.updatedAt" class="npc-notes-meta">
+                  Last updated {{ formatDate(selectedNpcNote.updatedAt) }}
+                </p>
+                <p v-if="selectedNpcNotePendingDeletion" class="npc-notes-pending-hint">
+                  Deletion requested
+                  {{
+                    selectedNpcNote?.deletionRequestedAt
+                      ? formatDate(selectedNpcNote.deletionRequestedAt)
+                      : ''
+                  }}
+                  by {{ selectedNpcNote?.deletionRequestedByName ?? 'a guild member' }}
+                </p>
+                <p v-if="npcNotesState.deletionStatus" class="npc-notes-status">
+                  {{ npcNotesState.deletionStatus }}
+                </p>
+              </div>
+              <div class="npc-notes-header-actions">
+                <a
+                  v-if="npcNotesExternalLink"
+                  class="npc-notes-link"
+                  :href="npcNotesExternalLink"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  View Alla Entry ↗
+                </a>
+                <span v-if="npcNotesReadOnly" class="npc-notes-badge">View only</span>
+                <button
+                  v-if="
+                    !npcNotesReadOnly &&
+                    selectedNpcNote &&
+                    !selectedNpcNotePendingDeletion &&
+                    !npcNotesState.canApproveDeletion
+                  "
+                  class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                  type="button"
+                  :disabled="!npcNotesState.selectedName"
+                  @click="requestNpcNoteDeletion"
+                >
+                  Request Deletion
+                </button>
+                <button
+                  v-else-if="
+                    npcNotesState.canApproveDeletion &&
+                    selectedNpcNote &&
+                    !selectedNpcNotePendingDeletion
+                  "
+                  class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                  type="button"
+                  :disabled="!npcNotesState.selectedName"
+                  @click="confirmImmediateNpcDeletion"
+                >
+                  Delete
+                </button>
+                <span v-else-if="selectedNpcNotePendingDeletion" class="npc-notes-pending-pill">
+                  Pending approval
+                </span>
+              </div>
+            </header>
+            <div class="npc-notes-grid">
+              <section class="npc-notes-panel">
+                <div class="npc-notes-field">
+                  <span>NPC Name</span>
+                  <input
+                    v-model="npcNotesState.draft.npcName"
+                    class="npc-notes-input"
+                    type="text"
+                    maxlength="191"
+                    :disabled="npcNotesReadOnly"
+                  />
+                </div>
+                <div class="npc-notes-field">
+                  <span>Alla Link</span>
+                  <input
+                    v-model="npcNotesState.draft.allaLink"
+                    class="npc-notes-input"
+                    type="url"
+                    placeholder="https://alla.clumsysworld.com/..."
+                    :disabled="npcNotesReadOnly"
+                  />
+                </div>
+              </section>
+              <section class="npc-notes-panel npc-notes-panel--notes">
+                <div class="npc-notes-field">
+                  <span>Notes</span>
+                  <textarea
+                    v-model="npcNotesState.draft.notes"
+                    class="npc-notes-textarea"
+                    rows="10"
+                    :disabled="npcNotesReadOnly"
+                  />
+                </div>
+              </section>
+            </div>
+            <div class="npc-notes-grid">
+              <section class="npc-notes-panel">
+                <header>
+                  <div>
+                    <h4>Spells</h4>
+                    <p class="muted small">Document dangerous abilities with Alla references.</p>
+                  </div>
+                  <button
+                    v-if="!npcNotesReadOnly"
+                    class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                    type="button"
+                    @click="addNpcNoteAssociationRow('spells')"
+                  >
+                    Add Spell
+                  </button>
+                </header>
+                <div
+                  v-if="npcNotesState.draft.spells.length === 0"
+                  class="npc-notes-empty muted small"
+                >
+                  No spells tracked yet.
+                </div>
+                <div class="npc-notes-chip-grid">
+                  <div
+                    v-for="spell in npcNotesState.draft.spells"
+                    :key="spell.localId"
+                    class="npc-notes-chip-wrapper"
+                    :class="{
+                      'npc-notes-chip-wrapper--active': isEditingAssociation(
+                        'spells',
+                        spell.localId
+                      )
+                    }"
+                  >
+                    <template v-if="npcNotesReadOnly">
+                      <a
+                        v-if="getAssociationDisplayLink('spells', spell)"
+                        class="npc-notes-chip"
+                        :href="getAssociationDisplayLink('spells', spell) || undefined"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
+                      >
+                        {{ getAssociationDisplayName('spells', spell) }}
+                      </a>
+                      <span v-else class="npc-notes-chip npc-notes-chip--disabled">
+                        {{ getAssociationDisplayName('spells', spell) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <button
+                        class="npc-notes-chip npc-notes-chip--button"
+                        type="button"
+                        @click="handleAssociationChipClick('spells', spell)"
+                        @contextmenu="handleAssociationContextMenu($event, 'spells', spell)"
+                      >
+                        {{ getAssociationDisplayName('spells', spell) }}
+                        <span v-if="getAssociationDisplayLink('spells', spell)" aria-hidden="true"
+                          >↗</span
+                        >
+                      </button>
+                      <button
+                        class="icon-button icon-button--chip-delete"
+                        type="button"
+                        @click.stop="confirmAssociationDelete('spells', spell.localId)"
+                      >
+                        ✕
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <div
+                  v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'spells'"
+                  class="npc-notes-association-form"
+                >
+                  <div class="npc-notes-association-edit">
+                    <input
+                      v-model="npcNotesState.associationEditor.name"
+                      class="npc-notes-input"
+                      type="text"
+                      placeholder="Spell name"
+                    />
+                    <input
+                      v-model="npcNotesState.associationEditor.allaLink"
+                      class="npc-notes-input"
+                      type="url"
+                      placeholder="https://alla.clumsysworld.com/..."
+                    />
+                    <button
+                      class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact"
+                      type="button"
+                      @click="confirmAssociationEdit()"
+                      :disabled="!associationEditorActive()"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div class="npc-notes-association-actions">
+                    <button
+                      class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                      type="button"
+                      @click="resetAssociationEditor()"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </section>
+              <section class="npc-notes-panel">
+                <header>
+                  <div>
+                    <h4>Associated NPCs</h4>
+                    <p class="muted small">Track adds, escorts, or other linked encounters.</p>
+                  </div>
+                  <button
+                    v-if="!npcNotesReadOnly"
+                    class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                    type="button"
+                    @click="addNpcNoteAssociationRow('relatedNpcs')"
+                  >
+                    Add NPC
+                  </button>
+                </header>
+                <div
+                  v-if="npcNotesState.draft.relatedNpcs.length === 0"
+                  class="npc-notes-empty muted small"
+                >
+                  No associated NPCs listed.
+                </div>
+                <div class="npc-notes-chip-grid">
+                  <div
+                    v-for="assoc in npcNotesState.draft.relatedNpcs"
+                    :key="assoc.localId"
+                    class="npc-notes-chip-wrapper"
+                    :class="{
+                      'npc-notes-chip-wrapper--active': isEditingAssociation(
+                        'relatedNpcs',
+                        assoc.localId
+                      )
+                    }"
+                  >
+                    <template v-if="npcNotesReadOnly">
+                      <a
+                        v-if="getAssociationDisplayLink('relatedNpcs', assoc)"
+                        class="npc-notes-chip"
+                        :href="getAssociationDisplayLink('relatedNpcs', assoc) || undefined"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
+                      >
+                        {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                      </a>
+                      <span v-else class="npc-notes-chip npc-notes-chip--disabled">
+                        {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <button
+                        class="npc-notes-chip npc-notes-chip--button"
+                        type="button"
+                        @click="handleAssociationChipClick('relatedNpcs', assoc)"
+                        @contextmenu="handleAssociationContextMenu($event, 'relatedNpcs', assoc)"
+                      >
+                        {{ getAssociationDisplayName('relatedNpcs', assoc) }}
+                        <span
+                          v-if="getAssociationDisplayLink('relatedNpcs', assoc)"
+                          aria-hidden="true"
+                          >↗</span
+                        >
+                      </button>
+                      <button
+                        class="icon-button icon-button--chip-delete"
+                        type="button"
+                        @click.stop="confirmAssociationDelete('relatedNpcs', assoc.localId)"
+                      >
+                        ✕
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <div
+                  v-if="!npcNotesReadOnly && npcNotesState.associationEditor.type === 'relatedNpcs'"
+                  class="npc-notes-association-form"
+                >
+                  <div class="npc-notes-association-edit">
+                    <input
+                      v-model="npcNotesState.associationEditor.name"
+                      class="npc-notes-input"
+                      type="text"
+                      placeholder="NPC name"
+                    />
+                    <input
+                      v-model="npcNotesState.associationEditor.allaLink"
+                      class="npc-notes-input"
+                      type="url"
+                      placeholder="https://alla.clumsysworld.com/..."
+                    />
+                    <button
+                      class="npc-notes-btn npc-notes-btn--primary npc-notes-btn--compact"
+                      type="button"
+                      @click="confirmAssociationEdit()"
+                      :disabled="!associationEditorActive()"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div class="npc-notes-association-actions">
+                    <button
+                      class="npc-notes-btn npc-notes-btn--ghost npc-notes-btn--compact"
+                      type="button"
+                      @click="resetAssociationEditor()"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
+            <p v-if="npcNotesState.error" class="error npc-notes-error">
+              {{ npcNotesState.error }}
+            </p>
+            <footer class="modal__actions npc-notes-actions">
+              <button
+                v-if="!npcNotesReadOnly"
+                class="npc-notes-btn npc-notes-btn--primary"
+                type="button"
+                :disabled="npcNotesState.saving"
+                @click="saveNpcNote"
+              >
+                {{ npcNotesState.saving ? 'Saving…' : 'Save Notes' }}
+              </button>
+            </footer>
+          </template>
+        </section>
+      </div>
+    </div>
+  </div>
+  <AttendanceEventModal
+    v-if="selectedAttendanceEvent"
+    :event="selectedAttendanceEvent"
+    :can-edit="canManageRaid"
     :saving="attendanceModalSaving"
     @close="closeAttendanceEvent"
     @upload="handleAttendanceUploadFromModal"
@@ -1968,16 +2151,23 @@
     </div>
   </div>
   <!-- Instance Clarification Modal -->
-  <div v-if="showInstanceClarificationModal" class="modal-backdrop" @click.self="closeInstanceClarificationModal">
+  <div
+    v-if="showInstanceClarificationModal"
+    class="modal-backdrop"
+    @click.self="closeInstanceClarificationModal"
+  >
     <div class="modal instance-clarification-modal">
       <header class="modal__header">
         <div>
           <h3>Instance Kill Clarification</h3>
           <p class="muted small">
-            The following tracked NPC kills were detected. Please indicate which kills occurred in an instance.
+            The following tracked NPC kills were detected. Please indicate which kills occurred in
+            an instance.
           </p>
         </div>
-        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">✕</button>
+        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">
+          ✕
+        </button>
       </header>
       <div class="modal__body">
         <div class="clarification-list">
@@ -1992,21 +2182,14 @@
               <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
             </div>
             <label class="instance-toggle">
-              <input
-                type="checkbox"
-                v-model="instanceClarifications[index].isInstance"
-              />
+              <input type="checkbox" v-model="instanceClarifications[index].isInstance" />
               <span class="toggle-label">Instance</span>
             </label>
           </div>
         </div>
       </div>
       <footer class="modal__footer">
-        <button
-          type="button"
-          class="btn btn--outline"
-          @click="closeInstanceClarificationModal"
-        >
+        <button type="button" class="btn btn--outline" @click="closeInstanceClarificationModal">
           Skip
         </button>
         <button
@@ -2021,13 +2204,18 @@
     </div>
   </div>
   <!-- Zone Clarification Modal -->
-  <div v-if="showZoneClarificationModal" class="modal-backdrop" @click.self="closeZoneClarificationModal">
+  <div
+    v-if="showZoneClarificationModal"
+    class="modal-backdrop"
+    @click.self="closeZoneClarificationModal"
+  >
     <div class="modal zone-clarification-modal">
       <header class="modal__header">
         <div>
           <h3>Zone Clarification Required</h3>
           <p class="muted small">
-            The following kills match NPCs tracked in multiple zones. Please select the correct zone for each kill.
+            The following kills match NPCs tracked in multiple zones. Please select the correct zone
+            for each kill.
           </p>
         </div>
         <button class="icon-button" type="button" @click="closeZoneClarificationModal">✕</button>
@@ -2044,10 +2232,7 @@
               <span class="kill-time">{{ formatClarificationTime(kill.killedAt) }}</span>
               <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
             </div>
-            <select
-              v-model="zoneClarifications[index].selectedNpcDefinitionId"
-              class="zone-select"
-            >
+            <select v-model="zoneClarifications[index].selectedNpcDefinitionId" class="zone-select">
               <option
                 v-for="option in kill.zoneOptions"
                 :key="option.npcDefinitionId"
@@ -2060,11 +2245,7 @@
         </div>
       </div>
       <footer class="modal__footer">
-        <button
-          type="button"
-          class="btn btn--outline"
-          @click="closeZoneClarificationModal"
-        >
+        <button type="button" class="btn btn--outline" @click="closeZoneClarificationModal">
           Skip
         </button>
         <button
@@ -2091,7 +2272,11 @@ import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RosterPreviewModal from '../components/RosterPreviewModal.vue';
 import CharacterLink from '../components/CharacterLink.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type PendingInstanceClarification, type PendingZoneClarification } from '../services/api';
+import {
+  api,
+  type PendingInstanceClarification,
+  type PendingZoneClarification
+} from '../services/api';
 import {
   characterClassLabels,
   characterClassIcons,
@@ -2122,7 +2307,11 @@ import type {
 import { useAuthStore } from '../stores/auth';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
-import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
+import {
+  buildLootListLookup,
+  matchesLootListEntry,
+  normalizeLootItemName
+} from '../utils/lootLists';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import {
   getGuildBankDisplayName,
@@ -2244,7 +2433,7 @@ function normalizeRaidLootEvents(events: RaidLootEvent[]): RaidLootEvent[] {
     return {
       ...event,
       looterName: name,
-      looterClass: isGuildBank || isMasterLooter ? null : event.looterClass ?? null
+      looterClass: isGuildBank || isMasterLooter ? null : (event.looterClass ?? null)
     };
   });
 }
@@ -2313,18 +2502,22 @@ function setNpcNotesDraft(note: GuildNpcNote | null, fallbackName?: string) {
   npcNotesState.draft.notes = note?.notes ?? '';
   npcNotesState.draft.allaLink = note?.allaLink ?? '';
   npcNotesState.draft.spells = note?.spells
-    ? note.spells.map((spell) => createAssociationDraft({
-        localId: spell.id,
-        name: spell.name,
-        allaLink: spell.allaLink
-      }))
+    ? note.spells.map((spell) =>
+        createAssociationDraft({
+          localId: spell.id,
+          name: spell.name,
+          allaLink: spell.allaLink
+        })
+      )
     : [];
   npcNotesState.draft.relatedNpcs = note?.relatedNpcs
-    ? note.relatedNpcs.map((npc) => createAssociationDraft({
-        localId: npc.id,
-        name: npc.name,
-        allaLink: npc.allaLink
-      }))
+    ? note.relatedNpcs.map((npc) =>
+        createAssociationDraft({
+          localId: npc.id,
+          name: npc.name,
+          allaLink: npc.allaLink
+        })
+      )
     : [];
   resetAssociationEditor();
 }
@@ -2336,9 +2529,7 @@ function selectNpcNotesEntry(name?: string) {
     setNpcNotesDraft(null, '');
     return;
   }
-  const match = npcNotes.value.find(
-    (note) => note.npcName.toLowerCase() === target.toLowerCase()
-  );
+  const match = npcNotes.value.find((note) => note.npcName.toLowerCase() === target.toLowerCase());
   setNpcNotesDraft(match ?? null, target);
   closeAssociationContext();
   npcNotesState.deletionStatus = '';
@@ -2479,10 +2670,7 @@ async function requestNpcNoteDeletion() {
     selectNpcNotesEntry(note.npcName);
     npcNotesState.deletionStatus = 'Awaiting officer approval.';
   } catch (error) {
-    npcNotesState.deletionStatus = extractErrorMessage(
-      error,
-      'Unable to request deletion.'
-    );
+    npcNotesState.deletionStatus = extractErrorMessage(error, 'Unable to request deletion.');
   }
 }
 
@@ -2499,10 +2687,7 @@ function confirmImmediateNpcDeletion() {
   handleNpcNoteDeletionDecision(npcNotesState.selectedName, 'APPROVE');
 }
 
-async function handleNpcNoteDeletionDecision(
-  npcName: string,
-  decision: 'APPROVE' | 'DENY'
-) {
+async function handleNpcNoteDeletionDecision(npcName: string, decision: 'APPROVE' | 'DENY') {
   if (!raid.value?.guild?.id || !npcNotesState.canApproveDeletion) {
     return;
   }
@@ -2513,11 +2698,7 @@ async function handleNpcNoteDeletionDecision(
     }
   }
   try {
-    const result = await api.decideGuildNpcNoteDeletion(
-      raid.value.guild.id,
-      npcName,
-      decision
-    );
+    const result = await api.decideGuildNpcNoteDeletion(raid.value.guild.id, npcName, decision);
     if (decision === 'APPROVE') {
       removeLocalNpcNote(npcName);
       if (npcNotesState.selectedName.toLowerCase() === npcName.toLowerCase()) {
@@ -2532,9 +2713,7 @@ async function handleNpcNoteDeletionDecision(
       npcNotesState.deletionStatus = 'Deletion request denied.';
     }
   } catch (error) {
-    window.alert(
-      extractErrorMessage(error, 'Unable to process deletion decision.')
-    );
+    window.alert(extractErrorMessage(error, 'Unable to process deletion decision.'));
   }
 }
 
@@ -2787,8 +2966,8 @@ const selectedNpcNote = computed(() => {
   return npcNotes.value.find((note) => note.npcName.toLowerCase() === target) ?? null;
 });
 const npcNotesExternalLink = computed(() => formatDisplayAllaLink(npcNotesState.draft.allaLink));
-const selectedNpcNotePendingDeletion = computed(
-  () => Boolean(selectedNpcNote.value?.deletionRequestedAt)
+const selectedNpcNotePendingDeletion = computed(() =>
+  Boolean(selectedNpcNote.value?.deletionRequestedAt)
 );
 const npcNotesNameSet = computed(() => {
   const set = new Set<string>();
@@ -2823,14 +3002,12 @@ const signupSearch = reactive({
   showDropdown: false
 });
 let signupSearchTimeout: ReturnType<typeof setTimeout> | null = null;
-const signupsToggleLabel = computed(() => (signupsCollapsed.value ? 'Expand Signups' : 'Collapse Signups'));
+const signupsToggleLabel = computed(() =>
+  signupsCollapsed.value ? 'Expand Signups' : 'Collapse Signups'
+);
 const collapsedGroupPreviewSize = 6;
-const whitelistLookup = computed(() =>
-  buildLootListLookup(lootListSummary.value?.whitelist ?? [])
-);
-const blacklistLookup = computed(() =>
-  buildLootListLookup(lootListSummary.value?.blacklist ?? [])
-);
+const whitelistLookup = computed(() => buildLootListLookup(lootListSummary.value?.whitelist ?? []));
+const blacklistLookup = computed(() => buildLootListLookup(lootListSummary.value?.blacklist ?? []));
 const lootMonitorActive = computed(() => Boolean(raid.value?.logMonitor?.isActive));
 const lootMonitorVisible = computed(() => lootMonitorActive.value);
 const lootMonitorDisplayName = computed(() => {
@@ -2933,9 +3110,7 @@ const groupedLoot = computed<GroupedLootEntry[]>(() => {
       const normalized = normalizeLootItemName(entry.itemName);
       return {
         ...entry,
-        isWhitelisted: Boolean(
-          matchesLootListEntry(whitelistLookupValue, entry.itemId, normalized)
-        )
+        isWhitelisted: Boolean(matchesLootListEntry(whitelistLookupValue, entry.itemId, normalized))
       };
     })
     .sort((a, b) => b.count - a.count);
@@ -2955,11 +3130,6 @@ function openAllaSearch(itemName: string, itemId?: number | null) {
   window.open(url, '_blank');
 }
 
-const formatLooterLabel = (name: string, looterClass?: string | null) => {
-  const classLabel = formatCharacterClassLabel(looterClass);
-  return classLabel ? `${name} (${classLabel})` : name;
-};
-
 function handleLootCardClick(event: MouseEvent, itemName: string, itemId?: number | null) {
   const target = event.target as HTMLElement | null;
   if (target?.closest('a')) {
@@ -2975,21 +3145,6 @@ function handleLootCardKeyEnter(event: KeyboardEvent, itemName: string, itemId?:
   }
   openAllaSearch(itemName, itemId);
 }
-
-const formatCharacterClassLabel = (value?: string | null) => {
-  if (!value) {
-    return null;
-  }
-  const normalized = value.trim();
-  if (!normalized) {
-    return null;
-  }
-  const upper = normalized.toUpperCase() as CharacterClass;
-  if (upper in characterClassLabels) {
-    return characterClassLabels[upper];
-  }
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
-};
 
 const startedAtInput = ref('');
 const endedAtInput = ref('');
@@ -3029,17 +3184,17 @@ const recurrenceIntervalSuffix = computed(() => {
       return interval === 1 ? 'week' : 'weeks';
   }
 });
-const recurrenceDirty = computed(() =>
-  recurrenceForm.enabled !== initialRecurrence.enabled ||
-  recurrenceForm.frequency !== initialRecurrence.frequency ||
-  recurrenceForm.interval !== initialRecurrence.interval ||
-  recurrenceForm.endDate !== initialRecurrence.endDate
+const recurrenceDirty = computed(
+  () =>
+    recurrenceForm.enabled !== initialRecurrence.enabled ||
+    recurrenceForm.frequency !== initialRecurrence.frequency ||
+    recurrenceForm.interval !== initialRecurrence.interval ||
+    recurrenceForm.endDate !== initialRecurrence.endDate
 );
 
 function goBackToRaids() {
   router.push({ name: 'Raids' });
 }
-
 
 watch(
   () => recurrenceForm.interval,
@@ -3211,15 +3366,17 @@ const npcKillSummary = computed(() => {
   trackedNpcs.value.forEach((npc) => {
     targetBossSet.add(npc.npcName.trim().toLowerCase());
   });
-  return [...kills].sort((a, b) => {
-    if (b.killCount !== a.killCount) {
-      return b.killCount - a.killCount;
-    }
-    return a.npcName.localeCompare(b.npcName);
-  }).map((kill) => ({
-    ...kill,
-    isTargetBoss: targetBossSet.has(kill.npcName.trim().toLowerCase())
-  }));
+  return [...kills]
+    .sort((a, b) => {
+      if (b.killCount !== a.killCount) {
+        return b.killCount - a.killCount;
+      }
+      return a.npcName.localeCompare(b.npcName);
+    })
+    .map((kill) => ({
+      ...kill,
+      isTargetBoss: targetBossSet.has(kill.npcName.trim().toLowerCase())
+    }));
 });
 const totalNpcKills = computed(() =>
   npcKillSummary.value.reduce((sum, kill) => sum + kill.killCount, 0)
@@ -3229,12 +3386,16 @@ const uploadingKillLog = ref(false);
 const killLogInput = ref<HTMLInputElement | null>(null);
 // Instance clarification modal state
 const showInstanceClarificationModal = ref(false);
-const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>([]);
+const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>(
+  []
+);
 const submittingClarifications = ref(false);
 
 // Zone clarification modal state
 const showZoneClarificationModal = ref(false);
-const zoneClarifications = ref<Array<PendingZoneClarification & { selectedNpcDefinitionId: string }>>([]);
+const zoneClarifications = ref<
+  Array<PendingZoneClarification & { selectedNpcDefinitionId: string }>
+>([]);
 const submittingZoneClarifications = ref(false);
 const npcKillZoomRange = ref<{ min: number; max: number } | null>(null);
 const npcKillChartRef = ref<any>(null);
@@ -3380,7 +3541,16 @@ async function submitManualKill() {
 }
 
 const npcKillColorCache = new Map<string, string>();
-const npcColorPalette = ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa', '#f97316', '#38bdf8', '#f87171'];
+const npcColorPalette = [
+  '#60a5fa',
+  '#f472b6',
+  '#34d399',
+  '#fbbf24',
+  '#a78bfa',
+  '#f97316',
+  '#38bdf8',
+  '#f87171'
+];
 
 function getNpcColor(name: string) {
   const key = name.toLowerCase();
@@ -3431,7 +3601,11 @@ const npcKillScatterData = computed(() => {
         npcName: event.npcName,
         killerName: event.killerName ?? null,
         occurredAt,
-        color: isTargetBossKill ? '#facc15' : isPlayerDeath ? '#f87171' : getNpcColor(event.npcName),
+        color: isTargetBossKill
+          ? '#facc15'
+          : isPlayerDeath
+            ? '#f87171'
+            : getNpcColor(event.npcName),
         isPlayerDeath,
         isTargetBossKill
       };
@@ -3630,13 +3804,22 @@ const npcKillScatterPlugin = {
     const overlapPadding = 8;
 
     // Helper to check if a rectangle overlaps with any placed bubble
-    const hasOverlap = (testX: number, testY: number, testW: number, testH: number, exclude: typeof bubbles[0] | null, placed: typeof bubbles) => {
+    const hasOverlap = (
+      testX: number,
+      testY: number,
+      testW: number,
+      testH: number,
+      exclude: (typeof bubbles)[0] | null,
+      placed: typeof bubbles
+    ) => {
       for (const other of placed) {
         if (other === exclude) continue;
-        const overlapX = testX < other.bubbleX + other.bubbleWidth + overlapPadding &&
-                         testX + testW + overlapPadding > other.bubbleX;
-        const overlapY = testY < other.bubbleY + other.bubbleHeight + overlapPadding &&
-                         testY + testH + overlapPadding > other.bubbleY;
+        const overlapX =
+          testX < other.bubbleX + other.bubbleWidth + overlapPadding &&
+          testX + testW + overlapPadding > other.bubbleX;
+        const overlapY =
+          testY < other.bubbleY + other.bubbleHeight + overlapPadding &&
+          testY + testH + overlapPadding > other.bubbleY;
         if (overlapX && overlapY) return true;
       }
       return false;
@@ -3647,7 +3830,16 @@ const npcKillScatterPlugin = {
 
     for (const bubble of bubbles) {
       // Try original position first
-      if (!hasOverlap(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+      if (
+        !hasOverlap(
+          bubble.bubbleX,
+          bubble.bubbleY,
+          bubble.bubbleWidth,
+          bubble.bubbleHeight,
+          null,
+          placedBubbles
+        )
+      ) {
         placedBubbles.push(bubble);
         continue;
       }
@@ -3661,7 +3853,9 @@ const npcKillScatterPlugin = {
         // Try right
         const rightX = bubble.bubbleX + offset;
         if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
-          if (!hasOverlap(rightX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+          if (
+            !hasOverlap(rightX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)
+          ) {
             bubble.bubbleX = rightX;
             placed = true;
             break;
@@ -3671,7 +3865,9 @@ const npcKillScatterPlugin = {
         // Try left
         const leftX = bubble.bubbleX - offset;
         if (leftX >= chartArea.left + edgePadding) {
-          if (!hasOverlap(leftX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+          if (
+            !hasOverlap(leftX, baseY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)
+          ) {
             bubble.bubbleX = leftX;
             placed = true;
             break;
@@ -3683,16 +3879,19 @@ const npcKillScatterPlugin = {
       if (!placed) {
         const yOffsets = bubble.placeAbove
           ? [-(bubble.bubbleHeight + overlapPadding), -(bubble.bubbleHeight + overlapPadding) * 2]
-          : [(bubble.bubbleHeight + overlapPadding), (bubble.bubbleHeight + overlapPadding) * 2];
+          : [bubble.bubbleHeight + overlapPadding, (bubble.bubbleHeight + overlapPadding) * 2];
 
         for (const yOffset of yOffsets) {
           const newY = baseY + yOffset;
           // Reset X to preferred position for this Y level
           let newX = bubble.starX - bubble.bubbleWidth / 2;
           if (newX < chartArea.left + edgePadding) newX = chartArea.left + edgePadding;
-          if (newX + bubble.bubbleWidth > chartArea.right - edgePadding) newX = chartArea.right - edgePadding - bubble.bubbleWidth;
+          if (newX + bubble.bubbleWidth > chartArea.right - edgePadding)
+            newX = chartArea.right - edgePadding - bubble.bubbleWidth;
 
-          if (!hasOverlap(newX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+          if (
+            !hasOverlap(newX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)
+          ) {
             bubble.bubbleX = newX;
             bubble.bubbleY = newY;
             placed = true;
@@ -3700,10 +3899,23 @@ const npcKillScatterPlugin = {
           }
 
           // Try horizontal shifts at this Y level too
-          for (let offset = overlapPadding; offset < chartArea.right - chartArea.left; offset += 20) {
+          for (
+            let offset = overlapPadding;
+            offset < chartArea.right - chartArea.left;
+            offset += 20
+          ) {
             const rightX = newX + offset;
             if (rightX + bubble.bubbleWidth <= chartArea.right - edgePadding) {
-              if (!hasOverlap(rightX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+              if (
+                !hasOverlap(
+                  rightX,
+                  newY,
+                  bubble.bubbleWidth,
+                  bubble.bubbleHeight,
+                  null,
+                  placedBubbles
+                )
+              ) {
                 bubble.bubbleX = rightX;
                 bubble.bubbleY = newY;
                 placed = true;
@@ -3712,7 +3924,16 @@ const npcKillScatterPlugin = {
             }
             const leftX = newX - offset;
             if (leftX >= chartArea.left + edgePadding) {
-              if (!hasOverlap(leftX, newY, bubble.bubbleWidth, bubble.bubbleHeight, null, placedBubbles)) {
+              if (
+                !hasOverlap(
+                  leftX,
+                  newY,
+                  bubble.bubbleWidth,
+                  bubble.bubbleHeight,
+                  null,
+                  placedBubbles
+                )
+              ) {
                 bubble.bubbleX = leftX;
                 bubble.bubbleY = newY;
                 placed = true;
@@ -3747,7 +3968,9 @@ const npcKillScatterPlugin = {
 
       // Draw connecting line
       const lineStartY = bubble.placeAbove ? bubble.starY - starRadius : bubble.starY + starRadius;
-      const lineEndY = bubble.placeAbove ? bubble.bubbleY + bubble.bubbleHeight + 2 : bubble.bubbleY - 2;
+      const lineEndY = bubble.placeAbove
+        ? bubble.bubbleY + bubble.bubbleHeight + 2
+        : bubble.bubbleY - 2;
       ctx.save();
       ctx.strokeStyle = 'rgba(250, 204, 21, 0.5)';
       ctx.lineWidth = 1.5;
@@ -3761,7 +3984,13 @@ const npcKillScatterPlugin = {
       ctx.strokeStyle = '#facc15';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.roundRect(bubble.bubbleX, bubble.bubbleY, bubble.bubbleWidth, bubble.bubbleHeight, bubbleRadius);
+      ctx.roundRect(
+        bubble.bubbleX,
+        bubble.bubbleY,
+        bubble.bubbleWidth,
+        bubble.bubbleHeight,
+        bubbleRadius
+      );
       ctx.fill();
       ctx.stroke();
 
@@ -3880,18 +4109,16 @@ const editLootModal = reactive<{
   entry: GroupedLootEntry | null;
   form: { looterName: string; count: number; itemId: number | null };
   saving: boolean;
-}>(
-  {
-    visible: false,
-    entry: null,
-    form: {
-      looterName: '',
-      count: 1,
-      itemId: null
-    },
-    saving: false
-  }
-);
+}>({
+  visible: false,
+  entry: null,
+  form: {
+    looterName: '',
+    count: 1,
+    itemId: null
+  },
+  saving: false
+});
 const notesPanelExpanded = ref(false);
 const targetsPanelExpanded = ref(false);
 const hasEffectiveStarted = computed(() => {
@@ -3951,11 +4178,14 @@ const viewerSignups = computed<RaidSignup[]>(() => {
   return raidSignups.value.filter((entry) => entry.userId === userId);
 });
 const savedSignupIds = computed(() => viewerSignups.value.map((entry) => entry.characterId));
-const savedNotAttendingIds = computed(() => new Set(
-  viewerSignups.value
-    .filter((entry) => entry.status === 'NOT_ATTENDING')
-    .map((entry) => entry.characterId)
-));
+const savedNotAttendingIds = computed(
+  () =>
+    new Set(
+      viewerSignups.value
+        .filter((entry) => entry.status === 'NOT_ATTENDING')
+        .map((entry) => entry.characterId)
+    )
+);
 const sortedCharacters = computed(() => {
   return [...userCharacters.value].sort((a, b) => {
     if (a.isMain !== b.isMain) {
@@ -4021,16 +4251,14 @@ const collapsedSignupGroups = computed(() =>
         const bucket = groupedSignups.value[category] ?? [];
         const userId = viewerUserId.value;
         const ordered = userId
-          ? bucket
-              .slice()
-              .sort((a, b) => {
-                const aSelf = a.userId === userId ? 1 : 0;
-                const bSelf = b.userId === userId ? 1 : 0;
-                if (aSelf !== bSelf) {
-                  return bSelf - aSelf;
-                }
-                return a.characterName.localeCompare(b.characterName);
-              })
+          ? bucket.slice().sort((a, b) => {
+              const aSelf = a.userId === userId ? 1 : 0;
+              const bSelf = b.userId === userId ? 1 : 0;
+              if (aSelf !== bSelf) {
+                return bSelf - aSelf;
+              }
+              return a.characterName.localeCompare(b.characterName);
+            })
           : bucket;
         return ordered.slice(0, collapsedGroupPreviewSize);
       })()
@@ -4047,7 +4275,10 @@ function isViewerSignup(entry: RaidSignup) {
 }
 
 watch(
-  () => savedSignupIds.value.slice().sort().join('|') + '|' + Array.from(savedNotAttendingIds.value).sort().join(','),
+  () =>
+    savedSignupIds.value.slice().sort().join('|') +
+    '|' +
+    Array.from(savedNotAttendingIds.value).sort().join(','),
   () => {
     applySignupDraft(savedSignupIds.value);
     notAttendingDraft.value = new Set(savedNotAttendingIds.value);
@@ -4063,7 +4294,9 @@ watch(
 );
 
 const canRestartRaid = computed(() => canManageRaid.value && hasEffectiveEnded.value);
-const canCancelRaid = computed(() => canManageRaid.value && !hasEffectiveCanceled.value && !hasEffectiveStarted.value);
+const canCancelRaid = computed(
+  () => canManageRaid.value && !hasEffectiveCanceled.value && !hasEffectiveStarted.value
+);
 const canUncancelRaid = computed(() => canManageRaid.value && hasEffectiveCanceled.value);
 const roleLabels: Record<string, string> = {
   LEADER: 'Guild Leader',
@@ -4077,11 +4310,14 @@ const userGuildRoleLabel = computed(() => {
   if (!role) {
     return null;
   }
-  return roleLabels[role] ?? role
-    .toLowerCase()
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+  return (
+    roleLabels[role] ??
+    role
+      .toLowerCase()
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+  );
 });
 
 const raidStatusBadge = computed(() => {
@@ -4197,10 +4433,14 @@ async function saveSignups(options?: { signupEntries?: SignupEntry[]; successMes
     return;
   }
   // Build signup entries from current draft state
-  const targetEntries: SignupEntry[] = options?.signupEntries ?? signupDraft.value.map((characterId) => ({
-    characterId,
-    status: notAttendingDraft.value.has(characterId) ? 'NOT_ATTENDING' as SignupStatus : 'CONFIRMED' as SignupStatus
-  }));
+  const targetEntries: SignupEntry[] =
+    options?.signupEntries ??
+    signupDraft.value.map((characterId) => ({
+      characterId,
+      status: notAttendingDraft.value.has(characterId)
+        ? ('NOT_ATTENDING' as SignupStatus)
+        : ('CONFIRMED' as SignupStatus)
+    }));
   const targetIds = orderCharacterIds(targetEntries.map((e) => e.characterId));
 
   // Check if anything actually changed
@@ -4219,7 +4459,7 @@ async function saveSignups(options?: { signupEntries?: SignupEntry[]; successMes
     const confirmation = await showConfirmation({
       title: 'Confirm Raid Signup',
       message:
-        'Are you sure you want to confirm this raid signup? Depending on your guild\'s settings, a discord notification may be sent to notify others of your signup.',
+        "Are you sure you want to confirm this raid signup? Depending on your guild's settings, a discord notification may be sent to notify others of your signup.",
       confirmLabel: 'Confirm',
       cancelLabel: 'Keep Editing'
     });
@@ -4236,12 +4476,14 @@ async function saveSignups(options?: { signupEntries?: SignupEntry[]; successMes
   try {
     const orderedEntries = targetIds.map((id) => {
       const entry = targetEntries.find((e) => e.characterId === id);
-      return { characterId: id, status: entry?.status ?? 'CONFIRMED' as SignupStatus };
+      return { characterId: id, status: entry?.status ?? ('CONFIRMED' as SignupStatus) };
     });
     const updated = await api.updateRaidSignups(raid.value.id, orderedEntries);
     raid.value.signups = updated;
     applySignupDraft(targetIds);
-    notAttendingDraft.value = new Set(orderedEntries.filter((e) => e.status === 'NOT_ATTENDING').map((e) => e.characterId));
+    notAttendingDraft.value = new Set(
+      orderedEntries.filter((e) => e.status === 'NOT_ATTENDING').map((e) => e.characterId)
+    );
     const message =
       options?.successMessage ??
       (targetEntries.length > 0
@@ -4267,7 +4509,10 @@ async function handleSignupMains() {
     return;
   }
   const mainIds = viewerMains.value.slice(0, maxSignupSlots).map((character) => character.id);
-  const mainEntries: SignupEntry[] = mainIds.map((id) => ({ characterId: id, status: 'CONFIRMED' as SignupStatus }));
+  const mainEntries: SignupEntry[] = mainIds.map((id) => ({
+    characterId: id,
+    status: 'CONFIRMED' as SignupStatus
+  }));
   clearSignupFeedback();
   applySignupDraft(mainIds);
   notAttendingDraft.value = new Set();
@@ -4398,7 +4643,7 @@ async function handleAddSignupFromSearch(character: RaidCharacterSearchResult) {
     const updatedSignups = await api.addSignup(raid.value.id, character.id, 'CONFIRMED');
     raid.value.signups = updatedSignups;
     // Update search results to reflect the new signup
-    const idx = signupSearch.results.findIndex(c => c.id === character.id);
+    const idx = signupSearch.results.findIndex((c) => c.id === character.id);
     if (idx !== -1) {
       signupSearch.results[idx].isSignedUp = true;
     }
@@ -4513,13 +4758,13 @@ async function uploadKillLogFile(file: File) {
       await loadRaid();
       // Show zone clarification modal first if needed, then instance clarification
       if (allPendingZoneClarifications.length > 0) {
-        zoneClarifications.value = allPendingZoneClarifications.map(c => ({
+        zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
           ...c,
           selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
         }));
         showZoneClarificationModal.value = true;
       } else if (allPendingClarifications.length > 0) {
-        instanceClarifications.value = allPendingClarifications.map(c => ({
+        instanceClarifications.value = allPendingClarifications.map((c) => ({
           ...c,
           isInstance: false // Default to overworld
         }));
@@ -4559,7 +4804,9 @@ async function submitInstanceClarifications() {
     }
     closeInstanceClarificationModal();
   } catch (error: any) {
-    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications');
+    window.alert(
+      error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications'
+    );
   } finally {
     submittingClarifications.value = false;
   }
@@ -4594,7 +4841,9 @@ async function submitZoneClarifications() {
     }
     closeZoneClarificationModal();
   } catch (error: any) {
-    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit zone clarifications');
+    window.alert(
+      error?.response?.data?.message ?? error?.message ?? 'Failed to submit zone clarifications'
+    );
   } finally {
     submittingZoneClarifications.value = false;
   }
@@ -4642,16 +4891,8 @@ function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
   }
   event.preventDefault();
   const normalizedName = normalizeLootItemName(entry.itemName);
-  const whitelistEntry = matchesLootListEntry(
-    whitelistLookup.value,
-    entry.itemId,
-    normalizedName
-  );
-  const blacklistEntry = matchesLootListEntry(
-    blacklistLookup.value,
-    entry.itemId,
-    normalizedName
-  );
+  const whitelistEntry = matchesLootListEntry(whitelistLookup.value, entry.itemId, normalizedName);
+  const blacklistEntry = matchesLootListEntry(blacklistLookup.value, entry.itemId, normalizedName);
   const menuWidth = 220;
   const menuHeight = 160;
   const x = Math.min(event.clientX, window.innerWidth - menuWidth);
@@ -4873,7 +5114,7 @@ async function saveEditedLoot() {
   const emoji = entry.emoji ?? '💎';
   const currentItemId = entry.itemId ?? null;
   const itemIdChanged = currentItemId !== (normalizedItemId ?? null);
-  const desiredItemId = itemIdChanged ? normalizedItemId ?? null : currentItemId;
+  const desiredItemId = itemIdChanged ? (normalizedItemId ?? null) : currentItemId;
 
   editLootModal.saving = true;
   try {
@@ -4885,15 +5126,15 @@ async function saveEditedLoot() {
               ...(normalizedLooter !== entry.looterName
                 ? {
                     looterName: normalizedLooter,
-                    looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? null
+                    looterClass: isBankLooter || isMasterLooter ? null : (entry.looterClass ?? null)
                   }
                 : {}),
               ...(itemIdChanged ? { itemId: normalizedItemId ?? null } : {})
             })
             .catch((error) => {
-            console.warn('Failed to update loot assignment', lootId, error);
-            throw error;
-          })
+              console.warn('Failed to update loot assignment', lootId, error);
+              throw error;
+            })
         )
       );
     }
@@ -4903,7 +5144,7 @@ async function saveEditedLoot() {
         itemName: entry.itemName,
         itemId: desiredItemId ?? null,
         looterName: normalizedLooter,
-        looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? undefined,
+        looterClass: isBankLooter || isMasterLooter ? null : (entry.looterClass ?? undefined),
         emoji,
         note: entry.note ?? undefined
       }));
@@ -5182,11 +5423,7 @@ function describeRecurrence(settings: {
 }) {
   const interval = Math.max(1, settings.interval || 1);
   const unit =
-    settings.frequency === 'DAILY'
-      ? 'day'
-      : settings.frequency === 'MONTHLY'
-        ? 'month'
-        : 'week';
+    settings.frequency === 'DAILY' ? 'day' : settings.frequency === 'MONTHLY' ? 'month' : 'week';
   const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
   let summary = `Repeats ${everyLabel}`;
   if (settings.endDate) {
@@ -5284,7 +5521,10 @@ async function persistRecurrenceDisabled() {
     await api.updateRaid(raidId, { recurrence: null });
     await loadRaid();
   } catch (error) {
-    recurrenceError.value = extractErrorMessage(error, 'Unable to disable recurrence. Please try again.');
+    recurrenceError.value = extractErrorMessage(
+      error,
+      'Unable to disable recurrence. Please try again.'
+    );
     recurrenceForm.enabled = true;
   } finally {
     savingRecurrence.value = false;
@@ -5325,8 +5565,7 @@ async function saveNotes() {
 }
 
 function commitTargetInput(type: TargetField) {
-  const pending =
-    type === 'zones' ? targetsModal.zoneInput.trim() : targetsModal.bossInput.trim();
+  const pending = type === 'zones' ? targetsModal.zoneInput.trim() : targetsModal.bossInput.trim();
   if (!pending) {
     return;
   }
@@ -5521,7 +5760,10 @@ async function saveTargetsFromModal() {
 
     closeTargetsModal();
   } catch (error) {
-    targetsModal.error = extractErrorMessage(error, 'Unable to update raid goals. Please try again.');
+    targetsModal.error = extractErrorMessage(
+      error,
+      'Unable to update raid goals. Please try again.'
+    );
   } finally {
     targetsModal.saving = false;
   }
@@ -5596,7 +5838,6 @@ function resolveConfirmation(result: 'primary' | 'secondary' | 'cancel') {
   resolver?.(result);
 }
 
-
 function confirmDeleteAttendance(event: any) {
   if (!canManageRaid.value) {
     return;
@@ -5623,13 +5864,15 @@ function confirmDeleteAttendance(event: any) {
       }
       await refreshRaidSignups();
     } catch (error) {
-      actionError.value = extractErrorMessage(error, 'Unable to delete attendance event. Please try again.');
+      actionError.value = extractErrorMessage(
+        error,
+        'Unable to delete attendance event. Please try again.'
+      );
     } finally {
       deletingAttendanceId.value = null;
     }
   });
 }
-
 
 function handleRosterModalClose() {
   discardPreview(!rosterEditingEventId.value);
@@ -5759,10 +6002,7 @@ async function handleAnnounceRaid() {
         try {
           await api.announceRaid(raidId);
         } catch (secondError) {
-          actionError.value = extractErrorMessage(
-            secondError,
-            'Unable to send raid announcement.'
-          );
+          actionError.value = extractErrorMessage(secondError, 'Unable to send raid announcement.');
         }
       }
       return;
@@ -6041,7 +6281,8 @@ async function handleAttendanceModalSave(payload: {
       records: normalizedRecords
     });
     await loadAttendance({ syncSignups: true });
-    const updatedEvent = attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;
+    const updatedEvent =
+      attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;
     selectedAttendanceEvent.value = updatedEvent;
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to save attendance snapshot.');
@@ -6136,9 +6377,8 @@ async function promptDiscordVoiceLink() {
 
 async function copyRaidLink() {
   const resolved = router.resolve({ name: 'RaidDetail', params: { raidId } }).href;
-  const absoluteUrl = typeof window !== 'undefined'
-    ? new URL(resolved, window.location.origin).toString()
-    : resolved;
+  const absoluteUrl =
+    typeof window !== 'undefined' ? new URL(resolved, window.location.origin).toString() : resolved;
 
   try {
     if (navigator?.clipboard?.writeText) {
@@ -6288,7 +6528,9 @@ async function copyRaidLink() {
   font-size: 0.82rem;
   text-decoration: none;
   box-shadow: 0 12px 26px rgba(88, 101, 242, 0.35);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .btn--discord-voice:hover {
@@ -6451,7 +6693,9 @@ async function copyRaidLink() {
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.25);
   border: 1px solid rgba(148, 163, 184, 0.35);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .recurrence-toggle__thumb {
@@ -6464,7 +6708,10 @@ async function copyRaidLink() {
   background: #f8fafc;
   box-shadow: 0 6px 18px rgba(148, 163, 184, 0.35);
   transform: translate(0, -50%);
-  transition: transform 0.25s ease, background 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.25s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .recurrence-toggle--active .recurrence-toggle__track {
@@ -6522,7 +6769,9 @@ async function copyRaidLink() {
   border-radius: 0.65rem;
   padding: 0.7rem 0.75rem;
   color: #f8fafc;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .recurrence-form .form__field input:focus,
@@ -6580,7 +6829,9 @@ async function copyRaidLink() {
 .recurrence-collapse-enter-active,
 .recurrence-collapse-leave-active {
   overflow: hidden;
-  transition: max-height 0.25s ease, opacity 0.25s ease;
+  transition:
+    max-height 0.25s ease,
+    opacity 0.25s ease;
 }
 
 .recurrence-collapse-enter-from,
@@ -6633,7 +6884,10 @@ async function copyRaidLink() {
   border: 1px solid rgba(14, 165, 233, 0.45);
   color: #0b1120;
   box-shadow: 0 12px 24px rgba(14, 165, 233, 0.22);
-  transition: transform 0.12s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
@@ -6666,7 +6920,6 @@ async function copyRaidLink() {
   font-size: 0.95rem;
   line-height: 1;
 }
-
 
 .badge {
   display: inline-flex;
@@ -6762,7 +7015,9 @@ async function copyRaidLink() {
   border-left: 0.18rem solid rgba(148, 163, 184, 0.85);
   border-bottom: 0.18rem solid rgba(148, 163, 184, 0.85);
   transform: rotate(-45deg);
-  transition: transform 0.25s ease, border-color 0.2s ease;
+  transition:
+    transform 0.25s ease,
+    border-color 0.2s ease;
 }
 
 .raid-signups-card__toggle-icon--collapsed {
@@ -6822,7 +7077,9 @@ async function copyRaidLink() {
   background: rgba(15, 23, 42, 0.65);
   color: #e2e8f0;
   font-size: 0.9rem;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .raid-signups__search-input::placeholder {
@@ -6996,7 +7253,9 @@ async function copyRaidLink() {
   box-shadow: 0 14px 30px rgba(29, 78, 216, 0.28);
 }
 
-.raid-signups__character--locked:not(.raid-signups__character--selected):not(.raid-signups__character--not-attending) {
+.raid-signups__character--locked:not(.raid-signups__character--selected):not(
+    .raid-signups__character--not-attending
+  ) {
   border-style: dashed;
   opacity: 0.8;
 }
@@ -7005,12 +7264,16 @@ async function copyRaidLink() {
   border-color: rgba(239, 68, 68, 0.85);
   border-width: 2px;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(185, 28, 28, 0.28));
-  box-shadow: 0 10px 24px rgba(185, 28, 28, 0.25), inset 0 0 20px rgba(239, 68, 68, 0.08);
+  box-shadow:
+    0 10px 24px rgba(185, 28, 28, 0.25),
+    inset 0 0 20px rgba(239, 68, 68, 0.08);
 }
 
 .raid-signups__character--not-attending:hover {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(185, 28, 28, 0.3), inset 0 0 20px rgba(239, 68, 68, 0.1);
+  box-shadow:
+    0 12px 24px rgba(185, 28, 28, 0.3),
+    inset 0 0 20px rgba(239, 68, 68, 0.1);
 }
 
 /* Status toggle buttons */
@@ -7080,7 +7343,9 @@ async function copyRaidLink() {
   justify-content: center;
   position: relative;
   flex-shrink: 0;
-  transition: opacity 0.15s ease, filter 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    filter 0.15s ease;
 }
 
 .raid-signups__avatar--dimmed {
@@ -7288,7 +7553,9 @@ async function copyRaidLink() {
   gap: 0.75rem;
   border-radius: 0.8rem;
   padding: 0.55rem 0.6rem;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
   border: 1px solid transparent;
 }
 
@@ -7399,10 +7666,15 @@ async function copyRaidLink() {
   border: 1px dashed rgba(148, 163, 184, 0.35);
   border-radius: 1rem;
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.75), rgba(30, 41, 59, 0.6));
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.8), 0 16px 30px rgba(15, 23, 42, 0.4);
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.8),
+    0 16px 30px rgba(15, 23, 42, 0.4);
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.18s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.18s ease;
 }
 
 .raid-signups__collapsed-summary:focus-visible {
@@ -7412,7 +7684,9 @@ async function copyRaidLink() {
 
 .raid-signups__collapsed-summary:hover {
   border-color: rgba(148, 163, 184, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2), 0 20px 36px rgba(59, 130, 246, 0.25);
+  box-shadow:
+    inset 0 0 0 1px rgba(59, 130, 246, 0.2),
+    0 20px 36px rgba(59, 130, 246, 0.25);
   transform: translateY(-1px);
 }
 
@@ -7726,7 +8000,9 @@ async function copyRaidLink() {
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
 .attendance-list__item:hover {
@@ -7805,7 +8081,10 @@ th {
   font-weight: 600;
   letter-spacing: 0.04em;
   border: 1px solid transparent;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.15s ease;
   color: #0f172a;
   background: linear-gradient(135deg, rgba(238, 242, 255, 0.95), rgba(203, 213, 225, 0.8));
   box-shadow: 0 12px 20px rgba(15, 23, 42, 0.18);
@@ -7922,7 +8201,6 @@ th {
   color: rgba(252, 165, 165, 0.5);
 }
 
-
 .event-actions {
   display: flex;
   align-items: center;
@@ -7943,7 +8221,9 @@ th {
   font-size: 0.85rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.4rem;
-  transition: color 0.2s ease, background 0.2s ease;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease;
 }
 
 .icon-button:hover {
@@ -8025,7 +8305,6 @@ th {
   gap: 0.5rem;
 }
 
-
 .raid-loot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -8043,7 +8322,10 @@ th {
   flex-direction: column;
   gap: 0.4rem;
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .raid-loot-card--needs-assignment {
@@ -8057,7 +8339,6 @@ th {
   border-color: rgba(248, 113, 113, 0.75);
   box-shadow: 0 16px 32px rgba(127, 29, 29, 0.6);
 }
-
 
 .raid-loot-card__badge {
   position: absolute;
@@ -8213,7 +8494,9 @@ th {
   border: 1px solid rgba(96, 165, 250, 0.35);
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.25), rgba(15, 23, 42, 0.65));
   color: #dbeafe;
-  box-shadow: 0 18px 36px rgba(37, 99, 235, 0.18), inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+  box-shadow:
+    0 18px 36px rgba(37, 99, 235, 0.18),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.2);
   justify-self: center;
 }
 
@@ -8280,7 +8563,10 @@ th {
   border-radius: 999px;
   box-shadow: 0 10px 25px rgba(148, 163, 184, 0.35);
   text-decoration: none;
-  transition: color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .btn--manage-loot:hover,
@@ -8348,7 +8634,9 @@ th {
   padding: 0.4rem 0.5rem;
   text-align: left;
   border-radius: 0.5rem;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .loot-context-menu__action:hover,
@@ -8376,7 +8664,9 @@ th {
   padding-bottom: 0.75rem;
   border-color: rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.35);
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .raid-notes-card__header {
@@ -8603,7 +8893,6 @@ th {
   gap: 0.5rem;
 }
 
-
 .raid-kills-grid__item {
   display: flex;
   flex-direction: column;
@@ -8615,7 +8904,10 @@ th {
   min-height: 92px;
   position: relative;
   overflow: hidden;
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .raid-kills-grid__item::after {
@@ -8725,7 +9017,10 @@ th {
   justify-content: center;
   color: #e2e8f0;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.35);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
 }
 
 .collapse-indicator:hover,
@@ -8748,7 +9043,9 @@ th {
 .panel-collapse-enter-active,
 .panel-collapse-leave-active {
   overflow: hidden;
-  transition: max-height 0.25s ease, opacity 0.25s ease;
+  transition:
+    max-height 0.25s ease,
+    opacity 0.25s ease;
 }
 
 .panel-collapse-enter-from,
@@ -8932,7 +9229,9 @@ th {
   color: #f8fafc;
   padding: 0.5rem 0.75rem;
   font-size: 0.95rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .targets-pill-input:focus {
@@ -9182,7 +9481,9 @@ th {
   border-radius: 0.75rem;
   padding: 0.85rem;
   color: #e2e8f0;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .raid-targets-modal__textarea:focus {
@@ -9446,7 +9747,10 @@ th {
   background: rgba(15, 23, 42, 0.65);
   color: #e2e8f0;
   padding: 0.55rem 0.75rem;
-  transition: border 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  transition:
+    border 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
   overflow: hidden;
 }
 
@@ -9711,7 +10015,9 @@ th {
   padding: 0.35rem 0.4rem;
   border-radius: 0.75rem;
   border: 1px solid transparent;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .npc-notes-chip-wrapper--active {
@@ -9766,7 +10072,9 @@ th {
   border: 1px solid rgba(59, 130, 246, 0.35);
   color: #bfdbfe;
   text-decoration: none;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .npc-notes-chip:hover {
@@ -9837,7 +10145,11 @@ th {
   letter-spacing: 0.04em;
   color: #e2e8f0;
   background: rgba(15, 23, 42, 0.6);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .npc-notes-btn:hover:not(:disabled) {
@@ -9949,7 +10261,9 @@ th {
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
-  transition: color 0.15s ease, text-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-shadow 0.15s ease;
 }
 
 .raid-signups__collapsed-name:hover,

@@ -1,376 +1,395 @@
 <template>
   <section v-if="guild">
     <div v-if="canViewDetails" class="guild-detail">
-    <header class="section-header section-header--guild">
-      <div class="guild-header guild-header--stack">
-        <h1 class="guild-title">{{ guild.name }}</h1>
-        <p v-if="guild.description" class="guild-subtitle muted">{{ guild.description }}</p>
-      </div>
-      <div class="guild-actions">
-        <RouterLink
-          v-if="canManageGuildSettings"
-          class="guild-action-button guild-action-button--settings"
-          :to="{ name: 'GuildSettings', params: { guildId } }"
-        >
-          <span aria-hidden="true">⚙️</span>
-          <span>Settings</span>
-        </RouterLink>
-        <RouterLink
-          class="guild-action-button guild-action-button--metrics"
-          :to="{ name: 'GuildMetrics', params: { guildId } }"
-        >
-          Metrics
-        </RouterLink>
-        <RouterLink
-          class="guild-action-button guild-action-button--bank"
-          :to="{ name: 'GuildBank', params: { guildId } }"
-        >
-          Bank
-        </RouterLink>
-        <RouterLink
-          v-if="canViewQuestTracker"
-          class="guild-action-button guild-action-button--quest"
-          :to="{ name: 'GuildQuestTracker', params: { guildId }, query: { guildName: guild?.name } }"
-        >
-          Quest Tracker
-        </RouterLink>
-        <RouterLink
-          class="guild-action-button guild-action-button--respawn"
-          :to="{ name: 'GuildNpcRespawn', params: { guildId } }"
-        >
-          NPC Respawn
-        </RouterLink>
-        <button
-          v-if="canPlanRaid"
-          type="button"
-          class="guild-action-button guild-action-button--plan"
-          @click="showRaidModal = true"
-        >
-          Plan Raid
-        </button>
-      </div>
-    </header>
+      <header class="section-header section-header--guild">
+        <div class="guild-header guild-header--stack">
+          <h1 class="guild-title">{{ guild.name }}</h1>
+          <p v-if="guild.description" class="guild-subtitle muted">{{ guild.description }}</p>
+        </div>
+        <div class="guild-actions">
+          <RouterLink
+            v-if="canManageGuildSettings"
+            class="guild-action-button guild-action-button--settings"
+            :to="{ name: 'GuildSettings', params: { guildId } }"
+          >
+            <span aria-hidden="true">⚙️</span>
+            <span>Settings</span>
+          </RouterLink>
+          <RouterLink
+            class="guild-action-button guild-action-button--metrics"
+            :to="{ name: 'GuildMetrics', params: { guildId } }"
+          >
+            Metrics
+          </RouterLink>
+          <RouterLink
+            class="guild-action-button guild-action-button--bank"
+            :to="{ name: 'GuildBank', params: { guildId } }"
+          >
+            Bank
+          </RouterLink>
+          <RouterLink
+            v-if="canViewQuestTracker"
+            class="guild-action-button guild-action-button--quest"
+            :to="{
+              name: 'GuildQuestTracker',
+              params: { guildId },
+              query: { guildName: guild?.name }
+            }"
+          >
+            Quest Tracker
+          </RouterLink>
+          <RouterLink
+            class="guild-action-button guild-action-button--respawn"
+            :to="{ name: 'GuildNpcRespawn', params: { guildId } }"
+          >
+            NPC Respawn
+          </RouterLink>
+          <button
+            v-if="canPlanRaid"
+            type="button"
+            class="guild-action-button guild-action-button--plan"
+            @click="showRaidModal = true"
+          >
+            Plan Raid
+          </button>
+        </div>
+      </header>
 
-    <div class="grid">
-      <article class="card">
-        <header class="card__header">
-          <h2>Members</h2>
-        </header>
-        <div class="list-filters list-filters--members">
-          <input
-            v-model="memberSearch"
-            type="search"
-            class="input input--search"
-            placeholder="Search members"
-          />
-          <div class="member-filter-buttons">
-            <button
-              v-for="role in memberRoleFilterOptions"
-              :key="role"
-              :class="[
-                'member-filter-button',
-                {
-                  'member-filter-button--active': memberRoleFilter === role,
-                  'member-filter-button--applicants': role === 'APPLICANT' && hasPendingApplicants
-                }
-              ]"
-              @click="memberRoleFilter = role"
-            >
-              {{ formatMemberFilterLabel(role) }}
-              <span v-if="role === 'APPLICANT' && hasPendingApplicants" class="sr-only">
-                Pending guild applications awaiting approval
-              </span>
-            </button>
+      <div class="grid">
+        <article class="card">
+          <header class="card__header">
+            <h2>Members</h2>
+          </header>
+          <div class="list-filters list-filters--members">
+            <input
+              v-model="memberSearch"
+              type="search"
+              class="input input--search"
+              placeholder="Search members"
+            />
+            <div class="member-filter-buttons">
+              <button
+                v-for="role in memberRoleFilterOptions"
+                :key="role"
+                :class="[
+                  'member-filter-button',
+                  {
+                    'member-filter-button--active': memberRoleFilter === role,
+                    'member-filter-button--applicants': role === 'APPLICANT' && hasPendingApplicants
+                  }
+                ]"
+                @click="memberRoleFilter = role"
+              >
+                {{ formatMemberFilterLabel(role) }}
+                <span v-if="role === 'APPLICANT' && hasPendingApplicants" class="sr-only">
+                  Pending guild applications awaiting approval
+                </span>
+              </button>
+            </div>
           </div>
-        </div>
-        <p v-if="filteredMembers.length === 0" class="muted">No members match your search.</p>
-        <ul v-else class="list">
-          <li v-for="member in paginatedMembers" :key="member.id" class="list__item">
-            <div>
-              <strong>{{ preferredUserName(member.user) }}</strong>
-              <span class="muted role"> ({{ formatMemberRole(member) }})</span>
-              <span v-if="isApplicantEntry(member)" class="muted applicant-meta">
-                Applied {{ formatDate(member.createdAt) }}
-              </span>
-            </div>
-            <div v-if="canAdjustMember(member)" class="member-actions">
-              <template v-if="isApplicantEntry(member)">
-                <button
-                  class="btn btn--accent btn--small"
-                  :disabled="approvingApplicantId === member.id"
-                  @click="approveApplicant(member)"
-                >
-                  {{ approvingApplicantId === member.id ? 'Approving…' : 'Approve' }}
-                </button>
-                <button
-                  class="btn btn--danger btn--small"
-                  :disabled="denyingApplicantId === member.id"
-                  @click="denyApplicant(member)"
-                >
-                  {{ denyingApplicantId === member.id ? 'Denying…' : 'Deny' }}
-                </button>
-              </template>
-              <template v-else>
-                <label class="muted small" :for="`role-${member.id}`">Role</label>
-                <select
-                  :id="`role-${member.id}`"
-                  :value="member.role"
-                  :disabled="updatingMemberId === member.id"
-                  @change="updateMemberRole(member, ($event.target as HTMLSelectElement).value as GuildRole)"
-                >
-                  <option
-                    v-for="role in availableRoles(member)"
-                    :key="role"
-                    :value="role"
-                    :disabled="role === member.role"
+          <p v-if="filteredMembers.length === 0" class="muted">No members match your search.</p>
+          <ul v-else class="list">
+            <li v-for="member in paginatedMembers" :key="member.id" class="list__item">
+              <div>
+                <strong>{{ preferredUserName(member.user) }}</strong>
+                <span class="muted role"> ({{ formatMemberRole(member) }})</span>
+                <span v-if="isApplicantEntry(member)" class="muted applicant-meta">
+                  Applied {{ formatDate(member.createdAt) }}
+                </span>
+              </div>
+              <div v-if="canAdjustMember(member)" class="member-actions">
+                <template v-if="isApplicantEntry(member)">
+                  <button
+                    class="btn btn--accent btn--small"
+                    :disabled="approvingApplicantId === member.id"
+                    @click="approveApplicant(member)"
                   >
-                    {{ roleLabels[role] ?? role }}
-                  </option>
-                </select>
-                <button
-                  v-if="canRemoveMember(member)"
-                  class="btn btn--danger btn--small"
-                  :disabled="removingMemberId === member.id"
-                  @click="removeMember(member)"
-                >
-                  {{ removingMemberId === member.id ? 'Removing…' : 'Remove' }}
-                </button>
-              </template>
-            </div>
-          </li>
-        </ul>
-        <div v-if="memberTotalPages > 1" class="pagination">
-          <button
-            class="pagination__button"
-            :disabled="memberPage === 1"
-            @click="setMemberPage(memberPage - 1)"
-          >
-            Previous
-          </button>
-          <span class="pagination__label">Page {{ memberPage }} of {{ memberTotalPages }}</span>
-          <button
-            class="pagination__button"
-            :disabled="memberPage === memberTotalPages"
-            @click="setMemberPage(memberPage + 1)"
-          >
-            Next
-          </button>
-        </div>
-      </article>
-
-      <article class="card">
-        <header class="card__header">
-          <h2>Characters</h2>
-        </header>
-        <div class="list-filters list-filters--characters">
-          <input
-            v-model="characterSearch"
-            type="search"
-            class="input input--search input--search--wide"
-            placeholder="Search characters"
-          />
-          <div class="roster-filter-buttons">
-            <button
-              v-for="option in characterClassOptionsWithCounts"
-              :key="option.value"
-              :style="{ background: option.gradient, borderColor: option.border }"
-              :class="['roster-filter-button', { 'roster-filter-button--active': characterClassFilter === option.value }]"
-              @click="characterClassFilter = option.value"
-            >
-              <span class="roster-filter-icon">
-                <template v-if="option.icon">
-                  <img :src="option.icon" :alt="option.label" />
+                    {{ approvingApplicantId === member.id ? 'Approving…' : 'Approve' }}
+                  </button>
+                  <button
+                    class="btn btn--danger btn--small"
+                    :disabled="denyingApplicantId === member.id"
+                    @click="denyApplicant(member)"
+                  >
+                    {{ denyingApplicantId === member.id ? 'Denying…' : 'Deny' }}
+                  </button>
                 </template>
                 <template v-else>
-                  <span class="roster-filter-icon-text">{{ option.label }}</span>
+                  <label class="muted small" :for="`role-${member.id}`">Role</label>
+                  <select
+                    :id="`role-${member.id}`"
+                    :value="member.role"
+                    :disabled="updatingMemberId === member.id"
+                    @change="
+                      updateMemberRole(
+                        member,
+                        ($event.target as HTMLSelectElement).value as GuildRole
+                      )
+                    "
+                  >
+                    <option
+                      v-for="role in availableRoles(member)"
+                      :key="role"
+                      :value="role"
+                      :disabled="role === member.role"
+                    >
+                      {{ roleLabels[role] ?? role }}
+                    </option>
+                  </select>
+                  <button
+                    v-if="canRemoveMember(member)"
+                    class="btn btn--danger btn--small"
+                    :disabled="removingMemberId === member.id"
+                    @click="removeMember(member)"
+                  >
+                    {{ removingMemberId === member.id ? 'Removing…' : 'Remove' }}
+                  </button>
                 </template>
-              </span>
-              <span v-if="option.icon" class="roster-filter-label">{{ option.label }}</span>
-              <span class="roster-filter-count">{{ option.count }}</span>
-            </button>
-          </div>
-        </div>
-        <p v-if="filteredCharacters.length === 0" class="muted">No characters match your search.</p>
-        <ul v-else class="list">
-          <li
-            v-for="character in paginatedCharacters"
-            :key="character.id"
-            class="list__item character-roster-entry"
-          >
-            <div class="character-info">
-              <div class="character-primary">
-                <span
-                  class="character-name-link clickable"
-                  role="button"
-                  tabindex="0"
-                  @click.stop="openInventory(character.name)"
-                  @keydown.enter.stop="openInventory(character.name)"
-                >
-                  {{ character.name }}
-                </span>
-                <span class="character-level">({{ character.level }})</span>
-                <span v-if="character.isMain" class="badge badge--main">Main</span>
               </div>
-              <span class="roster-meta muted">
-                <img
-                  v-if="getCharacterClassIcon(character.class)"
-                  :src="getCharacterClassIcon(character.class) || undefined"
-                  :alt="formatCharacterClass(character.class)"
-                  class="class-icon"
-                />
-                <span>{{ formatCharacterClass(character.class) }}</span>
-              </span>
-              <span class="muted small character-owner">{{ preferredUserName(character.user) }}</span>
-            </div>
+            </li>
+          </ul>
+          <div v-if="memberTotalPages > 1" class="pagination">
             <button
-              v-if="canManageMembers"
-              class="btn btn--small character-edit-button character-edit-button--standalone"
-              type="button"
-              @click="openCharacterModal(character)"
+              class="pagination__button"
+              :disabled="memberPage === 1"
+              @click="setMemberPage(memberPage - 1)"
             >
-              Edit
+              Previous
             </button>
-          </li>
-        </ul>
-        <div v-if="characterTotalPages > 1" class="pagination">
-          <button
-            class="pagination__button"
-            :disabled="characterPage === 1"
-            @click="setCharacterPage(characterPage - 1)"
-          >
-            Previous
-          </button>
-          <span class="pagination__label">Page {{ characterPage }} of {{ characterTotalPages }}</span>
-          <button
-            class="pagination__button"
-            :disabled="characterPage === characterTotalPages"
-            @click="setCharacterPage(characterPage + 1)"
-          >
-            Next
-          </button>
-        </div>
-      </article>
-
-      <aside v-if="discordWidgetSrc" class="card discord-widget-card">
-        <header class="discord-widget-card__header">
-          <span class="discord-widget-card__title">
-            <svg viewBox="0 0 245 240" aria-hidden="true">
-              <path
-                d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1"
-              />
-              <path
-                d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .3 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z"
-              />
-            </svg>
-            <span>Discord Widget</span>
-          </span>
-          <p class="muted small">Peek into the voice lobby.</p>
-        </header>
-        <iframe
-          class="discord-widget-card__iframe"
-          :src="discordWidgetSrc"
-          width="100%"
-          allowtransparency="true"
-          frameborder="0"
-          sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
-          title="Discord Widget"
-        ></iframe>
-      </aside>
-    </div>
-
-    <section class="raids">
-      <header class="section-header">
-        <h2>Raid Schedule</h2>
-        <RouterLink class="btn btn--outline" :to="{ name: 'Raids' }">View All Raids</RouterLink>
-      </header>
-      <p v-if="loadingRaids" class="muted">Loading raids…</p>
-      <p v-else-if="raids.length === 0" class="muted">No raid events scheduled yet.</p>
-      <ul class="raid-list">
-        <li
-          v-for="raidItem in renderableRaids"
-          :key="raidItem.id"
-          :class="[
-            'raid-list__item',
-            { 'raid-list__item--active': raidItem.startedAt && !raidItem.endedAt }
-          ]"
-          role="button"
-          tabindex="0"
-          @click="openRaid(raidItem.id)"
-          @keydown.enter.prevent="openRaid(raidItem.id)"
-          @keydown.space.prevent="openRaid(raidItem.id)"
-        >
-          <div class="raid-list__primary">
-            <span
-              v-if="raidItem.hasUnassignedLoot"
-              class="raid-list__alert"
-              role="img"
-              aria-label="Loot pending assignment"
-              title="Loot pending assignment"
+            <span class="pagination__label">Page {{ memberPage }} of {{ memberTotalPages }}</span>
+            <button
+              class="pagination__button"
+              :disabled="memberPage === memberTotalPages"
+              @click="setMemberPage(memberPage + 1)"
             >
-              ❗
-            </span>
-            <div class="raid-list__content">
-              <strong>
-                <span
-                  v-if="raidItem.isRecurring"
-                  class="raid-recurring-icon"
-                  role="img"
-                :title="recurrenceTooltip(raidItem)"
-                :aria-label="recurrenceTooltip(raidItem)"
+              Next
+            </button>
+          </div>
+        </article>
+
+        <article class="card">
+          <header class="card__header">
+            <h2>Characters</h2>
+          </header>
+          <div class="list-filters list-filters--characters">
+            <input
+              v-model="characterSearch"
+              type="search"
+              class="input input--search input--search--wide"
+              placeholder="Search characters"
+            />
+            <div class="roster-filter-buttons">
+              <button
+                v-for="option in characterClassOptionsWithCounts"
+                :key="option.value"
+                :style="{ background: option.gradient, borderColor: option.border }"
+                :class="[
+                  'roster-filter-button',
+                  { 'roster-filter-button--active': characterClassFilter === option.value }
+                ]"
+                @click="characterClassFilter = option.value"
               >
-                ♻️
-              </span>
-              {{ raidItem.name }}
-              </strong>
-              <span class="muted raid-meta">
-                {{ formatDate(raidItem.startTime) }} • {{ formatTargetZones(raidItem.targetZones) }}
-              </span>
+                <span class="roster-filter-icon">
+                  <template v-if="option.icon">
+                    <img :src="option.icon" :alt="option.label" />
+                  </template>
+                  <template v-else>
+                    <span class="roster-filter-icon-text">{{ option.label }}</span>
+                  </template>
+                </span>
+                <span v-if="option.icon" class="roster-filter-label">{{ option.label }}</span>
+                <span class="roster-filter-count">{{ option.count }}</span>
+              </button>
             </div>
           </div>
-          <div class="raid-list__status">
-            <span
-              v-if="raidItem.logMonitor?.isActive"
-              class="raid-monitor-indicator"
-              role="img"
-              :aria-label="`Continuous monitoring active${raidItem.logMonitor?.userDisplayName ? ' by ' + raidItem.logMonitor.userDisplayName : ''}`"
+          <p v-if="filteredCharacters.length === 0" class="muted">
+            No characters match your search.
+          </p>
+          <ul v-else class="list">
+            <li
+              v-for="character in paginatedCharacters"
+              :key="character.id"
+              class="list__item character-roster-entry"
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
+              <div class="character-info">
+                <div class="character-primary">
+                  <span
+                    class="character-name-link clickable"
+                    role="button"
+                    tabindex="0"
+                    @click.stop="openInventory(character.name)"
+                    @keydown.enter.stop="openInventory(character.name)"
+                  >
+                    {{ character.name }}
+                  </span>
+                  <span class="character-level">({{ character.level }})</span>
+                  <span v-if="character.isMain" class="badge badge--main">Main</span>
+                </div>
+                <span class="roster-meta muted">
+                  <img
+                    v-if="getCharacterClassIcon(character.class)"
+                    :src="getCharacterClassIcon(character.class) || undefined"
+                    :alt="formatCharacterClass(character.class)"
+                    class="class-icon"
+                  />
+                  <span>{{ formatCharacterClass(character.class) }}</span>
+                </span>
+                <span class="muted small character-owner">{{
+                  preferredUserName(character.user)
+                }}</span>
+              </div>
+              <button
+                v-if="canManageMembers"
+                class="btn btn--small character-edit-button character-edit-button--standalone"
+                type="button"
+                @click="openCharacterModal(character)"
+              >
+                Edit
+              </button>
+            </li>
+          </ul>
+          <div v-if="characterTotalPages > 1" class="pagination">
+            <button
+              class="pagination__button"
+              :disabled="characterPage === 1"
+              @click="setCharacterPage(characterPage - 1)"
+            >
+              Previous
+            </button>
+            <span class="pagination__label"
+              >Page {{ characterPage }} of {{ characterTotalPages }}</span
+            >
+            <button
+              class="pagination__button"
+              :disabled="characterPage === characterTotalPages"
+              @click="setCharacterPage(characterPage + 1)"
+            >
+              Next
+            </button>
+          </div>
+        </article>
+
+        <aside v-if="discordWidgetSrc" class="card discord-widget-card">
+          <header class="discord-widget-card__header">
+            <span class="discord-widget-card__title">
+              <svg viewBox="0 0 245 240" aria-hidden="true">
                 <path
-                  d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
+                  d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1"
+                />
+                <path
+                  d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .3 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z"
                 />
               </svg>
+              <span>Discord Widget</span>
             </span>
-            <span class="muted arrow">Open</span>
-          </div>
-        </li>
-      </ul>
-    </section>
+            <p class="muted small">Peek into the voice lobby.</p>
+          </header>
+          <iframe
+            class="discord-widget-card__iframe"
+            :src="discordWidgetSrc"
+            width="100%"
+            allowtransparency="true"
+            frameborder="0"
+            sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"
+            title="Discord Widget"
+          ></iframe>
+        </aside>
+      </div>
 
-    <RaidModal
-      v-if="showRaidModal && guild"
-      :guild-id="guild.id"
-      :default-start-time="guild.defaultRaidStartTime ?? null"
-      :default-end-time="guild.defaultRaidEndTime ?? null"
-      :default-discord-voice-url="guild.defaultDiscordVoiceUrl ?? null"
-      @close="showRaidModal = false"
-      @created="handleRaidCreated"
-    />
-    <CharacterModal
-      v-if="showCharacterForm && guild"
-      :guilds="modalGuildOptions"
-      :can-set-main="true"
-      :editing="Boolean(editingCharacter)"
-      :character="editingCharacter || undefined"
-      :context-guild-id="modalContextGuildId"
-      @close="closeCharacterModal"
-      @updated="handleGuildCharacterUpdated"
-    />
-  </div>
+      <section class="raids">
+        <header class="section-header">
+          <h2>Raid Schedule</h2>
+          <RouterLink class="btn btn--outline" :to="{ name: 'Raids' }">View All Raids</RouterLink>
+        </header>
+        <p v-if="loadingRaids" class="muted">Loading raids…</p>
+        <p v-else-if="raids.length === 0" class="muted">No raid events scheduled yet.</p>
+        <ul class="raid-list">
+          <li
+            v-for="raidItem in renderableRaids"
+            :key="raidItem.id"
+            :class="[
+              'raid-list__item',
+              { 'raid-list__item--active': raidItem.startedAt && !raidItem.endedAt }
+            ]"
+            role="button"
+            tabindex="0"
+            @click="openRaid(raidItem.id)"
+            @keydown.enter.prevent="openRaid(raidItem.id)"
+            @keydown.space.prevent="openRaid(raidItem.id)"
+          >
+            <div class="raid-list__primary">
+              <span
+                v-if="raidItem.hasUnassignedLoot"
+                class="raid-list__alert"
+                role="img"
+                aria-label="Loot pending assignment"
+                title="Loot pending assignment"
+              >
+                ❗
+              </span>
+              <div class="raid-list__content">
+                <strong>
+                  <span
+                    v-if="raidItem.isRecurring"
+                    class="raid-recurring-icon"
+                    role="img"
+                    :title="recurrenceTooltip(raidItem)"
+                    :aria-label="recurrenceTooltip(raidItem)"
+                  >
+                    ♻️
+                  </span>
+                  {{ raidItem.name }}
+                </strong>
+                <span class="muted raid-meta">
+                  {{ formatDate(raidItem.startTime) }} •
+                  {{ formatTargetZones(raidItem.targetZones) }}
+                </span>
+              </div>
+            </div>
+            <div class="raid-list__status">
+              <span
+                v-if="raidItem.logMonitor?.isActive"
+                class="raid-monitor-indicator"
+                role="img"
+                :aria-label="`Continuous monitoring active${raidItem.logMonitor?.userDisplayName ? ' by ' + raidItem.logMonitor.userDisplayName : ''}`"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M3 12h3l2 6 4-12 2 6h4l2 6 1-3"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span class="muted arrow">Open</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <RaidModal
+        v-if="showRaidModal && guild"
+        :guild-id="guild.id"
+        :default-start-time="guild.defaultRaidStartTime ?? null"
+        :default-end-time="guild.defaultRaidEndTime ?? null"
+        :default-discord-voice-url="guild.defaultDiscordVoiceUrl ?? null"
+        @close="showRaidModal = false"
+        @created="handleRaidCreated"
+      />
+      <CharacterModal
+        v-if="showCharacterForm && guild"
+        :guilds="modalGuildOptions"
+        :can-set-main="true"
+        :editing="Boolean(editingCharacter)"
+        :character="editingCharacter || undefined"
+        :context-guild-id="modalContextGuildId"
+        @close="closeCharacterModal"
+        @updated="handleGuildCharacterUpdated"
+      />
+    </div>
     <div v-else class="guild-summary">
       <div class="guild-summary__body">
         <h1>{{ guild.name }}</h1>
@@ -408,8 +427,9 @@
         </div>
         <p v-if="pendingForThisGuild" class="muted small">Application pending review.</p>
         <p v-else-if="pendingElsewhere" class="muted small">
-          You already have an active application with {{ pendingApplication?.guild?.name ?? 'another guild' }}.
-          Withdraw it before applying here.
+          You already have an active application with
+          {{ pendingApplication?.guild?.name ?? 'another guild' }}. Withdraw it before applying
+          here.
         </p>
         <p v-if="applicationError" class="error">{{ applicationError }}</p>
       </div>
@@ -426,25 +446,12 @@ import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RaidModal from '../components/RaidModal.vue';
 import CharacterModal from '../components/CharacterModal.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import {
-  api,
-  type GuildDetail,
-  type GuildSummary,
-  type RaidEventSummary,
-  type GuildApplicant,
-  type GuildApplicationSummary
-} from '../services/api';
+import { api, type GuildDetail, type GuildSummary, type RaidEventSummary } from '../services/api';
 import type { GuildRole, CharacterClass } from '../services/types';
 import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useGuildBankStore } from '../stores/guildBank';
 import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
-import CharacterLink from '../components/CharacterLink.vue';
-import {
-  getGuildBankDisplayName,
-  normalizeLooterName,
-  normalizeLooterForSubmission as normalizeLooterForSubmissionUtil
-} from '../utils/lootNames';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -471,19 +478,6 @@ type EditableCharacter = {
 const guild = ref<GuildDetail | null>(null);
 const loading = ref(true);
 const showLoading = useMinimumLoading(loading);
-const guildBankDisplayName = computed(() => getGuildBankDisplayName(guild.value?.name ?? null));
-
-function normalizeLooterNameValue(value?: string | null): string {
-  return normalizeLooterName(value ?? null, guild.value?.name ?? null).name;
-}
-
-function isGuildBankName(value?: string | null): boolean {
-  return normalizeLooterName(value ?? null, guild.value?.name ?? null).isGuildBank;
-}
-
-function normalizeLooterForSubmission(value: string): string {
-  return normalizeLooterForSubmissionUtil(value, guild.value?.name ?? null);
-}
 const discordWidgetSrc = computed(() => {
   if (!guild.value?.discordWidgetEnabled) {
     return null;
@@ -492,7 +486,8 @@ const discordWidgetSrc = computed(() => {
   if (!serverId) {
     return null;
   }
-  const theme = (guild.value?.discordWidgetTheme ?? 'DARK').toLowerCase() === 'light' ? 'light' : 'dark';
+  const theme =
+    (guild.value?.discordWidgetTheme ?? 'DARK').toLowerCase() === 'light' ? 'light' : 'dark';
   return `https://discord.com/widget?id=${encodeURIComponent(serverId)}&theme=${theme}`;
 });
 const showCharacterForm = ref(false);
@@ -519,23 +514,26 @@ const currentUserId = computed(() => authStore.user?.userId ?? null);
 const characterClassOptions = computed(() => buildCharacterFilterOptions(characterClassLabels));
 const characterClassOptionsWithCounts = computed(() => {
   const roster = guild.value?.characters ?? [];
-  const counts = roster.reduce<Record<string, number>>((acc, character) => {
-    const key = character.class ?? 'UNKNOWN';
-    acc[key] = (acc[key] ?? 0) + 1;
-    acc.ALL = (acc.ALL ?? 0) + 1;
-    if (character.isMain) {
-      acc.MAIN = (acc.MAIN ?? 0) + 1;
-    }
-    return acc;
-  }, { ALL: 0, MAIN: 0 });
+  const counts = roster.reduce<Record<string, number>>(
+    (acc, character) => {
+      const key = character.class ?? 'UNKNOWN';
+      acc[key] = (acc[key] ?? 0) + 1;
+      acc.ALL = (acc.ALL ?? 0) + 1;
+      if (character.isMain) {
+        acc.MAIN = (acc.MAIN ?? 0) + 1;
+      }
+      return acc;
+    },
+    { ALL: 0, MAIN: 0 }
+  );
 
   return characterClassOptions.value.map((option) => {
     const count =
       option.value === 'MAIN'
-        ? counts.MAIN ?? 0
+        ? (counts.MAIN ?? 0)
         : option.value === 'ALL'
-          ? counts.ALL ?? roster.length
-          : counts[option.value] ?? 0;
+          ? (counts.ALL ?? roster.length)
+          : (counts[option.value] ?? 0);
 
     return {
       ...option,
@@ -560,7 +558,6 @@ const canManageGuildSettings = computed(() => {
 
 const canViewQuestTracker = computed(() => canViewDetails.value);
 
-
 const pendingApplication = computed(() => authStore.pendingApplication);
 const viewerApplication = computed(() => guild.value?.viewerApplication ?? null);
 const hasPrimaryGuild = computed(() => Boolean(authStore.primaryGuild));
@@ -568,16 +565,26 @@ const pendingForThisGuild = computed(() => {
   if (viewerApplication.value?.status === 'PENDING') {
     return true;
   }
-  return pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING';
+  return (
+    pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING'
+  );
 });
 const pendingElsewhere = computed(() => {
   if (!pendingApplication.value) {
     return false;
   }
-  return pendingApplication.value.guildId !== guildId && pendingApplication.value.status === 'PENDING';
+  return (
+    pendingApplication.value.guildId !== guildId && pendingApplication.value.status === 'PENDING'
+  );
 });
 
-const canApplyToGuild = computed(() => !canViewDetails.value && !hasPrimaryGuild.value && !pendingForThisGuild.value && !pendingElsewhere.value);
+const canApplyToGuild = computed(
+  () =>
+    !canViewDetails.value &&
+    !hasPrimaryGuild.value &&
+    !pendingForThisGuild.value &&
+    !pendingElsewhere.value
+);
 const showWithdrawButton = computed(() => pendingForThisGuild.value);
 
 const applying = ref(false);
@@ -679,7 +686,11 @@ const filteredMembers = computed(() => {
 
   const matches = combinedMembers.value.filter((member) => {
     const name = preferredUserName(member.user)?.toLowerCase() ?? '';
-    const roleLabel = 'role' in member ? roleLabels[(member as GuildMember).role]?.toLowerCase() ?? (member as GuildMember).role.toLowerCase() : 'applicant';
+    const roleLabel =
+      'role' in member
+        ? (roleLabels[(member as GuildMember).role]?.toLowerCase() ??
+          (member as GuildMember).role.toLowerCase())
+        : 'applicant';
     const matchesQuery = !query || name.includes(query) || roleLabel.includes(query);
 
     if (roleFilter === 'ALL') {
@@ -779,9 +790,13 @@ watch(memberTotalPages, (total) => {
   }
 });
 
-watch([characterSearch, characterClassFilter, () => guild.value?.characters], () => {
-  characterPage.value = 1;
-}, { deep: true });
+watch(
+  [characterSearch, characterClassFilter, () => guild.value?.characters],
+  () => {
+    characterPage.value = 1;
+  },
+  { deep: true }
+);
 
 watch(characterTotalPages, (total) => {
   if (characterPage.value > total) {
@@ -863,7 +878,9 @@ async function loadRaids() {
 function startRaidRefreshPolling() {
   stopRaidRefreshPolling();
   raidRefreshTimer = window.setInterval(() => {
-    loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+    if (!document.hidden) {
+      loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+    }
   }, 30_000);
 }
 
@@ -882,6 +899,12 @@ const actorRole = computed<GuildRole | null>(() => {
   const membership = guild.value.members.find((member) => member.user.id === currentUserId.value);
   return membership?.role ?? null;
 });
+
+function handleVisibilityChange() {
+  if (!document.hidden && canViewDetails.value) {
+    loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+  }
+}
 
 function canAdjustMember(member: GuildMemberEntry) {
   if (isApplicantEntry(member)) {
@@ -1164,11 +1187,12 @@ function recurrenceTooltip(raid: RaidEventSummary) {
     return 'Recurring raid';
   }
 
-  const unit = raid.recurrence.frequency === 'DAILY'
-    ? 'day'
-    : raid.recurrence.frequency === 'MONTHLY'
-      ? 'month'
-      : 'week';
+  const unit =
+    raid.recurrence.frequency === 'DAILY'
+      ? 'day'
+      : raid.recurrence.frequency === 'MONTHLY'
+        ? 'month'
+        : 'week';
   const interval = Math.max(1, raid.recurrence.interval);
   const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
 
@@ -1277,14 +1301,17 @@ onMounted(async () => {
     await loadGuild();
     if (canViewDetails.value) {
       await loadRaids();
+      startRaidRefreshPolling();
     }
   } finally {
     loading.value = false;
   }
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   document.body.classList.remove('modal-open');
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopRaidRefreshPolling();
 });
 </script>
@@ -1405,7 +1432,9 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   cursor: pointer;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .discord-button svg {
@@ -1547,7 +1576,10 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   box-shadow: 0 6px 14px rgba(59, 130, 246, 0.2);
 }
 
@@ -1570,7 +1602,11 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .btn--danger:hover:not(:disabled) {
@@ -1694,7 +1730,11 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1726,7 +1766,9 @@ onUnmounted(() => {
   color: #38bdf8;
   font-weight: 600;
   text-decoration: none;
-  transition: color 0.15s ease, text-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-shadow 0.15s ease;
   cursor: pointer;
 }
 
@@ -1758,7 +1800,6 @@ onUnmounted(() => {
   box-shadow: 0 2px 6px rgba(250, 204, 21, 0.18);
 }
 
-
 .raid-list {
   display: flex;
   flex-direction: column;
@@ -1777,7 +1818,10 @@ onUnmounted(() => {
   border-radius: 1rem;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .raid-list__primary {
@@ -1908,14 +1952,20 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   box-shadow: inset 0 0 8px rgba(14, 165, 233, 0.15);
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .character-edit-button:hover {
   background: rgba(59, 130, 246, 0.15);
   border-color: rgba(14, 165, 233, 0.65);
   color: #f8fafc;
-  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.2), inset 0 0 12px rgba(14, 165, 233, 0.3);
+  box-shadow:
+    0 8px 18px rgba(14, 165, 233, 0.2),
+    inset 0 0 12px rgba(14, 165, 233, 0.3);
 }
 
 .character-edit-button:focus-visible {
@@ -1990,7 +2040,11 @@ onUnmounted(() => {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  transition: transform 0.12s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.25s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .cta-button:disabled {
@@ -2047,7 +2101,10 @@ onUnmounted(() => {
   letter-spacing: 0.08em;
   cursor: pointer;
   position: relative;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .member-filter-button:hover {
@@ -2086,12 +2143,16 @@ onUnmounted(() => {
   font-weight: 900;
   letter-spacing: 0;
   text-transform: none;
-  text-shadow: 0 0 8px rgba(250, 204, 21, 0.9), 0 0 18px rgba(250, 204, 21, 0.65);
+  text-shadow:
+    0 0 8px rgba(250, 204, 21, 0.9),
+    0 0 18px rgba(250, 204, 21, 0.65);
   pointer-events: none;
 }
 
 .member-filter-button--active.member-filter-button--applicants::after {
-  text-shadow: 0 0 12px rgba(250, 204, 21, 0.95), 0 0 24px rgba(250, 204, 21, 0.7);
+  text-shadow:
+    0 0 12px rgba(250, 204, 21, 0.95),
+    0 0 24px rgba(250, 204, 21, 0.7);
 }
 
 .sr-only {
@@ -2131,7 +2192,10 @@ onUnmounted(() => {
   cursor: pointer;
   border: 1px solid rgba(148, 163, 184, 0.35);
   box-shadow: 0 12px 22px rgba(15, 23, 42, 0.45);
-  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   overflow: visible;
 }
 

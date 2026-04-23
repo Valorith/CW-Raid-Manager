@@ -1,6 +1,6 @@
-import { isEqDbConfigured } from '../utils/eqDb.js';
 import { syncMarketListings } from './marketListingsService.js';
 import { syncMarketSaleEvents } from './marketService.js';
+import { isEqDbConfigured } from '../utils/eqDb.js';
 
 const MARKET_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 

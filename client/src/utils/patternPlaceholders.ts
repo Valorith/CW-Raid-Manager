@@ -9,10 +9,12 @@ const PLACEHOLDER_REGEX_MAP: Record<string, string> = {
   itemid: '\\((?<itemId>\\d{1,10})\\)'
 };
 
-const REVERSE_PLACEHOLDER_REPLACEMENTS = Object.entries(PLACEHOLDER_REGEX_MAP).map(([token, fragment]) => ({
-  regex: new RegExp(escapeRegexForReverse(fragment), 'gi'),
-  placeholder: `{${token}}`
-}));
+const REVERSE_PLACEHOLDER_REPLACEMENTS = Object.entries(PLACEHOLDER_REGEX_MAP).map(
+  ([token, fragment]) => ({
+    regex: new RegExp(escapeRegexForReverse(fragment), 'gi'),
+    placeholder: `{${token}}`
+  })
+);
 
 export function convertPlaceholdersToRegex(input: string): string {
   if (!input) {
@@ -66,17 +68,13 @@ export function convertRegexToPlaceholders(pattern: string): string {
     result = result.replace(regex, placeholder);
   }
 
-  result = result
-    .replace(/\\s\+/g, ' ')
-    .replace(/\\([.*+?^${}()|[\]\\])/g, '$1');
+  result = result.replace(/\\s\+/g, ' ').replace(/\\([.*+?^${}()|[\]\\])/g, '$1');
 
   return result.trim();
 }
 
 function escapeLiteral(segment: string) {
-  return segment
-    .replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
-    .replace(/\s+/g, '\\s+');
+  return segment.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&').replace(/\s+/g, '\\s+');
 }
 
 function escapeRegexForReverse(fragment: string) {

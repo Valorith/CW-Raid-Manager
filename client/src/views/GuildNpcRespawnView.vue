@@ -14,11 +14,7 @@
           >
             Manage NPCs
           </RouterLink>
-          <button
-            class="btn btn--outline"
-            :disabled="loading"
-            @click="refreshData"
-          >
+          <button class="btn btn--outline" :disabled="loading" @click="refreshData">
             {{ loading ? 'Refreshing...' : 'Refresh' }}
           </button>
         </div>
@@ -60,24 +56,26 @@
 
     <div class="expansion-filters">
       <label class="raid-filter-checkbox" title="Show only raid targets">
-        <input
-          v-model="raidOnlyFilter"
-          type="checkbox"
-          class="raid-checkbox-input"
-        />
+        <input v-model="raidOnlyFilter" type="checkbox" class="raid-checkbox-input" />
         <span class="raid-filter-badge">RAID</span>
         <span class="raid-filter-text">Only</span>
       </label>
       <span class="filter-divider"></span>
       <div v-if="hasInstanceNpcs" class="variant-filters">
         <button
-          :class="['variant-filter-btn', { 'variant-filter-btn--active': activeVariantFilter === 'all' }]"
+          :class="[
+            'variant-filter-btn',
+            { 'variant-filter-btn--active': activeVariantFilter === 'all' }
+          ]"
           @click="activeVariantFilter = 'all'"
         >
           All
         </button>
         <button
-          :class="['variant-filter-btn variant-filter-btn--overworld', { 'variant-filter-btn--active': activeVariantFilter === 'overworld' }]"
+          :class="[
+            'variant-filter-btn variant-filter-btn--overworld',
+            { 'variant-filter-btn--active': activeVariantFilter === 'overworld' }
+          ]"
           @click="activeVariantFilter = 'overworld'"
           title="Show only Overworld entries"
         >
@@ -85,7 +83,10 @@
           Overworld
         </button>
         <button
-          :class="['variant-filter-btn variant-filter-btn--instance', { 'variant-filter-btn--active': activeVariantFilter === 'instance' }]"
+          :class="[
+            'variant-filter-btn variant-filter-btn--instance',
+            { 'variant-filter-btn--active': activeVariantFilter === 'instance' }
+          ]"
           @click="activeVariantFilter = 'instance'"
           title="Show only Instance entries"
         >
@@ -96,7 +97,10 @@
       <span v-if="hasInstanceNpcs" class="filter-divider"></span>
       <button
         v-if="expansions.length > 0"
-        :class="['expansion-filter-btn', { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }]"
+        :class="[
+          'expansion-filter-btn',
+          { 'expansion-filter-btn--active': activeExpansionFilter === 'all' }
+        ]"
         @click="activeExpansionFilter = 'all'"
       >
         All Expansions
@@ -104,7 +108,10 @@
       <button
         v-for="exp in expansions"
         :key="exp.key"
-        :class="['expansion-filter-btn expansion-filter-btn--icon-only', { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }]"
+        :class="[
+          'expansion-filter-btn expansion-filter-btn--icon-only',
+          { 'expansion-filter-btn--active': activeExpansionFilter === exp.shortName }
+        ]"
         :title="exp.name"
         @click="activeExpansionFilter = exp.shortName"
       >
@@ -136,7 +143,9 @@
             </span>
           </div>
           <div class="pending-item__details">
-            <span class="pending-item__time">{{ formatClarificationTime(clarification.killedAt) }}</span>
+            <span class="pending-item__time">{{
+              formatClarificationTime(clarification.killedAt)
+            }}</span>
             <span v-if="clarification.killedByName" class="pending-item__killer">
               by {{ clarification.killedByName }}
             </span>
@@ -207,9 +216,11 @@
       </div>
       <h3>No NPCs Found</h3>
       <p class="muted">
-        {{ npcs.length === 0
-          ? 'Add NPCs to start tracking their respawn times.'
-          : 'No NPCs match your current filters.' }}
+        {{
+          npcs.length === 0
+            ? 'Add NPCs to start tracking their respawn times.'
+            : 'No NPCs match your current filters.'
+        }}
       </p>
       <RouterLink
         v-if="canManage && npcs.length === 0"
@@ -236,7 +247,11 @@
           <tr
             v-for="npc in paginatedNpcs"
             :key="`${npc.id}-${npc.isInstanceVariant}`"
-            :class="['npc-row', `npc-row--${npc.respawnStatus}`, { 'npc-row--favorited': isNpcFavorited(npc) }]"
+            :class="[
+              'npc-row',
+              `npc-row--${npc.respawnStatus}`,
+              { 'npc-row--favorited': isNpcFavorited(npc) }
+            ]"
             @contextmenu="openContextMenu($event, npc)"
           >
             <td class="col-status">
@@ -250,7 +265,10 @@
                 <strong>{{ npc.npcName }}</strong>
                 <span
                   v-if="npc.hasInstanceVersion"
-                  :class="['variant-badge', npc.isInstanceVariant ? 'variant-badge--instance' : 'variant-badge--overworld']"
+                  :class="[
+                    'variant-badge',
+                    npc.isInstanceVariant ? 'variant-badge--instance' : 'variant-badge--overworld'
+                  ]"
                   :title="npc.isInstanceVariant ? 'Instance version' : 'Overworld version'"
                 >
                   {{ npc.isInstanceVariant ? 'INSTANCE' : 'OVERWORLD' }}
@@ -265,7 +283,9 @@
                   title="View on Allakhazam"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    <path
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
                   </svg>
                 </a>
               </div>
@@ -293,11 +313,15 @@
                 </div>
                 <div class="timer-labels">
                   <span v-if="npc.respawnStatus === 'down'" class="timer-countdown">
-                    <span class="countdown-time">{{ formatTimeRemaining(npc.respawnMinTime) }}</span>
+                    <span class="countdown-time">{{
+                      formatTimeRemaining(npc.respawnMinTime)
+                    }}</span>
                     <span class="countdown-label">until spawn window opens</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'window'" class="timer-window">
-                    <span class="countdown-time countdown-time--window">{{ formatTimeRemaining(npc.respawnMaxTime) }}</span>
+                    <span class="countdown-time countdown-time--window">{{
+                      formatTimeRemaining(npc.respawnMaxTime)
+                    }}</span>
                     <span class="countdown-label">until spawn window closes</span>
                   </span>
                   <span v-else-if="npc.respawnStatus === 'up'" class="timer-up">
@@ -354,7 +378,10 @@
                   </svg>
                 </button>
                 <button
-                  :class="['action-btn action-btn--notify', { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }]"
+                  :class="[
+                    'action-btn action-btn--notify',
+                    { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }
+                  ]"
                   title="Toggle Notifications"
                   @click="toggleNotify(npc.id, npc.isInstanceVariant)"
                 >
@@ -371,28 +398,16 @@
 
     <!-- Pagination Controls -->
     <div v-if="totalPages > 1" class="pagination">
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === 1"
-        @click="currentPage = 1"
-      >
+      <button class="pagination-btn" :disabled="currentPage === 1" @click="currentPage = 1">
         First
       </button>
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === 1"
-        @click="currentPage--"
-      >
+      <button class="pagination-btn" :disabled="currentPage === 1" @click="currentPage--">
         Prev
       </button>
       <span class="pagination-info">
         Page {{ currentPage }} of {{ totalPages }} ({{ filteredNpcs.length }} NPCs)
       </span>
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === totalPages"
-        @click="currentPage++"
-      >
+      <button class="pagination-btn" :disabled="currentPage === totalPages" @click="currentPage++">
         Next
       </button>
       <button
@@ -408,7 +423,10 @@
     <div v-if="showKillModal" class="modal-backdrop" @click.self="closeKillModal">
       <div class="modal">
         <header class="modal__header">
-          <h3>{{ killModalMode === 'edit' ? 'Edit Active Respawn' : 'Record Kill' }}: {{ selectedNpc?.npcName }}</h3>
+          <h3>
+            {{ killModalMode === 'edit' ? 'Edit Active Respawn' : 'Record Kill' }}:
+            {{ selectedNpc?.npcName }}
+          </h3>
           <button class="modal__close" @click="closeKillModal">&times;</button>
         </header>
         <div class="modal__body">
@@ -417,12 +435,7 @@
           </p>
           <div class="form-group">
             <label for="kill-date">Kill Date & Time</label>
-            <input
-              id="kill-date"
-              v-model="killForm.killedAt"
-              type="datetime-local"
-              class="input"
-            />
+            <input id="kill-date" v-model="killForm.killedAt" type="datetime-local" class="input" />
           </div>
           <div class="form-group">
             <label for="kill-by">Killed By (optional)</label>
@@ -455,22 +468,22 @@
               <span class="checkbox-text">Instance Kill</span>
             </label>
             <p class="checkbox-hint">
-              Check this if the kill occurred in an instance (e.g., Agent of Change).
-              Leave unchecked for overworld kills.
+              Check this if the kill occurred in an instance (e.g., Agent of Change). Leave
+              unchecked for overworld kills.
             </p>
           </div>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="closeKillModal">Cancel</button>
-          <button
-            class="btn btn--primary"
-            :disabled="submittingKill"
-            @click="submitKill"
-          >
+          <button class="btn btn--primary" :disabled="submittingKill" @click="submitKill">
             {{
               submittingKill
-                ? (killModalMode === 'edit' ? 'Saving...' : 'Recording...')
-                : (killModalMode === 'edit' ? 'Save Changes' : 'Record Kill')
+                ? killModalMode === 'edit'
+                  ? 'Saving...'
+                  : 'Recording...'
+                : killModalMode === 'edit'
+                  ? 'Save Changes'
+                  : 'Record Kill'
             }}
           </button>
         </footer>
@@ -478,13 +491,19 @@
     </div>
 
     <!-- Clarification Modal -->
-    <div v-if="showClarificationModal && selectedClarification" class="modal-backdrop" @click.self="closeClarificationModal">
+    <div
+      v-if="showClarificationModal && selectedClarification"
+      class="modal-backdrop"
+      @click.self="closeClarificationModal"
+    >
       <div class="modal clarification-modal">
         <header class="modal__header">
           <h3>
-            {{ selectedClarification.clarificationType === 'instance'
-              ? 'Instance Kill Clarification'
-              : 'Zone Clarification Required' }}
+            {{
+              selectedClarification.clarificationType === 'instance'
+                ? 'Instance Kill Clarification'
+                : 'Zone Clarification Required'
+            }}
           </h3>
           <button class="modal__close" @click="closeClarificationModal">&times;</button>
         </header>
@@ -503,10 +522,16 @@
           </div>
 
           <!-- Instance Clarification -->
-          <div v-if="selectedClarification.clarificationType === 'instance'" class="clarification-options">
+          <div
+            v-if="selectedClarification.clarificationType === 'instance'"
+            class="clarification-options"
+          >
             <p class="clarification-prompt">Was this kill in an instance or overworld?</p>
             <div class="clarification-toggle">
-              <label class="toggle-option" :class="{ 'toggle-option--active': !clarificationForm.isInstance }">
+              <label
+                class="toggle-option"
+                :class="{ 'toggle-option--active': !clarificationForm.isInstance }"
+              >
                 <input
                   v-model="clarificationForm.isInstance"
                   type="radio"
@@ -515,7 +540,10 @@
                 />
                 <span class="toggle-label">Overworld</span>
               </label>
-              <label class="toggle-option" :class="{ 'toggle-option--active': clarificationForm.isInstance }">
+              <label
+                class="toggle-option"
+                :class="{ 'toggle-option--active': clarificationForm.isInstance }"
+              >
                 <input
                   v-model="clarificationForm.isInstance"
                   type="radio"
@@ -528,11 +556,17 @@
           </div>
 
           <!-- Zone Clarification -->
-          <div v-else-if="selectedClarification.clarificationType === 'zone'" class="clarification-options">
+          <div
+            v-else-if="selectedClarification.clarificationType === 'zone'"
+            class="clarification-options"
+          >
             <p class="clarification-prompt">Which zone was this NPC killed in?</p>
-            <select v-model="clarificationForm.npcDefinitionId" class="input input--select zone-select">
+            <select
+              v-model="clarificationForm.npcDefinitionId"
+              class="input input--select zone-select"
+            >
               <option
-                v-for="option in (selectedClarification.zoneOptions ?? [])"
+                v-for="option in selectedClarification.zoneOptions ?? []"
                 :key="option.npcDefinitionId"
                 :value="option.npcDefinitionId"
               >
@@ -574,7 +608,9 @@
             class="context-menu-item"
             @click="contextMenuNpc && toggleFavorite(contextMenuNpc)"
           >
-            <span class="context-menu-icon">{{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? '★' : '☆' }}</span>
+            <span class="context-menu-icon">{{
+              contextMenuNpc && isNpcFavorited(contextMenuNpc) ? '★' : '☆'
+            }}</span>
             {{ contextMenuNpc && isNpcFavorited(contextMenuNpc) ? 'Unfavorite' : 'Favorite' }}
           </button>
           <button
@@ -588,7 +624,6 @@
         </div>
       </div>
     </Teleport>
-
   </section>
 </template>
 
@@ -596,7 +631,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import { api, type NpcRespawnTrackerEntry, type NpcRespawnStatus, type PendingNpcKillClarification } from '../services/api';
+import {
+  api,
+  type NpcRespawnTrackerEntry,
+  type NpcRespawnStatus,
+  type PendingNpcKillClarification
+} from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
@@ -658,7 +698,7 @@ const npcs = computed(() => store.npcs);
 const canManage = computed(() => store.canManage);
 
 const zones = computed(() => {
-  const uniqueZones = new Set(npcs.value.map(n => n.zoneName ?? 'Unknown').filter(Boolean));
+  const uniqueZones = new Set(npcs.value.map((n) => n.zoneName ?? 'Unknown').filter(Boolean));
   return Array.from(uniqueZones).sort();
 });
 
@@ -679,7 +719,10 @@ function getCachedExpansionForZone(zoneName: string | null | undefined) {
 }
 
 const expansions = computed(() => {
-  const expansionMap = new Map<string, { key: string; name: string; shortName: string; icon: string }>();
+  const expansionMap = new Map<
+    string,
+    { key: string; name: string; shortName: string; icon: string }
+  >();
 
   for (const npc of npcs.value) {
     const expansion = expansionByZone.value.get(npc.zoneName);
@@ -697,7 +740,7 @@ const expansions = computed(() => {
 });
 
 const hasInstanceNpcs = computed(() => {
-  return npcs.value.some(n => n.hasInstanceVersion);
+  return npcs.value.some((n) => n.hasInstanceVersion);
 });
 
 const statusFilters = [
@@ -714,25 +757,26 @@ const filteredNpcs = computed(() => {
   // Filter by search query
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
-    result = result.filter(n =>
-      n.npcName.toLowerCase().includes(query) ||
-      (n.zoneName?.toLowerCase().includes(query) ?? false)
+    result = result.filter(
+      (n) =>
+        n.npcName.toLowerCase().includes(query) ||
+        (n.zoneName?.toLowerCase().includes(query) ?? false)
     );
   }
 
   // Filter by status
   if (activeStatusFilter.value !== 'all') {
-    result = result.filter(n => n.respawnStatus === activeStatusFilter.value);
+    result = result.filter((n) => n.respawnStatus === activeStatusFilter.value);
   }
 
   // Filter by zone
   if (activeZoneFilter.value !== 'all') {
-    result = result.filter(n => (n.zoneName ?? 'Unknown') === activeZoneFilter.value);
+    result = result.filter((n) => (n.zoneName ?? 'Unknown') === activeZoneFilter.value);
   }
 
   // Filter by expansion (use cached expansion lookups)
   if (activeExpansionFilter.value !== 'all') {
-    result = result.filter(n => {
+    result = result.filter((n) => {
       const expansion = expansionByZone.value.get(n.zoneName);
       return expansion?.shortName === activeExpansionFilter.value;
     });
@@ -740,14 +784,14 @@ const filteredNpcs = computed(() => {
 
   // Filter by raid targets only
   if (raidOnlyFilter.value) {
-    result = result.filter(n => n.isRaidTarget);
+    result = result.filter((n) => n.isRaidTarget);
   }
 
   // Filter by variant (overworld/instance)
   if (activeVariantFilter.value === 'overworld') {
-    result = result.filter(n => !n.isInstanceVariant);
+    result = result.filter((n) => !n.isInstanceVariant);
   } else if (activeVariantFilter.value === 'instance') {
-    result = result.filter(n => n.isInstanceVariant);
+    result = result.filter((n) => n.isInstanceVariant);
   }
 
   return result;
@@ -761,7 +805,9 @@ const paginatedNpcs = computed(() => {
 });
 
 // Pending clarifications pagination
-const clarificationTotalPages = computed(() => Math.ceil(pendingClarifications.value.length / clarificationsPerPage));
+const clarificationTotalPages = computed(() =>
+  Math.ceil(pendingClarifications.value.length / clarificationsPerPage)
+);
 
 const paginatedClarifications = computed(() => {
   const start = (clarificationCurrentPage.value - 1) * clarificationsPerPage;
@@ -771,7 +817,7 @@ const paginatedClarifications = computed(() => {
 // Methods
 function getStatusCount(status: 'all' | NpcRespawnStatus): number {
   if (status === 'all') return npcs.value.length;
-  return npcs.value.filter(n => n.respawnStatus === status).length;
+  return npcs.value.filter((n) => n.respawnStatus === status).length;
 }
 
 function getStatusLabel(status: NpcRespawnStatus): string {
@@ -879,10 +925,7 @@ function closeContextMenu() {
 }
 
 function canEditActiveRespawn(npc: NpcRespawnTrackerEntry): boolean {
-  return Boolean(
-    npc.lastKill &&
-    (npc.respawnStatus === 'down' || npc.respawnStatus === 'window')
-  );
+  return Boolean(npc.lastKill && (npc.respawnStatus === 'down' || npc.respawnStatus === 'window'));
 }
 
 function isNpcFavorited(npc: NpcRespawnTrackerEntry): boolean {
@@ -980,7 +1023,9 @@ async function submitKill() {
 
 async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
   const variantLabel = npc.hasInstanceVersion
-    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    ? npc.isInstanceVariant
+      ? ' (Instance)'
+      : ' (Overworld)'
     : '';
   const confirmed = confirm(
     `Confirm that "${npc.npcName}"${variantLabel} has spawned?\n\nThis will mark the NPC as Up.`
@@ -996,7 +1041,7 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
     // Create a backdated kill record to show as "Up"
     // Use the max respawn time + 1 minute, fallback to min time, or default to 24 hours if no respawn configured
     // This must match the server's logic which uses: respawnMaxTime ?? respawnMinTime
-    const respawnMinutes = npc.respawnMaxMinutes ?? npc.respawnMinMinutes ?? (24 * 60);
+    const respawnMinutes = npc.respawnMaxMinutes ?? npc.respawnMinMinutes ?? 24 * 60;
     const respawnMs = (respawnMinutes + 1) * 60 * 1000;
     const oldKillTime = new Date(Date.now() - respawnMs);
 
@@ -1015,7 +1060,9 @@ async function confirmSpawnUp(npc: NpcRespawnTrackerEntry) {
 
 async function confirmMarkDown(npc: NpcRespawnTrackerEntry) {
   const variantLabel = npc.hasInstanceVersion
-    ? (npc.isInstanceVariant ? ' (Instance)' : ' (Overworld)')
+    ? npc.isInstanceVariant
+      ? ' (Instance)'
+      : ' (Overworld)'
     : '';
   const confirmed = confirm(
     `Mark "${npc.npcName}"${variantLabel} as killed (Down)?\n\nThis will start the respawn timer.`
@@ -1093,20 +1140,13 @@ async function submitClarification() {
 
   submittingClarification.value = true;
   try {
-    await api.resolvePendingNpcKillClarification(
-      guildId,
-      selectedClarification.value.id,
-      {
-        npcDefinitionId: clarificationForm.value.npcDefinitionId,
-        isInstance: clarificationForm.value.isInstance
-      }
-    );
+    await api.resolvePendingNpcKillClarification(guildId, selectedClarification.value.id, {
+      npcDefinitionId: clarificationForm.value.npcDefinitionId,
+      isInstance: clarificationForm.value.isInstance
+    });
     closeClarificationModal();
     // Refresh data to show the new kill record
-    await Promise.all([
-      store.fetchRespawnTracker(guildId, true),
-      loadPendingClarifications()
-    ]);
+    await Promise.all([store.fetchRespawnTracker(guildId, true), loadPendingClarifications()]);
   } catch (err: any) {
     showErrorFromException(err, 'Failed to resolve clarification');
   } finally {
@@ -1115,7 +1155,11 @@ async function submitClarification() {
 }
 
 async function dismissClarification(clarification: PendingNpcKillClarification) {
-  if (!confirm(`Dismiss this kill clarification for ${clarification.npcName}? The kill will not be recorded.`)) {
+  if (
+    !confirm(
+      `Dismiss this kill clarification for ${clarification.npcName}? The kill will not be recorded.`
+    )
+  ) {
     return;
   }
   try {
@@ -1155,19 +1199,32 @@ onUnmounted(() => {
 });
 
 // Reset filters when leaving guild
-watch(() => route.params.guildId, (newGuildId) => {
-  if (newGuildId !== guildId) {
-    searchQuery.value = '';
-    activeStatusFilter.value = 'all';
-    activeZoneFilter.value = 'all';
-    currentPage.value = 1;
+watch(
+  () => route.params.guildId,
+  (newGuildId) => {
+    if (newGuildId !== guildId) {
+      searchQuery.value = '';
+      activeStatusFilter.value = 'all';
+      activeZoneFilter.value = 'all';
+      currentPage.value = 1;
+    }
   }
-});
+);
 
 // Reset page when filters change
-watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter, raidOnlyFilter, activeVariantFilter], () => {
-  currentPage.value = 1;
-});
+watch(
+  [
+    searchQuery,
+    activeStatusFilter,
+    activeZoneFilter,
+    activeExpansionFilter,
+    raidOnlyFilter,
+    activeVariantFilter
+  ],
+  () => {
+    currentPage.value = 1;
+  }
+);
 </script>
 
 <style scoped>
@@ -1365,7 +1422,10 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
   border-radius: 0.5rem;
   justify-content: center;
   opacity: 0.6;
-  transition: opacity 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .expansion-filter-btn--icon-only:hover {
@@ -1523,7 +1583,9 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon {
@@ -1606,12 +1668,26 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
   background: rgba(239, 68, 68, 0.12);
 }
 
-.col-status { width: 80px; text-align: center; }
-.col-name { min-width: 150px; }
-.col-zone { width: 240px; }
-.col-respawn { min-width: 180px; }
-.col-killed { width: 120px; }
-.col-actions { width: 120px; text-align: center; }
+.col-status {
+  width: 80px;
+  text-align: center;
+}
+.col-name {
+  min-width: 150px;
+}
+.col-zone {
+  width: 240px;
+}
+.col-respawn {
+  min-width: 180px;
+}
+.col-killed {
+  width: 120px;
+}
+.col-actions {
+  width: 120px;
+  text-align: center;
+}
 
 .status-badge {
   display: inline-block;
@@ -1767,13 +1843,23 @@ watch([searchQuery, activeStatusFilter, activeZoneFilter, activeExpansionFilter,
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 5px rgba(34, 197, 94, 0.5); }
-  50% { box-shadow: 0 0 15px rgba(34, 197, 94, 0.8); }
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.8);
+  }
 }
 
 .timer-labels {

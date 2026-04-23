@@ -80,25 +80,25 @@
                 type="search"
                 class="metrics-search__input"
                 :placeholder="searchPlaceholder"
-              @focus="handleSearchFocus"
-              @blur="handleSearchBlur"
-              @keydown="handleSearchKeydown"
-            />
-            <ul
-              v-if="showSearchResults"
-              ref="searchResultsRef"
-              class="metrics-search__results"
-              @mouseenter="handleSearchResultsHover(true)"
-              @mouseleave="handleSearchResultsHover(false)"
-            >
-              <li
-                v-for="option in filteredSearchOptions"
-                :key="`${option.type}-${option.value}`"
-                class="metrics-search__result"
-                :class="{ 'metrics-search__result--active': isSearchOptionActive(option) }"
-                @mousedown.prevent="handleSearchSelect(option)"
-                @mouseenter="setActiveSearchOption(option)"
+                @focus="handleSearchFocus"
+                @blur="handleSearchBlur"
+                @keydown="handleSearchKeydown"
+              />
+              <ul
+                v-if="showSearchResults"
+                ref="searchResultsRef"
+                class="metrics-search__results"
+                @mouseenter="handleSearchResultsHover(true)"
+                @mouseleave="handleSearchResultsHover(false)"
               >
+                <li
+                  v-for="option in filteredSearchOptions"
+                  :key="`${option.type}-${option.value}`"
+                  class="metrics-search__result"
+                  :class="{ 'metrics-search__result--active': isSearchOptionActive(option) }"
+                  @mousedown.prevent="handleSearchSelect(option)"
+                  @mouseenter="setActiveSearchOption(option)"
+                >
                   <span class="metrics-search__result-primary">{{ option.label }}</span>
                   <span v-if="option.description" class="metrics-search__result-secondary">
                     {{ option.description }}
@@ -169,14 +169,21 @@
         <div class="metrics-card-grid" :class="{ 'metrics-card-grid--maximized': maximizedCard }">
           <article
             v-if="!maximizedCard || maximizedCard === 'attendanceTimeline'"
-            :class="['metrics-card', { 'metrics-card--maximized': maximizedCard === 'attendanceTimeline' }]"
+            :class="[
+              'metrics-card',
+              { 'metrics-card--maximized': maximizedCard === 'attendanceTimeline' }
+            ]"
           >
             <header class="metrics-card__header metrics-card__header--with-actions">
               <h3>Attendance Over Time</h3>
               <button
                 type="button"
                 class="metrics-card__action"
-                :aria-label="isCardMaximized('attendanceTimeline') ? 'Restore section size' : 'Maximize section'"
+                :aria-label="
+                  isCardMaximized('attendanceTimeline')
+                    ? 'Restore section size'
+                    : 'Maximize section'
+                "
                 @click="toggleMaximizeCard('attendanceTimeline')"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -205,14 +212,21 @@
 
           <article
             v-if="!maximizedCard || maximizedCard === 'attendanceByCharacter'"
-            :class="['metrics-card', { 'metrics-card--maximized': maximizedCard === 'attendanceByCharacter' }]"
+            :class="[
+              'metrics-card',
+              { 'metrics-card--maximized': maximizedCard === 'attendanceByCharacter' }
+            ]"
           >
             <header class="metrics-card__header metrics-card__header--with-actions">
               <h3>{{ attendanceRateTitle }}</h3>
               <button
                 type="button"
                 class="metrics-card__action"
-                :aria-label="isCardMaximized('attendanceByCharacter') ? 'Restore section size' : 'Maximize section'"
+                :aria-label="
+                  isCardMaximized('attendanceByCharacter')
+                    ? 'Restore section size'
+                    : 'Maximize section'
+                "
                 @click="toggleMaximizeCard('attendanceByCharacter')"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -333,14 +347,19 @@
         <div class="metrics-card-grid" :class="{ 'metrics-card-grid--maximized': maximizedCard }">
           <article
             v-if="!maximizedCard || maximizedCard === 'lootTimeline'"
-            :class="['metrics-card', { 'metrics-card--maximized': maximizedCard === 'lootTimeline' }]"
+            :class="[
+              'metrics-card',
+              { 'metrics-card--maximized': maximizedCard === 'lootTimeline' }
+            ]"
           >
             <header class="metrics-card__header metrics-card__header--with-actions">
               <h3>Loot Over Time</h3>
               <button
                 type="button"
                 class="metrics-card__action"
-                :aria-label="isCardMaximized('lootTimeline') ? 'Restore section size' : 'Maximize section'"
+                :aria-label="
+                  isCardMaximized('lootTimeline') ? 'Restore section size' : 'Maximize section'
+                "
                 @click="toggleMaximizeCard('lootTimeline')"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -369,14 +388,19 @@
 
           <article
             v-if="!maximizedCard || maximizedCard === 'lootByParticipant'"
-            :class="['metrics-card', { 'metrics-card--maximized': maximizedCard === 'lootByParticipant' }]"
+            :class="[
+              'metrics-card',
+              { 'metrics-card--maximized': maximizedCard === 'lootByParticipant' }
+            ]"
           >
             <header class="metrics-card__header metrics-card__header--with-actions">
               <h3>Top Loot Recipients</h3>
               <button
                 type="button"
                 class="metrics-card__action"
-                :aria-label="isCardMaximized('lootByParticipant') ? 'Restore section size' : 'Maximize section'"
+                :aria-label="
+                  isCardMaximized('lootByParticipant') ? 'Restore section size' : 'Maximize section'
+                "
                 @click="toggleMaximizeCard('lootByParticipant')"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -419,7 +443,9 @@
               <button
                 type="button"
                 class="metrics-card__action"
-                :aria-label="isCardMaximized('lootByItem') ? 'Restore section size' : 'Maximize section'"
+                :aria-label="
+                  isCardMaximized('lootByItem') ? 'Restore section size' : 'Maximize section'
+                "
                 @click="toggleMaximizeCard('lootByItem')"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -496,7 +522,7 @@
                 class="metrics-spotlight__item"
               >
                 <div>
-                <strong>{{ entry.itemName }}</strong>
+                  <strong>{{ entry.itemName }}</strong>
                 </div>
                 <div class="metrics-spotlight__stats">
                   <span>{{ formatNumber(entry.count) }} awards</span>
@@ -611,9 +637,13 @@
           <p v-if="selectedMemberCharacterDetails.length > 0" class="muted small">
             Showing {{ selectedMemberCharacterDetails.length }} character<span
               v-if="selectedMemberCharacterDetails.length !== 1"
-            >s</span>.
+              >s</span
+            >.
           </p>
-          <div v-if="selectedMemberCharacterDetails.length > 0" class="metrics-modal__table-wrapper">
+          <div
+            v-if="selectedMemberCharacterDetails.length > 0"
+            class="metrics-modal__table-wrapper"
+          >
             <table class="metrics-modal-table">
               <thead>
                 <tr>
@@ -651,10 +681,16 @@
               </tbody>
             </table>
           </div>
-          <p v-else class="muted small">No attendance data for this member within the current filters.</p>
+          <p v-else class="muted small">
+            No attendance data for this member within the current filters.
+          </p>
         </div>
         <footer class="modal__footer">
-          <button type="button" class="btn btn--outline btn--small" @click="closeMemberAttendanceModal">
+          <button
+            type="button"
+            class="btn btn--outline btn--small"
+            @click="closeMemberAttendanceModal"
+          >
             Close
           </button>
         </footer>
@@ -681,7 +717,8 @@
           <p v-if="unknownMemberCharacterDetails.length > 0" class="muted small">
             Showing {{ unknownMemberCharacterDetails.length }} character<span
               v-if="unknownMemberCharacterDetails.length !== 1"
-            >s</span>.
+              >s</span
+            >.
           </p>
           <div v-if="unknownMemberCharacterDetails.length > 0" class="metrics-modal__table-wrapper">
             <table class="metrics-modal-table">
@@ -725,7 +762,10 @@
                   <td>{{ formatNumber(entry.absentRaids) }}</td>
                   <td>{{ formatNumber(entry.totalRaids) }}</td>
                   <td v-if="canAssignUnknownCharacters" class="metrics-modal-table__actions">
-                    <div v-if="assigningUnknownCharacterKey === entry.key" class="unknown-assignment">
+                    <div
+                      v-if="assigningUnknownCharacterKey === entry.key"
+                      class="unknown-assignment"
+                    >
                       <div class="unknown-assignment__controls">
                         <select
                           :id="`unknown-member-${entry.key}-member`"
@@ -784,25 +824,27 @@
           </p>
         </div>
         <footer class="modal__footer">
-          <button type="button" class="btn btn--outline btn--small" @click="closeUnknownMemberModal">
+          <button
+            type="button"
+            class="btn btn--outline btn--small"
+            @click="closeUnknownMemberModal"
+          >
             Close
           </button>
         </footer>
       </div>
     </div>
 
-    <div
-      v-if="showLootDetailModal"
-      class="modal-backdrop"
-      @click.self="closeLootDetailModal"
-    >
+    <div v-if="showLootDetailModal" class="modal-backdrop" @click.self="closeLootDetailModal">
       <div class="modal metrics-modal">
         <header class="modal__header">
           <div>
             <h2>Loot History</h2>
             <p class="muted small">
-              {{ lootDetailModalTitle }} —
-              {{ lootDetailModalCount }} loot event<span v-if="lootDetailModalCount !== 1">s</span>
+              {{ lootDetailModalTitle }} — {{ lootDetailModalCount }} loot event<span
+                v-if="lootDetailModalCount !== 1"
+                >s</span
+              >
             </p>
           </div>
           <button
@@ -873,12 +915,10 @@
               </tbody>
             </table>
           </div>
-          <div
-            v-if="lootDetailModalCount > LOOT_DETAIL_PAGE_SIZE"
-            class="loot-detail__pagination"
-          >
+          <div v-if="lootDetailModalCount > LOOT_DETAIL_PAGE_SIZE" class="loot-detail__pagination">
             <span class="muted tiny">
-              Showing {{ lootDetailStartIndex }}–{{ lootDetailEndIndex }} of {{ lootDetailModalCount }}
+              Showing {{ lootDetailStartIndex }}–{{ lootDetailEndIndex }} of
+              {{ lootDetailModalCount }}
             </span>
             <div class="loot-detail__pagination-controls">
               <button
@@ -919,15 +959,11 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import CharacterInspector from '../components/CharacterInspector.vue';
-import CharacterLink from '../components/CharacterLink.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
-import {
-  getGuildBankDisplayName,
-  normalizeLooterName
-} from '../utils/lootNames';
+import { normalizeLooterName } from '../utils/lootNames';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import TimelineRangeSelector from '../components/TimelineRangeSelector.vue';
 import {
@@ -996,7 +1032,7 @@ const guildBankStore = useGuildBankStore();
 const tooltipStore = useItemTooltipStore();
 const userCharacters = ref<UserCharacter[]>([]);
 
-function openInventory(characterName: string, currentGuildId?: string) {
+function openInventory(characterName: string, _currentGuildId?: string) {
   if (!guildId.value) return;
   guildBankStore.openCharacterInventory(characterName, guildId.value);
 }
@@ -1005,7 +1041,11 @@ function openInventory(characterName: string, currentGuildId?: string) {
 function showItemTooltip(event: MouseEvent, lootEvent: LootMetricEvent) {
   if (!lootEvent.itemId) return;
   tooltipStore.showTooltip(
-    { itemId: lootEvent.itemId, itemName: lootEvent.itemName, itemIconId: lootEvent.itemIconId ?? null },
+    {
+      itemId: lootEvent.itemId,
+      itemName: lootEvent.itemName,
+      itemIconId: lootEvent.itemIconId ?? null
+    },
     { x: event.clientX, y: event.clientY }
   );
 }
@@ -1024,7 +1064,9 @@ const error = ref<string | null>(null);
 const metrics = ref<GuildMetrics | null>(null);
 const memberDisplayMap = ref<Map<string, string>>(new Map());
 const memberDisplayNameLookup = ref<Map<string, string>>(new Map());
-const characterOwnerMap = ref<Map<string, { userId: string; displayName: string | null }>>(new Map());
+const characterOwnerMap = ref<Map<string, { userId: string; displayName: string | null }>>(
+  new Map()
+);
 const guildPermissions = ref<GuildPermissions | null>(null);
 const guildMemberDirectory = ref<GuildMemberDirectoryEntry[]>([]);
 const guildName = ref<string | null>(null);
@@ -1037,8 +1079,6 @@ const memberDirectoryLookupByUserId = computed(() => {
   }
   return map;
 });
-const guildBankDisplayName = computed(() => getGuildBankDisplayName(guildName.value));
-
 const rangeForm = reactive({
   start: '',
   end: ''
@@ -1075,7 +1115,10 @@ const unknownAssignment = reactive<{ memberUserId: string }>({
 const unknownAssignmentLoading = ref(false);
 const unknownAssignmentError = ref<string | null>(null);
 const showLootDetailModal = ref(false);
-const lootDetailTarget = ref<{ entry: LootParticipantSummary; identity: EntityIdentity | null } | null>(null);
+const lootDetailTarget = ref<{
+  entry: LootParticipantSummary;
+  identity: EntityIdentity | null;
+} | null>(null);
 
 type LootMetricEventWithBank = LootMetricEvent & {
   originalLooterName: string | null;
@@ -1127,7 +1170,8 @@ async function loadMemberDirectory() {
       user.nickname?.trim() || user.displayName?.trim() || '';
 
     for (const member of detail.members ?? []) {
-      const preferred = recordPreferred(member.user) || member.user.displayName || member.user.nickname || '';
+      const preferred =
+        recordPreferred(member.user) || member.user.displayName || member.user.nickname || '';
       const normalizedDisplay = normalizeNameKey(member.user.displayName);
       const normalizedNickname = normalizeNameKey(member.user.nickname);
       if (member.user.id) {
@@ -1135,7 +1179,8 @@ async function loadMemberDirectory() {
         map.set(member.user.id, preferred);
         memberEntries.push({
           userId: member.user.id,
-          displayName: preferred || member.user.displayName || member.user.nickname || member.user.id,
+          displayName:
+            preferred || member.user.displayName || member.user.nickname || member.user.id,
           role: member.role as GuildRole
         });
       }
@@ -1148,7 +1193,11 @@ async function loadMemberDirectory() {
     }
 
     for (const character of detail.characters ?? []) {
-      const preferred = recordPreferred(character.user) || character.user.displayName || character.user.nickname || '';
+      const preferred =
+        recordPreferred(character.user) ||
+        character.user.displayName ||
+        character.user.nickname ||
+        '';
       if (character.user?.id) {
         setMemberNameHint(character.user.id, preferred);
         if (!map.has(character.user.id)) {
@@ -1179,10 +1228,13 @@ async function loadMemberDirectory() {
     memberDisplayNameLookup.value = nameLookup;
     characterOwnerMap.value = ownerMap;
     guildMemberDirectory.value = memberEntries
-      .filter((entry, index, array) =>
-        array.findIndex((candidate) => candidate.userId === entry.userId) === index
+      .filter(
+        (entry, index, array) =>
+          array.findIndex((candidate) => candidate.userId === entry.userId) === index
       )
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }));
+      .sort((a, b) =>
+        a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' })
+      );
   } catch (err) {
     console.error('Unable to load member directory', err);
   }
@@ -1257,10 +1309,6 @@ function startOfDayLocalIso(iso: string): string {
   }
   const localStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   return localStart.toISOString();
-}
-
-function formatTimelineLabel(iso: string): string {
-  return formatRangeDate(startOfDayUtcIso(iso));
 }
 
 function formatTimelineDisplay(iso: string): string {
@@ -1359,10 +1407,7 @@ function normalizeNameKey(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function setMemberNameHint(
-  userId: string | null,
-  name?: string | null
-) {
+function setMemberNameHint(userId: string | null, name?: string | null) {
   if (!name) {
     return;
   }
@@ -1442,7 +1487,11 @@ function resolveCharacterOwner(
       setMemberNameHint(resolvedUserId, resolvedDisplay ?? name);
       if (normalizedName) {
         const existing = characterOwnerMap.value.get(normalizedName);
-        if (!existing || existing.userId !== resolvedUserId || existing.displayName !== resolvedDisplay) {
+        if (
+          !existing ||
+          existing.userId !== resolvedUserId ||
+          existing.displayName !== resolvedDisplay
+        ) {
           const cloned = new Map(characterOwnerMap.value);
           cloned.set(normalizedName, {
             userId: resolvedUserId,
@@ -1461,17 +1510,13 @@ function resolveCharacterOwner(
 
 function memberAggregateKeyFromParts(
   userId: string | null | undefined,
-  userDisplayName: string | null | undefined,
-  fallbackName: string | null | undefined
+  _userDisplayName: string | null | undefined,
+  _fallbackName: string | null | undefined
 ): string {
   if (userId) {
     return `user:${userId}`;
   }
   return UNKNOWN_MEMBER_AGGREGATE_KEY;
-}
-
-function memberAggregateKeyFromOption(option: MetricsCharacterOption): string {
-  return memberAggregateKeyFromParts(option.userId ?? null, option.userDisplayName ?? null, option.name);
 }
 
 const characterEntityOptions = computed<MetricsEntityOption[]>(() =>
@@ -1548,7 +1593,11 @@ function ensureMemberAggregate(
     if (userDisplayName && allowHints) {
       setMemberNameHint(aggregate.userId, userDisplayName);
     }
-    const resolved = resolveMemberPreferredName(aggregate.userId, userDisplayName ?? aggregate.userDisplayName, fallbackName);
+    const resolved = resolveMemberPreferredName(
+      aggregate.userId,
+      userDisplayName ?? aggregate.userDisplayName,
+      fallbackName
+    );
     if (resolved) {
       if (allowHints) {
         setMemberNameHint(aggregate.userId, resolved);
@@ -1569,7 +1618,7 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
       allowHints: false
     });
     const fallbackLabel = owner.userId
-      ? owner.userDisplayName ?? option.userDisplayName ?? option.name
+      ? (owner.userDisplayName ?? option.userDisplayName ?? option.name)
       : UNKNOWN_MEMBER_LABEL;
     const aggregate = ensureMemberAggregate(
       aggregates,
@@ -1601,7 +1650,9 @@ const memberEntityOptions = computed<MetricsEntityOption[]>(() => {
         record.character.userDisplayName,
         { allowHints: false }
       );
-      const fallbackLabel = owner.userId ? owner.userDisplayName ?? fallbackName : UNKNOWN_MEMBER_LABEL;
+      const fallbackLabel = owner.userId
+        ? (owner.userDisplayName ?? fallbackName)
+        : UNKNOWN_MEMBER_LABEL;
       const aggregate = ensureMemberAggregate(
         aggregates,
         owner.userId,
@@ -1773,16 +1824,6 @@ const memberOptionByUserId = computed(() => {
   return map;
 });
 
-const memberKeyByCharacterId = computed(() => {
-  const map = new Map<string, MetricsEntityOption>();
-  for (const option of memberEntityOptions.value) {
-    for (const id of option.characterIds) {
-      map.set(id, option);
-    }
-  }
-  return map;
-});
-
 const memberKeyByCharacterName = computed(() => {
   const map = new Map<string, MetricsEntityOption>();
   for (const option of memberEntityOptions.value) {
@@ -1843,7 +1884,8 @@ interface EntityIdentity {
 }
 
 function identityFromEntityOption(option: MetricsEntityOption): EntityIdentity {
-  const normalizedPrimary = normalizeNameKey(option.label) ?? option.normalizedCharacterNames[0] ?? option.key;
+  const normalizedPrimary =
+    normalizeNameKey(option.label) ?? option.normalizedCharacterNames[0] ?? option.key;
   return {
     mode: option.type,
     key: option.key,
@@ -1942,15 +1984,11 @@ function identityFromRecord(record: AttendanceMetricRecord, mode: MetricsMode): 
     }
     const resolvedMemberName = isUnknownMember
       ? UNKNOWN_MEMBER_LABEL
-      : resolveMemberPreferredName(
-          owner.userId,
-          owner.userDisplayName,
-          record.character.name
-        ) ?? owner.userDisplayName ?? record.character.userDisplayName ?? record.character.name;
-    const normalizedResolved = normalizeNameKey(resolvedMemberName);
-    const memberKey = owner.userId
-      ? `member:user:${owner.userId}`
-      : UNKNOWN_MEMBER_ENTITY_KEY;
+      : (resolveMemberPreferredName(owner.userId, owner.userDisplayName, record.character.name) ??
+        owner.userDisplayName ??
+        record.character.userDisplayName ??
+        record.character.name);
+    const memberKey = owner.userId ? `member:user:${owner.userId}` : UNKNOWN_MEMBER_ENTITY_KEY;
     return {
       mode,
       key: memberKey,
@@ -1959,7 +1997,7 @@ function identityFromRecord(record: AttendanceMetricRecord, mode: MetricsMode): 
       userId: owner.userId,
       userDisplayName: isUnknownMember
         ? UNKNOWN_MEMBER_LABEL
-        : owner.userDisplayName ?? record.character.userDisplayName ?? null,
+        : (owner.userDisplayName ?? record.character.userDisplayName ?? null),
       normalizedUserDisplayName: isUnknownMember
         ? normalizeNameKey(UNKNOWN_MEMBER_LABEL)
         : normalizeNameKey(owner.userDisplayName ?? record.character.userDisplayName),
@@ -1994,8 +2032,7 @@ function formatEntityLabel(
   includeMemberSuffix = false,
   preferMemberName?: boolean
 ): string {
-  const shouldPreferMemberName =
-    preferMemberName ?? (option?.type === 'member');
+  const shouldPreferMemberName = preferMemberName ?? option?.type === 'member';
   const memberUserId = option?.userId ?? fallback.userId ?? null;
   let base: string | null = null;
 
@@ -2005,7 +2042,10 @@ function formatEntityLabel(
         memberUserId,
         option?.userDisplayName ?? fallback.userDisplayName ?? null,
         option?.label ?? fallback.primaryName
-      ) ?? option?.label ?? fallback.primaryName ?? null;
+      ) ??
+      option?.label ??
+      fallback.primaryName ??
+      null;
   } else {
     base = option?.label ?? fallback.primaryName ?? null;
   }
@@ -2014,7 +2054,10 @@ function formatEntityLabel(
     base = fallback.primaryName;
   }
 
-  if (includeMemberSuffix && (option?.type === 'member' || (shouldPreferMemberName && memberUserId))) {
+  if (
+    includeMemberSuffix &&
+    (option?.type === 'member' || (shouldPreferMemberName && memberUserId))
+  ) {
     const count = option?.characterNames?.length ?? 0;
     const suffixParts = ['Member'];
     if (count > 1) {
@@ -2135,8 +2178,7 @@ const searchOptions = computed<SearchOptionEntry[]>(() => {
     if (option.type === 'member' && option.key === UNKNOWN_MEMBER_ENTITY_KEY) {
       continue;
     }
-    const classLabel =
-      option.classes.length === 1 ? resolveClassLabel(option.classes[0]) : null;
+    const classLabel = option.classes.length === 1 ? resolveClassLabel(option.classes[0]) : null;
     let description: string | null = null;
     if (option.type === 'member') {
       const characterCount = option.characterNames.length;
@@ -2418,12 +2460,6 @@ const selectedCharacterChips = computed(() =>
     .filter((entry): entry is { key: string; label: string } => entry !== null)
 );
 
-const selectedEntityIdentities = computed(() =>
-  selectedCharacters.value
-    .map((key) => resolveEntityIdentity(key))
-    .filter((identity): identity is EntityIdentity => identity !== null)
-);
-
 const selectedLootItemChips = computed(() =>
   selectedLootItems.value.map((name) => ({
     key: name.toLowerCase(),
@@ -2548,7 +2584,14 @@ function buildDerivedAttendanceMap(mode: MetricsMode): Map<string, RaidIdentityA
       }
     }
 
-    for (const { identity, presentEventIndices, presentEventKeys, lateEventIndices, leftEarlyEventIndices, attendedRaid } of identityStates.values()) {
+    for (const {
+      identity,
+      presentEventIndices,
+      presentEventKeys,
+      lateEventIndices,
+      leftEarlyEventIndices,
+      attendedRaid
+    } of identityStates.values()) {
       const hasPresence = presentEventIndices.size > 0;
       const presentAtFirst = hasPresence && presentEventIndices.has(0);
       const presentAtLast = hasPresence && presentEventIndices.has(lastEventIndex);
@@ -2598,7 +2641,10 @@ function recordMatchesIdentity(record: AttendanceMetricRecord, identity: EntityI
       return true;
     }
     const recordDisplay = normalizeNameKey(record.character.userDisplayName);
-    if (identity.normalizedUserDisplayName && recordDisplay === identity.normalizedUserDisplayName) {
+    if (
+      identity.normalizedUserDisplayName &&
+      recordDisplay === identity.normalizedUserDisplayName
+    ) {
       return true;
     }
     const normalizedName = record.character.name.toLowerCase();
@@ -2611,7 +2657,10 @@ function recordMatchesIdentity(record: AttendanceMetricRecord, identity: EntityI
   return identity.normalizedCharacterNames.includes(normalizedName);
 }
 
-function lootEventMatchesIdentity(event: LootMetricEventWithBank, identity: EntityIdentity): boolean {
+function lootEventMatchesIdentity(
+  event: LootMetricEventWithBank,
+  identity: EntityIdentity
+): boolean {
   const normalizedLooter = event.normalizedLooterName;
   if (identity.normalizedCharacterNames.includes(normalizedLooter)) {
     return true;
@@ -2751,17 +2800,6 @@ const lootTotals = computed(() => {
   return { main: mainCount, all: normalizedLootEvents.value.length };
 });
 
-const totalUniqueAttendanceEvents = computed(() => {
-  if (!metrics.value) {
-    return 0;
-  }
-  const events = new Set<string>();
-  for (const record of metrics.value.attendanceRecords) {
-    events.add(`${record.raid.id}::${record.timestamp}`);
-  }
-  return events.size;
-});
-
 const raidEventTotals = computed(() => {
   const map = new Map<string, Set<string>>();
   if (!metrics.value) {
@@ -2873,7 +2911,8 @@ function aggregateCharacterAttendanceForIdentity(
 
     for (const normalizedName of normalizedNames) {
       const characterIdentity =
-        identity.mode === 'character' && identity.normalizedPrimaryName?.toLowerCase() === normalizedName
+        identity.mode === 'character' &&
+        identity.normalizedPrimaryName?.toLowerCase() === normalizedName
           ? identity
           : resolveCharacterIdentityByNormalizedName(normalizedName);
       if (!characterIdentity) {
@@ -3283,22 +3322,6 @@ const filteredLootEvents = computed<LootMetricEventWithBank[]>(() => {
     }
     return true;
   });
-});
-
-const attendanceStatusTotals = computed<Record<DisplayAttendanceStatus, number>>(() => {
-  const totals: Record<DisplayAttendanceStatus, number> = {
-    PRESENT: 0,
-    LATE: 0,
-    ABSENT: 0,
-    LEFT_EARLY: 0
-  };
-  for (const entry of attendanceTimelineEntries.value) {
-    totals.PRESENT += entry.counts.PRESENT;
-    totals.LATE += entry.counts.LATE;
-    totals.ABSENT += entry.counts.ABSENT;
-    totals.LEFT_EARLY += entry.counts.LEFT_EARLY;
-  }
-  return totals;
 });
 
 const attendanceTimelineEntries = computed<AttendanceTimelineEntry[]>(() => {
@@ -3787,7 +3810,9 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     }
     if (mode === 'member') {
       entry.missingMain = Boolean(
-        optionForUpdate && optionForUpdate.key !== UNKNOWN_MEMBER_ENTITY_KEY && !optionForUpdate.isMain
+        optionForUpdate &&
+        optionForUpdate.key !== UNKNOWN_MEMBER_ENTITY_KEY &&
+        !optionForUpdate.isMain
       );
     }
     if (!entry.class && record.character.class && mode !== 'member') {
@@ -3796,10 +3821,10 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     if (!entry.userDisplayName && record.character.userDisplayName) {
       entry.userDisplayName = record.character.userDisplayName;
     }
-      if (isPresentStatus(record.status)) {
-        const eventKey = `${record.raid.id}::${record.timestamp}`;
-        entry.presentEventSet.add(eventKey);
-      }
+    if (isPresentStatus(record.status)) {
+      const eventKey = `${record.raid.id}::${record.timestamp}`;
+      entry.presentEventSet.add(eventKey);
+    }
   }
 
   const raidIds = Array.from(filteredRaidIds.value);
@@ -3817,8 +3842,11 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
       entry.totalRaids = raidIds.length;
       entry.presentEvents = aggregated.presentEvents;
       entry.totalAttendanceEvents =
-        aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
-      const denom = entry.totalAttendanceEvents > 0 ? entry.totalAttendanceEvents : entry.presentEvents;
+        aggregated.totalAttendanceEvents > 0
+          ? aggregated.totalAttendanceEvents
+          : aggregated.presentEvents;
+      const denom =
+        entry.totalAttendanceEvents > 0 ? entry.totalAttendanceEvents : entry.presentEvents;
       entry.participationPercent = denom > 0 ? (entry.presentEvents / denom) * 100 : 0;
       entry.presentEventSet = new Set<string>();
       continue;
@@ -3872,8 +3900,8 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
 
   const unknownIndex = sorted.findIndex((entry) => entry.key === UNKNOWN_MEMBER_ENTITY_KEY);
   if (unknownIndex > -1) {
-  const [unknownEntry] = sorted.splice(unknownIndex, 1);
-  sorted.push(unknownEntry);
+    const [unknownEntry] = sorted.splice(unknownIndex, 1);
+    sorted.push(unknownEntry);
   }
 
   return sorted;
@@ -3926,12 +3954,16 @@ const unknownMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(() 
   for (const identity of identityMap.values()) {
     const aggregated = aggregateCharacterAttendanceForIdentity(identity, raidIds);
     const totalAttendanceEventsValue =
-      aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
+      aggregated.totalAttendanceEvents > 0
+        ? aggregated.totalAttendanceEvents
+        : aggregated.presentEvents;
     if (aggregated.presentEvents === 0 && totalAttendanceEventsValue === 0) {
       continue;
     }
-    const denominator = totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
-    const participationPercent = denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
+    const denominator =
+      totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
+    const participationPercent =
+      denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
 
     const optionMatch =
       characterEntityOptionLookup.value.get(identity.key) ??
@@ -3984,7 +4016,8 @@ const unknownMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(() 
 });
 
 const topAttendanceCharacters = computed(() => {
-  const limit = maximizedCard.value === 'attendanceByCharacter' ? MAXIMIZED_BAR_LIMIT : DEFAULT_BAR_LIMIT;
+  const limit =
+    maximizedCard.value === 'attendanceByCharacter' ? MAXIMIZED_BAR_LIMIT : DEFAULT_BAR_LIMIT;
   const summaries = attendanceByCharacterSummaries.value;
   if (summaries.length <= limit) {
     return summaries;
@@ -4184,12 +4217,16 @@ const selectedMemberCharacterDetails = computed<AttendanceCharacterSummary[]>(()
   for (const identity of identityMap.values()) {
     const aggregated = aggregateCharacterAttendanceForIdentity(identity, raidIds);
     const totalAttendanceEventsValue =
-      aggregated.totalAttendanceEvents > 0 ? aggregated.totalAttendanceEvents : aggregated.presentEvents;
+      aggregated.totalAttendanceEvents > 0
+        ? aggregated.totalAttendanceEvents
+        : aggregated.presentEvents;
     if (aggregated.presentEvents === 0 && totalAttendanceEventsValue === 0) {
       continue;
     }
-    const denominator = totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
-    const participationPercent = denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
+    const denominator =
+      totalAttendanceEventsValue > 0 ? totalAttendanceEventsValue : aggregated.presentEvents;
+    const participationPercent =
+      denominator > 0 ? (aggregated.presentEvents / denominator) * 100 : 0;
 
     const optionMatch =
       characterEntityOptionLookup.value.get(identity.key) ??
@@ -4309,7 +4346,6 @@ watch(lootDetailTarget, () => {
   lootDetailPage.value = 0;
 });
 
-
 function openUnknownMemberModal() {
   if (unknownMemberCharacterDetails.value.length === 0) {
     return;
@@ -4392,7 +4428,10 @@ async function assignUnknownCharacterToMember(entry: AttendanceCharacterSummary)
   }
 }
 
-function handleInspectorEntrySelect(payload: { entry: InspectorEntryPayload; mode: InspectorLinkMode }) {
+function handleInspectorEntrySelect(payload: {
+  entry: InspectorEntryPayload;
+  mode: InspectorLinkMode;
+}) {
   if (!payload?.entry) {
     return;
   }
@@ -4442,8 +4481,6 @@ function closeLootDetailModal() {
   lootDetailTarget.value = null;
   lootDetailPage.value = 0;
 }
-
-
 
 const attendanceSpotlight = computed(() => {
   if (selectedCharacterKeySet.value.size === 0) {
@@ -4558,14 +4595,14 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
         associatedOption = memberOptionByUserId.value.get(ownerEntry.userId);
       }
     }
-  let owner = isGuildBank
-    ? { userId: null, userDisplayName: null }
-    : resolveCharacterOwner(
-        fallbackCharacterName,
-        associatedOption?.userId,
-        associatedOption?.userDisplayName,
-        { allowHints: false }
-      );
+    let owner = isGuildBank
+      ? { userId: null, userDisplayName: null }
+      : resolveCharacterOwner(
+          fallbackCharacterName,
+          associatedOption?.userId,
+          associatedOption?.userDisplayName,
+          { allowHints: false }
+        );
     if (!isGuildBank && normalizedFallback && !owner.userId) {
       const mappedOwner = characterOwnerMap.value.get(normalizedFallback);
       if (mappedOwner) {
@@ -4633,11 +4670,14 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
       ? event.displayLooterName
       : formatEntityLabel(associatedOption, fallbackLabelInfo, false, preferMemberName);
     const effectiveDisplayLabel =
-      !displayLabel || displayLabel === UNKNOWN_MEMBER_LABEL
-        ? fallbackCharacterName
-        : displayLabel;
-    let initialClass: string | null = isGuildBank ? null : normalizedEventClass ?? null;
-    if (!isGuildBank && mode === 'member' && associatedOption && associatedOption.classes.length === 1) {
+      !displayLabel || displayLabel === UNKNOWN_MEMBER_LABEL ? fallbackCharacterName : displayLabel;
+    let initialClass: string | null = isGuildBank ? null : (normalizedEventClass ?? null);
+    if (
+      !isGuildBank &&
+      mode === 'member' &&
+      associatedOption &&
+      associatedOption.classes.length === 1
+    ) {
       initialClass = associatedOption.classes[0];
     }
 
@@ -4679,7 +4719,9 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
 
     if (mode === 'character' && resolvedCharacterIdentity) {
       entry.summary.key = resolvedCharacterIdentity.key;
-      const optionForCharacter = characterEntityOptionLookup.value.get(resolvedCharacterIdentity.key);
+      const optionForCharacter = characterEntityOptionLookup.value.get(
+        resolvedCharacterIdentity.key
+      );
       if (optionForCharacter) {
         entry.summary.name = optionForCharacter.label;
         for (const cls of optionForCharacter.classes) {
@@ -4710,7 +4752,8 @@ const lootByParticipantSummaries = computed<LootParticipantSummary[]>(() => {
 });
 
 const topLootParticipants = computed(() => {
-  const limit = maximizedCard.value === 'lootByParticipant' ? MAXIMIZED_BAR_LIMIT : DEFAULT_BAR_LIMIT;
+  const limit =
+    maximizedCard.value === 'lootByParticipant' ? MAXIMIZED_BAR_LIMIT : DEFAULT_BAR_LIMIT;
   return lootByParticipantSummaries.value.slice(0, limit);
 });
 
@@ -4760,7 +4803,7 @@ const lootByParticipantHasData = computed(
   () =>
     lootByParticipantChartData.value.datasets[0]?.data?.length &&
     lootByParticipantChartData.value.datasets[0].data.some((value) => Number(value) > 0)
-  );
+);
 
 const lootDetailRows = computed(() => {
   const target = lootDetailTarget.value;
@@ -4771,43 +4814,45 @@ const lootDetailRows = computed(() => {
   if (!identity) {
     return [];
   }
-  return filteredLootEvents.value.filter((event) => {
-    if (identity.mode === 'character') {
-      const normalized = event.normalizedLooterName;
-      if (normalized === identity.key.replace('name:', '')) {
-        return true;
-      }
-      // Also check if this character is an alias of the target
-      const option = characterEntityOptionLookup.value.get(identity.key);
-      if (option && option.normalizedCharacterNames.includes(normalized)) {
-        return true;
-      }
-      return false;
-    } else if (identity.mode === 'member') {
-      const option = memberEntityOptionLookup.value.get(identity.key);
-      if (!option) {
+  return filteredLootEvents.value
+    .filter((event) => {
+      if (identity.mode === 'character') {
+        const normalized = event.normalizedLooterName;
+        if (normalized === identity.key.replace('name:', '')) {
+          return true;
+        }
+        // Also check if this character is an alias of the target
+        const option = characterEntityOptionLookup.value.get(identity.key);
+        if (option && option.normalizedCharacterNames.includes(normalized)) {
+          return true;
+        }
+        return false;
+      } else if (identity.mode === 'member') {
+        const option = memberEntityOptionLookup.value.get(identity.key);
+        if (!option) {
+          return false;
+        }
+        const normalized = event.normalizedLooterName;
+        if (option.normalizedCharacterNames.includes(normalized)) {
+          return true;
+        }
+        // Check userId ownership
+        const owner = characterOwnerMap.value.get(normalized);
+        if (owner && owner.userId === option.userId) {
+          return true;
+        }
         return false;
       }
-      const normalized = event.normalizedLooterName;
-      if (option.normalizedCharacterNames.includes(normalized)) {
-        return true;
-      }
-      // Check userId ownership
-      const owner = characterOwnerMap.value.get(normalized);
-      if (owner && owner.userId === option.userId) {
-        return true;
-      }
       return false;
-    }
-    return false;
-  }).sort((a, b) => {
-    const ta = eventPrimaryTimestamp(a);
-    const tb = eventPrimaryTimestamp(b);
-    if (!ta && !tb) return 0;
-    if (!ta) return 1;
-    if (!tb) return -1;
-    return tb.localeCompare(ta);
-  });
+    })
+    .sort((a, b) => {
+      const ta = eventPrimaryTimestamp(a);
+      const tb = eventPrimaryTimestamp(b);
+      if (!ta && !tb) return 0;
+      if (!ta) return 1;
+      if (!tb) return -1;
+      return tb.localeCompare(ta);
+    });
 });
 
 function isMasterLooterName(name: string): boolean {
@@ -4819,12 +4864,12 @@ const visibleLootDetailRows = computed(() => {
   const page = lootDetailPage.value;
   const start = page * LOOT_DETAIL_PAGE_SIZE;
   const end = start + LOOT_DETAIL_PAGE_SIZE;
-  return lootDetailRows.value.slice(start, end).map(event => {
+  return lootDetailRows.value.slice(start, end).map((event) => {
     const isGuildBank = event.isGuildBank;
     const isMasterLooter = isMasterLooterName(event.looterName);
     const characterName = isGuildBank
       ? event.displayLooterName
-      : (event.originalLooterName?.trim() || event.displayLooterName);
+      : event.originalLooterName?.trim() || event.displayLooterName;
 
     return {
       id: event.id,
@@ -4841,8 +4886,6 @@ const visibleLootDetailRows = computed(() => {
     };
   });
 });
-
-
 
 function openAllaSearch(itemName: string, itemId?: number | null) {
   if (itemId != null && Number.isFinite(itemId) && itemId > 0) {
@@ -4872,8 +4915,6 @@ function goToNextLootDetailPage() {
   }
 }
 
-
-
 const lootDetailModalTitle = computed(() => lootDetailTarget.value?.entry.name ?? '');
 const lootDetailModalCount = computed(() => lootDetailRows.value.length);
 const lootDetailPageCount = computed(() =>
@@ -4881,8 +4922,6 @@ const lootDetailPageCount = computed(() =>
     ? 0
     : Math.ceil(lootDetailModalCount.value / LOOT_DETAIL_PAGE_SIZE)
 );
-
-
 
 const lootDetailStartIndex = computed(() => {
   if (lootDetailModalCount.value === 0) {
@@ -5216,12 +5255,8 @@ const currentRangeIso = computed(() => {
   const startMs = Date.parse(rangeForm.start);
   const endMs = Date.parse(rangeForm.end);
 
-  const startIso = Number.isNaN(startMs)
-    ? fallbackStart
-    : new Date(startMs).toISOString();
-  const endIso = Number.isNaN(endMs)
-    ? fallbackEnd
-    : new Date(endMs).toISOString();
+  const startIso = Number.isNaN(startMs) ? fallbackStart : new Date(startMs).toISOString();
+  const endIso = Number.isNaN(endMs) ? fallbackEnd : new Date(endMs).toISOString();
 
   return { start: startIso, end: endIso };
 });
@@ -5345,7 +5380,11 @@ function syncFiltersWithOptions(): void {
   selectedClasses.value = selectedClasses.value
     .map((entry) => normalizeClassValue(entry))
     .filter((entry): entry is string => Boolean(entry && classSet.has(entry)));
-  const normalizedClassSet = new Set(selectedClasses.value.map((entry) => normalizeClassValue(entry)).filter((entry): entry is string => Boolean(entry)));
+  const normalizedClassSet = new Set(
+    selectedClasses.value
+      .map((entry) => normalizeClassValue(entry))
+      .filter((entry): entry is string => Boolean(entry))
+  );
 
   if (normalizedClassSet.size > 0) {
     updateSelectedCharactersFromClasses(normalizedClassSet);
@@ -5379,7 +5418,11 @@ onMounted(async () => {
   try {
     const now = new Date();
     const defaultEndDate = now.toISOString();
-    const defaultStartDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate()).toISOString();
+    const defaultStartDate = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      now.getDate()
+    ).toISOString();
 
     const [metricsData, charactersData] = await Promise.all([
       api.fetchGuildMetrics(guildId.value, {
@@ -5581,10 +5624,7 @@ function updateGlobalTimeline(result: GuildMetrics) {
   if (earliestExistingMarkerStart !== null) {
     fallbackMinMs = Math.min(fallbackMinMs, earliestExistingMarkerStart);
   }
-  const raidStartInfo = new Map<
-    string,
-    { ms: number; iso: string }
-  >();
+  const raidStartInfo = new Map<string, { ms: number; iso: string }>();
 
   for (const record of result.attendanceRecords) {
     const raidId = record.raid.id ?? `raid-${record.raid.name ?? 'unknown'}`;
@@ -5628,8 +5668,8 @@ function updateGlobalTimeline(result: GuildMetrics) {
     const label = record.raid.name ?? (record.raid.id ? `Raid ${record.raid.id}` : undefined);
     const existing = markers.get(raidId);
 
-    const existingStartMs = existing ? parseIsoToMs(existing.start) ?? startMs : startMs;
-    const existingEndMs = existing ? parseIsoToMs(existing.end) ?? endMs : endMs;
+    const existingStartMs = existing ? (parseIsoToMs(existing.start) ?? startMs) : startMs;
+    const existingEndMs = existing ? (parseIsoToMs(existing.end) ?? endMs) : endMs;
     const mergedStartMs = Math.min(existingStartMs, startMs);
     const mergedEndMs = Math.max(existingEndMs, endMs);
     const finalStartIso = new Date(mergedStartMs).toISOString();
@@ -5815,7 +5855,9 @@ function removeCharacterSelection(key: string) {
   }
   const optionClass = option.class ? option.class.toUpperCase() : null;
   if (optionClass && selectedClassSet.value.has(optionClass)) {
-    selectedClasses.value = selectedClasses.value.filter((entry) => entry.toUpperCase() !== optionClass);
+    selectedClasses.value = selectedClasses.value.filter(
+      (entry) => entry.toUpperCase() !== optionClass
+    );
   }
 }
 
@@ -5939,7 +5981,10 @@ onMounted(() => {
   text-transform: uppercase;
   padding: 0.35rem 0.95rem;
   border-radius: 999px;
-  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.15s ease;
   cursor: pointer;
 }
 
@@ -6173,7 +6218,9 @@ onMounted(() => {
   gap: 0.2rem;
   align-items: center;
   justify-content: center;
-  transition: border-color 0.2s ease, transform 0.15s ease;
+  transition:
+    border-color 0.2s ease,
+    transform 0.15s ease;
   cursor: pointer;
   width: 100%;
 }
@@ -6310,7 +6357,10 @@ onMounted(() => {
   background: rgba(15, 23, 42, 0.6);
   color: rgba(226, 232, 240, 0.85);
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
 .metrics-card__action:hover,
@@ -6510,7 +6560,10 @@ onMounted(() => {
   box-shadow: 0 18px 36px rgba(13, 23, 42, 0.38);
   backdrop-filter: blur(14px);
   cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .metrics-recent__card:hover,
@@ -6806,7 +6859,10 @@ onMounted(() => {
   font-weight: 700;
   color: #0f172a;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
 }
 
 .unknown-assignment__icon-button:disabled {
@@ -6847,7 +6903,10 @@ onMounted(() => {
   font-weight: 600;
   letter-spacing: 0.02em;
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
-  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
 }
 
 .unknown-assign-trigger:hover,
@@ -6875,7 +6934,9 @@ onMounted(() => {
   cursor: pointer;
   padding: 0;
   text-decoration: none;
-  transition: color 0.2s ease, text-shadow 0.2s ease;
+  transition:
+    color 0.2s ease,
+    text-shadow 0.2s ease;
 }
 
 .loot-detail__item-link:hover,
@@ -6894,7 +6955,9 @@ onMounted(() => {
   color: #a5b4fc;
   font-weight: 600;
   text-decoration: none;
-  transition: color 0.2s ease, text-shadow 0.2s ease;
+  transition:
+    color 0.2s ease,
+    text-shadow 0.2s ease;
 }
 
 .loot-detail__raid-link:hover,
@@ -6931,7 +6994,10 @@ onMounted(() => {
   padding: 0.35rem 0.7rem;
   font-size: 0.78rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
 }
 
 .loot-detail__page-button:hover,

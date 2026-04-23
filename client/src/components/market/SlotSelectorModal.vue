@@ -51,8 +51,12 @@
                       }"
                       @click="toggleSlot(slot.slotId)"
                     >
-                      <div v-if="selectedSlots.has(slot.slotId)" class="slot-selector__check">&#10003;</div>
-                      <div class="slot-selector__slot-label">{{ slot.shortLabel || slot.label }}</div>
+                      <div v-if="selectedSlots.has(slot.slotId)" class="slot-selector__check">
+                        &#10003;
+                      </div>
+                      <div class="slot-selector__slot-label">
+                        {{ slot.shortLabel || slot.label }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -76,9 +80,22 @@ import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { WORN_SLOT_UI_LAYOUT } from '../../utils/inventory';
 
 const CLASS_ICONS = [
-  'bard', 'beastlord', 'berserker', 'cleric', 'druid', 'enchanter',
-  'magician', 'monk', 'necromancer', 'paladin', 'ranger', 'rogue',
-  'shadowknight', 'shaman', 'warrior', 'wizard'
+  'bard',
+  'beastlord',
+  'berserker',
+  'cleric',
+  'druid',
+  'enchanter',
+  'magician',
+  'monk',
+  'necromancer',
+  'paladin',
+  'ranger',
+  'rogue',
+  'shadowknight',
+  'shaman',
+  'warrior',
+  'wizard'
 ];
 
 const ICON_ROTATE_MS = 3000;
@@ -119,14 +136,17 @@ function stopIconRotation() {
 }
 
 // Sync local state when modal opens
-watch(() => props.visible, (isVisible) => {
-  if (isVisible) {
-    selectedSlots.value = new Set(props.modelValue);
-    startIconRotation();
-  } else {
-    stopIconRotation();
+watch(
+  () => props.visible,
+  (isVisible) => {
+    if (isVisible) {
+      selectedSlots.value = new Set(props.modelValue);
+      startIconRotation();
+    } else {
+      stopIconRotation();
+    }
   }
-});
+);
 
 onMounted(() => {
   if (props.visible) {
@@ -234,7 +254,9 @@ function confirm() {
   color: #cbd5e1;
   border: 1px solid #475569;
   cursor: pointer;
-  transition: background-color 0.15s, opacity 0.15s;
+  transition:
+    background-color 0.15s,
+    opacity 0.15s;
 }
 
 .slot-selector__clear-btn:hover:not(:disabled) {
@@ -294,7 +316,10 @@ function confirm() {
   border: 2px solid #334155;
   border-radius: 5px;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background-color 0.15s;
   position: relative;
   user-select: none;
 }
@@ -306,13 +331,17 @@ function confirm() {
 
 .slot-selector__slot--selected {
   border-color: rgba(56, 189, 248, 0.7);
-  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35), inset 0 0 8px rgba(56, 189, 248, 0.1);
+  box-shadow:
+    0 0 10px rgba(56, 189, 248, 0.35),
+    inset 0 0 8px rgba(56, 189, 248, 0.1);
   background: #1a2f47;
 }
 
 .slot-selector__slot--selected:hover {
   border-color: rgba(56, 189, 248, 0.9);
-  box-shadow: 0 0 14px rgba(56, 189, 248, 0.45), inset 0 0 10px rgba(56, 189, 248, 0.15);
+  box-shadow:
+    0 0 14px rgba(56, 189, 248, 0.45),
+    inset 0 0 10px rgba(56, 189, 248, 0.15);
 }
 
 .slot-selector__check {

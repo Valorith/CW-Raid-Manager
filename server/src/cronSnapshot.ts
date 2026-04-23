@@ -24,14 +24,15 @@ const timeoutTimer = setTimeout(() => {
 }, CRON_TIMEOUT_MS);
 timeoutTimer.unref(); // Don't prevent normal exit
 
-import { prisma } from './utils/prisma.js';
-import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
-import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
-import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
-import { syncMarketSaleEvents } from './services/marketService.js';
+import { enforceInboundWebhookRetention } from './services/inboundWebhookService.js';
 import { syncMarketListings } from './services/marketListingsService.js';
+import { syncMarketSaleEvents } from './services/marketService.js';
+import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
 import { processNotificationOutbox } from './services/notificationOutboxService.js';
+import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
 import { queueDueRaidReminderNotifications } from './services/raidNotificationService.js';
+import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
+import { prisma } from './utils/prisma.js';
 
 async function main(): Promise<void> {
   console.log('[CronJob] Starting scheduled tasks...');
@@ -81,6 +82,16 @@ async function main(): Promise<void> {
     console.log(`[CronJob] Notification outbox processing complete. Processed ${processed} rows.`);
   } catch (error) {
     console.error('[CronJob] Error processing notification outbox:', error);
+  }
+
+  console.log('[CronJob] Enforcing inbound webhook retention policies...');
+  try {
+    const retention = await enforceInboundWebhookRetention();
+    console.log(
+      `[CronJob] Webhook retention complete. Scanned ${retention.webhooksScanned} webhooks, deleted ${retention.deletedByAge + retention.deletedByMaxCount} messages.`
+    );
+  } catch (error) {
+    console.error('[CronJob] Error enforcing webhook retention:', error);
   }
 
   // Task 2: Check if money/metallurgy snapshot should be taken

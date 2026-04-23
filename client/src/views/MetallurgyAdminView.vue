@@ -3,11 +3,11 @@
     <header class="section-header">
       <div class="section-header__titles">
         <h1>Metallurgy Tracker</h1>
-        <p class="muted">Track metallurgy ore distribution and character weights across the server.</p>
+        <p class="muted">
+          Track metallurgy ore distribution and character weights across the server.
+        </p>
       </div>
-      <router-link to="/admin" class="btn btn--outline">
-        ← Back to Admin
-      </router-link>
+      <router-link to="/admin" class="btn btn--outline"> ← Back to Admin </router-link>
     </header>
 
     <GlobalLoadingSpinner v-if="showLoading" />
@@ -43,12 +43,7 @@
         >
           {{ creatingSnapshot ? 'Creating Snapshot...' : 'Take Snapshot Now' }}
         </button>
-        <button
-          type="button"
-          class="btn btn--outline"
-          :disabled="refreshing"
-          @click="refreshData"
-        >
+        <button type="button" class="btn btn--outline" :disabled="refreshing" @click="refreshData">
           {{ refreshing ? 'Refreshing...' : 'Refresh Live Data' }}
         </button>
       </div>
@@ -75,20 +70,12 @@
             <h2>Metallurgy Trends Over Time</h2>
             <span class="muted small">Total weight and ore counts</span>
           </div>
-          <button
-            type="button"
-            class="btn btn--outline btn--sm"
-            @click="openSnapshotHistory"
-          >
+          <button type="button" class="btn btn--outline btn--sm" @click="openSnapshotHistory">
             View All Snapshots
           </button>
         </header>
         <div class="metallurgy-admin__chart">
-          <Line
-            v-if="hasChartData"
-            :data="chartData"
-            :options="chartOptions"
-          />
+          <Line v-if="hasChartData" :data="chartData" :options="chartOptions" />
           <p v-else class="metallurgy-admin__chart-empty muted">
             No snapshots available. Click "Take Snapshot Now" to create your first snapshot.
           </p>
@@ -104,11 +91,7 @@
             <span class="muted small">{{ data?.ores.length ?? 0 }} ore types tracked</span>
           </header>
           <div class="ore-list">
-            <div
-              v-for="ore in data?.ores"
-              :key="ore.itemId"
-              class="ore-item"
-            >
+            <div v-for="ore in data?.ores" :key="ore.itemId" class="ore-item">
               <button
                 type="button"
                 class="ore-item__header"
@@ -124,23 +107,29 @@
                     v-if="getOreChangeIndicator(ore.name, ore.totalQuantity) === 'up'"
                     class="ore-item__change ore-item__change--up"
                     title="Increased since last snapshot"
-                  >▲</span>
+                    >▲</span
+                  >
                   <span
                     v-else-if="getOreChangeIndicator(ore.name, ore.totalQuantity) === 'down'"
                     class="ore-item__change ore-item__change--down"
                     title="Decreased since last snapshot"
-                  >▼</span>
+                    >▼</span
+                  >
                 </div>
                 <div class="ore-item__stats">
-                  <span class="ore-item__owners">{{ ore.totalOwners }} owner{{ ore.totalOwners !== 1 ? 's' : '' }}</span>
-                  <span class="ore-item__quantity">{{ ore.totalQuantity.toLocaleString() }} total</span>
-                  <span class="ore-item__expand">{{ expandedOres.has(ore.itemId) ? '−' : '+' }}</span>
+                  <span class="ore-item__owners"
+                    >{{ ore.totalOwners }} owner{{ ore.totalOwners !== 1 ? 's' : '' }}</span
+                  >
+                  <span class="ore-item__quantity"
+                    >{{ ore.totalQuantity.toLocaleString() }} total</span
+                  >
+                  <span class="ore-item__expand">{{
+                    expandedOres.has(ore.itemId) ? '−' : '+'
+                  }}</span>
                 </div>
               </button>
               <div v-if="expandedOres.has(ore.itemId)" class="ore-item__owners-list">
-                <div v-if="ore.owners.length === 0" class="ore-item__empty">
-                  No owners found
-                </div>
+                <div v-if="ore.owners.length === 0" class="ore-item__empty">No owners found</div>
                 <div
                   v-for="owner in ore.owners"
                   :key="`${owner.source}-${owner.characterId ?? owner.accountId}`"
@@ -179,7 +168,13 @@
           </div>
 
           <div v-if="filteredWeights.length === 0" class="metallurgy-admin__empty">
-            <p class="muted">{{ data?.weights.length === 0 ? 'No accounts have metallurgy weight.' : 'No matching accounts found.' }}</p>
+            <p class="muted">
+              {{
+                data?.weights.length === 0
+                  ? 'No accounts have metallurgy weight.'
+                  : 'No matching accounts found.'
+              }}
+            </p>
           </div>
 
           <div v-else class="metallurgy-admin__table-wrapper">
@@ -198,7 +193,8 @@
                     <span
                       class="account-name"
                       @wheel.prevent="(e) => handleTooltipScroll(e, `tooltip-${account.accountId}`)"
-                    >{{ account.accountName }}<div v-if="account.characters.length > 0" class="character-tooltip">
+                      >{{ account.accountName }}
+                      <div v-if="account.characters.length > 0" class="character-tooltip">
                         <div class="character-tooltip__header">
                           Characters ({{ account.characters.length }})
                         </div>
@@ -217,7 +213,8 @@
                             </span>
                           </div>
                         </div>
-                      </div></span>
+                      </div></span
+                    >
                   </td>
                   <td class="metallurgy-admin__td--weight">{{ formatWeight(account.weight) }}</td>
                 </tr>
@@ -235,8 +232,7 @@
               Previous
             </button>
             <span class="pagination__label">
-              Page {{ weightPage }} of {{ totalWeightPages }}
-              ({{ filteredWeights.length }} total)
+              Page {{ weightPage }} of {{ totalWeightPages }} ({{ filteredWeights.length }} total)
             </span>
             <button
               class="pagination__button"
@@ -357,7 +353,13 @@
           <button class="icon-button" @click="cancelDelete">✕</button>
         </header>
         <div class="modal__body">
-          <p>Are you sure you want to delete the snapshot from <strong>{{ snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : '' }}</strong>?</p>
+          <p>
+            Are you sure you want to delete the snapshot from
+            <strong>{{
+              snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : ''
+            }}</strong
+            >?
+          </p>
           <p class="muted small">This action cannot be undone.</p>
         </div>
         <footer class="modal__actions">
@@ -459,9 +461,10 @@ const filteredWeights = computed<MetallurgyWeight[]>(() => {
   if (!data.value) return [];
   const query = weightSearch.value.trim().toLowerCase();
   if (!query) return data.value.weights;
-  return data.value.weights.filter((w) =>
-    w.accountName.toLowerCase().includes(query) ||
-    w.characters.some((c) => c.name.toLowerCase().includes(query))
+  return data.value.weights.filter(
+    (w) =>
+      w.accountName.toLowerCase().includes(query) ||
+      w.characters.some((c) => c.name.toLowerCase().includes(query))
   );
 });
 
@@ -663,7 +666,8 @@ const chartOptions = computed(() => {
           text: 'Weight (kg)'
         },
         ticks: {
-          callback: (value: string | number) => typeof value === 'number' ? `${value.toFixed(1)} kg` : value
+          callback: (value: string | number) =>
+            typeof value === 'number' ? `${value.toFixed(1)} kg` : value
         }
       },
       yOre: {
@@ -677,7 +681,8 @@ const chartOptions = computed(() => {
           drawOnChartArea: false
         },
         ticks: {
-          callback: (value: string | number) => typeof value === 'number' ? value.toLocaleString() : value
+          callback: (value: string | number) =>
+            typeof value === 'number' ? value.toLocaleString() : value
         }
       },
       x: {
@@ -765,15 +770,15 @@ function getSnapshotOreCount(oreName: string): number | null {
   if (!latestSnapshot.value) return null;
 
   const fieldMap: Record<string, keyof MetallurgySnapshot> = {
-    'Tin': 'tinOreCount',
-    'Copper': 'copperOreCount',
-    'Iron': 'ironOreCount',
-    'Zinc': 'zincOreCount',
-    'Nickel': 'nickelOreCount',
-    'Cobalt': 'cobaltOreCount',
-    'Manganese': 'manganeseOreCount',
-    'Tungsten': 'tungstenOreCount',
-    'Chromium': 'chromiumOreCount'
+    Tin: 'tinOreCount',
+    Copper: 'copperOreCount',
+    Iron: 'ironOreCount',
+    Zinc: 'zincOreCount',
+    Nickel: 'nickelOreCount',
+    Cobalt: 'cobaltOreCount',
+    Manganese: 'manganeseOreCount',
+    Tungsten: 'tungstenOreCount',
+    Chromium: 'chromiumOreCount'
   };
 
   const field = fieldMap[oreName];
@@ -816,9 +821,7 @@ async function loadData() {
 // Load snapshots based on date range
 async function loadSnapshots() {
   try {
-    const options = dateRange.value === 'all'
-      ? undefined
-      : { days: parseInt(dateRange.value, 10) };
+    const options = dateRange.value === 'all' ? undefined : { days: parseInt(dateRange.value, 10) };
     snapshots.value = await api.fetchMetallurgySnapshots(options);
   } catch (error) {
     console.error('Failed to load snapshots:', error);
@@ -867,8 +870,8 @@ async function openSnapshotHistory() {
   try {
     allSnapshots.value = await api.fetchMetallurgySnapshots();
     // Sort by date descending for history view
-    allSnapshots.value.sort((a, b) =>
-      new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime()
+    allSnapshots.value.sort(
+      (a, b) => new Date(b.snapshotDate).getTime() - new Date(a.snapshotDate).getTime()
     );
   } catch (error) {
     console.error('Failed to load all snapshots:', error);

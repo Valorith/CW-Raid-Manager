@@ -88,6 +88,20 @@ const googleCallbackSchema = z.string().url();
 const mysqlIdentifierSchema = z.string().min(1);
 const mysqlPasswordSchema = z.string();
 const mysqlPortSchema = z.coerce.number().int().positive();
+const booleanFlagSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return value;
+}, z.boolean());
 
 type FileConfig = z.infer<typeof fileConfigSchema>;
 
@@ -290,6 +304,8 @@ const envWhatsappWebhookVerifyToken = readOptionalEnv(
 );
 const envWhatsappAppSecret = readOptionalEnv('WHATSAPP_APP_SECRET', z.string().min(1));
 const envWhatsappWebhookSecret = readOptionalEnv('WHATSAPP_WEBHOOK_SECRET', z.string().min(1));
+const enableInProcessSchedulers =
+  readOptionalEnv('ENABLE_IN_PROCESS_SCHEDULERS', booleanFlagSchema) ?? nodeEnv !== 'production';
 
 let envWhatsappTemplateMap: Record<string, string> | undefined;
 if (process.env.WHATSAPP_TEMPLATE_MAP) {
@@ -498,5 +514,6 @@ export const appConfig = {
   google: googleConfig,
   discord: discordConfig,
   telegram: telegramConfig,
-  whatsapp: whatsappConfig
+  whatsapp: whatsappConfig,
+  enableInProcessSchedulers
 } as const;

@@ -1,10 +1,10 @@
 import { AttendanceEventType, AttendanceStatus, CharacterClass, Prisma } from '@prisma/client';
 
+import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { ensureUserCanEditRaid } from './raidService.js';
+import { syncRaidSignupsWithAttendance } from './raidSignupService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
-import { ensureUserCanEditRaid } from './raidService.js';
-import { emitDiscordWebhookEvent } from './discordWebhookService.js';
-import { syncRaidSignupsWithAttendance } from './raidSignupService.js';
 
 export interface AttendanceRecordInput {
   characterId?: string | null;

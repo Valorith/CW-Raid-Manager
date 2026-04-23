@@ -1,10 +1,10 @@
 import { NotificationDeliveryStatus, NotificationProvider } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
 import { renderNotificationEvent } from './notificationEventRenderer.js';
 import { sendTelegramMessage } from './telegramNotificationProvider.js';
 import { getActiveNotificationChannel, markChannelTestMessageSent } from './userNotificationService.js';
 import { sendWhatsappMessage } from './whatsappNotificationProvider.js';
+import { prisma } from '../utils/prisma.js';
 
 const MAX_DELIVERY_ATTEMPTS = 5;
 

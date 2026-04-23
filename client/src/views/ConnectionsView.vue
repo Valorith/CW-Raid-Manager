@@ -1336,11 +1336,6 @@ function formatLastKillTooltip(conn: ServerConnection): string {
   return `Killed ${formatNpcName(conn.lastKillNpcName)} on ${formatFullDate(conn.lastKillAt)}`;
 }
 
-function formatLastSaleTooltip(conn: ServerConnection): string {
-  if (!conn.lastSaleAt) return '';
-  return `Sold ${conn.lastSaleItemName} on ${formatFullDate(conn.lastSaleAt)}`;
-}
-
 function getTotalGroupCount(group: IpGroup): number {
   return group.traders.length + group.fighters.length;
 }
@@ -1650,7 +1645,7 @@ function startAutoRefresh() {
     clearInterval(refreshInterval);
   }
   refreshInterval = setInterval(() => {
-    if (!loading.value) {
+    if (!loading.value && !document.hidden) {
       loadConnections();
     }
   }, AUTO_REFRESH_INTERVAL);
@@ -1660,6 +1655,12 @@ function stopAutoRefresh() {
   if (refreshInterval) {
     clearInterval(refreshInterval);
     refreshInterval = null;
+  }
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden && autoRefreshEnabled.value && !loading.value) {
+    loadConnections();
   }
 }
 
@@ -1679,11 +1680,13 @@ onMounted(async () => {
   }
   // Add click outside listener for search results
   document.addEventListener('click', handleClickOutside);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   stopAutoRefresh();
   document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (globalSearchTimeout) {
     clearTimeout(globalSearchTimeout);
   }

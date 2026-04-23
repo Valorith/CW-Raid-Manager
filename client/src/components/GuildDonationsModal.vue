@@ -4,13 +4,30 @@
       <div class="modal donations-modal">
         <header class="modal__header">
           <h2 class="modal__title">
-            <svg class="modal__title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg
+              class="modal__title-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             Pending Guild Donations
           </h2>
           <button class="modal__close" type="button" @click="store.hideModal" aria-label="Close">
-            <svg viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M6 18L18 6M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
           </button>
         </header>
 
@@ -25,11 +42,23 @@
           </div>
 
           <div v-else-if="store.donations.length === 0" class="donations-empty">
-            <svg class="donations-empty__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg
+              class="donations-empty__icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <path
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             <p>No pending donations</p>
-            <span class="donations-empty__hint">Items donated to the guild during raids will appear here.</span>
+            <span class="donations-empty__hint"
+              >Items donated to the guild during raids will appear here.</span
+            >
           </div>
 
           <template v-else>
@@ -67,7 +96,9 @@
                           class="donation-item__icon"
                           alt=""
                         />
-                        <div v-else class="donation-item__icon donation-item__icon--placeholder">?</div>
+                        <div v-else class="donation-item__icon donation-item__icon--placeholder">
+                          ?
+                        </div>
                         <span class="donation-item__name">{{ donation.itemName }}</span>
                       </div>
                     </td>
@@ -96,7 +127,7 @@
                 aria-label="Previous page"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </button>
 
@@ -105,7 +136,10 @@
                   v-for="page in visiblePages"
                   :key="page"
                   class="pagination-page"
-                  :class="{ 'pagination-page--active': page === store.currentPage, 'pagination-page--ellipsis': page === '...' }"
+                  :class="{
+                    'pagination-page--active': page === store.currentPage,
+                    'pagination-page--ellipsis': page === '...'
+                  }"
                   :disabled="page === '...' || page === store.currentPage || store.loading"
                   @click="page !== '...' && store.goToPage(page as number)"
                 >
@@ -120,7 +154,7 @@
                 aria-label="Next page"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </button>
             </div>
@@ -184,7 +218,9 @@ function getStatusLabel(status: GuildDonationStatus): string {
 }
 
 function getStatusClass(status: GuildDonationStatus): string {
-  return status === 'PENDING' ? 'status-badge status-badge--pending' : 'status-badge status-badge--rejected';
+  return status === 'PENDING'
+    ? 'status-badge status-badge--pending'
+    : 'status-badge status-badge--rejected';
 }
 
 function handleItemHover(event: MouseEvent, donation: GuildDonation) {
@@ -269,7 +305,9 @@ function handleItemLeave() {
   color: #94a3b8;
   cursor: pointer;
   border-radius: 0.5rem;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .modal__close:hover {
@@ -311,7 +349,9 @@ function handleItemLeave() {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .donations-error {

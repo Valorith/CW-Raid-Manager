@@ -13,11 +13,7 @@
         <button class="btn btn--outline" @click="emitCancel">
           {{ cancelLabel }}
         </button>
-        <button
-          v-if="secondaryConfirmLabel"
-          class="btn btn--outline"
-          @click="emitSecondaryConfirm"
-        >
+        <button v-if="secondaryConfirmLabel" class="btn btn--outline" @click="emitSecondaryConfirm">
           {{ secondaryConfirmLabel }}
         </button>
         <button class="btn" @click="emitConfirm">
@@ -29,7 +25,7 @@
 </template>
 
 <script setup lang="ts">
-const props = withDefaults(
+withDefaults(
   defineProps<{
     title: string;
     description?: string;

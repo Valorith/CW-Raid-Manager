@@ -1,5 +1,9 @@
 <template>
-  <section class="quest-tracker" v-if="summary" :class="{ 'quest-tracker--alt-mode': overviewAltClickMode }">
+  <section
+    class="quest-tracker"
+    v-if="summary"
+    :class="{ 'quest-tracker--alt-mode': overviewAltClickMode }"
+  >
     <aside class="quest-tracker__sidebar">
       <header class="quest-tracker__header">
         <div class="quest-tracker__header-meta">
@@ -59,7 +63,10 @@
         <section
           v-for="section in blueprintSections"
           :key="section.id ?? 'root'"
-          :class="['quest-folder', { 'quest-folder--drag-over': dragOverFolderId === section.id && !dragOverBlueprintId }]"
+          :class="[
+            'quest-folder',
+            { 'quest-folder--drag-over': dragOverFolderId === section.id && !dragOverBlueprintId }
+          ]"
           @dragover.prevent="handleFolderDragOver(section.id, $event)"
           @drop.prevent="handleFolderDrop(section.id, $event)"
         >
@@ -121,7 +128,10 @@
           </div>
           <ul
             class="quest-blueprint-list"
-            :class="{ 'quest-blueprint-list--drag-target': dragOverFolderId === section.id && !dragOverBlueprintId }"
+            :class="{
+              'quest-blueprint-list--drag-target':
+                dragOverFolderId === section.id && !dragOverBlueprintId
+            }"
             @dragover.stop="handleFolderDragOver(section.id, $event)"
             @drop.stop="handleFolderDrop(section.id, $event)"
           >
@@ -176,13 +186,21 @@
                   <div class="quest-blueprint-card__progress-meta">
                     <span class="muted x-small">My progress</span>
                     <span class="quest-blueprint-card__progress-value">
-                      {{ formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }}
+                      {{
+                        formatPercent(
+                          viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)
+                        )
+                      }}
                     </span>
                   </div>
                   <div class="quest-progress-bar">
                     <div
                       class="quest-progress-bar__value"
-                      :style="{ width: formatPercent(viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)) }"
+                      :style="{
+                        width: formatPercent(
+                          viewerProgressRatio(blueprint.viewerAssignment, blueprint.nodeCount)
+                        )
+                      }"
                     ></div>
                   </div>
                 </div>
@@ -219,7 +237,11 @@
                   placeholder="Quest blueprint title"
                   @keydown.esc.prevent="cancelBlueprintTitleEdit"
                 />
-                <button class="btn btn--primary btn--tiny" type="submit" :disabled="renamingBlueprintTitle">
+                <button
+                  class="btn btn--primary btn--tiny"
+                  type="submit"
+                  :disabled="renamingBlueprintTitle"
+                >
                   {{ renamingBlueprintTitle ? 'Saving…' : 'Save' }}
                 </button>
                 <button
@@ -269,7 +291,11 @@
                       v-model="selectedAssignmentId"
                       aria-label="Select character to view progress"
                     >
-                      <option v-for="option in viewerAssignmentOptions" :key="option.id" :value="option.id">
+                      <option
+                        v-for="option in viewerAssignmentOptions"
+                        :key="option.id"
+                        :value="option.id"
+                      >
                         {{ option.label }}
                       </option>
                     </select>
@@ -278,13 +304,20 @@
                     <strong>{{ displayAssignmentCharacter.name }}</strong>
                   </template>
                   <span v-if="!hasMultipleViewerAssignments" class="quest-character-pill__class">
-                    {{ characterClassLabels[displayAssignmentCharacter.class] ?? displayAssignmentCharacter.class }}
+                    {{
+                      characterClassLabels[displayAssignmentCharacter.class] ??
+                      displayAssignmentCharacter.class
+                    }}
                   </span>
                 </div>
               </div>
               <div v-if="focusedGuildAssignmentLabel" class="quest-detail__viewing-note">
                 Viewing progress for {{ focusedGuildAssignmentLabel }}.
-                <button class="btn btn--ghost btn--tiny" type="button" @click="clearGuildAssignmentFocus">
+                <button
+                  class="btn btn--ghost btn--tiny"
+                  type="button"
+                  @click="clearGuildAssignmentFocus"
+                >
                   View my quest
                 </button>
               </div>
@@ -295,7 +328,10 @@
                 :key="tab.key"
                 :class="[
                   'quest-tabs__button',
-                  { 'quest-tabs__button--active': activeTab === tab.key, 'quest-tabs__button--disabled': tab.disabled }
+                  {
+                    'quest-tabs__button--active': activeTab === tab.key,
+                    'quest-tabs__button--disabled': tab.disabled
+                  }
                 ]"
                 type="button"
                 :disabled="tab.disabled"
@@ -312,7 +348,12 @@
                 @click="copyQuestShareLink"
                 title="Copy share link"
               >
-                <svg class="quest-share-btn__icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <svg
+                  class="quest-share-btn__icon"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  aria-hidden="true"
+                >
                   <path
                     d="M13 7a3 3 0 11-1.146 5.77L8.91 14.243a3 3 0 11-.764-.764l2.973-1.473A3 3 0 0113 7zm-6 4a1 1 0 100 2 1 1 0 000-2zm6-6a1 1 0 100 2 1 1 0 000-2z"
                     fill="currentColor"
@@ -399,7 +440,11 @@
                   @contextmenu="openLinkMenu(link, $event)"
                 />
               </svg>
-              <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
+              <svg
+                class="quest-canvas__links quest-canvas__links--animated"
+                aria-hidden="true"
+                :style="linkSvgStyle"
+              >
                 <path
                   v-for="link in renderedLinks"
                   :key="`animated-overview-${link.id}`"
@@ -416,7 +461,8 @@
                   'quest-node',
                   {
                     'quest-node--completed':
-                      (!showOverviewDisabledState || !isNodeDisabled(node.id)) && isNodeCompleted(node.id),
+                      (!showOverviewDisabledState || !isNodeDisabled(node.id)) &&
+                      isNodeCompleted(node.id),
                     'quest-node--disabled': showOverviewDisabledState && isNodeDisabled(node.id),
                     'quest-node--final': isNodeFinal(node.id),
                     'quest-node--group': node.isGroup,
@@ -432,7 +478,9 @@
                   <span class="quest-node__type" :style="typeAccent(node)">
                     {{ displayNodeType(node.nodeType, node.isGroup) }}
                   </span>
-                  <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional">Optional</span>
+                  <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional"
+                    >Optional</span
+                  >
                   <span
                     v-if="showOverviewDisabledState && isNodeDisabled(node.id)"
                     class="quest-node__badge quest-node__badge--disabled"
@@ -455,10 +503,16 @@
                   </span>
                 </header>
                 <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
+                <p
+                  v-if="targetOrItemLabel(node) || hasNodeItemIds(node)"
+                  class="quest-node__target"
+                >
                   Target / Item:
                   <template v-if="hasNodeItemIds(node)">
-                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
+                    <template
+                      v-for="(itemLink, idx) in getNodeItemLinks(node)"
+                      :key="itemLink.itemId"
+                    >
                       <span v-if="idx > 0">, </span>
                       <a
                         :href="itemLink.url"
@@ -469,7 +523,8 @@
                         @mouseenter="showItemTooltip($event, itemLink)"
                         @mouseleave="hideItemTooltip"
                         @mousemove="handleItemLinkMouseMove"
-                      >{{ itemLink.label }}</a>
+                        >{{ itemLink.label }}</a
+                      >
                     </template>
                   </template>
                   <template v-else>{{ targetOrItemLabel(node) }}</template>
@@ -558,7 +613,8 @@
           </div>
           <div v-else-if="isGuildView" class="quest-guild-legend">
             <p class="quest-guild-legend__hint">
-              Hover a class icon to see who owns it, then click to jump into their progress on the overview canvas.
+              Hover a class icon to see who owns it, then click to jump into their progress on the
+              overview canvas.
             </p>
           </div>
         </section>
@@ -567,13 +623,21 @@
           <div class="quest-editor__status">
             <div class="quest-editor__status-meta">
               <span class="quest-editor__status-text">
-                Last saved {{ lastSavedAt ? formatDateTime(lastSavedAt) : '—' }} by {{ lastSavedBy }}
+                Last saved {{ lastSavedAt ? formatDateTime(lastSavedAt) : '—' }} by
+                {{ lastSavedBy }}
               </span>
-              <button class="btn btn--save" type="button" :disabled="!dirtyGraph || savingGraph" @click="saveGraph">
+              <button
+                class="btn btn--save"
+                type="button"
+                :disabled="!dirtyGraph || savingGraph"
+                @click="saveGraph"
+              >
                 {{ savingGraph ? 'Saving…' : 'Save' }}
               </button>
             </div>
-            <span class="quest-editor__status-note">{{ dirtyGraph ? 'Unsaved changes' : 'Ctrl+S to quick-save' }}</span>
+            <span class="quest-editor__status-note">{{
+              dirtyGraph ? 'Unsaved changes' : 'Ctrl+S to quick-save'
+            }}</span>
           </div>
           <div class="quest-editor">
             <div
@@ -603,7 +667,11 @@
                     @contextmenu="openLinkMenu(link, $event)"
                   />
                 </svg>
-                <svg class="quest-canvas__links quest-canvas__links--animated" aria-hidden="true" :style="linkSvgStyle">
+                <svg
+                  class="quest-canvas__links quest-canvas__links--animated"
+                  aria-hidden="true"
+                  :style="linkSvgStyle"
+                >
                   <path
                     v-for="link in renderedLinks"
                     :key="`animated-${link.id}`"
@@ -613,7 +681,12 @@
                     :style="linkAnimationStyle(link)"
                   />
                 </svg>
-                <svg v-if="linkDrag.active" class="quest-link-preview" aria-hidden="true" :style="linkSvgStyle">
+                <svg
+                  v-if="linkDrag.active"
+                  class="quest-link-preview"
+                  aria-hidden="true"
+                  :style="linkSvgStyle"
+                >
                   <path v-if="linkPreviewPath" :d="linkPreviewPath" />
                 </svg>
                 <div v-if="gridOverlayVisible" class="quest-grid-overlay" aria-hidden="true">
@@ -623,7 +696,12 @@
                     :class="[
                       'quest-grid-line',
                       'quest-grid-line--vertical',
-                      { 'quest-grid-line--highlight': isGridLineHighlighted(x, dragGridOverlay.highlightX) }
+                      {
+                        'quest-grid-line--highlight': isGridLineHighlighted(
+                          x,
+                          dragGridOverlay.highlightX
+                        )
+                      }
                     ]"
                     :style="verticalGridLineStyle(x)"
                   ></div>
@@ -633,7 +711,12 @@
                     :class="[
                       'quest-grid-line',
                       'quest-grid-line--horizontal',
-                      { 'quest-grid-line--highlight': isGridLineHighlighted(y, dragGridOverlay.highlightY) }
+                      {
+                        'quest-grid-line--highlight': isGridLineHighlighted(
+                          y,
+                          dragGridOverlay.highlightY
+                        )
+                      }
                     ]"
                     :style="horizontalGridLineStyle(y)"
                   ></div>
@@ -644,7 +727,11 @@
                     :style="edgeGridLineStyle(edgeX)"
                   ></div>
                 </div>
-                <div v-if="alignmentGuidesVisible" class="quest-alignment-guides" aria-hidden="true">
+                <div
+                  v-if="alignmentGuidesVisible"
+                  class="quest-alignment-guides"
+                  aria-hidden="true"
+                >
                   <div
                     v-for="guide in alignmentGuides.horizontals"
                     :key="`guide-h-${guide.y}-${guide.intensity}`"
@@ -658,16 +745,15 @@
                     :style="alignmentVerticalStyle(guide)"
                   ></div>
                 </div>
-                <div
-                  v-if="marqueeVisible"
-                  class="quest-selection-box"
-                  :style="marqueeStyle"
-                ></div>
+                <div v-if="marqueeVisible" class="quest-selection-box" :style="marqueeStyle"></div>
                 <template v-if="activeTab === 'editor'">
-                    <button
+                  <button
                     v-for="link in renderedLinks"
                     :key="`remove-${link.id}`"
-                    :class="['quest-link-remove', { 'quest-link-remove--visible': hoveredLinkId === link.id }]"
+                    :class="[
+                      'quest-link-remove',
+                      { 'quest-link-remove--visible': hoveredLinkId === link.id }
+                    ]"
                     type="button"
                     :style="linkRemoveStyle(link)"
                     @pointerenter="handleLinkHover(link.id)"
@@ -702,100 +788,119 @@
                     <span class="quest-node__type" :style="typeAccent(node)">
                       {{ displayNodeType(node.nodeType, node.isGroup) }}
                     </span>
-                    <span v-if="node.isOptional" class="quest-node__badge quest-node__badge--optional">Optional</span>
-                  <span class="quest-node__handle" title="Drag to move">⇲</span>
-                </header>
+                    <span
+                      v-if="node.isOptional"
+                      class="quest-node__badge quest-node__badge--optional"
+                      >Optional</span
+                    >
+                    <span class="quest-node__handle" title="Drag to move">⇲</span>
+                  </header>
                   <h3>{{ node.title }}</h3>
-                <p v-if="targetOrItemLabel(node) || hasNodeItemIds(node)" class="quest-node__target">
-                  Target / Item:
-                  <template v-if="hasNodeItemIds(node)">
-                    <template v-for="(itemLink, idx) in getNodeItemLinks(node)" :key="itemLink.itemId">
-                      <span v-if="idx > 0">, </span>
-                      <a
-                        :href="itemLink.url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="quest-node__item-link"
-                        @click.stop
-                        @mouseenter="showItemTooltip($event, itemLink)"
-                        @mouseleave="hideItemTooltip"
-                        @mousemove="handleItemLinkMouseMove"
-                      >{{ itemLink.label }}</a>
+                  <p
+                    v-if="targetOrItemLabel(node) || hasNodeItemIds(node)"
+                    class="quest-node__target"
+                  >
+                    Target / Item:
+                    <template v-if="hasNodeItemIds(node)">
+                      <template
+                        v-for="(itemLink, idx) in getNodeItemLinks(node)"
+                        :key="itemLink.itemId"
+                      >
+                        <span v-if="idx > 0">, </span>
+                        <a
+                          :href="itemLink.url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="quest-node__item-link"
+                          @click.stop
+                          @mouseenter="showItemTooltip($event, itemLink)"
+                          @mouseleave="hideItemTooltip"
+                          @mousemove="handleItemLinkMouseMove"
+                          >{{ itemLink.label }}</a
+                        >
+                      </template>
                     </template>
-                  </template>
-                  <template v-else>{{ targetOrItemLabel(node) }}</template>
-                </p>
-                <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
-                <p v-if="nodeLinkEntries(node.id, 'previous').length" class="quest-node__relations">
-                  <span class="quest-node__relations-label">Requires</span>
-                  <span class="quest-node__relations-list">
+                    <template v-else>{{ targetOrItemLabel(node) }}</template>
+                  </p>
+                  <p v-if="zoneLabel(node)" class="quest-node__zone">Zone: {{ zoneLabel(node) }}</p>
+                  <p
+                    v-if="nodeLinkEntries(node.id, 'previous').length"
+                    class="quest-node__relations"
+                  >
+                    <span class="quest-node__relations-label">Requires</span>
+                    <span class="quest-node__relations-list">
+                      <button
+                        v-for="link in nodeLinkEntries(node.id, 'previous')"
+                        :key="`editor-requires-${node.id}-${link.id}`"
+                        type="button"
+                        class="quest-node__relations-link"
+                        @click.stop="navigateToBlueprint(link.id)"
+                      >
+                        {{ link.title }}
+                        <span v-if="link.isArchived" class="quest-node__relations-tag"
+                          >Archived</span
+                        >
+                      </button>
+                    </span>
+                  </p>
+                  <p
+                    v-if="nodeLinkEntries(node.id, 'next').length"
+                    class="quest-node__relations quest-node__relations--next"
+                  >
+                    <span class="quest-node__relations-label">Unlocks</span>
+                    <span class="quest-node__relations-list">
+                      <button
+                        v-for="link in nodeLinkEntries(node.id, 'next')"
+                        :key="`editor-unlocks-${node.id}-${link.id}`"
+                        type="button"
+                        class="quest-node__relations-link"
+                        @click.stop="navigateToBlueprint(link.id)"
+                      >
+                        {{ link.title }}
+                        <span v-if="link.isArchived" class="quest-node__relations-tag"
+                          >Archived</span
+                        >
+                      </button>
+                    </span>
+                  </p>
+                  <img
+                    v-if="isNodeFinal(node.id)"
+                    class="quest-node__flag-icon quest-node__flag-icon--inline"
+                    src="/icons/checkered-flag.svg"
+                    alt="Final step"
+                    title="Final objective"
+                  />
+                  <div v-if="node.isGroup" class="quest-node__group-tally">
+                    {{ formatGroupProgress(node.id, undefined, 'editor') }}
+                  </div>
+                  <div v-if="activeTab === 'editor'" class="quest-node__handles">
                     <button
-                      v-for="link in nodeLinkEntries(node.id, 'previous')"
-                      :key="`editor-requires-${node.id}-${link.id}`"
+                      v-for="face in NODE_FACES"
+                      :key="`handle-${node.id}-${face}`"
+                      class="quest-node__handle-dot"
+                      :class="[`quest-node__handle-dot--${face}`]"
                       type="button"
-                      class="quest-node__relations-link"
-                      @click.stop="navigateToBlueprint(link.id)"
-                    >
-                      {{ link.title }}
-                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
-                    </button>
-                  </span>
-                </p>
-                <p
-                  v-if="nodeLinkEntries(node.id, 'next').length"
-                  class="quest-node__relations quest-node__relations--next"
-                >
-                  <span class="quest-node__relations-label">Unlocks</span>
-                  <span class="quest-node__relations-list">
-                    <button
-                      v-for="link in nodeLinkEntries(node.id, 'next')"
-                      :key="`editor-unlocks-${node.id}-${link.id}`"
-                      type="button"
-                      class="quest-node__relations-link"
-                      @click.stop="navigateToBlueprint(link.id)"
-                    >
-                      {{ link.title }}
-                      <span v-if="link.isArchived" class="quest-node__relations-tag">Archived</span>
-                    </button>
-                  </span>
-                </p>
-                <img
-                  v-if="isNodeFinal(node.id)"
-                  class="quest-node__flag-icon quest-node__flag-icon--inline"
-                  src="/icons/checkered-flag.svg"
-                  alt="Final step"
-                  title="Final objective"
-                />
-                <div v-if="node.isGroup" class="quest-node__group-tally">
-                  {{ formatGroupProgress(node.id, undefined, 'editor') }}
+                      @pointerdown.stop="beginLinkDrag(node, face, $event)"
+                      @pointerenter="handleHandleEnter(node.id, face)"
+                      @pointerleave="handleHandleLeave"
+                    ></button>
+                  </div>
                 </div>
-                <div v-if="activeTab === 'editor'" class="quest-node__handles">
-                  <button
-                    v-for="face in NODE_FACES"
-                    :key="`handle-${node.id}-${face}`"
-                    class="quest-node__handle-dot"
-                    :class="[`quest-node__handle-dot--${face}`]"
-                    type="button"
-                    @pointerdown.stop="beginLinkDrag(node, face, $event)"
-                    @pointerenter="handleHandleEnter(node.id, face)"
-                    @pointerleave="handleHandleLeave"
-                  ></button>
-                </div>
-              </div>
               </div>
             </div>
             <div class="quest-editor__panel" v-if="showStepSettings && selectedNode">
               <div class="quest-step-header">
                 <h3>Step Settings</h3>
-                <button class="btn btn--ghost btn--tiny" type="button" @click="showStepSettings = false">Collapse</button>
+                <button
+                  class="btn btn--ghost btn--tiny"
+                  type="button"
+                  @click="showStepSettings = false"
+                >
+                  Collapse
+                </button>
               </div>
               <label class="form-label">Title</label>
-              <input
-                v-model="selectedNode.title"
-                type="text"
-                class="input"
-                @input="markDirty()"
-              />
+              <input v-model="selectedNode.title" type="text" class="input" @input="markDirty()" />
               <label class="form-label">Zone</label>
               <input
                 v-model="selectedNode.description"
@@ -807,111 +912,123 @@
                 <input type="checkbox" v-model="selectedNode.isGroup" @change="markDirty()" />
                 <span>Group node (auto completes when child steps finish)</span>
               </label>
-      <label class="switch switch--inline">
-        <input
-          type="checkbox"
-          :checked="readNodeFlag(selectedNode, 'isFinal')"
-          @change="toggleFinalFlag"
-        />
-        <span>Final step (completing this finishes the quest)</span>
-      </label>
-      <label class="switch switch--inline">
-        <input type="checkbox" v-model="selectedNode.isOptional" @change="markDirty()" />
-        <span>Optional step (does not impact quest completion)</span>
-      </label>
-      <div class="quest-link-field">
-        <div class="quest-link-field__header">
-          <label class="form-label">Previous quests</label>
-          <p class="quest-link-field__hint">
-            Link quests that must finish before this objective becomes available.
-          </p>
-        </div>
-        <div class="quest-link-selector">
-          <select v-model="blueprintLinkSelections.previous" class="input">
-            <option value="">Select blueprint…</option>
-            <option
-              v-for="option in blueprintLinkOptions"
-              :key="`previous-option-${option.id}`"
-              :value="option.id"
-              :disabled="selectedNodeLinkEntries.previous.some((entry) => entry.id === option.id)"
-            >
-              {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
-            </option>
-          </select>
-          <button
-            class="btn btn--small"
-            type="button"
-            :disabled="!canAddBlueprintLink('previous')"
-            @click="addBlueprintLink('previous')"
-          >
-            Link
-          </button>
-        </div>
-        <p v-if="!selectedNodeLinkEntries.previous.length" class="muted x-small">
-          No previous quests linked.
-        </p>
-        <ul v-else class="quest-link-chip-list">
-          <li v-for="link in selectedNodeLinkEntries.previous" :key="`prev-link-${link.id}`" class="quest-link-chip">
-            <span class="quest-link-chip__title">{{ link.title }}</span>
-            <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
-            <button
-              class="quest-link-chip__remove"
-              type="button"
-              @click="removeBlueprintLink('previous', link.id)"
-              aria-label="Remove previous quest link"
-            >
-              ×
-            </button>
-          </li>
-        </ul>
-      </div>
-      <div v-if="readNodeFlag(selectedNode, 'isFinal')" class="quest-link-field">
-        <div class="quest-link-field__header">
-          <label class="form-label">Next quests</label>
-          <p class="quest-link-field__hint">
-            Add quests that unlock when this objective is completed.
-          </p>
-        </div>
-        <div class="quest-link-selector">
-          <select v-model="blueprintLinkSelections.next" class="input">
-            <option value="">Select blueprint…</option>
-            <option
-              v-for="option in blueprintLinkOptions"
-              :key="`next-option-${option.id}`"
-              :value="option.id"
-              :disabled="selectedNodeLinkEntries.next.some((entry) => entry.id === option.id)"
-            >
-              {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
-            </option>
-          </select>
-          <button
-            class="btn btn--small"
-            type="button"
-            :disabled="!canAddBlueprintLink('next')"
-            @click="addBlueprintLink('next')"
-          >
-            Link
-          </button>
-        </div>
-        <p v-if="!selectedNodeLinkEntries.next.length" class="muted x-small">
-          No follow-up quests linked.
-        </p>
-        <ul v-else class="quest-link-chip-list">
-          <li v-for="link in selectedNodeLinkEntries.next" :key="`next-link-${link.id}`" class="quest-link-chip">
-            <span class="quest-link-chip__title">{{ link.title }}</span>
-            <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
-            <button
-              class="quest-link-chip__remove"
-              type="button"
-              @click="removeBlueprintLink('next', link.id)"
-              aria-label="Remove next quest link"
-            >
-              ×
-            </button>
-          </li>
-        </ul>
-      </div>
-      <label class="form-label">Type</label>
+              <label class="switch switch--inline">
+                <input
+                  type="checkbox"
+                  :checked="readNodeFlag(selectedNode, 'isFinal')"
+                  @change="toggleFinalFlag"
+                />
+                <span>Final step (completing this finishes the quest)</span>
+              </label>
+              <label class="switch switch--inline">
+                <input type="checkbox" v-model="selectedNode.isOptional" @change="markDirty()" />
+                <span>Optional step (does not impact quest completion)</span>
+              </label>
+              <div class="quest-link-field">
+                <div class="quest-link-field__header">
+                  <label class="form-label">Previous quests</label>
+                  <p class="quest-link-field__hint">
+                    Link quests that must finish before this objective becomes available.
+                  </p>
+                </div>
+                <div class="quest-link-selector">
+                  <select v-model="blueprintLinkSelections.previous" class="input">
+                    <option value="">Select blueprint…</option>
+                    <option
+                      v-for="option in blueprintLinkOptions"
+                      :key="`previous-option-${option.id}`"
+                      :value="option.id"
+                      :disabled="
+                        selectedNodeLinkEntries.previous.some((entry) => entry.id === option.id)
+                      "
+                    >
+                      {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
+                    </option>
+                  </select>
+                  <button
+                    class="btn btn--small"
+                    type="button"
+                    :disabled="!canAddBlueprintLink('previous')"
+                    @click="addBlueprintLink('previous')"
+                  >
+                    Link
+                  </button>
+                </div>
+                <p v-if="!selectedNodeLinkEntries.previous.length" class="muted x-small">
+                  No previous quests linked.
+                </p>
+                <ul v-else class="quest-link-chip-list">
+                  <li
+                    v-for="link in selectedNodeLinkEntries.previous"
+                    :key="`prev-link-${link.id}`"
+                    class="quest-link-chip"
+                  >
+                    <span class="quest-link-chip__title">{{ link.title }}</span>
+                    <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
+                    <button
+                      class="quest-link-chip__remove"
+                      type="button"
+                      @click="removeBlueprintLink('previous', link.id)"
+                      aria-label="Remove previous quest link"
+                    >
+                      ×
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="readNodeFlag(selectedNode, 'isFinal')" class="quest-link-field">
+                <div class="quest-link-field__header">
+                  <label class="form-label">Next quests</label>
+                  <p class="quest-link-field__hint">
+                    Add quests that unlock when this objective is completed.
+                  </p>
+                </div>
+                <div class="quest-link-selector">
+                  <select v-model="blueprintLinkSelections.next" class="input">
+                    <option value="">Select blueprint…</option>
+                    <option
+                      v-for="option in blueprintLinkOptions"
+                      :key="`next-option-${option.id}`"
+                      :value="option.id"
+                      :disabled="
+                        selectedNodeLinkEntries.next.some((entry) => entry.id === option.id)
+                      "
+                    >
+                      {{ option.title }}<span v-if="option.isArchived"> (Archived)</span>
+                    </option>
+                  </select>
+                  <button
+                    class="btn btn--small"
+                    type="button"
+                    :disabled="!canAddBlueprintLink('next')"
+                    @click="addBlueprintLink('next')"
+                  >
+                    Link
+                  </button>
+                </div>
+                <p v-if="!selectedNodeLinkEntries.next.length" class="muted x-small">
+                  No follow-up quests linked.
+                </p>
+                <ul v-else class="quest-link-chip-list">
+                  <li
+                    v-for="link in selectedNodeLinkEntries.next"
+                    :key="`next-link-${link.id}`"
+                    class="quest-link-chip"
+                  >
+                    <span class="quest-link-chip__title">{{ link.title }}</span>
+                    <span v-if="link.isArchived" class="quest-link-chip__meta">Archived</span>
+                    <button
+                      class="quest-link-chip__remove"
+                      type="button"
+                      @click="removeBlueprintLink('next', link.id)"
+                      aria-label="Remove next quest link"
+                    >
+                      ×
+                    </button>
+                  </li>
+                </ul>
+              </div>
+              <label class="form-label">Type</label>
               <template v-if="selectedNode.isGroup">
                 <div class="quest-node__group-type">Group</div>
               </template>
@@ -951,7 +1068,13 @@
                 <ul>
                   <li v-for="link in nodeLinks(selectedNode.id)" :key="link.id">
                     <span>{{ targetNodeTitle(link.childNodeId) }}</span>
-                    <button type="button" class="btn btn--small btn--danger" @click="removeLink(link.id)">Remove</button>
+                    <button
+                      type="button"
+                      class="btn btn--small btn--danger"
+                      @click="removeLink(link.id)"
+                    >
+                      Remove
+                    </button>
                   </li>
                 </ul>
               </div>
@@ -961,7 +1084,11 @@
 
         <div class="quest-export-toolbar">
           <div class="quest-export-toolbar__buttons">
-            <button class="btn btn--tiny btn--wiki-export" type="button" @click="openBlueprintWikiModal">
+            <button
+              class="btn btn--tiny btn--wiki-export"
+              type="button"
+              @click="openBlueprintWikiModal"
+            >
               <svg viewBox="0 0 20 20" aria-hidden="true">
                 <path
                   d="M4 4h12v12H8l-4 4z"
@@ -1002,7 +1129,6 @@
             </button>
           </div>
         </div>
-
       </div>
 
       <div v-else class="quest-empty">
@@ -1012,7 +1138,11 @@
     <transition name="quest-loading-fade">
       <div v-if="showLoadingOverlay" class="quest-loading-overlay" aria-live="polite">
         <div class="quest-loading__inner">
-          <span class="quest-loading__spinner" role="status" aria-label="Refreshing quest data"></span>
+          <span
+            class="quest-loading__spinner"
+            role="status"
+            aria-label="Refreshing quest data"
+          ></span>
           <p>{{ loadingOverlayMessage }}</p>
         </div>
       </div>
@@ -1035,8 +1165,8 @@
 
   <GlobalLoadingSpinner v-else-if="showLoading" />
 
-<div v-if="showCreateModal" class="quest-modal">
-  <div class="quest-modal__content">
+  <div v-if="showCreateModal" class="quest-modal">
+    <div class="quest-modal__content">
       <header class="quest-modal__header">
         <div class="quest-modal__title">
           <h3>New Quest Blueprint</h3>
@@ -1057,167 +1187,183 @@
       <textarea v-model="newBlueprintForm.summary" class="input" rows="3"></textarea>
       <div class="quest-modal__actions">
         <button class="btn btn--secondary" type="button" @click="closeCreateModal">Cancel</button>
-        <button class="btn btn--primary" type="button" :disabled="creatingBlueprint" @click="createBlueprint">
+        <button
+          class="btn btn--primary"
+          type="button"
+          :disabled="creatingBlueprint"
+          @click="createBlueprint"
+        >
           {{ creatingBlueprint ? 'Creating…' : 'Create Blueprint' }}
         </button>
       </div>
-  </div>
-</div>
-
-<div v-if="showTaskImportModal" class="quest-modal">
-  <div class="quest-modal__content quest-modal__content--wide">
-    <header class="quest-modal__header">
-      <h3>Import EQ Task</h3>
-      <button class="btn btn--icon" type="button" @click="closeTaskImportModal">×</button>
-    </header>
-    <p class="quest-modal__hint">
-      Search the EQEmu task table and import objectives as a quest blueprint. Requires an EQ content database connection.
-    </p>
-    <div class="task-import__controls">
-      <input
-        v-model="eqTaskSearch.query"
-        type="search"
-        class="input"
-        placeholder="Search by task title or ID"
-        @keyup.enter="loadEqTasks()"
-      />
-      <button class="btn btn--secondary" type="button" :disabled="eqTaskLoading" @click="loadEqTasks()">
-        {{ eqTaskLoading ? 'Searching…' : 'Search' }}
-      </button>
-    </div>
-    <p v-if="eqTaskError" class="quest-modal__error">{{ eqTaskError }}</p>
-    <div v-if="eqTaskLoading" class="task-import__results">
-      <p>Searching tasks…</p>
-    </div>
-    <div v-else class="task-import__results-wrapper">
-      <div v-if="eqTaskTotalPages > 1" class="task-import__pagination task-import__pagination--top">
-        <button
-          class="btn btn--tiny"
-          type="button"
-          :disabled="eqTaskSearch.page === 1 || eqTaskLoading"
-          @click="changeEqTaskPage(eqTaskSearch.page - 1)"
-        >
-          Previous
-        </button>
-        <span class="task-import__page-info">
-          Page {{ eqTaskSearch.page }} of {{ eqTaskTotalPages }}
-        </span>
-        <button
-          class="btn btn--tiny"
-          type="button"
-          :disabled="eqTaskSearch.page === eqTaskTotalPages || eqTaskLoading"
-          @click="changeEqTaskPage(eqTaskSearch.page + 1)"
-        >
-          Next
-        </button>
-      </div>
-      <div class="task-import__results">
-        <div v-if="!eqTaskResults.length" class="quest-blueprint-empty">No tasks found.</div>
-        <table v-else class="task-import__table">
-          <thead>
-            <tr>
-              <th>ID</th>
-            <th>Title</th>
-            <th>Level</th>
-            <th>Repeatable</th>
-            <th>Type</th>
-            <th>Duration</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="task in eqTaskResults" :key="task.id">
-            <td>{{ task.id }}</td>
-              <td>
-                <div class="task-import__title">
-                  <strong>{{ task.title }}</strong>
-                </div>
-              </td>
-            <td>
-              <span v-if="task.minLevel || task.maxLevel">
-                {{ task.minLevel ?? '?' }}-{{ task.maxLevel ?? '?' }}
-              </span>
-              <span v-else class="muted">Any</span>
-            </td>
-            <td>{{ task.repeatable ? 'Yes' : 'No' }}</td>
-            <td>{{ task.type ?? '—' }}</td>
-            <td>
-              <span v-if="task.duration">{{ task.duration }}s</span>
-              <span v-else class="muted">—</span>
-            </td>
-            <td class="task-import__actions">
-              <button
-                class="btn btn--primary btn--tiny"
-                type="button"
-                :disabled="importingTaskId === task.id"
-                @click="importEqTask(task.id)"
-              >
-                {{ importingTaskId === task.id ? 'Importing…' : 'Import' }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-          </table>
-      </div>
     </div>
   </div>
-</div>
 
-<div v-if="showGuildPinModal" class="quest-modal">
-  <div class="quest-modal__content quest-character-modal">
-    <header>
-      <h3>Characters on {{ guildPinModalNode?.title ?? 'Step' }}</h3>
-      <button class="btn btn--icon" type="button" @click="closeGuildPinModal">×</button>
-    </header>
-    <div class="quest-character-list">
-      <button
-        v-for="pin in guildPinModalVisiblePins"
-        :key="pin.assignmentId"
-        type="button"
-        class="quest-character-button quest-character-button--link"
-        @click="handleGuildAssignmentClick(pin.assignmentId)"
-      >
-        <span class="quest-character-button__icon">
-          <img v-if="pin.icon" :src="pin.icon || undefined" :alt="pin.classLabel" />
-          <span v-else>{{ pin.fallback }}</span>
-        </span>
-        <div class="quest-character-button__details">
-          <span class="quest-character-button__title">{{ pin.characterName }}</span>
-          <span class="quest-character-button__meta">{{ pin.classLabel }}</span>
+  <div v-if="showTaskImportModal" class="quest-modal">
+    <div class="quest-modal__content quest-modal__content--wide">
+      <header class="quest-modal__header">
+        <h3>Import EQ Task</h3>
+        <button class="btn btn--icon" type="button" @click="closeTaskImportModal">×</button>
+      </header>
+      <p class="quest-modal__hint">
+        Search the EQEmu task table and import objectives as a quest blueprint. Requires an EQ
+        content database connection.
+      </p>
+      <div class="task-import__controls">
+        <input
+          v-model="eqTaskSearch.query"
+          type="search"
+          class="input"
+          placeholder="Search by task title or ID"
+          @keyup.enter="loadEqTasks()"
+        />
+        <button
+          class="btn btn--secondary"
+          type="button"
+          :disabled="eqTaskLoading"
+          @click="loadEqTasks()"
+        >
+          {{ eqTaskLoading ? 'Searching…' : 'Search' }}
+        </button>
+      </div>
+      <p v-if="eqTaskError" class="quest-modal__error">{{ eqTaskError }}</p>
+      <div v-if="eqTaskLoading" class="task-import__results">
+        <p>Searching tasks…</p>
+      </div>
+      <div v-else class="task-import__results-wrapper">
+        <div
+          v-if="eqTaskTotalPages > 1"
+          class="task-import__pagination task-import__pagination--top"
+        >
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="eqTaskSearch.page === 1 || eqTaskLoading"
+            @click="changeEqTaskPage(eqTaskSearch.page - 1)"
+          >
+            Previous
+          </button>
+          <span class="task-import__page-info">
+            Page {{ eqTaskSearch.page }} of {{ eqTaskTotalPages }}
+          </span>
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="eqTaskSearch.page === eqTaskTotalPages || eqTaskLoading"
+            @click="changeEqTaskPage(eqTaskSearch.page + 1)"
+          >
+            Next
+          </button>
         </div>
-      </button>
-      <div v-if="guildPinModalTotalPages > 1" class="quest-character-modal__pagination">
-        <button
-          class="btn btn--tiny"
-          type="button"
-          :disabled="guildPinModalPage === 1"
-          @click="prevGuildPinPage"
-        >
-          Previous
-        </button>
-        <span class="quest-character-modal__pagination-info">
-          Page {{ guildPinModalPage }} of {{ guildPinModalTotalPages }}
-        </span>
-        <button
-          class="btn btn--tiny"
-          type="button"
-          :disabled="guildPinModalPage === guildPinModalTotalPages"
-          @click="nextGuildPinPage"
-        >
-          Next
-        </button>
+        <div class="task-import__results">
+          <div v-if="!eqTaskResults.length" class="quest-blueprint-empty">No tasks found.</div>
+          <table v-else class="task-import__table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Title</th>
+                <th>Level</th>
+                <th>Repeatable</th>
+                <th>Type</th>
+                <th>Duration</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="task in eqTaskResults" :key="task.id">
+                <td>{{ task.id }}</td>
+                <td>
+                  <div class="task-import__title">
+                    <strong>{{ task.title }}</strong>
+                  </div>
+                </td>
+                <td>
+                  <span v-if="task.minLevel || task.maxLevel">
+                    {{ task.minLevel ?? '?' }}-{{ task.maxLevel ?? '?' }}
+                  </span>
+                  <span v-else class="muted">Any</span>
+                </td>
+                <td>{{ task.repeatable ? 'Yes' : 'No' }}</td>
+                <td>{{ task.type ?? '—' }}</td>
+                <td>
+                  <span v-if="task.duration">{{ task.duration }}s</span>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="task-import__actions">
+                  <button
+                    class="btn btn--primary btn--tiny"
+                    type="button"
+                    :disabled="importingTaskId === task.id"
+                    @click="importEqTask(task.id)"
+                  >
+                    {{ importingTaskId === task.id ? 'Importing…' : 'Import' }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
-    <div class="quest-modal__actions">
-      <button class="btn btn--secondary" type="button" @click="closeGuildPinModal">Close</button>
+  </div>
+
+  <div v-if="showGuildPinModal" class="quest-modal">
+    <div class="quest-modal__content quest-character-modal">
+      <header>
+        <h3>Characters on {{ guildPinModalNode?.title ?? 'Step' }}</h3>
+        <button class="btn btn--icon" type="button" @click="closeGuildPinModal">×</button>
+      </header>
+      <div class="quest-character-list">
+        <button
+          v-for="pin in guildPinModalVisiblePins"
+          :key="pin.assignmentId"
+          type="button"
+          class="quest-character-button quest-character-button--link"
+          @click="handleGuildAssignmentClick(pin.assignmentId)"
+        >
+          <span class="quest-character-button__icon">
+            <img v-if="pin.icon" :src="pin.icon || undefined" :alt="pin.classLabel" />
+            <span v-else>{{ pin.fallback }}</span>
+          </span>
+          <div class="quest-character-button__details">
+            <span class="quest-character-button__title">{{ pin.characterName }}</span>
+            <span class="quest-character-button__meta">{{ pin.classLabel }}</span>
+          </div>
+        </button>
+        <div v-if="guildPinModalTotalPages > 1" class="quest-character-modal__pagination">
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="guildPinModalPage === 1"
+            @click="prevGuildPinPage"
+          >
+            Previous
+          </button>
+          <span class="quest-character-modal__pagination-info">
+            Page {{ guildPinModalPage }} of {{ guildPinModalTotalPages }}
+          </span>
+          <button
+            class="btn btn--tiny"
+            type="button"
+            :disabled="guildPinModalPage === guildPinModalTotalPages"
+            @click="nextGuildPinPage"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+      <div class="quest-modal__actions">
+        <button class="btn btn--secondary" type="button" @click="closeGuildPinModal">Close</button>
+      </div>
     </div>
   </div>
-</div>
   <div v-if="showBlueprintSettings" class="quest-modal">
     <div class="quest-modal__content">
       <header>
         <h3>Blueprint Settings</h3>
-        <button class="btn btn--icon" type="button" @click="showBlueprintSettings = false">×</button>
+        <button class="btn btn--icon" type="button" @click="showBlueprintSettings = false">
+          ×
+        </button>
       </header>
       <label class="form-label">Title or NPC Name</label>
       <input v-model="blueprintMetaForm.title" type="text" class="input" />
@@ -1228,8 +1374,17 @@
         <span>Mark as archived</span>
       </label>
       <div class="quest-modal__actions">
-        <button class="btn btn--secondary" type="button" @click="showBlueprintSettings = false">Cancel</button>
-        <button class="btn btn--primary" type="button" :disabled="metadataSaving" @click="saveBlueprintSettings">{{ metadataSaving ? 'Saving…' : 'Save' }}</button>
+        <button class="btn btn--secondary" type="button" @click="showBlueprintSettings = false">
+          Cancel
+        </button>
+        <button
+          class="btn btn--primary"
+          type="button"
+          :disabled="metadataSaving"
+          @click="saveBlueprintSettings"
+        >
+          {{ metadataSaving ? 'Saving…' : 'Save' }}
+        </button>
       </div>
     </div>
   </div>
@@ -1241,9 +1396,13 @@
         <button class="btn btn--icon" type="button" @click="closeCharacterModal">×</button>
       </header>
       <p class="muted small">Choose which character will run this quest.</p>
-      <div v-if="characterModalLoading" class="quest-character-modal__loading">Loading characters…</div>
+      <div v-if="characterModalLoading" class="quest-character-modal__loading">
+        Loading characters…
+      </div>
       <template v-else>
-        <p v-if="characterModalError" class="quest-character-modal__error">{{ characterModalError }}</p>
+        <p v-if="characterModalError" class="quest-character-modal__error">
+          {{ characterModalError }}
+        </p>
         <ul v-if="hasEligibleCharacters" class="quest-character-list">
           <li v-for="character in visibleEligibleCharacters" :key="character.id">
             <button
@@ -1294,10 +1453,13 @@
           </button>
         </div>
         <p v-else-if="!hasEligibleCharacters" class="quest-character-modal__empty">
-          No eligible guild characters are available. Finish an existing run or add another character to start this quest.
+          No eligible guild characters are available. Finish an existing run or add another
+          character to start this quest.
         </p>
       </template>
-      <p v-if="characterStartError" class="quest-character-modal__error">{{ characterStartError }}</p>
+      <p v-if="characterStartError" class="quest-character-modal__error">
+        {{ characterStartError }}
+      </p>
     </div>
   </div>
 
@@ -1330,7 +1492,9 @@
         <button class="btn btn--secondary" type="button" @click="copyBlueprintJson">
           {{ blueprintJsonCopied ? 'Copied!' : 'Copy JSON' }}
         </button>
-        <button class="btn btn--primary" type="button" @click="closeBlueprintJsonModal">Close</button>
+        <button class="btn btn--primary" type="button" @click="closeBlueprintJsonModal">
+          Close
+        </button>
       </div>
     </div>
   </div>
@@ -1347,20 +1511,19 @@
         <button class="btn btn--secondary" type="button" @click="copyBlueprintWiki">
           {{ blueprintWikiCopied ? 'Copied!' : 'Copy markup' }}
         </button>
-        <button class="btn btn--primary" type="button" @click="closeBlueprintWikiModal">Close</button>
+        <button class="btn btn--primary" type="button" @click="closeBlueprintWikiModal">
+          Close
+        </button>
       </div>
     </div>
   </div>
 
-  <ul
-    v-if="contextMenu.visible"
-    class="quest-context-menu"
-    :style="contextMenuStyle"
-    @click.stop
-  >
+  <ul v-if="contextMenu.visible" class="quest-context-menu" :style="contextMenuStyle" @click.stop>
     <template v-if="contextMenu.type === 'canvas'">
       <li v-if="activeTab === 'editor'" @click="handleCanvasAddNode">Add step</li>
-      <li v-if="activeTab === 'editor'" @click="handleOpenBlueprintSettings">Blueprint settings…</li>
+      <li v-if="activeTab === 'editor'" @click="handleOpenBlueprintSettings">
+        Blueprint settings…
+      </li>
       <li @click="handleResetViewFromMenu">Reset view</li>
     </template>
     <template v-else-if="contextMenu.type === 'editor-node'">
@@ -1375,9 +1538,7 @@
             <li @click.stop="handleAlignSelection('bottom')">Bottom</li>
           </ul>
         </li>
-        <li
-          :class="['quest-context-menu__submenu', { disabled: !canDistributeSelection }]"
-        >
+        <li :class="['quest-context-menu__submenu', { disabled: !canDistributeSelection }]">
           <span>Distribute</span>
           <span class="quest-context-menu__submenu-caret" aria-hidden="true">›</span>
           <ul class="quest-context-menu__submenu-list">
@@ -1417,14 +1578,20 @@
     </template>
     <template v-else-if="contextMenu.type === 'viewer-node'">
       <template v-if="contextMenuNodeDisabled">
-        <li v-if="canUpdateNodeProgress" @click="handleEnableNodeFromMenu">Enable step (and descendants)</li>
+        <li v-if="canUpdateNodeProgress" @click="handleEnableNodeFromMenu">
+          Enable step (and descendants)
+        </li>
         <li v-else class="disabled">Step disabled</li>
       </template>
       <template v-else>
         <li
           v-for="status in nodeStatuses"
           :key="status"
-          :class="['quest-context-menu__status', viewerStatusMenuClass(status), { disabled: progressUpdating }]"
+          :class="[
+            'quest-context-menu__status',
+            viewerStatusMenuClass(status),
+            { disabled: progressUpdating }
+          ]"
           @click="handleViewerStatusChange(status)"
         >
           <span class="quest-context-menu__status-dot" aria-hidden="true"></span>
@@ -1432,7 +1599,9 @@
             Mark {{ nodeProgressStatusLabels[status] }}
           </span>
         </li>
-        <li v-if="canUpdateNodeProgress" @click="handleDisableNodeFromMenu">Disable step (and descendants)</li>
+        <li v-if="canUpdateNodeProgress" @click="handleDisableNodeFromMenu">
+          Disable step (and descendants)
+        </li>
       </template>
     </template>
     <template v-else-if="contextMenu.type === 'editor-link'">
@@ -1442,12 +1611,7 @@
       >
         Remove next step
       </li>
-      <li
-        v-else-if="contextMenuLink"
-        @click="handleLinkNextStepToggle(true)"
-      >
-        Set next step
-      </li>
+      <li v-else-if="contextMenuLink" @click="handleLinkNextStepToggle(true)">Set next step</li>
       <li v-else class="disabled">Link unavailable</li>
     </template>
   </ul>
@@ -1681,7 +1845,9 @@ function readFaceCondition(
   }
   return extractFace(conditions[key]);
 }
-function isNextStepLink(link: { conditions?: Record<string, unknown> } | null | undefined): boolean {
+function isNextStepLink(
+  link: { conditions?: Record<string, unknown> } | null | undefined
+): boolean {
   if (!link?.conditions) {
     return false;
   }
@@ -1731,7 +1897,9 @@ const contextMenuLink = computed(() => {
   }
   return editableLinks.value.find((link) => link.id === contextMenu.linkId) ?? null;
 });
-const contextMenuLinkIsNextStep = computed(() => (contextMenuLink.value ? isNextStepLink(contextMenuLink.value) : false));
+const contextMenuLinkIsNextStep = computed(() =>
+  contextMenuLink.value ? isNextStepLink(contextMenuLink.value) : false
+);
 
 const newBlueprintForm = reactive({
   title: '',
@@ -1750,7 +1918,9 @@ const blueprintLinkSelections = reactive<{ previous: string; next: string }>({
 
 const permissions = computed(() => detail.value?.permissions ?? summary.value?.permissions ?? null);
 const canManageBlueprints = computed(() => permissions.value?.canManageBlueprints ?? false);
-const canEditBlueprint = computed(() => permissions.value?.canEditBlueprint ?? canManageBlueprints.value);
+const canEditBlueprint = computed(
+  () => permissions.value?.canEditBlueprint ?? canManageBlueprints.value
+);
 const guildNameDisplay = computed(() =>
   typeof route.query.guildName === 'string' ? route.query.guildName : 'Quest Tracker'
 );
@@ -1769,7 +1939,12 @@ const dragOverBlueprintId = ref<string | null>(null);
 const folderListRef = ref<HTMLElement | null>(null);
 const scrollTicker = ref<number | null>(null);
 const scrollDirection = ref<'up' | 'down' | null>(null);
-const dragScrollState = reactive<{ active: boolean; baseX: number; baseY: number; resetFrame: number | null }>({
+const dragScrollState = reactive<{
+  active: boolean;
+  baseX: number;
+  baseY: number;
+  resetFrame: number | null;
+}>({
   active: false,
   baseX: 0,
   baseY: 0,
@@ -1782,12 +1957,17 @@ const globalDragOverHandler = (event: DragEvent) => {
   event.preventDefault();
   scrollDirection.value = getScrollDirection(event);
 };
-const canDragBlueprints = computed(() => canManageBlueprints.value && !blueprintReorderLoading.value);
+const canDragBlueprints = computed(
+  () => canManageBlueprints.value && !blueprintReorderLoading.value
+);
 const blueprintContextMenuBlueprint = computed(() => {
   if (!blueprintContextMenu.blueprintId) {
     return null;
   }
-  return summary.value?.blueprints?.find((entry) => entry.id === blueprintContextMenu.blueprintId) ?? null;
+  return (
+    summary.value?.blueprints?.find((entry) => entry.id === blueprintContextMenu.blueprintId) ??
+    null
+  );
 });
 
 const blueprintFolders = computed(() => summary.value?.folders ?? []);
@@ -1882,11 +2062,13 @@ const blueprintSections = computed(() => {
 const hasBlueprintMatches = computed(() =>
   blueprintSections.value.some((section) => section.blueprints.length)
 );
-const folderOrderIndex = (folderId: string) => orderedFolders.value.findIndex((entry) => entry.id === folderId);
-
+const folderOrderIndex = (folderId: string) =>
+  orderedFolders.value.findIndex((entry) => entry.id === folderId);
 
 const selectedDetail = computed(() => detail.value);
-const membershipRole = computed(() => detail.value?.permissions?.role ?? summary.value?.permissions?.role ?? null);
+const membershipRole = computed(
+  () => detail.value?.permissions?.role ?? summary.value?.permissions?.role ?? null
+);
 const blueprintCreatorId = computed(() => detail.value?.blueprint.createdById ?? null);
 const blueprintJsonText = computed(() => {
   if (!detail.value) {
@@ -1924,7 +2106,7 @@ const viewerAssignmentOptions = computed(() =>
   viewerAssignments.value.map((assignment) => {
     const characterName = assignment.character?.name ?? 'Character';
     const classLabel = assignment.character?.class
-      ? characterClassLabels[assignment.character.class] ?? assignment.character.class
+      ? (characterClassLabels[assignment.character.class] ?? assignment.character.class)
       : null;
     return {
       id: assignment.id,
@@ -1938,7 +2120,9 @@ const activeViewerAssignment = computed(() => {
     return null;
   }
   if (selectedAssignmentId.value) {
-    const match = viewerAssignments.value.find((assignment) => assignment.id === selectedAssignmentId.value);
+    const match = viewerAssignments.value.find(
+      (assignment) => assignment.id === selectedAssignmentId.value
+    );
     if (match) {
       return match;
     }
@@ -1989,9 +2173,13 @@ const viewerAssignment = computed(() => {
   return assignment;
 });
 const focusedGuildAssignment = computed(
-  () => guildAssignments.value.find((assignment) => assignment.id === guildFocusAssignmentId.value) ?? null
+  () =>
+    guildAssignments.value.find((assignment) => assignment.id === guildFocusAssignmentId.value) ??
+    null
 );
-const canvasAssignment = computed(() => focusedGuildAssignment.value ?? viewerAssignment.value ?? null);
+const canvasAssignment = computed(
+  () => focusedGuildAssignment.value ?? viewerAssignment.value ?? null
+);
 const displayAssignmentCharacter = computed(() => canvasAssignment.value?.character ?? null);
 const blockedAssignmentCharacterIds = computed(() => {
   const set = new Set<string>();
@@ -2008,7 +2196,8 @@ const blockedAssignmentCharacterIds = computed(() => {
 });
 const eligibleCharacters = computed(() =>
   characterOptions.value.filter(
-    (character) => character.guild?.id === guildId && !blockedAssignmentCharacterIds.value.has(character.id)
+    (character) =>
+      character.guild?.id === guildId && !blockedAssignmentCharacterIds.value.has(character.id)
   )
 );
 const hasEligibleCharacters = computed(() => eligibleCharacters.value.length > 0);
@@ -2035,14 +2224,6 @@ const loadingOverlayMessage = computed(() => {
   }
   return 'Updating quest tracker…';
 });
-const viewerProgressMap = computed(() => {
-  const map = new Map<string, QuestNodeProgressStatus>();
-  const progress = viewerAssignment.value?.progress ?? [];
-  for (const record of progress) {
-    map.set(record.nodeId, record.status);
-  }
-  return map;
-});
 const canvasProgressMap = computed(() => {
   const map = new Map<string, QuestNodeProgressStatus>();
   const progress = canvasAssignment.value?.progress ?? [];
@@ -2061,10 +2242,14 @@ const canvasCompletedNodeIds = computed(() => {
   return set;
 });
 const viewerAssignmentId = computed(() => viewerAssignment.value?.id ?? null);
-const isViewingGuildAssignment = computed(
-  () => Boolean(focusedGuildAssignment.value && focusedGuildAssignment.value.id !== viewerAssignmentId.value)
+const isViewingGuildAssignment = computed(() =>
+  Boolean(
+    focusedGuildAssignment.value && focusedGuildAssignment.value.id !== viewerAssignmentId.value
+  )
 );
-const canUpdateNodeProgress = computed(() => Boolean(viewerAssignmentId.value) && !isViewingGuildAssignment.value);
+const canUpdateNodeProgress = computed(
+  () => Boolean(viewerAssignmentId.value) && !isViewingGuildAssignment.value
+);
 const focusedGuildAssignmentLabel = computed(() => {
   const assignment = focusedGuildAssignment.value;
   if (!assignment) {
@@ -2072,7 +2257,12 @@ const focusedGuildAssignmentLabel = computed(() => {
   }
   return assignment.character?.name ?? assignment.user?.displayName ?? 'Guild member';
 });
-const nodeStatuses: QuestNodeProgressStatus[] = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'BLOCKED'];
+const nodeStatuses: QuestNodeProgressStatus[] = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'BLOCKED'
+];
 const nodeStatusMenuClassMap: Record<QuestNodeProgressStatus, string> = {
   NOT_STARTED: 'quest-context-menu__status--muted',
   IN_PROGRESS: 'quest-context-menu__status--warning',
@@ -2086,11 +2276,11 @@ const nodeProgressStatusLabels: Record<QuestNodeProgressStatus, string> = {
   BLOCKED: 'Blocked'
 };
 const renderedNodes = computed(() =>
-  activeTab.value === 'editor' ? editableNodes.value : detail.value?.nodes ?? []
+  activeTab.value === 'editor' ? editableNodes.value : (detail.value?.nodes ?? [])
 );
 
 const activeLinks = computed(() =>
-  activeTab.value === 'editor' ? editableLinks.value : detail.value?.links ?? []
+  activeTab.value === 'editor' ? editableLinks.value : (detail.value?.links ?? [])
 );
 
 const blueprintOptionIndex = computed(() => {
@@ -2113,8 +2303,8 @@ const blueprintLinkOptions = computed(() => {
     .sort((a, b) => a.title.localeCompare(b.title));
 });
 
-const selectedNode = computed<EditableNode | null>(() =>
-  editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
+const selectedNode = computed<EditableNode | null>(
+  () => editableNodes.value.find((node) => node.id === selectedNodeId.value) ?? null
 );
 
 const selectedNodeTargetField = computed<string>({
@@ -2171,7 +2361,10 @@ const selectedNodeLinkEntries = computed(() => {
 type BlueprintRelationEntry = { id: string; title: string; isArchived: boolean };
 
 const nodeBlueprintLinkEntries = computed(() => {
-  const display = new Map<string, { previous: BlueprintRelationEntry[]; next: BlueprintRelationEntry[] }>();
+  const display = new Map<
+    string,
+    { previous: BlueprintRelationEntry[]; next: BlueprintRelationEntry[] }
+  >();
   const nodes = renderedNodes.value;
   const labelMap = blueprintOptionIndex.value;
   nodes.forEach((node) => {
@@ -2249,7 +2442,10 @@ function isNodeCompleted(nodeId: string) {
   return canvasCompletedNodeIds.value.has(nodeId);
 }
 
-function readNodeFlag(node: QuestNodeViewModel | EditableNode | undefined, flag: 'isFinal'): boolean {
+function readNodeFlag(
+  node: QuestNodeViewModel | EditableNode | undefined,
+  flag: 'isFinal'
+): boolean {
   if (!node) {
     return false;
   }
@@ -2370,7 +2566,10 @@ function getNodeLinkIds(node: EditableNode, direction: BlueprintLinkDirection): 
   return readNodeLinkIds(node, direction);
 }
 
-function nodeLinkEntries(nodeId: string, direction: BlueprintLinkDirection): BlueprintRelationEntry[] {
+function nodeLinkEntries(
+  nodeId: string,
+  direction: BlueprintLinkDirection
+): BlueprintRelationEntry[] {
   return nodeBlueprintLinkEntries.value.get(nodeId)?.[direction] ?? [];
 }
 
@@ -2419,7 +2618,9 @@ function removeBlueprintLink(direction: BlueprintLinkDirection, blueprintId: str
 
 function buildEditableNode(node: QuestNodeViewModel): EditableNode {
   const metadata = { ...(node.metadata ?? {}) };
-  metadata.accentColor = ensureAccentColor((metadata.accentColor as string | undefined) ?? undefined);
+  metadata.accentColor = ensureAccentColor(
+    (metadata.accentColor as string | undefined) ?? undefined
+  );
   metadata.previousBlueprintIds = normalizeBlueprintLinkIds(metadata.previousBlueprintIds);
   metadata.nextBlueprintIds = normalizeBlueprintLinkIds(metadata.nextBlueprintIds);
   const editable = {
@@ -2512,7 +2713,6 @@ function calculateFitTransform(
   };
 }
 
-let overviewFitPending = true;
 let editorFitPending = true;
 let overviewResizeObserver: ResizeObserver | null = null;
 
@@ -2539,7 +2739,12 @@ const linkCanvasBounds = computed(() => {
     extend(linkDrag.startPoint);
     extend(linkDrag.currentPoint);
   }
-  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(maxX) ||
+    !Number.isFinite(maxY)
+  ) {
     minX = -LINK_CANVAS_PADDING;
     minY = -LINK_CANVAS_PADDING;
     maxX = LINK_CANVAS_PADDING;
@@ -2596,18 +2801,12 @@ function scheduleOverviewFit(force = false) {
       if (!isCanvasView.value) {
         return;
       }
-      const applied = applyOverviewFit();
-      if (!applied) {
-        overviewFitPending = true;
-      } else {
-        overviewFitPending = false;
-      }
+      applyOverviewFit();
     });
   });
 }
 
 function requestOverviewFit() {
-  overviewFitPending = true;
   if (isCanvasView.value) {
     scheduleOverviewFit(true);
   }
@@ -2784,8 +2983,12 @@ const alignmentGuides = reactive({
   verticals: [] as AlignmentVerticalGuide[]
 });
 
-const gridOverlayVisible = computed(() => dragGridOverlay.active && !dragGridOverlay.bypass && activeTab.value === 'editor');
-const alignmentGuidesVisible = computed(() => alignmentGuides.horizontals.length > 0 || alignmentGuides.verticals.length > 0);
+const gridOverlayVisible = computed(
+  () => dragGridOverlay.active && !dragGridOverlay.bypass && activeTab.value === 'editor'
+);
+const alignmentGuidesVisible = computed(
+  () => alignmentGuides.horizontals.length > 0 || alignmentGuides.verticals.length > 0
+);
 
 const gridLinePositions = computed(() => {
   if (!gridOverlayVisible.value) {
@@ -3005,7 +3208,7 @@ function resetAlignmentGuides() {
   alignmentGuides.verticals = [];
 }
 
-function applyAlignmentSnap(topLeftX: number, topLeftY: number, width: number, height: number) {
+function applyAlignmentSnap(topLeftX: number, topLeftY: number, width: number, _height: number) {
   let snappedX = topLeftX;
   let snappedY = topLeftY;
   let snappedVertical = false;
@@ -3088,7 +3291,7 @@ function alignSelectedNodes(edge: 'left' | 'right' | 'top' | 'bottom'): boolean 
   return true;
 }
 
-function snapAxisPosition(value: number, size: number, axis: 'x' | 'y') {
+function snapAxisPosition(value: number, size: number, _axis: 'x' | 'y') {
   const center = value + size / 2;
   const snappedCenter = snapToGrid(center);
   return clampNodePosition(snappedCenter - size / 2);
@@ -3119,7 +3322,8 @@ function distributeSelectedNodes(direction: 'horizontal' | 'vertical' | 'grid'):
       (a, b) => a.node.position.x + a.width / 2 - (b.node.position.x + b.width / 2)
     );
     const startCenter = ordered[0].node.position.x + ordered[0].width / 2;
-    const endCenter = ordered[ordered.length - 1].node.position.x + ordered[ordered.length - 1].width / 2;
+    const endCenter =
+      ordered[ordered.length - 1].node.position.x + ordered[ordered.length - 1].width / 2;
     const gaps = ordered.length - 1;
     const gapSize = gaps > 0 ? (endCenter - startCenter) / gaps : 0;
     ordered.forEach((entry, index) => {
@@ -3138,7 +3342,8 @@ function distributeSelectedNodes(direction: 'horizontal' | 'vertical' | 'grid'):
     const totalHeight = ordered.reduce((sum, entry) => sum + entry.height, 0);
     const gaps = ordered.length - 1;
     const availableSpace = Math.max(0, maxBottom - minTop - totalHeight);
-    const spacing = gaps > 0 ? Math.max(GRID_SNAP_SPACING, availableSpace / gaps) : GRID_SNAP_SPACING;
+    const spacing =
+      gaps > 0 ? Math.max(GRID_SNAP_SPACING, availableSpace / gaps) : GRID_SNAP_SPACING;
     let cursor = snapAxisPosition(minTop, ordered[0].height, 'y');
     ordered.forEach((entry, index) => {
       if (index === 0) {
@@ -3165,8 +3370,9 @@ function distributeSelectedNodes(direction: 'horizontal' | 'vertical' | 'grid'):
       });
     }
     const rows = Math.ceil(Math.sqrt(total));
-    const columns = Math.ceil(total / rows);
-    const ordered = [...selected].sort((a, b) => a.node.position.y - b.node.position.y || a.node.position.x - b.node.position.x);
+    const ordered = [...selected].sort(
+      (a, b) => a.node.position.y - b.node.position.y || a.node.position.x - b.node.position.x
+    );
     const startX = Math.min(...ordered.map((entry) => entry.node.position.x));
     const startY = Math.min(...ordered.map((entry) => entry.node.position.y));
     const baseX = snapAxisPosition(startX, widestWidth, 'x');
@@ -3274,7 +3480,9 @@ const groupDescendantsMap = computed(() => {
     const includeGroupNodes = Boolean(node.isGroup);
     map.set(
       node.id,
-      collectRequiredDescendants(node.id, includeGroupNodes, { blockNextStepOnlyAtRoot: Boolean(node.isGroup) })
+      collectRequiredDescendants(node.id, includeGroupNodes, {
+        blockNextStepOnlyAtRoot: Boolean(node.isGroup)
+      })
     );
   });
 
@@ -3344,7 +3552,7 @@ const nodeBranchAssignments = computed(() => {
   const children = childNodeMap.value;
   const parents = parentNodeMap.value;
   const roots = renderedNodes.value
-    .filter((node) => !(parents.get(node.id)?.length))
+    .filter((node) => !parents.get(node.id)?.length)
     .map((node) => node.id);
   const queue: Array<{ nodeId: string; branchIndex: number; depth: number }> = [];
   let branchCounter = 0;
@@ -3430,7 +3638,9 @@ function getNextStepGroupAncestors(nodeId: string): string[] {
   const visited = new Set<string>();
   const upstream = new Set<string>();
   const initialParents = parentNodeMap.value.get(nodeId) ?? [];
-  const queue = initialParents.filter((entry) => isGroupNode(entry.nodeId)).map((entry) => entry.nodeId);
+  const queue = initialParents
+    .filter((entry) => isGroupNode(entry.nodeId))
+    .map((entry) => entry.nodeId);
   while (queue.length) {
     const current = queue.shift()!;
     if (visited.has(current)) {
@@ -3463,7 +3673,11 @@ function applyGroupHierarchyStatus(
     if (isNodeDisabled(targetId)) {
       continue;
     }
-    if (!includeOptional && renderedNodeIndex.value.get(targetId)?.isOptional && targetId !== groupId) {
+    if (
+      !includeOptional &&
+      renderedNodeIndex.value.get(targetId)?.isOptional &&
+      targetId !== groupId
+    ) {
       continue;
     }
     updates.set(targetId, status);
@@ -3475,7 +3689,11 @@ function applyGroupHierarchyStatus(
   }
 }
 
-function areAllDescendantsComplete(nodeId: string, newlyCompleted: Set<string>, includeOptional = false) {
+function areAllDescendantsComplete(
+  nodeId: string,
+  newlyCompleted: Set<string>,
+  includeOptional = false
+) {
   const descendants = getGroupDescendants(nodeId).filter((childId) => {
     if (isNodeDisabled(childId)) {
       return false;
@@ -3516,7 +3734,11 @@ function getGroupProgress(
   return { completed, total: childIds.length };
 }
 
-function formatGroupProgress(nodeId: string, progress: QuestNodeProgress[] | undefined, mode: 'editor' | 'viewer' = 'viewer') {
+function formatGroupProgress(
+  nodeId: string,
+  progress: QuestNodeProgress[] | undefined,
+  mode: 'editor' | 'viewer' = 'viewer'
+) {
   const { completed, total } = getGroupProgress(nodeId, progress, mode);
   if (!total) {
     return '0/0';
@@ -3579,7 +3801,11 @@ function pointerEventToCanvasPoint(event: PointerEvent | MouseEvent) {
   return { x, y };
 }
 
-function facePointFromPosition(position: { x: number; y: number }, face: NodeFace, nodeId?: string) {
+function facePointFromPosition(
+  position: { x: number; y: number },
+  face: NodeFace,
+  nodeId?: string
+) {
   const baseX = position.x;
   const baseY = position.y;
   const { width, height } = getNodeSize(nodeId);
@@ -3607,7 +3833,11 @@ function determineFace(dx: number, dy: number): NodeFace {
   return dy >= 0 ? 'bottom' : 'top';
 }
 
-function getNearestFace(position: { x: number; y: number }, targetCenter: Point, nodeId?: string): NodeFace {
+function getNearestFace(
+  position: { x: number; y: number },
+  targetCenter: Point,
+  nodeId?: string
+): NodeFace {
   let bestFace: NodeFace = NODE_FACES[0];
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const face of NODE_FACES) {
@@ -3677,7 +3907,11 @@ function createCanvasLink(
   if (parentNodeId === childNodeId) {
     return;
   }
-  if (editableLinks.value.some((link) => link.parentNodeId === parentNodeId && link.childNodeId === childNodeId)) {
+  if (
+    editableLinks.value.some(
+      (link) => link.parentNodeId === parentNodeId && link.childNodeId === childNodeId
+    )
+  ) {
     return;
   }
   const parentFace = faces?.parentFace ?? null;
@@ -3716,12 +3950,20 @@ function beginLinkDrag(node: EditableNode, face: NodeFace, event: PointerEvent) 
     'pointerup',
     (upEvent) => {
       const releasePoint = pointerEventToCanvasPoint(upEvent);
-      if (hoveredHandle.value && hoveredHandle.value.nodeId && hoveredHandle.value.nodeId !== node.id) {
+      if (
+        hoveredHandle.value &&
+        hoveredHandle.value.nodeId &&
+        hoveredHandle.value.nodeId !== node.id
+      ) {
         createCanvasLink(node.id, hoveredHandle.value.nodeId, {
           parentFace: linkDrag.startFace,
           childFace: hoveredHandle.value.face
         });
-      } else if (releasePoint && editorCanvasRef.value?.contains(upEvent.target as Node) && linkDrag.startNodeId) {
+      } else if (
+        releasePoint &&
+        editorCanvasRef.value?.contains(upEvent.target as Node) &&
+        linkDrag.startNodeId
+      ) {
         createNodeAtPoint(linkDrag.startNodeId, releasePoint);
       }
       endLinkDrag();
@@ -3793,14 +4035,17 @@ const renderedLinks = computed<RenderedLink[]>(() => {
     const storedParentFace = readFaceCondition(link.conditions, '__parentFace');
     const storedChildFace = readFaceCondition(link.conditions, '__childFace');
 
-    const sourceFace =
-      storedParentFace ?? getNearestFace(start, targetCenter, link.parentNodeId);
-    const targetFace =
-      storedChildFace ?? getNearestFace(end, sourceCenter, link.childNodeId);
+    const sourceFace = storedParentFace ?? getNearestFace(start, targetCenter, link.parentNodeId);
+    const targetFace = storedChildFace ?? getNearestFace(end, sourceCenter, link.childNodeId);
     const sourcePoint = facePointFromPosition(start, sourceFace, link.parentNodeId);
     const targetPoint = facePointFromPosition(end, targetFace, link.childNodeId);
     const { curve, midPoint } = buildCurvedPath(sourcePoint, targetPoint, sourceFace, targetFace);
-    const normalizedCurve = curve.map((point) => normalizeCanvasPoint(point)) as [Point, Point, Point, Point];
+    const normalizedCurve = curve.map((point) => normalizeCanvasPoint(point)) as [
+      Point,
+      Point,
+      Point,
+      Point
+    ];
     const path = buildPathFromPoints(normalizedCurve);
     const pathLength = approximateBezierLength(normalizedCurve);
     const branchInfo = branchAssignmentsMap.get(link.childNodeId);
@@ -3810,7 +4055,9 @@ const renderedLinks = computed<RenderedLink[]>(() => {
       showOverviewDisabledState.value &&
       (isNodeDisabled(link.parentNodeId) || isNodeDisabled(link.childNodeId));
     const isInternalGroupLink =
-      !nextStepEdge && isGroupNode(link.parentNodeId) && isGroupChildLink(link.parentNodeId, link.childNodeId);
+      !nextStepEdge &&
+      isGroupNode(link.parentNodeId) &&
+      isGroupChildLink(link.parentNodeId, link.childNodeId);
     const childInternalCompleted =
       isInternalGroupLink && !childIsOptional && viewerNodeStatus(link.childNodeId) === 'COMPLETED';
     const parentGroupChildCompleted =
@@ -3819,8 +4066,7 @@ const renderedLinks = computed<RenderedLink[]>(() => {
       isGroupNode(link.parentNodeId) &&
       isInternalGroupLink &&
       childInternalCompleted;
-    const baseCompleted =
-      isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
+    const baseCompleted = isNodeCompleted(link.parentNodeId) && isNodeCompleted(link.childNodeId);
     const isCompletedPath = !linkDisabled && (baseCompleted || parentGroupChildCompleted);
     const branchColor = linkDisabled
       ? DISABLED_BRANCH_COLOR
@@ -3828,7 +4074,8 @@ const renderedLinks = computed<RenderedLink[]>(() => {
         ? COMPLETED_ACCENT_COLOR
         : childIsOptional
           ? OPTIONAL_BRANCH_COLOR
-          : BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ?? DEFAULT_BRANCH_COLOR;
+          : (BRANCH_COLORS[(branchInfo?.branchIndex ?? 0) % BRANCH_COLORS.length] ??
+            DEFAULT_BRANCH_COLOR);
     const animationDelay = (branchInfo?.depth ?? 0) * BRANCH_ANIMATION_STAGGER;
 
     return {
@@ -3856,8 +4103,18 @@ const linkPreviewPath = computed(() => {
   const dy = linkDrag.currentPoint.y - linkDrag.startPoint.y;
   const fallbackFace = determineFace(dx, dy);
   const targetFace = hoveredHandle.value?.face ?? fallbackFace;
-  const { curve } = buildCurvedPath(linkDrag.startPoint, linkDrag.currentPoint, linkDrag.startFace, targetFace);
-  const normalizedCurve = curve.map((point) => normalizeCanvasPoint(point)) as [Point, Point, Point, Point];
+  const { curve } = buildCurvedPath(
+    linkDrag.startPoint,
+    linkDrag.currentPoint,
+    linkDrag.startFace,
+    targetFace
+  );
+  const normalizedCurve = curve.map((point) => normalizeCanvasPoint(point)) as [
+    Point,
+    Point,
+    Point,
+    Point
+  ];
   return buildPathFromPoints(normalizedCurve);
 });
 
@@ -3930,7 +4187,6 @@ watch(
   { flush: 'post', deep: true }
 );
 
-
 const availableTabs = computed(() => [
   { key: 'overview' as const, label: 'Overview', disabled: false },
   { key: 'editor' as const, label: 'Blueprint Editor', disabled: !canEditBlueprint.value },
@@ -3962,17 +4218,6 @@ function viewerProgressRatio(assignment?: QuestAssignment | null, totalStepOverr
   return summary.percentComplete ?? 0;
 }
 
-function formatDate(value?: string | null) {
-  if (!value) {
-    return '—';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '—';
-  }
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
 function formatDateTime(value?: string | null) {
   if (!value) {
     return '—';
@@ -3991,9 +4236,19 @@ function formatDateTime(value?: string | null) {
 
 function nodeStyle(node: QuestNodeViewModel, draggable: boolean, mode: 'viewer' | 'editor') {
   const disabled = showOverviewDisabledState.value && isNodeDisabled(node.id);
-  const accent = disabled ? DISABLED_BRANCH_COLOR : isNodeCompleted(node.id) ? COMPLETED_ACCENT_COLOR : nodeBranchColor(node.id);
+  const accent = disabled
+    ? DISABLED_BRANCH_COLOR
+    : isNodeCompleted(node.id)
+      ? COMPLETED_ACCENT_COLOR
+      : nodeBranchColor(node.id);
   const cursor =
-    mode === 'viewer' && overviewAltClickMode.value && !disabled ? 'copy' : disabled && !draggable ? 'not-allowed' : draggable ? 'move' : 'default';
+    mode === 'viewer' && overviewAltClickMode.value && !disabled
+      ? 'copy'
+      : disabled && !draggable
+        ? 'not-allowed'
+        : draggable
+          ? 'move'
+          : 'default';
   const style: Record<string, string | number> = {
     transform: `translate(${node.position.x}px, ${node.position.y}px)`,
     cursor,
@@ -4022,7 +4277,7 @@ function typeAccent(node: QuestNodeViewModel) {
   if (showOverviewDisabledState.value && isNodeDisabled(node.id)) {
     return { background: DISABLED_BRANCH_COLOR, color: '#e2e8f0' };
   }
-  const baseColor = node.isGroup ? '#14b8a6' : questNodeTypeColors[node.nodeType] ?? '#2563eb';
+  const baseColor = node.isGroup ? '#14b8a6' : (questNodeTypeColors[node.nodeType] ?? '#2563eb');
   return { background: baseColor };
 }
 
@@ -4078,7 +4333,10 @@ function resolveRequirementItemName(requirements: Record<string, any> | undefine
 
   const rawItemList = requirements.itemList;
   if (typeof rawItemList === 'string') {
-    const pieces = rawItemList.split(/[,;|^]/).map((part) => part.trim()).filter(Boolean);
+    const pieces = rawItemList
+      .split(/[,;|^]/)
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (pieces.length > 0) {
       return pieces[0];
     }
@@ -4092,7 +4350,9 @@ function resolveRequirementItemName(requirements: Record<string, any> | undefine
   return null;
 }
 
-function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | undefined): string | null {
+function targetOrItemLabel(
+  node: QuestNodeViewModel | EditableNode | null | undefined
+): string | null {
   if (!node || !node.requirements) {
     return null;
   }
@@ -4104,7 +4364,10 @@ function targetOrItemLabel(node: QuestNodeViewModel | EditableNode | null | unde
   if (node.nodeType === 'DELIVER') {
     const detail =
       typeof (node.requirements as any).details === 'string'
-        ? ((node.requirements as any).details as string).split('\n').map((part) => part.trim()).find(Boolean)
+        ? ((node.requirements as any).details as string)
+            .split('\n')
+            .map((part) => part.trim())
+            .find(Boolean)
         : null;
     const titleFallback = node.title?.trim();
     return itemName || detail || titleFallback || targetName || null;
@@ -4129,8 +4392,11 @@ function getNodeItemIds(node: QuestNodeViewModel | EditableNode | null | undefin
     if (typeof entry === 'string') {
       const trimmed = entry.trim();
       // Check if it's a comma-separated list of IDs
-      const parts = trimmed.split(/[,;]/).map(p => p.trim()).filter(p => p.length > 0);
-      const allNumeric = parts.length > 0 && parts.every(p => /^\d+$/.test(p));
+      const parts = trimmed
+        .split(/[,;]/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+      const allNumeric = parts.length > 0 && parts.every((p) => /^\d+$/.test(p));
       if (allNumeric) {
         for (const part of parts) {
           const parsed = Number.parseInt(part, 10);
@@ -4157,9 +4423,11 @@ interface NodeItemLink {
   url: string;
 }
 
-function getNodeItemLinks(node: QuestNodeViewModel | EditableNode | null | undefined): NodeItemLink[] {
+function getNodeItemLinks(
+  node: QuestNodeViewModel | EditableNode | null | undefined
+): NodeItemLink[] {
   const itemIds = getNodeItemIds(node);
-  return itemIds.map(itemId => {
+  return itemIds.map((itemId) => {
     const cachedName = getItemNameFromCache(itemId);
     return {
       itemId,
@@ -4236,7 +4504,9 @@ type GuildNodePin = {
 const MAX_DISPLAYED_GUILD_PINS = 6;
 const GROUP_NODE_PIN_LIMIT = 2;
 
-const groupNodeIds = computed(() => new Set((detail.value?.nodes ?? []).filter((node) => node.isGroup).map((node) => node.id)));
+const groupNodeIds = computed(
+  () => new Set((detail.value?.nodes ?? []).filter((node) => node.isGroup).map((node) => node.id))
+);
 
 const guildNodePinsById = computed(() => {
   const map = new Map<string, GuildNodePin[]>();
@@ -4254,11 +4524,18 @@ const guildNodePinsById = computed(() => {
     if (assignment.status === 'COMPLETED' || assignment.status === 'CANCELLED') {
       continue;
     }
-    const nextNodeIds = findNextNodeIdsForAssignment(assignment, nodes, nodeIndex, parents, children);
+    const nextNodeIds = findNextNodeIdsForAssignment(
+      assignment,
+      nodes,
+      nodeIndex,
+      parents,
+      children
+    );
     if (!nextNodeIds.length) {
       continue;
     }
-    const classLabel = characterClassLabels[assignment.character.class] ?? assignment.character.class;
+    const classLabel =
+      characterClassLabels[assignment.character.class] ?? assignment.character.class;
     const tooltipParts = [assignment.character.name];
     if (assignment.user?.displayName && assignment.user.displayName !== assignment.character.name) {
       tooltipParts.push(`— ${assignment.user.displayName}`);
@@ -4307,8 +4584,8 @@ function guildPinOverflowCount(nodeId: string): number {
   return total > limit ? total - limit : 0;
 }
 
-const guildPinModalNode = computed(() =>
-  detail.value?.nodes?.find((node) => node.id === guildPinModalNodeId.value) ?? null
+const guildPinModalNode = computed(
+  () => detail.value?.nodes?.find((node) => node.id === guildPinModalNodeId.value) ?? null
 );
 
 const guildPinModalPins = computed(() =>
@@ -4482,7 +4759,9 @@ function findNextNodeIdsForAssignment(
       continue;
     }
     const parentEntries = parents.get(nodeId) ?? [];
-    const groupParent = parentEntries.find((entry) => Boolean(nodeIndex.get(entry.nodeId)?.isGroup));
+    const groupParent = parentEntries.find((entry) =>
+      Boolean(nodeIndex.get(entry.nodeId)?.isGroup)
+    );
     const groupKey = groupParent?.nodeId ?? null;
     const list = groupedByParent.get(groupKey) ?? [];
     list.push(nodeId);
@@ -4507,20 +4786,6 @@ function findNextNodeIdsForAssignment(
   return Array.from(resolvedIds);
 }
 
-function resolveGroupPinTarget(
-  nodeId: string,
-  nodeIndex: Map<string, QuestNodeViewModel>,
-  parents: Map<string, NodeAdjacencyEntry[]>
-): string {
-  const node = nodeIndex.get(nodeId);
-  if (node?.isGroup) {
-    return nodeId;
-  }
-  const parentEntries = parents.get(nodeId) ?? [];
-  const groupParent = parentEntries.find((entry) => Boolean(nodeIndex.get(entry.nodeId)?.isGroup));
-  return groupParent ? groupParent.nodeId : nodeId;
-}
-
 function buildWikiMarkup(detail: QuestBlueprintDetailPayload): string {
   const lines: string[] = [];
   const title = detail.blueprint.title || 'Quest Blueprint';
@@ -4529,7 +4794,8 @@ function buildWikiMarkup(detail: QuestBlueprintDetailPayload): string {
     lines.push(detail.blueprint.summary);
   }
   lines.push(`;Visibility: ${detail.blueprint.visibility}`);
-  const editedBy = detail.blueprint.lastEditedByName ?? detail.blueprint.createdByName ?? 'Unknown member';
+  const editedBy =
+    detail.blueprint.lastEditedByName ?? detail.blueprint.createdByName ?? 'Unknown member';
   lines.push(`;Last Edited By: ${editedBy}`);
   lines.push(`;Steps: ${detail.nodes.length}`);
   lines.push('');
@@ -4550,7 +4816,7 @@ function renderWikiNodes(nodes: QuestNodeViewModel[], links: QuestNodeLinkViewMo
     parents.push(link.parentNodeId);
     parentMap.set(link.childNodeId, parents);
   });
-  const roots = nodes.filter((node) => !(parentMap.get(node.id)?.length));
+  const roots = nodes.filter((node) => !parentMap.get(node.id)?.length);
   const sections: string[] = [];
   const visited = new Set<string>();
   const sortNodes = (a: QuestNodeViewModel, b: QuestNodeViewModel) =>
@@ -4801,7 +5067,11 @@ function handleFolderDragOver(folderId: string | null, event: DragEvent) {
 }
 
 function handleBlueprintDragOver(folderId: string | null, blueprintId: string, event: DragEvent) {
-  if (!draggingBlueprintId.value || !canDragBlueprints.value || draggingBlueprintId.value === blueprintId) {
+  if (
+    !draggingBlueprintId.value ||
+    !canDragBlueprints.value ||
+    draggingBlueprintId.value === blueprintId
+  ) {
     return;
   }
   event.preventDefault();
@@ -4825,7 +5095,11 @@ async function handleFolderDrop(folderId: string | null, event?: DragEvent) {
   await moveBlueprintToFolder(blueprintId, folderId, null);
 }
 
-async function handleBlueprintDrop(folderId: string | null, beforeBlueprintId: string, event?: DragEvent) {
+async function handleBlueprintDrop(
+  folderId: string | null,
+  beforeBlueprintId: string,
+  event?: DragEvent
+) {
   if (event) {
     event.preventDefault();
   }
@@ -5183,10 +5457,12 @@ async function loadSummary(initial = false) {
     summary.value = data;
     if (initial && !selectedBlueprintId.value && data.blueprints.length) {
       // Check for blueprintId query parameter from share link
-      const queryBlueprintId = typeof route.query.blueprintId === 'string' ? route.query.blueprintId : null;
-      const targetBlueprintId = queryBlueprintId && data.blueprints.some((bp) => bp.id === queryBlueprintId)
-        ? queryBlueprintId
-        : data.blueprints[0].id;
+      const queryBlueprintId =
+        typeof route.query.blueprintId === 'string' ? route.query.blueprintId : null;
+      const targetBlueprintId =
+        queryBlueprintId && data.blueprints.some((bp) => bp.id === queryBlueprintId)
+          ? queryBlueprintId
+          : data.blueprints[0].id;
       selectBlueprint(targetBlueprintId);
     }
   } catch (error) {
@@ -5223,7 +5499,8 @@ async function loadDetail(blueprintId: string) {
     await nextTick();
     alignViewerAssignmentToPendingCharacter(response.viewerAssignments ?? [], blueprintId);
     // Handle assignmentId query parameter from share link
-    const queryAssignmentId = typeof route.query.assignmentId === 'string' ? route.query.assignmentId : null;
+    const queryAssignmentId =
+      typeof route.query.assignmentId === 'string' ? route.query.assignmentId : null;
     if (queryAssignmentId && response.guildAssignments?.some((a) => a.id === queryAssignmentId)) {
       guildFocusAssignmentId.value = queryAssignmentId;
       setTab('overview');
@@ -5242,7 +5519,10 @@ function updateTabAvailability() {
   }
 }
 
-function alignViewerAssignmentToPendingCharacter(assignments: QuestAssignment[], blueprintId: string) {
+function alignViewerAssignmentToPendingCharacter(
+  assignments: QuestAssignment[],
+  blueprintId: string
+) {
   const characterId = pendingViewerCharacterId.value;
   const targetBlueprintId = pendingViewerBlueprintId.value;
   pendingViewerCharacterId.value = null;
@@ -5267,14 +5547,9 @@ function resetCanvasTransform() {
 
 function retryLoadSummary() {
   const treatAsInitial = !summary.value;
-  loadSummary(treatAsInitial).catch((error) => console.error('Failed to load quest tracker', error));
-}
-
-function toggleStepSettings() {
-  if (!selectedNodeId.value && editableNodes.value.length) {
-    setSelectedNodes([editableNodes.value[0].id]);
-  }
-  showStepSettings.value = !showStepSettings.value;
+  loadSummary(treatAsInitial).catch((error) =>
+    console.error('Failed to load quest tracker', error)
+  );
 }
 
 function openBlueprintJsonModal() {
@@ -5445,9 +5720,8 @@ async function copyQuestShareLink() {
     name: 'QuestShare',
     params: { assignmentId }
   }).href;
-  const absoluteUrl = typeof window !== 'undefined'
-    ? new URL(resolved, window.location.origin).toString()
-    : resolved;
+  const absoluteUrl =
+    typeof window !== 'undefined' ? new URL(resolved, window.location.origin).toString() : resolved;
 
   try {
     if (navigator?.clipboard?.writeText) {
@@ -5964,7 +6238,9 @@ function finalizeMarqueeSelection() {
     clearSelectedNodes();
     return;
   }
-  const hits = editableNodes.value.filter((node) => nodeWithinBounds(node, bounds)).map((node) => node.id);
+  const hits = editableNodes.value
+    .filter((node) => nodeWithinBounds(node, bounds))
+    .map((node) => node.id);
   if (hits.length) {
     setSelectedNodes(hits);
   } else {
@@ -6116,12 +6392,7 @@ function isEditableElement(target: EventTarget | null): target is HTMLElement {
     return false;
   }
   const tag = target.tagName;
-  return (
-    target.isContentEditable ||
-    tag === 'INPUT' ||
-    tag === 'TEXTAREA' ||
-    tag === 'SELECT'
-  );
+  return target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
 }
 
 function nodeLinks(nodeId: string) {
@@ -6185,7 +6456,8 @@ function beginDrag(node: EditableNode, event: PointerEvent) {
   }));
   const startX = event.clientX;
   const startY = event.clientY;
-  const anchorEntry = originPositions.find((entry) => entry.node.id === node.id) ?? originPositions[0];
+  const anchorEntry =
+    originPositions.find((entry) => entry.node.id === node.id) ?? originPositions[0];
   if (!anchorEntry) {
     return;
   }
@@ -6272,18 +6544,6 @@ function beginDrag(node: EditableNode, event: PointerEvent) {
   document.addEventListener('pointermove', moveHandler);
   document.addEventListener('pointerup', upHandler);
   (event.target as HTMLElement | undefined)?.setPointerCapture?.(event.pointerId);
-}
-
-function resetEditorState() {
-  if (!detail.value) {
-    return;
-  }
-  editableNodes.value = detail.value.nodes.map((node) => buildEditableNode(node)) as EditableNode[];
-  editableLinks.value = detail.value.links.map((link) => ({ ...link }));
-  dirtyGraph.value = false;
-  setSelectedNodes(editableNodes.value[0] ? [editableNodes.value[0].id] : []);
-  nodeHeightOverrides.clear();
-  nodeWidthOverrides.clear();
 }
 
 async function saveGraph() {
@@ -6395,11 +6655,7 @@ async function updateAssignmentStatus(status: QuestAssignmentStatus) {
   }
   assignmentUpdating.value = true;
   try {
-    const assignment = await api.updateQuestAssignmentStatus(
-      guildId,
-      assignmentId,
-      status
-    );
+    const assignment = await api.updateQuestAssignmentStatus(guildId, assignmentId, status);
     syncViewerAssignmentState(blueprintId, assignment);
     await loadSummary();
   } catch (error) {
@@ -6467,7 +6723,10 @@ async function startAssignmentWithCharacter(characterId: string) {
     await loadSummary();
     showCharacterModal.value = false;
   } catch (error) {
-    characterStartError.value = extractErrorMessage(error, 'Unable to start quest for that character.');
+    characterStartError.value = extractErrorMessage(
+      error,
+      'Unable to start quest for that character.'
+    );
   } finally {
     assignmentUpdating.value = false;
   }
@@ -6541,13 +6800,13 @@ async function updateNodeStatus(nodeId: string, status: QuestNodeProgressStatus)
           if (renderedNodeIndex.value.get(ancestorId)?.isOptional) {
             continue;
           }
-      if (isGroupNode(ancestorId)) {
-        if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
-          updates.set(ancestorId, 'COMPLETED');
-          newlyCompleted.add(ancestorId);
-        }
-        continue;
-      }
+          if (isGroupNode(ancestorId)) {
+            if (areAllDescendantsComplete(ancestorId, newlyCompleted)) {
+              updates.set(ancestorId, 'COMPLETED');
+              newlyCompleted.add(ancestorId);
+            }
+            continue;
+          }
           updates.set(ancestorId, 'COMPLETED');
           newlyCompleted.add(ancestorId);
         }
@@ -6739,7 +6998,7 @@ onUnmounted(() => {
     window.clearTimeout(toastTimer);
   }
 });
- </script>
+</script>
 
 <style scoped>
 .quest-tracker {
@@ -6869,7 +7128,9 @@ onUnmounted(() => {
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .quest-tracker__search-field:focus-within {
@@ -7065,7 +7326,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .quest-blueprint-card__button:hover {
@@ -7617,7 +7881,9 @@ onUnmounted(() => {
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .quest-link-remove--visible {
@@ -7710,9 +7976,9 @@ onUnmounted(() => {
   inset: -8px;
   border-radius: 50%;
   background: conic-gradient(
-      var(--accent, rgba(56, 189, 248, 0.95)) calc(var(--group-progress, 0) * 1turn),
-      rgba(30, 41, 59, 0.45) 0
-    );
+    var(--accent, rgba(56, 189, 248, 0.95)) calc(var(--group-progress, 0) * 1turn),
+    rgba(30, 41, 59, 0.45) 0
+  );
   mask: radial-gradient(farthest-side, transparent calc(100% - 14px), #000 calc(100% - 14px));
   z-index: -2;
   transition: background 0.3s ease;
@@ -7730,9 +7996,9 @@ onUnmounted(() => {
 
 .quest-node--group.quest-node--completed::before {
   background: conic-gradient(
-      var(--accent, rgba(34, 197, 94, 0.95)) calc(var(--group-progress, 0) * 1turn),
-      rgba(15, 118, 110, 0.35) 0
-    );
+    var(--accent, rgba(34, 197, 94, 0.95)) calc(var(--group-progress, 0) * 1turn),
+    rgba(15, 118, 110, 0.35) 0
+  );
 }
 
 .quest-node--group .quest-node__header {
@@ -7832,7 +8098,9 @@ onUnmounted(() => {
   border-radius: 999px;
   font-size: 0.85rem;
   font-weight: 600;
-  transition: background 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
   margin-left: 1rem;
 }
 
@@ -7947,7 +8215,9 @@ onUnmounted(() => {
   font-size: 0.78rem;
   line-height: 1.4;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -8468,7 +8738,6 @@ onUnmounted(() => {
     0 0 6px rgba(59, 130, 246, 0.55) inset;
 }
 
-
 .quest-node-badge {
   width: 32px;
   height: 32px;
@@ -8712,7 +8981,9 @@ onUnmounted(() => {
   color: #e2e8f0;
   padding: 1rem;
   border-radius: 0.75rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
   font-size: 0.85rem;
 }
 
@@ -8779,7 +9050,10 @@ onUnmounted(() => {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: rgba(15, 23, 42, 0.65);
   text-align: left;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
 .quest-character-button--link {
@@ -9027,7 +9301,10 @@ onUnmounted(() => {
   border-radius: 999px;
   font-weight: 600;
   padding: 0.45rem 1.2rem;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
   border: none;
 }
 
@@ -9101,7 +9378,10 @@ onUnmounted(() => {
   box-shadow:
     0 12px 25px rgba(16, 185, 129, 0.35),
     inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
 }
 
 .quest-tracker .btn--start:hover:not(:disabled) {

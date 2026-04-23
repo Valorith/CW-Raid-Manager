@@ -2,8 +2,8 @@ import { createHash } from 'crypto';
 
 import type { FastifyBaseLogger } from 'fastify';
 
+import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js';
 import { prisma } from '../utils/prisma.js';
-import { recordKillForTrackedNpc, type RecordKillResult, type ZoneOption } from './npcRespawnService.js';
 
 // Type for kills that need instance clarification
 export type PendingInstanceClarification = {
@@ -101,7 +101,7 @@ export async function recordRaidNpcKills(
     return { inserted: 0 };
   }
 
-  const raidContext = await prisma.raidEvent.findUnique({
+  await prisma.raidEvent.findUnique({
     where: { id: raidId },
     select: {
       id: true,

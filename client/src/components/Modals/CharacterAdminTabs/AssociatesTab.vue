@@ -44,7 +44,10 @@
             <button
               type="button"
               class="type-btn"
-              :class="{ 'type-btn--active': associationType === 'direct', 'type-btn--direct': associationType === 'direct' }"
+              :class="{
+                'type-btn--active': associationType === 'direct',
+                'type-btn--direct': associationType === 'direct'
+              }"
               @click="associationType = 'direct'"
             >
               <span class="type-icon">&#9679;</span>
@@ -53,7 +56,10 @@
             <button
               type="button"
               class="type-btn"
-              :class="{ 'type-btn--active': associationType === 'indirect', 'type-btn--indirect': associationType === 'indirect' }"
+              :class="{
+                'type-btn--active': associationType === 'indirect',
+                'type-btn--indirect': associationType === 'indirect'
+              }"
               @click="associationType = 'indirect'"
             >
               <span class="type-icon">&#9675;</span>
@@ -61,7 +67,11 @@
             </button>
           </div>
           <div class="type-description">
-            {{ associationType === 'direct' ? 'Direct = same person (orange border on connections)' : 'Indirect = possible alt/associate (yellow border on connections)' }}
+            {{
+              associationType === 'direct'
+                ? 'Direct = same person (orange border on connections)'
+                : 'Indirect = possible alt/associate (yellow border on connections)'
+            }}
           </div>
         </div>
         <input
@@ -88,7 +98,9 @@
     <!-- Associates List -->
     <template v-else>
       <div class="associates-summary">
-        {{ store.associates.length }} associated character{{ store.associates.length !== 1 ? 's' : '' }}
+        {{ store.associates.length }} associated character{{
+          store.associates.length !== 1 ? 's' : ''
+        }}
       </div>
 
       <div class="associates-list">
@@ -136,11 +148,15 @@
               :disabled="togglingWatchId === associate.characterId"
               @click="toggleAssociateWatch(associate)"
             >
-              <span class="watch-icon">{{ isAssociateWatched(associate.characterId) ? '&#9733;' : '&#9734;' }}</span>
+              <span class="watch-icon">{{
+                isAssociateWatched(associate.characterId) ? '&#9733;' : '&#9734;'
+              }}</span>
               <span class="watch-label">{{
                 togglingWatchId === associate.characterId
                   ? '...'
-                  : (isAssociateWatched(associate.characterId) ? 'Watching' : 'Watch')
+                  : isAssociateWatched(associate.characterId)
+                    ? 'Watching'
+                    : 'Watch'
               }}</span>
             </button>
             <button
@@ -168,9 +184,7 @@
         >
           &laquo; Prev
         </button>
-        <span class="pagination-info">
-          Page {{ currentPage }} of {{ totalPages }}
-        </span>
+        <span class="pagination-info"> Page {{ currentPage }} of {{ totalPages }} </span>
         <button
           class="pagination-btn"
           :disabled="currentPage === totalPages"
@@ -202,9 +216,12 @@ const paginatedAssociates = computed(() => {
 });
 
 // Reset to page 1 when associates list changes
-watch(() => store.associates, () => {
-  currentPage.value = 1;
-});
+watch(
+  () => store.associates,
+  () => {
+    currentPage.value = 1;
+  }
+);
 
 function goToPage(page: number) {
   if (page >= 1 && page <= totalPages.value) {
@@ -213,8 +230,8 @@ function goToPage(page: number) {
 }
 
 // Compute set of watched character IDs for efficient lookups
-const watchedCharacterIds = computed(() =>
-  new Set(store.fullWatchList.map(w => w.eqCharacterId))
+const watchedCharacterIds = computed(
+  () => new Set(store.fullWatchList.map((w) => w.eqCharacterId))
 );
 
 // Check if an associate is on the watch list
@@ -225,7 +242,11 @@ function isAssociateWatched(characterId: number): boolean {
 // Watch toggle for associates
 const togglingWatchId = ref<number | null>(null);
 
-async function toggleAssociateWatch(associate: { characterId: number; characterName: string; accountId: number }) {
+async function toggleAssociateWatch(associate: {
+  characterId: number;
+  characterName: string;
+  accountId: number;
+}) {
   if (togglingWatchId.value === associate.characterId) return;
 
   togglingWatchId.value = associate.characterId;
@@ -234,7 +255,11 @@ async function toggleAssociateWatch(associate: { characterId: number; characterN
     if (isCurrentlyWatched) {
       await api.removeCharacterWatch(associate.characterId);
     } else {
-      await api.addCharacterWatch(associate.characterId, associate.characterName, associate.accountId);
+      await api.addCharacterWatch(
+        associate.characterId,
+        associate.characterName,
+        associate.accountId
+      );
     }
     // Reload watch list to update UI
     await store.loadWatchList();
@@ -272,7 +297,7 @@ function selectCharacter(char: AdminCharacterSearchResult) {
   if (char.id === store.character?.id) {
     return;
   }
-  if (store.associates.some(a => a.characterId === char.id)) {
+  if (store.associates.some((a) => a.characterId === char.id)) {
     return;
   }
 
@@ -629,7 +654,8 @@ function formatDate(dateStr: string): string {
 }
 
 @keyframes watchPulse {
-  0%, 100% {
+  0%,
+  100% {
     background-color: rgba(249, 115, 22, 0.08);
     border-color: rgba(249, 115, 22, 0.6);
   }

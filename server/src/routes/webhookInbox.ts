@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+
 import { receiveInboundWebhookMessage } from '../services/inboundWebhookService.js';
 
 export async function webhookInboxRoutes(server: FastifyInstance): Promise<void> {

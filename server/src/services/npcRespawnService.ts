@@ -1,10 +1,10 @@
 import { Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
-import { prisma } from '../utils/prisma.js';
-import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
-import { resetRespawnNotification } from './npcRespawnNotificationService.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { resetRespawnNotification } from './npcRespawnNotificationService.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { prisma } from '../utils/prisma.js';
 
 // Valid content flags for NPC definitions
 export const NPC_CONTENT_FLAGS = ['Christmas', 'Halloween'] as const;

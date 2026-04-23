@@ -37,7 +37,8 @@ function openDatabase(): Promise<IDBDatabase> {
 function promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Failed to access persistent storage.'));
+    request.onerror = () =>
+      reject(request.error ?? new Error('Failed to access persistent storage.'));
   });
 }
 

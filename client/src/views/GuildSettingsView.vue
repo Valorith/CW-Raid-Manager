@@ -2,10 +2,7 @@
   <GlobalLoadingSpinner v-if="showLoading" />
   <section v-else-if="guild" class="guild-settings">
     <header class="section-header">
-      <RouterLink
-        class="back-link"
-        :to="{ name: 'GuildDetail', params: { guildId } }"
-      >
+      <RouterLink class="back-link" :to="{ name: 'GuildDetail', params: { guildId } }">
         ← Back to Guild
       </RouterLink>
       <div class="section-header__main">
@@ -30,9 +27,11 @@
           >
             <svg viewBox="0 0 245 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <path
-                d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1" />
+                d="M104.4 104.9c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1.1-6.1-4.5-11.1-10.2-11.1m36.2 0c-5.7 0-10.2 5-10.2 11.1s4.6 11.1 10.2 11.1c5.7 0 10.2-5 10.2-11.1s-4.5-11.1-10.2-11.1"
+              />
               <path
-                d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .30 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z" />
+                d="M189.5 20h-134C24.8 20 10 34.8 10 53.5v134C10 206.2 24.8 221 43.5 221h113.4l-5.3-18.5 12.8 11.9 12.1 11.2 21.5 19V53.5C198 34.8 183.2 20 164.5 20zm-26.4 135s-2.5-3-4.6-5.6c9.1-2.6 12.5-8.4 12.5-8.4-2.8 1.8-5.4 3.1-7.8 4-3.4 1.4-6.7 2.3-9.9 2.9-6.5 1.2-12.5.9-17.6-.1-3.9-.8-7.3-1.8-10.1-2.9-1.6-.6-3.3-1.4-5-2.4-.2-.1-.4-.2-.6-.3-.1 0-.1-.1-.2-.1-1-.6-1.5-.9-1.5-.9s3.3 5.5 12.1 8.2c-2.1 2.6-4.7 5.7-4.7 5.7-15.4-.5-21.3-10.6-21.3-10.6 0-22.4 10-40.5 10-40.5 10-7.5 19.5-7.3 19.5-7.3l.7.9c-12.5 3.6-18.3 9.1-18.3 9.1s1.5-.8 4-2c7.3-3.2 13-4.1 15.4-4.3.4-.1.8-.1 1.3-.1 4.7-.6 10-1 15.6-1 .30 0 8.6.1 17.6 3.3 2.9 1.1 6.2 2.7 9.7 5.1 0 0-5.5-5.2-17.4-8.8l1-1.1s9.5-.2 19.5 7.3c0 0 10 18.2 10 40.5 0 .1-5.9 10.2-21.3 10.7z"
+              />
             </svg>
             <span>Discord Webhook</span>
           </button>
@@ -45,7 +44,9 @@
         <header class="settings-card__header">
           <div>
             <h2>General Settings</h2>
-            <p class="muted small">Configure default raid details and optional Discord integrations.</p>
+            <p class="muted small">
+              Configure default raid details and optional Discord integrations.
+            </p>
           </div>
           <span v-if="!canEditGeneralSettings" class="settings-badge">View Only</span>
         </header>
@@ -67,12 +68,22 @@
             <div class="settings-field-grid">
               <label class="form__field">
                 <span>Default Raid Start Time</span>
-                <input v-model="form.defaultRaidStartTime" type="time" :disabled="!canEditGeneralSettings" />
-                <small class="muted">Applied to the raid creation picker when scheduling future raids.</small>
+                <input
+                  v-model="form.defaultRaidStartTime"
+                  type="time"
+                  :disabled="!canEditGeneralSettings"
+                />
+                <small class="muted"
+                  >Applied to the raid creation picker when scheduling future raids.</small
+                >
               </label>
               <label class="form__field">
                 <span>Default Raid End Time</span>
-                <input v-model="form.defaultRaidEndTime" type="time" :disabled="!canEditGeneralSettings" />
+                <input
+                  v-model="form.defaultRaidEndTime"
+                  type="time"
+                  :disabled="!canEditGeneralSettings"
+                />
                 <small class="muted">Used to prefill raid end times for your team.</small>
               </label>
             </div>
@@ -91,7 +102,9 @@
               <small v-if="fieldErrors.defaultDiscordVoiceUrl" class="form__error">
                 {{ fieldErrors.defaultDiscordVoiceUrl }}
               </small>
-              <small v-else class="muted">Prefills the raid voice channel link when planning a new raid.</small>
+              <small v-else class="muted"
+                >Prefills the raid voice channel link when planning a new raid.</small
+              >
             </label>
           </section>
 
@@ -99,7 +112,9 @@
             <div class="section-heading section-heading--sub">
               <div>
                 <h3>Discord Widget</h3>
-                <p class="muted small">Provide a Discord server ID to embed your live widget on the guild page.</p>
+                <p class="muted small">
+                  Provide a Discord server ID to embed your live widget on the guild page.
+                </p>
               </div>
             </div>
             <label class="toggle-field">
@@ -120,7 +135,10 @@
                   placeholder="Example: 123456789012345678"
                   :disabled="!canEditGeneralSettings"
                 />
-                <small class="muted">Enable the Discord widget in your server settings, then paste the server ID.</small>
+                <small class="muted"
+                  >Enable the Discord widget in your server settings, then paste the server
+                  ID.</small
+                >
               </label>
               <label class="form__field">
                 <span>Widget Theme</span>
@@ -131,14 +149,21 @@
                   <option value="DARK">Dark</option>
                   <option value="LIGHT">Light</option>
                 </select>
-                <small class="muted">Used when rendering the Discord widget on the guild page.</small>
+                <small class="muted"
+                  >Used when rendering the Discord widget on the guild page.</small
+                >
               </label>
             </div>
           </section>
         </div>
         <footer class="settings-card__footer">
           <div class="settings-actions">
-            <button class="btn btn--outline" type="button" :disabled="saving || !canEditGeneralSettings" @click="resetForm">
+            <button
+              class="btn btn--outline"
+              type="button"
+              :disabled="saving || !canEditGeneralSettings"
+              @click="resetForm"
+            >
               Reset
             </button>
             <button class="btn" type="submit" :disabled="saving || !canEditGeneralSettings">
@@ -188,7 +213,12 @@
               </button>
             </div>
             <div class="loot-list-filters">
-              <input v-model="lootListSearch" type="search" class="input loot-list-search" placeholder="Search items" />
+              <input
+                v-model="lootListSearch"
+                type="search"
+                class="input loot-list-search"
+                placeholder="Search items"
+              />
               <select v-model="lootListSortBy">
                 <option value="itemName">Sort: Name</option>
                 <option value="itemId">Sort: Item ID</option>
@@ -214,7 +244,9 @@
             </button>
           </form>
 
-          <p v-if="lootListLoading" class="muted">Loading {{ lootListTypeLabels[lootListActiveType].toLowerCase() }}…</p>
+          <p v-if="lootListLoading" class="muted">
+            Loading {{ lootListTypeLabels[lootListActiveType].toLowerCase() }}…
+          </p>
           <p v-else-if="lootListEntries.length === 0" class="muted small">
             No {{ lootListTypeLabels[lootListActiveType].toLowerCase() }} entries found.
           </p>
@@ -250,23 +282,36 @@
                   <td>{{ formatListTimestamp(entry.createdAt) }}</td>
                   <td class="loot-list-table__actions">
                     <template v-if="editingEntryId === entry.id">
-                      <button class="btn btn--small" type="button" :disabled="editingSaving" @click="saveEditingEntry(entry.id)">
+                      <button
+                        class="btn btn--small"
+                        type="button"
+                        :disabled="editingSaving"
+                        @click="saveEditingEntry(entry.id)"
+                      >
                         {{ editingSaving ? 'Saving…' : 'Save' }}
                       </button>
-                      <button class="btn btn--outline btn--small" type="button" @click="cancelEditing">
+                      <button
+                        class="btn btn--outline btn--small"
+                        type="button"
+                        @click="cancelEditing"
+                      >
                         Cancel
                       </button>
                     </template>
                     <template v-else>
-                      <button class="btn btn--outline btn--small" type="button" @click="startEditingEntry(entry)">
+                      <button
+                        class="btn btn--outline btn--small"
+                        type="button"
+                        @click="startEditingEntry(entry)"
+                      >
                         Edit
                       </button>
                       <button
                         class="btn btn--danger btn--small"
                         type="button"
                         :disabled="deletingEntryId === entry.id"
-                        @click="deleteLootListEntry(entry)
-                      ">
+                        @click="deleteLootListEntry(entry)"
+                      >
                         {{ deletingEntryId === entry.id ? 'Deleting…' : 'Delete' }}
                       </button>
                     </template>
@@ -277,10 +322,17 @@
           </div>
 
           <div v-if="lootListTotalPages > 1" class="pagination">
-            <button class="pagination__button" type="button" :disabled="lootListPage === 1" @click="setLootListPage(lootListPage - 1)">
+            <button
+              class="pagination__button"
+              type="button"
+              :disabled="lootListPage === 1"
+              @click="setLootListPage(lootListPage - 1)"
+            >
               Previous
             </button>
-            <span class="pagination__label">Page {{ lootListPage }} of {{ lootListTotalPages }}</span>
+            <span class="pagination__label"
+              >Page {{ lootListPage }} of {{ lootListTotalPages }}</span
+            >
             <button
               class="pagination__button"
               type="button"
@@ -723,14 +775,11 @@ watch(lootListActiveType, () => {
   void fetchLootListEntries();
 });
 
-watch(
-  lootListPage,
-  (current, previous) => {
-    if (current !== previous) {
-      void fetchLootListEntries();
-    }
+watch(lootListPage, (current, previous) => {
+  if (current !== previous) {
+    void fetchLootListEntries();
   }
-);
+});
 
 watch(lootListSearch, () => {
   if (lootListSearchDebounce.value) {
@@ -765,7 +814,6 @@ onBeforeUnmount(() => {
   padding-bottom: 0.5rem;
   position: relative;
 }
-
 
 .header-actions {
   display: inline-flex;
@@ -908,7 +956,9 @@ onBeforeUnmount(() => {
   border-radius: 0.65rem;
   color: #f8fafc;
   padding: 0.55rem 0.65rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .form__field input:focus,
@@ -969,7 +1019,9 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .loot-list-tab--active {
@@ -1048,7 +1100,10 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1076,7 +1131,9 @@ onBeforeUnmount(() => {
   letter-spacing: 0.08em;
   cursor: pointer;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .discord-button svg {
@@ -1104,7 +1161,10 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   box-shadow: 0 12px 26px rgba(14, 165, 233, 0.25);
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .parser-button:hover {
@@ -1141,7 +1201,10 @@ onBeforeUnmount(() => {
   text-decoration: none;
   font-weight: 600;
   letter-spacing: 0.05em;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .back-link:hover {
@@ -1171,7 +1234,10 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   box-shadow: 0 12px 26px rgba(14, 165, 233, 0.25);
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .parser-button:hover {
@@ -1179,5 +1245,4 @@ onBeforeUnmount(() => {
   border-color: rgba(125, 211, 252, 0.8);
   box-shadow: 0 16px 32px rgba(14, 165, 233, 0.32);
 }
-
 </style>

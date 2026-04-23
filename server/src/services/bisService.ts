@@ -3,8 +3,8 @@ import { CharacterClass, Prisma } from '@prisma/client';
 import { ensureAdmin } from './adminService.js';
 import { getItemStats } from './itemStatsService.js';
 import { searchDiscoveredItems } from './npcRespawnService.js';
-import { prisma } from '../utils/prisma.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { prisma } from '../utils/prisma.js';
 
 const BIS_PLAYABLE_CLASSES = [
   CharacterClass.BARD,

@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
 import {
   approveGuildNpcNoteDeletion,
   deleteGuildNpcNote,
@@ -12,8 +11,9 @@ import {
   requestGuildNpcNoteDeletion,
   upsertGuildNpcNote
 } from '../services/guildNpcNoteService.js';
-import { prisma } from '../utils/prisma.js';
+import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 function isValidAllaLink(value: string) {
   const trimmed = value.trim();
@@ -114,7 +114,7 @@ export async function npcNotesRoutes(server: FastifyInstance): Promise<void> {
     const paramsSchema = z.object({ guildId: z.string(), npcName: z.string() });
     const { guildId, npcName } = paramsSchema.parse(request.params);
 
-    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+    await ensureUserCanViewGuild(request.user.userId, guildId);
 
     const parsedBody = npcNoteBodySchema.safeParse(request.body ?? {});
     if (!parsedBody.success) {

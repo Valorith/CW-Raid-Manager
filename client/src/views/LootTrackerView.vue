@@ -95,7 +95,8 @@
           </p>
           <p class="muted x-small">
             {{ lootEvents.length }}
-            existing loot {{ lootEvents.length === 1 ? 'entry' : 'entries' }} will remain if you keep them.
+            existing loot {{ lootEvents.length === 1 ? 'entry' : 'entries' }} will remain if you
+            keep them.
           </p>
         </div>
         <footer class="clear-loot-actions">
@@ -202,214 +203,218 @@
             </button>
           </article>
         </div>
-    </div>
-  </div>
-
-  <div v-if="defaultLogPrompt.visible" class="modal-backdrop">
-    <div class="modal default-log-modal">
-      <header class="modal__header">
-        <div>
-          <h3>Use Saved Log File?</h3>
-          <p class="muted small">You can use your default log file or pick a different one.</p>
-        </div>
-        <button class="icon-button" type="button" @click="handleDefaultLogPromptAction('skip')">
-          ✕
-        </button>
-      </header>
-      <div class="modal__body default-log-modal__body">
-        <div class="default-log-modal__icon" aria-hidden="true">📁</div>
-        <div>
-          <p class="default-log-modal__filename">{{ defaultLogPrompt.fileName }}</p>
-          <p class="muted x-small">{{ formatFileSize(defaultLogPrompt.fileSize) }}</p>
-        </div>
       </div>
-      <footer class="default-log-modal__actions">
-        <button
-          class="btn btn--outline btn--modal-outline"
-          type="button"
-          @click="handleDefaultLogPromptAction('skip')"
-        >
-          Choose Different File
-        </button>
-        <button class="btn btn--modal-primary" type="button" @click="handleDefaultLogPromptAction('use')">
-          Use Saved File
-        </button>
-      </footer>
     </div>
-  </div>
 
-  <div v-if="lootCouncilModalVisible" class="modal-backdrop loot-council-backdrop">
-    <div class="modal loot-council-modal" role="dialog" aria-live="polite">
-      <header class="modal__header loot-council-modal__header">
-        <div>
-          <h3>Loot Council In Progress</h3>
-          <p class="muted small">
-            {{
-              lootCouncilActiveItems.length === 1
-                ? '1 item awaiting a decision.'
-                : `${lootCouncilActiveItems.length} items awaiting decisions.`
-            }}
-          </p>
+    <div v-if="defaultLogPrompt.visible" class="modal-backdrop">
+      <div class="modal default-log-modal">
+        <header class="modal__header">
+          <div>
+            <h3>Use Saved Log File?</h3>
+            <p class="muted small">You can use your default log file or pick a different one.</p>
+          </div>
+          <button class="icon-button" type="button" @click="handleDefaultLogPromptAction('skip')">
+            ✕
+          </button>
+        </header>
+        <div class="modal__body default-log-modal__body">
+          <div class="default-log-modal__icon" aria-hidden="true">📁</div>
+          <div>
+            <p class="default-log-modal__filename">{{ defaultLogPrompt.fileName }}</p>
+            <p class="muted x-small">{{ formatFileSize(defaultLogPrompt.fileSize) }}</p>
+          </div>
         </div>
-        <div class="modal__header-actions">
+        <footer class="default-log-modal__actions">
           <button
-            v-if="lootCouncilActiveItems.length > 0 && monitorSession?.isOwner"
-            class="loot-council-clear-all"
+            class="btn btn--outline btn--modal-outline"
             type="button"
-            @click="clearLootCouncilItem('ALL')"
+            @click="handleDefaultLogPromptAction('skip')"
           >
-            Clear All
+            Choose Different File
           </button>
           <button
-            class="loot-council-minimize"
+            class="btn btn--modal-primary"
             type="button"
-            aria-label="Minimize loot council tracker"
-            @click="minimizeLootCouncilModal"
+            @click="handleDefaultLogPromptAction('use')"
           >
-            <span aria-hidden="true" class="loot-council-minimize__icon">⌄</span>
+            Use Saved File
           </button>
-        </div>
-      </header>
-      <section class="loot-council-modal__body">
-        <div class="loot-council-columns">
-          <article
-            v-for="item in lootCouncilActiveItems"
-            :key="item.key"
-            :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
-          >
-            <header class="loot-council-column__header">
-              <div
-                class="loot-council-column__icon"
-                @mouseenter="showLootCouncilItemTooltip($event, item)"
-                @mousemove="updateTooltipPosition($event)"
-                @mouseleave="hideItemTooltip"
-              >
-                <template v-if="hasValidIconId(item.itemIconId)">
-                  <img
-                    :src="getLootIconSrc(item.itemIconId)"
-                    :alt="`${item.itemName} icon`"
-                    loading="lazy"
-                  />
-                </template>
-                <span v-else class="loot-council-column__icon-placeholder">?</span>
-              </div>
-              <div class="loot-council-column__info">
-                <p
-                  class="loot-council-column__name"
+        </footer>
+      </div>
+    </div>
+
+    <div v-if="lootCouncilModalVisible" class="modal-backdrop loot-council-backdrop">
+      <div class="modal loot-council-modal" role="dialog" aria-live="polite">
+        <header class="modal__header loot-council-modal__header">
+          <div>
+            <h3>Loot Council In Progress</h3>
+            <p class="muted small">
+              {{
+                lootCouncilActiveItems.length === 1
+                  ? '1 item awaiting a decision.'
+                  : `${lootCouncilActiveItems.length} items awaiting decisions.`
+              }}
+            </p>
+          </div>
+          <div class="modal__header-actions">
+            <button
+              v-if="lootCouncilActiveItems.length > 0 && monitorSession?.isOwner"
+              class="loot-council-clear-all"
+              type="button"
+              @click="clearLootCouncilItem('ALL')"
+            >
+              Clear All
+            </button>
+            <button
+              class="loot-council-minimize"
+              type="button"
+              aria-label="Minimize loot council tracker"
+              @click="minimizeLootCouncilModal"
+            >
+              <span aria-hidden="true" class="loot-council-minimize__icon">⌄</span>
+            </button>
+          </div>
+        </header>
+        <section class="loot-council-modal__body">
+          <div class="loot-council-columns">
+            <article
+              v-for="item in lootCouncilActiveItems"
+              :key="item.key"
+              :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
+            >
+              <header class="loot-council-column__header">
+                <div
+                  class="loot-council-column__icon"
                   @mouseenter="showLootCouncilItemTooltip($event, item)"
                   @mousemove="updateTooltipPosition($event)"
                   @mouseleave="hideItemTooltip"
                 >
-                  {{ item.itemName }}
-                </p>
-                <p class="loot-council-column__meta">
-                  Tracking since {{ formatRelativeTime(item.startedAt.toISOString()) }}
-                </p>
+                  <template v-if="hasValidIconId(item.itemIconId)">
+                    <img
+                      :src="getLootIconSrc(item.itemIconId)"
+                      :alt="`${item.itemName} icon`"
+                      loading="lazy"
+                    />
+                  </template>
+                  <span v-else class="loot-council-column__icon-placeholder">?</span>
+                </div>
+                <div class="loot-council-column__info">
+                  <p
+                    class="loot-council-column__name"
+                    @mouseenter="showLootCouncilItemTooltip($event, item)"
+                    @mousemove="updateTooltipPosition($event)"
+                    @mouseleave="hideItemTooltip"
+                  >
+                    {{ item.itemName }}
+                  </p>
+                  <p class="loot-council-column__meta">
+                    Tracking since {{ formatRelativeTime(item.startedAt.toISOString()) }}
+                  </p>
+                </div>
+                <span v-if="item.ordinal != null" class="loot-council-column__ordinal">
+                  #{{ item.ordinal }}
+                </span>
+              </header>
+              <div v-if="monitorSession?.isOwner" class="loot-council-column__actions">
+                <button
+                  class="loot-council-column__chip"
+                  type="button"
+                  @click="clearLootCouncilItem(item.key)"
+                >
+                  ✕ Clear
+                </button>
               </div>
-              <span v-if="item.ordinal != null" class="loot-council-column__ordinal">
-                #{{ item.ordinal }}
-              </span>
-            </header>
-            <div v-if="monitorSession?.isOwner" class="loot-council-column__actions">
-              <button
-                class="loot-council-column__chip"
-                type="button"
-                @click="clearLootCouncilItem(item.key)"
-              >
-                ✕ Clear
-              </button>
-            </div>
-            <ul v-if="item.interests.length > 0" class="loot-council-interest-list">
-              <li
-                v-for="interest in item.interests"
-                :key="`${item.key}-${interest.playerKey}`"
-                class="loot-council-interest"
-              >
-                <div class="loot-council-interest__details">
-                  <div class="loot-council-interest__headline">
-                    <span
-                      v-if="interest.classHint && getCharacterClassIcon(interest.classHint)"
-                      class="loot-council-interest__class"
-                      :title="characterClassLabels[interest.classHint]"
-                    >
-                      <img
-                        :src="getCharacterClassIcon(interest.classHint) ?? undefined"
-                        :alt="characterClassLabels[interest.classHint]"
-                      />
-                    </span>
-                    <span
-                      class="loot-council-interest__name clickable"
-                      role="button"
-                      tabindex="0"
-                      @click.stop="openInventory(interest.playerName)"
-                      @keydown.enter.stop="openInventory(interest.playerName)"
-                    >
-                      {{ interest.playerName }}
-                    </span>
-                    <div class="loot-council-interest__votes" aria-label="Votes received">
+              <ul v-if="item.interests.length > 0" class="loot-council-interest-list">
+                <li
+                  v-for="interest in item.interests"
+                  :key="`${item.key}-${interest.playerKey}`"
+                  class="loot-council-interest"
+                >
+                  <div class="loot-council-interest__details">
+                    <div class="loot-council-interest__headline">
                       <span
-                        v-for="(voter, voteIndex) in interest.voters"
-                        :key="`${item.key}-${interest.playerKey}-vote-${voteIndex}`"
-                        class="loot-council-interest__vote-badge"
+                        v-if="interest.classHint && getCharacterClassIcon(interest.classHint)"
+                        class="loot-council-interest__class"
+                        :title="characterClassLabels[interest.classHint]"
                       >
-                        ✔
+                        <img
+                          :src="getCharacterClassIcon(interest.classHint) ?? undefined"
+                          :alt="characterClassLabels[interest.classHint]"
+                        />
+                      </span>
+                      <span
+                        class="loot-council-interest__name clickable"
+                        role="button"
+                        tabindex="0"
+                        @click.stop="openInventory(interest.playerName)"
+                        @keydown.enter.stop="openInventory(interest.playerName)"
+                      >
+                        {{ interest.playerName }}
+                      </span>
+                      <div class="loot-council-interest__votes" aria-label="Votes received">
+                        <span
+                          v-for="(voter, voteIndex) in interest.voters"
+                          :key="`${item.key}-${interest.playerKey}-vote-${voteIndex}`"
+                          class="loot-council-interest__vote-badge"
+                        >
+                          ✔
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      class="loot-council-interest__replacement"
+                      :class="{
+                        'loot-council-interest__replacement--none': !interest.replacing
+                      }"
+                    >
+                      <template v-if="interest.replacing">
+                        <span class="loot-council-interest__replacement-label">Replacing</span>
+                        <div
+                          v-if="hasValidIconId(interest.replacingItemIconId)"
+                          class="loot-council-interest__replacement-icon"
+                          @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
+                        >
+                          <img
+                            :src="getLootIconSrc(interest.replacingItemIconId)"
+                            :alt="`${interest.replacing} icon`"
+                            loading="lazy"
+                          />
+                        </div>
+                        <span
+                          class="loot-council-interest__replacement-name"
+                          @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
+                          @mousemove="updateTooltipPosition($event)"
+                          @mouseleave="hideItemTooltip"
+                        >
+                          {{ interest.replacing }}
+                        </span>
+                      </template>
+                      <span v-else class="loot-council-interest__replacement-none">
+                        Not replacing a current item
                       </span>
                     </div>
                   </div>
-                  <div
-                    class="loot-council-interest__replacement"
-                    :class="{
-                      'loot-council-interest__replacement--none': !interest.replacing
-                    }"
-                  >
-                    <template v-if="interest.replacing">
-                      <span class="loot-council-interest__replacement-label">Replacing</span>
-                      <div
-                        v-if="hasValidIconId(interest.replacingItemIconId)"
-                        class="loot-council-interest__replacement-icon"
-                        @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
-                        @mousemove="updateTooltipPosition($event)"
-                        @mouseleave="hideItemTooltip"
-                      >
-                        <img
-                          :src="getLootIconSrc(interest.replacingItemIconId)"
-                          :alt="`${interest.replacing} icon`"
-                          loading="lazy"
-                        />
-                      </div>
-                      <span
-                        class="loot-council-interest__replacement-name"
-                        @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
-                        @mousemove="updateTooltipPosition($event)"
-                        @mouseleave="hideItemTooltip"
-                      >
-                        {{ interest.replacing }}
-                      </span>
-                    </template>
-                    <span v-else class="loot-council-interest__replacement-none">
-                      Not replacing a current item
+                  <div class="loot-council-interest__meta">
+                    <span class="loot-council-interest__vote-count">
+                      {{ getInterestVoteCount(interest) }}
+                      {{ getInterestVoteCount(interest) === 1 ? 'vote' : 'votes' }}
+                    </span>
+                    <span class="loot-council-interest__timestamp">
+                      {{ formatRelativeTime(interest.lastUpdatedAt.toISOString()) }}
                     </span>
                   </div>
-                </div>
-                <div class="loot-council-interest__meta">
-                  <span class="loot-council-interest__vote-count">
-                    {{ getInterestVoteCount(interest) }}
-                    {{ getInterestVoteCount(interest) === 1 ? 'vote' : 'votes' }}
-                  </span>
-                  <span class="loot-council-interest__timestamp">
-                    {{ formatRelativeTime(interest.lastUpdatedAt.toISOString()) }}
-                  </span>
-                </div>
-              </li>
-            </ul>
-            <p v-else class="muted x-small loot-council-column__empty">
-              Waiting for raiders to signal interest…
-            </p>
-          </article>
-        </div>
-      </section>
+                </li>
+              </ul>
+              <p v-else class="muted x-small loot-council-column__empty">
+                Waiting for raiders to signal interest…
+              </p>
+            </article>
+          </div>
+        </section>
+      </div>
     </div>
-  </div>
 
     <section
       v-if="canManageLoot && monitorSession"
@@ -569,13 +574,12 @@
       <header class="card__header">
         <div>
           <h2>Loot Disposition</h2>
-          <p class="muted">
-            {{ lootDispositionHistory.length }} loot actions during this raid
-          </p>
+          <p class="muted">{{ lootDispositionHistory.length }} loot actions during this raid</p>
         </div>
       </header>
       <p v-if="lootDispositionHistory.length === 0" class="muted">
-        No loot disposition events recorded yet. Events will appear here as loot is awarded, discarded, or otherwise distributed during active monitoring.
+        No loot disposition events recorded yet. Events will appear here as loot is awarded,
+        discarded, or otherwise distributed during active monitoring.
       </p>
       <template v-else>
         <div v-if="lootDispositionHistory.length > 0" class="loot-disposition-search">
@@ -586,7 +590,10 @@
             placeholder="Search items, recipients, or actions..."
           />
         </div>
-        <p v-if="filteredLootDispositionHistory.length === 0" class="muted loot-disposition-no-results">
+        <p
+          v-if="filteredLootDispositionHistory.length === 0"
+          class="muted loot-disposition-no-results"
+        >
           No results matching "{{ lootDispositionSearch }}".
         </p>
         <div v-else class="loot-disposition-table-wrapper">
@@ -605,7 +612,9 @@
                   {{ formatDispositionTime(entry.timestamp) }}
                 </td>
                 <td class="loot-disposition-table__action">
-                  <span :class="['loot-disposition-badge', getDispositionBadgeClass(entry.actionType)]">
+                  <span
+                    :class="['loot-disposition-badge', getDispositionBadgeClass(entry.actionType)]"
+                  >
                     {{ entry.actionType }}
                   </span>
                 </td>
@@ -789,18 +798,19 @@
             <h3>Edit Loot Entry</h3>
             <p class="muted small">Update the assignee or quantity for this loot drop.</p>
           </div>
-          <button class="icon-button" type="button" :disabled="editLootModal.saving" @click="closeEditLootModal">
+          <button
+            class="icon-button"
+            type="button"
+            :disabled="editLootModal.saving"
+            @click="closeEditLootModal"
+          >
             ✕
           </button>
         </header>
         <form class="edit-loot-form" @submit.prevent="saveEditedLoot">
           <label class="form__field">
             <span>Item</span>
-            <input
-              type="text"
-              :value="editLootModal.entry?.itemName ?? ''"
-              disabled
-            />
+            <input type="text" :value="editLootModal.entry?.itemName ?? ''" disabled />
           </label>
           <label class="form__field">
             <span>Assigned To</span>
@@ -850,25 +860,22 @@
       </div>
     </div>
 
-    <div
-      v-if="assignLootModal.visible"
-      class="modal-backdrop"
-      @click.self="closeAssignLootModal()"
-    >
+    <div v-if="assignLootModal.visible" class="modal-backdrop" @click.self="closeAssignLootModal()">
       <div class="modal assign-loot-modal">
         <header class="modal__header">
           <div>
             <h3>Assign Loot</h3>
             <p class="muted small">
               Choose a guild character to assign
-              <strong>{{ assignLootModal.entry?.itemName }}</strong>.
+              <strong>{{ assignLootModal.entry?.itemName }}</strong
+              >.
             </p>
           </div>
           <button
             class="icon-button"
             type="button"
             :disabled="assignLootModal.saving"
-          @click="closeAssignLootModal()"
+            @click="closeAssignLootModal()"
           >
             ✕
           </button>
@@ -897,10 +904,7 @@
               No characters match your search.
             </p>
             <ul v-else class="assign-loot__options">
-              <li
-                v-for="character in filteredAssignableCharacters"
-                :key="character.id"
-              >
+              <li v-for="character in filteredAssignableCharacters" :key="character.id">
                 <label class="assign-loot__option">
                   <input
                     class="assign-loot__radio"
@@ -909,15 +913,19 @@
                     v-model="assignLootModal.selectedCharacterId"
                     :disabled="assignLootModal.saving"
                   />
-                    <span class="assign-loot__option-text">
-                      <span class="assign-loot__option-name">{{ character.name }}</span>
-                      <span class="assign-loot__option-meta">
-                        <span v-if="character.level">Lv {{ character.level }}</span>
-                        <span>{{ character.userName }}</span>
-                        <span v-if="character.isMain" class="assign-loot__badge">Main</span>
-                        <span v-if="character.isGuildBank" class="assign-loot__badge assign-loot__badge--bank">Guild Bank</span>
-                      </span>
+                  <span class="assign-loot__option-text">
+                    <span class="assign-loot__option-name">{{ character.name }}</span>
+                    <span class="assign-loot__option-meta">
+                      <span v-if="character.level">Lv {{ character.level }}</span>
+                      <span>{{ character.userName }}</span>
+                      <span v-if="character.isMain" class="assign-loot__badge">Main</span>
+                      <span
+                        v-if="character.isGuildBank"
+                        class="assign-loot__badge assign-loot__badge--bank"
+                        >Guild Bank</span
+                      >
                     </span>
+                  </span>
                 </label>
               </li>
             </ul>
@@ -1013,7 +1021,11 @@
           >
             Clear
           </button>
-          <button class="btn btn--outline btn--small" type="button" @click="handleResetProcessedLogs">
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            @click="handleResetProcessedLogs"
+          >
             Reset Processed Logs
           </button>
         </div>
@@ -1052,7 +1064,12 @@
             >
               ▁
             </button>
-            <button class="icon-button" type="button" aria-label="Close" @click="closeDetectedLootModal">
+            <button
+              class="icon-button"
+              type="button"
+              aria-label="Close"
+              @click="closeDetectedLootModal"
+            >
               ✕
             </button>
           </div>
@@ -1227,14 +1244,23 @@
   <p v-else class="muted">Loading raid…</p>
 
   <!-- Instance Clarification Modal -->
-  <div v-if="showInstanceClarificationModal" class="modal-backdrop" @click.self="closeInstanceClarificationModal">
+  <div
+    v-if="showInstanceClarificationModal"
+    class="modal-backdrop"
+    @click.self="closeInstanceClarificationModal"
+  >
     <div class="modal instance-clarification-modal">
       <header class="modal__header">
         <div>
           <h3>Instance Kill Clarification</h3>
-          <p class="muted small">These NPCs exist in both instance and overworld versions. Please confirm where each kill occurred.</p>
+          <p class="muted small">
+            These NPCs exist in both instance and overworld versions. Please confirm where each kill
+            occurred.
+          </p>
         </div>
-        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">✕</button>
+        <button class="icon-button" type="button" @click="closeInstanceClarificationModal">
+          ✕
+        </button>
       </header>
       <div class="modal__body">
         <div class="clarification-list">
@@ -1287,12 +1313,18 @@
     </div>
   </div>
   <!-- Zone Clarification Modal -->
-  <div v-if="showZoneClarificationModal" class="modal-backdrop" @click.self="closeZoneClarificationModal">
+  <div
+    v-if="showZoneClarificationModal"
+    class="modal-backdrop"
+    @click.self="closeZoneClarificationModal"
+  >
     <div class="modal zone-clarification-modal">
       <header class="modal__header">
         <div>
           <h3>Zone Clarification Required</h3>
-          <p class="muted small">These NPCs exist in multiple zones. Please select the correct zone for each kill.</p>
+          <p class="muted small">
+            These NPCs exist in multiple zones. Please select the correct zone for each kill.
+          </p>
         </div>
         <button class="icon-button" type="button" @click="closeZoneClarificationModal">✕</button>
       </header>
@@ -1308,10 +1340,7 @@
               <span class="kill-time">{{ formatClarificationTime(kill.killedAt) }}</span>
               <span v-if="kill.killedByName" class="kill-by">by {{ kill.killedByName }}</span>
             </div>
-            <select
-              v-model="zoneClarifications[index].selectedNpcDefinitionId"
-              class="zone-select"
-            >
+            <select v-model="zoneClarifications[index].selectedNpcDefinitionId" class="zone-select">
               <option
                 v-for="option in kill.zoneOptions"
                 :key="option.npcDefinitionId"
@@ -1342,7 +1371,6 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
-import CharacterLink from '../components/CharacterLink.vue';
 import { RouterLink, useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
 import { isAxiosError } from 'axios';
 
@@ -1351,7 +1379,6 @@ import {
   type GuildLootParserSettings,
   type GuildLootListEntry,
   type GuildLootListSummary,
-  type LootCouncilState,
   type LootCouncilStateItem,
   type PendingInstanceClarification,
   type PendingZoneClarification,
@@ -1359,7 +1386,11 @@ import {
   type RaidLootEvent,
   type RaidLogMonitorSession
 } from '../services/api';
-import { characterClassLabels, getCharacterClassIcon, type CharacterClass } from '../services/types';
+import {
+  characterClassLabels,
+  getCharacterClassIcon,
+  type CharacterClass
+} from '../services/types';
 import {
   parseLootLog,
   type GuildLootParserPattern,
@@ -1378,7 +1409,11 @@ import { useAttentionStore } from '../stores/attention';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
 import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders';
-import { buildLootListLookup, matchesLootListEntry, normalizeLootItemName } from '../utils/lootLists';
+import {
+  buildLootListLookup,
+  matchesLootListEntry,
+  normalizeLootItemName
+} from '../utils/lootLists';
 import { getDefaultLogHandle } from '../utils/defaultLogHandle';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { extractErrorMessage } from '../utils/errors';
@@ -1558,7 +1593,11 @@ function formatDispositionTime(timestamp: Date): string {
   if (!(timestamp instanceof Date) || Number.isNaN(timestamp.getTime())) {
     return '—';
   }
-  return timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return timestamp.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
 }
 
 function getDispositionBadgeClass(actionType: LootDispositionActionType): string {
@@ -1641,7 +1680,7 @@ function normalizeRaidLootEvents(events: RaidLootEvent[]): RaidLootEvent[] {
     return {
       ...event,
       looterName: name,
-      looterClass: isGuildBank || isMasterLooter ? null : event.looterClass ?? null
+      looterClass: isGuildBank || isMasterLooter ? null : (event.looterClass ?? null)
     };
   });
 }
@@ -1664,10 +1703,14 @@ const showDebugConsole = ref(false);
 const showDetectedModal = ref(false);
 // Instance/Zone clarification modal state
 const showInstanceClarificationModal = ref(false);
-const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>([]);
+const instanceClarifications = ref<Array<PendingInstanceClarification & { isInstance: boolean }>>(
+  []
+);
 const submittingClarifications = ref(false);
 const showZoneClarificationModal = ref(false);
-const zoneClarifications = ref<Array<PendingZoneClarification & { selectedNpcDefinitionId: string }>>([]);
+const zoneClarifications = ref<
+  Array<PendingZoneClarification & { selectedNpcDefinitionId: string }>
+>([]);
 const submittingZoneClarifications = ref(false);
 const parsedLootPage = ref(1);
 const detectedLootModalOpen = computed(
@@ -1823,7 +1866,10 @@ const supportsContinuousMonitoring = computed(
 );
 const pendingFileHandle = ref<LocalFileHandle | null>(null);
 const canStartContinuousMonitor = computed(
-  () => supportsContinuousMonitoring.value && pendingFileHandle.value !== null && Boolean(isRaidActive.value)
+  () =>
+    supportsContinuousMonitoring.value &&
+    pendingFileHandle.value !== null &&
+    Boolean(isRaidActive.value)
 );
 const clearingLoot = ref(false);
 const clearLootPrompt = reactive<{
@@ -2041,7 +2087,10 @@ function persistLootDispositionHistoryImmediate() {
     return;
   }
   try {
-    window.localStorage.setItem(getDispositionStorageKey(), JSON.stringify(lootDispositionHistory.value));
+    window.localStorage.setItem(
+      getDispositionStorageKey(),
+      JSON.stringify(lootDispositionHistory.value)
+    );
   } catch {
     // Ignore storage errors (e.g., quota exceeded)
   }
@@ -2617,7 +2666,11 @@ async function resolveLootCouncilItemIcons() {
     }
 
     for (const entry of lootDispositionHistory.value) {
-      if (entry.itemId != null && entry.itemIconId == null && !itemIdToIconCache.has(entry.itemId)) {
+      if (
+        entry.itemId != null &&
+        entry.itemIconId == null &&
+        !itemIdToIconCache.has(entry.itemId)
+      ) {
         itemIdsToResolve.add(entry.itemId);
       }
     }
@@ -2818,7 +2871,9 @@ function applyLootCouncilEvent(event: LootCouncilEvent) {
   }
 }
 
-function getDispositionItemInfo(itemName: string): { itemId: number | null; itemIconId: number | null } | null {
+function getDispositionItemInfo(
+  itemName: string
+): { itemId: number | null; itemIconId: number | null } | null {
   const nameKey = normalizeLootCouncilItemKey(itemName);
   const item = lootCouncilState.items.find((entry) => entry.nameKey === nameKey);
   if (item) {
@@ -3161,9 +3216,7 @@ function resolveSummaryItemIndex(
   return { sessionKey, index: next };
 }
 
-function applyLootCouncilSyncSummary(
-  event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>
-) {
+function applyLootCouncilSyncSummary(event: Extract<LootCouncilEvent, { type: 'SYNC_SUMMARY' }>) {
   const nameKey = normalizeLootCouncilItemKey(event.itemName);
   const { sessionKey, index: summaryIndex } = resolveSummaryItemIndex(event, nameKey);
   if (lootCouncilDebugEnabled) {
@@ -3186,19 +3239,14 @@ function applyLootCouncilSyncSummary(
     summarySessionState.lastResetSessionKeyByName.set(nameKey, sessionKey);
   }
   const activated = ensureLootCouncilItem(event.itemName, event.timestamp, null);
-  const ensured = ensureLootCouncilSummaryCapacity(
-    event.itemName,
-    event.timestamp,
-    summaryIndex
-  );
+  const ensured = ensureLootCouncilSummaryCapacity(event.itemName, event.timestamp, summaryIndex);
   debugLootCouncilSnapshot(`summary-apply:${event.itemName}:idx=${summaryIndex ?? 'n/a'}`);
   const requestPlayers = event.requests.map((request) => request.playerName);
   const item =
     selectLootCouncilItem(event.itemName, {
       requestPlayers,
       sessionItemIndex: summaryIndex
-    }) ??
-    selectLootCouncilItem(event.itemName);
+    }) ?? selectLootCouncilItem(event.itemName);
   if (!item) {
     return activated;
   }
@@ -3301,8 +3349,7 @@ function finalizeLootCouncilItem(
     awardee: options.awardedTo,
     preferOldest: options.status !== 'AWARDED'
   };
-  const itemHint =
-    selectLootCouncilItem(itemName, hint) ?? selectLootCouncilItem(itemName);
+  const itemHint = selectLootCouncilItem(itemName, hint) ?? selectLootCouncilItem(itemName);
   if (!itemHint) {
     return false;
   }
@@ -3511,10 +3558,6 @@ watch(
   },
   { immediate: true }
 );
-const canViewParserSettings = computed(() => {
-  const role = raid.value?.permissions?.role;
-  return role === 'LEADER' || role === 'OFFICER';
-});
 const lootContextMenu = reactive({
   visible: false,
   x: 0,
@@ -3600,15 +3643,6 @@ watch(
   { immediate: true }
 );
 
-function hasViewerInterest(item: LootCouncilItemState) {
-  if (!viewerCharacterNames.value.size) {
-    return false;
-  }
-  return item.interests.some((interest) =>
-    viewerCharacterNames.value.has(interest.playerName.trim().toLowerCase())
-  );
-}
-
 function evaluateViewerVoteState(item: LootCouncilItemState) {
   const viewerNames = viewerCharacterNames.value;
   if (viewerNames.size === 0) {
@@ -3681,7 +3715,7 @@ const filteredAssignableCharacters = computed(() => {
   const bankNameLower = guildBankDisplayName.value.toLowerCase();
   return guildCharacters.value.filter((character) => {
     const classLabel = character.class
-      ? formatCharacterClassLabel(character.class)?.toLowerCase() ?? ''
+      ? (formatCharacterClassLabel(character.class)?.toLowerCase() ?? '')
       : '';
     const nameMatch = character.name.toLowerCase().includes(query);
     const userMatch = character.userName.toLowerCase().includes(query);
@@ -3859,16 +3893,8 @@ function openLootContextMenu(event: MouseEvent, entry: GroupedLootEntry) {
   }
   event.preventDefault();
   const normalizedName = normalizeLootItemName(entry.itemName);
-  const whitelistEntry = matchesLootListEntry(
-    whitelistLookup.value,
-    entry.itemId,
-    normalizedName
-  );
-  const blacklistEntry = matchesLootListEntry(
-    blacklistLookup.value,
-    entry.itemId,
-    normalizedName
-  );
+  const whitelistEntry = matchesLootListEntry(whitelistLookup.value, entry.itemId, normalizedName);
+  const blacklistEntry = matchesLootListEntry(blacklistLookup.value, entry.itemId, normalizedName);
   const menuWidth = 220;
   const menuHeight = 200;
   const x = Math.min(event.clientX, window.innerWidth - menuWidth);
@@ -3926,7 +3952,9 @@ async function ensureGuildCharacters() {
     guildCharacters.value = [
       bankOption,
       ...mapped.filter(
-        (character) => character.id !== GUILD_BANK_ID && character.name.trim().toLowerCase() !== bankOption.name.toLowerCase()
+        (character) =>
+          character.id !== GUILD_BANK_ID &&
+          character.name.trim().toLowerCase() !== bankOption.name.toLowerCase()
       )
     ];
     guildCharactersLoaded.value = true;
@@ -4215,7 +4243,9 @@ async function attemptDefaultLogSelection(): Promise<'used' | 'skipped' | 'unava
     const message = error instanceof Error ? error.message : String(error);
     appendDebugLog('Default log file unavailable', { error: message });
     if (!message.includes('IndexedDB')) {
-      window.alert('We could not access your default log file. Please re-select it in Account Settings.');
+      window.alert(
+        'We could not access your default log file. Please re-select it in Account Settings.'
+      );
     }
     return 'unavailable';
   }
@@ -4474,7 +4504,7 @@ async function saveEditedLoot() {
   const emoji = entry.emoji ?? parserSettings.value?.emoji ?? '💎';
   const currentItemId = entry.itemId ?? null;
   const itemIdChanged = currentItemId !== (normalizedItemId ?? null);
-  const desiredItemId = itemIdChanged ? normalizedItemId ?? null : currentItemId;
+  const desiredItemId = itemIdChanged ? (normalizedItemId ?? null) : currentItemId;
 
   editLootModal.saving = true;
   try {
@@ -4485,7 +4515,7 @@ async function saveEditedLoot() {
             ...(normalizedLooter !== entry.looterName
               ? {
                   looterName: normalizedLooter,
-                  looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? null
+                  looterClass: isBankLooter || isMasterLooter ? null : (entry.looterClass ?? null)
                 }
               : {}),
             ...(itemIdChanged ? { itemId: normalizedItemId ?? null } : {})
@@ -4499,7 +4529,7 @@ async function saveEditedLoot() {
         itemName: entry.itemName,
         itemId: desiredItemId ?? null,
         looterName: normalizedLooter,
-        looterClass: isBankLooter || isMasterLooter ? null : entry.looterClass ?? undefined,
+        looterClass: isBankLooter || isMasterLooter ? null : (entry.looterClass ?? undefined),
         emoji,
         note: entry.note ?? undefined
       }));
@@ -4639,7 +4669,10 @@ async function requestPersistentFileHandle() {
   }
 }
 
-async function ensureHandlePermission(handle: LocalFileHandle, options?: { silent?: boolean }): Promise<boolean> {
+async function ensureHandlePermission(
+  handle: LocalFileHandle,
+  options?: { silent?: boolean }
+): Promise<boolean> {
   const silent = options?.silent ?? false;
   if (typeof handle.queryPermission === 'function') {
     const current = await handle.queryPermission({ mode: 'read' });
@@ -4720,7 +4753,9 @@ async function readLiveLogChunk() {
 
       // Before giving up, try to verify/restore file handle permission
       try {
-        const hasPermission = await ensureHandlePermission(monitorController.fileHandle, { silent: true });
+        const hasPermission = await ensureHandlePermission(monitorController.fileHandle, {
+          silent: true
+        });
         if (hasPermission) {
           // Permission restored - reset counter and continue
           monitorHealth.consecutiveFileReadFailures = 0;
@@ -4733,7 +4768,8 @@ async function readLiveLogChunk() {
       }
 
       // Permission check failed - stop polling
-      continuousMonitorError.value = 'Unable to read log file. Please check file access and restart monitoring.';
+      continuousMonitorError.value =
+        'Unable to read log file. Please check file access and restart monitoring.';
       stopLiveLogPolling();
     }
     liveChunkInFlight = false;
@@ -4746,7 +4782,11 @@ async function readLiveLogChunk() {
       liveChunkInFlight = false;
       return;
     }
-    const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
+    const startIso =
+      parsingWindow.start ??
+      raid.value?.startedAt ??
+      raid.value?.startTime ??
+      new Date().toISOString();
     const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
     const start = new Date(startIso);
     const end = endIso ? new Date(endIso) : undefined;
@@ -4780,10 +4820,7 @@ function normalizeLootCouncilSummaryChunk(chunk: string) {
   if (monitorController.pendingSummaryBlock) {
     const prefix = monitorController.pendingSummaryBlock;
     const needsSeparator =
-      prefix.length > 0 &&
-      !prefix.endsWith('\n') &&
-      chunk.length > 0 &&
-      !chunk.startsWith('\n');
+      prefix.length > 0 && !prefix.endsWith('\n') && chunk.length > 0 && !chunk.startsWith('\n');
     combined = `${prefix}${needsSeparator ? '\n' : ''}${chunk}`;
     monitorController.pendingSummaryBlock = '';
   }
@@ -4873,8 +4910,12 @@ async function sendMonitorHeartbeat() {
         await attemptSessionRecovery();
       } else {
         // Schedule a retry with exponential backoff
-        const delay = MONITOR_HEARTBEAT_RETRY_DELAY_MS * Math.pow(2, monitorHealth.heartbeatRetryCount - 1);
-        appendDebugLog('Scheduling heartbeat retry', { delay, retryCount: monitorHealth.heartbeatRetryCount });
+        const delay =
+          MONITOR_HEARTBEAT_RETRY_DELAY_MS * Math.pow(2, monitorHealth.heartbeatRetryCount - 1);
+        appendDebugLog('Scheduling heartbeat retry', {
+          delay,
+          retryCount: monitorHealth.heartbeatRetryCount
+        });
         setTimeout(() => void sendMonitorHeartbeat(), delay);
       }
     }
@@ -4905,7 +4946,9 @@ async function attemptSessionRecovery() {
 
   try {
     // Verify we still have file handle permission
-    const hasPermission = await ensureHandlePermission(monitorController.fileHandle, { silent: true });
+    const hasPermission = await ensureHandlePermission(monitorController.fileHandle, {
+      silent: true
+    });
     if (!hasPermission) {
       appendDebugLog('Lost file handle permission, cannot recover');
       cleanupMonitorController();
@@ -4931,7 +4974,9 @@ async function attemptSessionRecovery() {
     startMonitorHeartbeat();
     startLiveLogPolling(); // Critical: restart log polling after recovery
 
-    appendDebugLog('Monitor session recovered successfully', { sessionId: result.session?.sessionId });
+    appendDebugLog('Monitor session recovered successfully', {
+      sessionId: result.session?.sessionId
+    });
   } catch (recoveryError) {
     appendDebugLog('Monitor session recovery failed', { error: String(recoveryError) });
     cleanupMonitorController();
@@ -5126,27 +5171,6 @@ async function handleActiveRaidUpdated() {
   }
 }
 
-function dismissLeaveMonitorModal(shouldNavigate: boolean) {
-  showLeaveMonitorModal.value = false;
-  const pending = pendingNavigation.value;
-  pendingNavigation.value = null;
-  if (shouldNavigate) {
-    void stopActiveMonitor().finally(() => {
-      if (!pending) {
-        return;
-      }
-      if (pending.type === 'route' && pending.to) {
-        router.push(pending.to);
-      } else if (pending.type === 'refresh') {
-        allowImmediateUnload.value = true;
-        window.location.reload();
-      }
-    });
-  } else {
-    allowImmediateUnload.value = false;
-  }
-}
-
 function readLogFile(
   file: File,
   options?: { append?: boolean; resetKeys?: boolean; signature?: string | null }
@@ -5181,7 +5205,11 @@ function readLogFile(
     reader.onload = () => {
       parseProgress.value = 100;
       const content = reader.result as string;
-      const startIso = parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? new Date().toISOString();
+      const startIso =
+        parsingWindow.start ??
+        raid.value?.startedAt ??
+        raid.value?.startTime ??
+        new Date().toISOString();
       const endIso = parsingWindow.end ?? raid.value?.endedAt ?? null;
       const start = new Date(startIso);
       const end = endIso ? new Date(endIso) : undefined;
@@ -5666,19 +5694,23 @@ async function persistRaidNpcKillEvents(kills: ParsedNpcKillEvent[]) {
     }
     // Show zone clarification modal first if needed, then instance clarification
     if (allPendingZoneClarifications.length > 0) {
-      zoneClarifications.value = allPendingZoneClarifications.map(c => ({
+      zoneClarifications.value = allPendingZoneClarifications.map((c) => ({
         ...c,
         selectedNpcDefinitionId: c.zoneOptions[0]?.npcDefinitionId ?? ''
       }));
       showZoneClarificationModal.value = true;
-      appendDebugLog('Showing zone clarification modal', { count: allPendingZoneClarifications.length });
+      appendDebugLog('Showing zone clarification modal', {
+        count: allPendingZoneClarifications.length
+      });
     } else if (allPendingClarifications.length > 0) {
-      instanceClarifications.value = allPendingClarifications.map(c => ({
+      instanceClarifications.value = allPendingClarifications.map((c) => ({
         ...c,
         isInstance: false
       }));
       showInstanceClarificationModal.value = true;
-      appendDebugLog('Showing instance clarification modal', { count: allPendingClarifications.length });
+      appendDebugLog('Showing instance clarification modal', {
+        count: allPendingClarifications.length
+      });
     }
   } catch (error) {
     appendDebugLog('Failed to record NPC kills', { error: String(error) });
@@ -5696,20 +5728,20 @@ async function submitInstanceClarifications() {
   submittingClarifications.value = true;
   try {
     for (const clarification of instanceClarifications.value) {
-      await api.resolvePendingNpcKillClarification(
-        raid.value.guildId,
-        clarification.id,
-        {
-          npcDefinitionId: clarification.npcDefinitionId,
-          isInstance: clarification.isInstance
-        }
-      );
+      await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
+        npcDefinitionId: clarification.npcDefinitionId,
+        isInstance: clarification.isInstance
+      });
     }
-    appendDebugLog('Instance clarifications submitted', { count: instanceClarifications.value.length });
+    appendDebugLog('Instance clarifications submitted', {
+      count: instanceClarifications.value.length
+    });
     closeInstanceClarificationModal();
   } catch (error: any) {
     appendDebugLog('Failed to submit clarifications', { error: String(error) });
-    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications');
+    window.alert(
+      error?.response?.data?.message ?? error?.message ?? 'Failed to submit clarifications'
+    );
   } finally {
     submittingClarifications.value = false;
   }
@@ -5732,20 +5764,18 @@ async function submitZoneClarifications() {
   try {
     for (const clarification of zoneClarifications.value) {
       if (!clarification.selectedNpcDefinitionId) continue;
-      await api.resolvePendingNpcKillClarification(
-        raid.value.guildId,
-        clarification.id,
-        {
-          npcDefinitionId: clarification.selectedNpcDefinitionId,
-          isInstance: false
-        }
-      );
+      await api.resolvePendingNpcKillClarification(raid.value.guildId, clarification.id, {
+        npcDefinitionId: clarification.selectedNpcDefinitionId,
+        isInstance: false
+      });
     }
     appendDebugLog('Zone clarifications submitted', { count: zoneClarifications.value.length });
     closeZoneClarificationModal();
   } catch (error: any) {
     appendDebugLog('Failed to submit zone clarifications', { error: String(error) });
-    window.alert(error?.response?.data?.message ?? error?.message ?? 'Failed to submit zone clarifications');
+    window.alert(
+      error?.response?.data?.message ?? error?.message ?? 'Failed to submit zone clarifications'
+    );
   } finally {
     submittingZoneClarifications.value = false;
   }
@@ -5790,38 +5820,6 @@ async function createManualEntry() {
   }
 }
 
-async function confirmDelete(event: RaidLootEvent) {
-  if (!confirm('Remove this loot entry?')) {
-    return;
-  }
-  await api.deleteRaidLoot(raidId, event.id);
-  lootEvents.value = lootEvents.value.filter((loot) => loot.id !== event.id);
-}
-
-function openEdit(event: RaidLootEvent) {
-  const itemName = prompt('Item name', event.itemName);
-  if (!itemName) {
-    return;
-  }
-  const looterName = prompt('Looter', event.looterName) ?? event.looterName;
-  const emoji =
-    prompt('Emoji', event.emoji ?? parserSettings.value?.emoji ?? '💎') ?? event.emoji ?? undefined;
-  const normalizedLooter = normalizeLooterForSubmission(looterName);
-  const isBankLooter = isGuildBankName(normalizedLooter);
-  const isMasterLooter = isMasterLooterName(normalizedLooter);
-  api
-    .updateRaidLoot(raidId, event.id, {
-      itemName,
-      looterName: normalizedLooter,
-      looterClass: isBankLooter || isMasterLooter ? null : event.looterClass ?? null,
-      emoji
-    })
-    .then(async () => {
-      await refreshLootEvents();
-    });
-}
-
-
 function openManualModal() {
   showManualModal.value = true;
 }
@@ -5856,7 +5854,9 @@ function initializeParsingWindow() {
 }
 
 function openWindowModal() {
-  parsingWindowForm.start = toInputValue(parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? null);
+  parsingWindowForm.start = toInputValue(
+    parsingWindow.start ?? raid.value?.startedAt ?? raid.value?.startTime ?? null
+  );
   parsingWindowForm.end = toInputValue(parsingWindow.end ?? raid.value?.endedAt ?? null);
   showWindowModal.value = true;
 }
@@ -5866,7 +5866,11 @@ function closeWindowModal() {
 }
 
 function saveParsingWindow() {
-  const startIso = fromInputValue(parsingWindowForm.start) ?? raid.value?.startedAt ?? raid.value?.startTime ?? null;
+  const startIso =
+    fromInputValue(parsingWindowForm.start) ??
+    raid.value?.startedAt ??
+    raid.value?.startTime ??
+    null;
   const endIso = fromInputValue(parsingWindowForm.end);
   parsingWindow.start = startIso;
   parsingWindow.end = endIso;
@@ -6051,11 +6055,7 @@ function processLogContent(
   const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
   if (shouldTrackLootCouncil) {
     try {
-      const lootCouncilEvents = parseLootCouncilEvents(
-        content,
-        options.start,
-        options.end ?? null
-      );
+      const lootCouncilEvents = parseLootCouncilEvents(content, options.start, options.end ?? null);
       if (lootCouncilEvents.length > 0) {
         handleLootCouncilEvents(lootCouncilEvents);
       }
@@ -6172,12 +6172,14 @@ function processLogContent(
     const whitelistMatch = matchesLootListEntry(whitelistLookup.value, itemId, normalizedName);
     if (whitelistMatch) {
       processedLogKeys.add(key);
-    const normalizedLooter = normalizeLooterNameValue(entry.looter ?? entry.itemName ?? 'Unknown');
-    autoKept.push({
-      ...entry,
-      itemName: candidateName ?? 'Unknown Item',
-      looter: normalizedLooter
-    });
+      const normalizedLooter = normalizeLooterNameValue(
+        entry.looter ?? entry.itemName ?? 'Unknown'
+      );
+      autoKept.push({
+        ...entry,
+        itemName: candidateName ?? 'Unknown Item',
+        looter: normalizedLooter
+      });
       if (includeConsole) {
         consolePayloads.push({
           line: formatConsoleLine(entry),
@@ -6353,11 +6355,6 @@ function buildNpcKillKey(entry: ParsedNpcKillEvent) {
   const killer = entry.killerName?.toLowerCase() ?? '';
   return `${timestamp}::${entry.npcName.toLowerCase()}::${killer}`;
 }
-
-const formatLooterLabel = (name: string, looterClass?: string | null) => {
-  const classLabel = formatCharacterClassLabel(looterClass);
-  return classLabel ? `${name} (${classLabel})` : name;
-};
 
 function getInterestVoteCount(interest: LootCouncilInterestState) {
   const tally = interest.votes ?? 0;
@@ -6541,7 +6538,11 @@ function handleExistingLootCardClick(event: MouseEvent, itemName: string, itemId
   openAllaSearch(itemName, itemId);
 }
 
-function handleExistingLootCardKeyEnter(event: KeyboardEvent, itemName: string, itemId?: number | null) {
+function handleExistingLootCardKeyEnter(
+  event: KeyboardEvent,
+  itemName: string,
+  itemId?: number | null
+) {
   const target = event.target as HTMLElement | null;
   if (target?.closest('a')) {
     return;
@@ -6747,18 +6748,6 @@ function handleResetProcessedLogs() {
   appendDebugLog('Processed log state reset manually');
 }
 
-function resetDetectedLoot() {
-  parsedLoot.value = [];
-  if (activeLogSignature.value) {
-    clearStoredProcessedKeys(activeLogSignature.value);
-  }
-  processedLogKeys.clear();
-  processedNpcKillKeys.clear();
-  activeLogSignature.value = null;
-  showDetectedModal.value = false;
-  appendDebugLog('Detected loot reset');
-}
-
 function closeDetectedLootModal() {
   showDetectedModal.value = false;
   parsedLootPage.value = 1;
@@ -6812,7 +6801,9 @@ onMounted(() => {
   window.addEventListener('active-raid-updated', handleActiveRaidUpdated);
   document.addEventListener('visibilitychange', handleVisibilityChange);
   lootDispositionHistory.value = loadLootDispositionHistory();
-  if (lootDispositionHistory.value.some((entry) => entry.itemId != null && entry.itemIconId == null)) {
+  if (
+    lootDispositionHistory.value.some((entry) => entry.itemId != null && entry.itemIconId == null)
+  ) {
     scheduleLootCouncilItemIconResolution();
   }
   loadData();
@@ -7035,7 +7026,10 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .loot-console__suppress:hover {
@@ -7112,7 +7106,9 @@ onBeforeUnmount(() => {
 
 .loot-console-transition-enter-active,
 .loot-console-transition-leave-active {
-  transition: transform 0.35s ease, opacity 0.35s ease;
+  transition:
+    transform 0.35s ease,
+    opacity 0.35s ease;
 }
 
 .loot-console-transition-enter-from {
@@ -8598,7 +8594,10 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .loot-council-minimize__icon {
@@ -8737,7 +8736,9 @@ onBeforeUnmount(() => {
 
 .loot-council-column--viewer-interest {
   border-color: rgba(250, 204, 21, 0.7);
-  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35), 0 20px 40px rgba(15, 23, 42, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(250, 204, 21, 0.35),
+    0 20px 40px rgba(15, 23, 42, 0.35);
 }
 
 .loot-council-column--viewer-favored {
@@ -9484,5 +9485,4 @@ onBeforeUnmount(() => {
   outline: none;
   border-color: #3b82f6;
 }
-
 </style>

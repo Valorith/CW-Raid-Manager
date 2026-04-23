@@ -4,6 +4,10 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { ensureAdmin } from '../services/adminService.js';
 import {
+  getNextScheduledTime,
+  isSchedulerRunning
+} from '../services/moneyTrackerScheduler.js';
+import {
   createMoneySnapshot,
   deleteSnapshot,
   fetchGuildBankTotals,
@@ -15,13 +19,10 @@ import {
   getLatestSnapshot,
   getMoneyTrackerSummary,
   getSettings,
+  getSnapshotSummariesInRange,
   getSnapshotsInRange,
   updateSettings
 } from '../services/moneyTrackerService.js';
-import {
-  getNextScheduledTime,
-  isSchedulerRunning
-} from '../services/moneyTrackerScheduler.js';
 import { isEqDbConfigured } from '../utils/eqDb.js';
 
 async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void | FastifyReply> {
@@ -39,6 +40,21 @@ function serializeBigInt<T>(obj: T): T {
     JSON.stringify(obj, (_, value) => (typeof value === 'bigint' ? value.toString() : value))
   );
 }
+
+const booleanQueryParamSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return value;
+}, z.boolean());
 
 export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void> {
   // Check if EQ database is configured
@@ -81,7 +97,8 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
       const querySchema = z.object({
         startDate: z.string().optional(),
         endDate: z.string().optional(),
-        limit: z.coerce.number().int().positive().max(10000).default(90)
+        limit: z.coerce.number().int().positive().max(10000).default(90),
+        summaryOnly: booleanQueryParamSchema.optional().default(false)
       });
 
       const parsed = querySchema.safeParse(request.query);
@@ -93,7 +110,9 @@ export async function moneyTrackerRoutes(server: FastifyInstance): Promise<void>
         const startDate = parsed.data.startDate ? new Date(parsed.data.startDate) : undefined;
         const endDate = parsed.data.endDate ? new Date(parsed.data.endDate) : undefined;
 
-        const snapshots = await getSnapshotsInRange(startDate, endDate, parsed.data.limit);
+        const snapshots = parsed.data.summaryOnly
+          ? await getSnapshotSummariesInRange(startDate, endDate, parsed.data.limit)
+          : await getSnapshotsInRange(startDate, endDate, parsed.data.limit);
         return serializeBigInt({ snapshots });
       } catch (error) {
         request.log.error({ error }, 'Failed to fetch money snapshots.');

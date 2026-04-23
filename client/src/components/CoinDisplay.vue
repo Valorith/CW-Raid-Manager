@@ -1,5 +1,10 @@
 <template>
-  <span class="coin-display" :class="`coin-display--${variant}`" :title="accessibleLabel" :aria-label="accessibleLabel">
+  <span
+    class="coin-display"
+    :class="`coin-display--${variant}`"
+    :title="accessibleLabel"
+    :aria-label="accessibleLabel"
+  >
     <span v-for="segment in segments" :key="segment.key" class="coin-display__segment">
       <span class="coin-display__value">{{ segment.text }}</span>
       <img class="coin-display__icon" :src="segment.icon" alt="" aria-hidden="true" />
@@ -126,9 +131,7 @@ const segments = computed<CoinSegment[]>(() => {
 });
 
 const accessibleLabel = computed(() =>
-  segments.value
-    .map((segment) => `${segment.text} ${segment.label}`)
-    .join(' ')
+  segments.value.map((segment) => `${segment.text} ${segment.label}`).join(' ')
 );
 </script>
 
