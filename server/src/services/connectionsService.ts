@@ -1,7 +1,8 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
-import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { getItemIconId } from './eqItemService.js';
+import { staticZoneNameMap } from '../data/zoneNames.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 
 export interface ServerConnection {
   connectId: number;
@@ -116,8 +117,37 @@ function mapEqClassIdToName(classId: number): string {
   }
 }
 
+function resolveZoneName(
+  zoneId: number | null | undefined,
+  zoneLongName: string | null | undefined,
+  zoneShortName: string | null | undefined
+): string {
+  const longName = zoneLongName?.trim();
+  if (longName) {
+    return longName;
+  }
+
+  const shortName = zoneShortName?.trim();
+  if (shortName) {
+    const staticName = staticZoneNameMap[shortName.toLowerCase()];
+    if (staticName) {
+      return staticName;
+    }
+    return shortName;
+  }
+
+  if (zoneId !== null && zoneId !== undefined) {
+    const staticName = staticZoneNameMap[String(zoneId)];
+    if (staticName) {
+      return staticName;
+    }
+  }
+
+  return `Zone ${zoneId || 0}`;
+}
+
 // Cache for schema discovery
-let schemaCache: {
+const schemaCache: {
   zoneTable: {
     exists: boolean;
     idColumn: string | null;
@@ -507,17 +537,19 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
     guildMembersSchema.guildIdColumn;
   if (canJoinGuilds) {
     selectFields += `,
-      g.${guildsSchema.nameColumn} as guild_name`;
-    joins += `
-    LEFT JOIN guild_members gm ON cd.id = gm.${guildMembersSchema.charIdColumn}
-    LEFT JOIN guilds g ON gm.${guildMembersSchema.guildIdColumn} = g.${guildsSchema.idColumn}`;
+      (
+        SELECT g.${guildsSchema.nameColumn}
+        FROM guild_members gm
+        LEFT JOIN guilds g ON gm.${guildMembersSchema.guildIdColumn} = g.${guildsSchema.idColumn}
+        WHERE gm.${guildMembersSchema.charIdColumn} = cd.id
+        LIMIT 1
+      ) as guild_name`;
   } else {
     selectFields += `,
       NULL as guild_name`;
   }
 
-  // Use GROUP BY to prevent duplicates from guild_members join (if character has multiple guild entries)
-  const query = `SELECT ${selectFields} ${joins} GROUP BY c.connectid ORDER BY cd.name ASC`;
+  const query = `SELECT ${selectFields} ${joins} ORDER BY cd.name ASC`;
 
   try {
     const rows = await queryEqDb<ConnectionRow[]>(query);
@@ -531,7 +563,7 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       level: row.level || 0,
       className: mapEqClassIdToName(row.class),
       classId: row.class || 0,
-      zoneName: row.zone_long_name || row.zone_short_name || `Zone ${row.zone_id || 0}`,
+      zoneName: resolveZoneName(row.zone_id, row.zone_long_name, row.zone_short_name),
       zoneShortName: row.zone_short_name || '',
       guildName: row.guild_name || null,
       // Trader fields - populated later by fetchCharacterLastActivity
@@ -550,9 +582,9 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
       totalSalesCount: null
     }));
   } catch (error) {
-    console.error('[connectionsService] Full query failed, trying simplified query:', error);
+    console.error('[connectionsService] Full query failed, trying zone-only fallback query:', error);
 
-    const simpleQuery = `
+    const zoneFallbackSelectFields = `
       SELECT
         c.connectid,
         c.ip,
@@ -561,41 +593,124 @@ export async function fetchServerConnections(): Promise<ServerConnection[]> {
         cd.name,
         cd.level,
         cd.class,
-        cd.zone_id
+        cd.zone_id`;
+    let zoneFallbackJoins = `
       FROM connections c
-      LEFT JOIN character_data cd ON c.characterid = cd.id
-      ORDER BY cd.name ASC
-    `;
+      LEFT JOIN character_data cd ON c.characterid = cd.id`;
 
-    const rows = await queryEqDb<RowDataPacket[]>(simpleQuery);
+    let zoneSelectFields = zoneFallbackSelectFields;
+    if (canJoinZone) {
+      if (zoneSchema.longNameColumn) {
+        zoneSelectFields += `,
+        z.${zoneSchema.longNameColumn} as zone_long_name`;
+      } else {
+        zoneSelectFields += `,
+        NULL as zone_long_name`;
+      }
+      if (zoneSchema.shortNameColumn) {
+        zoneSelectFields += `,
+        z.${zoneSchema.shortNameColumn} as zone_short_name`;
+      } else {
+        zoneSelectFields += `,
+        NULL as zone_short_name`;
+      }
+      if (zoneSchema.hasVersionColumn) {
+        zoneFallbackJoins += `
+      LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}
+        AND z.version = (SELECT MIN(z2.version) FROM zone z2 WHERE z2.${zoneSchema.idColumn} = cd.zone_id)`;
+      } else {
+        zoneFallbackJoins += `
+      LEFT JOIN zone z ON cd.zone_id = z.${zoneSchema.idColumn}`;
+      }
+    } else {
+      zoneSelectFields += `,
+        NULL as zone_long_name,
+        NULL as zone_short_name`;
+    }
 
-    return rows.map((row) => ({
-      connectId: row.connectid,
-      ip: row.ip || '',
-      accountId: row.accountid,
-      characterId: row.characterid,
-      characterName: row.name || 'Unknown',
-      level: row.level || 0,
-      className: mapEqClassIdToName(row.class),
-      classId: row.class || 0,
-      zoneName: `Zone ${row.zone_id || 0}`,
-      zoneShortName: '',
-      guildName: null,
-      // Trader fields - populated later by fetchCharacterLastActivity
-      lastActionAt: null,
-      lastActionEventTypeId: null,
-      lastKillNpcName: null,
-      lastKillAt: null,
-      hackCount: 0,
-      lastHackAt: null,
-      lastSaleItemName: null,
-      lastSaleItemId: null,
-      lastSaleItemIconId: null,
-      lastSalePrice: null,
-      lastSaleAt: null,
-      totalSalesAmount: null,
-      totalSalesCount: null
-    }));
+    const zoneFallbackQuery = `${zoneSelectFields} ${zoneFallbackJoins} ORDER BY cd.name ASC`;
+
+    try {
+      const rows = await queryEqDb<ConnectionRow[]>(zoneFallbackQuery);
+
+      return rows.map((row) => ({
+        connectId: row.connectid,
+        ip: row.ip || '',
+        accountId: row.accountid,
+        characterId: row.characterid,
+        characterName: row.name || 'Unknown',
+        level: row.level || 0,
+        className: mapEqClassIdToName(row.class),
+        classId: row.class || 0,
+        zoneName: resolveZoneName(row.zone_id, row.zone_long_name, row.zone_short_name),
+        zoneShortName: row.zone_short_name || '',
+        guildName: null,
+        // Trader fields - populated later by fetchCharacterLastActivity
+        lastActionAt: null,
+        lastActionEventTypeId: null,
+        lastKillNpcName: null,
+        lastKillAt: null,
+        hackCount: 0,
+        lastHackAt: null,
+        lastSaleItemName: null,
+        lastSaleItemId: null,
+        lastSaleItemIconId: null,
+        lastSalePrice: null,
+        lastSaleAt: null,
+        totalSalesAmount: null,
+        totalSalesCount: null
+      }));
+    } catch (zoneFallbackError) {
+      console.error(
+        '[connectionsService] Zone fallback query failed, trying simplified query:',
+        zoneFallbackError
+      );
+
+      const simpleQuery = `
+        SELECT
+          c.connectid,
+          c.ip,
+          c.accountid,
+          c.characterid,
+          cd.name,
+          cd.level,
+          cd.class,
+          cd.zone_id
+        FROM connections c
+        LEFT JOIN character_data cd ON c.characterid = cd.id
+        ORDER BY cd.name ASC
+      `;
+
+      const rows = await queryEqDb<RowDataPacket[]>(simpleQuery);
+
+      return rows.map((row) => ({
+        connectId: row.connectid,
+        ip: row.ip || '',
+        accountId: row.accountid,
+        characterId: row.characterid,
+        characterName: row.name || 'Unknown',
+        level: row.level || 0,
+        className: mapEqClassIdToName(row.class),
+        classId: row.class || 0,
+        zoneName: resolveZoneName(row.zone_id, null, null),
+        zoneShortName: '',
+        guildName: null,
+        // Trader fields - populated later by fetchCharacterLastActivity
+        lastActionAt: null,
+        lastActionEventTypeId: null,
+        lastKillNpcName: null,
+        lastKillAt: null,
+        hackCount: 0,
+        lastHackAt: null,
+        lastSaleItemName: null,
+        lastSaleItemId: null,
+        lastSaleItemIconId: null,
+        lastSalePrice: null,
+        lastSaleAt: null,
+        totalSalesAmount: null,
+        totalSalesCount: null
+      }));
+    }
   }
 }
 
