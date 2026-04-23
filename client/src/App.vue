@@ -10,7 +10,19 @@
       <nav class="nav">
         <!-- Dashboard -->
         <RouterLink v-if="authStore.isAuthenticated" to="/dashboard" class="nav__tab">
-          <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <svg
+            class="nav__tab-ico"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+            <polyline points="9 22 9 12 15 12 15 22" />
+          </svg>
           Dashboard
         </RouterLink>
 
@@ -24,7 +36,18 @@
           @mouseleave="onNavDropdownMouseLeave('guild')"
         >
           <RouterLink :to="guildNavTo" class="nav__tab">
-            <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg
+              class="nav__tab-ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
             {{ guildNavLabel }}
             <svg
               v-if="primaryGuild && prefersHoverDropdowns"
@@ -91,7 +114,20 @@
 
         <!-- Raids -->
         <RouterLink v-if="authStore.isAuthenticated" to="/raids" class="nav__tab">
-          <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5 18 21l3-4-3-3"/><path d="m3 21 2.5-2.5M13 6l1.5-1.5"/><path d="M9 3H3v6l9 9 6-6-9-9Z"/></svg>
+          <svg
+            class="nav__tab-ico"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M14.5 17.5 18 21l3-4-3-3" />
+            <path d="m3 21 2.5-2.5M13 6l1.5-1.5" />
+            <path d="M9 3H3v6l9 9 6-6-9-9Z" />
+          </svg>
           Raids
         </RouterLink>
         <RouterLink
@@ -99,11 +135,38 @@
           :to="{ name: 'BisPlanner', params: { characterClass: 'WARRIOR' } }"
           class="nav__tab"
         >
-          <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          <svg
+            class="nav__tab-ico"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
           BiS
         </RouterLink>
         <RouterLink v-if="authStore.isAuthenticated" to="/market" class="nav__tab">
-          <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          <svg
+            class="nav__tab-ico"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"
+            />
+            <line x1="7" y1="7" x2="7.01" y2="7" />
+          </svg>
           Market
         </RouterLink>
 
@@ -121,7 +184,21 @@
             class="nav__tab"
             :class="{ 'nav__tab--no-click': !authStore.isAdmin }"
           >
-            <svg class="nav__tab-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <svg
+              class="nav__tab-ico"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
             Admin
             <svg
               v-if="prefersHoverDropdowns"
@@ -278,7 +355,22 @@
             aria-label="Account settings"
             title="Account Settings"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              />
+            </svg>
           </RouterLink>
 
           <!-- User pill -->
@@ -288,7 +380,9 @@
             </span>
             <span class="nav__user-name">Hi, {{ authStore.preferredName }}</span>
             <span v-if="authStore.isAdmin" class="nav__user-role">Admin</span>
-            <span v-else-if="authStore.isGuide" class="nav__user-role nav__user-role--guide">Guide</span>
+            <span v-else-if="authStore.isGuide" class="nav__user-role nav__user-role--guide"
+              >Guide</span
+            >
           </div>
 
           <button class="nav__logout" @click="logout">Log Out</button>
@@ -646,7 +740,7 @@ function resolveViewKey(route: RouteLocationNormalized) {
   return route.fullPath;
 }
 
-function handleLootActionsPending(_event: Event) {
+function handleLootActionsPending() {
   playLootAlertChime();
 }
 
@@ -808,9 +902,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   align-items: center;
   gap: 24px;
   padding: 14px 32px;
-  background: linear-gradient(180deg, rgba(8,12,26,0.88) 0%, rgba(8,12,26,0.60) 100%);
+  background: linear-gradient(180deg, rgba(8, 12, 26, 0.88) 0%, rgba(8, 12, 26, 0.6) 100%);
   backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  border-bottom: 1px solid var(--nx-border-1, rgba(80, 120, 170, 0.22));
   position: sticky;
   top: 0;
   z-index: 10000;
@@ -821,7 +915,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   align-items: center;
   padding-right: 14px;
   margin-right: 4px;
-  border-right: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  border-right: 1px solid var(--nx-border-1, rgba(80, 120, 170, 0.22));
   min-height: 38px;
   flex-shrink: 0;
 }
@@ -997,7 +1091,11 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-size: 13.5px;
   border: 1px solid transparent;
   background: transparent;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1014,8 +1112,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .nav__tab.router-link-exact-active {
   color: var(--nx-ink-0, #f1f6fb);
   background: linear-gradient(180deg, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0.05));
-  border-color: rgba(34, 211, 238, 0.30);
-  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.12), 0 0 18px rgba(34, 211, 238, 0.15);
+  border-color: rgba(34, 211, 238, 0.3);
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.12),
+    0 0 18px rgba(34, 211, 238, 0.15);
 }
 
 .nav__tab--no-click {
@@ -1039,7 +1139,9 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-size: 13.5px;
   border: 1px solid transparent;
   background: transparent;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1053,7 +1155,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
 .nav__link.router-link-active {
   color: var(--nx-ink-0, #f1f6fb);
   background: linear-gradient(180deg, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0.05));
-  border-color: rgba(34, 211, 238, 0.30);
+  border-color: rgba(34, 211, 238, 0.3);
 }
 
 .nav__link--no-click {
@@ -1350,16 +1452,18 @@ function hasRaidStarted(raid: RaidEventSummary) {
   place-items: center;
   border-radius: 10px;
   background: rgba(120, 160, 220, 0.06);
-  border: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  border: 1px solid var(--nx-border-1, rgba(80, 120, 170, 0.22));
   color: var(--nx-ink-1, #dde8f4);
   text-decoration: none;
   flex-shrink: 0;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .nav__icon-btn:hover {
   background: rgba(120, 160, 220, 0.12);
-  border-color: var(--nx-border-2, rgba(110,150,210,0.32));
+  border-color: var(--nx-border-2, rgba(110, 150, 210, 0.32));
 }
 
 .nav__icon-btn:focus-visible {
@@ -1375,7 +1479,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   padding: 4px 12px 4px 4px;
   border-radius: 999px;
   background: rgba(120, 160, 220, 0.06);
-  border: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  border: 1px solid var(--nx-border-1, rgba(80, 120, 170, 0.22));
   min-width: 0;
 }
 
@@ -1426,25 +1530,34 @@ function hasRaidStarted(raid: RaidEventSummary) {
   font-weight: 500;
   color: var(--nx-ink-2, #a6b6cd);
   border-radius: 8px;
-  border: 1px solid var(--nx-border-1, rgba(80,120,170,0.22));
+  border: 1px solid var(--nx-border-1, rgba(80, 120, 170, 0.22));
   background: transparent;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .nav__logout:hover {
   color: var(--nx-ink-0, #f1f6fb);
-  border-color: var(--nx-border-2, rgba(110,150,210,0.32));
+  border-color: var(--nx-border-2, rgba(110, 150, 210, 0.32));
   background: rgba(120, 160, 220, 0.08);
 }
 
 /* Legacy auth classes — kept for any remaining references */
-.auth__user { display: none; }
-.auth__badge { display: none; }
-.settings-link { display: none; }
+.auth__user {
+  display: none;
+}
+.auth__badge {
+  display: none;
+}
+.settings-link {
+  display: none;
+}
 
 .btn {
   padding: 0.3rem 0.75rem;

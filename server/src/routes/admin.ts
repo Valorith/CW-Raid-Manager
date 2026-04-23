@@ -1,7 +1,7 @@
-import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { GuildRole, InboundWebhookActionType, InboundWebhookMessageStatus } from '@prisma/client';
+import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../utils/prisma.js';
+
 
 import { authenticate } from '../middleware/authenticate.js';
 import {
@@ -24,69 +24,6 @@ import {
   upsertGuildMembershipAsAdmin
 } from '../services/adminService.js';
 import {
-  fetchLcItems,
-  fetchLcRequests,
-  fetchLcVotes,
-  fetchLootMaster,
-  getLootManagementSummary
-} from '../services/lootManagementService.js';
-import {
-  fetchServerConnections,
-  fetchIpExemptions,
-  fetchCharacterLastActivity,
-  searchItemsForOwnership,
-  fetchItemOwnership
-} from '../services/connectionsService.js';
-import {
-  fetchPlayerEventLogs,
-  fetchConnectionEventOverlaySnapshot,
-  getPlayerEventLogStats,
-  getEventTypes,
-  getEventLogZones
-} from '../services/playerEventLogsService.js';
-import {
-  createInboundWebhook,
-  createInboundWebhookAction,
-  createInboundWebhookMessageForAdmin,
-  deleteInboundWebhook,
-  deleteInboundWebhookAction,
-  getInboundWebhookMessage,
-  listInboundWebhookMessages,
-  listInboundWebhookMessagesEnhanced,
-  listInboundWebhooks,
-  retryCrashReviewForMessage,
-  updateInboundWebhook,
-  updateInboundWebhookAction,
-  markMessageRead,
-  getUnreadCount,
-  toggleMessageStar,
-  listWebhookLabels,
-  createWebhookLabel,
-  findOrCreateWebhookLabel,
-  updateWebhookLabel,
-  deleteWebhookLabel,
-  setMessageLabels,
-  mergeWebhookMessages,
-  bulkMessageAction,
-  isWebhookProcessingPending,
-  getPendingProcessingWebhookIds,
-  processMessagesAfterManualMerge,
-  processDismissedMergeMessages,
-  getWebhookProcessingEnabled,
-  getWebhookProcessingStatus,
-  setWebhookProcessingEnabled,
-  getPendingMergeGroups,
-  processGroupNow
-} from '../services/inboundWebhookService.js';
-import type {
-  InboundWebhookActionConfig,
-  BulkActionType
-} from '../services/inboundWebhookService.js';
-import {
-  inspectCrashReport,
-  sortCrashReportSegments
-} from '../services/geminiCrashReviewService.js';
-import {
   getCharacterByName,
   getCharacterById,
   getCharacterEvents,
@@ -106,6 +43,66 @@ import {
   autoLinkSharedIpsStream,
   type ConnectionForSync
 } from '../services/characterAdminService.js';
+import {
+  fetchServerConnections,
+  fetchIpExemptions,
+  fetchCharacterLastActivity,
+  searchItemsForOwnership,
+  fetchItemOwnership
+} from '../services/connectionsService.js';
+import {
+  inspectCrashReport,
+  sortCrashReportSegments
+} from '../services/geminiCrashReviewService.js';
+import {
+  createInboundWebhook,
+  createInboundWebhookAction,
+  createInboundWebhookMessageForAdmin,
+  deleteInboundWebhook,
+  deleteInboundWebhookAction,
+  getInboundWebhookMessage,
+  listInboundWebhookMessagesEnhanced,
+  listInboundWebhooks,
+  retryCrashReviewForMessage,
+  updateInboundWebhook,
+  updateInboundWebhookAction,
+  markMessageRead,
+  getUnreadCount,
+  toggleMessageStar,
+  listWebhookLabels,
+  createWebhookLabel,
+  findOrCreateWebhookLabel,
+  updateWebhookLabel,
+  deleteWebhookLabel,
+  setMessageLabels,
+  mergeWebhookMessages,
+  bulkMessageAction,
+  getPendingProcessingWebhookIds,
+  processDismissedMergeMessages,
+  getWebhookProcessingStatus,
+  setWebhookProcessingEnabled,
+  getPendingMergeGroups,
+  processGroupNow
+} from '../services/inboundWebhookService.js';
+import type {
+  InboundWebhookActionConfig,
+  BulkActionType
+} from '../services/inboundWebhookService.js';
+import {
+  fetchLcItems,
+  fetchLcRequests,
+  fetchLcVotes,
+  fetchLootMaster,
+  getLootManagementSummary
+} from '../services/lootManagementService.js';
+import {
+  fetchPlayerEventLogs,
+  fetchConnectionEventOverlaySnapshot,
+  getPlayerEventLogStats,
+  getEventTypes,
+  getEventLogZones
+} from '../services/playerEventLogsService.js';
+import { prisma } from '../utils/prisma.js';
 
 async function requireAdmin(
   request: FastifyRequest,
@@ -2179,7 +2176,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     {
       preHandler: [authenticate, requireAdmin]
     },
-    async (request, reply) => {
+    async (request) => {
       const querySchema = z.object({
         webhookId: z.string().optional()
       });

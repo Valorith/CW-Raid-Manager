@@ -2,6 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
+import { canManageGuild } from '../services/guildService.js';
+import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
+import { recordRaidNpcKills, deleteRaidNpcKillEvents } from '../services/raidNpcKillService.js';
 import {
   createRaidEvent,
   ensureUserCanViewGuild,
@@ -17,8 +20,6 @@ import {
   deleteRaidEvent,
   ensureCanManageRaid
 } from '../services/raidService.js';
-import { canManageGuild } from '../services/guildService.js';
-import { getActiveLootMonitorSession } from '../services/logMonitorService.js';
 import {
   listRaidSignups,
   replaceRaidSignupsForUser,
@@ -34,7 +35,6 @@ import {
   addSignupForCharacter,
   searchGuildCharactersForSignup
 } from '../services/raidSignupService.js';
-import { recordRaidNpcKills, deleteRaidNpcKillEvents } from '../services/raidNpcKillService.js';
 import { prisma } from '../utils/prisma.js';
 
 export async function raidsRoutes(server: FastifyInstance): Promise<void> {

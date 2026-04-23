@@ -1,5 +1,7 @@
-import type { FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
+
+import type { FastifyReply } from 'fastify';
+
 import { prisma } from '../utils/prisma.js';
 
 export interface DebugWebhookMessage {

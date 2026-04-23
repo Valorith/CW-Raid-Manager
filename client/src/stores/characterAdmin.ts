@@ -16,7 +16,14 @@ import {
   type CharacterWatch
 } from '../services/api';
 
-export type CharacterAdminTab = 'events' | 'associates' | 'account' | 'corpses' | 'notes' | 'inventory' | 'knownips';
+export type CharacterAdminTab =
+  | 'events'
+  | 'associates'
+  | 'account'
+  | 'corpses'
+  | 'notes'
+  | 'inventory'
+  | 'knownips';
 
 interface CharacterAdminModalState {
   open: boolean;
@@ -156,7 +163,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     ]);
 
     // Find the event type by name and apply filter
-    const eventType = eventTypes.value.find(t => t.name === eventTypeName);
+    const eventType = eventTypes.value.find((t) => t.name === eventTypeName);
     if (eventType) {
       eventsState.value.filters = {
         ...eventsState.value.filters,
@@ -229,7 +236,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         loadFilterData();
       }
     } catch (err: any) {
-      characterError.value = err?.response?.data?.message || err?.message || 'Failed to load character.';
+      characterError.value =
+        err?.response?.data?.message || err?.message || 'Failed to load character.';
       console.error('[CharacterAdminStore] Error loading character:', err);
     } finally {
       characterLoading.value = false;
@@ -257,7 +265,8 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
         loadFilterData();
       }
     } catch (err: any) {
-      characterError.value = err?.response?.data?.message || err?.message || 'Failed to load character.';
+      characterError.value =
+        err?.response?.data?.message || err?.message || 'Failed to load character.';
       console.error('[CharacterAdminStore] Error loading character:', err);
     } finally {
       characterLoading.value = false;
@@ -444,7 +453,12 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
     if (!character.value) return;
 
     try {
-      await api.addCharacterAssociation(character.value.id, targetCharacterId, associationType, reason);
+      await api.addCharacterAssociation(
+        character.value.id,
+        targetCharacterId,
+        associationType,
+        reason
+      );
       await loadAssociates(); // Reload associates
     } catch (err) {
       console.error('[CharacterAdminStore] Error adding association:', err);
@@ -480,7 +494,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   async function updateNote(noteId: string, content: string) {
     try {
       const updatedNote = await api.updateAccountNote(noteId, content);
-      const index = notes.value.findIndex(n => n.id === noteId);
+      const index = notes.value.findIndex((n) => n.id === noteId);
       if (index !== -1) {
         notes.value[index] = updatedNote;
       }
@@ -494,7 +508,7 @@ export const useCharacterAdminStore = defineStore('characterAdmin', () => {
   async function deleteNote(noteId: string) {
     try {
       await api.deleteAccountNote(noteId);
-      notes.value = notes.value.filter(n => n.id !== noteId);
+      notes.value = notes.value.filter((n) => n.id !== noteId);
     } catch (err) {
       console.error('[CharacterAdminStore] Error deleting note:', err);
       throw err;

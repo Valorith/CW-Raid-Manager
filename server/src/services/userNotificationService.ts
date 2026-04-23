@@ -8,8 +8,6 @@ import {
   type UserNotificationPreference
 } from '@prisma/client';
 
-import { appConfig } from '../config/appConfig.js';
-import { prisma } from '../utils/prisma.js';
 import {
   DEFAULT_PROVIDER_TARGETS,
   GUILD_NOTIFICATION_EVENT_DEFINITIONS,
@@ -19,6 +17,8 @@ import {
   type NotificationScopeTypeKey,
   type ProviderTargets
 } from './notificationConstants.js';
+import { appConfig } from '../config/appConfig.js';
+import { prisma } from '../utils/prisma.js';
 
 const GLOBAL_SCOPE_ID = 'global';
 const LINK_TOKEN_TTL_MS = 15 * 60 * 1000;

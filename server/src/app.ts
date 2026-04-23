@@ -1,12 +1,13 @@
-import fastify, { type FastifyInstance } from 'fastify';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fastifyMultipart from '@fastify/multipart';
 import fastifySensible from '@fastify/sensible';
 import fastifyStatic from '@fastify/static';
-import { existsSync, readFileSync } from 'fs';
-import { dirname, join, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import fastify, { type FastifyInstance } from 'fastify';
 
 import { appConfig } from './config/appConfig.js';
 import { discordOAuthPlugin } from './plugins/discordOAuth.js';

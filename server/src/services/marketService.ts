@@ -1,15 +1,16 @@
 import { MarketFavoriteListType, Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
-import type { MarketFavoriteNotificationSettings } from './notificationConstants.js';
 
-import { prisma } from '../utils/prisma.js';
-import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+
 import { getItemIconId } from './eqItemService.js';
 import { getMarketListingsPage, type MarketListingsPage } from './marketListingsService.js';
 import {
   normalizeMarketFavoriteNotificationSettings,
   processMarketSaleNotifications
 } from './marketNotificationService.js';
+import type { MarketFavoriteNotificationSettings } from './notificationConstants.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { prisma } from '../utils/prisma.js';
 
 const TRADER_PURCHASE_EVENT_TYPE_ID = 38;
 const TRADER_SELL_EVENT_TYPE_ID = 39;

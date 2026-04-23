@@ -368,9 +368,7 @@ export function parseLootCouncilEvents(
         rawLine,
         itemName: itemExtract.name,
         itemId: itemExtract.itemId,
-        ordinal: pendingListMatch.groups.ordinal
-          ? Number(pendingListMatch.groups.ordinal)
-          : null,
+        ordinal: pendingListMatch.groups.ordinal ? Number(pendingListMatch.groups.ordinal) : null,
         origin: 'PENDING'
       });
       continue;
@@ -403,7 +401,10 @@ export function parseLootCouncilEvents(
       const replaceExtract = parseLootCouncilItemReference(requestReplaceMatch.groups.replace);
       events.push({
         type: 'REQUEST',
-        key: buildEventKey(timestamp, `${requestReplaceMatch.groups.item}::${requestReplaceMatch.groups.player}::request`),
+        key: buildEventKey(
+          timestamp,
+          `${requestReplaceMatch.groups.item}::${requestReplaceMatch.groups.player}::request`
+        ),
         timestamp,
         rawLine,
         itemName: itemExtract.name,
@@ -424,7 +425,10 @@ export function parseLootCouncilEvents(
       const itemExtract = parseLootCouncilItemReference(requestNoReplaceMatch.groups.item);
       events.push({
         type: 'REQUEST',
-        key: buildEventKey(timestamp, `${requestNoReplaceMatch.groups.item}::${requestNoReplaceMatch.groups.player}::request`),
+        key: buildEventKey(
+          timestamp,
+          `${requestNoReplaceMatch.groups.item}::${requestNoReplaceMatch.groups.player}::request`
+        ),
         timestamp,
         rawLine,
         itemName: itemExtract.name,
@@ -445,7 +449,10 @@ export function parseLootCouncilEvents(
       const itemExtract = parseLootCouncilItemReference(withdrawalMatch.groups.item);
       events.push({
         type: 'WITHDRAWAL',
-        key: buildEventKey(timestamp, `${withdrawalMatch.groups.item}::${withdrawalMatch.groups.player}::withdrawal`),
+        key: buildEventKey(
+          timestamp,
+          `${withdrawalMatch.groups.item}::${withdrawalMatch.groups.player}::withdrawal`
+        ),
         timestamp,
         rawLine,
         itemName: itemExtract.name,
@@ -517,7 +524,6 @@ export function parseLootCouncilEvents(
 
     // Donation/left-on/master loot patterns handled below
 
-
     const randomAwardMatch = trimmed.match(
       /^(?:\[[^\]]+\]\s*)?(?<item>.+?) has been awarded to (?<player>.+?) by random roll\./i
     );
@@ -527,7 +533,10 @@ export function parseLootCouncilEvents(
       const playerName = randomAwardMatch.groups.player.trim();
       events.push({
         type: 'RANDOM_AWARD',
-        key: buildEventKey(timestamp, `${itemExtract.name}::${playerName}::random-award::${lineIndex}`),
+        key: buildEventKey(
+          timestamp,
+          `${itemExtract.name}::${playerName}::random-award::${lineIndex}`
+        ),
         timestamp,
         rawLine,
         itemName: itemExtract.name,
@@ -666,7 +675,6 @@ export function parseLootCouncilEvents(
         pendingSyncRequest = null;
         continue;
       }
-
     }
   }
 

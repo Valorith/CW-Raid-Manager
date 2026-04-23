@@ -1,5 +1,5 @@
-import { FastifyInstance } from 'fastify';
 import { CharacterArchetype, CharacterClass } from '@prisma/client';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
@@ -123,7 +123,7 @@ export async function charactersRoutes(server: FastifyInstance): Promise<void> {
       return reply.notFound('Character not found.');
     }
 
-    let actingUserOwnerId = characterRecord.userId;
+    const actingUserOwnerId = characterRecord.userId;
     const isOwner = characterRecord.userId === request.user.userId;
 
     if (parsed.data.guildId && isOwner) {

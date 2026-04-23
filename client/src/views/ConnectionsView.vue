@@ -1336,11 +1336,6 @@ function formatLastKillTooltip(conn: ServerConnection): string {
   return `Killed ${formatNpcName(conn.lastKillNpcName)} on ${formatFullDate(conn.lastKillAt)}`;
 }
 
-function formatLastSaleTooltip(conn: ServerConnection): string {
-  if (!conn.lastSaleAt) return '';
-  return `Sold ${conn.lastSaleItemName} on ${formatFullDate(conn.lastSaleAt)}`;
-}
-
 function getTotalGroupCount(group: IpGroup): number {
   return group.traders.length + group.fighters.length;
 }

@@ -18,9 +18,7 @@
           <div class="refresh-indicator">
             <span class="refresh-indicator__label">Last sync</span>
             <strong>{{ lastRefreshLabel }}</strong>
-            <span class="refresh-indicator__sub">
-              Next refresh {{ refreshCountdownLabel }}
-            </span>
+            <span class="refresh-indicator__sub"> Next refresh {{ refreshCountdownLabel }} </span>
           </div>
           <button
             class="icon-button icon-button--refresh"
@@ -47,7 +45,9 @@
       <div class="guild-bank__stat-row">
         <div class="stat-chip">
           <span class="stat-chip__label">Tracked characters</span>
-          <div class="stat-chip__value">{{ snapshot?.characters.filter(c => c.isTracked !== false).length ?? 0 }}</div>
+          <div class="stat-chip__value">
+            {{ snapshot?.characters.filter((c) => c.isTracked !== false).length ?? 0 }}
+          </div>
         </div>
         <div class="stat-chip">
           <span class="stat-chip__label">Unique items</span>
@@ -64,13 +64,11 @@
 
     <div class="guild-bank__body">
       <aside class="guild-bank__panel">
-        <div
-          v-if="missingCachedNames.length && canManageBank"
-          class="alert alert--warning"
-        >
+        <div v-if="missingCachedNames.length && canManageBank" class="alert alert--warning">
           <p class="alert__title">We detected missing tracked characters</p>
           <p class="alert__body">
-            {{ missingCachedNames.length }} name{{ missingCachedNames.length === 1 ? '' : 's' }} were in your local backup but are not on the server.
+            {{ missingCachedNames.length }} name{{ missingCachedNames.length === 1 ? '' : 's' }}
+            were in your local backup but are not on the server.
           </p>
           <button
             class="btn btn--secondary"
@@ -84,7 +82,10 @@
 
         <div class="roster-stack">
           <section
-            :class="['roster-card', activeRoster === 'guild' ? 'roster-card--open' : 'roster-card--collapsed']"
+            :class="[
+              'roster-card',
+              activeRoster === 'guild' ? 'roster-card--open' : 'roster-card--collapsed'
+            ]"
           >
             <button
               type="button"
@@ -139,11 +140,7 @@
               </form>
 
               <ul class="bank-character-list">
-                <li
-                  v-for="character in guildRoster"
-                  :key="character.id"
-                  class="bank-character"
-                >
+                <li v-for="character in guildRoster" :key="character.id" class="bank-character">
                   <label class="bank-character__meta">
                     <input
                       type="checkbox"
@@ -155,7 +152,9 @@
                     <span
                       :class="[
                         'bank-character__status',
-                        character.foundInEq ? 'bank-character__status--ok' : 'bank-character__status--warn'
+                        character.foundInEq
+                          ? 'bank-character__status--ok'
+                          : 'bank-character__status--warn'
                       ]"
                     >
                       {{ character.foundInEq ? 'Found in EQ' : 'Not found' }}
@@ -176,7 +175,10 @@
           </section>
 
           <section
-            :class="['roster-card', activeRoster === 'personal' ? 'roster-card--open' : 'roster-card--collapsed']"
+            :class="[
+              'roster-card',
+              activeRoster === 'personal' ? 'roster-card--open' : 'roster-card--collapsed'
+            ]"
           >
             <button
               type="button"
@@ -230,11 +232,7 @@
               </form>
 
               <ul class="bank-character-list">
-                <li
-                  v-for="character in personalRoster"
-                  :key="character.id"
-                  class="bank-character"
-                >
+                <li v-for="character in personalRoster" :key="character.id" class="bank-character">
                   <label class="bank-character__meta">
                     <input
                       type="checkbox"
@@ -246,7 +244,9 @@
                     <span
                       :class="[
                         'bank-character__status',
-                        character.foundInEq ? 'bank-character__status--ok' : 'bank-character__status--warn'
+                        character.foundInEq
+                          ? 'bank-character__status--ok'
+                          : 'bank-character__status--warn'
                       ]"
                     >
                       {{ character.foundInEq ? 'Found in EQ' : 'Not found' }}
@@ -302,24 +302,25 @@
         </div>
 
         <div v-if="totalPages > 1" class="guild-bank__pagination guild-bank__pagination--top">
-          <button class="pagination__button" :disabled="currentPage === 1" @click="setPage(currentPage - 1)">
+          <button
+            class="pagination__button"
+            :disabled="currentPage === 1"
+            @click="setPage(currentPage - 1)"
+          >
             Previous
           </button>
-          <span class="pagination__label">
-            Page {{ currentPage }} of {{ totalPages }}
-          </span>
-          <button class="pagination__button" :disabled="currentPage === totalPages" @click="setPage(currentPage + 1)">
+          <span class="pagination__label"> Page {{ currentPage }} of {{ totalPages }} </span>
+          <button
+            class="pagination__button"
+            :disabled="currentPage === totalPages"
+            @click="setPage(currentPage + 1)"
+          >
             Next
           </button>
         </div>
 
         <ul class="guild-bank__list guild-bank__list--grid">
-          <li
-            v-for="item in pagedItems"
-            :key="item.key"
-            class="guild-bank-item"
-
-          >
+          <li v-for="item in pagedItems" :key="item.key" class="guild-bank-item">
             <div class="guild-bank-item__header">
               <div
                 class="guild-bank-item__icon"
@@ -366,14 +367,20 @@
                   type="button"
                   :aria-label="`Add ${item.itemName} to cart`"
                   title="Add to cart"
-                  @click.stop="cartHasItem(item.key) ? removeCartItem(item.key) : openRequestModal(item)"
+                  @click.stop="
+                    cartHasItem(item.key) ? removeCartItem(item.key) : openRequestModal(item)
+                  "
                   :class="{ 'icon-button--cart-floating--active': cartHasItem(item.key) }"
                 >
                   <span class="cart-floating__icon">🛒</span>
-                  <span v-if="cartHasItem(item.key)" class="cart-floating__icon cart-floating__icon--hover">🗑️</span>
+                  <span
+                    v-if="cartHasItem(item.key)"
+                    class="cart-floating__icon cart-floating__icon--hover"
+                    >🗑️</span
+                  >
                 </button>
               </div>
-              <div class="guild-bank-item__owners" style="max-height: 4.5rem; overflow-y: auto;">
+              <div class="guild-bank-item__owners" style="max-height: 4.5rem; overflow-y: auto">
                 <span
                   v-for="owner in visibleOwners(item)"
                   :key="`${owner.characterName}-${owner.locationLabel}`"
@@ -390,20 +397,24 @@
           </li>
         </ul>
         <div v-if="totalPages > 1" class="guild-bank__pagination">
-          <button class="pagination__button" :disabled="currentPage === 1" @click="setPage(currentPage - 1)">
+          <button
+            class="pagination__button"
+            :disabled="currentPage === 1"
+            @click="setPage(currentPage - 1)"
+          >
             Previous
           </button>
-          <span class="pagination__label">
-            Page {{ currentPage }} of {{ totalPages }}
-          </span>
-          <button class="pagination__button" :disabled="currentPage === totalPages" @click="setPage(currentPage + 1)">
+          <span class="pagination__label"> Page {{ currentPage }} of {{ totalPages }} </span>
+          <button
+            class="pagination__button"
+            :disabled="currentPage === totalPages"
+            @click="setPage(currentPage + 1)"
+          >
             Next
           </button>
         </div>
       </main>
     </div>
-
-
 
     <div
       v-if="showRequestModal && requestModalItem"
@@ -462,7 +473,10 @@
           <div class="request-modal__sources">
             <p class="muted small">Available from:</p>
             <ul>
-              <li v-for="src in requestModalItem.sources" :key="`${src.characterName}-${src.location}`">
+              <li
+                v-for="src in requestModalItem.sources"
+                :key="`${src.characterName}-${src.location}`"
+              >
                 {{ src.characterName }} ({{ src.location }}) · ×{{ src.quantity }}
               </li>
             </ul>
@@ -472,7 +486,9 @@
           </p>
         </div>
         <footer class="modal__footer">
-          <button class="btn btn--secondary" type="button" @click="closeRequestModal">Cancel</button>
+          <button class="btn btn--secondary" type="button" @click="closeRequestModal">
+            Cancel
+          </button>
           <button
             class="btn"
             type="button"
@@ -485,21 +501,31 @@
       </div>
     </div>
 
-    <div v-if="cartConfirmOpen" class="modal-backdrop modal-backdrop--top" style="z-index: 140" @click.self="cartConfirmOpen = false">
+    <div
+      v-if="cartConfirmOpen"
+      class="modal-backdrop modal-backdrop--top"
+      style="z-index: 140"
+      @click.self="cartConfirmOpen = false"
+    >
       <div class="modal confirm-modal">
         <header class="modal__header">
           <div>
             <p class="eyebrow">Confirm request</p>
             <h3>Submit Request?</h3>
           </div>
-          <button class="icon-button" type="button" @click="cartConfirmOpen = false" aria-label="Close">
+          <button
+            class="icon-button"
+            type="button"
+            @click="cartConfirmOpen = false"
+            aria-label="Close"
+          >
             ×
           </button>
         </header>
         <div class="confirm-modal__body">
           Confirm that you want to send this request for items from the guild bank to guild Officers
-          for consideration. This request will send a notification to guild leadership with your list
-          of requested items.
+          for consideration. This request will send a notification to guild leadership with your
+          list of requested items.
         </div>
         <footer class="modal__footer confirm-modal__footer">
           <button class="btn btn--secondary" type="button" @click="cartConfirmOpen = false">
@@ -516,7 +542,9 @@
       <div class="cart-panel">
         <header class="cart-panel__header">
           <h3>Shopping Cart</h3>
-          <button class="icon-button" type="button" @click="toggleCart" aria-label="Close cart">×</button>
+          <button class="icon-button" type="button" @click="toggleCart" aria-label="Close cart">
+            ×
+          </button>
         </header>
         <p v-if="cartDistinct === 0" class="muted small">Your cart is empty.</p>
         <ul v-else class="cart-list">
@@ -539,7 +567,9 @@
               </div>
               <div>
                 <strong>{{ entry.itemName }}</strong>
-                <p class="muted small">Requested: ×{{ entry.quantity }} (max {{ entry.maxQuantity }})</p>
+                <p class="muted small">
+                  Requested: ×{{ entry.quantity }} (max {{ entry.maxQuantity }})
+                </p>
                 <ul class="cart-item__sources">
                   <li
                     v-for="src in displaySources(entry)"
@@ -556,9 +586,23 @@
                 type="number"
                 min="1"
                 :max="entry.maxQuantity"
-                @input="(e) => updateCartEntry({ ...entry, quantity: clampQuantity(Number((e.target as HTMLInputElement).value), entry.maxQuantity) })"
+                @input="
+                  (e) =>
+                    updateCartEntry({
+                      ...entry,
+                      quantity: clampQuantity(
+                        Number((e.target as HTMLInputElement).value),
+                        entry.maxQuantity
+                      )
+                    })
+                "
               />
-              <button class="icon-button icon-button--danger" type="button" @click="removeCartItem(entry.itemKey)" aria-label="Remove item">
+              <button
+                class="icon-button icon-button--danger"
+                type="button"
+                @click="removeCartItem(entry.itemKey)"
+                aria-label="Remove item"
+              >
                 🗑️
               </button>
             </div>
@@ -566,13 +610,28 @@
         </ul>
         <footer class="cart-panel__footer">
           <div class="cart-summary">
-            <span>{{ cartDistinct }} item{{ cartDistinct === 1 ? '' : 's' }} ({{ cartCount }} total)</span>
+            <span
+              >{{ cartDistinct }} item{{ cartDistinct === 1 ? '' : 's' }} ({{
+                cartCount
+              }}
+              total)</span
+            >
           </div>
           <div class="cart-actions">
-            <button class="btn btn--secondary" type="button" @click="resetCart" :disabled="cartDistinct === 0">
+            <button
+              class="btn btn--secondary"
+              type="button"
+              @click="resetCart"
+              :disabled="cartDistinct === 0"
+            >
               Clear Cart
             </button>
-            <button class="btn" type="button" :disabled="cartDistinct === 0 || submittingCart" @click="cartConfirmOpen = true">
+            <button
+              class="btn"
+              type="button"
+              :disabled="cartDistinct === 0 || submittingCart"
+              @click="cartConfirmOpen = true"
+            >
               {{ submittingCart ? 'Requesting…' : 'Request All Items' }}
             </button>
           </div>
@@ -581,22 +640,20 @@
         </footer>
       </div>
     </div>
-
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch, shallowRef } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
-import { api, type GuildBankSnapshot, type GuildBankItem } from '../services/api';
-import { getCharacterClassIcon, type CharacterClass, type GuildRole } from '../services/types';
+import { api, type GuildBankItem } from '../services/api';
+import { type GuildRole } from '../services/types';
 import { getLootIconSrc } from '../utils/itemIcons';
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
-const ONE_HOUR_MS = 60 * 60 * 1000;
 
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
@@ -609,17 +666,20 @@ const tooltipStore = useItemTooltipStore();
 const guildId = computed(() => route.params.guildId as string);
 
 // Tooltip handlers for item icons
-function showItemTooltip(event: MouseEvent, item: {
-  itemId?: number | null;
-  itemName: string;
-  itemIconId?: number | null;
-  augSlot1?: number | null;
-  augSlot2?: number | null;
-  augSlot3?: number | null;
-  augSlot4?: number | null;
-  augSlot5?: number | null;
-  augSlot6?: number | null;
-}) {
+function showItemTooltip(
+  event: MouseEvent,
+  item: {
+    itemId?: number | null;
+    itemName: string;
+    itemIconId?: number | null;
+    augSlot1?: number | null;
+    augSlot2?: number | null;
+    augSlot3?: number | null;
+    augSlot4?: number | null;
+    augSlot5?: number | null;
+    augSlot6?: number | null;
+  }
+) {
   if (!item.itemId) return;
   tooltipStore.showTooltip(
     {
@@ -681,151 +741,150 @@ const canManageBank = computed(() =>
 );
 const canManagePersonal = computed(() => !!guildRole.value);
 
-const cacheKey = computed(() => `guild-bank:${guildId.value}`);
 const cacheNamesKey = computed(() => `guild-bank:names:${guildId.value}:v1`);
 const autoRestoreAttempted = ref(false);
 const initialFetchDone = ref(false);
 
 function aggregateItems(items: GuildBankItem[]) {
-    const map = new Map<
+  const map = new Map<
+    string,
+    {
+      key: string;
+      itemId: number | null;
+      itemName: string;
+      itemIconId: number | null;
+      totalQuantity: number;
+      guildQuantity: number;
+      owners: Array<{
+        characterName: string;
+        quantity: number;
+        location: GuildBankItem['location'];
+        locationLabel: string;
+        isPersonal: boolean;
+        slotId: number | null;
+      }>;
+      ownerSummaries: Map<
         string,
-        {
-            key: string;
-            itemId: number | null;
-            itemName: string;
-            itemIconId: number | null;
-            totalQuantity: number;
-            guildQuantity: number;
-            owners: Array<{
-                characterName: string;
-                quantity: number;
-                location: GuildBankItem['location'];
-                locationLabel: string;
-                isPersonal: boolean;
-                slotId: number | null;
-            }>;
-            ownerSummaries: Map<
-                string,
-                { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
-            >;
-            locationSet: Set<string>;
-            slotPlacements: Array<{
-                characterName: string;
-                location: GuildBankItem['location'];
-                locationLabel: string;
-                isPersonal: boolean;
-                slotId: number | null;
-                quantity: number;
-            }>;
-        }
-    >();
-
-    for (const entry of items) {
-        const quantity = normalizeQuantity(entry.charges);
-        const key = buildItemKey(entry.itemId ?? null, entry.itemName);
-        const locationLabel =
-            entry.location === 'WORN'
-                ? 'Worn'
-                : entry.location === 'BANK'
-                    ? 'Bank'
-                    : entry.location === 'CURSOR'
-                        ? 'Cursor'
-                        : 'Inventory';
-        const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
-        const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
-
-        const existing = map.get(key);
-        if (!existing) {
-            map.set(key, {
-                key,
-                itemId: entry.itemId ?? null,
-                itemName: entry.itemName,
-                itemIconId: entry.itemIconId ?? null,
-                totalQuantity: quantity,
-                guildQuantity: isPersonal ? 0 : quantity,
-                owners: [
-                    {
-                        characterName: entry.characterName,
-                        quantity,
-                        location: entry.location,
-                        locationLabel,
-                        isPersonal,
-                        slotId
-                    }
-                ],
-                ownerSummaries: new Map([
-                    [
-                        `${entry.characterName}-${locationLabel}`,
-                        {
-                            characterName: entry.characterName,
-                            locationLabel,
-                            totalQuantity: quantity,
-                            isPersonal
-                        }
-                    ]
-                ]),
-                locationSet: new Set([locationLabel]),
-                slotPlacements: [
-                    {
-                        characterName: entry.characterName,
-                        location: entry.location,
-                        locationLabel,
-                        isPersonal,
-                        slotId,
-                        quantity
-                    }
-                ]
-            });
-        } else {
-            existing.totalQuantity += quantity;
-            if (!isPersonal) {
-                existing.guildQuantity += quantity;
-            }
-            existing.locationSet.add(locationLabel);
-            existing.owners.push({
-                characterName: entry.characterName,
-                quantity,
-                location: entry.location,
-                locationLabel,
-                isPersonal,
-                slotId
-            });
-            const keyOwner = `${entry.characterName}-${locationLabel}`;
-            const summary = existing.ownerSummaries.get(keyOwner);
-            if (summary) {
-                summary.totalQuantity += quantity;
-            } else {
-                existing.ownerSummaries.set(keyOwner, {
-                    characterName: entry.characterName,
-                    locationLabel,
-                    totalQuantity: quantity,
-                    isPersonal
-                });
-            }
-            existing.slotPlacements.push({
-                characterName: entry.characterName,
-                location: entry.location,
-                locationLabel,
-                isPersonal,
-                slotId,
-                quantity
-            });
-        }
+        { characterName: string; locationLabel: string; totalQuantity: number; isPersonal: boolean }
+      >;
+      locationSet: Set<string>;
+      slotPlacements: Array<{
+        characterName: string;
+        location: GuildBankItem['location'];
+        locationLabel: string;
+        isPersonal: boolean;
+        slotId: number | null;
+        quantity: number;
+      }>;
     }
+  >();
 
-    return Array.from(map.values())
-        .map(({ locationSet, ownerSummaries, ...rest }) => ({
-            ...rest,
-            locations: Array.from(locationSet),
-            ownerSummaries: Array.from(ownerSummaries.values()),
-            sources: Array.from(ownerSummaries.values()).map((owner) => ({
-                characterName: owner.characterName,
-                location: owner.locationLabel,
-                quantity: owner.totalQuantity,
-                isPersonal: owner.isPersonal
-            }))
-        }))
-        .sort((a, b) => a.itemName.localeCompare(b.itemName));
+  for (const entry of items) {
+    const quantity = normalizeQuantity(entry.charges);
+    const key = buildItemKey(entry.itemId ?? null, entry.itemName);
+    const locationLabel =
+      entry.location === 'WORN'
+        ? 'Worn'
+        : entry.location === 'BANK'
+          ? 'Bank'
+          : entry.location === 'CURSOR'
+            ? 'Cursor'
+            : 'Inventory';
+    const isPersonal = (entry as any)?.isPersonal === true || (entry as any)?.isPersonal === 1;
+    const slotId = typeof entry.slotId === 'number' ? entry.slotId : null;
+
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        key,
+        itemId: entry.itemId ?? null,
+        itemName: entry.itemName,
+        itemIconId: entry.itemIconId ?? null,
+        totalQuantity: quantity,
+        guildQuantity: isPersonal ? 0 : quantity,
+        owners: [
+          {
+            characterName: entry.characterName,
+            quantity,
+            location: entry.location,
+            locationLabel,
+            isPersonal,
+            slotId
+          }
+        ],
+        ownerSummaries: new Map([
+          [
+            `${entry.characterName}-${locationLabel}`,
+            {
+              characterName: entry.characterName,
+              locationLabel,
+              totalQuantity: quantity,
+              isPersonal
+            }
+          ]
+        ]),
+        locationSet: new Set([locationLabel]),
+        slotPlacements: [
+          {
+            characterName: entry.characterName,
+            location: entry.location,
+            locationLabel,
+            isPersonal,
+            slotId,
+            quantity
+          }
+        ]
+      });
+    } else {
+      existing.totalQuantity += quantity;
+      if (!isPersonal) {
+        existing.guildQuantity += quantity;
+      }
+      existing.locationSet.add(locationLabel);
+      existing.owners.push({
+        characterName: entry.characterName,
+        quantity,
+        location: entry.location,
+        locationLabel,
+        isPersonal,
+        slotId
+      });
+      const keyOwner = `${entry.characterName}-${locationLabel}`;
+      const summary = existing.ownerSummaries.get(keyOwner);
+      if (summary) {
+        summary.totalQuantity += quantity;
+      } else {
+        existing.ownerSummaries.set(keyOwner, {
+          characterName: entry.characterName,
+          locationLabel,
+          totalQuantity: quantity,
+          isPersonal
+        });
+      }
+      existing.slotPlacements.push({
+        characterName: entry.characterName,
+        location: entry.location,
+        locationLabel,
+        isPersonal,
+        slotId,
+        quantity
+      });
+    }
+  }
+
+  return Array.from(map.values())
+    .map(({ locationSet, ownerSummaries, ...rest }) => ({
+      ...rest,
+      locations: Array.from(locationSet),
+      ownerSummaries: Array.from(ownerSummaries.values()),
+      sources: Array.from(ownerSummaries.values()).map((owner) => ({
+        characterName: owner.characterName,
+        location: owner.locationLabel,
+        quantity: owner.totalQuantity,
+        isPersonal: owner.isPersonal
+      }))
+    }))
+    .sort((a, b) => a.itemName.localeCompare(b.itemName));
 }
 
 const groupedItems = computed(() => {
@@ -871,9 +930,7 @@ const totalItemCount = computed(() =>
 const currentPage = ref(1);
 const pageSize = 18;
 
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(groupedItems.value.length / pageSize))
-);
+const totalPages = computed(() => Math.max(1, Math.ceil(groupedItems.value.length / pageSize)));
 
 const pagedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize;
@@ -926,7 +983,7 @@ async function restoreMissingCachedCharacters() {
   }
 }
 
-function visibleOwners(item: typeof groupedItems.value[number]) {
+function visibleOwners(item: (typeof groupedItems.value)[number]) {
   return item.ownerSummaries;
 }
 
@@ -943,12 +1000,7 @@ function buildItemKey(itemId: number | null | undefined, itemName: string): stri
   return itemId != null ? `id:${itemId}` : `name:${itemName.toLowerCase()}`;
 }
 
-const fallbackClassIcon = '/class-icons/Warrioricon.PNG.webp';
-
-function openInventoryModal(
-  item: typeof groupedItems.value[number],
-  characterName?: string
-) {
+function openInventoryModal(item: (typeof groupedItems.value)[number], characterName?: string) {
   const targetName = characterName ?? item.ownerSummaries[0]?.characterName;
   if (targetName) {
     const placement = item.slotPlacements.find(
@@ -957,8 +1009,6 @@ function openInventoryModal(
     store.openModal(guildId.value, targetName, placement?.slotId ?? undefined);
   }
 }
-
-
 
 const missingCount = computed(() => snapshot.value?.missingCharacters.length ?? 0);
 
@@ -969,8 +1019,7 @@ const guildRoster = computed(
     ) ?? []
 );
 const personalRoster = computed(
-  () =>
-    snapshot.value?.characters.filter((entry) => toBooleanFlag(entry.isPersonal)) ?? []
+  () => snapshot.value?.characters.filter((entry) => toBooleanFlag(entry.isPersonal)) ?? []
 );
 
 const allGuildSelected = computed(
@@ -986,81 +1035,10 @@ const allPersonalSelected = computed(
 
 function isCharacterSelected(name: string, isPersonal: boolean): boolean {
   const key = name.toLowerCase();
-  return isPersonal
-    ? selectedPersonal.value.has(key)
-    : selectedGuild.value.has(key);
+  return isPersonal ? selectedPersonal.value.has(key) : selectedGuild.value.has(key);
 }
 
-function loadCache() {
-  try {
-    const raw = localStorage.getItem(cacheKey.value);
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as { snapshot: GuildBankSnapshot; fetchedAt: number };
-    if (!parsed || !parsed.snapshot || !parsed.fetchedAt) {
-      return null;
-    }
-    const normalizedCharacters = Array.isArray(parsed.snapshot?.characters)
-      ? parsed.snapshot.characters.map((entry: any) => ({
-          ...entry,
-          isPersonal: toBooleanFlag(entry?.isPersonal)
-        }))
-      : [];
-    return {
-      snapshot: {
-        ...parsed.snapshot,
-        characters: normalizedCharacters
-      },
-      fetchedAt: parsed.fetchedAt
-    };
-  } catch {
-    return null;
-  }
-}
-
-function saveCache(currentSnapshot: GuildBankSnapshot) {
-  try {
-    localStorage.setItem(
-      cacheKey.value,
-      JSON.stringify({ snapshot: currentSnapshot, fetchedAt: Date.now() })
-    );
-  } catch {
-    // ignore cache errors
-  }
-}
-
-function loadCachedNames() {
-  try {
-    const raw = localStorage.getItem(cacheNamesKey.value);
-    if (!raw) {
-      cachedNames.value = [];
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      cachedNames.value = [];
-      return;
-    }
-    cachedNames.value = parsed
-      .map((entry: any) => {
-        if (typeof entry === 'string') {
-          return { name: entry, isPersonal: false };
-        }
-        if (entry && typeof entry.name === 'string') {
-          return { name: entry.name, isPersonal: toBooleanFlag(entry.isPersonal) };
-        }
-        return null;
-      })
-      .filter((entry): entry is { name: string; isPersonal: boolean } => Boolean(entry));
-  } catch {
-    cachedNames.value = [];
-  }
-}
-
-function saveCachedNames(
-  names: Array<{ name: string; isPersonal: boolean }>
-) {
+function saveCachedNames(names: Array<{ name: string; isPersonal: boolean }>) {
   const merged = mergeNamesCaseInsensitive(names);
   cachedNames.value = [...merged];
   try {
@@ -1087,14 +1065,6 @@ function mergeNamesCaseInsensitive(
     }
   }
   return merged;
-}
-
-function diffNamesCaseInsensitive(
-  full: Array<{ name: string; isPersonal: boolean }>,
-  subset: Array<{ name: string; isPersonal: boolean }>
-): Array<{ name: string; isPersonal: boolean }> {
-  const subsetKeys = new Set(subset.map((entry) => characterKey(entry)));
-  return full.filter((entry) => !subsetKeys.has(characterKey(entry)));
 }
 
 const canRefreshNow = computed(() => {
@@ -1138,8 +1108,6 @@ const lastRefreshLabel = computed(() => {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
 });
-
-
 
 // Cart state
 type CartEntry = {
@@ -1229,7 +1197,7 @@ const cartError = ref<string | null>(null);
 const cartSuccess = ref<string | null>(null);
 const cartConfirmOpen = ref(false);
 
-function openRequestModal(item: typeof groupedItems.value[number]) {
+function openRequestModal(item: (typeof groupedItems.value)[number]) {
   const existing = cart.value.find((entry) => entry.itemKey === item.key);
   const guildMaxQuantity = Math.max(item.guildQuantity ?? 0, 0);
   const maxQuantity = Math.max(guildMaxQuantity, existing?.quantity ?? 0);
@@ -1330,31 +1298,6 @@ const aggregatedCartSources = computed(() =>
   })
 );
 
-function reconcileCartWithSnapshot() {
-  if (!snapshot.value) {
-    return;
-  }
-  const aggregated = aggregateItems(snapshot.value.items);
-  const lookup = new Map<string, (typeof aggregated)[number]>();
-  aggregated.forEach((item) => lookup.set(item.key, item));
-
-  cart.value = cart.value.map((entry) => {
-    const latest = lookup.get(entry.itemKey);
-    if (!latest) {
-      return entry;
-    }
-    const maxQuantity = latest.totalQuantity;
-    const clampedQty = Math.min(entry.quantity, maxQuantity);
-    return {
-      ...entry,
-      maxQuantity,
-      quantity: clampedQty,
-      sources: latest.sources
-    };
-  });
-  saveCart();
-}
-
 function displaySources(entry: CartEntry) {
   const allocated: Array<{ characterName: string; location: string; quantity: number }> = [];
   let remaining = entry.quantity;
@@ -1392,10 +1335,7 @@ watch(
 );
 
 watch(
-  () =>
-    snapshot.value?.characters
-      ?.map((c) => `${c.name}:${c.isPersonal ? 1 : 0}`)
-      .join('|'),
+  () => snapshot.value?.characters?.map((c) => `${c.name}:${c.isPersonal ? 1 : 0}`).join('|'),
   (names) => {
     if (!names) return;
     syncSelectionWithSnapshot();
@@ -1434,16 +1374,15 @@ async function submitCart(skipConfirm = false) {
         new CustomEvent('show-toast', {
           detail: {
             title: 'Requests Temporarily Disabled',
-            message: 'Guild bank requests require the Discord webhook to be enabled. Please contact a guild officer.'
+            message:
+              'Guild bank requests require the Discord webhook to be enabled. Please contact a guild officer.'
           }
         })
       );
       cartError.value = 'Bank requests are currently disabled.';
     } else {
       const message =
-        serverMessage ??
-        error?.message ??
-        'Unable to submit guild bank request. Please try again.';
+        serverMessage ?? error?.message ?? 'Unable to submit guild bank request. Please try again.';
       cartError.value = message;
     }
   } finally {
@@ -1564,7 +1503,7 @@ async function addCharacter(isPersonal: boolean) {
     const created = await api.addGuildBankCharacter(guildId.value, targetRef.value.trim(), {
       isPersonal
     });
-    
+
     const key = created.name.toLowerCase();
     if (isPersonal) {
       selectedPersonal.value = new Set([...selectedPersonal.value, key]);
@@ -1604,8 +1543,6 @@ async function removeCharacter(id: string) {
     removingId.value = null;
   }
 }
-
-
 
 async function refreshSnapshot() {
   await store.fetchSnapshot(guildId.value, true);

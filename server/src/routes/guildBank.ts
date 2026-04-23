@@ -1,19 +1,19 @@
-import { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { getUserGuildRole } from '../services/guildService.js';
+import { isDiscordWebhookEventEnabled, emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
 import {
   addGuildBankCharacter,
   fetchGuildBankSnapshot,
   listGuildBankCharacters,
   removeGuildBankCharacter
 } from '../services/guildBankService.js';
+import { getUserGuildRole } from '../services/guildService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
-import { isDiscordWebhookEventEnabled, emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
-import { prisma } from '../utils/prisma.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function guildBankRoutes(server: FastifyInstance): Promise<void> {
   server.get('/:guildId/guild-bank', { preHandler: [authenticate] }, async (request, reply) => {

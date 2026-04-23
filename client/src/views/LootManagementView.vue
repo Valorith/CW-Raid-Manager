@@ -5,9 +5,7 @@
         <h1>Loot Master Diagnostics</h1>
         <p class="muted">View loot council data from the EQEmu database.</p>
       </div>
-      <router-link to="/admin" class="btn btn--outline">
-        Back to Admin
-      </router-link>
+      <router-link to="/admin" class="btn btn--outline"> Back to Admin </router-link>
     </header>
 
     <div class="loot-stats">
@@ -77,7 +75,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lootMasterPage }} of {{ lootMasterResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lootMasterPage }} of {{ lootMasterResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lootMasterPage === lootMasterResult.totalPages"
@@ -120,7 +120,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lootMasterPage }} of {{ lootMasterResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lootMasterPage }} of {{ lootMasterResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lootMasterPage === lootMasterResult.totalPages"
@@ -163,7 +165,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcItemsPage }} of {{ lcItemsResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcItemsPage }} of {{ lcItemsResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcItemsPage === lcItemsResult.totalPages"
@@ -192,7 +196,9 @@
                 <td>{{ entry.id }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
                 <td>{{ entry.raidId || '-' }}</td>
-                <td>{{ formatNpcName(entry.npcName) || (entry.npcId ? `#${entry.npcId}` : '-') }}</td>
+                <td>
+                  {{ formatNpcName(entry.npcName) || (entry.npcId ? `#${entry.npcId}` : '-') }}
+                </td>
                 <td>{{ formatType(entry.type) }}</td>
                 <td>
                   <span :class="['badge', statusBadgeClass(entry.status)]">
@@ -212,7 +218,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcItemsPage }} of {{ lcItemsResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcItemsPage }} of {{ lcItemsResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcItemsPage === lcItemsResult.totalPages"
@@ -255,7 +263,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcRequestsPage }} of {{ lcRequestsResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcRequestsPage }} of {{ lcRequestsResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcRequestsPage === lcRequestsResult.totalPages"
@@ -283,7 +293,12 @@
                 <td>{{ entry.eventId || '-' }}</td>
                 <td>{{ entry.charName || (entry.charId ? `#${entry.charId}` : '-') }}</td>
                 <td>{{ entry.itemName ?? 'Unknown' }}</td>
-                <td>{{ entry.replacedItemName || (entry.replacedItemId ? `#${entry.replacedItemId}` : '-') }}</td>
+                <td>
+                  {{
+                    entry.replacedItemName ||
+                    (entry.replacedItemId ? `#${entry.replacedItemId}` : '-')
+                  }}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -296,7 +311,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcRequestsPage }} of {{ lcRequestsResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcRequestsPage }} of {{ lcRequestsResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcRequestsPage === lcRequestsResult.totalPages"
@@ -339,7 +356,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcVotesPage }} of {{ lcVotesResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcVotesPage }} of {{ lcVotesResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcVotesPage === lcVotesResult.totalPages"
@@ -388,7 +407,9 @@
           >
             Previous
           </button>
-          <span class="pagination__label">Page {{ lcVotesPage }} of {{ lcVotesResult.totalPages }}</span>
+          <span class="pagination__label"
+            >Page {{ lcVotesPage }} of {{ lcVotesResult.totalPages }}</span
+          >
           <button
             class="pagination__button"
             :disabled="lcVotesPage === lcVotesResult.totalPages"
@@ -498,9 +519,15 @@ const lcVotesResult = ref<PaginatedLootResult<LcVoteEntry>>({
 
 // Use actual paginated totals when available, fallback to summary counts
 const displayStats = computed(() => ({
-  lootMaster: loadedTabs.value.has('loot-master') ? lootMasterResult.value.total : summary.value.lootMasterCount,
-  lcItems: loadedTabs.value.has('lc-items') ? lcItemsResult.value.total : summary.value.lcItemsCount,
-  lcRequests: loadedTabs.value.has('lc-requests') ? lcRequestsResult.value.total : summary.value.lcRequestsCount,
+  lootMaster: loadedTabs.value.has('loot-master')
+    ? lootMasterResult.value.total
+    : summary.value.lootMasterCount,
+  lcItems: loadedTabs.value.has('lc-items')
+    ? lcItemsResult.value.total
+    : summary.value.lcItemsCount,
+  lcRequests: loadedTabs.value.has('lc-requests')
+    ? lcRequestsResult.value.total
+    : summary.value.lcRequestsCount,
   lcVotes: loadedTabs.value.has('lc-votes') ? lcVotesResult.value.total : summary.value.lcVotesCount
 }));
 
@@ -685,10 +712,15 @@ function statusBadgeClass(status: string | number | null | undefined): string {
   // Handle numeric status codes
   const code = typeof status === 'number' ? status : parseInt(String(status), 10);
   if (code === 1) return 'badge--positive'; // Active
-  if (code === 2) return 'badge--neutral';  // Archived
+  if (code === 2) return 'badge--neutral'; // Archived
   // Handle string status values
   const lower = String(status).toLowerCase();
-  if (lower.includes('approved') || lower.includes('complete') || lower.includes('awarded') || lower.includes('active')) {
+  if (
+    lower.includes('approved') ||
+    lower.includes('complete') ||
+    lower.includes('awarded') ||
+    lower.includes('active')
+  ) {
     return 'badge--positive';
   }
   if (lower.includes('denied') || lower.includes('rejected') || lower.includes('cancelled')) {

@@ -91,10 +91,7 @@
             </div>
           </div>
 
-          <div
-            class="zone-tile__body"
-            :ref="(el) => setTileBodyRef(zone.name, el)"
-          >
+          <div class="zone-tile__body" :ref="(el) => setTileBodyRef(zone.name, el)">
             <svg
               v-if="getTileOverlays(zone.name).length > 0"
               class="zone-tile__overlay"
@@ -915,13 +912,7 @@ const tileOverlaysByZone = computed<Map<string, RenderedTileOverlay[]>>(() => {
     if (fadeOpacity <= 0) continue;
 
     const curvature = RELATIONSHIP_CURVATURE[overlay.type] ?? 14;
-    const curve = buildCurvePath(
-      sourcePos.cx,
-      sourcePos.cy,
-      targetPos.cx,
-      targetPos.cy,
-      curvature
-    );
+    const curve = buildCurvePath(sourcePos.cx, sourcePos.cy, targetPos.cx, targetPos.cy, curvature);
     const rendered: RenderedTileOverlay = {
       id: overlay.id,
       type: overlay.type,
@@ -958,10 +949,7 @@ const characterInteractionMap = computed<Map<number, number>>(() => {
   const visibleIds = visibleCharacterIds.value;
   for (const overlay of overlays) {
     if (overlay.sourceCharacterId === overlay.targetCharacterId) continue;
-    if (
-      !visibleIds.has(overlay.sourceCharacterId) ||
-      !visibleIds.has(overlay.targetCharacterId)
-    ) {
+    if (!visibleIds.has(overlay.sourceCharacterId) || !visibleIds.has(overlay.targetCharacterId)) {
       continue;
     }
     if (getEventFadeOpacity(overlay.lastSeenAt) <= 0) continue;
@@ -984,10 +972,7 @@ const characterInteractionDetails = computed<Map<number, ConnectionRelationshipO
   const visibleIds = visibleCharacterIds.value;
   for (const overlay of overlays) {
     if (overlay.sourceCharacterId === overlay.targetCharacterId) continue;
-    if (
-      !visibleIds.has(overlay.sourceCharacterId) ||
-      !visibleIds.has(overlay.targetCharacterId)
-    ) {
+    if (!visibleIds.has(overlay.sourceCharacterId) || !visibleIds.has(overlay.targetCharacterId)) {
       continue;
     }
     if (getEventFadeOpacity(overlay.lastSeenAt) <= 0) continue;

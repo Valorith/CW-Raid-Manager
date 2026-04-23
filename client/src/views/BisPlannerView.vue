@@ -118,7 +118,9 @@
                       <strong>{{ result.name }}</strong>
                       <span>{{ characterClassLabels[result.className] }}</span>
                     </button>
-                    <div v-if="compareSearchLoading" class="bis-planner__search-empty">Searching…</div>
+                    <div v-if="compareSearchLoading" class="bis-planner__search-empty">
+                      Searching…
+                    </div>
                     <div
                       v-else-if="compareQuery.trim().length >= 2 && compareResults.length === 0"
                       class="bis-planner__search-empty"
@@ -160,8 +162,8 @@
                 v-if="compareCharacter.className !== activeClass"
                 class="bis-planner__compare-warning"
               >
-                This character is not a {{ activeClassLabel }}. Slot matches may still be useful, but
-                class-specific BiS logic is based on the selected board.
+                This character is not a {{ activeClassLabel }}. Slot matches may still be useful,
+                but class-specific BiS logic is based on the selected board.
               </p>
             </div>
 
@@ -250,10 +252,7 @@
                     >
                       Current BiS
                     </span>
-                    <span
-                      v-else-if="selectedCompareCandidate"
-                      class="bis-planner__panel-badge"
-                    >
+                    <span v-else-if="selectedCompareCandidate" class="bis-planner__panel-badge">
                       On Vote Board
                     </span>
                   </div>

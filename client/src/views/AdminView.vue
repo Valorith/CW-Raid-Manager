@@ -1879,7 +1879,9 @@ onMounted(async () => {
   letter-spacing: 0.08em;
   border-radius: 0.5rem;
   border: 1px solid rgba(148, 163, 184, 0.35);
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .select--role:hover:not(:disabled) {

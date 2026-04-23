@@ -3,10 +3,10 @@ import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
+import { processMarketListingNotifications } from './marketNotificationService.js';
 import { EQEMU_ITEM_SLOT_IDS, EQEMU_ITEM_TYPE_VALUES } from '../data/eqItemFilters.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
-import { processMarketListingNotifications } from './marketNotificationService.js';
 
 type SortOrder = 'asc' | 'desc';
 type MarketLogger = {

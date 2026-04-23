@@ -13,14 +13,14 @@ import {
   QuestBlueprintFolderType
 } from '@prisma/client';
 
-import { withPreferredDisplayName } from '../utils/displayName.js';
-import { prisma } from '../utils/prisma.js';
 import {
   EqTaskActivity,
   EqTaskDefinition,
   loadEqTaskWithActivities
 } from './eqTaskService.js';
 import { staticZoneNameMap } from '../data/zoneNames.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 const ACTIVE_ASSIGNMENT_STATUSES: QuestAssignmentStatus[] = [
   QuestAssignmentStatus.ACTIVE,
@@ -915,7 +915,7 @@ function summarizeZone(
 async function attachZoneNamesToNodes(nodes: QuestNodeViewModel[]): Promise<void> {
   const tokens = new Set<string>();
   nodes.forEach((node) => {
-    const req: any = node.requirements ?? {};
+    const req = node.requirements ?? {};
     const zonesValue = req.zones;
     const description = node.description;
     const collectTokens = (value: unknown) => {
@@ -938,7 +938,7 @@ async function attachZoneNamesToNodes(nodes: QuestNodeViewModel[]): Promise<void
 
   const zoneNameMap = buildZoneNameMap(tokens);
   nodes.forEach((node) => {
-    const req: any = node.requirements ?? {};
+    const req = node.requirements ?? {};
     const zonesValue = req.zones;
     const zoneTokens: string[] = [];
     const collectTokens = (value: unknown) => {
@@ -961,7 +961,7 @@ async function attachZoneNamesToNodes(nodes: QuestNodeViewModel[]): Promise<void
     if (!labels.length) {
       return;
     }
-    (node.requirements as any).zoneNames = Array.from(new Set(labels));
+    node.requirements.zoneNames = Array.from(new Set(labels));
   });
 }
 

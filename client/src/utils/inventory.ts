@@ -1,93 +1,275 @@
 export const WORN_SLOT_LABELS = [
-    'Charm', // 0
-    'Ear 1',
-    'Head',
-    'Face',
-    'Ear 2',
-    'Neck',
-    'Shoulders',
-    'Arms',
-    'Back',
-    'Wrist 1',
-    'Wrist 2',
-    'Range',
-    'Hands',
-    'Primary',
-    'Secondary',
-    'Finger 1',
-    'Finger 2',
-    'Chest',
-    'Legs',
-    'Feet',
-    'Waist',
-    'Power Source',
-    'Ammo'
+  'Charm', // 0
+  'Ear 1',
+  'Head',
+  'Face',
+  'Ear 2',
+  'Neck',
+  'Shoulders',
+  'Arms',
+  'Back',
+  'Wrist 1',
+  'Wrist 2',
+  'Range',
+  'Hands',
+  'Primary',
+  'Secondary',
+  'Finger 1',
+  'Finger 2',
+  'Chest',
+  'Legs',
+  'Feet',
+  'Waist',
+  'Power Source',
+  'Ammo'
 ];
 
 export const WORN_SLOT_KEYS = [
-    'charm',
-    'ear1',
-    'head',
-    'face',
-    'ear2',
-    'neck',
-    'shoulders',
-    'arms',
-    'back',
-    'wrist1',
-    'wrist2',
-    'range',
-    'hands',
-    'primary',
-    'secondary',
-    'finger1',
-    'finger2',
-    'chest',
-    'legs',
-    'feet',
-    'waist',
-    'powersource',
-    'ammo'
+  'charm',
+  'ear1',
+  'head',
+  'face',
+  'ear2',
+  'neck',
+  'shoulders',
+  'arms',
+  'back',
+  'wrist1',
+  'wrist2',
+  'range',
+  'hands',
+  'primary',
+  'secondary',
+  'finger1',
+  'finger2',
+  'chest',
+  'legs',
+  'feet',
+  'waist',
+  'powersource',
+  'ammo'
 ];
 
 export const WORN_SLOT_SHORT_LABELS = [
-    'Charm', 'Ear1', 'Head', 'Face', 'Ear2', 'Neck', 'Shldr', 'Arms', 'Back', 'Wrst1', 'Wrst2',
-    'Range', 'Hands', 'Prim', 'Sec', 'Fing1', 'Fing2', 'Chest', 'Legs', 'Feet', 'Waist', 'Power', 'Ammo'
+  'Charm',
+  'Ear1',
+  'Head',
+  'Face',
+  'Ear2',
+  'Neck',
+  'Shldr',
+  'Arms',
+  'Back',
+  'Wrst1',
+  'Wrst2',
+  'Range',
+  'Hands',
+  'Prim',
+  'Sec',
+  'Fing1',
+  'Fing2',
+  'Chest',
+  'Legs',
+  'Feet',
+  'Waist',
+  'Power',
+  'Ammo'
 ];
 
 export interface WornSlotUiDefinition {
-    slotId: number;
-    label: string;
-    shortLabel: string;
-    key: string;
-    row: number;
-    col: number;
+  slotId: number;
+  label: string;
+  shortLabel: string;
+  key: string;
+  row: number;
+  col: number;
 }
 
 export const WORN_SLOT_UI_LAYOUT: WornSlotUiDefinition[] = [
-    { slotId: 1, label: WORN_SLOT_LABELS[1], shortLabel: WORN_SLOT_SHORT_LABELS[1], key: WORN_SLOT_KEYS[1], row: 1, col: 1 },
-    { slotId: 2, label: WORN_SLOT_LABELS[2], shortLabel: WORN_SLOT_SHORT_LABELS[2], key: WORN_SLOT_KEYS[2], row: 1, col: 2 },
-    { slotId: 3, label: WORN_SLOT_LABELS[3], shortLabel: WORN_SLOT_SHORT_LABELS[3], key: WORN_SLOT_KEYS[3], row: 1, col: 3 },
-    { slotId: 4, label: WORN_SLOT_LABELS[4], shortLabel: WORN_SLOT_SHORT_LABELS[4], key: WORN_SLOT_KEYS[4], row: 1, col: 4 },
-    { slotId: 17, label: WORN_SLOT_LABELS[17], shortLabel: WORN_SLOT_SHORT_LABELS[17], key: WORN_SLOT_KEYS[17], row: 2, col: 1 },
-    { slotId: 5, label: WORN_SLOT_LABELS[5], shortLabel: WORN_SLOT_SHORT_LABELS[5], key: WORN_SLOT_KEYS[5], row: 2, col: 4 },
-    { slotId: 7, label: WORN_SLOT_LABELS[7], shortLabel: WORN_SLOT_SHORT_LABELS[7], key: WORN_SLOT_KEYS[7], row: 3, col: 1 },
-    { slotId: 8, label: WORN_SLOT_LABELS[8], shortLabel: WORN_SLOT_SHORT_LABELS[8], key: WORN_SLOT_KEYS[8], row: 3, col: 4 },
-    { slotId: 20, label: WORN_SLOT_LABELS[20], shortLabel: WORN_SLOT_SHORT_LABELS[20], key: WORN_SLOT_KEYS[20], row: 4, col: 1 },
-    { slotId: 6, label: WORN_SLOT_LABELS[6], shortLabel: WORN_SLOT_SHORT_LABELS[6], key: WORN_SLOT_KEYS[6], row: 4, col: 4 },
-    { slotId: 9, label: WORN_SLOT_LABELS[9], shortLabel: WORN_SLOT_SHORT_LABELS[9], key: WORN_SLOT_KEYS[9], row: 5, col: 1 },
-    { slotId: 10, label: WORN_SLOT_LABELS[10], shortLabel: WORN_SLOT_SHORT_LABELS[10], key: WORN_SLOT_KEYS[10], row: 5, col: 4 },
-    { slotId: 18, label: WORN_SLOT_LABELS[18], shortLabel: WORN_SLOT_SHORT_LABELS[18], key: WORN_SLOT_KEYS[18], row: 6, col: 1 },
-    { slotId: 12, label: WORN_SLOT_LABELS[12], shortLabel: WORN_SLOT_SHORT_LABELS[12], key: WORN_SLOT_KEYS[12], row: 6, col: 2 },
-    { slotId: 0, label: WORN_SLOT_LABELS[0], shortLabel: WORN_SLOT_SHORT_LABELS[0], key: WORN_SLOT_KEYS[0], row: 6, col: 3 },
-    { slotId: 19, label: WORN_SLOT_LABELS[19], shortLabel: WORN_SLOT_SHORT_LABELS[19], key: WORN_SLOT_KEYS[19], row: 6, col: 4 },
-    { slotId: 15, label: WORN_SLOT_LABELS[15], shortLabel: WORN_SLOT_SHORT_LABELS[15], key: WORN_SLOT_KEYS[15], row: 7, col: 2 },
-    { slotId: 16, label: WORN_SLOT_LABELS[16], shortLabel: WORN_SLOT_SHORT_LABELS[16], key: WORN_SLOT_KEYS[16], row: 7, col: 3 },
-    { slotId: 21, label: WORN_SLOT_LABELS[21], shortLabel: WORN_SLOT_SHORT_LABELS[21], key: WORN_SLOT_KEYS[21], row: 7, col: 4 },
-    { slotId: 13, label: WORN_SLOT_LABELS[13], shortLabel: WORN_SLOT_SHORT_LABELS[13], key: WORN_SLOT_KEYS[13], row: 8, col: 1 },
-    { slotId: 14, label: WORN_SLOT_LABELS[14], shortLabel: WORN_SLOT_SHORT_LABELS[14], key: WORN_SLOT_KEYS[14], row: 8, col: 2 },
-    { slotId: 11, label: WORN_SLOT_LABELS[11], shortLabel: WORN_SLOT_SHORT_LABELS[11], key: WORN_SLOT_KEYS[11], row: 8, col: 3 },
-    { slotId: 22, label: WORN_SLOT_LABELS[22], shortLabel: WORN_SLOT_SHORT_LABELS[22], key: WORN_SLOT_KEYS[22], row: 8, col: 4 }
+  {
+    slotId: 1,
+    label: WORN_SLOT_LABELS[1],
+    shortLabel: WORN_SLOT_SHORT_LABELS[1],
+    key: WORN_SLOT_KEYS[1],
+    row: 1,
+    col: 1
+  },
+  {
+    slotId: 2,
+    label: WORN_SLOT_LABELS[2],
+    shortLabel: WORN_SLOT_SHORT_LABELS[2],
+    key: WORN_SLOT_KEYS[2],
+    row: 1,
+    col: 2
+  },
+  {
+    slotId: 3,
+    label: WORN_SLOT_LABELS[3],
+    shortLabel: WORN_SLOT_SHORT_LABELS[3],
+    key: WORN_SLOT_KEYS[3],
+    row: 1,
+    col: 3
+  },
+  {
+    slotId: 4,
+    label: WORN_SLOT_LABELS[4],
+    shortLabel: WORN_SLOT_SHORT_LABELS[4],
+    key: WORN_SLOT_KEYS[4],
+    row: 1,
+    col: 4
+  },
+  {
+    slotId: 17,
+    label: WORN_SLOT_LABELS[17],
+    shortLabel: WORN_SLOT_SHORT_LABELS[17],
+    key: WORN_SLOT_KEYS[17],
+    row: 2,
+    col: 1
+  },
+  {
+    slotId: 5,
+    label: WORN_SLOT_LABELS[5],
+    shortLabel: WORN_SLOT_SHORT_LABELS[5],
+    key: WORN_SLOT_KEYS[5],
+    row: 2,
+    col: 4
+  },
+  {
+    slotId: 7,
+    label: WORN_SLOT_LABELS[7],
+    shortLabel: WORN_SLOT_SHORT_LABELS[7],
+    key: WORN_SLOT_KEYS[7],
+    row: 3,
+    col: 1
+  },
+  {
+    slotId: 8,
+    label: WORN_SLOT_LABELS[8],
+    shortLabel: WORN_SLOT_SHORT_LABELS[8],
+    key: WORN_SLOT_KEYS[8],
+    row: 3,
+    col: 4
+  },
+  {
+    slotId: 20,
+    label: WORN_SLOT_LABELS[20],
+    shortLabel: WORN_SLOT_SHORT_LABELS[20],
+    key: WORN_SLOT_KEYS[20],
+    row: 4,
+    col: 1
+  },
+  {
+    slotId: 6,
+    label: WORN_SLOT_LABELS[6],
+    shortLabel: WORN_SLOT_SHORT_LABELS[6],
+    key: WORN_SLOT_KEYS[6],
+    row: 4,
+    col: 4
+  },
+  {
+    slotId: 9,
+    label: WORN_SLOT_LABELS[9],
+    shortLabel: WORN_SLOT_SHORT_LABELS[9],
+    key: WORN_SLOT_KEYS[9],
+    row: 5,
+    col: 1
+  },
+  {
+    slotId: 10,
+    label: WORN_SLOT_LABELS[10],
+    shortLabel: WORN_SLOT_SHORT_LABELS[10],
+    key: WORN_SLOT_KEYS[10],
+    row: 5,
+    col: 4
+  },
+  {
+    slotId: 18,
+    label: WORN_SLOT_LABELS[18],
+    shortLabel: WORN_SLOT_SHORT_LABELS[18],
+    key: WORN_SLOT_KEYS[18],
+    row: 6,
+    col: 1
+  },
+  {
+    slotId: 12,
+    label: WORN_SLOT_LABELS[12],
+    shortLabel: WORN_SLOT_SHORT_LABELS[12],
+    key: WORN_SLOT_KEYS[12],
+    row: 6,
+    col: 2
+  },
+  {
+    slotId: 0,
+    label: WORN_SLOT_LABELS[0],
+    shortLabel: WORN_SLOT_SHORT_LABELS[0],
+    key: WORN_SLOT_KEYS[0],
+    row: 6,
+    col: 3
+  },
+  {
+    slotId: 19,
+    label: WORN_SLOT_LABELS[19],
+    shortLabel: WORN_SLOT_SHORT_LABELS[19],
+    key: WORN_SLOT_KEYS[19],
+    row: 6,
+    col: 4
+  },
+  {
+    slotId: 15,
+    label: WORN_SLOT_LABELS[15],
+    shortLabel: WORN_SLOT_SHORT_LABELS[15],
+    key: WORN_SLOT_KEYS[15],
+    row: 7,
+    col: 2
+  },
+  {
+    slotId: 16,
+    label: WORN_SLOT_LABELS[16],
+    shortLabel: WORN_SLOT_SHORT_LABELS[16],
+    key: WORN_SLOT_KEYS[16],
+    row: 7,
+    col: 3
+  },
+  {
+    slotId: 21,
+    label: WORN_SLOT_LABELS[21],
+    shortLabel: WORN_SLOT_SHORT_LABELS[21],
+    key: WORN_SLOT_KEYS[21],
+    row: 7,
+    col: 4
+  },
+  {
+    slotId: 13,
+    label: WORN_SLOT_LABELS[13],
+    shortLabel: WORN_SLOT_SHORT_LABELS[13],
+    key: WORN_SLOT_KEYS[13],
+    row: 8,
+    col: 1
+  },
+  {
+    slotId: 14,
+    label: WORN_SLOT_LABELS[14],
+    shortLabel: WORN_SLOT_SHORT_LABELS[14],
+    key: WORN_SLOT_KEYS[14],
+    row: 8,
+    col: 2
+  },
+  {
+    slotId: 11,
+    label: WORN_SLOT_LABELS[11],
+    shortLabel: WORN_SLOT_SHORT_LABELS[11],
+    key: WORN_SLOT_KEYS[11],
+    row: 8,
+    col: 3
+  },
+  {
+    slotId: 22,
+    label: WORN_SLOT_LABELS[22],
+    shortLabel: WORN_SLOT_SHORT_LABELS[22],
+    key: WORN_SLOT_KEYS[22],
+    row: 8,
+    col: 4
+  }
 ];
 
 export const GENERAL_SLOT_IDS = [23, 24, 25, 26, 27, 28, 29, 30, 31, 32];
@@ -100,252 +282,265 @@ const EQEMU_CURSOR_SLOT_ID = 33;
 const EQEMU_BAG_SLOT_COUNT = 10;
 const EQEMU_GENERAL_BAG_BEGIN = 47;
 const EQEMU_GENERAL_BAG_END =
-    EQEMU_GENERAL_BAG_BEGIN + GENERAL_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
+  EQEMU_GENERAL_BAG_BEGIN + GENERAL_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
 const EQEMU_CURSOR_BAG_BEGIN = EQEMU_GENERAL_BAG_END + 1;
 const EQEMU_CURSOR_BAG_END = EQEMU_CURSOR_BAG_BEGIN + EQEMU_BAG_SLOT_COUNT - 1;
 const EQEMU_BANK_BAG_BEGIN = EQEMU_CURSOR_BAG_END + 1;
 const EQEMU_BANK_BAG_END = EQEMU_BANK_BAG_BEGIN + BANK_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
 const EQEMU_SHARED_BANK_BAG_BEGIN = EQEMU_BANK_BAG_END + 1;
 const EQEMU_SHARED_BANK_BAG_END =
-    EQEMU_SHARED_BANK_BAG_BEGIN + SHARED_BANK_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
+  EQEMU_SHARED_BANK_BAG_BEGIN + SHARED_BANK_SLOT_IDS.length * EQEMU_BAG_SLOT_COUNT - 1;
 
 export type ResolvedSlotPlacement = {
-    area: 'worn' | 'inventory' | 'inventoryBag' | 'cursor' | 'cursorBag' | 'bank' | 'bankBag' | 'sharedBank' | 'sharedBankBag' | 'unknown';
-    slotId: number | null;
-    slotLabel: string;
-    parentSlotId?: number | null;
-    parentLabel?: string;
-    bagSlotIndex?: number | null;
+  area:
+    | 'worn'
+    | 'inventory'
+    | 'inventoryBag'
+    | 'cursor'
+    | 'cursorBag'
+    | 'bank'
+    | 'bankBag'
+    | 'sharedBank'
+    | 'sharedBankBag'
+    | 'unknown';
+  slotId: number | null;
+  slotLabel: string;
+  parentSlotId?: number | null;
+  parentLabel?: string;
+  bagSlotIndex?: number | null;
 };
 
 export function generalSlotLabel(slotId: number) {
-    const idx = slotId - 22;
-    return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
+  const idx = slotId - 22;
+  return idx >= 1 ? `General ${idx}` : `General ${slotId}`;
 }
 
 export function bankSlotLabel(slotId: number) {
-    return `Bank ${slotId - 1999}`;
+  return `Bank ${slotId - 1999}`;
 }
 
 export function sharedBankSlotLabel(slotId: number) {
-    return `Shared Bank ${slotId - 2499}`;
+  return `Shared Bank ${slotId - 2499}`;
 }
 
 export function resolveSlotPlacement(slotId: number | null): ResolvedSlotPlacement {
-    if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
-        return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
-    }
+  if (typeof slotId !== 'number' || Number.isNaN(slotId)) {
+    return { area: 'unknown', slotId: null, slotLabel: 'Unknown slot' };
+  }
 
-    if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
-        return {
-            area: 'worn',
-            slotId,
-            slotLabel: WORN_SLOT_LABELS[slotId]
-        };
-    }
-
-    // General slots themselves (23-32)
-    if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
-        return {
-            area: 'inventory',
-            slotId,
-            slotLabel: generalSlotLabel(slotId)
-        };
-    }
-
-    if (slotId === EQEMU_CURSOR_SLOT_ID) {
-        return {
-            area: 'cursor',
-            slotId,
-            slotLabel: 'Cursor'
-        };
-    }
-
-    if (slotId >= EQEMU_GENERAL_BAG_BEGIN && slotId <= EQEMU_GENERAL_BAG_END) {
-        const offset = slotId - EQEMU_GENERAL_BAG_BEGIN;
-        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
-        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
-        const parentSlotId = GENERAL_SLOT_IDS[bagIndex];
-
-        return {
-            area: 'inventoryBag',
-            slotId,
-            slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-            parentSlotId,
-            parentLabel: generalSlotLabel(parentSlotId),
-            bagSlotIndex
-        };
-    }
-
-    if (slotId >= EQEMU_CURSOR_BAG_BEGIN && slotId <= EQEMU_CURSOR_BAG_END) {
-        return {
-            area: 'cursorBag',
-            slotId,
-            slotLabel: `Bag slot ${slotId - EQEMU_CURSOR_BAG_BEGIN + 1}`,
-            parentSlotId: EQEMU_CURSOR_SLOT_ID,
-            parentLabel: 'Cursor',
-            bagSlotIndex: slotId - EQEMU_CURSOR_BAG_BEGIN
-        };
-    }
-
-    if (slotId >= EQEMU_BANK_BAG_BEGIN && slotId <= EQEMU_BANK_BAG_END) {
-        const offset = slotId - EQEMU_BANK_BAG_BEGIN;
-        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
-        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
-        const parentSlotId = BANK_SLOT_IDS[bagIndex];
-
-        return {
-            area: 'bankBag',
-            slotId,
-            slotLabel: `Bank bag slot ${bagSlotIndex + 1}`,
-            parentSlotId,
-            parentLabel: bankSlotLabel(parentSlotId),
-            bagSlotIndex
-        };
-    }
-
-    if (slotId >= EQEMU_SHARED_BANK_BAG_BEGIN && slotId <= EQEMU_SHARED_BANK_BAG_END) {
-        const offset = slotId - EQEMU_SHARED_BANK_BAG_BEGIN;
-        const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
-        const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
-        const parentSlotId = SHARED_BANK_SLOT_IDS[bagIndex];
-
-        return {
-            area: 'sharedBankBag',
-            slotId,
-            slotLabel: `Shared bank bag slot ${bagSlotIndex + 1}`,
-            parentSlotId,
-            parentLabel: sharedBankSlotLabel(parentSlotId),
-            bagSlotIndex
-        };
-    }
-
-    // General Inventory Bag Slots (User provided ranges)
-    // Slot 23: 4010-4209
-    // ...
-    // Slot 32: 5810-6009 (Assuming 6810 was a typo for 5810 based on +200 pattern)
-    if (slotId >= 4010 && slotId <= 6009) {
-        const offset = slotId - 4010;
-        const bagIndex = Math.floor(offset / 200);
-        const bagSlotIndex = offset % 200;
-        const parentSlotId = 23 + bagIndex;
-
-        if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
-            return {
-                area: 'inventoryBag',
-                slotId,
-                slotLabel: `Bag slot ${bagSlotIndex + 1}`,
-                parentSlotId,
-                parentLabel: generalSlotLabel(parentSlotId),
-                bagSlotIndex
-            };
-        }
-    }
-
-    // Bank slots (2000-2023)
-    if (slotId >= BANK_SLOT_IDS[0] && slotId <= BANK_SLOT_IDS[BANK_SLOT_IDS.length - 1]) {
-        return {
-            area: 'bank',
-            slotId,
-            slotLabel: bankSlotLabel(slotId)
-        };
-    }
-
-    if (slotId >= SHARED_BANK_SLOT_IDS[0] && slotId <= SHARED_BANK_SLOT_IDS[SHARED_BANK_SLOT_IDS.length - 1]) {
-        return {
-            area: 'sharedBank',
-            slotId,
-            slotLabel: sharedBankSlotLabel(slotId)
-        };
-    }
-
-    // Bank bag slots (User provided range: 6210 - 11009)
-    // 24 bank slots * 200 slots/bag = 4800 slots
-    // 6210 + 4800 - 1 = 11009. Matches perfectly.
-    if (slotId >= 6210 && slotId <= 11009) {
-        const offset = slotId - 6210;
-        const bagIndex = Math.floor(offset / 200);
-        const bagSlotIndex = offset % 200;
-        const parentSlotId = 2000 + bagIndex;
-
-        if (BANK_SLOT_IDS.includes(parentSlotId)) {
-            return {
-                area: 'bankBag',
-                slotId,
-                slotLabel: `Bank bag slot ${bagSlotIndex + 1}`,
-                parentSlotId,
-                parentLabel: bankSlotLabel(parentSlotId),
-                bagSlotIndex
-            };
-        }
-    }
-
-    // Fallback
-    // console.log('Unresolved slot:', slotId);
+  if (slotId >= 0 && slotId < WORN_SLOT_LABELS.length) {
     return {
-        area: 'unknown',
-        slotId,
-        slotLabel: `Slot ${slotId}`
+      area: 'worn',
+      slotId,
+      slotLabel: WORN_SLOT_LABELS[slotId]
     };
+  }
+
+  // General slots themselves (23-32)
+  if (slotId >= GENERAL_SLOT_IDS[0] && slotId <= GENERAL_SLOT_IDS[GENERAL_SLOT_IDS.length - 1]) {
+    return {
+      area: 'inventory',
+      slotId,
+      slotLabel: generalSlotLabel(slotId)
+    };
+  }
+
+  if (slotId === EQEMU_CURSOR_SLOT_ID) {
+    return {
+      area: 'cursor',
+      slotId,
+      slotLabel: 'Cursor'
+    };
+  }
+
+  if (slotId >= EQEMU_GENERAL_BAG_BEGIN && slotId <= EQEMU_GENERAL_BAG_END) {
+    const offset = slotId - EQEMU_GENERAL_BAG_BEGIN;
+    const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+    const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+    const parentSlotId = GENERAL_SLOT_IDS[bagIndex];
+
+    return {
+      area: 'inventoryBag',
+      slotId,
+      slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+      parentSlotId,
+      parentLabel: generalSlotLabel(parentSlotId),
+      bagSlotIndex
+    };
+  }
+
+  if (slotId >= EQEMU_CURSOR_BAG_BEGIN && slotId <= EQEMU_CURSOR_BAG_END) {
+    return {
+      area: 'cursorBag',
+      slotId,
+      slotLabel: `Bag slot ${slotId - EQEMU_CURSOR_BAG_BEGIN + 1}`,
+      parentSlotId: EQEMU_CURSOR_SLOT_ID,
+      parentLabel: 'Cursor',
+      bagSlotIndex: slotId - EQEMU_CURSOR_BAG_BEGIN
+    };
+  }
+
+  if (slotId >= EQEMU_BANK_BAG_BEGIN && slotId <= EQEMU_BANK_BAG_END) {
+    const offset = slotId - EQEMU_BANK_BAG_BEGIN;
+    const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+    const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+    const parentSlotId = BANK_SLOT_IDS[bagIndex];
+
+    return {
+      area: 'bankBag',
+      slotId,
+      slotLabel: `Bank bag slot ${bagSlotIndex + 1}`,
+      parentSlotId,
+      parentLabel: bankSlotLabel(parentSlotId),
+      bagSlotIndex
+    };
+  }
+
+  if (slotId >= EQEMU_SHARED_BANK_BAG_BEGIN && slotId <= EQEMU_SHARED_BANK_BAG_END) {
+    const offset = slotId - EQEMU_SHARED_BANK_BAG_BEGIN;
+    const bagIndex = Math.floor(offset / EQEMU_BAG_SLOT_COUNT);
+    const bagSlotIndex = offset % EQEMU_BAG_SLOT_COUNT;
+    const parentSlotId = SHARED_BANK_SLOT_IDS[bagIndex];
+
+    return {
+      area: 'sharedBankBag',
+      slotId,
+      slotLabel: `Shared bank bag slot ${bagSlotIndex + 1}`,
+      parentSlotId,
+      parentLabel: sharedBankSlotLabel(parentSlotId),
+      bagSlotIndex
+    };
+  }
+
+  // General Inventory Bag Slots (User provided ranges)
+  // Slot 23: 4010-4209
+  // ...
+  // Slot 32: 5810-6009 (Assuming 6810 was a typo for 5810 based on +200 pattern)
+  if (slotId >= 4010 && slotId <= 6009) {
+    const offset = slotId - 4010;
+    const bagIndex = Math.floor(offset / 200);
+    const bagSlotIndex = offset % 200;
+    const parentSlotId = 23 + bagIndex;
+
+    if (GENERAL_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'inventoryBag',
+        slotId,
+        slotLabel: `Bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: generalSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  // Bank slots (2000-2023)
+  if (slotId >= BANK_SLOT_IDS[0] && slotId <= BANK_SLOT_IDS[BANK_SLOT_IDS.length - 1]) {
+    return {
+      area: 'bank',
+      slotId,
+      slotLabel: bankSlotLabel(slotId)
+    };
+  }
+
+  if (
+    slotId >= SHARED_BANK_SLOT_IDS[0] &&
+    slotId <= SHARED_BANK_SLOT_IDS[SHARED_BANK_SLOT_IDS.length - 1]
+  ) {
+    return {
+      area: 'sharedBank',
+      slotId,
+      slotLabel: sharedBankSlotLabel(slotId)
+    };
+  }
+
+  // Bank bag slots (User provided range: 6210 - 11009)
+  // 24 bank slots * 200 slots/bag = 4800 slots
+  // 6210 + 4800 - 1 = 11009. Matches perfectly.
+  if (slotId >= 6210 && slotId <= 11009) {
+    const offset = slotId - 6210;
+    const bagIndex = Math.floor(offset / 200);
+    const bagSlotIndex = offset % 200;
+    const parentSlotId = 2000 + bagIndex;
+
+    if (BANK_SLOT_IDS.includes(parentSlotId)) {
+      return {
+        area: 'bankBag',
+        slotId,
+        slotLabel: `Bank bag slot ${bagSlotIndex + 1}`,
+        parentSlotId,
+        parentLabel: bankSlotLabel(parentSlotId),
+        bagSlotIndex
+      };
+    }
+  }
+
+  // Fallback
+  // console.log('Unresolved slot:', slotId);
+  return {
+    area: 'unknown',
+    slotId,
+    slotLabel: `Slot ${slotId}`
+  };
 }
 
 export function slotDisplayLabel(resolved: ResolvedSlotPlacement): string {
-    if (resolved.area === 'inventoryBag' && resolved.parentLabel) {
-        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
-    }
-    if (resolved.area === 'cursorBag' && resolved.parentLabel) {
-        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
-    }
-    if (resolved.area === 'bankBag' && resolved.parentLabel) {
-        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
-    }
-    if (resolved.area === 'sharedBankBag' && resolved.parentLabel) {
-        return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
-    }
-    return resolved.slotLabel;
+  if (resolved.area === 'inventoryBag' && resolved.parentLabel) {
+    return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+  }
+  if (resolved.area === 'cursorBag' && resolved.parentLabel) {
+    return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+  }
+  if (resolved.area === 'bankBag' && resolved.parentLabel) {
+    return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+  }
+  if (resolved.area === 'sharedBankBag' && resolved.parentLabel) {
+    return `${resolved.parentLabel} (Slot ${resolved.bagSlotIndex != null ? resolved.bagSlotIndex + 1 : '?'})`;
+  }
+  return resolved.slotLabel;
 }
 
 function normalizeWornSlotLabel(slotId: number): string {
-    switch (slotId) {
-        case 1:
-        case 4:
-            return 'Ear';
-        case 9:
-        case 10:
-            return 'Wrist';
-        case 15:
-        case 16:
-            return 'Finger';
-        default:
-            return WORN_SLOT_LABELS[slotId] ?? `Slot ${slotId}`;
-    }
+  switch (slotId) {
+    case 1:
+    case 4:
+      return 'Ear';
+    case 9:
+    case 10:
+      return 'Wrist';
+    case 15:
+    case 16:
+      return 'Finger';
+    default:
+      return WORN_SLOT_LABELS[slotId] ?? `Slot ${slotId}`;
+  }
 }
 
 export function itemSlotSummaryLabel(itemSlots: number | null | undefined): string | null {
-    if (typeof itemSlots !== 'number' || !Number.isFinite(itemSlots) || itemSlots <= 0) {
-        return null;
+  if (typeof itemSlots !== 'number' || !Number.isFinite(itemSlots) || itemSlots <= 0) {
+    return null;
+  }
+
+  const uniqueLabels: string[] = [];
+  for (let slotId = 0; slotId < WORN_SLOT_LABELS.length; slotId += 1) {
+    const slotBit = 2 ** slotId;
+    if ((itemSlots & slotBit) !== slotBit) {
+      continue;
     }
 
-    const uniqueLabels: string[] = [];
-    for (let slotId = 0; slotId < WORN_SLOT_LABELS.length; slotId += 1) {
-        const slotBit = 2 ** slotId;
-        if ((itemSlots & slotBit) !== slotBit) {
-            continue;
-        }
-
-        const label = normalizeWornSlotLabel(slotId);
-        if (!uniqueLabels.includes(label)) {
-            uniqueLabels.push(label);
-        }
+    const label = normalizeWornSlotLabel(slotId);
+    if (!uniqueLabels.includes(label)) {
+      uniqueLabels.push(label);
     }
+  }
 
-    if (uniqueLabels.length === 0) {
-        return null;
-    }
+  if (uniqueLabels.length === 0) {
+    return null;
+  }
 
-    if (uniqueLabels.length <= 3) {
-        return uniqueLabels.join(' / ');
-    }
+  if (uniqueLabels.length <= 3) {
+    return uniqueLabels.join(' / ');
+  }
 
-    return `${uniqueLabels.slice(0, 3).join(' / ')} +${uniqueLabels.length - 3}`;
+  return `${uniqueLabels.slice(0, 3).join(' / ')} +${uniqueLabels.length - 3}`;
 }

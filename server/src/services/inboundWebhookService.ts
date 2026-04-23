@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from 'crypto';
-import { prisma } from '../utils/prisma.js';
+
 import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
+
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
 import { appConfig } from '../config/appConfig.js';
+import { prisma } from '../utils/prisma.js';
 
 // ============================================================================
 // SERVICE LOADED - AUTO-MERGE VERSION 2.0
@@ -2100,7 +2102,7 @@ export async function mergeWebhookMessages(messageIds: string[], combinedText: s
     // 4. Create merged message using the client-provided combined text
     // No actions are triggered - user must manually start AI review
     const mergedId = generateCuid();
-    const merged = await tx.inboundWebhookMessage.create({
+    await tx.inboundWebhookMessage.create({
       data: {
         id: mergedId,
         webhookId: messages[0].webhookId,
@@ -2577,7 +2579,7 @@ function addMessageToPendingGroup(
  * Used when a message has no identifier but should probably join an existing group.
  */
 function findExistingGroupForWebhook(webhookId: string): PendingMergeGroup | null {
-  for (const [key, group] of pendingMergeGroups) {
+  for (const group of pendingMergeGroups.values()) {
     if (group.webhookId === webhookId) {
       return group;
     }
@@ -2673,7 +2675,7 @@ export function getPendingMergeGroups(): Array<{
  * Legacy function for backwards compatibility - schedules using old approach.
  * @deprecated Use addMessageToPendingGroup instead
  */
-function scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
+function _scheduleDelayedProcessing(webhookId: string, mergeWindowSeconds: number) {
   // This is kept for any code paths that haven't been migrated yet
   const existingTimer = pendingProcessingTimers.get(webhookId);
   if (existingTimer) {
@@ -2842,11 +2844,7 @@ async function processWebhookMessages(webhookId: string, isRetry = false) {
       return;
     }
 
-    const mergeWindowSeconds = webhook.mergeWindowSeconds ?? 60;
-
     // Find all RECEIVED messages from this webhook within the merge window
-    const windowStart = new Date(Date.now() - mergeWindowSeconds * 1000);
-
     const pendingMessages = await prisma.inboundWebhookMessage.findMany({
       where: {
         webhookId,
@@ -3191,7 +3189,6 @@ function groupMessagesByCrashFile(messages: Array<{
   labelAssignments: Array<{ labelId: string; label: { id: string; name: string } }>;
 }>): Array<typeof messages> {
   const groups = new Map<string, typeof messages>();
-  let unknownCounter = 0;
 
   for (const message of messages) {
     let key = extractCrashFileIdentifier(message.payload, message.rawBody);
@@ -3216,7 +3213,7 @@ function groupMessagesByCrashFile(messages: Array<{
  * Messages with identical label sets can be merged together.
  * @deprecated Use groupMessagesByCrashFile instead
  */
-function groupMessagesForMerge(messages: Array<{
+function _groupMessagesForMerge(messages: Array<{
   id: string;
   labelAssignments: Array<{ labelId: string; label: { id: string; name: string } }>;
   payload: unknown;

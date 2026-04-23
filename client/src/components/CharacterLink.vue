@@ -26,17 +26,21 @@
 import { computed } from 'vue';
 import { useCharacterAdminStore } from '../stores/characterAdmin';
 
-const props = withDefaults(defineProps<{
-  name: string;
-  adminMode?: boolean;
-}>(), {
-  adminMode: false
-});
+const props = withDefaults(
+  defineProps<{
+    name: string;
+    adminMode?: boolean;
+  }>(),
+  {
+    adminMode: false
+  }
+);
 
 const characterAdminStore = useCharacterAdminStore();
 
 const href = computed(
-  () => `https://magelo.clumsysworld.com/index.php?page=character&char=${encodeURIComponent(props.name.trim())}`
+  () =>
+    `https://magelo.clumsysworld.com/index.php?page=character&char=${encodeURIComponent(props.name.trim())}`
 );
 
 function openAdminModal() {
@@ -49,7 +53,9 @@ function openAdminModal() {
   color: #38bdf8;
   font-weight: 600;
   text-decoration: none;
-  transition: color 0.15s ease, text-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-shadow 0.15s ease;
 }
 
 .character-link:hover,

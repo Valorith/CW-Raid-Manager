@@ -180,7 +180,9 @@ function isMemberOfGuild(guildId: string) {
 }
 
 function isPendingForGuild(guildId: string) {
-  return pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING';
+  return (
+    pendingApplication.value?.guildId === guildId && pendingApplication.value.status === 'PENDING'
+  );
 }
 
 function isPendingElsewhere(guildId: string) {
@@ -267,7 +269,10 @@ function extractErrorMessage(error: unknown, fallback: string) {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  transition: transform 0.12s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.25s ease,
+    border-color 0.2s ease;
 }
 
 .btn--create:hover {
@@ -299,7 +304,10 @@ function extractErrorMessage(error: unknown, fallback: string) {
   text-decoration: none;
   overflow: hidden;
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.45);
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .guild-card::before {
@@ -407,7 +415,11 @@ function extractErrorMessage(error: unknown, fallback: string) {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  transition: transform 0.15s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.25s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .guild-card__button:hover:not(:disabled) {

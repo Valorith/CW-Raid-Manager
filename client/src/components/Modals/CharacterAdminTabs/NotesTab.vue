@@ -32,11 +32,7 @@
       </div>
 
       <div class="notes-list">
-        <div
-          v-for="note in store.notes"
-          :key="note.id"
-          class="note-card"
-        >
+        <div v-for="note in store.notes" :key="note.id" class="note-card">
           <!-- View Mode -->
           <template v-if="editingNoteId !== note.id">
             <div class="note-content">{{ note.content }}</div>
@@ -63,11 +59,7 @@
 
           <!-- Edit Mode -->
           <template v-else>
-            <textarea
-              v-model="editingContent"
-              class="note-textarea"
-              rows="4"
-            ></textarea>
+            <textarea v-model="editingContent" class="note-textarea" rows="4"></textarea>
             <div class="edit-actions">
               <button
                 class="btn btn--primary btn--small"
@@ -76,9 +68,7 @@
               >
                 {{ savingNote ? 'Saving...' : 'Save' }}
               </button>
-              <button class="btn btn--secondary btn--small" @click="cancelEdit">
-                Cancel
-              </button>
+              <button class="btn btn--secondary btn--small" @click="cancelEdit">Cancel</button>
             </div>
           </template>
         </div>

@@ -15,24 +15,25 @@
         <p v-if="loadingSettings" class="muted small">Loading parser settings…</p>
         <div v-else-if="loadError" class="error-state">
           <p class="error-text">{{ loadError }}</p>
-          <button class="btn btn--modal-outline" type="button" @click="loadSettings">
-            Retry
-          </button>
+          <button class="btn btn--modal-outline" type="button" @click="loadSettings">Retry</button>
         </div>
         <div v-else class="settings-form__body">
           <div v-if="formErrors.length" class="parser-modal__form-error" role="alert">
             <p>Fix these issues before saving:</p>
             <ul>
-              <li v-for="(error, index) in formErrors" :key="`pattern-error-${index}`">{{ error }}</li>
+              <li v-for="(error, index) in formErrors" :key="`pattern-error-${index}`">
+                {{ error }}
+              </li>
             </ul>
           </div>
           <div class="settings-grid">
             <div class="settings-grid__side">
-
               <section class="settings-section sample-tester">
                 <div>
                   <h4>Try a Log Line</h4>
-                  <p class="muted small">Paste a log entry to see how each phrase would parse it.</p>
+                  <p class="muted small">
+                    Paste a log entry to see how each phrase would parse it.
+                  </p>
                 </div>
                 <textarea
                   v-model="sampleLogLine"
@@ -77,7 +78,11 @@
                       Describe the exact log line and we’ll handle the complex regex for you.
                     </p>
                   </div>
-                  <button class="btn btn--outline btn--small btn--modal-outline" type="button" @click="addPattern()">
+                  <button
+                    class="btn btn--outline btn--small btn--modal-outline"
+                    type="button"
+                    @click="addPattern()"
+                  >
                     <span class="btn__icon">+</span>
                     Add Phrase
                   </button>
@@ -85,12 +90,14 @@
 
                 <div v-if="editable.patterns.length === 0" class="pattern-card pattern-card--empty">
                   <p>No phrases yet. Start by describing how loot lines look in your logs.</p>
-                  <button class="btn btn--small" type="button" @click="addPattern()">Create First Phrase</button>
+                  <button class="btn btn--small" type="button" @click="addPattern()">
+                    Create First Phrase
+                  </button>
                 </div>
 
                 <div v-else class="pattern-list">
                   <article
-                    v-for="({ pattern, index }) in paginatedPatterns"
+                    v-for="{ pattern, index } in paginatedPatterns"
                     :key="pattern.id"
                     class="pattern-card"
                     :class="{
@@ -109,7 +116,9 @@
                         >
                           <span
                             class="pattern-card__chevron"
-                            :class="{ 'pattern-card__chevron--rotated': !collapsedPatternIds[pattern.id] }"
+                            :class="{
+                              'pattern-card__chevron--rotated': !collapsedPatternIds[pattern.id]
+                            }"
                             >⌄</span
                           >
                         </button>
@@ -120,7 +129,11 @@
                           @focus="setActivePattern(index)"
                         />
                       </div>
-                      <button class="btn btn--danger btn--small btn--modal-danger" type="button" @click="removePattern(pattern.id)">
+                      <button
+                        class="btn btn--danger btn--small btn--modal-danger"
+                        type="button"
+                        @click="removePattern(pattern.id)"
+                      >
                         Delete
                       </button>
                     </div>
@@ -157,7 +170,9 @@
                             </div>
                             <div class="pattern-method-ignore">
                               <div class="method-input">
-                                <label class="muted x-small" :for="`ignored-method-${pattern.id}`">Ignore loot method</label>
+                                <label class="muted x-small" :for="`ignored-method-${pattern.id}`"
+                                  >Ignore loot method</label
+                                >
                                 <input
                                   :id="`ignored-method-${pattern.id}`"
                                   v-model="pattern.methodInput"
@@ -165,10 +180,23 @@
                                   placeholder="Loot Council, Random, etc."
                                   @keyup.enter.prevent="addIgnoredMethod(index)"
                                 />
-                                <button class="btn btn--small" type="button" @click="addIgnoredMethod(index)">Add</button>
+                                <button
+                                  class="btn btn--small"
+                                  type="button"
+                                  @click="addIgnoredMethod(index)"
+                                >
+                                  Add
+                                </button>
                               </div>
-                              <div v-if="pattern.ignoredMethods.length" class="method-pill-container">
-                                <span v-for="method in pattern.ignoredMethods" :key="method" class="method-pill">
+                              <div
+                                v-if="pattern.ignoredMethods.length"
+                                class="method-pill-container"
+                              >
+                                <span
+                                  v-for="method in pattern.ignoredMethods"
+                                  :key="method"
+                                  class="method-pill"
+                                >
                                   <span class="method-pill__label">{{ method }}</span>
                                   <button
                                     type="button"
@@ -184,7 +212,9 @@
                           </div>
                           <div class="pattern-preview">
                             <span class="pattern-preview__label">Regex Preview</span>
-                            <code class="pattern-preview__code">{{ patternPreview(pattern.pattern) }}</code>
+                            <code class="pattern-preview__code">{{
+                              patternPreview(pattern.pattern)
+                            }}</code>
                           </div>
                         </div>
 
@@ -192,7 +222,9 @@
                           v-if="sampleLogLine"
                           class="pattern-test"
                           :class="
-                            patternSampleResult(pattern).matches ? 'pattern-test--match' : 'pattern-test--miss'
+                            patternSampleResult(pattern).matches
+                              ? 'pattern-test--match'
+                              : 'pattern-test--miss'
                           "
                         >
                           <template v-if="patternSampleResult(pattern).matches">
@@ -202,11 +234,15 @@
                             <ul class="pattern-test__list">
                               <li>
                                 <strong>Looter:</strong>
-                                <span>{{ patternSampleResult(pattern).looter ?? 'Not captured' }}</span>
+                                <span>{{
+                                  patternSampleResult(pattern).looter ?? 'Not captured'
+                                }}</span>
                               </li>
                               <li>
                                 <strong>Item:</strong>
-                                <span>{{ patternSampleResult(pattern).item ?? 'Not captured' }}</span>
+                                <span>{{
+                                  patternSampleResult(pattern).item ?? 'Not captured'
+                                }}</span>
                               </li>
                               <li v-if="patternSampleResult(pattern).itemId != null">
                                 <strong>Item ID:</strong>
@@ -214,7 +250,9 @@
                               </li>
                               <li>
                                 <strong>Method:</strong>
-                                <span>{{ patternSampleResult(pattern).method ?? 'Not captured' }}</span>
+                                <span>{{
+                                  patternSampleResult(pattern).method ?? 'Not captured'
+                                }}</span>
                               </li>
                             </ul>
                           </template>
@@ -225,8 +263,8 @@
                               }}</span>
                             </p>
                             <p class="muted x-small" v-if="patternSampleResult(pattern).ignored">
-                              This pattern is currently ignored because the loot method matches one of your ignored
-                              methods.
+                              This pattern is currently ignored because the loot method matches one
+                              of your ignored methods.
                             </p>
                           </template>
                         </div>
@@ -243,7 +281,8 @@
                       Previous
                     </button>
                     <p class="pattern-pagination__summary">
-                      Showing {{ paginatedRange.start }}–{{ paginatedRange.end }} of {{ editable.patterns.length }}
+                      Showing {{ paginatedRange.start }}–{{ paginatedRange.end }} of
+                      {{ editable.patterns.length }}
                     </p>
                     <button
                       type="button"
@@ -260,7 +299,9 @@
           </div>
         </div>
         <footer v-if="!loadingSettings && !loadError" class="modal__footer">
-          <button class="btn btn--outline btn--modal-outline" type="button" @click="handleClose">Cancel</button>
+          <button class="btn btn--outline btn--modal-outline" type="button" @click="handleClose">
+            Cancel
+          </button>
           <button class="btn btn--modal-primary" type="submit" :disabled="updatingSettings">
             {{ updatingSettings ? 'Saving…' : 'Save Settings' }}
           </button>
@@ -277,7 +318,10 @@ import type { ComponentPublicInstance } from 'vue';
 
 import type { GuildLootParserPatternSettings, GuildLootParserSettings } from '../services/api';
 import { api } from '../services/api';
-import { convertPlaceholdersToRegex, convertRegexToPlaceholders } from '../utils/patternPlaceholders';
+import {
+  convertPlaceholdersToRegex,
+  convertRegexToPlaceholders
+} from '../utils/patternPlaceholders';
 
 const props = defineProps<{
   guildId: string;
@@ -334,19 +378,25 @@ const defaultRegexPatterns: GuildLootParserPatternSettings[] = [
   {
     id: 'default-master-method',
     label: 'Awarded by Master Looter / Loot Council',
-    pattern: convertPlaceholdersToRegex('{timestamp} {item} has been awarded to {looter} by the {method}.'),
+    pattern: convertPlaceholdersToRegex(
+      '{timestamp} {item} has been awarded to {looter} by the {method}.'
+    ),
     ignoredMethods: []
   },
   {
     id: 'default-random-roll',
     label: 'Awarded by random roll',
-    pattern: convertPlaceholdersToRegex('{timestamp} {item} has been awarded to {looter} by {method}.'),
+    pattern: convertPlaceholdersToRegex(
+      '{timestamp} {item} has been awarded to {looter} by {method}.'
+    ),
     ignoredMethods: []
   },
   {
     id: 'default-donation',
     label: 'Donations to guild',
-    pattern: convertPlaceholdersToRegex("{timestamp} {item} has been donated to the Master Looter's guild."),
+    pattern: convertPlaceholdersToRegex(
+      "{timestamp} {item} has been donated to the Master Looter's guild."
+    ),
     ignoredMethods: []
   }
 ];
@@ -493,7 +543,9 @@ function applySettings(settings: GuildLootParserSettings) {
     acc[pattern.id] = false;
     return acc;
   }, {});
-  patternCaretPositions.value = preparedPatterns.reduce<Record<string, { start: number; end: number }>>((acc, pattern) => {
+  patternCaretPositions.value = preparedPatterns.reduce<
+    Record<string, { start: number; end: number }>
+  >((acc, pattern) => {
     const length = pattern.pattern?.length ?? 0;
     acc[pattern.id] = { start: length, end: length };
     return acc;
@@ -503,8 +555,6 @@ function applySettings(settings: GuildLootParserSettings) {
   patternSampleCache.clear();
   ensureVisiblePatternsConverted();
 }
-
-
 
 function preparePatternsForEditing(patterns: GuildLootParserPatternSettings[]) {
   const merged = ensureDefaultPatterns(patterns);
@@ -551,7 +601,8 @@ async function saveSettings() {
     const rawPattern = typeof pattern.pattern === 'string' ? pattern.pattern.trim() : '';
     let compiledPattern = rawPattern;
     if (!pattern._isRaw) {
-        compiledPattern = convertPlaceholdersToRegex(rawPattern || fallbackPhrase) || fallbackCompiled;
+      compiledPattern =
+        convertPlaceholdersToRegex(rawPattern || fallbackPhrase) || fallbackCompiled;
     }
     const ignoredMethods = sanitizeIgnoredMethods(pattern.ignoredMethods ?? []);
     try {
@@ -588,7 +639,7 @@ async function saveSettings() {
       const message =
         typeof data === 'string'
           ? data
-          : data?.message ?? error.message ?? 'Failed to save parser settings.';
+          : (data?.message ?? error.message ?? 'Failed to save parser settings.');
       formErrors.value = [message];
     } else {
       formErrors.value = [
@@ -633,7 +684,6 @@ function addPattern(initialPattern?: string) {
     }
   });
 }
-
 
 function removePattern(id: string) {
   const index = editable.patterns.findIndex((pattern) => pattern.id === id);
@@ -709,7 +759,9 @@ function addIgnoredMethod(patternIndex: number) {
     pattern.methodInput = '';
     return;
   }
-  const duplicate = pattern.ignoredMethods.some((method) => normalizeMethodName(method) === normalized);
+  const duplicate = pattern.ignoredMethods.some(
+    (method) => normalizeMethodName(method) === normalized
+  );
   if (!duplicate) {
     pattern.ignoredMethods = [...pattern.ignoredMethods, rawValue];
   }
@@ -791,7 +843,8 @@ function evaluatePatternSample(sample: string, pattern: EditablePattern): Patter
 
     const looter = match.groups?.looter ?? match[2];
     const itemSource = match.groups?.item ?? match[2] ?? match[1];
-    const includesTrailingId = typeof itemSource === 'string' && /\(\d{1,10}\)\s*$/.test(itemSource.trim());
+    const includesTrailingId =
+      typeof itemSource === 'string' && /\(\d{1,10}\)\s*$/.test(itemSource.trim());
     const hasItemIdGroup = Object.prototype.hasOwnProperty.call(match.groups ?? {}, 'itemId');
     if (includesTrailingId && !hasItemIdGroup) {
       return {
@@ -1045,7 +1098,9 @@ function updateCaretPosition(id: string) {
   color: #e2e8f0;
   padding: 0.45rem 0.75rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .placeholder-chip:hover {
@@ -1078,7 +1133,9 @@ function updateCaretPosition(id: string) {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .pattern-card--active {
@@ -1408,7 +1465,9 @@ function updateCaretPosition(id: string) {
 
 .pattern-card-collapse-enter-active,
 .pattern-card-collapse-leave-active {
-  transition: height 0.2s ease, opacity 0.2s ease;
+  transition:
+    height 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .pattern-card-collapse-enter-from,
@@ -1417,13 +1476,5 @@ function updateCaretPosition(id: string) {
   opacity: 0;
 }
 </style>
-.placeholder-panel {
-  background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-}
-
-.placeholder-panel__header {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
+.placeholder-panel { background: rgba(15, 23, 42, 0.45); border: 1px solid rgba(148, 163, 184,
+0.25); } .placeholder-panel__header { display: flex; flex-direction: column; gap: 0.35rem; }

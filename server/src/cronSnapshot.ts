@@ -24,15 +24,15 @@ const timeoutTimer = setTimeout(() => {
 }, CRON_TIMEOUT_MS);
 timeoutTimer.unref(); // Don't prevent normal exit
 
-import { prisma } from './utils/prisma.js';
-import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
-import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
-import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
-import { syncMarketSaleEvents } from './services/marketService.js';
-import { syncMarketListings } from './services/marketListingsService.js';
-import { processNotificationOutbox } from './services/notificationOutboxService.js';
-import { queueDueRaidReminderNotifications } from './services/raidNotificationService.js';
 import { enforceInboundWebhookRetention } from './services/inboundWebhookService.js';
+import { syncMarketListings } from './services/marketListingsService.js';
+import { syncMarketSaleEvents } from './services/marketService.js';
+import { createMoneySnapshot, getSettings, updateLastSnapshotTime } from './services/moneyTrackerService.js';
+import { processNotificationOutbox } from './services/notificationOutboxService.js';
+import { checkAndSendRespawnNotifications } from './services/npcRespawnNotificationService.js';
+import { queueDueRaidReminderNotifications } from './services/raidNotificationService.js';
+import { closeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
+import { prisma } from './utils/prisma.js';
 
 async function main(): Promise<void> {
   console.log('[CronJob] Starting scheduled tasks...');

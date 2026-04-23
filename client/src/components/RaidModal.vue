@@ -20,12 +20,20 @@
 
         <label class="form__field">
           <span>Target Zones (comma separated)</span>
-          <input v-model="form.targetZones" type="text" placeholder="Temple of Veeshan, Kael Drakkel" />
+          <input
+            v-model="form.targetZones"
+            type="text"
+            placeholder="Temple of Veeshan, Kael Drakkel"
+          />
         </label>
 
         <label class="form__field">
           <span>Target Bosses (comma separated)</span>
-          <input v-model="form.targetBosses" type="text" placeholder="Vulak`Aerr, Statue of Rallos Zek" />
+          <input
+            v-model="form.targetBosses"
+            type="text"
+            placeholder="Vulak`Aerr, Statue of Rallos Zek"
+          />
         </label>
 
         <label class="form__field">
@@ -36,8 +44,12 @@
             placeholder="https://discord.gg/your-voice-channel"
             @input="clearDiscordVoiceUrlError"
           />
-          <small v-if="errors.discordVoiceUrl" class="form__error">{{ errors.discordVoiceUrl }}</small>
-          <small v-else class="form__hint">Shown as a "Chat on Discord" button on the raid page.</small>
+          <small v-if="errors.discordVoiceUrl" class="form__error">{{
+            errors.discordVoiceUrl
+          }}</small>
+          <small v-else class="form__hint"
+            >Shown as a "Chat on Discord" button on the raid page.</small
+          >
         </label>
 
         <label class="form__field">
@@ -179,16 +191,15 @@ async function submit() {
 
     form.discordVoiceUrl = normalized ?? '';
 
-    const recurrencePayload =
-      form.recurrenceEnabled
-        ? {
-            frequency: form.recurrenceFrequency,
-            interval: Math.max(1, form.recurrenceInterval),
-            endDate: form.recurrenceEndDate
-              ? new Date(`${form.recurrenceEndDate}T00:00:00`).toISOString()
-              : null
-          }
-        : null;
+    const recurrencePayload = form.recurrenceEnabled
+      ? {
+          frequency: form.recurrenceFrequency,
+          interval: Math.max(1, form.recurrenceInterval),
+          endDate: form.recurrenceEndDate
+            ? new Date(`${form.recurrenceEndDate}T00:00:00`).toISOString()
+            : null
+        }
+      : null;
 
     await api.createRaidEvent({
       guildId: props.guildId,

@@ -7,9 +7,9 @@
  * Called by the cron job (cronSnapshot.ts) on a regular interval (e.g., every 5 minutes).
  */
 
-import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { queueUserNotification } from './userNotificationService.js';
+import { prisma } from '../utils/prisma.js';
 
 // Logger for this service
 const logger = {

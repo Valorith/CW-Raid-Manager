@@ -1,4 +1,5 @@
-const timestampRegex = /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
+const timestampRegex =
+  /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
 
 export interface ParsedNpcKillEvent {
   timestamp: Date | null;
@@ -12,7 +13,10 @@ export interface ParsedNpcKillEvent {
 // Some zones have period in name like "S. Ro" or "N. Ro" - handle those
 const zoneEntryPattern = /\] You have entered (?<zone>.+?)\.$/i;
 
-const killPatterns: Array<{ regex: RegExp; map: (match: RegExpMatchArray) => { npcName: string; killerName?: string | null } | null }> = [
+const killPatterns: Array<{
+  regex: RegExp;
+  map: (match: RegExpMatchArray) => { npcName: string; killerName?: string | null } | null;
+}> = [
   {
     // Pattern: "[timestamp] You have slain NpcName!"
     // Allow trailing whitespace after the exclamation mark

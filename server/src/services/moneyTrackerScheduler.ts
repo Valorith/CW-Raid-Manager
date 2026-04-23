@@ -5,14 +5,14 @@
  * Uses a simple interval-based approach that checks every minute if it's time to run.
  */
 
-import { isEqDbConfigured } from '../utils/eqDb.js';
+import { autoLinkSharedIps } from './characterAdminService.js';
+import { createMetallurgySnapshot } from './metallurgyService.js';
 import {
   createMoneySnapshot,
   getSettings,
   updateLastSnapshotTime
 } from './moneyTrackerService.js';
-import { createMetallurgySnapshot } from './metallurgyService.js';
-import { autoLinkSharedIps } from './characterAdminService.js';
+import { isEqDbConfigured } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
 
 type SchedulerLogger = {

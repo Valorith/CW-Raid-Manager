@@ -1,7 +1,7 @@
-import { AvailabilityStatus } from '@prisma/client';
+import { AvailabilityStatus, CharacterClass } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
 import { ensureUserCanViewGuild } from './raidService.js';
+import { prisma } from '../utils/prisma.js';
 
 export interface AvailabilityEntry {
   id: string;
@@ -257,7 +257,7 @@ export async function getUnavailableMainCharacters(
   userId: string;
   characterId: string;
   characterName: string;
-  characterClass: string;
+  characterClass: CharacterClass;
   characterLevel: number | null;
 }>> {
   const unavailableUserIds = await getUnavailableUsersForDate(guildId, date);

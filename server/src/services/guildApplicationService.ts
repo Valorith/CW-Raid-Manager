@@ -1,10 +1,10 @@
 import { GuildApplicationStatus, GuildRole } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
-import { getUserGuildRole, canManageGuild } from './guildService.js';
-import { withPreferredDisplayName } from '../utils/displayName.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
+import { getUserGuildRole, canManageGuild } from './guildService.js';
 import { queueUserNotification } from './userNotificationService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function applyToGuild(guildId: string, userId: string) {
   const guild = await prisma.guild.findUnique({

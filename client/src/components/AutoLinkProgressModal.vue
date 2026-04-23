@@ -4,21 +4,31 @@
       <div class="progress-modal">
         <header class="progress-modal__header">
           <h3>Auto-Link Shared IPs</h3>
-          <button
-            v-if="isComplete"
-            class="progress-modal__close"
-            @click="$emit('close')"
-          >&times;</button>
+          <button v-if="isComplete" class="progress-modal__close" @click="$emit('close')">
+            &times;
+          </button>
         </header>
 
         <div class="progress-modal__body">
           <!-- Status Icon -->
           <div class="progress-modal__status-icon" :class="statusClass">
-            <svg v-if="isComplete && !hasError" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              v-if="isComplete && !hasError"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
               <polyline points="22 4 12 14.01 9 11.01" />
             </svg>
-            <svg v-else-if="hasError" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg
+              v-else-if="hasError"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="12" />
               <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -38,9 +48,7 @@
                 :class="{ 'progress-modal__bar-fill--complete': isComplete && !hasError }"
               ></div>
             </div>
-            <div class="progress-modal__bar-label">
-              {{ progressPercent }}%
-            </div>
+            <div class="progress-modal__bar-label">{{ progressPercent }}%</div>
           </div>
 
           <!-- Stats -->
@@ -78,11 +86,7 @@
         </div>
 
         <footer class="progress-modal__actions">
-          <button
-            class="btn btn--primary"
-            :disabled="!isComplete"
-            @click="$emit('close')"
-          >
+          <button class="btn btn--primary" :disabled="!isComplete" @click="$emit('close')">
             {{ isComplete ? 'Close' : 'Processing...' }}
           </button>
         </footer>
@@ -220,7 +224,10 @@ function handleProgressUpdate(data: {
       if (data.stats) {
         stats.value = data.stats;
       }
-      addMessage('success', `Completed! Created ${stats.value.created} associations, skipped ${stats.value.skipped}.`);
+      addMessage(
+        'success',
+        `Completed! Created ${stats.value.created} associations, skipped ${stats.value.skipped}.`
+      );
       eventSource.value?.close();
       break;
 
@@ -235,13 +242,16 @@ function handleProgressUpdate(data: {
 }
 
 // Start when modal opens
-watch(() => props.isOpen, (newVal) => {
-  if (newVal) {
-    startAutoLink();
-  } else {
-    eventSource.value?.close();
+watch(
+  () => props.isOpen,
+  (newVal) => {
+    if (newVal) {
+      startAutoLink();
+    } else {
+      eventSource.value?.close();
+    }
   }
-});
+);
 
 // Cleanup on unmount
 import { onUnmounted } from 'vue';
@@ -269,7 +279,9 @@ onUnmounted(() => {
   border-radius: 1rem;
   width: 100%;
   max-width: 550px;
-  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(59, 130, 246, 0.1);
+  box-shadow:
+    0 25px 50px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(59, 130, 246, 0.1);
 }
 
 .progress-modal__header {
@@ -344,7 +356,9 @@ onUnmounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .progress-modal__phase {

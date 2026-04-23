@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
+import { ensureMarketListingsFresh } from './marketListingsService.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
-import { ensureMarketListingsFresh } from './marketListingsService.js';
 
 const SELLER_EVENT_TYPE = 'TRADER_SELL';
 

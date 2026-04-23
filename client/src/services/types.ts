@@ -1,4 +1,10 @@
-export type GuildRole = 'LEADER' | 'OFFICER' | 'RAID_LEADER' | 'MEMBER' | 'RECRUIT' | 'FRIENDS_FAMILY';
+export type GuildRole =
+  | 'LEADER'
+  | 'OFFICER'
+  | 'RAID_LEADER'
+  | 'MEMBER'
+  | 'RECRUIT'
+  | 'FRIENDS_FAMILY';
 export type LootListType = 'WHITELIST' | 'BLACKLIST';
 
 export type QuestBlueprintVisibility = 'GUILD' | 'LINK_ONLY' | 'PRIVATE';
@@ -166,7 +172,8 @@ export const playableCharacterClasses: CharacterClass[] = [
  * Used for loading spinners and animations
  */
 export function getRandomAnimatedClassIcon(): string {
-  const randomClass = playableCharacterClasses[Math.floor(Math.random() * playableCharacterClasses.length)];
+  const randomClass =
+    playableCharacterClasses[Math.floor(Math.random() * playableCharacterClasses.length)];
   return `/assets/icons/${randomClass.toLowerCase()}.gif`;
 }
 

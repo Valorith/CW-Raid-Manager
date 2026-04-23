@@ -628,7 +628,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
 ): DiscordWebhookBody | null {
   const nowIso = new Date().toISOString();
   switch (event) {
-    case 'raid.created':
+    case 'raid.created': {
       const raidCreatedPayload = payload as DiscordWebhookPayloadMap['raid.created'];
       const raidCreatedUrl = buildRaidUrl(raidCreatedPayload.raidId);
       return {
@@ -670,7 +670,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.started':
+    }
+    case 'raid.started': {
       const raidStartedPayload = payload as DiscordWebhookPayloadMap['raid.started'];
       const raidStartedUrl = buildRaidUrl(raidStartedPayload.raidId);
       const raidStartedLootUrl = buildRaidLootUrl(raidStartedPayload.raidId);
@@ -706,7 +707,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.ended':
+    }
+    case 'raid.ended': {
       const raidEndedPayload = payload as DiscordWebhookPayloadMap['raid.ended'];
       const raidEndedUrl = buildRaidUrl(raidEndedPayload.raidId);
       const raidDuration = raidEndedPayload.startedAt
@@ -748,7 +750,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.canceled':
+    }
+    case 'raid.canceled': {
       const raidCanceledPayload = payload as DiscordWebhookPayloadMap['raid.canceled'];
       const raidCanceledUrl = buildRaidUrl(raidCanceledPayload.raidId);
       return {
@@ -777,7 +780,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.targetKilled':
+    }
+    case 'raid.targetKilled': {
       const raidTargetPayload = payload as DiscordWebhookPayloadMap['raid.targetKilled'];
       if (!Array.isArray(raidTargetPayload.kills) || raidTargetPayload.kills.length === 0) {
         return null;
@@ -820,7 +824,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.deleted':
+    }
+    case 'raid.deleted': {
       const raidDeletedPayload = payload as DiscordWebhookPayloadMap['raid.deleted'];
       return {
         embeds: [
@@ -832,7 +837,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.signup':
+    }
+    case 'raid.signup': {
       const raidSignupPayload = payload as DiscordWebhookPayloadMap['raid.signup'];
       const raidSignupUrl = buildRaidUrl(raidSignupPayload.raidId);
       const signupEntries = raidSignupPayload.entries ?? [];
@@ -883,7 +889,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.signup.not_attending':
+    }
+    case 'raid.signup.not_attending': {
       const notAttendingPayload = payload as DiscordWebhookPayloadMap['raid.signup.not_attending'];
       const notAttendingUrl = buildRaidUrl(notAttendingPayload.raidId);
       const notAttendingEntries = notAttendingPayload.entries ?? [];
@@ -934,7 +941,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'raid.withdraw':
+    }
+    case 'raid.withdraw': {
       const raidWithdrawPayload = payload as DiscordWebhookPayloadMap['raid.withdraw'];
       const raidWithdrawUrl = buildRaidUrl(raidWithdrawPayload.raidId);
       return {
@@ -952,7 +960,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'loot.assigned':
+    }
+    case 'loot.assigned': {
       const lootAssignedPayload = payload as DiscordWebhookPayloadMap['loot.assigned'];
       if (!lootAssignedPayload.assignments || lootAssignedPayload.assignments.length === 0) {
         return null;
@@ -997,7 +1006,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'attendance.logged':
+    }
+    case 'attendance.logged': {
       const attendanceLoggedPayload = payload as DiscordWebhookPayloadMap['attendance.logged'];
       const attendanceRaidUrl = buildRaidUrl(attendanceLoggedPayload.raidId);
       const attendanceEventUrl = buildAttendanceEventUrl(
@@ -1044,7 +1054,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'attendance.updated':
+    }
+    case 'attendance.updated': {
       const attendanceUpdatedPayload = payload as DiscordWebhookPayloadMap['attendance.updated'];
       const updatedRaidUrl = buildRaidUrl(attendanceUpdatedPayload.raidId);
       const updatedEventUrl = buildAttendanceEventUrl(
@@ -1084,7 +1095,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'application.submitted':
+    }
+    case 'application.submitted': {
       const submittedPayload = payload as DiscordWebhookPayloadMap['application.submitted'];
       const applicantsUrl = buildGuildApplicantsUrl(submittedPayload.guildId);
       return {
@@ -1112,7 +1124,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'application.approved':
+    }
+    case 'application.approved': {
       const approvedPayload = payload as DiscordWebhookPayloadMap['application.approved'];
       return {
         content: `✅ **${approvedPayload.applicantName}** has been approved for membership to **${approvedPayload.guildName}** by ${approvedPayload.actorName}.`,
@@ -1132,7 +1145,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'application.denied':
+    }
+    case 'application.denied': {
       const deniedPayload = payload as DiscordWebhookPayloadMap['application.denied'];
       return {
         content: `⚠️ **${deniedPayload.applicantName}** was denied membership to **${deniedPayload.guildName}** by ${deniedPayload.actorName}.`,
@@ -1152,7 +1166,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'bank.requested':
+    }
+    case 'bank.requested': {
       const bankRequestPayload = payload as DiscordWebhookPayloadMap['bank.requested'];
       if (!bankRequestPayload.items || bankRequestPayload.items.length === 0) {
         return null;
@@ -1168,9 +1183,9 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           const sourceLines =
             item.sources && item.sources.length
               ? item.sources
-                  .map((src) => `　• ${src.characterName} ×${src.quantity}`)
+                  .map((src) => `  • ${src.characterName} ×${src.quantity}`)
                   .join('\n')
-              : '　• Source unknown';
+              : '  • Source unknown';
           return `📦 ${itemLabel} ×${item.quantity}\n${sourceLines}`;
         })
         .join('\n');
@@ -1188,7 +1203,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'respawn.windowOpen':
+    }
+    case 'respawn.windowOpen': {
       const windowOpenPayload = payload as DiscordWebhookPayloadMap['respawn.windowOpen'];
       if (!windowOpenPayload.npcs || windowOpenPayload.npcs.length === 0) {
         return null;
@@ -1199,7 +1215,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
         const windowCloseLabel = npc.windowCloseTime
           ? ` to ${formatDiscordTimestamp(npc.windowCloseTime)}`
           : '';
-        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Window: ${formatDiscordTimestamp(npc.windowOpenTime)}${windowCloseLabel}`;
+        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n  Window: ${formatDiscordTimestamp(npc.windowOpenTime)}${windowCloseLabel}`;
       });
       if (windowOpenPayload.npcs.length > 10) {
         const remaining = windowOpenPayload.npcs.length - 10;
@@ -1220,7 +1236,8 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    case 'respawn.up':
+    }
+    case 'respawn.up': {
       const upPayload = payload as DiscordWebhookPayloadMap['respawn.up'];
       if (!upPayload.npcs || upPayload.npcs.length === 0) {
         return null;
@@ -1228,7 +1245,7 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
       const upLines = upPayload.npcs.slice(0, 10).map((npc) => {
         const instanceLabel = npc.isInstance ? ' (Instance)' : '';
         const zoneLabel = npc.zoneName ? ` — ${npc.zoneName}` : '';
-        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n　Up since: ${formatDiscordTimestamp(npc.upSinceTime)}`;
+        return `• **${npc.npcName}**${instanceLabel}${zoneLabel}\n  Up since: ${formatDiscordTimestamp(npc.upSinceTime)}`;
       });
       if (upPayload.npcs.length > 10) {
         const remaining = upPayload.npcs.length - 10;
@@ -1249,8 +1266,10 @@ function buildWebhookMessage<K extends DiscordWebhookEvent>(
           }
         ]
       };
-    default:
+    }
+    default: {
       return null;
+    }
   }
 }
 

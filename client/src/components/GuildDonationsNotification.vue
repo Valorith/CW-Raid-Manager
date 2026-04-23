@@ -12,11 +12,21 @@
     @click="store.showModal"
   >
     <span class="donation-notification__badge" aria-hidden="true">
-      <svg class="donation-notification__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <svg
+        class="donation-notification__icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
         <!-- Loot bag icon -->
-        <path d="M9 3h6l2 4H7l2-4z" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M7 7h10v2c0 1-0.5 2-2 2.5V20a1 1 0 01-1 1h-4a1 1 0 01-1-1v-8.5C7.5 11 7 10 7 9V7z" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="12" cy="14" r="1.5" fill="currentColor"/>
+        <path d="M9 3h6l2 4H7l2-4z" stroke-linecap="round" stroke-linejoin="round" />
+        <path
+          d="M7 7h10v2c0 1-0.5 2-2 2.5V20a1 1 0 01-1 1h-4a1 1 0 01-1-1v-8.5C7.5 11 7 10 7 9V7z"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="12" cy="14" r="1.5" fill="currentColor" />
       </svg>
     </span>
     <span v-if="store.totalCount > 0" class="donation-notification__count">
@@ -66,7 +76,10 @@ const ariaLabel = computed(() => {
   justify-content: center;
   cursor: pointer;
   position: relative;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.35);
 }
 
@@ -127,7 +140,8 @@ const ariaLabel = computed(() => {
 }
 
 @keyframes donationGlow {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 6px 14px rgba(15, 23, 42, 0.35),
       0 0 15px rgba(251, 191, 36, 0.2),
@@ -142,7 +156,8 @@ const ariaLabel = computed(() => {
 }
 
 @keyframes donationPulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0;
     transform: scale(0.9);
   }

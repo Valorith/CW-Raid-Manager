@@ -91,7 +91,10 @@
         <span
           v-for="segment in eventSegments"
           :key="segment.key"
-          :class="['timeline__event', { 'timeline__event--active': hoveredEvent?.key === segment.key }]"
+          :class="[
+            'timeline__event',
+            { 'timeline__event--active': hoveredEvent?.key === segment.key }
+          ]"
           :style="{ left: `${segment.left}%`, width: `${segment.width}%` }"
           role="presentation"
           tabindex="0"
@@ -985,8 +988,7 @@ function formatDateTime(ms: number): string {
   position: relative;
   height: 48px;
   border-radius: 999px;
-  background:
-    linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.92));
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.92));
   border: 1px solid rgba(148, 163, 184, 0.25);
   overflow: visible;
   cursor: crosshair;
@@ -1013,11 +1015,7 @@ function formatDateTime(ms: number): string {
   content: '';
   width: 2px;
   height: 100%;
-  background: linear-gradient(
-    to bottom,
-    rgba(148, 163, 184, 0.32),
-    rgba(148, 163, 184, 0.18)
-  );
+  background: linear-gradient(to bottom, rgba(148, 163, 184, 0.32), rgba(148, 163, 184, 0.18));
   box-shadow:
     0 0 6px rgba(148, 163, 184, 0.18),
     0 0 1px rgba(148, 163, 184, 0.35);

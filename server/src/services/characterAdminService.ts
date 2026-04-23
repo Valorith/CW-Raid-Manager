@@ -1,11 +1,12 @@
 import type { RowDataPacket } from 'mysql2/promise';
-import { prisma } from '../utils/prisma.js';
-import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+
 import {
   fetchPlayerEventLogs,
   type PlayerEventLogFilters,
   type PlayerEventLogResponse
 } from './playerEventLogsService.js';
+import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
+import { prisma } from '../utils/prisma.js';
 
 // Interfaces
 export interface CharacterDetails {
@@ -101,7 +102,7 @@ export interface CharacterSearchResult {
 }
 
 // Cache for schema discovery
-let schemaCache: {
+const schemaCache: {
   characterData: { idColumn: string; nameColumn: string; accountIdColumn: string } | null;
   account: { idColumn: string; nameColumn: string } | null;
   zone: { idColumn: string; longNameColumn: string; hasVersionColumn: boolean } | null;
@@ -1169,8 +1170,8 @@ export interface ConnectionForSync {
  */
 export async function syncIpGroupAssociations(
   connections: ConnectionForSync[],
-  userId: string,
-  userName: string
+  _userId: string,
+  _userName: string
 ): Promise<{ created: number; skipped: number }> {
   // Group connections by IP
   const ipGroups = new Map<string, ConnectionForSync[]>();

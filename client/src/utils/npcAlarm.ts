@@ -11,12 +11,12 @@ let melodyTimeoutIds: number[] = [];
 // Cheerful jingle notes (frequencies in Hz)
 // Playing a happy ascending arpeggio pattern
 const JINGLE_NOTES = [
-  { freq: 523.25, duration: 120 },  // C5
-  { freq: 659.25, duration: 120 },  // E5
-  { freq: 783.99, duration: 120 },  // G5
-  { freq: 1046.50, duration: 200 }, // C6 (hold slightly longer)
-  { freq: 783.99, duration: 100 },  // G5
-  { freq: 1046.50, duration: 300 }, // C6 (finale note)
+  { freq: 523.25, duration: 120 }, // C5
+  { freq: 659.25, duration: 120 }, // E5
+  { freq: 783.99, duration: 120 }, // G5
+  { freq: 1046.5, duration: 200 }, // C6 (hold slightly longer)
+  { freq: 783.99, duration: 100 }, // G5
+  { freq: 1046.5, duration: 300 } // C6 (finale note)
 ];
 
 const JINGLE_VOLUME = 0.12;

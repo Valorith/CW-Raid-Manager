@@ -65,7 +65,10 @@
         </div>
 
         <!-- Suspension Info -->
-        <div class="info-section" v-if="store.account.suspendedUntil || store.account.suspendedReason">
+        <div
+          class="info-section"
+          v-if="store.account.suspendedUntil || store.account.suspendedReason"
+        >
           <h4>Suspension</h4>
           <div class="info-row" v-if="store.account.suspendedUntil">
             <span class="label">Suspended Until</span>
@@ -97,9 +100,7 @@
     </template>
 
     <!-- No Data -->
-    <div v-else class="no-data">
-      Unable to load account information
-    </div>
+    <div v-else class="no-data">Unable to load account information</div>
   </div>
 </template>
 

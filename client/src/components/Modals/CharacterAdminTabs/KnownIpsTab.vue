@@ -27,9 +27,7 @@
               <td class="col-ip">
                 <code>{{ ip.ip }}</code>
               </td>
-              <td class="col-count">
-                {{ ip.count }} time{{ ip.count !== 1 ? 's' : '' }}
-              </td>
+              <td class="col-count">{{ ip.count }} time{{ ip.count !== 1 ? 's' : '' }}</td>
               <td class="col-lastused">
                 <span v-if="ip.lastUsed">{{ formatDate(ip.lastUsed) }}</span>
                 <span v-else class="no-data-text">-</span>
@@ -41,7 +39,11 @@
                   Loading...
                 </span>
                 <!-- Error state -->
-                <span v-else-if="ipErrors.get(ip.ip)" class="location-error" :title="ipErrors.get(ip.ip)">
+                <span
+                  v-else-if="ipErrors.get(ip.ip)"
+                  class="location-error"
+                  :title="ipErrors.get(ip.ip)"
+                >
                   {{ ipErrors.get(ip.ip) }}
                 </span>
                 <!-- Location data -->
@@ -55,7 +57,11 @@
                   <span class="location-text">
                     {{ formatLocation(ipLocations.get(ip.ip)!) }}
                   </span>
-                  <span v-if="ipLocations.get(ip.ip)?.isp" class="location-isp" :title="ipLocations.get(ip.ip)?.isp">
+                  <span
+                    v-if="ipLocations.get(ip.ip)?.isp"
+                    class="location-isp"
+                    :title="ipLocations.get(ip.ip)?.isp"
+                  >
                     ({{ truncate(ipLocations.get(ip.ip)?.isp || '', 20) }})
                   </span>
                 </div>
@@ -82,9 +88,7 @@
           >
             &laquo; Prev
           </button>
-          <span class="pagination-info">
-            Page {{ currentPage }} of {{ totalPages }}
-          </span>
+          <span class="pagination-info"> Page {{ currentPage }} of {{ totalPages }} </span>
           <button
             class="pagination-btn"
             :disabled="currentPage === totalPages"
@@ -101,7 +105,10 @@
 
       <div class="info-note">
         <span class="info-icon">&#9432;</span>
-        <span>This data comes from the <code>account_ip</code> table. Location lookups use ipgeolocation.io (limited to 1000 requests/day).</span>
+        <span
+          >This data comes from the <code>account_ip</code> table. Location lookups use
+          ipgeolocation.io (limited to 1000 requests/day).</span
+        >
       </div>
     </template>
   </div>
@@ -129,9 +136,12 @@ const paginatedIps = computed(() => {
 });
 
 // Reset to page 1 when data changes
-watch(() => store.knownIps, () => {
-  currentPage.value = 1;
-});
+watch(
+  () => store.knownIps,
+  () => {
+    currentPage.value = 1;
+  }
+);
 
 function goToPage(page: number) {
   if (page >= 1 && page <= totalPages.value) {
@@ -169,9 +179,11 @@ async function fetchLocation(ip: string) {
     const data = await api.getIpGeolocation(ip);
     ipLocations.set(ip, data);
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message :
-      (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
-      'Failed to fetch location';
+    const errorMessage =
+      err instanceof Error
+        ? err.message
+        : (err as { response?: { data?: { error?: string } } })?.response?.data?.error ||
+          'Failed to fetch location';
     ipErrors.set(ip, errorMessage);
   } finally {
     loadingIps.delete(ip);
@@ -223,7 +235,8 @@ async function fetchLocation(ip: string) {
   width: 100%;
   border-collapse: collapse;
 
-  th, td {
+  th,
+  td {
     padding: 0.75rem;
     text-align: left;
     border-bottom: 1px solid #334155;

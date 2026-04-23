@@ -7,14 +7,14 @@
         <div class="searchable-dropdown" ref="dropdownRef">
           <div class="dropdown-trigger" @click="toggleDropdown">
             <div class="selected-tags">
-              <span v-if="selectedEventTypes.length === 0" class="placeholder">All Event Types</span>
-              <span
-                v-for="typeId in selectedEventTypes"
-                :key="typeId"
-                class="tag"
+              <span v-if="selectedEventTypes.length === 0" class="placeholder"
+                >All Event Types</span
               >
+              <span v-for="typeId in selectedEventTypes" :key="typeId" class="tag">
                 {{ getEventTypeLabel(typeId) }}
-                <button type="button" class="tag-remove" @click.stop="removeEventType(typeId)">&times;</button>
+                <button type="button" class="tag-remove" @click.stop="removeEventType(typeId)">
+                  &times;
+                </button>
               </span>
             </div>
             <span class="dropdown-arrow">&#9662;</span>
@@ -36,7 +36,9 @@
                 :class="{ 'dropdown-option--selected': selectedEventTypes.includes(et.id) }"
                 @click.stop="toggleEventType(et.id)"
               >
-                <span class="option-checkbox">{{ selectedEventTypes.includes(et.id) ? '☑' : '☐' }}</span>
+                <span class="option-checkbox">{{
+                  selectedEventTypes.includes(et.id) ? '☑' : '☐'
+                }}</span>
                 <span class="option-label">{{ et.label }}</span>
               </div>
               <div v-if="filteredEventTypes.length === 0" class="dropdown-empty">
@@ -174,9 +176,8 @@ const filteredEventTypes = computed(() => {
     return store.eventTypes;
   }
   const search = eventTypeSearch.value.toLowerCase();
-  return store.eventTypes.filter(et =>
-    et.label.toLowerCase().includes(search) ||
-    et.name.toLowerCase().includes(search)
+  return store.eventTypes.filter(
+    (et) => et.label.toLowerCase().includes(search) || et.name.toLowerCase().includes(search)
   );
 });
 
@@ -213,7 +214,7 @@ function removeEventType(typeId: number) {
 }
 
 function getEventTypeLabel(typeId: number): string {
-  const eventType = store.eventTypes.find(et => et.id === typeId);
+  const eventType = store.eventTypes.find((et) => et.id === typeId);
   return eventType?.label || `Type ${typeId}`;
 }
 
@@ -238,8 +239,26 @@ function formatDate(dateStr: string): string {
 
 function getEventBadgeClass(eventTypeName: string): string {
   const dangerEvents = ['DEATH', 'POSSIBLE_HACK', 'ITEM_DESTROY', 'LEVEL_LOSS', 'COMBINE_FAILURE'];
-  const successEvents = ['LEVEL_GAIN', 'AA_GAIN', 'AA_PURCHASE', 'LOOT_ITEM', 'COMBINE_SUCCESS', 'TASK_COMPLETE', 'DISCOVER_ITEM', 'FORAGE_SUCCESS', 'FISH_SUCCESS'];
-  const socialEvents = ['GROUP_JOIN', 'GROUP_LEAVE', 'RAID_JOIN', 'RAID_LEAVE', 'TRADE', 'GIVE_ITEM', 'SAY'];
+  const successEvents = [
+    'LEVEL_GAIN',
+    'AA_GAIN',
+    'AA_PURCHASE',
+    'LOOT_ITEM',
+    'COMBINE_SUCCESS',
+    'TASK_COMPLETE',
+    'DISCOVER_ITEM',
+    'FORAGE_SUCCESS',
+    'FISH_SUCCESS'
+  ];
+  const socialEvents = [
+    'GROUP_JOIN',
+    'GROUP_LEAVE',
+    'RAID_JOIN',
+    'RAID_LEAVE',
+    'TRADE',
+    'GIVE_ITEM',
+    'SAY'
+  ];
   const combatEvents = ['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'];
 
   if (dangerEvents.includes(eventTypeName)) return 'event-badge--danger';
@@ -591,7 +610,8 @@ function changePage(page: number) {
   width: 100%;
   border-collapse: collapse;
 
-  th, td {
+  th,
+  td {
     padding: 0.75rem;
     text-align: left;
     border-bottom: 1px solid #334155;

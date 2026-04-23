@@ -68,7 +68,9 @@
                   type="button"
                   @click="webhookDebugStore.showModal"
                 >
-                  View {{ webhookDebugStore.messageCount }} Message{{ webhookDebugStore.messageCount !== 1 ? 's' : '' }}
+                  View {{ webhookDebugStore.messageCount }} Message{{
+                    webhookDebugStore.messageCount !== 1 ? 's' : ''
+                  }}
                 </button>
               </div>
 
@@ -82,7 +84,9 @@
                     @click="selectWebhook(webhook.id)"
                   >
                     <div class="webhook-sidebar__item-header">
-                      <span class="webhook-sidebar__label">{{ webhook.label || 'Untitled Webhook' }}</span>
+                      <span class="webhook-sidebar__label">{{
+                        webhook.label || 'Untitled Webhook'
+                      }}</span>
                       <span
                         class="webhook-sidebar__status"
                         :class="{ 'webhook-sidebar__status--enabled': webhook.isEnabled }"
@@ -131,31 +135,31 @@
                     </label>
                   </div>
 
-                <label class="form__field">
-                  <span>Mention Target (optional)</span>
-                  <div class="mention-options">
-                <label class="radio-option">
-                  <input v-model="form.mentionTarget" type="radio" value="ROLE" />
-                  <span>Specific Role</span>
-                </label>
-                <label class="radio-option">
-                  <input v-model="form.mentionTarget" type="radio" value="EVERYONE" />
-                  <span>@everyone</span>
-                </label>
-                <label class="radio-option">
-                  <input v-model="form.mentionTarget" type="radio" value="HERE" />
-                  <span>@here</span>
-                </label>
-              </div>
-              <input
-                v-model="form.mentionRoleId"
-                type="text"
-                maxlength="120"
-                placeholder="123456789012345678"
-                :disabled="form.mentionTarget !== 'ROLE'"
-              />
-              <small class="muted">Raid events can ping this role automatically.</small>
-            </label>
+                  <label class="form__field">
+                    <span>Mention Target (optional)</span>
+                    <div class="mention-options">
+                      <label class="radio-option">
+                        <input v-model="form.mentionTarget" type="radio" value="ROLE" />
+                        <span>Specific Role</span>
+                      </label>
+                      <label class="radio-option">
+                        <input v-model="form.mentionTarget" type="radio" value="EVERYONE" />
+                        <span>@everyone</span>
+                      </label>
+                      <label class="radio-option">
+                        <input v-model="form.mentionTarget" type="radio" value="HERE" />
+                        <span>@here</span>
+                      </label>
+                    </div>
+                    <input
+                      v-model="form.mentionRoleId"
+                      type="text"
+                      maxlength="120"
+                      placeholder="123456789012345678"
+                      :disabled="form.mentionTarget !== 'ROLE'"
+                    />
+                    <small class="muted">Raid events can ping this role automatically.</small>
+                  </label>
                 </section>
 
                 <section class="panel">
@@ -164,7 +168,11 @@
                       <h3>Event Triggers</h3>
                       <p class="muted small">Choose which updates this webhook receives.</p>
                     </div>
-                    <button class="btn btn--outline btn--small" type="button" @click="resetEventSubscriptions">
+                    <button
+                      class="btn btn--outline btn--small"
+                      type="button"
+                      @click="resetEventSubscriptions"
+                    >
                       Reset to Defaults
                     </button>
                   </header>
@@ -175,39 +183,45 @@
 
                   <div v-for="group in groupedEvents" :key="group.category" class="event-group">
                     <h4>{{ categoryLabels[group.category] ?? group.category }}</h4>
-                  <div class="event-grid">
-                    <label
-                      v-for="definition in group.events"
-                      :key="definition.key"
-                      class="event-toggle"
-                      :class="{ 'event-toggle--disabled': !form.isEnabled }"
-                    >
-                      <input
-                        v-model="form.eventSubscriptions[definition.key]"
-                        type="checkbox"
-                        :disabled="!form.isEnabled"
-                      />
-                      <div>
-                        <strong>{{ definition.label }}</strong>
-                        <p class="muted small">{{ definition.description }}</p>
-                        <div class="event-toggle__actions">
-                          <div class="mention-toggle">
-                            <input
-                              v-model="form.mentionSubscriptions[definition.key]"
-                              type="checkbox"
-                              :disabled="!form.isEnabled || !form.eventSubscriptions[definition.key] || !mentionTargetConfigured"
-                            />
-                            <span>Ping mention target</span>
+                    <div class="event-grid">
+                      <label
+                        v-for="definition in group.events"
+                        :key="definition.key"
+                        class="event-toggle"
+                        :class="{ 'event-toggle--disabled': !form.isEnabled }"
+                      >
+                        <input
+                          v-model="form.eventSubscriptions[definition.key]"
+                          type="checkbox"
+                          :disabled="!form.isEnabled"
+                        />
+                        <div>
+                          <strong>{{ definition.label }}</strong>
+                          <p class="muted small">{{ definition.description }}</p>
+                          <div class="event-toggle__actions">
+                            <div class="mention-toggle">
+                              <input
+                                v-model="form.mentionSubscriptions[definition.key]"
+                                type="checkbox"
+                                :disabled="
+                                  !form.isEnabled ||
+                                  !form.eventSubscriptions[definition.key] ||
+                                  !mentionTargetConfigured
+                                "
+                              />
+                              <span>Ping mention target</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </label>
+                      </label>
+                    </div>
                   </div>
-                </div>
                 </section>
 
                 <p v-if="error" class="status status--error">{{ error }}</p>
-                <p v-else-if="successMessage" class="status status--success">{{ successMessage }}</p>
+                <p v-else-if="successMessage" class="status status--success">
+                  {{ successMessage }}
+                </p>
 
                 <footer class="form__actions form__actions--split">
                   <button
@@ -221,7 +235,13 @@
                   <div class="form__actions-group">
                     <button class="btn btn--outline" type="button" @click="close">Close</button>
                     <button class="btn" type="submit" :disabled="submitting">
-                      {{ submitting ? 'Saving…' : activeWebhook?.isNew ? 'Create Webhook' : 'Save Changes' }}
+                      {{
+                        submitting
+                          ? 'Saving…'
+                          : activeWebhook?.isNew
+                            ? 'Create Webhook'
+                            : 'Save Changes'
+                      }}
                     </button>
                   </div>
                 </footer>
@@ -251,7 +271,10 @@ import { useAuthStore } from '../stores/auth';
 import { useWebhookDebugStore } from '../stores/webhookDebug';
 
 const props = defineProps<{ guildId: string }>();
-const emit = defineEmits<{ (e: 'close'): void; (e: 'saved', webhook: GuildDiscordWebhookSettings): void }>();
+const emit = defineEmits<{
+  (e: 'close'): void;
+  (e: 'saved', webhook: GuildDiscordWebhookSettings): void;
+}>();
 
 const authStore = useAuthStore();
 const webhookDebugStore = useWebhookDebugStore();
@@ -292,7 +315,13 @@ const categoryLabels: Record<DiscordWebhookEventCategory, string> = {
   RESPAWN: 'Respawn Tracker'
 };
 
-const categoryOrder: DiscordWebhookEventCategory[] = ['RAID', 'ATTENDANCE', 'APPLICATION', 'BANK', 'RESPAWN'];
+const categoryOrder: DiscordWebhookEventCategory[] = [
+  'RAID',
+  'ATTENDANCE',
+  'APPLICATION',
+  'BANK',
+  'RESPAWN'
+];
 
 const mentionTargetConfigured = computed(() => {
   if (form.mentionTarget === 'ROLE') {
@@ -302,7 +331,9 @@ const mentionTargetConfigured = computed(() => {
 });
 
 const groupedEvents = computed(() => {
-  const grouped = eventDefinitions.value.reduce<Record<DiscordWebhookEventCategory, DiscordWebhookEventDefinition[]>>(
+  const grouped = eventDefinitions.value.reduce<
+    Record<DiscordWebhookEventCategory, DiscordWebhookEventDefinition[]>
+  >(
     (acc, definition) => {
       const bucket = definition.category ?? 'RAID';
       if (!acc[bucket]) {
@@ -346,9 +377,10 @@ async function loadWebhooks(preferredId?: string | null) {
 
     if (response.webhooks.length > 0) {
       webhooks.value = response.webhooks.map((webhook) => ({ ...webhook, isNew: false }));
-      const candidate = preferredId && response.webhooks.some((webhook) => webhook.id === preferredId)
-        ? preferredId
-        : response.webhooks[0].id;
+      const candidate =
+        preferredId && response.webhooks.some((webhook) => webhook.id === preferredId)
+          ? preferredId
+          : response.webhooks[0].id;
       selectedWebhookId.value = candidate;
     } else {
       const placeholder = createLocalWebhook();
@@ -764,7 +796,9 @@ onMounted(async () => {
   flex-direction: column;
   gap: 0.25rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .webhook-sidebar__item--active {
@@ -990,7 +1024,10 @@ onMounted(async () => {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.85), rgba(14, 165, 233, 0.7));
   color: #f8fafc;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .btn:hover:not(:disabled) {

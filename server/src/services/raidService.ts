@@ -1,16 +1,16 @@
 import { AttendanceStatus, GuildRole, Prisma, SignupStatus } from '@prisma/client';
 
-import { withPreferredDisplayName } from '../utils/displayName.js';
-import { prisma } from '../utils/prisma.js';
-import { canManageGuild, getUserGuildRole } from './guildService.js';
+import { getUnavailableMainCharacters } from './availabilityService.js';
 import { emitDiscordWebhookEvent, isDiscordWebhookEventEnabled } from './discordWebhookService.js';
+import { canManageGuild, getUserGuildRole } from './guildService.js';
 import { stopLootMonitorSession } from './logMonitorService.js';
-import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
 import {
   queueRaidCanceledNotifications,
   queueRaidChangedNotifications
 } from './raidNotificationService.js';
-import { getUnavailableMainCharacters } from './availabilityService.js';
+import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
 const RECURRENCE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY'] as const;
@@ -942,20 +942,47 @@ type RecurrenceSelectionValue = RecurrenceSelection | null | undefined;
 
 type PrismaClientOrTx = Prisma.TransactionClient | typeof prisma;
 
-function raidSeries(client: PrismaClientOrTx) {
-  return (client as unknown as { raidEventSeries: any }).raidEventSeries;
+type RecurrenceResponse = {
+  id: string;
+  frequency: RaidRecurrenceFrequency;
+  interval: number;
+  endDate: Date | null;
+  isActive: boolean;
+} | null;
+
+type RaidEventSeriesInput = {
+  guildId: string;
+  createdById: string;
+  frequency: RaidRecurrenceFrequency;
+  interval: number;
+  endDate: Date | null;
+  isActive: boolean;
+};
+
+type RaidEventSeriesDelegate = {
+  create(args: { data: RaidEventSeriesInput }): Promise<{ id: string }>;
+  update(args: {
+    where: { id: string };
+    data: Partial<Pick<RaidEventSeriesInput, 'frequency' | 'interval' | 'endDate' | 'isActive'>>;
+  }): Promise<unknown>;
+};
+
+function raidSeries(client: PrismaClientOrTx): RaidEventSeriesDelegate {
+  return (client as unknown as { raidEventSeries: RaidEventSeriesDelegate }).raidEventSeries;
 }
 
-function formatRaidWithRecurrence<T extends { recurrenceSeries?: RecurrenceSelectionValue }>(raid: T) {
+function formatRaidWithRecurrence<T extends { recurrenceSeries?: RecurrenceSelectionValue }>(
+  raid: T
+): Omit<T, 'recurrenceSeries'> & { isRecurring: boolean; recurrence: RecurrenceResponse } {
   const { recurrenceSeries, ...rest } = raid;
   return {
-    ...(rest as Record<string, unknown>),
+    ...(rest as Omit<T, 'recurrenceSeries'>),
     isRecurring: Boolean(recurrenceSeries),
     recurrence: formatRecurrenceForResponse(recurrenceSeries ?? null)
-  } as any;
+  };
 }
 
-function formatRecurrenceForResponse(series: RecurrenceSelection | null) {
+function formatRecurrenceForResponse(series: RecurrenceSelection | null): RecurrenceResponse {
   if (!series) {
     return null;
   }
@@ -1120,7 +1147,7 @@ async function autoSignupUnavailableUsers(
         userId: char.userId,
         characterId: char.characterId,
         characterName: char.characterName,
-        characterClass: char.characterClass as any,
+        characterClass: char.characterClass,
         characterLevel: char.characterLevel,
         isMain: true,
         status: SignupStatus.NOT_ATTENDING

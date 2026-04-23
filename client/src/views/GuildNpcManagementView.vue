@@ -3,10 +3,7 @@
     <header class="section-header">
       <div class="header-content">
         <div class="header-title">
-          <RouterLink
-            class="back-link"
-            :to="{ name: 'GuildNpcRespawn', params: { guildId } }"
-          >
+          <RouterLink class="back-link" :to="{ name: 'GuildNpcRespawn', params: { guildId } }">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
@@ -40,14 +37,18 @@
     <div v-else-if="paginatedDefinitions.length === 0" class="empty-state">
       <div class="empty-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          <path
+            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+          />
         </svg>
       </div>
       <h3>{{ definitions.length === 0 ? 'No NPCs Added Yet' : 'No Results' }}</h3>
       <p class="muted">
-        {{ definitions.length === 0
-          ? 'Add your first NPC to start tracking respawn times.'
-          : 'No NPCs match your search criteria.' }}
+        {{
+          definitions.length === 0
+            ? 'Add your first NPC to start tracking respawn times.'
+            : 'No NPCs match your search criteria.'
+        }}
       </p>
       <button v-if="definitions.length === 0" class="btn btn--primary" @click="openAddModal">
         Add Your First NPC
@@ -55,11 +56,7 @@
     </div>
 
     <div v-else class="npc-grid">
-      <article
-        v-for="npc in paginatedDefinitions"
-        :key="npc.id"
-        class="npc-card"
-      >
+      <article v-for="npc in paginatedDefinitions" :key="npc.id" class="npc-card">
         <div class="npc-card__header">
           <div class="npc-card__zone">
             <img
@@ -85,7 +82,9 @@
               title="Delete"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+                <path
+                  d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"
+                />
               </svg>
             </button>
           </div>
@@ -102,17 +101,33 @@
               title="View on Allakhazam"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                <path
+                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                />
               </svg>
             </a>
           </div>
           <div class="npc-card__badges">
             <span v-if="npc.isRaidTarget" class="raid-badge">RAID</span>
-            <span v-if="npc.hasInstanceVersion" class="instance-badge" title="Tracking both Overworld and Instance versions">INSTANCE</span>
+            <span
+              v-if="npc.hasInstanceVersion"
+              class="instance-badge"
+              title="Tracking both Overworld and Instance versions"
+              >INSTANCE</span
+            >
             <span
               v-if="npc.contentFlag"
-              :class="['content-flag-badge', isContentFlagEnabled(npc.contentFlag) ? 'content-flag-badge--enabled' : 'content-flag-badge--disabled']"
-              :title="isContentFlagEnabled(npc.contentFlag) ? `${npc.contentFlag} event is active` : `${npc.contentFlag} event is inactive`"
+              :class="[
+                'content-flag-badge',
+                isContentFlagEnabled(npc.contentFlag)
+                  ? 'content-flag-badge--enabled'
+                  : 'content-flag-badge--disabled'
+              ]"
+              :title="
+                isContentFlagEnabled(npc.contentFlag)
+                  ? `${npc.contentFlag} event is active`
+                  : `${npc.contentFlag} event is inactive`
+              "
             >
               {{ npc.contentFlag }}
             </span>
@@ -131,28 +146,16 @@
 
     <!-- Pagination Controls -->
     <div v-if="totalPages > 1" class="pagination">
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === 1"
-        @click="currentPage = 1"
-      >
+      <button class="pagination-btn" :disabled="currentPage === 1" @click="currentPage = 1">
         First
       </button>
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === 1"
-        @click="currentPage--"
-      >
+      <button class="pagination-btn" :disabled="currentPage === 1" @click="currentPage--">
         Prev
       </button>
       <span class="pagination-info">
         Page {{ currentPage }} of {{ totalPages }} ({{ filteredDefinitions.length }} NPCs)
       </span>
-      <button
-        class="pagination-btn"
-        :disabled="currentPage === totalPages"
-        @click="currentPage++"
-      >
+      <button class="pagination-btn" :disabled="currentPage === totalPages" @click="currentPage++">
         Next
       </button>
       <button
@@ -315,7 +318,8 @@
               <span class="checkbox-text">Raid Target</span>
             </label>
             <p class="checkbox-hint">
-              When enabled, manual kills will trigger the "Raid Target Killed" Discord webhook notification.
+              When enabled, manual kills will trigger the "Raid Target Killed" Discord webhook
+              notification.
             </p>
           </div>
 
@@ -337,18 +341,15 @@
 
           <div class="form-group">
             <label for="npc-content-flag">Content Flag</label>
-            <select
-              id="npc-content-flag"
-              v-model="form.contentFlag"
-              class="input input--select"
-            >
+            <select id="npc-content-flag" v-model="form.contentFlag" class="input input--select">
               <option :value="null">None (Always Visible)</option>
               <option v-for="flag in NPC_CONTENT_FLAGS" :key="flag" :value="flag">
                 {{ flag }}
               </option>
             </select>
             <p class="field-hint">
-              If set, this NPC will only appear on the tracker when the corresponding content flag is enabled in the game database.
+              If set, this NPC will only appear on the tracker when the corresponding content flag
+              is enabled in the game database.
             </p>
           </div>
         </div>
@@ -359,7 +360,7 @@
             :disabled="submitting || !form.npcName.trim()"
             @click="submitForm"
           >
-            {{ submitting ? 'Saving...' : (editingNpc ? 'Save Changes' : 'Add NPC') }}
+            {{ submitting ? 'Saving...' : editingNpc ? 'Save Changes' : 'Add NPC' }}
           </button>
         </footer>
       </div>
@@ -374,19 +375,17 @@
         </header>
         <div class="modal__body">
           <p>
-            Are you sure you want to delete <strong>{{ deletingNpc?.npcName }}</strong>?
+            Are you sure you want to delete <strong>{{ deletingNpc?.npcName }}</strong
+            >?
           </p>
           <p class="muted small">
-            This will also delete all kill records associated with this NPC. This action cannot be undone.
+            This will also delete all kill records associated with this NPC. This action cannot be
+            undone.
           </p>
         </div>
         <footer class="modal__actions">
           <button class="btn btn--outline" @click="cancelDelete">Cancel</button>
-          <button
-            class="btn btn--danger"
-            :disabled="deleting"
-            @click="executeDelete"
-          >
+          <button class="btn btn--danger" :disabled="deleting" @click="executeDelete">
             {{ deleting ? 'Deleting...' : 'Delete NPC' }}
           </button>
         </footer>
@@ -395,7 +394,6 @@
 
     <!-- Error Modal -->
     <ErrorModal />
-
   </section>
 </template>
 
@@ -403,7 +401,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
-import type { NpcDefinition, NpcDefinitionInput, NpcContentFlag } from '../services/api';
+import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
 import { NPC_CONTENT_FLAGS } from '../services/api';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
@@ -452,18 +450,22 @@ watch([respawnMinDays, respawnMinHours, respawnMinMins], ([days, hours, mins]) =
   const d = days ?? 0;
   const h = hours ?? 0;
   const m = mins ?? 0;
-  form.value.respawnMinMinutes = (d > 0 || h > 0 || m > 0) ? d * 1440 + h * 60 + m : null;
+  form.value.respawnMinMinutes = d > 0 || h > 0 || m > 0 ? d * 1440 + h * 60 + m : null;
 });
 
 watch([respawnMaxDays, respawnMaxHours, respawnMaxMins], ([days, hours, mins]) => {
   const d = days ?? 0;
   const h = hours ?? 0;
   const m = mins ?? 0;
-  form.value.respawnMaxMinutes = (d > 0 || h > 0 || m > 0) ? d * 1440 + h * 60 + m : null;
+  form.value.respawnMaxMinutes = d > 0 || h > 0 || m > 0 ? d * 1440 + h * 60 + m : null;
 });
 
 // Populate days/hours/minutes from total minutes
-function minutesToTimeInputs(totalMinutes: number | null): { days: number | null; hours: number | null; mins: number | null } {
+function minutesToTimeInputs(totalMinutes: number | null): {
+  days: number | null;
+  hours: number | null;
+  mins: number | null;
+} {
   if (totalMinutes === null || totalMinutes === 0) {
     return { days: null, hours: null, mins: null };
   }
@@ -487,9 +489,10 @@ const enabledContentFlags = computed(() => store.enabledContentFlags);
 const filteredDefinitions = computed(() => {
   if (!searchQuery.value) return definitions.value;
   const query = searchQuery.value.toLowerCase();
-  return definitions.value.filter(npc =>
-    npc.npcName.toLowerCase().includes(query) ||
-    (npc.zoneName?.toLowerCase().includes(query) ?? false)
+  return definitions.value.filter(
+    (npc) =>
+      npc.npcName.toLowerCase().includes(query) ||
+      (npc.zoneName?.toLowerCase().includes(query) ?? false)
   );
 });
 
@@ -502,7 +505,7 @@ const paginatedDefinitions = computed(() => {
 
 function isContentFlagEnabled(flag: string | null): boolean {
   if (!flag) return true;
-  return enabledContentFlags.value.includes(flag as typeof enabledContentFlags.value[number]);
+  return enabledContentFlags.value.includes(flag as (typeof enabledContentFlags.value)[number]);
 }
 
 // Methods
@@ -748,7 +751,9 @@ onMounted(async () => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon {
@@ -775,7 +780,9 @@ onMounted(async () => {
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 0.5rem;
   overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
   display: flex;
   flex-direction: column;
 }

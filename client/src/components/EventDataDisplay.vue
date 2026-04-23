@@ -4,7 +4,9 @@
     <template v-if="event.eventTypeName === 'LOOT_ITEM'">
       <div class="data-row">
         <span class="data-label">Item:</span>
-        <span class="data-value data-value--highlight">{{ eventData.item_name || 'Unknown Item' }}</span>
+        <span class="data-value data-value--highlight">{{
+          eventData.item_name || 'Unknown Item'
+        }}</span>
       </div>
       <div v-if="eventData.item_id" class="data-row">
         <span class="data-label">Item ID:</span>
@@ -12,7 +14,9 @@
       </div>
       <div v-if="eventData.npc_name || eventData.corpse_name" class="data-row">
         <span class="data-label">From:</span>
-        <span class="data-value">{{ formatNpcName(eventData.npc_name || eventData.corpse_name) }}</span>
+        <span class="data-value">{{
+          formatNpcName(eventData.npc_name || eventData.corpse_name)
+        }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -28,7 +32,9 @@
     <template v-else-if="event.eventTypeName === 'DEATH'">
       <div class="data-row">
         <span class="data-label">Killed by:</span>
-        <span class="data-value data-value--danger">{{ formatNpcName(eventData.killer_name || eventData.killed_by || 'Unknown') }}</span>
+        <span class="data-value data-value--danger">{{
+          formatNpcName(eventData.killer_name || eventData.killed_by || 'Unknown')
+        }}</span>
       </div>
       <div v-if="eventData.spell_name" class="data-row">
         <span class="data-label">Spell:</span>
@@ -45,10 +51,16 @@
     </template>
 
     <!-- KILLED_NPC / KILLED_NAMED_NPC / KILLED_RAID_NPC -->
-    <template v-else-if="['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'].includes(event.eventTypeName)">
+    <template
+      v-else-if="
+        ['KILLED_NPC', 'KILLED_NAMED_NPC', 'KILLED_RAID_NPC'].includes(event.eventTypeName)
+      "
+    >
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--combat">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--combat">{{
+          formatNpcName(eventData.npc_name) || 'Unknown NPC'
+        }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -60,11 +72,15 @@
       </div>
       <div v-if="eventData.total_damage_per_second_taken !== undefined" class="data-row">
         <span class="data-label">DPS Taken:</span>
-        <span class="data-value data-value--danger">{{ eventData.total_damage_per_second_taken }}</span>
+        <span class="data-value data-value--danger">{{
+          eventData.total_damage_per_second_taken
+        }}</span>
       </div>
       <div v-if="eventData.total_heal_per_second_taken" class="data-row">
         <span class="data-label">HPS Taken:</span>
-        <span class="data-value data-value--success">{{ eventData.total_heal_per_second_taken }}</span>
+        <span class="data-value data-value--success">{{
+          eventData.total_heal_per_second_taken
+        }}</span>
       </div>
     </template>
 
@@ -72,23 +88,36 @@
     <template v-else-if="event.eventTypeName === 'ZONING'">
       <div class="data-row">
         <span class="data-label">From:</span>
-        <span class="data-value">{{ eventData.from_zone_long_name || eventData.from || 'Unknown' }}</span>
+        <span class="data-value">{{
+          eventData.from_zone_long_name || eventData.from || 'Unknown'
+        }}</span>
       </div>
       <div class="data-row">
         <span class="data-label">To:</span>
-        <span class="data-value data-value--highlight">{{ eventData.to_zone_long_name || eventData.to || 'Unknown' }}</span>
+        <span class="data-value data-value--highlight">{{
+          eventData.to_zone_long_name || eventData.to || 'Unknown'
+        }}</span>
       </div>
     </template>
 
     <!-- LEVEL_GAIN / LEVEL_LOSS -->
-    <template v-else-if="event.eventTypeName === 'LEVEL_GAIN' || event.eventTypeName === 'LEVEL_LOSS'">
+    <template
+      v-else-if="event.eventTypeName === 'LEVEL_GAIN' || event.eventTypeName === 'LEVEL_LOSS'"
+    >
       <div class="data-row">
         <span class="data-label">From Level:</span>
-        <span class="data-value">{{ eventData.from_level || eventData.from || eventData.old_level || '?' }}</span>
+        <span class="data-value">{{
+          eventData.from_level || eventData.from || eventData.old_level || '?'
+        }}</span>
       </div>
       <div class="data-row">
         <span class="data-label">To Level:</span>
-        <span :class="['data-value', event.eventTypeName === 'LEVEL_GAIN' ? 'data-value--success' : 'data-value--danger']">
+        <span
+          :class="[
+            'data-value',
+            event.eventTypeName === 'LEVEL_GAIN' ? 'data-value--success' : 'data-value--danger'
+          ]"
+        >
           {{ eventData.to_level || eventData.to || eventData.new_level || '?' }}
         </span>
       </div>
@@ -103,7 +132,9 @@
     </template>
 
     <!-- AA_GAIN / AA_PURCHASE -->
-    <template v-else-if="event.eventTypeName === 'AA_GAIN' || event.eventTypeName === 'AA_PURCHASE'">
+    <template
+      v-else-if="event.eventTypeName === 'AA_GAIN' || event.eventTypeName === 'AA_PURCHASE'"
+    >
       <div v-if="eventData.aa_name" class="data-row">
         <span class="data-label">AA:</span>
         <span class="data-value data-value--highlight">{{ eventData.aa_name }}</span>
@@ -114,7 +145,9 @@
       </div>
       <div v-if="eventData.points || eventData.amount" class="data-row">
         <span class="data-label">Points:</span>
-        <span class="data-value data-value--success">+{{ eventData.points || eventData.amount }}</span>
+        <span class="data-value data-value--success"
+          >+{{ eventData.points || eventData.amount }}</span
+        >
       </div>
       <div v-if="eventData.aa_cost !== undefined" class="data-row">
         <span class="data-label">Cost:</span>
@@ -124,11 +157,17 @@
         <span class="data-label">Total:</span>
         <span class="data-value">{{ eventData.total }}</span>
       </div>
-      <div v-if="eventData.aa_previous_id !== undefined && eventData.aa_previous_id !== -1" class="data-row">
+      <div
+        v-if="eventData.aa_previous_id !== undefined && eventData.aa_previous_id !== -1"
+        class="data-row"
+      >
         <span class="data-label">Previous AA:</span>
         <span class="data-value muted">{{ eventData.aa_previous_id }}</span>
       </div>
-      <div v-if="eventData.aa_next_id !== undefined && eventData.aa_next_id !== -1" class="data-row">
+      <div
+        v-if="eventData.aa_next_id !== undefined && eventData.aa_next_id !== -1"
+        class="data-row"
+      >
         <span class="data-label">Next AA:</span>
         <span class="data-value muted">{{ eventData.aa_next_id }}</span>
       </div>
@@ -138,7 +177,9 @@
     <template v-else-if="event.eventTypeName === 'SKILL_UP'">
       <div class="data-row">
         <span class="data-label">Skill:</span>
-        <span class="data-value data-value--highlight">{{ eventData.skill_name || eventData.skill || 'Unknown Skill' }}</span>
+        <span class="data-value data-value--highlight">{{
+          eventData.skill_name || eventData.skill || 'Unknown Skill'
+        }}</span>
       </div>
       <div v-if="eventData.value !== undefined" class="data-row">
         <span class="data-label">New Value:</span>
@@ -154,9 +195,18 @@
         <div class="trade-section">
           <div class="data-row">
             <span class="data-label">{{ eventData.character_1_name }} gives:</span>
-            <span v-if="!hasTradeContent(eventData.character_1_give_money, eventData.character_1_give_items)" class="data-value muted">Nothing</span>
+            <span
+              v-if="
+                !hasTradeContent(eventData.character_1_give_money, eventData.character_1_give_items)
+              "
+              class="data-value muted"
+              >Nothing</span
+            >
           </div>
-          <div v-if="hasMoneyValue(eventData.character_1_give_money)" class="data-row data-row--indented">
+          <div
+            v-if="hasMoneyValue(eventData.character_1_give_money)"
+            class="data-row data-row--indented"
+          >
             <span class="data-label">Money:</span>
             <CoinDisplay
               v-if="buildMoneyDisplayProps(eventData.character_1_give_money)"
@@ -164,8 +214,14 @@
               v-bind="buildMoneyDisplayProps(eventData.character_1_give_money)!"
             />
           </div>
-          <template v-if="eventData.character_1_give_items && eventData.character_1_give_items.length > 0">
-            <div v-for="(item, idx) in eventData.character_1_give_items" :key="'c1-item-' + idx" class="data-row data-row--indented">
+          <template
+            v-if="eventData.character_1_give_items && eventData.character_1_give_items.length > 0"
+          >
+            <div
+              v-for="(item, idx) in eventData.character_1_give_items"
+              :key="'c1-item-' + idx"
+              class="data-row data-row--indented"
+            >
               <span class="data-label">{{ idx === 0 ? 'Items:' : '' }}</span>
               <span class="data-value data-value--highlight">{{ formatTradeItem(item) }}</span>
             </div>
@@ -175,9 +231,18 @@
         <div class="trade-section">
           <div class="data-row">
             <span class="data-label">{{ eventData.character_2_name }} gives:</span>
-            <span v-if="!hasTradeContent(eventData.character_2_give_money, eventData.character_2_give_items)" class="data-value muted">Nothing</span>
+            <span
+              v-if="
+                !hasTradeContent(eventData.character_2_give_money, eventData.character_2_give_items)
+              "
+              class="data-value muted"
+              >Nothing</span
+            >
           </div>
-          <div v-if="hasMoneyValue(eventData.character_2_give_money)" class="data-row data-row--indented">
+          <div
+            v-if="hasMoneyValue(eventData.character_2_give_money)"
+            class="data-row data-row--indented"
+          >
             <span class="data-label">Money:</span>
             <CoinDisplay
               v-if="buildMoneyDisplayProps(eventData.character_2_give_money)"
@@ -185,8 +250,14 @@
               v-bind="buildMoneyDisplayProps(eventData.character_2_give_money)!"
             />
           </div>
-          <template v-if="eventData.character_2_give_items && eventData.character_2_give_items.length > 0">
-            <div v-for="(item, idx) in eventData.character_2_give_items" :key="'c2-item-' + idx" class="data-row data-row--indented">
+          <template
+            v-if="eventData.character_2_give_items && eventData.character_2_give_items.length > 0"
+          >
+            <div
+              v-for="(item, idx) in eventData.character_2_give_items"
+              :key="'c2-item-' + idx"
+              class="data-row data-row--indented"
+            >
               <span class="data-label">{{ idx === 0 ? 'Items:' : '' }}</span>
               <span class="data-value data-value--highlight">{{ formatTradeItem(item) }}</span>
             </div>
@@ -197,7 +268,9 @@
       <template v-else>
         <div class="data-row">
           <span class="data-label">With:</span>
-          <span class="data-value data-value--social">{{ eventData.with || eventData.target || 'Unknown' }}</span>
+          <span class="data-value data-value--social">{{
+            eventData.with || eventData.target || 'Unknown'
+          }}</span>
         </div>
         <div v-if="eventData.items && Array.isArray(eventData.items)" class="data-row">
           <span class="data-label">Items:</span>
@@ -215,7 +288,11 @@
     </template>
 
     <!-- MERCHANT_PURCHASE / MERCHANT_SELL -->
-    <template v-else-if="event.eventTypeName === 'MERCHANT_PURCHASE' || event.eventTypeName === 'MERCHANT_SELL'">
+    <template
+      v-else-if="
+        event.eventTypeName === 'MERCHANT_PURCHASE' || event.eventTypeName === 'MERCHANT_SELL'
+      "
+    >
       <div v-if="eventData.item_name" class="data-row">
         <span class="data-label">Item:</span>
         <span class="data-value data-value--highlight">{{ eventData.item_name }}</span>
@@ -302,7 +379,9 @@
       </div>
       <div v-if="eventData.seller_name || eventData.trader_name" class="data-row">
         <span class="data-label">Seller:</span>
-        <span class="data-value data-value--social">{{ eventData.seller_name || eventData.trader_name }}</span>
+        <span class="data-value data-value--social">{{
+          eventData.seller_name || eventData.trader_name
+        }}</span>
       </div>
       <div v-if="eventData.seller_id || eventData.trader_id" class="data-row">
         <span class="data-label">Seller ID:</span>
@@ -346,7 +425,9 @@
     <template v-else-if="event.eventTypeName === 'NPC_HANDIN'">
       <div class="data-row">
         <span class="data-label">NPC:</span>
-        <span class="data-value data-value--social">{{ formatNpcName(eventData.npc_name) || 'Unknown NPC' }}</span>
+        <span class="data-value data-value--social">{{
+          formatNpcName(eventData.npc_name) || 'Unknown NPC'
+        }}</span>
       </div>
       <div v-if="eventData.npc_id" class="data-row">
         <span class="data-label">NPC ID:</span>
@@ -363,7 +444,11 @@
             <span class="data-label">Handed In:</span>
             <span class="data-value muted">{{ eventData.handin_items.length }} item(s)</span>
           </div>
-          <div v-for="(item, idx) in eventData.handin_items" :key="'handin-' + idx" class="data-row data-row--indented">
+          <div
+            v-for="(item, idx) in eventData.handin_items"
+            :key="'handin-' + idx"
+            class="data-row data-row--indented"
+          >
             <span class="data-label"></span>
             <span class="data-value data-value--highlight">{{ formatHandinItem(item) }}</span>
           </div>
@@ -385,7 +470,11 @@
             <span class="data-label">Received:</span>
             <span class="data-value muted">{{ eventData.return_items.length }} item(s)</span>
           </div>
-          <div v-for="(item, idx) in eventData.return_items" :key="'return-' + idx" class="data-row data-row--indented">
+          <div
+            v-for="(item, idx) in eventData.return_items"
+            :key="'return-' + idx"
+            class="data-row data-row--indented"
+          >
             <span class="data-label"></span>
             <span class="data-value data-value--success">{{ formatHandinItem(item) }}</span>
           </div>
@@ -403,10 +492,19 @@
     </template>
 
     <!-- COMBINE_SUCCESS / COMBINE_FAILURE -->
-    <template v-else-if="event.eventTypeName === 'COMBINE_SUCCESS' || event.eventTypeName === 'COMBINE_FAILURE'">
+    <template
+      v-else-if="
+        event.eventTypeName === 'COMBINE_SUCCESS' || event.eventTypeName === 'COMBINE_FAILURE'
+      "
+    >
       <div v-if="eventData.recipe_name || eventData.recipe" class="data-row">
         <span class="data-label">Recipe:</span>
-        <span :class="['data-value', event.eventTypeName === 'COMBINE_SUCCESS' ? 'data-value--success' : 'data-value--danger']">
+        <span
+          :class="[
+            'data-value',
+            event.eventTypeName === 'COMBINE_SUCCESS' ? 'data-value--success' : 'data-value--danger'
+          ]"
+        >
           {{ eventData.recipe_name || eventData.recipe }}
         </span>
       </div>
@@ -416,7 +514,9 @@
       </div>
       <div v-if="eventData.tradeskill || eventData.tradeskill_id !== undefined" class="data-row">
         <span class="data-label">Tradeskill:</span>
-        <span class="data-value">{{ eventData.tradeskill || `ID: ${eventData.tradeskill_id}` }}</span>
+        <span class="data-value">{{
+          eventData.tradeskill || `ID: ${eventData.tradeskill_id}`
+        }}</span>
       </div>
       <div v-if="eventData.made_count !== undefined" class="data-row">
         <span class="data-label">Made Count:</span>
@@ -428,7 +528,9 @@
     <template v-else-if="event.eventTypeName === 'SAY'">
       <div class="data-row">
         <span class="data-label">Message:</span>
-        <span class="data-value data-value--message">"{{ eventData.message || eventData.text || 'No message' }}"</span>
+        <span class="data-value data-value--message"
+          >"{{ eventData.message || eventData.text || 'No message' }}"</span
+        >
       </div>
       <div v-if="eventData.target" class="data-row">
         <span class="data-label">To:</span>
@@ -440,7 +542,9 @@
     <template v-else-if="event.eventTypeName === 'GM_COMMAND'">
       <div class="data-row">
         <span class="data-label">Command:</span>
-        <span class="data-value data-value--code">{{ eventData.command || eventData.message || 'Unknown Command' }}</span>
+        <span class="data-value data-value--code">{{
+          eventData.command || eventData.message || 'Unknown Command'
+        }}</span>
       </div>
       <div v-if="eventData.target" class="data-row">
         <span class="data-label">Target:</span>
@@ -449,10 +553,19 @@
     </template>
 
     <!-- TASK_ACCEPT / TASK_UPDATE / TASK_COMPLETE -->
-    <template v-else-if="['TASK_ACCEPT', 'TASK_UPDATE', 'TASK_COMPLETE'].includes(event.eventTypeName)">
+    <template
+      v-else-if="['TASK_ACCEPT', 'TASK_UPDATE', 'TASK_COMPLETE'].includes(event.eventTypeName)"
+    >
       <div class="data-row">
         <span class="data-label">Task:</span>
-        <span :class="['data-value', event.eventTypeName === 'TASK_COMPLETE' ? 'data-value--success' : 'data-value--highlight']">
+        <span
+          :class="[
+            'data-value',
+            event.eventTypeName === 'TASK_COMPLETE'
+              ? 'data-value--success'
+              : 'data-value--highlight'
+          ]"
+        >
           {{ eventData.task_name || eventData.task || 'Unknown Task' }}
         </span>
       </div>
@@ -471,14 +584,22 @@
     </template>
 
     <!-- GROUP_JOIN / GROUP_LEAVE / RAID_JOIN / RAID_LEAVE -->
-    <template v-else-if="['GROUP_JOIN', 'GROUP_LEAVE', 'RAID_JOIN', 'RAID_LEAVE'].includes(event.eventTypeName)">
+    <template
+      v-else-if="
+        ['GROUP_JOIN', 'GROUP_LEAVE', 'RAID_JOIN', 'RAID_LEAVE'].includes(event.eventTypeName)
+      "
+    >
       <div v-if="eventData.leader || eventData.group_leader" class="data-row">
         <span class="data-label">Leader:</span>
-        <span class="data-value data-value--social">{{ eventData.leader || eventData.group_leader }}</span>
+        <span class="data-value data-value--social">{{
+          eventData.leader || eventData.group_leader
+        }}</span>
       </div>
       <div v-if="eventData.members" class="data-row">
         <span class="data-label">Members:</span>
-        <span class="data-value">{{ Array.isArray(eventData.members) ? eventData.members.length : eventData.members }}</span>
+        <span class="data-value">{{
+          Array.isArray(eventData.members) ? eventData.members.length : eventData.members
+        }}</span>
       </div>
     </template>
 
@@ -486,7 +607,9 @@
     <template v-else-if="event.eventTypeName === 'POSSIBLE_HACK'">
       <div class="data-row">
         <span class="data-label">Reason:</span>
-        <span class="data-value data-value--danger">{{ eventData.reason || eventData.message || 'Unknown' }}</span>
+        <span class="data-value data-value--danger">{{
+          eventData.reason || eventData.message || 'Unknown'
+        }}</span>
       </div>
       <div v-if="eventData.details" class="data-row">
         <span class="data-label">Details:</span>
@@ -495,10 +618,14 @@
     </template>
 
     <!-- FORAGE_SUCCESS / FISH_SUCCESS -->
-    <template v-else-if="event.eventTypeName === 'FORAGE_SUCCESS' || event.eventTypeName === 'FISH_SUCCESS'">
+    <template
+      v-else-if="event.eventTypeName === 'FORAGE_SUCCESS' || event.eventTypeName === 'FISH_SUCCESS'"
+    >
       <div class="data-row">
         <span class="data-label">Item:</span>
-        <span class="data-value data-value--success">{{ eventData.item_name || eventData.item || 'Unknown Item' }}</span>
+        <span class="data-value data-value--success">{{
+          eventData.item_name || eventData.item || 'Unknown Item'
+        }}</span>
       </div>
     </template>
 
@@ -506,7 +633,9 @@
     <template v-else-if="event.eventTypeName === 'GROUNDSPAWN_PICKUP'">
       <div class="data-row">
         <span class="data-label">Item:</span>
-        <span class="data-value data-value--highlight">{{ eventData.item_name || eventData.item || 'Unknown Item' }}</span>
+        <span class="data-value data-value--highlight">{{
+          eventData.item_name || eventData.item || 'Unknown Item'
+        }}</span>
       </div>
     </template>
 
@@ -514,7 +643,9 @@
     <template v-else-if="event.eventTypeName === 'DISCOVER_ITEM'">
       <div class="data-row">
         <span class="data-label">Item:</span>
-        <span class="data-value data-value--success">{{ eventData.item_name || eventData.item || 'Unknown Item' }}</span>
+        <span class="data-value data-value--success">{{
+          eventData.item_name || eventData.item || 'Unknown Item'
+        }}</span>
       </div>
       <div v-if="eventData.item_id" class="data-row">
         <span class="data-label">Item ID:</span>
@@ -526,7 +657,9 @@
     <template v-else-if="event.eventTypeName === 'REZ_ACCEPTED'">
       <div class="data-row">
         <span class="data-label">Rezzer:</span>
-        <span class="data-value data-value--social">{{ eventData.resurrecter_name || eventData.rezzer || eventData.from || 'Unknown' }}</span>
+        <span class="data-value data-value--social">{{
+          eventData.resurrecter_name || eventData.rezzer || eventData.from || 'Unknown'
+        }}</span>
       </div>
       <div v-if="eventData.spell_name" class="data-row">
         <span class="data-label">Spell:</span>
@@ -585,20 +718,27 @@ const displayableData = computed(() => {
 });
 
 function formatKey(key: string): string {
-  return key
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // Field names that should be formatted as money (copper values)
 const MONEY_FIELD_PATTERNS = [
-  'price', 'cost', 'total_cost', 'money', 'balance', 'money_balance',
-  'player_money_balance', 'platinum', 'gold', 'silver', 'copper'
+  'price',
+  'cost',
+  'total_cost',
+  'money',
+  'balance',
+  'money_balance',
+  'player_money_balance',
+  'platinum',
+  'gold',
+  'silver',
+  'copper'
 ];
 
 function isMoneyField(key: string): boolean {
   const lowerKey = key.toLowerCase();
-  return MONEY_FIELD_PATTERNS.some(pattern => lowerKey.includes(pattern));
+  return MONEY_FIELD_PATTERNS.some((pattern) => lowerKey.includes(pattern));
 }
 
 function formatValue(value: unknown, key?: string): string {
@@ -617,7 +757,10 @@ function formatValue(value: unknown, key?: string): string {
 
 function buildMoneyDisplayProps(
   value: unknown
-): { amountInCopper: number } | { platinum: number; gold: number; silver: number; copper: number } | null {
+):
+  | { amountInCopper: number }
+  | { platinum: number; gold: number; silver: number; copper: number }
+  | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return { amountInCopper: value };
   }
@@ -688,12 +831,6 @@ function formatTradeItem(item: unknown): string {
   return String(item);
 }
 
-function formatCorpseName(name: unknown): string {
-  if (typeof name !== 'string') return String(name);
-  // Replace underscores with spaces and clean up the name
-  return name.replace(/_/g, ' ');
-}
-
 /**
  * Smartly insert spaces into concatenated NPC names
  * e.g., "PrinceThirnegthePetulant" -> "Prince Thirneg the Petulant"
@@ -757,7 +894,7 @@ function formatHandinItem(item: unknown): string {
 
     // Add augments if any non-empty ones exist
     if (i.augment_names && Array.isArray(i.augment_names)) {
-      const augments = i.augment_names.filter(aug => aug && aug.trim() !== '');
+      const augments = i.augment_names.filter((aug) => aug && aug.trim() !== '');
       if (augments.length > 0) {
         parts.push(`[${augments.join(', ')}]`);
       }

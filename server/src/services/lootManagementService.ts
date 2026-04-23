@@ -148,26 +148,6 @@ function ensureEqDbConfigured(): void {
 
 // Cache for table existence checks - tables don't change at runtime
 const tableExistsCache = new Map<string, boolean>();
-const tableColumnsCache = new Map<string, string[]>();
-
-// Get column names for a table
-async function getTableColumns(tableName: string): Promise<string[]> {
-  const cached = tableColumnsCache.get(tableName);
-  if (cached) return cached;
-
-  try {
-    const rows = await queryEqDb<RowDataPacket[]>(
-      `SELECT COLUMN_NAME as columnName FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
-      [tableName]
-    );
-    const columns = rows.map((r) => String(r.columnName).toLowerCase());
-    tableColumnsCache.set(tableName, columns);
-    return columns;
-  } catch {
-    return [];
-  }
-}
 
 // Helper to find the first matching value from a row given possible column names
 function findValue<T>(row: RowDataPacket, possibleNames: string[], defaultVal: T): T {

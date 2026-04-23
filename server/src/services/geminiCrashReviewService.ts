@@ -64,7 +64,26 @@ const ANALYSIS_SUFFIX = [
 const MAX_MODULE_LINES = 20;
 const MAX_ANALYSIS_LINES = 300;
 
-const CRASH_REVIEW_SCHEMA = {
+type GeminiResponseLike = {
+  candidates?: Array<{
+    finishReason?: string;
+    content?: {
+      parts?: unknown[];
+    };
+  }>;
+  usageMetadata?: {
+    thoughtsTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
+  functionCalls?: unknown[] | (() => unknown[]);
+};
+
+type GeminiFunctionCallPart = {
+  functionCall?: unknown;
+};
+
+const _CRASH_REVIEW_SCHEMA = {
   type: 'object',
   properties: {
     summary: { type: 'string' },
@@ -339,7 +358,7 @@ export async function reviewCrashReport(
 
   const prompt = `${promptCore}\n\n${ANALYSIS_SUFFIX}`;
 
-  const analysisPayload: any = {
+  const analysisPayload = {
     model: options.model ?? MODEL_NAME,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
@@ -373,7 +392,7 @@ export async function reviewCrashReport(
   if (shouldRequestFollowup(analysisSections, parsed)) {
     const missingSections = getMissingSections(analysisSections, parsed);
     const followupPrompt = buildFollowupPrompt(analysisText, missingSections);
-    const followupPayload: any = {
+    const followupPayload = {
       model: options.model ?? MODEL_NAME,
       contents: [{ role: 'user', parts: [{ text: followupPrompt }] }],
       config: {
@@ -424,7 +443,7 @@ export async function reviewCrashReport(
   return processCodeReferencesInFindings(parsed);
 }
 
-function extractResponseMetadata(response: any): {
+function extractResponseMetadata(response: GeminiResponseLike): {
   finishReason?: string;
   thinkingTokens?: number;
   outputTokens?: number;
@@ -460,7 +479,7 @@ function extractResponseMetadata(response: any): {
   return metadata;
 }
 
-function stripNonJsonArtifacts(text: string) {
+function _stripNonJsonArtifacts(text: string) {
   return text
     .replace(/```(?:json)?/gi, '')
     .replace(/```/g, '')
@@ -692,7 +711,7 @@ function parseNumberedHypotheses(section: string): CrashReviewFindings['hypothes
   return hypotheses;
 }
 
-function parseFunctionCallText(text: string) {
+function _parseFunctionCallText(text: string) {
   const trimmed = text.trim();
   if (!trimmed.startsWith(`${FUNCTION_NAME}(`)) {
     return null;
@@ -774,7 +793,7 @@ function normalizeFunctionCallArgsText(inner: string) {
   return `{${text}}`;
 }
 
-function coerceFindingsFromFunctionText(args: Record<string, unknown>, rawText: string): CrashReviewFindings {
+function _coerceFindingsFromFunctionText(args: Record<string, unknown>, rawText: string): CrashReviewFindings {
   const asString = (value: unknown) => (typeof value === 'string' ? value : null);
   const summaryOverride = asString(args.summary);
   const exception = asString(args.exception_type) || asString(args.exception) || null;
@@ -804,7 +823,7 @@ function coerceFindingsFromFunctionText(args: Record<string, unknown>, rawText: 
   };
 }
 
-function isFindingsIncomplete(findings: CrashReviewFindings) {
+function _isFindingsIncomplete(findings: CrashReviewFindings) {
   return (
     findings.hypotheses.length === 0 &&
     findings.missingInfo.length === 0 &&
@@ -812,7 +831,7 @@ function isFindingsIncomplete(findings: CrashReviewFindings) {
   );
 }
 
-function extractFunctionCallArgs(response: any): Record<string, unknown> | null {
+function _extractFunctionCallArgs(response: GeminiResponseLike): Record<string, unknown> | null {
   const directCalls =
     typeof response?.functionCalls === 'function'
       ? response.functionCalls()
@@ -823,7 +842,10 @@ function extractFunctionCallArgs(response: any): Record<string, unknown> | null 
 
   const parts = response?.candidates?.[0]?.content?.parts;
   if (Array.isArray(parts)) {
-    const partWithCall = parts.find((part: any) => part?.functionCall);
+    const partWithCall = parts.find(
+      (part): part is GeminiFunctionCallPart =>
+        Boolean(part && typeof part === 'object' && 'functionCall' in part)
+    );
     if (partWithCall?.functionCall) {
       return normalizeFunctionCallArgs(partWithCall.functionCall);
     }
@@ -832,9 +854,10 @@ function extractFunctionCallArgs(response: any): Record<string, unknown> | null 
   return null;
 }
 
-function normalizeFunctionCallArgs(call: any) {
-  if (!call) return null;
-  const args = call.args ?? call.arguments ?? call;
+function normalizeFunctionCallArgs(call: unknown) {
+  if (!call || typeof call !== 'object') return null;
+  const callRecord = call as Record<string, unknown>;
+  const args = callRecord.args ?? callRecord.arguments ?? callRecord;
   if (!args) return null;
   if (typeof args === 'string') {
     try {
@@ -849,7 +872,7 @@ function normalizeFunctionCallArgs(call: any) {
   return null;
 }
 
-function coerceFindings(raw: Record<string, unknown>): CrashReviewFindings {
+function _coerceFindings(raw: Record<string, unknown>): CrashReviewFindings {
   const hypothesesRaw = Array.isArray(raw.hypotheses) ? raw.hypotheses : [];
   const hypotheses = hypothesesRaw
     .map((item) => {
@@ -891,7 +914,7 @@ function coerceFindings(raw: Record<string, unknown>): CrashReviewFindings {
   };
 }
 
-function extractJsonObject(text: string) {
+function _extractJsonObject(text: string) {
   const first = text.indexOf('{');
   const last = text.lastIndexOf('}');
   if (first === -1 || last === -1 || last <= first) {
@@ -900,7 +923,7 @@ function extractJsonObject(text: string) {
   return text.slice(first, last + 1);
 }
 
-function repairJson(text: string) {
+function _repairJson(text: string) {
   const output: string[] = [];
   let inString = false;
   let escape = false;
@@ -1043,7 +1066,7 @@ function completeJsonObject(text: string) {
   return text + suffix;
 }
 
-function parseLooseFindings(text: string): CrashReviewFindings | null {
+function _parseLooseFindings(text: string): CrashReviewFindings | null {
   const normalized = text.replace(/\r/g, '').trim();
   if (!normalized) return null;
 
@@ -1068,7 +1091,7 @@ function parseLooseFindings(text: string): CrashReviewFindings | null {
 }
 
 function extractSection(text: string, headings: string[]) {
-  const headingRegex = new RegExp(`^(${headings.join('|')})\s*:`, 'i');
+  const headingRegex = new RegExp(`^(${headings.join('|')})\\s*:`, 'i');
   const lines = text.split('\n');
   let inSection = false;
   const collected: string[] = [];
@@ -1119,7 +1142,7 @@ function parseHypotheses(sectionText: string) {
   }));
 }
 
-function parseBestEffortJson(text: string): CrashReviewFindings | null {
+function _parseBestEffortJson(text: string): CrashReviewFindings | null {
   const start = text.indexOf('{');
   if (start === -1) return null;
 
@@ -1191,7 +1214,7 @@ function salvageJsonPrefix(text: string) {
   }
 }
 
-function buildFallbackFindings(reason: string, preview: string): CrashReviewFindings {
+function _buildFallbackFindings(reason: string, preview: string): CrashReviewFindings {
   const sanitizedPreview = preview.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '').trim();
   return {
     summary: 'Gemini returned a non-JSON response. See raw notes for details.',
@@ -1415,8 +1438,6 @@ function compressSegmentForSorting(text: string): string {
     return text;
   }
 
-  // Extract key ordering indicators
-  const lines = text.split(/\r?\n/);
   const indicators: string[] = [];
 
   // Look for explicit chunk numbers

@@ -1,8 +1,8 @@
 import { GuildApplicationStatus, GuildRole, Prisma } from '@prisma/client';
 
+import { detachUserCharactersFromGuild } from './characterService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
-import { detachUserCharactersFromGuild } from './characterService.js';
 
 export async function ensureAdmin(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({

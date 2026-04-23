@@ -2,7 +2,7 @@
   <div class="modal-backdrop">
     <div class="modal">
       <header class="modal__header">
-        <h2>{{ editing ? "Edit Character" : "Add Character" }}</h2>
+        <h2>{{ editing ? 'Edit Character' : 'Add Character' }}</h2>
         <button class="icon-button" @click="close">✕</button>
       </header>
 
@@ -97,7 +97,6 @@ const props = defineProps<{
   contextGuildId?: string | null;
 }>();
 
-
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'created'): void;
@@ -167,7 +166,8 @@ watch(
 function close() {
   form.name = props.character?.name ?? '';
   form.level = props.character?.level ?? 60;
-  form.class = (props.character?.class as CharacterClass | undefined) ?? ('' as CharacterClass | '');
+  form.class =
+    (props.character?.class as CharacterClass | undefined) ?? ('' as CharacterClass | '');
   form.guildId = props.character?.guildId ?? '';
   form.isMain = props.character?.isMain ?? props.canSetMain;
   errorMessage.value = '';
@@ -206,7 +206,10 @@ async function submit() {
       emit('created');
     }
   } catch (error) {
-    errorMessage.value = extractErrorMessage(error, props.editing ? 'Unable to update character.' : 'Unable to create character.');
+    errorMessage.value = extractErrorMessage(
+      error,
+      props.editing ? 'Unable to update character.' : 'Unable to create character.'
+    );
     submitting.value = false;
     return;
   } finally {
@@ -381,7 +384,11 @@ function extractErrorMessage(error: unknown, fallback: string) {
   border: 1px solid rgba(248, 113, 113, 0.45);
   color: #fecdd3;
   box-shadow: 0 10px 18px rgba(248, 113, 113, 0.08);
-  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
 }
 
 .btn--danger:hover:not(:disabled) {

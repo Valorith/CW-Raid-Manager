@@ -1,5 +1,5 @@
-import { FastifyInstance } from 'fastify';
 import { LootListType, Prisma } from '@prisma/client';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';

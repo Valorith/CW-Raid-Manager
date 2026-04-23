@@ -1,9 +1,9 @@
 import type { GuildRole, Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
 
+import { appConfig } from '../config/appConfig.js';
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
-import { appConfig } from '../config/appConfig.js';
 
 export type GuildBankSlotCategory = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 
@@ -38,7 +38,7 @@ export interface GuildBankItem {
 export interface GuildBankSnapshot {
   characters: GuildBankCharacterEntry[];
   items: GuildBankItem[];
-  debug?: any;
+  debug?: unknown;
   missingCharacters: string[];
 }
 

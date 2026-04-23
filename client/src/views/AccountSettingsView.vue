@@ -218,7 +218,9 @@
                 v-else
                 type="button"
                 class="btn btn--success btn--small"
-                :disabled="connectingProvider === 'TELEGRAM' || !canStartMessengerConnect('TELEGRAM')"
+                :disabled="
+                  connectingProvider === 'TELEGRAM' || !canStartMessengerConnect('TELEGRAM')
+                "
                 @click="beginMessengerConnect('TELEGRAM')"
               >
                 {{
@@ -306,7 +308,9 @@
                 v-else
                 type="button"
                 class="btn btn--success btn--small"
-                :disabled="connectingProvider === 'WHATSAPP' || !canStartMessengerConnect('WHATSAPP')"
+                :disabled="
+                  connectingProvider === 'WHATSAPP' || !canStartMessengerConnect('WHATSAPP')
+                "
                 @click="beginMessengerConnect('WHATSAPP')"
               >
                 {{
@@ -612,7 +616,9 @@ const unlinkingGoogle = ref(false);
 const unlinkingDiscord = ref(false);
 const notificationsLoading = ref(true);
 const notificationChannels = ref<NotificationChannelConnection[]>([]);
-const notificationAvailability = ref<Record<NotificationProvider, NotificationProviderAvailability>>({
+const notificationAvailability = ref<
+  Record<NotificationProvider, NotificationProviderAvailability>
+>({
   TELEGRAM: {
     provider: 'TELEGRAM',
     isAvailable: true,
@@ -665,7 +671,9 @@ const visibleGuildAlertGroups = computed(() =>
   guildAlertGroups.value
     .map((group) => ({
       ...group,
-      preferences: group.preferences.filter((preference) => shouldShowGuildAlertPreference(preference))
+      preferences: group.preferences.filter((preference) =>
+        shouldShowGuildAlertPreference(preference)
+      )
     }))
     .filter((group) => group.preferences.length > 0)
 );

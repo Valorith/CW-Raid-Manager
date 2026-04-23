@@ -1,10 +1,10 @@
 import { GuildLootParserSettings, Prisma } from '@prisma/client';
 
-import { prisma } from '../utils/prisma.js';
-import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
-import { withPreferredDisplayName } from '../utils/displayName.js';
 import { getItemIconId } from './eqItemService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { convertPlaceholdersToRegex } from '../utils/patternPlaceholders.js';
+import { prisma } from '../utils/prisma.js';
 
 type AppLogger = {
   debug?: (...args: unknown[]) => unknown;

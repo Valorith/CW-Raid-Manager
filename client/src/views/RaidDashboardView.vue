@@ -4,11 +4,7 @@
       <div>
         <h1>Raid Planner</h1>
       </div>
-      <button
-        v-if="canCreateRaid && selectedGuildId"
-        class="btn"
-        @click="() => openRaidModal()"
-      >
+      <button v-if="canCreateRaid && selectedGuildId" class="btn" @click="() => openRaidModal()">
         New Raid
       </button>
     </header>
@@ -37,19 +33,31 @@
           <div class="calendar-toolbar">
             <div class="calendar-toolbar__main">
               <div>
-                <p class="calendar-toolbar__eyebrow">{{ availabilityMode ? 'Set Your Availability' : 'Raid Schedule' }}</p>
+                <p class="calendar-toolbar__eyebrow">
+                  {{ availabilityMode ? 'Set Your Availability' : 'Raid Schedule' }}
+                </p>
                 <h2>{{ calendarMonthLabel }}</h2>
               </div>
             </div>
             <div class="calendar-toolbar__actions">
               <button
-                :class="['availability-toggle-btn', { 'availability-toggle-btn--active': availabilityMode }]"
+                :class="[
+                  'availability-toggle-btn',
+                  { 'availability-toggle-btn--active': availabilityMode }
+                ]"
                 type="button"
                 @click="toggleAvailabilityMode"
                 :title="availabilityMode ? 'Exit availability mode' : 'Set your availability'"
               >
                 <span class="availability-toggle-btn__icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                     <line x1="16" y1="2" x2="16" y2="6"></line>
                     <line x1="8" y1="2" x2="8" y2="6"></line>
@@ -61,29 +69,35 @@
                     </template>
                   </svg>
                 </span>
-                <span class="availability-toggle-btn__label">{{ availabilityMode ? 'Done' : 'Availability' }}</span>
+                <span class="availability-toggle-btn__label">{{
+                  availabilityMode ? 'Done' : 'Availability'
+                }}</span>
               </button>
               <div class="calendar-nav-divider"></div>
-              <button class="calendar-nav-btn" type="button" @click="goToPreviousMonth">
-                ‹
-              </button>
-              <button class="calendar-nav-btn calendar-nav-btn--today" type="button" @click="goToCurrentMonth">
+              <button class="calendar-nav-btn" type="button" @click="goToPreviousMonth">‹</button>
+              <button
+                class="calendar-nav-btn calendar-nav-btn--today"
+                type="button"
+                @click="goToCurrentMonth"
+              >
                 Today
               </button>
-              <button class="calendar-nav-btn" type="button" @click="goToNextMonth">
-                ›
-              </button>
+              <button class="calendar-nav-btn" type="button" @click="goToNextMonth">›</button>
             </div>
           </div>
           <p class="calendar-subtitle">
             <template v-if="availabilityMode">
-              Click or drag to select days, then mark your availability. Raids created on days you mark unavailable will auto-sign you as "Not Attending".
+              Click or drag to select days, then mark your availability. Raids created on days you
+              mark unavailable will auto-sign you as "Not Attending".
             </template>
             <template v-else>
               Showing every raid scheduled for {{ calendarMonthDescription }}
             </template>
           </p>
-          <p v-if="!monthHasRaids && !loadingRaids && !availabilityMode" class="muted calendar-empty-hint">
+          <p
+            v-if="!monthHasRaids && !loadingRaids && !availabilityMode"
+            class="muted calendar-empty-hint"
+          >
             No raids scheduled this month yet. Right-click a day to add one.
           </p>
 
@@ -100,7 +114,12 @@
               </div>
             </div>
             <div v-if="selectedDates.size > 0" class="availability-panel__actions">
-              <span class="availability-panel__count">{{ selectedDates.size }} day{{ selectedDates.size === 1 ? '' : 's' }} selected</span>
+              <span class="availability-panel__count"
+                >{{ selectedDates.size }} day{{
+                  selectedDates.size === 1 ? '' : 's'
+                }}
+                selected</span
+              >
               <div class="availability-panel__buttons">
                 <select v-model="pendingAvailabilityStatus" class="availability-status-select">
                   <option value="UNAVAILABLE">Mark Unavailable</option>
@@ -120,10 +139,7 @@
                 >
                   Clear
                 </button>
-                <button
-                  class="btn btn--small btn--ghost"
-                  @click="cancelAvailabilitySelection"
-                >
+                <button class="btn btn--small btn--ghost" @click="cancelAvailabilitySelection">
                   Cancel
                 </button>
               </div>
@@ -152,11 +168,15 @@
                     'raid-calendar__day--past': day.isPast && !day.isToday,
                     'raid-calendar__day--availability-mode': availabilityMode,
                     'raid-calendar__day--selected': availabilityMode && selectedDates.has(day.key),
-                    'raid-calendar__day--unavailable': getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
-                    'raid-calendar__day--available': getDayAvailabilityStatus(day.key) === 'AVAILABLE'
+                    'raid-calendar__day--unavailable':
+                      getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
+                    'raid-calendar__day--available':
+                      getDayAvailabilityStatus(day.key) === 'AVAILABLE'
                   }
                 ]"
-                @contextmenu.prevent.stop="!availabilityMode && handleCalendarDayContextMenu(day, $event)"
+                @contextmenu.prevent.stop="
+                  !availabilityMode && handleCalendarDayContextMenu(day, $event)
+                "
                 @mousedown.prevent="handleAvailabilityDayMouseDown(day)"
                 @mouseenter="handleAvailabilityDayMouseEnter(day)"
               >
@@ -170,7 +190,11 @@
                         ? 'availability-badge--unavailable'
                         : 'availability-badge--available'
                     ]"
-                    :title="getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'You marked this day as unavailable' : 'You marked this day as available'"
+                    :title="
+                      getDayAvailabilityStatus(day.key) === 'UNAVAILABLE'
+                        ? 'You marked this day as unavailable'
+                        : 'You marked this day as available'
+                    "
                   >
                     {{ getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'Away' : 'Free' }}
                   </span>
@@ -239,7 +263,10 @@
                       </span>
                       <div class="raid-calendar-event__right">
                         <div
-                          v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                          v-if="
+                            raid.signupCounts &&
+                            (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)
+                          "
                           class="raid-calendar-event__signups"
                         >
                           <span
@@ -312,11 +339,7 @@
             </div>
             <!-- Mobile agenda view (non-availability mode) -->
             <div class="raid-calendar--mobile" v-if="!availabilityMode">
-              <div
-                v-for="day in calendarAgendaDays"
-                :key="day.key"
-                class="raid-agenda-day"
-              >
+              <div v-for="day in calendarAgendaDays" :key="day.key" class="raid-agenda-day">
                 <header class="raid-agenda-day__header">
                   <div class="raid-agenda-day__header-left">
                     <p class="raid-agenda-day__date">{{ day.dateLabel }}</p>
@@ -331,11 +354,17 @@
                           ? 'availability-badge--unavailable'
                           : 'availability-badge--available'
                       ]"
-                      :title="getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'You marked this day as unavailable' : 'You marked this day as available'"
+                      :title="
+                        getDayAvailabilityStatus(day.key) === 'UNAVAILABLE'
+                          ? 'You marked this day as unavailable'
+                          : 'You marked this day as available'
+                      "
                     >
                       {{ getDayAvailabilityStatus(day.key) === 'UNAVAILABLE' ? 'Away' : 'Free' }}
                     </span>
-                    <span class="raid-agenda-day__count">{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span>
+                    <span class="raid-agenda-day__count"
+                      >{{ day.raids.length }} raid{{ day.raids.length === 1 ? '' : 's' }}</span
+                    >
                   </div>
                 </header>
                 <div class="raid-agenda-day__events">
@@ -402,7 +431,10 @@
                       </span>
                       <div class="raid-calendar-event__right">
                         <div
-                          v-if="raid.signupCounts && (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)"
+                          v-if="
+                            raid.signupCounts &&
+                            (raid.signupCounts.confirmed > 0 || raid.signupCounts.notAttending > 0)
+                          "
                           class="raid-calendar-event__signups"
                         >
                           <span
@@ -479,24 +511,32 @@
                   <p class="raid-calendar-context__label">
                     Plan new raid on {{ contextMenuDateLabel }}
                   </p>
-                  <button type="button" class="raid-calendar-context__action" @click="scheduleContextRaid">
+                  <button
+                    type="button"
+                    class="raid-calendar-context__action"
+                    @click="scheduleContextRaid"
+                  >
                     Create raid
                   </button>
-                  <button type="button" class="raid-calendar-context__close" @click="hideDayContextMenu">
+                  <button
+                    type="button"
+                    class="raid-calendar-context__close"
+                    @click="hideDayContextMenu"
+                  >
                     Cancel
                   </button>
                 </div>
               </div>
             </div>
             <!-- Mobile calendar grid for availability mode -->
-            <div class="raid-calendar--mobile raid-calendar--mobile-availability" v-if="availabilityMode">
+            <div
+              class="raid-calendar--mobile raid-calendar--mobile-availability"
+              v-if="availabilityMode"
+            >
               <div class="raid-calendar-mobile__weekdays">
                 <span v-for="label in WEEKDAY_LABELS" :key="label">{{ label }}</span>
               </div>
-              <div
-                class="raid-calendar-mobile__grid"
-                @touchend="handleMobileAvailabilityTouchEnd"
-              >
+              <div class="raid-calendar-mobile__grid" @touchend="handleMobileAvailabilityTouchEnd">
                 <button
                   v-for="day in calendarDays"
                   :key="day.key"
@@ -508,8 +548,10 @@
                       'raid-calendar-mobile__day--today': day.isToday,
                       'raid-calendar-mobile__day--past': day.isPast && !day.isToday,
                       'raid-calendar-mobile__day--selected': selectedDates.has(day.key),
-                      'raid-calendar-mobile__day--unavailable': getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
-                      'raid-calendar-mobile__day--available': getDayAvailabilityStatus(day.key) === 'AVAILABLE',
+                      'raid-calendar-mobile__day--unavailable':
+                        getDayAvailabilityStatus(day.key) === 'UNAVAILABLE',
+                      'raid-calendar-mobile__day--available':
+                        getDayAvailabilityStatus(day.key) === 'AVAILABLE',
                       'raid-calendar-mobile__day--has-raids': day.raids.length > 0
                     }
                   ]"
@@ -526,10 +568,12 @@
             class="raid-calendar-context"
             :style="{ top: `${dayContextMenu.y}px`, left: `${dayContextMenu.x}px` }"
           >
-            <p class="raid-calendar-context__label">
-              Plan new raid on {{ contextMenuDateLabel }}
-            </p>
-            <button type="button" class="raid-calendar-context__action" @click="scheduleContextRaid">
+            <p class="raid-calendar-context__label">Plan new raid on {{ contextMenuDateLabel }}</p>
+            <button
+              type="button"
+              class="raid-calendar-context__action"
+              @click="scheduleContextRaid"
+            >
               Create raid
             </button>
             <button type="button" class="raid-calendar-context__close" @click="hideDayContextMenu">
@@ -539,7 +583,9 @@
         </div>
 
         <div v-else>
-          <p v-if="historyRaids.length === 0" class="muted empty-state">No completed raids found.</p>
+          <p v-if="historyRaids.length === 0" class="muted empty-state">
+            No completed raids found.
+          </p>
           <template v-else>
             <div v-if="historyTotalPages > 1" class="pagination pagination--history-top">
               <button
@@ -651,9 +697,7 @@
                     <span aria-hidden="true">📄</span>
                     <span class="sr-only">Copy raid</span>
                   </button>
-                  <button class="btn btn--outline" @click.stop="openRaid(raid.id)">
-                    Open
-                  </button>
+                  <button class="btn btn--outline" @click.stop="openRaid(raid.id)">Open</button>
                 </div>
               </li>
             </ul>
@@ -724,8 +768,11 @@
             >
               <div class="availability-modal__member-info">
                 <span class="availability-modal__member-name">{{ member.displayName }}</span>
-                <span v-if="member.mainCharacters.length > 0" class="availability-modal__member-character">
-                  {{ member.mainCharacters.map(c => `${c.name} (${c.class})`).join(', ') }}
+                <span
+                  v-if="member.mainCharacters.length > 0"
+                  class="availability-modal__member-character"
+                >
+                  {{ member.mainCharacters.map((c) => `${c.name} (${c.class})`).join(', ') }}
                 </span>
               </div>
             </li>
@@ -744,7 +791,14 @@ import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RaidModal from '../components/RaidModal.vue';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 
-import { api, type RaidEventSummary, type CalendarAvailabilityEntry, type AvailabilityStatus, type AvailabilitySummary, type AvailabilityUserDetail } from '../services/api';
+import {
+  api,
+  type RaidEventSummary,
+  type CalendarAvailabilityEntry,
+  type AvailabilityStatus,
+  type AvailabilitySummary,
+  type AvailabilityUserDetail
+} from '../services/api';
 import type { GuildRole } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 
@@ -824,10 +878,9 @@ const dayContextMenu = reactive<{ visible: boolean; x: number; y: number; date: 
   y: 0,
   date: null
 });
-const guildTimingDefaults = ref<Record<
-  string,
-  { start: string | null; end: string | null; voice: string | null }
->>({});
+const guildTimingDefaults = ref<
+  Record<string, { start: string | null; end: string | null; voice: string | null }>
+>({});
 const selectedGuildDefaults = computed(() => {
   if (!selectedGuildId.value) {
     return null;
@@ -1017,19 +1070,6 @@ function handleAvailabilityDayMouseUp() {
   isSelectingDates.value = false;
 }
 
-function handleAvailabilityDayClick(day: { key: string; date: Date }) {
-  if (!availabilityMode.value) return;
-
-  // Toggle single date selection
-  const newSelection = new Set(selectedDates.value);
-  if (newSelection.has(day.key)) {
-    newSelection.delete(day.key);
-  } else {
-    newSelection.add(day.key);
-  }
-  selectedDates.value = newSelection;
-}
-
 // Mobile-specific availability handlers
 function handleMobileAvailabilityDayClick(day: { key: string; date: Date }) {
   if (!availabilityMode.value) return;
@@ -1079,10 +1119,7 @@ async function clearSelectedAvailability() {
 
   savingAvailability.value = true;
   try {
-    await api.deleteUserAvailability(
-      selectedGuildId.value,
-      Array.from(selectedDates.value)
-    );
+    await api.deleteUserAvailability(selectedGuildId.value, Array.from(selectedDates.value));
 
     // Reload availability data
     await loadAvailability();
@@ -1154,9 +1191,7 @@ const hasGuildMembership = computed(() => (authStore.user?.guilds?.length ?? 0) 
 const historyRaids = computed(() =>
   raids.value
     .filter((raid) => isHistoryRaid(raid))
-    .sort((a, b) =>
-      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
-    )
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
 );
 
 const historyTotalPages = computed(() =>
@@ -1321,11 +1356,12 @@ function recurrenceTooltip(raid: RaidEventSummary) {
     return 'Recurring raid';
   }
 
-  const unit = raid.recurrence.frequency === 'DAILY'
-    ? 'day'
-    : raid.recurrence.frequency === 'MONTHLY'
-      ? 'month'
-      : 'week';
+  const unit =
+    raid.recurrence.frequency === 'DAILY'
+      ? 'day'
+      : raid.recurrence.frequency === 'MONTHLY'
+        ? 'month'
+        : 'week';
   const interval = Math.max(1, raid.recurrence.interval);
   const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
 
@@ -1369,9 +1405,10 @@ async function shareRaid(raid: RaidEventSummary) {
   sharingRaidId.value = raid.id;
   try {
     const resolved = router.resolve({ name: 'RaidDetail', params: { raidId: raid.id } }).href;
-    const absoluteUrl = typeof window !== 'undefined'
-      ? new URL(resolved, window.location.origin).toString()
-      : resolved;
+    const absoluteUrl =
+      typeof window !== 'undefined'
+        ? new URL(resolved, window.location.origin).toString()
+        : resolved;
 
     if (navigator?.clipboard?.writeText) {
       await navigator.clipboard.writeText(absoluteUrl);
@@ -1708,7 +1745,10 @@ function parseDateKey(dateKey: string): Date {
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .tab:hover {
@@ -1752,7 +1792,11 @@ function parseDateKey(dateKey: string): Date {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .pagination__button:hover:not(:disabled) {
@@ -1792,7 +1836,10 @@ function parseDateKey(dateKey: string): Date {
   border-radius: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.15);
   cursor: pointer;
-  transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    transform 0.1s ease,
+    border-color 0.2s ease;
 }
 
 .raid-list__item--active {
@@ -1851,7 +1898,10 @@ function parseDateKey(dateKey: string): Date {
   padding: 0.4rem 0.9rem;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease;
 }
 
 .calendar-nav-btn:hover {
@@ -1965,7 +2015,9 @@ function parseDateKey(dateKey: string): Date {
   flex-direction: column;
   gap: 0.4rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, transform 0.1s ease;
+  transition:
+    border-color 0.2s ease,
+    transform 0.1s ease;
 }
 
 .raid-calendar-event:hover,
@@ -2277,7 +2329,10 @@ function parseDateKey(dateKey: string): Date {
   border-radius: 0.5rem;
   padding: 0.2rem 0.4rem;
   cursor: pointer;
-  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
 }
 
 .copy-button:hover:not(:disabled),
@@ -2315,7 +2370,9 @@ function parseDateKey(dateKey: string): Date {
   color: #0f172a;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.2s ease;
 }
 
 .btn:hover {
@@ -2659,7 +2716,9 @@ function parseDateKey(dateKey: string): Date {
   letter-spacing: 0.02em;
   cursor: pointer;
   border: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .availability-counter:hover {
@@ -3088,5 +3147,4 @@ function parseDateKey(dateKey: string): Date {
     bottom: 0.2rem;
   }
 }
-
 </style>

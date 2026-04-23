@@ -26,7 +26,6 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
   // Timestamps to avoid redundant fetches
   let lastDonationsFetchTime = 0;
-  let lastCountFetchTime = 0;
 
   // Poll timer
   let pollTimerId: ReturnType<typeof setInterval> | null = null;
@@ -55,7 +54,6 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       const counts = await api.fetchGuildDonationCounts(guildId);
       pendingCount.value = counts.pending ?? 0;
       totalCount.value = counts.total ?? 0;
-      lastCountFetchTime = Date.now();
     } catch (err) {
       console.warn('Failed to fetch donation count:', err);
     }
@@ -73,7 +71,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     // Skip if data is fresh and same page (unless forced)
     const now = Date.now();
-    if (!force && !page && lastDonationsFetchTime > 0 && (now - lastDonationsFetchTime) < DONATIONS_STALE_MS) {
+    if (
+      !force &&
+      !page &&
+      lastDonationsFetchTime > 0 &&
+      now - lastDonationsFetchTime < DONATIONS_STALE_MS
+    ) {
       return;
     }
 
@@ -95,7 +98,6 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
       totalCount.value = result.total;
       pendingCount.value = result.pending ?? 0;
       lastDonationsFetchTime = Date.now();
-      lastCountFetchTime = Date.now();
     } catch (err) {
       console.error('Failed to fetch donations:', err);
       error.value = 'Failed to load donations';
@@ -131,7 +133,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     try {
       await api.rejectGuildDonation(guildId, donationId);
       // Update the donation status in local state
-      const donation = donations.value.find(d => d.id === donationId);
+      const donation = donations.value.find((d) => d.id === donationId);
       if (donation && donation.status === 'PENDING') {
         donation.status = 'REJECTED';
         pendingCount.value = Math.max(0, pendingCount.value - 1);
@@ -149,7 +151,7 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
     try {
       const count = await api.rejectAllGuildDonations(guildId);
       // Update all pending donations to rejected status
-      donations.value.forEach(d => {
+      donations.value.forEach((d) => {
         if (d.status === 'PENDING') {
           d.status = 'REJECTED';
         }
@@ -168,12 +170,12 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
 
     try {
       // Find donation before deleting to check its status
-      const donation = donations.value.find(d => d.id === donationId);
+      const donation = donations.value.find((d) => d.id === donationId);
       const wasPending = donation?.status === 'PENDING';
 
       await api.deleteGuildDonation(guildId, donationId);
       // Remove from local state
-      donations.value = donations.value.filter(d => d.id !== donationId);
+      donations.value = donations.value.filter((d) => d.id !== donationId);
       totalCount.value = Math.max(0, totalCount.value - 1);
       if (wasPending) {
         pendingCount.value = Math.max(0, pendingCount.value - 1);
@@ -209,20 +211,23 @@ export const useGuildDonationsStore = defineStore('guildDonations', () => {
   }
 
   // Watch for guild changes
-  watch(currentGuildId, (newGuildId) => {
-    // Reset timestamps when guild changes
-    lastDonationsFetchTime = 0;
-    lastCountFetchTime = 0;
+  watch(
+    currentGuildId,
+    (newGuildId) => {
+      // Reset timestamps when guild changes
+      lastDonationsFetchTime = 0;
 
-    if (newGuildId) {
-      startPolling();
-    } else {
-      stopPolling();
-      donations.value = [];
-      pendingCount.value = 0;
-      totalCount.value = 0;
-    }
-  }, { immediate: true });
+      if (newGuildId) {
+        startPolling();
+      } else {
+        stopPolling();
+        donations.value = [];
+        pendingCount.value = 0;
+        totalCount.value = 0;
+      }
+    },
+    { immediate: true }
+  );
 
   // Handle visibility changes - resume polling when tab becomes visible
   function handleVisibilityChange() {

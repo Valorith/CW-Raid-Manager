@@ -25,12 +25,25 @@
         <span class="hero__line hero__line--3">One Nexus.</span>
       </h1>
       <p class="hero__sub">
-        {{ APP_NAME }} unifies raid planning, attendance, loot, market intel, and guild
-        management into a single command post — so leadership runs the night, not a dozen tabs.
+        {{ APP_NAME }} unifies raid planning, attendance, loot, market intel, and guild management
+        into a single command post — so leadership runs the night, not a dozen tabs.
       </p>
       <div class="hero__actions">
         <a href="/api/auth/google" class="btn btn--primary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
           Enter the Nexus
         </a>
         <a href="#features" class="btn btn--ghost">See Features</a>
@@ -46,9 +59,17 @@
     <!-- Divider rune -->
     <div class="rune-divider">
       <svg width="200" height="20" viewBox="0 0 200 20">
-        <line x1="0" y1="10" x2="80" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3"/>
-        <polygon points="100,2 108,10 100,18 92,10" fill="currentColor" opacity="0.5"/>
-        <line x1="120" y1="10" x2="200" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+        <line x1="0" y1="10" x2="80" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3" />
+        <polygon points="100,2 108,10 100,18 92,10" fill="currentColor" opacity="0.5" />
+        <line
+          x1="120"
+          y1="10"
+          x2="200"
+          y2="10"
+          stroke="currentColor"
+          stroke-width="1"
+          opacity="0.3"
+        />
       </svg>
     </div>
 
@@ -74,19 +95,27 @@
     <!-- Divider -->
     <div class="rune-divider">
       <svg width="200" height="20" viewBox="0 0 200 20">
-        <line x1="0" y1="10" x2="80" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3"/>
-        <polygon points="100,2 108,10 100,18 92,10" fill="currentColor" opacity="0.5"/>
-        <line x1="120" y1="10" x2="200" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3"/>
+        <line x1="0" y1="10" x2="80" y2="10" stroke="currentColor" stroke-width="1" opacity="0.3" />
+        <polygon points="100,2 108,10 100,18 92,10" fill="currentColor" opacity="0.5" />
+        <line
+          x1="120"
+          y1="10"
+          x2="200"
+          y2="10"
+          stroke="currentColor"
+          stroke-width="1"
+          opacity="0.3"
+        />
       </svg>
     </div>
 
     <!-- CTA -->
     <section class="cta">
       <h2 class="cta__title">Your guild deserves better than spreadsheets.</h2>
-      <p class="cta__sub">Sign in with Google or Discord. Free to use. Built by raiders, for raiders.</p>
-      <a href="/api/auth/google" class="btn btn--primary btn--lg">
-        Get Started
-      </a>
+      <p class="cta__sub">
+        Sign in with Google or Discord. Free to use. Built by raiders, for raiders.
+      </p>
+      <a href="/api/auth/google" class="btn btn--primary btn--lg"> Get Started </a>
     </section>
 
     <!-- Footer -->
@@ -117,36 +146,36 @@ const features = [
     tag: 'OPS',
     title: 'Raid Planning',
     desc: 'Schedule targets, coordinate strategy, and keep every raider aligned through a shared tactical board.',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>'
   },
   {
     tag: 'LOG',
     title: 'Attendance Tracking',
     desc: 'Import EverQuest roster dumps and let the system reconcile attendance, alts, and mains automatically.',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>'
   },
   {
     tag: 'CTRL',
     title: 'Role Permissions',
     desc: 'Delegate power to officers and raid leaders with rank-driven access that mirrors your guild hierarchy.',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg>'
   },
   {
     tag: 'MKT',
     title: 'Market Intel',
     desc: 'Track bazaar prices, spot trends, and monitor sales so your guild stays ahead of the server economy.',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>'
   },
   {
     tag: 'INTEL',
     title: 'Roster Analysis',
     desc: 'Understand class coverage, spotlight mains, and ensure every raid launches with the right composition.',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
-  },
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+  }
 ];
 
 function emberStyle(n: number) {
-  const left = ((n * 17 + 7) % 100);
+  const left = (n * 17 + 7) % 100;
   const delay = ((n * 1.3) % 5).toFixed(1);
   const dur = (4 + (n % 4) * 1.5).toFixed(1);
   const size = 2 + (n % 3);
@@ -155,7 +184,7 @@ function emberStyle(n: number) {
     animationDelay: `${delay}s`,
     animationDuration: `${dur}s`,
     width: `${size}px`,
-    height: `${size}px`,
+    height: `${size}px`
   };
 }
 
@@ -224,8 +253,7 @@ onBeforeUnmount(() => {
   font-family: 'Outfit', sans-serif;
   background:
     radial-gradient(ellipse 80% 40% at 50% 0%, rgba(212, 160, 68, 0.04) 0%, transparent 60%),
-    radial-gradient(circle at 20% 80%, rgba(212, 160, 68, 0.02) 0%, transparent 40%),
-    var(--bg-deep);
+    radial-gradient(circle at 20% 80%, rgba(212, 160, 68, 0.02) 0%, transparent 40%), var(--bg-deep);
   overflow-x: hidden;
 }
 
@@ -276,7 +304,9 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(12px);
   border-bottom: 1px solid transparent;
   transform: translateY(-100%);
-  transition: transform 0.3s ease, border-color 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .topbar--visible {
@@ -321,7 +351,9 @@ onBeforeUnmount(() => {
   padding: 0.4rem 1rem;
   border: 1px solid var(--gold-dim);
   border-radius: 4px;
-  transition: background 0.2s, color 0.2s;
+  transition:
+    background 0.2s,
+    color 0.2s;
 }
 
 .topbar__login:hover {
@@ -374,9 +406,15 @@ onBeforeUnmount(() => {
   -webkit-text-fill-color: transparent;
 }
 
-.hero__line--1 { animation: slide-up 0.7s ease both 0.15s; }
-.hero__line--2 { animation: slide-up 0.7s ease both 0.3s; }
-.hero__line--3 { animation: slide-up 0.7s ease both 0.45s; }
+.hero__line--1 {
+  animation: slide-up 0.7s ease both 0.15s;
+}
+.hero__line--2 {
+  animation: slide-up 0.7s ease both 0.3s;
+}
+.hero__line--3 {
+  animation: slide-up 0.7s ease both 0.45s;
+}
 
 .hero__sub {
   max-width: 38rem;
@@ -441,7 +479,10 @@ onBeforeUnmount(() => {
   font-weight: 600;
   text-decoration: none;
   border-radius: 6px;
-  transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+  transition:
+    transform 0.15s,
+    box-shadow 0.2s,
+    background 0.2s;
   cursor: pointer;
 }
 
@@ -555,7 +596,9 @@ onBeforeUnmount(() => {
   width: 32px;
   height: 32px;
   color: var(--gold-dim);
-  transition: color 0.3s, transform 0.3s;
+  transition:
+    color 0.3s,
+    transform 0.3s;
   flex-shrink: 0;
 }
 
@@ -675,8 +718,15 @@ onBeforeUnmount(() => {
 }
 
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
 }
 
 /* ═══════ Responsive ═══════ */

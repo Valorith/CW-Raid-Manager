@@ -5,9 +5,7 @@
         <h1>Money Tracker</h1>
         <p class="muted">Track server-wide currency trends over time.</p>
       </div>
-      <router-link to="/admin" class="btn btn--outline">
-        ← Back to Admin
-      </router-link>
+      <router-link to="/admin" class="btn btn--outline"> ← Back to Admin </router-link>
     </header>
 
     <div v-if="!isConfigured" class="money-tracker__error">
@@ -34,7 +32,9 @@
         </div>
         <div class="stat-card">
           <span class="stat-card__label">Latest Snapshot</span>
-          <strong class="stat-card__value">{{ formatSnapshotDate(latestSnapshot?.snapshotDate) }}</strong>
+          <strong class="stat-card__value">{{
+            formatSnapshotDate(latestSnapshot?.snapshotDate)
+          }}</strong>
         </div>
       </div>
 
@@ -45,9 +45,7 @@
           <span v-if="settings?.autoSnapshotEnabled" class="status-badge status-badge--active">
             Enabled
           </span>
-          <span v-else class="status-badge status-badge--inactive">
-            Disabled
-          </span>
+          <span v-else class="status-badge status-badge--inactive"> Disabled </span>
         </header>
         <div class="money-tracker__settings-content">
           <label class="money-tracker__setting">
@@ -89,7 +87,9 @@
             <span class="money-tracker__setting-label">Next Scheduled Snapshot</span>
             <span class="money-tracker__setting-value">
               {{ formatScheduledTime(settings.nextScheduledTime) }}
-              <span v-if="snapshotCountdown" class="money-tracker__countdown">({{ snapshotCountdown }})</span>
+              <span v-if="snapshotCountdown" class="money-tracker__countdown"
+                >({{ snapshotCountdown }})</span
+              >
             </span>
           </div>
           <div v-if="settings?.lastSnapshotAt" class="money-tracker__setting">
@@ -143,21 +143,12 @@
             <h2>Server Currency Over Time</h2>
             <span class="muted small">Total platinum equivalent across all characters</span>
           </div>
-          <button
-            type="button"
-            class="btn btn--outline btn--sm"
-            @click="openSnapshotHistory"
-          >
+          <button type="button" class="btn btn--outline btn--sm" @click="openSnapshotHistory">
             View All Snapshots
           </button>
         </header>
         <div class="money-tracker__chart" @contextmenu="handleChartRightClick">
-          <Line
-            v-if="hasChartData"
-            ref="chartRef"
-            :data="chartData"
-            :options="chartOptions"
-          />
+          <Line v-if="hasChartData" ref="chartRef" :data="chartData" :options="chartOptions" />
           <p v-else class="money-tracker__empty muted">
             No snapshots available. Click "Take Snapshot Now" to create your first snapshot.
           </p>
@@ -178,7 +169,9 @@
             :title="refreshingCharacters ? 'Refreshing...' : 'Refresh character data'"
             @click="refreshTopCharacters"
           >
-            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingCharacters }]">↻</span>
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingCharacters }]"
+              >↻</span
+            >
           </button>
         </header>
         <div v-if="topCharacters.length > 0" class="money-tracker__table-wrapper">
@@ -197,7 +190,9 @@
               <tr v-for="(char, index) in topCharacters" :key="char.id">
                 <td class="money-tracker__td--rank">{{ index + 1 }}</td>
                 <td class="money-tracker__td--name">{{ char.name }}</td>
-                <td class="money-tracker__td--total">{{ formatPlatinum(char.totalPlatinumEquivalent) }}</td>
+                <td class="money-tracker__td--total">
+                  {{ formatPlatinum(char.totalPlatinumEquivalent) }}
+                </td>
                 <td class="money-tracker__td--inventory">
                   <CoinDisplay
                     class="currency-breakdown"
@@ -230,15 +225,15 @@
             <tfoot>
               <tr class="money-tracker__total-row">
                 <td colspan="2" class="money-tracker__td--total-label">Total (All Characters)</td>
-                <td class="money-tracker__td--total">{{ formatPlatinum(totalCharacterPlatinum) }}</td>
+                <td class="money-tracker__td--total">
+                  {{ formatPlatinum(totalCharacterPlatinum) }}
+                </td>
                 <td colspan="3"></td>
               </tr>
             </tfoot>
           </table>
         </div>
-        <p v-else class="money-tracker__empty muted">
-          No character data available.
-        </p>
+        <p v-else class="money-tracker__empty muted">No character data available.</p>
       </article>
 
       <!-- Top 20 Shared Banks Table -->
@@ -255,7 +250,9 @@
             :title="refreshingSharedBanks ? 'Refreshing...' : 'Refresh shared bank data'"
             @click="refreshTopSharedBanks"
           >
-            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingSharedBanks }]">↻</span>
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingSharedBanks }]"
+              >↻</span
+            >
           </button>
         </header>
         <div v-if="topSharedBanks.length > 0" class="money-tracker__table-wrapper">
@@ -279,7 +276,9 @@
             <tfoot>
               <tr class="money-tracker__total-row">
                 <td colspan="3" class="money-tracker__td--total-label">Total (All Shared Banks)</td>
-                <td class="money-tracker__td--total">{{ formatPlatinum(totalSharedBankPlatinum) }}</td>
+                <td class="money-tracker__td--total">
+                  {{ formatPlatinum(totalSharedBankPlatinum) }}
+                </td>
               </tr>
             </tfoot>
           </table>
@@ -303,7 +302,9 @@
             :title="refreshingGuildBanks ? 'Refreshing...' : 'Refresh guild bank data'"
             @click="refreshTopGuildBanks"
           >
-            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingGuildBanks }]">↻</span>
+            <span :class="['refresh-icon', { 'refresh-icon--spinning': refreshingGuildBanks }]"
+              >↻</span
+            >
           </button>
         </header>
         <div v-if="topGuildBanks.length > 0" class="money-tracker__table-wrapper">
@@ -325,7 +326,9 @@
             <tfoot>
               <tr class="money-tracker__total-row">
                 <td colspan="2" class="money-tracker__td--total-label">Total (All Guild Banks)</td>
-                <td class="money-tracker__td--total">{{ formatPlatinum(totalGuildBankPlatinum) }}</td>
+                <td class="money-tracker__td--total">
+                  {{ formatPlatinum(totalGuildBankPlatinum) }}
+                </td>
               </tr>
             </tfoot>
           </table>
@@ -377,7 +380,13 @@
                     {{ formatSnapshotTime(snapshot.createdAt) }}
                   </td>
                   <td class="snapshot-history-table__total">
-                    {{ formatPlatinum(Number(snapshot.totalPlatinumEquivalent) / 1000 + Number(snapshot.totalSharedPlatinum || 0) + Number(snapshot.totalGuildBankPlatinum || 0)) }}
+                    {{
+                      formatPlatinum(
+                        Number(snapshot.totalPlatinumEquivalent) / 1000 +
+                          Number(snapshot.totalSharedPlatinum || 0) +
+                          Number(snapshot.totalGuildBankPlatinum || 0)
+                      )
+                    }}
                   </td>
                   <td>{{ snapshot.characterCount }}</td>
                   <td>{{ formatPlatinum(Number(snapshot.totalPlatinum)) }}</td>
@@ -435,7 +444,13 @@
           <button class="icon-button" @click="cancelDelete">✕</button>
         </header>
         <div class="modal__body">
-          <p>Are you sure you want to delete the snapshot from <strong>{{ snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : '' }}</strong>?</p>
+          <p>
+            Are you sure you want to delete the snapshot from
+            <strong>{{
+              snapshotToDelete ? formatSnapshotDate(snapshotToDelete.snapshotDate) : ''
+            }}</strong
+            >?
+          </p>
           <p class="muted small">This action cannot be undone.</p>
         </div>
         <footer class="modal__actions">
@@ -645,7 +660,7 @@ const snapshotHistoryPageSize = 10;
 const liveData = ref<LiveData | null>(null);
 const settings = ref<MoneyTrackerSettingsResponse | null>(null);
 const settingsForm = ref({
-  snapshotHour: 3  // Stored in local time for display (minutes always 0)
+  snapshotHour: 3 // Stored in local time for display (minutes always 0)
 });
 const timezoneAbbr = ref(getTimezoneAbbreviation());
 
@@ -826,7 +841,7 @@ const chartData = computed(() => {
 
 const chartOptions = computed(() => {
   // Calculate Y-axis range to prevent over-zooming on similar values
-  const dataValues = chartData.value.datasets[0]?.data as number[] || [];
+  const dataValues = (chartData.value.datasets[0]?.data as number[]) || [];
   let yMin = 0;
   let yMax = undefined;
 
@@ -855,7 +870,8 @@ const chartOptions = computed(() => {
         min: yMin,
         max: yMax,
         ticks: {
-          callback: (value: string | number) => typeof value === 'number' ? formatPlatinum(value) : value
+          callback: (value: string | number) =>
+            typeof value === 'number' ? formatPlatinum(value) : value
         }
       },
       x: {
@@ -1146,9 +1162,10 @@ async function takeSnapshot(): Promise<void> {
     });
   } catch (error) {
     console.error('Failed to create snapshot:', error);
-    const errorMessage = axios.isAxiosError(error) && error.response?.data?.message
-      ? error.response.data.message
-      : 'Failed to create snapshot. Please try again.';
+    const errorMessage =
+      axios.isAxiosError(error) && error.response?.data?.message
+        ? error.response.data.message
+        : 'Failed to create snapshot. Please try again.';
     addToast({
       title: 'Error',
       message: errorMessage
@@ -1300,7 +1317,10 @@ function hideContextMenu(): void {
 }
 
 function deleteFromContextMenu(): void {
-  if (contextMenu.value.snapshotIndex >= 0 && contextMenu.value.snapshotIndex < snapshots.value.length) {
+  if (
+    contextMenu.value.snapshotIndex >= 0 &&
+    contextMenu.value.snapshotIndex < snapshots.value.length
+  ) {
     const snapshot = snapshots.value[contextMenu.value.snapshotIndex];
     confirmDeleteSnapshot(snapshot);
   }
@@ -1784,7 +1804,7 @@ onUnmounted(() => {
 
 .toggle-switch__slider::before {
   position: absolute;
-  content: "";
+  content: '';
   height: 18px;
   width: 18px;
   left: 3px;

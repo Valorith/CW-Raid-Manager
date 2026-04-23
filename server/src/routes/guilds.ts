@@ -1,24 +1,9 @@
-import { FastifyInstance } from 'fastify';
 import { CharacterClass, GuildRole, Prisma } from '@prisma/client';
-
-import { updateGuildMemberRole, getGuildById, listGuilds } from '../services/guildService.js';
+import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import {
-  canManageGuild,
-  createGuild,
-  getUserGuildRole
-} from '../services/guildService.js';
-import { prisma } from '../utils/prisma.js';
-import {
-  applyToGuild,
-  withdrawApplication,
-  listPendingApplicationsForGuild,
-  approveApplication,
-  denyApplication,
-  getPendingApplicationForUser
-} from '../services/guildApplicationService.js';
+import { ensureAdmin } from '../services/adminService.js';
 import { createCharacter, detachUserCharactersFromGuild } from '../services/characterService.js';
 import {
   DEFAULT_DISCORD_EVENT_SUBSCRIPTIONS,
@@ -31,12 +16,25 @@ import {
   deleteGuildDiscordWebhook
 } from '../services/discordWebhookService.js';
 import {
+  applyToGuild,
+  withdrawApplication,
+  listPendingApplicationsForGuild,
+  approveApplication,
+  denyApplication,
+  getPendingApplicationForUser
+} from '../services/guildApplicationService.js';
+import { updateGuildMemberRole, getGuildById, listGuilds ,
+  canManageGuild,
+  createGuild,
+  getUserGuildRole
+} from '../services/guildService.js';
+import {
   getWebhookDebugMode,
   setWebhookDebugMode,
   registerDebugClient,
   unregisterDebugClient
 } from '../services/webhookDebugService.js';
-import { ensureAdmin } from '../services/adminService.js';
+import { prisma } from '../utils/prisma.js';
 
 export async function guildRoutes(server: FastifyInstance): Promise<void> {
   server.get('/', async () => {

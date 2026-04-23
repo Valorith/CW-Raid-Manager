@@ -1,9 +1,9 @@
 import { CharacterClass, SignupStatus } from '@prisma/client';
 
-import { withPreferredDisplayName } from '../utils/displayName.js';
-import { prisma } from '../utils/prisma.js';
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
 import { ensureUserCanViewGuild } from './raidService.js';
+import { withPreferredDisplayName } from '../utils/displayName.js';
+import { prisma } from '../utils/prisma.js';
 
 interface RaidSignupUser {
   id: string;

@@ -1,7 +1,11 @@
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="store.isModalVisible && store.hasMessages" class="debug-modal-backdrop" @click.self="store.hideModal">
+      <div
+        v-if="store.isModalVisible && store.hasMessages"
+        class="debug-modal-backdrop"
+        @click.self="store.hideModal"
+      >
         <div class="debug-modal">
           <header class="debug-modal__header">
             <div class="debug-modal__title">
@@ -12,7 +16,11 @@
               </span>
               <div>
                 <h2>Webhook Debug Preview</h2>
-                <p class="debug-modal__subtitle">{{ store.messageCount }} intercepted message{{ store.messageCount !== 1 ? 's' : '' }}</p>
+                <p class="debug-modal__subtitle">
+                  {{ store.messageCount }} intercepted message{{
+                    store.messageCount !== 1 ? 's' : ''
+                  }}
+                </p>
               </div>
             </div>
             <div class="debug-modal__actions">
@@ -29,18 +37,17 @@
 
           <div class="debug-modal__body">
             <TransitionGroup name="message" tag="div" class="message-list">
-              <div
-                v-for="message in store.messages"
-                :key="message.id"
-                class="discord-message"
-              >
+              <div v-for="message in store.messages" :key="message.id" class="discord-message">
                 <div class="discord-message__header">
                   <div class="discord-message__meta">
                     <span class="discord-message__webhook-label">{{ message.webhookLabel }}</span>
                     <span class="discord-message__event">{{ message.eventLabel }}</span>
                     <span class="discord-message__time">{{ formatTime(message.timestamp) }}</span>
                   </div>
-                  <button class="debug-btn debug-btn--small debug-btn--ghost" @click="store.dismissMessage(message.id)">
+                  <button
+                    class="debug-btn debug-btn--small debug-btn--ghost"
+                    @click="store.dismissMessage(message.id)"
+                  >
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
@@ -58,12 +65,16 @@
                       />
                       <div v-else class="discord-preview__avatar-fallback">
                         <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+                          <path
+                            d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"
+                          />
                         </svg>
                       </div>
                     </div>
                     <div class="discord-preview__author-info">
-                      <span class="discord-preview__username">{{ message.payload.username || 'Webhook' }}</span>
+                      <span class="discord-preview__username">{{
+                        message.payload.username || 'Webhook'
+                      }}</span>
                       <span class="discord-preview__bot-tag">BOT</span>
                     </div>
                   </div>
@@ -79,7 +90,11 @@
                       v-for="(embed, index) in message.payload.embeds"
                       :key="index"
                       class="discord-embed"
-                      :style="{ borderLeftColor: embed.color ? `#${embed.color.toString(16).padStart(6, '0')}` : '#5865f2' }"
+                      :style="{
+                        borderLeftColor: embed.color
+                          ? `#${embed.color.toString(16).padStart(6, '0')}`
+                          : '#5865f2'
+                      }"
                     >
                       <!-- Embed Title -->
                       <div v-if="embed.title" class="discord-embed__title">
@@ -87,8 +102,11 @@
                       </div>
 
                       <!-- Embed Description -->
-                      <div v-if="embed.description" class="discord-embed__description" v-html="formatDescription(embed.description)">
-                      </div>
+                      <div
+                        v-if="embed.description"
+                        class="discord-embed__description"
+                        v-html="formatDescription(embed.description)"
+                      ></div>
 
                       <!-- Embed Fields -->
                       <div v-if="embed.fields?.length" class="discord-embed__fields">
@@ -99,7 +117,10 @@
                           :class="{ 'discord-embed__field--inline': field.inline }"
                         >
                           <div class="discord-embed__field-name">{{ field.name }}</div>
-                          <div class="discord-embed__field-value" v-html="formatDescription(field.value)"></div>
+                          <div
+                            class="discord-embed__field-value"
+                            v-html="formatDescription(field.value)"
+                          ></div>
                         </div>
                       </div>
 
@@ -111,7 +132,10 @@
                       <!-- Embed Footer -->
                       <div v-if="embed.footer || embed.timestamp" class="discord-embed__footer">
                         <span v-if="embed.footer?.text">{{ embed.footer.text }}</span>
-                        <span v-if="embed.footer?.text && embed.timestamp" class="discord-embed__footer-sep"></span>
+                        <span
+                          v-if="embed.footer?.text && embed.timestamp"
+                          class="discord-embed__footer-sep"
+                        ></span>
                         <span v-if="embed.timestamp">{{ formatEmbedTime(embed.timestamp) }}</span>
                       </div>
                     </div>
@@ -549,7 +573,9 @@ function getRelativeTime(date: Date): string {
   font-weight: 500;
   border: none;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .debug-btn--danger {
@@ -608,11 +634,15 @@ function getRelativeTime(date: Date): string {
 }
 
 .message-enter-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .message-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .message-enter-from {

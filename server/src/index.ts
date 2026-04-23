@@ -1,10 +1,10 @@
 import 'dotenv/config';
 
-import { appConfig } from './config/appConfig.js';
 import { buildServer } from './app.js';
-import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
-import { startMoneyTrackerScheduler } from './services/moneyTrackerScheduler.js';
+import { appConfig } from './config/appConfig.js';
 import { startMarketSyncScheduler } from './services/marketSyncScheduler.js';
+import { startMoneyTrackerScheduler } from './services/moneyTrackerScheduler.js';
+import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 
 async function start(): Promise<void> {
   const server = buildServer();
