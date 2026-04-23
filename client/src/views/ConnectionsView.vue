@@ -1650,7 +1650,7 @@ function startAutoRefresh() {
     clearInterval(refreshInterval);
   }
   refreshInterval = setInterval(() => {
-    if (!loading.value) {
+    if (!loading.value && !document.hidden) {
       loadConnections();
     }
   }, AUTO_REFRESH_INTERVAL);
@@ -1660,6 +1660,12 @@ function stopAutoRefresh() {
   if (refreshInterval) {
     clearInterval(refreshInterval);
     refreshInterval = null;
+  }
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden && autoRefreshEnabled.value && !loading.value) {
+    loadConnections();
   }
 }
 
@@ -1679,11 +1685,13 @@ onMounted(async () => {
   }
   // Add click outside listener for search results
   document.addEventListener('click', handleClickOutside);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   stopAutoRefresh();
   document.removeEventListener('click', handleClickOutside);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (globalSearchTimeout) {
     clearTimeout(globalSearchTimeout);
   }

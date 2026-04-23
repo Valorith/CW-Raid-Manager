@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash } from 'crypto';
 
 import { Prisma } from '@prisma/client';
 import type { RowDataPacket } from 'mysql2/promise';
@@ -705,29 +705,57 @@ function buildCacheRecords(rows: MarketListingRow[], syncedAt: Date): MarketList
   return rows.map((row) => {
     const sellerCharacterId = toNumber(row.sellerCharacterId);
     const itemId = toNumber(row.itemId);
+    const sellerCharacterName = row.sellerCharacterName?.trim() || `Trader ${sellerCharacterId}`;
+    const charges = toNullableNumber(row.charges);
+    const slotId = toNumber(row.slotId);
 
     return {
-      id: randomUUID(),
+      id: buildStableMarketListingId({
+        sellerCharacterId,
+        sellerCharacterName,
+        itemId,
+        slotId,
+        charges
+      }),
       sellerCharacterId,
-      sellerCharacterName: row.sellerCharacterName?.trim() || `Trader ${sellerCharacterId}`,
+      sellerCharacterName,
       itemId,
       itemName: row.itemName?.trim() || `Item ${itemId}`,
       itemIconId: toNullableNumber(row.itemIconId),
       itemType: toNullableNumber(row.itemType),
       itemSlots: toNullableNumber(row.itemSlots),
       price: toNumber(row.price),
-      charges: toNullableNumber(row.charges),
-      slotId: toNumber(row.slotId),
+      charges,
+      slotId,
       listedAt: row.listedAt ? new Date(row.listedAt) : null,
       syncedAt
     };
   });
 }
 
-async function replaceMarketListingsCache(records: MarketListingCacheRecord[], syncedAt: Date) {
-  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.marketListing.deleteMany();
+function buildStableMarketListingId(input: {
+  sellerCharacterId: number;
+  sellerCharacterName: string;
+  itemId: number;
+  slotId: number;
+  charges: number | null;
+}): string {
+  const sellerKey =
+    input.sellerCharacterId > 0
+      ? `seller-id:${input.sellerCharacterId}`
+      : `seller-name:${normalizeSearchQuery(input.sellerCharacterName)}`;
+  const fingerprint = [
+    sellerKey,
+    `item:${input.itemId}`,
+    `slot:${input.slotId}`,
+    `charges:${input.charges ?? 'na'}`
+  ].join('|');
 
+  return `ml_${createHash('sha1').update(fingerprint).digest('hex')}`;
+}
+
+async function refreshMarketListingsCache(records: MarketListingCacheRecord[], syncedAt: Date) {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     for (let index = 0; index < records.length; index += CREATE_MANY_CHUNK_SIZE) {
       const chunk = records.slice(index, index + CREATE_MANY_CHUNK_SIZE);
       if (chunk.length > 0) {
@@ -765,9 +793,32 @@ async function replaceMarketListingsCache(records: MarketListingCacheRecord[], s
                 ${record.syncedAt}
               )`)
             )}
+            ON DUPLICATE KEY UPDATE
+              \`sellerCharacterId\` = VALUES(\`sellerCharacterId\`),
+              \`sellerCharacterName\` = VALUES(\`sellerCharacterName\`),
+              \`itemId\` = VALUES(\`itemId\`),
+              \`itemName\` = VALUES(\`itemName\`),
+              \`itemIconId\` = VALUES(\`itemIconId\`),
+              \`itemType\` = VALUES(\`itemType\`),
+              \`itemSlots\` = VALUES(\`itemSlots\`),
+              \`price\` = VALUES(\`price\`),
+              \`charges\` = VALUES(\`charges\`),
+              \`slotId\` = VALUES(\`slotId\`),
+              \`listedAt\` = VALUES(\`listedAt\`),
+              \`syncedAt\` = VALUES(\`syncedAt\`)
           `
         );
       }
+    }
+
+    if (records.length === 0) {
+      await tx.marketListing.deleteMany();
+    } else {
+      await tx.marketListing.deleteMany({
+        where: {
+          syncedAt: { lt: syncedAt }
+        }
+      });
     }
 
     await setMarketListingsSyncState({ lastRetrievedAt: syncedAt.toISOString() }, tx);
@@ -850,7 +901,7 @@ export async function syncMarketListings(
 
           throw error;
         });
-      await replaceMarketListingsCache(records, syncedAt);
+      await refreshMarketListingsCache(records, syncedAt);
       await processMarketListingNotifications({
         previousListings,
         currentListings: records.map((record) => ({

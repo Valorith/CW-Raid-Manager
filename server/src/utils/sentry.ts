@@ -1,14 +1,16 @@
-import * as Sentry from '@sentry/node';
+import type * as SentryNode from '@sentry/node';
 
 import { appConfig } from '../config/appConfig.js';
 
 let initialized = false;
+const dsn = process.env.SENTRY_DSN;
+const Sentry: typeof SentryNode | null = dsn ? await import('@sentry/node') : null;
 
 export function initSentry(): void {
-  const dsn = process.env.SENTRY_DSN;
-
-  if (!dsn) {
-    console.warn('[Sentry] SENTRY_DSN not set. Error tracking disabled.');
+  if (!dsn || !Sentry) {
+    if (appConfig.nodeEnv === 'development') {
+      console.warn('[Sentry] SENTRY_DSN not set. Error tracking disabled.');
+    }
     return;
   }
 
@@ -37,7 +39,7 @@ export function initSentry(): void {
 }
 
 export function captureException(error: unknown, context?: Record<string, unknown>): void {
-  if (!initialized) return;
+  if (!initialized || !Sentry) return;
   if (context) {
     Sentry.withScope((scope) => {
       scope.setExtras(context);
@@ -49,8 +51,6 @@ export function captureException(error: unknown, context?: Record<string, unknow
 }
 
 export function captureMessage(message: string, level: 'info' | 'warning' | 'error' = 'info'): void {
-  if (!initialized) return;
+  if (!initialized || !Sentry) return;
   Sentry.captureMessage(message, level);
 }
-
-export { Sentry };

@@ -24,6 +24,20 @@ module.exports = {
         checksVoidReturn: false
       }
     ],
+    '@typescript-eslint/no-unused-vars': [
+      'error',
+      {
+        argsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        varsIgnorePattern: '^_'
+      }
+    ],
+    'import/no-unresolved': [
+      'error',
+      {
+        ignore: ['^\\.\\.?/.*\\.js$']
+      }
+    ],
     'import/order': [
       'warn',
       {

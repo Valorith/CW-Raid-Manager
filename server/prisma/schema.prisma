@@ -209,6 +209,7 @@ model RaidEvent {
 
   @@index([createdById], map: "RaidEvent_createdById_fkey")
   @@index([guildId], map: "RaidEvent_guildId_fkey")
+  @@index([guildId, startTime], map: "RaidEvent_guildId_startTime_idx")
   @@index([recurrenceSeriesId])
 }
 
@@ -261,6 +262,7 @@ model RaidLootEvent {
 
   @@index([createdById], map: "RaidLootEvent_createdById_fkey")
   @@index([guildId])
+  @@index([guildId, createdAt], map: "RaidLootEvent_guildId_createdAt_idx")
   @@index([raidId])
 }
 
@@ -803,6 +805,8 @@ model InboundWebhookMessage {
   @@index([status])
   @@index([assignedAdminId])
   @@index([archivedAt])
+  @@index([webhookId, archivedAt, receivedAt], map: "InboundWebhookMessage_webhook_archive_received_idx")
+  @@index([status, archivedAt, receivedAt], map: "InboundWebhookMessage_status_archive_received_idx")
 }
 
 model InboundWebhookActionRun {
@@ -1188,6 +1192,7 @@ model MarketListing {
   @@index([price], map: "MarketListing_price_idx")
   @@index([sellerCharacterId], map: "MarketListing_sellerCharacterId_idx")
   @@index([itemId], map: "MarketListing_itemId_idx")
+  @@index([itemId, price, listedAt], map: "MarketListing_item_price_listed_idx")
   @@index([itemType], map: "MarketListing_itemType_idx")
 }
 

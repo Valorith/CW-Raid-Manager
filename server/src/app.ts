@@ -12,7 +12,7 @@ import { appConfig } from './config/appConfig.js';
 import { discordOAuthPlugin } from './plugins/discordOAuth.js';
 import { googleOAuthPlugin } from './plugins/googleOAuth.js';
 import { registerRoutes } from './routes/index.js';
-import { initSentry, Sentry } from './utils/sentry.js';
+import { captureException, initSentry } from './utils/sentry.js';
 
 // Initialize Sentry before anything else
 initSentry();
@@ -100,7 +100,7 @@ export function buildServer(): FastifyInstance {
 
   // Sentry error handler — capture all unhandled route errors
   server.addHook('onError', (_request, _reply, error, done) => {
-    Sentry.captureException(error);
+    captureException(error);
     done();
   });
 

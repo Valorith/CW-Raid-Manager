@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="600" viewBox="0 0 980 600" role="img" aria-labelledby="title desc">
+  <title id="title">Runtime host memory and scheduler behavior</title>
+  <desc id="desc">Shows reduced production RSS and the shift from web-process schedulers to cron-owned scheduled work.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .panel { fill: #ffffff; stroke: #d8dee9; stroke-width: 1; }
+    .title { font: 700 28px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .subtitle { font: 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5b6472; }
+    .label { font: 700 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #273142; }
+    .small { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #4b5563; }
+    .value { font: 700 16px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .baseline { fill: #64748b; }
+    .optimized { fill: #0f766e; }
+    .card { fill: #f9fafb; stroke: #d1d5db; stroke-width: 1; }
+    .good { fill: #ecfdf5; stroke: #99d6c9; stroke-width: 1; }
+    .warn { fill: #fff7ed; stroke: #fed7aa; stroke-width: 1; }
+    .arrow { stroke: #94a3b8; stroke-width: 3; fill: none; marker-end: url(#arrowhead); }
+    .pill { fill: #eef2ff; stroke: #c7d2fe; }
+    .pill-text { font: 700 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #3730a3; }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#94a3b8" />
+    </marker>
+  </defs>
+
+  <rect class="bg" width="980" height="600" />
+  <rect class="panel" x="28" y="26" width="924" height="548" rx="8" />
+
+  <text class="title" x="56" y="74">Runtime Host Impact</text>
+  <text class="subtitle" x="56" y="101">Production startup uses less idle RAM and no longer runs schedulers inside the web process by default.</text>
+
+  <g transform="translate(68,148)">
+    <text class="label" x="0" y="0">Production RSS, no DB/EQ env</text>
+    <rect class="card" x="0" y="24" width="386" height="228" rx="8" />
+    <text class="small" x="24" y="62">Baseline</text>
+    <rect class="baseline" x="24" y="78" width="278" height="34" rx="5" />
+    <text class="value" x="316" y="101">139.2 MB</text>
+    <text class="small" x="24" y="148">Optimized</text>
+    <rect class="optimized" x="24" y="164" width="234" height="34" rx="5" />
+    <text class="value" x="272" y="187">116.9 MB</text>
+    <rect class="pill" x="24" y="210" width="160" height="30" rx="15" />
+    <text class="pill-text" x="104" y="230" text-anchor="middle">-22.3 MB RSS</text>
+  </g>
+
+  <g transform="translate(514,148)">
+    <text class="label" x="0" y="0">Production scheduled work</text>
+    <rect class="warn" x="0" y="24" width="170" height="92" rx="8" />
+    <text class="label" x="20" y="58">Before</text>
+    <text class="small" x="20" y="84">Web process also</text>
+    <text class="small" x="20" y="103">ran schedulers</text>
+    <path class="arrow" d="M184 70 C220 70, 220 70, 252 70" />
+    <rect class="good" x="266" y="24" width="170" height="92" rx="8" />
+    <text class="label" x="286" y="58">After</text>
+    <text class="small" x="286" y="84">Web process skips</text>
+    <text class="small" x="286" y="103">idle schedulers</text>
+
+    <rect class="card" x="0" y="152" width="436" height="100" rx="8" />
+    <text class="small" x="22" y="186">Cron entrypoint still owns scheduled work.</text>
+    <text class="small" x="22" y="212">Single-service deployments can opt in with</text>
+    <text class="label" x="22" y="236">ENABLE_IN_PROCESS_SCHEDULERS=true</text>
+  </g>
+
+  <text class="small" x="68" y="504">Observed with production startup health checks. A separate real-env check reported optimized RSS around 121.6 MB with schedulers disabled.</text>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="560" viewBox="0 0 980 560" role="img" aria-labelledby="title desc">
+  <title id="title">API payload reductions</title>
+  <desc id="desc">Payload comparison for webhook inbox list and money history list after summary endpoints.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .panel { fill: #ffffff; stroke: #d8dee9; stroke-width: 1; }
+    .title { font: 700 28px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .subtitle { font: 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5b6472; }
+    .label { font: 700 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #273142; }
+    .value { font: 700 14px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .axis { font: 12px system-ui, -apple-system, Segoe UI, sans-serif; fill: #6b7280; }
+    .note { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #4b5563; }
+    .baseline { fill: #64748b; }
+    .optimized { fill: #2563eb; }
+    .grid { stroke: #e5e7eb; stroke-width: 1; }
+    .badge { fill: #eff6ff; stroke: #a5b4fc; }
+    .badge-text { font: 700 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1d4ed8; }
+    .legend-text { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #374151; }
+  </style>
+  <rect class="bg" width="980" height="560" />
+  <rect class="panel" x="28" y="26" width="924" height="508" rx="8" />
+
+  <text class="title" x="56" y="74">API List Payload Reduction</text>
+  <text class="subtitle" x="56" y="101">List views now request lightweight summary data while detail endpoints keep full fidelity.</text>
+
+  <rect class="baseline" x="650" y="65" width="18" height="18" rx="3" />
+  <text class="legend-text" x="676" y="79">Before</text>
+  <rect class="optimized" x="760" y="65" width="18" height="18" rx="3" />
+  <text class="legend-text" x="786" y="79">After</text>
+
+  <g transform="translate(250,152)">
+    <line class="grid" x1="0" y1="0" x2="0" y2="260" />
+    <line class="grid" x1="140" y1="0" x2="140" y2="260" />
+    <line class="grid" x1="280" y1="0" x2="280" y2="260" />
+    <line class="grid" x1="420" y1="0" x2="420" y2="260" />
+    <line class="grid" x1="560" y1="0" x2="560" y2="260" />
+    <text class="axis" x="0" y="286" text-anchor="middle">0 KiB</text>
+    <text class="axis" x="140" y="286" text-anchor="middle">190</text>
+    <text class="axis" x="280" y="286" text-anchor="middle">380</text>
+    <text class="axis" x="420" y="286" text-anchor="middle">570</text>
+    <text class="axis" x="560" y="286" text-anchor="middle">760</text>
+
+    <text class="label" x="-194" y="39">Webhook inbox list</text>
+    <rect class="baseline" x="0" y="18" width="74" height="28" rx="4" />
+    <rect class="optimized" x="0" y="56" width="9" height="28" rx="4" />
+    <text class="value" x="86" y="38">99.1 KiB</text>
+    <text class="value" x="22" y="76">12.1 KiB</text>
+    <rect class="badge" x="640" y="31" width="98" height="32" rx="16" />
+    <text class="badge-text" x="689" y="52" text-anchor="middle">-87.8%</text>
+
+    <text class="label" x="-194" y="171">Money history list</text>
+    <rect class="baseline" x="0" y="150" width="552" height="28" rx="4" />
+    <rect class="optimized" x="0" y="188" width="57" height="28" rx="4" />
+    <text class="value" x="562" y="170">749.4 KiB</text>
+    <text class="value" x="69" y="208">77.5 KiB</text>
+    <rect class="badge" x="640" y="163" width="98" height="32" rx="16" />
+    <text class="badge-text" x="689" y="184" text-anchor="middle">-89.7%</text>
+  </g>
+
+  <text class="note" x="56" y="492">Measured JSON response sizes. Detail routes still provide full records; this reduction applies to list/chart surfaces.</text>
+</svg>

@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-labelledby="title desc">
+  <title id="title">Optimization impact matrix</title>
+  <desc id="desc">Matrix mapping each changed area to expected hosting-cost levers and measurement confidence.</desc>
+  <style>
+    .bg { fill: #f8fafc; }
+    .panel { fill: #ffffff; stroke: #d8dee9; stroke-width: 1; }
+    .title { font: 700 29px system-ui, -apple-system, Segoe UI, sans-serif; fill: #1f2937; }
+    .subtitle { font: 15px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5b6472; }
+    .header { font: 700 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #273142; }
+    .row { font: 700 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #273142; }
+    .small { font: 12px system-ui, -apple-system, Segoe UI, sans-serif; fill: #5b6472; }
+    .none { fill: #f3f4f6; stroke: #e5e7eb; }
+    .low { fill: #dbeafe; stroke: #93c5fd; }
+    .medium { fill: #fef3c7; stroke: #f59e0b; }
+    .high { fill: #dcfce7; stroke: #86efac; }
+    .measured { stroke: #111827; stroke-width: 2; }
+    .cell-text { font: 700 12px system-ui, -apple-system, Segoe UI, sans-serif; fill: #111827; }
+    .legend { font: 13px system-ui, -apple-system, Segoe UI, sans-serif; fill: #374151; }
+  </style>
+
+  <rect class="bg" width="1120" height="720" />
+  <rect class="panel" x="28" y="26" width="1064" height="668" rx="8" />
+
+  <text class="title" x="56" y="74">Optimization Impact Matrix</text>
+  <text class="subtitle" x="56" y="101">Each row maps a changed area to hosting-cost pressure. Black outlines indicate areas with direct measurements.</text>
+
+  <g transform="translate(56,140)">
+    <text class="header" x="250" y="0" text-anchor="middle">Web CPU</text>
+    <text class="header" x="370" y="0" text-anchor="middle">RAM</text>
+    <text class="header" x="490" y="0" text-anchor="middle">DB Load</text>
+    <text class="header" x="610" y="0" text-anchor="middle">Network</text>
+    <text class="header" x="730" y="0" text-anchor="middle">Storage</text>
+    <text class="header" x="880" y="0" text-anchor="middle">Primary Evidence</text>
+
+    <g transform="translate(0,28)">
+      <text class="row" x="0" y="22">Production schedulers</text>
+      <text class="small" x="0" y="42">web skips in-process jobs</text>
+      <rect class="high measured" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">High</text>
+      <rect class="low" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">Low</text>
+      <rect class="medium measured" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">Med</text>
+      <rect class="low" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">Low</text>
+      <rect class="none" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">-</text>
+      <text class="small" x="808" y="18">Production health check</text>
+      <text class="small" x="808" y="38">confirmed scheduler skip</text>
+    </g>
+
+    <g transform="translate(0,104)">
+      <text class="row" x="0" y="22">Runtime RAM</text>
+      <text class="small" x="0" y="42">lazy SDKs, bounded caches</text>
+      <rect class="low" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">Low</text>
+      <rect class="high measured" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">High</text>
+      <rect class="low" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">Low</text>
+      <rect class="none" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">-</text>
+      <rect class="none" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">-</text>
+      <text class="small" x="808" y="18">RSS sample: -22.3 MB</text>
+      <text class="small" x="808" y="38">plus bounded growth</text>
+    </g>
+
+    <g transform="translate(0,180)">
+      <text class="row" x="0" y="22">Summary list endpoints</text>
+      <text class="small" x="0" y="42">webhooks and money history</text>
+      <rect class="low" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">Low</text>
+      <rect class="low" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">Low</text>
+      <rect class="medium measured" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">Med</text>
+      <rect class="high measured" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">High</text>
+      <rect class="none" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">-</text>
+      <text class="small" x="808" y="18">Payloads -87.8%</text>
+      <text class="small" x="808" y="38">and -89.7%</text>
+    </g>
+
+    <g transform="translate(0,256)">
+      <text class="row" x="0" y="22">Hidden-tab polling</text>
+      <text class="small" x="0" y="42">pause non-live background work</text>
+      <rect class="low" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">Low</text>
+      <rect class="none" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">-</text>
+      <rect class="medium" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">Med</text>
+      <rect class="medium" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">Med</text>
+      <rect class="none" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">-</text>
+      <text class="small" x="808" y="18">Browser regression</text>
+      <text class="small" x="808" y="38">plus code-path review</text>
+    </g>
+
+    <g transform="translate(0,332)">
+      <text class="row" x="0" y="22">Storage and DB churn</text>
+      <text class="small" x="0" y="42">retention, indexes, market sync</text>
+      <rect class="low" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">Low</text>
+      <rect class="none" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">-</text>
+      <rect class="high" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">High</text>
+      <rect class="low" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">Low</text>
+      <rect class="medium" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">Med</text>
+      <text class="small" x="808" y="18">Static review; migration</text>
+      <text class="small" x="808" y="38">not applied locally</text>
+    </g>
+
+    <g transform="translate(0,408)">
+      <text class="row" x="0" y="22">Logs and public assets</text>
+      <text class="small" x="0" y="42">log gating, logo compression</text>
+      <rect class="low" x="214" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="250" y="29" text-anchor="middle">Low</text>
+      <rect class="none" x="334" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="370" y="29" text-anchor="middle">-</text>
+      <rect class="none" x="454" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="490" y="29" text-anchor="middle">-</text>
+      <rect class="high measured" x="574" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="610" y="29" text-anchor="middle">High</text>
+      <rect class="high measured" x="694" y="0" width="72" height="48" rx="6" />
+      <text class="cell-text" x="730" y="29" text-anchor="middle">High</text>
+      <text class="small" x="808" y="18">Asset bytes measured</text>
+      <text class="small" x="808" y="38">log impact structural</text>
+    </g>
+  </g>
+
+  <g transform="translate(56,650)">
+    <rect class="high" x="0" y="-18" width="20" height="20" rx="4" />
+    <text class="legend" x="28" y="-2">High impact</text>
+    <rect class="medium" x="128" y="-18" width="20" height="20" rx="4" />
+    <text class="legend" x="156" y="-2">Medium</text>
+    <rect class="low" x="236" y="-18" width="20" height="20" rx="4" />
+    <text class="legend" x="264" y="-2">Low</text>
+    <rect class="none" x="326" y="-18" width="20" height="20" rx="4" />
+    <text class="legend" x="354" y="-2">Not material</text>
+    <rect class="none measured" x="474" y="-18" width="20" height="20" rx="4" />
+    <text class="legend" x="502" y="-2">Direct measurement available</text>
+  </g>
+</svg>

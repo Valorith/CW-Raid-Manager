@@ -3,6 +3,7 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 import { isEqDbConfigured, queryEqDb } from '../utils/eqDb.js';
 import { prisma } from '../utils/prisma.js';
+import { appConfig } from '../config/appConfig.js';
 
 export type GuildBankSlotCategory = 'WORN' | 'PERSONAL' | 'CURSOR' | 'BANK';
 
@@ -42,6 +43,15 @@ export interface GuildBankSnapshot {
 }
 
 type SlotRange = { start: number; end: number };
+
+const GUILD_BANK_DEBUG_LOGS =
+  appConfig.nodeEnv === 'development' || process.env.GUILD_BANK_DEBUG_LOGS === 'true';
+
+function debugLog(...args: unknown[]): void {
+  if (GUILD_BANK_DEBUG_LOGS) {
+    console.log(...args);
+  }
+}
 
 const SLOT_GROUPS: Record<GuildBankSlotCategory, SlotRange[]> = {
   WORN: [{ start: 0, end: 22 }],
@@ -250,7 +260,7 @@ async function hasAugSlotColumns(): Promise<boolean> {
     );
 
     cachedHasAugSlotColumns = rows.length > 0;
-    console.log(`[guildBankService] Augment columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
+    debugLog(`[guildBankService] Augment columns ${cachedHasAugSlotColumns ? 'available' : 'not available'} in inventory table`);
 
     // Log all inventory columns for debugging
     if (!cachedHasAugSlotColumns) {
@@ -261,7 +271,7 @@ async function hasAugSlotColumns(): Promise<boolean> {
            AND TABLE_NAME = 'inventory'
          ORDER BY ORDINAL_POSITION`
       );
-      console.log('[guildBankService] Available inventory columns:', allCols.map(r => r.columnName).join(', '));
+      debugLog('[guildBankService] Available inventory columns:', allCols.map(r => r.columnName).join(', '));
     }
 
     return cachedHasAugSlotColumns;
@@ -487,7 +497,7 @@ export async function fetchGuildBankSnapshot(
   const slotColumn = await resolveInventorySlotColumn();
   const { itemIdColumn, chargesColumn, bagSlotsColumn } = await resolveInventoryItemColumns();
   const hasAugSlots = await hasAugSlotColumns();
-  console.log('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn, hasAugSlots });
+  debugLog('Resolved columns:', { itemIdColumn, chargesColumn, bagSlotsColumn, hasAugSlots });
 
   // Build augment columns string if available (EQEmu uses augment_one through augment_six)
   const augSlotColumns = hasAugSlots
@@ -516,9 +526,9 @@ export async function fetchGuildBankSnapshot(
       (row.augslot5 && row.augslot5 > 0) ||
       (row.augslot6 && row.augslot6 > 0)
     );
-    console.log(`[guildBankService] Found ${itemsWithAugs.length} items with augments out of ${inventoryRows.length} total items`);
+    debugLog(`[guildBankService] Found ${itemsWithAugs.length} items with augments out of ${inventoryRows.length} total items`);
     if (itemsWithAugs.length > 0) {
-      console.log('[guildBankService] Sample augmented item:', JSON.stringify(itemsWithAugs[0]));
+      debugLog('[guildBankService] Sample augmented item:', JSON.stringify(itemsWithAugs[0]));
     }
   }
 

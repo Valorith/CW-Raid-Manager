@@ -57,6 +57,7 @@ function purgeExpiredSessions() {
   for (const [raidId, session] of sessions) {
     if (now - session.lastHeartbeatAt.getTime() > LOOT_MONITOR_SESSION_TTL_MS) {
       sessions.delete(raidId);
+      lootCouncilStates.delete(raidId);
     }
   }
 }
