@@ -198,6 +198,9 @@ type ItemStatsRow = RowDataPacket & ItemStats;
 // Cache for item stats to reduce database load
 const itemStatsCache = new Map<number, ItemStats | null>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const ITEM_STATS_CACHE_MAX_ENTRIES = 1_000;
+const SPELL_NAME_CACHE_MAX_ENTRIES = 2_000;
+const ITEM_NAME_CACHE_MAX_ENTRIES = 1_000;
 const cacheTimestamps = new Map<number, number>();
 const tableColumnsCache = new Map<string, string[]>();
 let cachedItemStatsSelectClause: string | null = null;
@@ -206,6 +209,77 @@ function isCacheValid(itemId: number): boolean {
   const timestamp = cacheTimestamps.get(itemId);
   if (!timestamp) return false;
   return Date.now() - timestamp < CACHE_TTL_MS;
+}
+
+function deleteItemStatsCacheEntry(itemId: number): void {
+  itemStatsCache.delete(itemId);
+  cacheTimestamps.delete(itemId);
+}
+
+function pruneExpiredItemStatsCache(now = Date.now()): void {
+  for (const [itemId, timestamp] of cacheTimestamps) {
+    if (now - timestamp >= CACHE_TTL_MS) {
+      deleteItemStatsCacheEntry(itemId);
+    }
+  }
+}
+
+function setItemStatsCacheEntry(itemId: number, value: ItemStats | null): void {
+  if (itemStatsCache.has(itemId)) {
+    deleteItemStatsCacheEntry(itemId);
+  }
+
+  itemStatsCache.set(itemId, value);
+  cacheTimestamps.set(itemId, Date.now());
+
+  while (itemStatsCache.size > ITEM_STATS_CACHE_MAX_ENTRIES) {
+    const oldestKey = itemStatsCache.keys().next().value as number | undefined;
+    if (oldestKey === undefined) {
+      break;
+    }
+    deleteItemStatsCacheEntry(oldestKey);
+  }
+}
+
+function touchItemStatsCacheEntry(itemId: number): ItemStats | null {
+  const cached = itemStatsCache.get(itemId) ?? null;
+  const timestamp = cacheTimestamps.get(itemId);
+  deleteItemStatsCacheEntry(itemId);
+  itemStatsCache.set(itemId, cached);
+  if (timestamp) {
+    cacheTimestamps.set(itemId, timestamp);
+  }
+  return cached;
+}
+
+function setBoundedCacheEntry<K, V>(
+  cache: Map<K, V>,
+  key: K,
+  value: V,
+  maxEntries: number
+): void {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value as K | undefined;
+    if (oldestKey === undefined) {
+      break;
+    }
+    cache.delete(oldestKey);
+  }
+}
+
+function getBoundedCacheEntry<K, V>(cache: Map<K, V>, key: K): V | undefined {
+  if (!cache.has(key)) {
+    return undefined;
+  }
+  const cached = cache.get(key) as V;
+  cache.delete(key);
+  cache.set(key, cached);
+  return cached;
 }
 
 async function getTableColumns(tableName: string): Promise<string[]> {
@@ -280,10 +354,13 @@ export async function getItemStats(itemId: number): Promise<ItemStats | null> {
     return null;
   }
 
+  pruneExpiredItemStatsCache();
+
   // Check cache first
   if (itemStatsCache.has(itemId) && isCacheValid(itemId)) {
-    return itemStatsCache.get(itemId) ?? null;
+    return touchItemStatsCacheEntry(itemId);
   }
+  deleteItemStatsCacheEntry(itemId);
 
   try {
     const selectClause = await getItemStatsSelectClause();
@@ -293,14 +370,12 @@ export async function getItemStats(itemId: number): Promise<ItemStats | null> {
     );
 
     if (rows.length === 0) {
-      itemStatsCache.set(itemId, null);
-      cacheTimestamps.set(itemId, Date.now());
+      setItemStatsCacheEntry(itemId, null);
       return null;
     }
 
     const item = rows[0] as ItemStats;
-    itemStatsCache.set(itemId, item);
-    cacheTimestamps.set(itemId, Date.now());
+    setItemStatsCacheEntry(itemId, item);
     return item;
   } catch (error) {
     console.error('Failed to fetch item stats:', error);
@@ -318,17 +393,20 @@ export async function getItemStatsBatch(itemIds: number[]): Promise<Map<number, 
     return results;
   }
 
+  pruneExpiredItemStatsCache();
+
   // Filter valid IDs and check cache
   const validIds = itemIds.filter(id => Number.isFinite(id) && id > 0);
   const uncachedIds: number[] = [];
 
   for (const id of validIds) {
     if (itemStatsCache.has(id) && isCacheValid(id)) {
-      const cached = itemStatsCache.get(id);
+      const cached = touchItemStatsCacheEntry(id);
       if (cached) {
         results.set(id, cached);
       }
     } else {
+      deleteItemStatsCacheEntry(id);
       uncachedIds.push(id);
     }
   }
@@ -349,8 +427,7 @@ export async function getItemStatsBatch(itemIds: number[]): Promise<Map<number, 
     const foundIds = new Set<number>();
     for (const row of rows) {
       const item = row as ItemStats;
-      itemStatsCache.set(item.id, item);
-      cacheTimestamps.set(item.id, Date.now());
+      setItemStatsCacheEntry(item.id, item);
       results.set(item.id, item);
       foundIds.add(item.id);
     }
@@ -358,8 +435,7 @@ export async function getItemStatsBatch(itemIds: number[]): Promise<Map<number, 
     // Cache nulls for items not found
     for (const id of uncachedIds) {
       if (!foundIds.has(id)) {
-        itemStatsCache.set(id, null);
-        cacheTimestamps.set(id, Date.now());
+        setItemStatsCacheEntry(id, null);
       }
     }
 
@@ -394,7 +470,7 @@ export async function getSpellName(spellId: number): Promise<string | null> {
   }
 
   if (spellNameCache.has(spellId)) {
-    return spellNameCache.get(spellId) ?? null;
+    return getBoundedCacheEntry(spellNameCache, spellId) ?? null;
   }
 
   try {
@@ -404,11 +480,11 @@ export async function getSpellName(spellId: number): Promise<string | null> {
     );
 
     const name = rows.length > 0 ? String(rows[0].name) : null;
-    spellNameCache.set(spellId, name);
+    setBoundedCacheEntry(spellNameCache, spellId, name, SPELL_NAME_CACHE_MAX_ENTRIES);
     return name;
   } catch (error) {
     console.error('Failed to fetch spell name:', error);
-    spellNameCache.set(spellId, null);
+    setBoundedCacheEntry(spellNameCache, spellId, null, SPELL_NAME_CACHE_MAX_ENTRIES);
     return null;
   }
 }
@@ -445,7 +521,7 @@ export async function searchItemsByName(names: string[]): Promise<Map<string, It
     normalizedToOriginal.set(normalized, name);
 
     if (itemNameCache.has(normalized)) {
-      const cached = itemNameCache.get(normalized);
+      const cached = getBoundedCacheEntry(itemNameCache, normalized);
       if (cached) {
         results.set(name, cached);
       }
@@ -476,7 +552,7 @@ export async function searchItemsByName(names: string[]): Promise<Map<string, It
       const normalizedName = itemName.toLowerCase();
 
       const result: ItemNameSearchResult = { itemId, itemIconId, itemName };
-      itemNameCache.set(normalizedName, result);
+      setBoundedCacheEntry(itemNameCache, normalizedName, result, ITEM_NAME_CACHE_MAX_ENTRIES);
       foundNames.add(normalizedName);
 
       // Find the original search term that matches this result
@@ -490,7 +566,7 @@ export async function searchItemsByName(names: string[]): Promise<Map<string, It
     for (const name of uncachedNames) {
       const normalized = name.trim().toLowerCase();
       if (!foundNames.has(normalized)) {
-        itemNameCache.set(normalized, null);
+        setBoundedCacheEntry(itemNameCache, normalized, null, ITEM_NAME_CACHE_MAX_ENTRIES);
       }
     }
 
@@ -516,7 +592,7 @@ export async function getSpellNamesBatch(spellIds: number[]): Promise<Map<number
 
   for (const id of validIds) {
     if (spellNameCache.has(id)) {
-      const cached = spellNameCache.get(id);
+      const cached = getBoundedCacheEntry(spellNameCache, id);
       if (cached) {
         results.set(id, cached);
       }
@@ -540,14 +616,14 @@ export async function getSpellNamesBatch(spellIds: number[]): Promise<Map<number
     for (const row of rows) {
       const id = Number(row.id);
       const name = String(row.name);
-      spellNameCache.set(id, name);
+      setBoundedCacheEntry(spellNameCache, id, name, SPELL_NAME_CACHE_MAX_ENTRIES);
       results.set(id, name);
       foundIds.add(id);
     }
 
     for (const id of uncachedIds) {
       if (!foundIds.has(id)) {
-        spellNameCache.set(id, null);
+        setBoundedCacheEntry(spellNameCache, id, null, SPELL_NAME_CACHE_MAX_ENTRIES);
       }
     }
 

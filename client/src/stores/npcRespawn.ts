@@ -41,6 +41,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   // Refresh interval for live updates
   let refreshInterval: number | null = null;
+  let serverRefreshInterval: number | null = null;
+  let activeRefreshGuildId: string | null = null;
 
   // Computed
   const canRefreshNow = computed(() => {
@@ -296,18 +298,20 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   function startAutoRefresh(guildId: string) {
     stopAutoRefresh();
+    activeRefreshGuildId = guildId;
     refreshInterval = window.setInterval(() => {
       // Recalculate respawn progress without hitting the server
       updateProgressLocally();
     }, 1000);
 
     // Periodically refresh from server
-    const serverRefreshInterval = window.setInterval(() => {
-      fetchRespawnTracker(guildId, true).catch(console.error);
+    serverRefreshInterval = window.setInterval(() => {
+      if (!document.hidden) {
+        fetchRespawnTracker(guildId, true).catch(console.error);
+      }
     }, 60000); // Every minute
 
-    // Store the server refresh interval separately
-    (window as any).__npcRespawnServerInterval = serverRefreshInterval;
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
   function stopAutoRefresh() {
@@ -315,10 +319,17 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       clearInterval(refreshInterval);
       refreshInterval = null;
     }
-    const serverInterval = (window as any).__npcRespawnServerInterval;
-    if (serverInterval) {
-      clearInterval(serverInterval);
-      (window as any).__npcRespawnServerInterval = null;
+    if (serverRefreshInterval) {
+      clearInterval(serverRefreshInterval);
+      serverRefreshInterval = null;
+    }
+    activeRefreshGuildId = null;
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }
+
+  function handleVisibilityChange() {
+    if (!document.hidden && activeRefreshGuildId) {
+      fetchRespawnTracker(activeRefreshGuildId, true).catch(console.error);
     }
   }
 

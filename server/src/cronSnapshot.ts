@@ -32,6 +32,7 @@ import { syncMarketSaleEvents } from './services/marketService.js';
 import { syncMarketListings } from './services/marketListingsService.js';
 import { processNotificationOutbox } from './services/notificationOutboxService.js';
 import { queueDueRaidReminderNotifications } from './services/raidNotificationService.js';
+import { enforceInboundWebhookRetention } from './services/inboundWebhookService.js';
 
 async function main(): Promise<void> {
   console.log('[CronJob] Starting scheduled tasks...');
@@ -81,6 +82,16 @@ async function main(): Promise<void> {
     console.log(`[CronJob] Notification outbox processing complete. Processed ${processed} rows.`);
   } catch (error) {
     console.error('[CronJob] Error processing notification outbox:', error);
+  }
+
+  console.log('[CronJob] Enforcing inbound webhook retention policies...');
+  try {
+    const retention = await enforceInboundWebhookRetention();
+    console.log(
+      `[CronJob] Webhook retention complete. Scanned ${retention.webhooksScanned} webhooks, deleted ${retention.deletedByAge + retention.deletedByMaxCount} messages.`
+    );
+  } catch (error) {
+    console.error('[CronJob] Error enforcing webhook retention:', error);
   }
 
   // Task 2: Check if money/metallurgy snapshot should be taken

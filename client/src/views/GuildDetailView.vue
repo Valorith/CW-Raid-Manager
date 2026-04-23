@@ -863,7 +863,9 @@ async function loadRaids() {
 function startRaidRefreshPolling() {
   stopRaidRefreshPolling();
   raidRefreshTimer = window.setInterval(() => {
-    loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+    if (!document.hidden) {
+      loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+    }
   }, 30_000);
 }
 
@@ -882,6 +884,12 @@ const actorRole = computed<GuildRole | null>(() => {
   const membership = guild.value.members.find((member) => member.user.id === currentUserId.value);
   return membership?.role ?? null;
 });
+
+function handleVisibilityChange() {
+  if (!document.hidden && canViewDetails.value) {
+    loadRaids().catch((error) => console.warn('Failed to refresh raids', error));
+  }
+}
 
 function canAdjustMember(member: GuildMemberEntry) {
   if (isApplicantEntry(member)) {
@@ -1277,14 +1285,17 @@ onMounted(async () => {
     await loadGuild();
     if (canViewDetails.value) {
       await loadRaids();
+      startRaidRefreshPolling();
     }
   } finally {
     loading.value = false;
   }
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 onUnmounted(() => {
   document.body.classList.remove('modal-open');
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopRaidRefreshPolling();
 });
 </script>

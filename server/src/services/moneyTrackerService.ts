@@ -109,6 +109,8 @@ export interface MoneySnapshotData {
   createdAt: Date;
 }
 
+export type MoneySnapshotSummaryData = Omit<MoneySnapshotData, 'topCharacters' | 'topGuildBanks'>;
+
 /**
  * Calculate total platinum equivalent from all currency types
  * Returns value in copper to avoid floating point issues
@@ -476,6 +478,57 @@ export async function getSnapshotsInRange(
     topCharacters: snapshot.topCharacters as unknown as TopCharacterCurrency[],
     topGuildBanks: (snapshot.topGuildBanks as unknown as GuildBankAccount[]) || []
   }));
+}
+
+/**
+ * Get lightweight snapshot rows for charts and history tables.
+ */
+export async function getSnapshotSummariesInRange(
+  startDate?: Date,
+  endDate?: Date,
+  limit: number = 365
+): Promise<MoneySnapshotSummaryData[]> {
+  const where: { snapshotDate?: { gte?: Date; lte?: Date } } = {};
+
+  if (startDate || endDate) {
+    where.snapshotDate = {};
+    if (startDate) {
+      where.snapshotDate.gte = startDate;
+    }
+    if (endDate) {
+      where.snapshotDate.lte = endDate;
+    }
+  }
+
+  return prisma.moneySnapshot.findMany({
+    where,
+    orderBy: { snapshotDate: 'asc' },
+    take: limit,
+    select: {
+      id: true,
+      snapshotDate: true,
+      totalPlatinum: true,
+      totalGold: true,
+      totalSilver: true,
+      totalCopper: true,
+      totalPlatinumBank: true,
+      totalGoldBank: true,
+      totalSilverBank: true,
+      totalCopperBank: true,
+      totalPlatinumCursor: true,
+      totalGoldCursor: true,
+      totalSilverCursor: true,
+      totalCopperCursor: true,
+      totalPlatinumEquivalent: true,
+      totalSharedPlatinum: true,
+      totalGuildBankPlatinum: true,
+      characterCount: true,
+      sharedBankCount: true,
+      guildBankCount: true,
+      createdAt: true,
+      createdById: true
+    }
+  });
 }
 
 /**

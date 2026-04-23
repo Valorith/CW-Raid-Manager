@@ -920,7 +920,7 @@ function startRaidsRefreshPolling() {
     return;
   }
   raidsRefreshTimer = window.setInterval(() => {
-    if (selectedGuildId.value) {
+    if (selectedGuildId.value && !document.hidden) {
       silentRefreshRaids();
     }
   }, 60_000);
@@ -1611,10 +1611,17 @@ watch(
   }
 );
 
+function handleVisibilityChange() {
+  if (!document.hidden && selectedGuildId.value) {
+    silentRefreshRaids();
+  }
+}
+
 onUnmounted(() => {
   window.removeEventListener('click', hideDayContextMenu);
   window.removeEventListener('scroll', hideDayContextMenu, true);
   window.removeEventListener('contextmenu', hideDayContextMenu);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopRaidsRefreshPolling();
 });
 
@@ -1622,6 +1629,7 @@ onMounted(() => {
   window.addEventListener('click', hideDayContextMenu);
   window.addEventListener('scroll', hideDayContextMenu, true);
   window.addEventListener('contextmenu', hideDayContextMenu);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
 function startOfMonth(date: Date) {

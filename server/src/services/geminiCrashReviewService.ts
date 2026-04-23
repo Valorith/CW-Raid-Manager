@@ -1,5 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
-
 export type CrashReviewFindings = {
   summary: string;
   signature?: {
@@ -111,6 +109,11 @@ function requireEnv(name: string): string {
     throw new Error(`${name} is not configured.`);
   }
   return value;
+}
+
+async function createGeminiClient(apiKey: string) {
+  const { GoogleGenAI } = await import('@google/genai');
+  return new GoogleGenAI({ apiKey });
 }
 
 function truncate(text: string, maxChars: number) {
@@ -280,7 +283,7 @@ export async function reviewCrashReport(
   attempts = 1
 ): Promise<CrashReviewFindings> {
   const apiKey = requireEnv('GEMINI_API_KEY');
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = await createGeminiClient(apiKey);
 
   const trimmedInput = truncate(input, options.maxInputChars ?? MAX_INPUT_CHARS);
   const analysisInput = compressCrashReportForAnalysis(trimmedInput);
@@ -1254,7 +1257,7 @@ export async function inspectCrashReport(crashReportText: string): Promise<Crash
     throw new Error('GEMINI_API_KEY is not configured.');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = await createGeminiClient(apiKey);
   const trimmedInput = crashReportText.length > MAX_INPUT_CHARS
     ? crashReportText.slice(0, MAX_INPUT_CHARS) + '\n...<truncated>'
     : crashReportText;
@@ -1502,7 +1505,7 @@ export async function sortCrashReportSegments(
     segments = filteredResult.keepSegments;
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = await createGeminiClient(apiKey);
 
   // Build the prompt with compressed segments
   let prompt = SEGMENT_SORT_PROMPT;

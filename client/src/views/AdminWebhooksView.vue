@@ -2117,6 +2117,8 @@ async function processGroupNow(webhookId: string, groupKey: string) {
 }
 
 async function pollProcessingStatus() {
+  if (document.hidden) return;
+
   try {
     const status = await api.getWebhookProcessingStatus();
     processingStatus.hasPendingProcessing = status.hasPendingProcessing;
@@ -2146,6 +2148,18 @@ function stopProcessingStatusPolling() {
   if (processingStatusInterval) {
     clearInterval(processingStatusInterval);
     processingStatusInterval = null;
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) return;
+  if (shouldPollInbox()) {
+    refreshPendingInboxMessages().catch((error) => {
+      console.warn('Failed to refresh webhook inbox after tab became visible:', error);
+    });
+  }
+  if (isAutoMergeActive.value) {
+    pollProcessingStatus();
   }
 }
 
@@ -2423,6 +2437,32 @@ async function loadSelectedMessage(messageId: string) {
   }
 }
 
+function hasFullMessageBody(message: InboundWebhookMessage): boolean {
+  return message.payload !== null || Boolean(message.rawBody);
+}
+
+async function ensureFullInboxMessage(messageId: string): Promise<InboundWebhookMessage | null> {
+  const existing = inboxMessages.value.find((message) => message.id === messageId);
+  if (existing && hasFullMessageBody(existing)) {
+    return existing;
+  }
+
+  try {
+    const full = await api.fetchInboundWebhookMessage(messageId);
+    const inboxIndex = inboxMessages.value.findIndex((message) => message.id === messageId);
+    if (inboxIndex >= 0) {
+      inboxMessages.value[inboxIndex] = { ...inboxMessages.value[inboxIndex], ...full };
+    }
+    if (selectedMessage.value?.id === messageId) {
+      selectedMessage.value = full;
+    }
+    return full;
+  } catch (error) {
+    console.error('Failed to load full webhook message:', error);
+    return existing ?? null;
+  }
+}
+
 function hasRecentMessages(): boolean {
   const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
   return inboxMessages.value.some((message) => {
@@ -2527,6 +2567,7 @@ function shouldPollInbox(): boolean {
 function startInboxPolling() {
   if (inboxPollTimer) return;
   inboxPollTimer = setInterval(() => {
+    if (document.hidden) return;
     if (shouldPollInbox()) {
       if (inboxPollInFlight) return;
       inboxPollInFlight = true;
@@ -2543,6 +2584,7 @@ function startInboxPolling() {
 function startMessagePolling(messageId: string) {
   if (messagePollTimer) return;
   messagePollTimer = setInterval(() => {
+    if (document.hidden) return;
     if (selectedMessage.value?.id !== messageId) {
       clearInterval(messagePollTimer as ReturnType<typeof setInterval>);
       messagePollTimer = null;
@@ -3744,11 +3786,12 @@ function handleGlobalClick(event: MouseEvent) {
 
 // ==================== Message Merging ====================
 
-function openMergeModal() {
+async function openMergeModal() {
   if (selectedMessageIds.value.size < 2) {
     addToast({ title: 'Warning', message: 'Select at least 2 messages to combine' });
     return;
   }
+  await Promise.all(Array.from(selectedMessageIds.value).map((id) => ensureFullInboxMessage(id)));
   // Order by receivedAt (chronological)
   const selectedMsgs = inboxMessages.value
     .filter((m) => selectedMessageIds.value.has(m.id))
@@ -4152,6 +4195,7 @@ onMounted(async () => {
 
   // Add global click handler to close label dropdown
   document.addEventListener('click', handleGlobalClick);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 
   // Start processing status polling if auto-merge is active
   if (isAutoMergeActive.value) {
@@ -4183,6 +4227,7 @@ onBeforeUnmount(() => {
   }
   stopProcessingStatusPolling();
   document.removeEventListener('click', handleGlobalClick);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 // ============================================================================

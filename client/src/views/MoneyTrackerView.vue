@@ -998,6 +998,7 @@ async function fetchSnapshots(): Promise<void> {
       params.startDate = startDate.toISOString().split('T')[0];
     }
     params.limit = '365';
+    params.summaryOnly = 'true';
 
     const response = await axios.get('/api/admin/money-tracker/snapshots', { params });
     snapshots.value = response.data.snapshots;
@@ -1010,7 +1011,7 @@ async function fetchAllSnapshots(): Promise<void> {
   loadingAllSnapshots.value = true;
   try {
     const response = await axios.get('/api/admin/money-tracker/snapshots', {
-      params: { limit: '9999' }
+      params: { limit: '9999', summaryOnly: 'true' }
     });
     // Sort by createdAt descending (newest first) - this is more accurate than snapshotDate
     // since multiple snapshots can have the same snapshotDate
