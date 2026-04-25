@@ -63,7 +63,8 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
         itemId: z.coerce.number().int().positive()
       });
       const querySchema = z.object({
-        days: z.coerce.number().int().min(1).max(3650).default(180),
+        days: z.coerce.number().int().min(1).max(3650).optional(),
+        rangeDays: z.coerce.number().int().min(1).max(3650).optional(),
         pointLimit: z.coerce.number().int().min(20).max(300).default(120),
         listingLimit: z.coerce.number().int().min(1).max(25).default(10)
       });
@@ -79,11 +80,17 @@ export async function marketRoutes(server: FastifyInstance): Promise<void> {
       }
 
       try {
-        await ensureMarketListingsFresh({ logger: request.log });
+        await ensureMarketListingsFresh({ logger: request.log }).catch((error: unknown) => {
+          request.log.warn(
+            { error, itemId: parsedParams.data.itemId },
+            'Failed to refresh market listings before public item lookup; serving cached data.'
+          );
+        });
+        const rangeDays = parsedQuery.data.days ?? parsedQuery.data.rangeDays ?? 180;
 
         const marketData = await getPublicMarketItemData({
           itemId: parsedParams.data.itemId,
-          rangeDays: parsedQuery.data.days,
+          rangeDays,
           pointLimit: parsedQuery.data.pointLimit,
           listingLimit: parsedQuery.data.listingLimit
         });
