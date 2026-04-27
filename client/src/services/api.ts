@@ -3107,10 +3107,278 @@ function normalizeGuildMetrics(raw: any): GuildMetrics {
   };
 }
 
+export type TestChangeStatus =
+  | 'SUBMITTED'
+  | 'AWAITING_TEST'
+  | 'TESTING'
+  | 'PASSED'
+  | 'FAILED'
+  | 'BLOCKED'
+  | 'RENEWED'
+  | 'CLOSED';
+
+export type TestChangeListStatusFilter = TestChangeStatus | 'ACTIVE' | '';
+
+export type TestChangePriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type TestAssignmentKind = 'REQUIRED' | 'OPTIONAL' | 'VOLUNTEER' | 'ADMIN_REQUESTED';
+export type TestRunStatus = 'NOT_STARTED' | 'TESTING' | 'DONE' | 'BLOCKED';
+export type TestResult = 'PASS' | 'FAIL' | 'BLOCKED';
+
+export interface TestManagerUserSummary {
+  id: string;
+  displayName: string;
+  email: string | null;
+  isAdmin: boolean;
+  isGuide: boolean;
+  isTester: boolean;
+  updatedAt?: string;
+  testingLoad?: number;
+  recentResults?: {
+    passed: number;
+    failed: number;
+    blocked: number;
+  };
+}
+
+export interface TestManagerRoleSettings {
+  key: string;
+  label: string;
+  permissions: string[];
+}
+
+export interface TestManagerSettings {
+  roles: TestManagerRoleSettings[];
+}
+
+export interface TestChangeChecklistItem {
+  id: string;
+  title: string;
+  details: string;
+  category: string;
+  sortOrder: number;
+}
+
+export interface TestChangeTester {
+  id: string;
+  assignment: TestAssignmentKind;
+  status: TestRunStatus;
+  result: TestResult | null;
+  notesHtml: string;
+  notesCount: number;
+  checklistProgress: Array<{
+    checklistItemId: string;
+    completed: boolean;
+    completedAt: string | null;
+    notesHtml: string;
+    updatedAt: string | null;
+  }>;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: TestManagerUserSummary | null;
+  requestedBy: TestManagerUserSummary | null;
+}
+
+export interface TestChangeNote {
+  id: string;
+  contentHtml: string;
+  result: TestResult | null;
+  createdAt: string;
+  updatedAt: string;
+  author: TestManagerUserSummary | null;
+}
+
+export interface TestChangeHistoryEvent {
+  id: string;
+  eventType: string;
+  label: string;
+  detail: string;
+  metadata: unknown;
+  createdAt: string;
+  actor: TestManagerUserSummary | null;
+}
+
+export interface TestChange {
+  id: string;
+  publicId: number;
+  title: string;
+  description: string;
+  category: string;
+  subsystem: string;
+  priority: TestChangePriority;
+  status: TestChangeStatus;
+  targetBuild: string | null;
+  dueAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: TestManagerUserSummary | null;
+  assignedTo: TestManagerUserSummary | null;
+  closedBy: TestManagerUserSummary | null;
+  checklist: TestChangeChecklistItem[];
+  testers: TestChangeTester[];
+  notes: TestChangeNote[];
+  history: TestChangeHistoryEvent[];
+  summary: {
+    testerCount: number;
+    requiredTesterCount: number;
+    passCount: number;
+    failCount: number;
+    blockedCount: number;
+    inProgressCount: number;
+    checklistCount: number;
+    checklistCompleted: number;
+    checklistProgressTotal: number;
+    checklistProgressPossible: number;
+  };
+  viewerTester: TestChangeTester | null;
+}
+
+export interface TestManagerDashboard {
+  viewer: TestManagerUserSummary | null;
+  metrics: {
+    activeChanges: number;
+    priorityOne: number;
+    awaitingTest: number;
+    inProgress: number;
+    passed: number;
+    failed: number;
+    coverage: number;
+  };
+  activeChanges: TestChange[];
+  testerActivity: Array<{ change: TestChange; tester: TestChangeTester }>;
+  attentionItems: {
+    awaitingAssignment: number;
+    viewerAssignments: number;
+    failingTests: number;
+    blockedTests: number;
+  };
+}
+
+export interface CreateTestChangePayload {
+  title: string;
+  description: string;
+  category: string;
+  subsystem: string;
+  priority: TestChangePriority;
+  targetBuild?: string | null;
+  dueAt?: string | null;
+  assignedToId?: string | null;
+  checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
+}
+
 export const api = {
   async fetchCurrentUser() {
     const response = await axios.get('/api/auth/me');
     return response.data.user ?? null;
+  },
+  async fetchTestManagerDashboard(): Promise<TestManagerDashboard> {
+    const response = await axios.get('/api/test-manager/dashboard');
+    return response.data;
+  },
+  async fetchTestChanges(params?: {
+    status?: TestChangeListStatusFilter;
+    search?: string;
+  }): Promise<TestChange[]> {
+    const response = await axios.get('/api/test-manager/changes', {
+      params: {
+        status: params?.status || undefined,
+        search: params?.search || undefined
+      }
+    });
+    return response.data.changes;
+  },
+  async fetchTestChange(changeId: string): Promise<TestChange> {
+    const response = await axios.get(`/api/test-manager/changes/${encodeURIComponent(changeId)}`);
+    return response.data.change;
+  },
+  async createTestChange(payload: CreateTestChangePayload): Promise<TestChange> {
+    const response = await axios.post('/api/test-manager/changes', payload);
+    return response.data.change;
+  },
+  async updateTestChangeStatus(
+    changeId: string,
+    status: TestChangeStatus,
+    detail?: string | null
+  ): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/status`,
+      { status, detail }
+    );
+    return response.data.change;
+  },
+  async deleteTestChange(changeId: string): Promise<void> {
+    await axios.delete(`/api/test-manager/changes/${encodeURIComponent(changeId)}`);
+  },
+  async volunteerForTestChange(changeId: string): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/volunteer`
+    );
+    return response.data.change;
+  },
+  async requestTestChangeTester(
+    changeId: string,
+    payload: { userId: string; assignment: TestAssignmentKind }
+  ): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/request`,
+      payload
+    );
+    return response.data.change;
+  },
+  async submitTestChangeResult(
+    changeId: string,
+    payload: { result: TestResult; notesHtml: string }
+  ): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/result`,
+      payload
+    );
+    return response.data.change;
+  },
+  async updateTestChangeChecklistProgress(
+    changeId: string,
+    checklistItemId: string,
+    payload: { completed?: boolean; notesHtml?: string }
+  ): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
+        checklistItemId
+      )}`,
+      payload
+    );
+    return response.data.change;
+  },
+  async saveTestChangeNote(changeId: string, contentHtml: string): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/notes`,
+      { contentHtml }
+    );
+    return response.data.change;
+  },
+  async fetchTestManagerUsers(): Promise<TestManagerUserSummary[]> {
+    const response = await axios.get('/api/test-manager/users');
+    return response.data.users;
+  },
+  async updateTestManagerUserRole(
+    userId: string,
+    tester: boolean
+  ): Promise<TestManagerUserSummary> {
+    const response = await axios.patch(`/api/test-manager/users/${encodeURIComponent(userId)}`, {
+      tester
+    });
+    return response.data.user;
+  },
+  async fetchTestManagerSettings(): Promise<TestManagerSettings> {
+    const response = await axios.get('/api/test-manager/settings');
+    return response.data;
+  },
+  async updateTestManagerSettings(payload: {
+    roles: Array<{ key: string; permissions: string[] }>;
+  }): Promise<TestManagerSettings> {
+    const response = await axios.put('/api/test-manager/settings', payload);
+    return response.data;
   },
   async fetchGuilds(): Promise<GuildSummary[]> {
     const response = await axios.get('/api/guilds');

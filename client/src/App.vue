@@ -3,8 +3,12 @@
     <header class="app-header">
       <div class="brand">
         <RouterLink :to="brandHomeTo" class="brand__home" :aria-label="`${APP_NAME} home`">
-          <img :src="APP_LOGO_PATH" :alt="APP_NAME" class="brand__logo" />
-          <span class="brand__tagline">{{ APP_TAGLINE }}</span>
+          <img :src="APP_LOGO_PATH" :alt="brandLabel" class="brand__logo" />
+          <span
+            class="brand__tagline"
+            :class="{ 'brand__tagline--test-manager': isTestManagerSurface }"
+            >{{ brandLabel }}</span
+          >
         </RouterLink>
       </div>
       <nav class="nav">
@@ -129,6 +133,23 @@
             <path d="M9 3H3v6l9 9 6-6-9-9Z" />
           </svg>
           Raids
+        </RouterLink>
+        <RouterLink v-if="authStore.isAuthenticated" to="/test-manager" class="nav__tab">
+          <svg
+            class="nav__tab-ico"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m14.5 6.5 3 3m-11 8 6-6" />
+            <path d="m5 19 2-6 10-10 4 4-10 10-6 2Z" />
+            <path d="M15 5 19 9" />
+          </svg>
+          Test Manager
         </RouterLink>
         <RouterLink
           v-if="authStore.isAuthenticated"
@@ -507,6 +528,8 @@ const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
 const brandHomeTo = computed(() => (authStore.isAuthenticated ? '/dashboard' : '/'));
+const isTestManagerSurface = computed(() => route.path.startsWith('/test-manager'));
+const brandLabel = computed(() => (isTestManagerSurface.value ? 'Test Manager' : APP_TAGLINE));
 
 // Dropdown state for nav menu (hover on fine pointers; tap chevron on touch / no-hover)
 const activeDropdown = ref<string | null>(null);
@@ -950,6 +973,14 @@ function hasRaidStarted(raid: RaidEventSummary) {
   line-height: 1;
   text-align: center;
   white-space: nowrap;
+}
+
+.brand__tagline--test-manager {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #d9a45f;
 }
 
 .nav {

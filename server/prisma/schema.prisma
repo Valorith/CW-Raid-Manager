@@ -21,6 +21,7 @@ model User {
   eqGameDirectoryName String?           @db.VarChar(255)
   admin              Boolean?           @default(false)
   guide              Boolean?           @default(false)
+  tester             Boolean?           @default(false)
   createdAttendances AttendanceEvent[]  @relation("AttendanceCreator")
   createdLootListEntries GuildLootListEntry[] @relation("LootListCreator")
   characters         Character[]
@@ -53,6 +54,13 @@ model User {
   bisBansReceived    BisBan[]           @relation("BisBanUser")
   bisBansIssued      BisBan[]           @relation("BisBanIssuer")
   bisBansRevoked     BisBan[]           @relation("BisBanRevoker")
+  createdTestChanges TestChange[]       @relation("TestChangeCreator")
+  assignedTestChanges TestChange[]      @relation("TestChangeAssignee")
+  closedTestChanges  TestChange[]       @relation("TestChangeCloser")
+  testAssignments    TestChangeTester[] @relation("TestAssignmentUser")
+  requestedTests     TestChangeTester[] @relation("TestRequestCreator")
+  authoredTestNotes  TestChangeNote[]   @relation("TestChangeNoteAuthor")
+  testHistoryEvents  TestChangeHistory[] @relation("TestChangeHistoryActor")
 }
 
 model Guild {
@@ -571,6 +579,57 @@ enum GuildRole {
   MEMBER
   RECRUIT
   FRIENDS_FAMILY
+}
+
+enum TestChangeStatus {
+  SUBMITTED
+  AWAITING_TEST
+  TESTING
+  PASSED
+  FAILED
+  BLOCKED
+  RENEWED
+  CLOSED
+}
+
+enum TestChangePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TestAssignmentKind {
+  REQUIRED
+  OPTIONAL
+  VOLUNTEER
+  ADMIN_REQUESTED
+}
+
+enum TestRunStatus {
+  NOT_STARTED
+  TESTING
+  DONE
+  BLOCKED
+}
+
+enum TestResult {
+  PASS
+  FAIL
+  BLOCKED
+}
+
+enum TestHistoryEventType {
+  CHANGE_CREATED
+  TESTING_REQUESTED
+  TESTER_VOLUNTEERED
+  TEST_RESULT_ADDED
+  NOTE_UPDATED
+  STATUS_CHANGED
+  CHECKLIST_UPDATED
+  ASSIGNMENT_UPDATED
+  CHANGE_RENEWED
+  CHANGE_CLOSED
 }
 
 enum CharacterClass {
@@ -1328,6 +1387,128 @@ model BisBan {
   @@index([userId, revokedAt, expiresAt], map: "BisBan_user_active_idx")
   @@index([bannedById], map: "BisBan_banned_by_idx")
   @@index([revokedById], map: "BisBan_revoked_by_idx")
+}
+
+model TestChange {
+  id            String             @id @default(cuid())
+  publicId      Int                @unique @default(autoincrement())
+  title         String             @db.VarChar(191)
+  description   String             @db.LongText
+  category      String             @db.VarChar(80)
+  subsystem     String             @db.VarChar(80)
+  priority      TestChangePriority @default(MEDIUM)
+  status        TestChangeStatus   @default(SUBMITTED)
+  targetBuild   String?            @db.VarChar(120)
+  assignedToId  String?
+  createdById   String
+  closedById    String?
+  dueAt         DateTime?
+  closedAt      DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  assignedTo    User?              @relation("TestChangeAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  closedBy      User?              @relation("TestChangeCloser", fields: [closedById], references: [id], onDelete: SetNull)
+  createdBy     User               @relation("TestChangeCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  checklist     TestChangeChecklistItem[]
+  testers       TestChangeTester[]
+  notes         TestChangeNote[]
+  history       TestChangeHistory[]
+
+  @@index([status, priority, updatedAt])
+  @@index([createdById])
+  @@index([assignedToId])
+  @@index([closedById])
+}
+
+model TestChangeChecklistItem {
+  id          String     @id @default(cuid())
+  changeId    String
+  title       String     @db.VarChar(191)
+  details     String?    @db.VarChar(1000)
+  category    String?    @db.VarChar(80)
+  sortOrder   Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  change      TestChange @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  testerProgress TestChangeChecklistProgress[]
+
+  @@index([changeId, sortOrder])
+}
+
+model TestChangeTester {
+  id            String                 @id @default(cuid())
+  changeId      String
+  userId        String
+  assignment    TestAssignmentKind     @default(VOLUNTEER)
+  status        TestRunStatus          @default(NOT_STARTED)
+  result        TestResult?
+  notesHtml     String?                @db.LongText
+  requestedById String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  change        TestChange             @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  requestedBy   User?                  @relation("TestRequestCreator", fields: [requestedById], references: [id], onDelete: SetNull)
+  user          User                   @relation("TestAssignmentUser", fields: [userId], references: [id], onDelete: Cascade)
+  notes         TestChangeNote[]
+  checklistProgress TestChangeChecklistProgress[]
+
+  @@unique([changeId, userId])
+  @@index([changeId, status])
+  @@index([userId, status])
+  @@index([requestedById])
+}
+
+model TestChangeChecklistProgress {
+  id              String                  @id @default(cuid())
+  testerId        String
+  checklistItemId String
+  completed       Boolean                 @default(false)
+  completedAt     DateTime?
+  notesHtml       String?                 @db.LongText
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  checklistItem   TestChangeChecklistItem @relation(fields: [checklistItemId], references: [id], onDelete: Cascade)
+  tester          TestChangeTester        @relation(fields: [testerId], references: [id], onDelete: Cascade)
+
+  @@unique([testerId, checklistItemId])
+  @@index([checklistItemId])
+  @@index([testerId])
+}
+
+model TestChangeNote {
+  id          String            @id @default(cuid())
+  changeId    String
+  testerId    String?
+  authorId    String
+  contentHtml String            @db.LongText
+  result      TestResult?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  author      User              @relation("TestChangeNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  change      TestChange        @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  tester      TestChangeTester? @relation(fields: [testerId], references: [id], onDelete: SetNull)
+
+  @@index([changeId, createdAt])
+  @@index([authorId])
+  @@index([testerId])
+}
+
+model TestChangeHistory {
+  id          String               @id @default(cuid())
+  changeId    String
+  actorUserId String?
+  eventType   TestHistoryEventType
+  label       String               @db.VarChar(191)
+  detail      String?              @db.VarChar(1000)
+  metadata    Json?
+  createdAt   DateTime             @default(now())
+  actor       User?                @relation("TestChangeHistoryActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  change      TestChange           @relation(fields: [changeId], references: [id], onDelete: Cascade)
+
+  @@index([changeId, createdAt])
+  @@index([actorUserId])
 }
 
 // Webhook Debug Messages - stores debug webhook messages for cross-process delivery

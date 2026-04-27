@@ -101,6 +101,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/test-manager/:section?/:changeId?',
+      name: 'TestManager',
+      component: () => import('../views/TestManagerView.vue'),
+      meta: { requiresAuth: true, title: 'Test Manager' }
+    },
+    {
       path: '/settings/account',
       name: 'AccountSettings',
       component: () => import('../views/AccountSettingsView.vue'),

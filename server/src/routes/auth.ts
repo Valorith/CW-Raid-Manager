@@ -87,7 +87,11 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
   function getPostAuthBaseUrl(reply: FastifyReply, cookieValue?: string): string {
     if (cookieValue) {
       const unsignedCookie = reply.unsignCookie(cookieValue);
-      if (unsignedCookie.valid && unsignedCookie.value && isAllowedClientOrigin(unsignedCookie.value)) {
+      if (
+        unsignedCookie.valid &&
+        unsignedCookie.value &&
+        isAllowedClientOrigin(unsignedCookie.value)
+      ) {
         return unsignedCookie.value;
       }
     }
@@ -166,7 +170,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             await linkGoogleToUser(linkingUserId, profile);
             return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=google`);
           } catch (linkError) {
-            const message = linkError instanceof Error ? linkError.message : 'Failed to link Google account.';
+            const message =
+              linkError instanceof Error ? linkError.message : 'Failed to link Google account.';
             request.log.error({ error: linkError }, 'Error linking Google account');
             return reply.redirect(
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`
@@ -201,12 +206,26 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         const errStack = error instanceof Error ? error.stack : undefined;
-        request.log.error({ error, errorMessage: errMsg, errorStack: errStack, callbackUrl: appConfig.google?.callbackUrl, protocol: request.protocol, hostname: request.hostname, url: request.url, cookies: Object.keys(request.cookies || {}) }, 'Error during Google OAuth callback');
+        request.log.error(
+          {
+            error,
+            errorMessage: errMsg,
+            errorStack: errStack,
+            callbackUrl: appConfig.google?.callbackUrl,
+            protocol: request.protocol,
+            hostname: request.hostname,
+            url: request.url,
+            cookies: Object.keys(request.cookies || {})
+          },
+          'Error during Google OAuth callback'
+        );
         return reply.internalServerError('Unable to complete Google sign-in.');
       }
     });
   } else {
-    server.log.warn('Google OAuth plugin unavailable. Skipping Google callback route registration.');
+    server.log.warn(
+      'Google OAuth plugin unavailable. Skipping Google callback route registration.'
+    );
   }
 
   if (server.hasDecorator('discordOAuth2') && server.discordOAuth2) {
@@ -348,7 +367,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           await linkDiscordToUser(linkingUserId, profile);
           return reply.redirect(`${postAuthBaseUrl}/settings/account?linked=discord`);
         } catch (linkError) {
-          const message = linkError instanceof Error ? linkError.message : 'Failed to link Discord account.';
+          const message =
+            linkError instanceof Error ? linkError.message : 'Failed to link Discord account.';
           request.log.error({ error: linkError }, 'Error linking Discord account');
           return reply.redirect(
             `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent(message)}`
@@ -361,7 +381,10 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       try {
         user = await upsertDiscordUser(profile);
       } catch (dbError) {
-        request.log.error({ error: dbError, discordId: profile.id }, 'Failed to upsert Discord user');
+        request.log.error(
+          { error: dbError, discordId: profile.id },
+          'Failed to upsert Discord user'
+        );
         return reply.internalServerError('Unable to complete Discord sign-in.');
       }
 
@@ -395,7 +418,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       }
     });
   } else {
-    server.log.warn('Discord OAuth plugin unavailable. Skipping Discord callback route registration.');
+    server.log.warn(
+      'Discord OAuth plugin unavailable. Skipping Discord callback route registration.'
+    );
   }
 
   // ============ OAuth Account Linking Routes ============
@@ -449,6 +474,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         defaultLogFileName: true,
         admin: true,
         guide: true,
+        tester: true,
         guildMemberships: {
           select: {
             role: true,
@@ -489,7 +515,9 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       return { user: null };
     }
 
-    const pendingApplication = user.guildApplications.find((application) => application.status === 'PENDING');
+    const pendingApplication = user.guildApplications.find(
+      (application) => application.status === 'PENDING'
+    );
 
     return {
       user: {
@@ -500,6 +528,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         defaultLogFileName: user.defaultLogFileName ?? null,
         isAdmin: user.admin,
         isGuide: user.guide,
+        isTester: user.tester,
         guilds: user.guildMemberships.map((membership) => ({
           id: membership.guild.id,
           name: membership.guild.name,

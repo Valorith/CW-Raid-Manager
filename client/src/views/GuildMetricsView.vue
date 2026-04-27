@@ -3811,8 +3811,8 @@ const attendanceByCharacterSummaries = computed<AttendanceCharacterSummary[]>(()
     if (mode === 'member') {
       entry.missingMain = Boolean(
         optionForUpdate &&
-        optionForUpdate.key !== UNKNOWN_MEMBER_ENTITY_KEY &&
-        !optionForUpdate.isMain
+          optionForUpdate.key !== UNKNOWN_MEMBER_ENTITY_KEY &&
+          !optionForUpdate.isMain
       );
     }
     if (!entry.class && record.character.class && mode !== 'member') {

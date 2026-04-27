@@ -26,13 +26,20 @@ export async function ensureGuideOrAdmin(userId: string): Promise<void> {
   }
 }
 
+export async function ensureTesterOrAdmin(userId: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { admin: true, tester: true }
+  });
+
+  if (!user?.admin && !user?.tester) {
+    throw new Error('Tester or Administrator privileges required.');
+  }
+}
+
 export async function listUsersForAdmin() {
   const users = await prisma.user.findMany({
-    orderBy: [
-      { admin: 'desc' },
-      { guide: 'desc' },
-      { displayName: 'asc' }
-    ],
+    orderBy: [{ admin: 'desc' }, { guide: 'desc' }, { displayName: 'asc' }],
     select: {
       id: true,
       email: true,
@@ -40,6 +47,7 @@ export async function listUsersForAdmin() {
       nickname: true,
       admin: true,
       guide: true,
+      tester: true,
       createdAt: true,
       updatedAt: true,
       guildMemberships: {
@@ -69,6 +77,7 @@ export async function listUsersForAdmin() {
       nickname: preferred.nickname ?? null,
       isAdmin: user.admin,
       isGuide: user.guide,
+      isTester: user.tester,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       guildMemberships: user.guildMemberships.map((membership) => ({
@@ -82,7 +91,14 @@ export async function listUsersForAdmin() {
 
 export async function updateUserByAdmin(
   userId: string,
-  data: { admin?: boolean | null; guide?: boolean | null; displayName?: string; nickname?: string | null; email?: string }
+  data: {
+    admin?: boolean | null;
+    guide?: boolean | null;
+    tester?: boolean | null;
+    displayName?: string;
+    nickname?: string | null;
+    email?: string;
+  }
 ) {
   const update: Record<string, unknown> = {};
 
@@ -99,6 +115,10 @@ export async function updateUserByAdmin(
     if (data.guide) {
       update.admin = false; // Clear admin if setting guide
     }
+  }
+
+  if (typeof data.tester === 'boolean') {
+    update.tester = data.tester;
   }
 
   if (data.displayName !== undefined) {
@@ -140,6 +160,7 @@ export async function updateUserByAdmin(
       nickname: true,
       admin: true,
       guide: true,
+      tester: true,
       createdAt: true,
       updatedAt: true,
       guildMemberships: {
@@ -168,6 +189,7 @@ export async function updateUserByAdmin(
     nickname: preferred.nickname ?? null,
     isAdmin: user.admin,
     isGuide: user.guide,
+    isTester: user.tester,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     guildMemberships: user.guildMemberships.map((membership) => ({

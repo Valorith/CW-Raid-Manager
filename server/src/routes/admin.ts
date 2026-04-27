@@ -2,7 +2,6 @@ import { GuildRole, InboundWebhookActionType, InboundWebhookMessageStatus } from
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-
 import { authenticate } from '../middleware/authenticate.js';
 import {
   deleteGuildByAdmin,
@@ -155,6 +154,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         .object({
           admin: z.boolean().optional(),
           guide: z.boolean().optional(),
+          tester: z.boolean().optional(),
           displayName: z.string().min(1).max(120).optional(),
           nickname: z.string().max(120).nullable().optional(),
           email: z.string().email().optional()
