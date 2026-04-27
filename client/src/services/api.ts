@@ -3291,6 +3291,8 @@ export interface CreateTestChangePayload {
   checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
 }
 
+export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'>;
+
 export const api = {
   async fetchCurrentUser() {
     const response = await axios.get('/api/auth/me');
@@ -3320,6 +3322,13 @@ export const api = {
     const response = await axios.post('/api/test-manager/changes', payload);
     return response.data.change;
   },
+  async updateTestChange(changeId: string, payload: UpdateTestChangePayload): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}`,
+      payload
+    );
+    return response.data.change;
+  },
   async updateTestChangeStatus(
     changeId: string,
     status: TestChangeStatus,
@@ -3333,6 +3342,14 @@ export const api = {
   },
   async deleteTestChange(changeId: string): Promise<void> {
     await axios.delete(`/api/test-manager/changes/${encodeURIComponent(changeId)}`);
+  },
+  async removeTestChangeTester(changeId: string, testerId: string): Promise<TestChange> {
+    const response = await axios.delete(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/testers/${encodeURIComponent(
+        testerId
+      )}`
+    );
+    return response.data.change;
   },
   async volunteerForTestChange(changeId: string): Promise<TestChange> {
     const response = await axios.post(

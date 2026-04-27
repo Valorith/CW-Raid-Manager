@@ -148,6 +148,45 @@ function serializeUser(user: UserName | null) {
   };
 }
 
+function roleKeyForUser(user: Pick<UserName, 'admin' | 'guide' | 'tester'> | null): TestManagerRoleKey {
+  if (user?.admin) {
+    return 'ADMIN';
+  }
+  if (user?.guide) {
+    return 'GUIDE';
+  }
+  if (user?.tester) {
+    return 'TESTER';
+  }
+  return 'USER';
+}
+
+export async function getTestManagerUserPermissions(
+  user: Pick<UserName, 'admin' | 'guide' | 'tester'>
+): Promise<TestManagerPermissionKey[]> {
+  const settings = await getTestManagerSettings();
+  const roleKey = roleKeyForUser(user);
+  return settings.roles.find((role) => role.key === roleKey)?.permissions ?? [];
+}
+
+export async function userCanViewTestManager(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { admin: true, guide: true, tester: true }
+  });
+  if (!user) {
+    return false;
+  }
+
+  return (await getTestManagerUserPermissions(user)).includes('view');
+}
+
+export async function ensureCanViewTestManager(userId: string): Promise<void> {
+  if (!(await userCanViewTestManager(userId))) {
+    throw new Error('Test Manager view permission required.');
+  }
+}
+
 const RICH_TEXT_TAG_ALIASES: Record<string, string> = {
   b: 'strong',
   i: 'em',
@@ -597,6 +636,7 @@ type SerializedChange = ReturnType<typeof serializeChange>;
 
 interface DiscordWebhookBody {
   username?: string;
+  avatar_url?: string;
   allowed_mentions?: { parse: string[] };
   embeds: Array<{
     title: string;
@@ -638,6 +678,8 @@ const TEST_MANAGER_DISCORD_EVENT_META: Record<
   'note.added': { label: 'Testing Note Added', color: DISCORD_COLORS.info }
 };
 
+const TEST_MANAGER_DISCORD_AVATAR_PATH = '/cw-nexus-logo.png';
+
 function formatLabel(value: string): string {
   return value
     .replace(/_/g, ' ')
@@ -647,6 +689,10 @@ function formatLabel(value: string): string {
 
 function truncateDiscord(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1))}…` : value;
+}
+
+function buildClientAssetUrl(pathname: string): string {
+  return new URL(pathname, `${appConfig.clientUrl.replace(/\/$/, '')}/`).toString();
 }
 
 function buildChangeUrl(
@@ -813,6 +859,7 @@ function buildTestManagerDiscordPayload(
 
   return {
     username: 'Test Manager',
+    avatar_url: buildClientAssetUrl(TEST_MANAGER_DISCORD_AVATAR_PATH),
     allowed_mentions: { parse: [] },
     embeds: [
       {
@@ -1390,6 +1437,88 @@ export async function createTestChange(
   return serialized;
 }
 
+export async function updateTestChange(
+  actorUserId: string,
+  changeId: string,
+  input: {
+    title: string;
+    description: string;
+    category: string;
+    subsystem: string;
+    priority: TestChangePriority;
+    targetBuild?: string | null;
+    dueAt?: Date | null;
+    assignedToId?: string | null;
+  }
+) {
+  await ensureAdmin(actorUserId);
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      subsystem: true,
+      priority: true,
+      targetBuild: true,
+      dueAt: true,
+      assignedToId: true
+    }
+  });
+  if (!existing) {
+    throw new Error('Change not found.');
+  }
+
+  const data = {
+    title: input.title.trim(),
+    description: sanitizeRichText(input.description),
+    category: input.category.trim(),
+    subsystem: input.subsystem.trim(),
+    priority: input.priority,
+    targetBuild: input.targetBuild?.trim() || null,
+    dueAt: input.dueAt ?? null,
+    assignedToId: input.assignedToId ?? null
+  };
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: 'Change details updated',
+      detail: 'Basic change metadata was updated by an administrator.',
+      metadata: {
+        from: {
+          title: existing.title,
+          category: existing.category,
+          subsystem: existing.subsystem,
+          priority: existing.priority,
+          targetBuild: existing.targetBuild,
+          dueAt: existing.dueAt?.toISOString() ?? null,
+          assignedToId: existing.assignedToId
+        },
+        to: {
+          title: data.title,
+          category: data.category,
+          subsystem: data.subsystem,
+          priority: data.priority,
+          targetBuild: data.targetBuild,
+          dueAt: data.dueAt?.toISOString() ?? null,
+          assignedToId: data.assignedToId
+        }
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
 export async function setTestChangeStatus(
   actorUserId: string,
   changeId: string,
@@ -1444,6 +1573,54 @@ export async function setTestChangeStatus(
     });
   }
   return serialized;
+}
+
+export async function removeTesterFromChange(
+  actorUserId: string,
+  changeId: string,
+  testerId: string
+) {
+  await ensureAdmin(actorUserId);
+
+  let removedTesterName = 'Tester';
+  await prisma.$transaction(async (tx) => {
+    const [change, tester] = await Promise.all([
+      tx.testChange.findUnique({ where: { id: changeId }, select: { id: true } }),
+      tx.testChangeTester.findFirst({
+        where: { id: testerId, changeId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              nickname: true
+            }
+          }
+        }
+      })
+    ]);
+
+    if (!change) {
+      throw new Error('Change not found.');
+    }
+    if (!tester) {
+      throw new Error('Tester assignment not found.');
+    }
+
+    removedTesterName = displayName(tester.user);
+
+    await tx.testChangeTester.delete({ where: { id: tester.id } });
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.ASSIGNMENT_UPDATED,
+      label: 'Tester removed',
+      detail: `${removedTesterName} was removed from this change.`,
+      metadata: { testerId: tester.id, userId: tester.userId }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
 }
 
 export async function deleteTestChange(actorUserId: string, changeId: string): Promise<void> {

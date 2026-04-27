@@ -8,6 +8,7 @@ import {
   upsertDiscordUser,
   upsertGoogleUser
 } from '../services/authService.js';
+import { getTestManagerUserPermissions } from '../services/testManagerService.js';
 import { prisma } from '../utils/prisma.js';
 
 const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
@@ -518,6 +519,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     const pendingApplication = user.guildApplications.find(
       (application) => application.status === 'PENDING'
     );
+    const testManagerPermissions = await getTestManagerUserPermissions(user);
 
     return {
       user: {
@@ -529,6 +531,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         isAdmin: user.admin,
         isGuide: user.guide,
         isTester: user.tester,
+        testManagerPermissions,
         guilds: user.guildMemberships.map((membership) => ({
           id: membership.guild.id,
           name: membership.guild.name,

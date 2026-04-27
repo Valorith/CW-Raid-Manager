@@ -104,7 +104,7 @@ const router = createRouter({
       path: '/test-manager/:section?/:changeId?',
       name: 'TestManager',
       component: () => import('../views/TestManagerView.vue'),
-      meta: { requiresAuth: true, title: 'Test Manager' }
+      meta: { requiresAuth: true, requiresTestManagerView: true, title: 'Test Manager' }
     },
     {
       path: '/settings/account',
@@ -184,6 +184,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresGuideOrAdmin && !authStore.isAdminOrGuide) {
+    return { path: '/dashboard' };
+  }
+
+  if (to.meta.requiresTestManagerView && !authStore.canViewTestManager) {
     return { path: '/dashboard' };
   }
 

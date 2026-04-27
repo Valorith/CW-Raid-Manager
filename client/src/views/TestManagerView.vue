@@ -26,7 +26,11 @@
         class="tm-subnav__item"
         :class="{ 'tm-subnav__item--active': currentSection === item.key }"
       >
-        <span class="tm-subnav__icon" aria-hidden="true">{{ item.icon }}</span>
+        <span class="tm-subnav__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path v-for="path in item.iconPaths" :key="path" :d="path" />
+          </svg>
+        </span>
         {{ item.label }}
       </RouterLink>
     </nav>
@@ -262,6 +266,9 @@
                 <span>Passed</span>
               </span>
             </button>
+            <p v-if="isViewerRequestedPending(change)" class="tm-change-card__request-strip">
+              Your help testing this was requested.
+            </p>
           </article>
           <p v-if="!loading && changes.length === 0" class="tm-change-list__empty">
             {{ changeListEmptyMessage }}
@@ -311,6 +318,15 @@
             <div class="tm-detail__actions">
               <StatusPill :status="activeChange.status" />
               <div class="tm-detail__action-buttons">
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-btn"
+                  @click="openEditChange"
+                >
+                  <span aria-hidden="true">✎</span>
+                  Edit Change
+                </button>
                 <button
                   v-if="canStartTesting(activeChange)"
                   type="button"
@@ -463,18 +479,23 @@
               </select>
             </div>
             <div class="tm-table">
-              <div class="tm-table__head tm-table__row--testers">
+              <div
+                class="tm-table__head tm-table__row--testers"
+                :class="{ 'tm-table__row--testers-admin': authStore.isAdmin }"
+              >
                 <span>Tester</span>
                 <span>Assignment</span>
                 <span>Status</span>
                 <span>Final Result</span>
                 <span>Notes</span>
                 <span>Updated</span>
+                <span v-if="authStore.isAdmin">Actions</span>
               </div>
               <div
                 v-for="tester in filteredActiveTesters"
                 :key="tester.id"
                 class="tm-table__row tm-table__row--testers"
+                :class="{ 'tm-table__row--testers-admin': authStore.isAdmin }"
               >
                 <span>{{ tester.user?.displayName ?? 'Unknown' }}</span>
                 <span>{{ assignmentLabel(tester.assignment) }}</span>
@@ -493,6 +514,16 @@
                 >
                 <span>{{ tester.notesCount }}</span>
                 <span>{{ relativeTime(tester.updatedAt) }}</span>
+                <span v-if="authStore.isAdmin" class="tm-table-actions">
+                  <button
+                    type="button"
+                    class="tm-table-action tm-table-action--danger"
+                    :aria-label="`Remove ${tester.user?.displayName ?? 'tester'} from this change`"
+                    @click="openRemoveTesterConfirm(tester)"
+                  >
+                    Remove
+                  </button>
+                </span>
               </div>
               <p v-if="filteredActiveTesters.length === 0" class="tm-empty-table">
                 No testers match the current filters.
@@ -595,6 +626,21 @@
               </article>
             </div>
           </section>
+        </main>
+
+        <main
+          v-else-if="changeUnavailable"
+          class="tm-panel tm-detail tm-detail-unavailable"
+          aria-labelledby="change-unavailable-title"
+        >
+          <div class="tm-unavailable-state">
+            <span aria-hidden="true">⌫</span>
+            <h2 id="change-unavailable-title">Change Not Available</h2>
+            <p>This change record is no longer available.</p>
+            <button type="button" class="tm-btn tm-btn--primary" @click="goToChangesList">
+              View Changes
+            </button>
+          </div>
         </main>
 
         <button
@@ -1248,6 +1294,141 @@
     </div>
 
     <div
+      v-if="editOpen"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Edit test change"
+    >
+      <form class="tm-modal__panel tm-create-modal tm-edit-modal" @submit.prevent="saveEditChange">
+        <header class="tm-create-modal__header">
+          <div>
+            <p class="tm-create-modal__eyebrow">Test Manager change</p>
+            <h2>Edit Change</h2>
+            <p v-if="activeChange">#{{ activeChange.publicId }} {{ activeChange.title }}</p>
+          </div>
+          <button type="button" class="tm-icon-btn" aria-label="Close" @click="closeEditChange">
+            ×
+          </button>
+        </header>
+
+        <datalist id="tm-edit-category-options">
+          <option v-for="option in createCategoryOptions" :key="option" :value="option"></option>
+        </datalist>
+        <datalist id="tm-edit-subsystem-options">
+          <option v-for="option in createSubsystemOptions" :key="option" :value="option"></option>
+        </datalist>
+        <datalist id="tm-edit-build-options">
+          <option v-for="option in createTargetBuildOptions" :key="option" :value="option"></option>
+        </datalist>
+
+        <div class="tm-edit-modal__body">
+          <section class="tm-create-section">
+            <div class="tm-create-section__title">
+              <span aria-hidden="true">#</span>
+              <div>
+                <h3>Change scope</h3>
+                <p>Update the visible title, routing, and build target.</p>
+              </div>
+            </div>
+            <label class="tm-field tm-field--full">
+              <span>Change title</span>
+              <input v-model="editForm.title" class="tm-input" required />
+            </label>
+            <div class="tm-create-grid">
+              <label class="tm-field tm-combo-field">
+                <span>Category <small>select or type</small></span>
+                <div class="tm-combo-field__control">
+                  <input
+                    v-model="editForm.category"
+                    class="tm-input"
+                    list="tm-edit-category-options"
+                    required
+                  />
+                  <span aria-hidden="true">⌄</span>
+                </div>
+              </label>
+              <label class="tm-field tm-combo-field">
+                <span>Subsystem <small>select or type</small></span>
+                <div class="tm-combo-field__control">
+                  <input
+                    v-model="editForm.subsystem"
+                    class="tm-input"
+                    list="tm-edit-subsystem-options"
+                    required
+                  />
+                  <span aria-hidden="true">⌄</span>
+                </div>
+              </label>
+              <label class="tm-field tm-combo-field">
+                <span>Target build <small>optional</small></span>
+                <div class="tm-combo-field__control">
+                  <input
+                    v-model="editForm.targetBuild"
+                    class="tm-input"
+                    list="tm-edit-build-options"
+                  />
+                  <span aria-hidden="true">⌄</span>
+                </div>
+              </label>
+              <label class="tm-field">
+                <span>Due date <small>optional</small></span>
+                <input v-model="editForm.dueAt" class="tm-input" type="datetime-local" />
+              </label>
+            </div>
+          </section>
+
+          <section class="tm-create-section">
+            <div class="tm-create-section__title">
+              <span aria-hidden="true">!</span>
+              <div>
+                <h3>Priority and description</h3>
+                <p>Adjust the tester-facing brief for this change.</p>
+              </div>
+            </div>
+            <fieldset class="tm-priority-selector">
+              <legend>Priority</legend>
+              <label
+                v-for="option in createPriorityOptions"
+                :key="option.value"
+                :class="{
+                  'tm-priority-selector__option--selected': editForm.priority === option.value
+                }"
+                class="tm-priority-selector__option"
+              >
+                <input v-model="editForm.priority" type="radio" :value="option.value" />
+                <strong>{{ option.label }}</strong>
+                <span>{{ option.detail }}</span>
+              </label>
+            </fieldset>
+            <label class="tm-field tm-field--full">
+              <span>Description</span>
+              <textarea
+                v-model="editForm.description"
+                class="tm-textarea tm-create-description"
+                required
+              ></textarea>
+            </label>
+          </section>
+        </div>
+
+        <footer class="tm-create-modal__footer">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="editSaving"
+            @click="closeEditChange"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="tm-btn tm-btn--primary" :disabled="editSaving">
+            {{ editSaving ? 'Saving...' : 'Save Change' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div
       v-if="resultActionConfirm"
       class="tm-modal"
       role="dialog"
@@ -1336,6 +1517,49 @@
             @click="confirmDeveloperAction"
           >
             {{ developerActionPending ? 'Working...' : developerActionConfirm.confirmLabel }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="testerRemoveConfirm"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tester-remove-confirm-title"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">⌫</span>
+          <div>
+            <p>Tester Matrix</p>
+            <h2 id="tester-remove-confirm-title">Remove tester?</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          This removes {{ testerRemoveConfirm.testerName }} from the selected change.
+        </p>
+        <div class="tm-confirm-modal__change">
+          <span>Selected change</span>
+          <strong>{{ developerActionChangeLabel }}</strong>
+        </div>
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="testerRemovePending"
+            @click="closeRemoveTesterConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="tm-btn tm-btn--danger"
+            :disabled="testerRemovePending"
+            @click="confirmRemoveTester"
+          >
+            {{ testerRemovePending ? 'Removing...' : 'Remove Tester' }}
           </button>
         </div>
       </section>
@@ -1553,6 +1777,7 @@ import {
   type TestManagerDashboard,
   type TestManagerSettings,
   type TestManagerUserSummary,
+  type UpdateTestChangePayload,
   type TestResult,
   type TestRunStatus
 } from '../services/api';
@@ -1580,6 +1805,7 @@ const loading = ref(false);
 const dashboard = ref<TestManagerDashboard | null>(null);
 const changes = ref<TestChange[]>([]);
 const selectedChange = ref<TestChange | null>(null);
+const changeUnavailable = ref(false);
 const users = ref<TestManagerUserSummary[]>([]);
 const settings = ref<TestManagerSettings | null>(null);
 const savedSettings = ref<TestManagerSettings | null>(null);
@@ -1618,6 +1844,10 @@ interface DeveloperActionConfirm {
   tone: ConfirmTone;
   icon: string;
 }
+interface TesterRemoveConfirm {
+  testerId: string;
+  testerName: string;
+}
 interface CoverageNoteView {
   testerName: string;
   itemTitle: string;
@@ -1628,6 +1858,8 @@ const userRoleFilter = ref<UserRoleFilter>('all');
 const userPage = ref(1);
 const usersPerPage = 8;
 const createOpen = ref(false);
+const editOpen = ref(false);
+const editSaving = ref(false);
 const requestOpen = ref(false);
 const notesOpen = ref(false);
 const checklistNoteOpen = ref(false);
@@ -1638,6 +1870,8 @@ const resultActionConfirm = ref<ResultActionConfirm | null>(null);
 const resultActionPending = ref(false);
 const developerActionConfirm = ref<DeveloperActionConfirm | null>(null);
 const developerActionPending = ref(false);
+const testerRemoveConfirm = ref<TesterRemoveConfirm | null>(null);
+const testerRemovePending = ref(false);
 const feedbackError = ref('');
 const notesEditor = ref<{
   getHtml: () => string;
@@ -1663,10 +1897,43 @@ const changeStatuses: TestChangeStatus[] = [
 const detailTabs = ['Overview', 'Testers', 'Coverage', 'History'] as const;
 type DetailTab = (typeof detailTabs)[number];
 const subnavItems = [
-  { key: 'dashboard', label: 'Dashboard', icon: '⌂', to: '/test-manager/dashboard' },
-  { key: 'changes', label: 'Changes', icon: '⚒', to: '/test-manager/changes' },
-  { key: 'users', label: 'Users', icon: '♟', to: '/test-manager/users' },
-  { key: 'settings', label: 'Settings', icon: '⚙', to: '/test-manager/settings' }
+  {
+    key: 'dashboard',
+    label: 'Dashboard',
+    to: '/test-manager/dashboard',
+    iconPaths: ['M3 11.5 12 4l9 7.5', 'M5.5 10.5V20h13v-9.5', 'M9.5 20v-5h5v5']
+  },
+  {
+    key: 'changes',
+    label: 'Changes',
+    to: '/test-manager/changes',
+    iconPaths: [
+      'M14.5 5.5a4 4 0 0 0 4 4L10 18a2.1 2.1 0 0 1-3-3l8.5-8.5Z',
+      'M17.5 2.5 21.5 6.5',
+      'M4 4l16 16',
+      'M4 8l4-4'
+    ]
+  },
+  {
+    key: 'users',
+    label: 'Users',
+    to: '/test-manager/users',
+    iconPaths: [
+      'M15.5 20v-1.5a4 4 0 0 0-4-4h-5a4 4 0 0 0-4 4V20',
+      'M9 10.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
+      'M21.5 20v-1.5a3.5 3.5 0 0 0-2.8-3.4',
+      'M16.4 3.7a3.5 3.5 0 0 1 0 6.8'
+    ]
+  },
+  {
+    key: 'settings',
+    label: 'Settings',
+    to: '/test-manager/settings',
+    iconPaths: [
+      'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
+      'M19.4 15a1.8 1.8 0 0 0 .36 1.98l.05.05a2.1 2.1 0 1 1-2.97 2.97l-.05-.05a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.65V21.3a2.1 2.1 0 1 1-4.2 0v-.06a1.8 1.8 0 0 0-1.1-1.65 1.8 1.8 0 0 0-1.98.36l-.05.05a2.1 2.1 0 1 1-2.97-2.97l.05-.05A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.1H2.9a2.1 2.1 0 1 1 0-4.2h.06A1.8 1.8 0 0 0 4.6 8a1.8 1.8 0 0 0-.36-1.98l-.05-.05A2.1 2.1 0 1 1 7.16 3l.05.05A1.8 1.8 0 0 0 9.2 3.4a1.8 1.8 0 0 0 1.1-1.65V1.7a2.1 2.1 0 1 1 4.2 0v.06a1.8 1.8 0 0 0 1.1 1.65 1.8 1.8 0 0 0 1.98-.36l.05-.05a2.1 2.1 0 1 1 2.97 2.97l-.05.05A1.8 1.8 0 0 0 19.4 8a1.8 1.8 0 0 0 1.65 1.1h.06a2.1 2.1 0 1 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z'
+    ]
+  }
 ] as const;
 
 const permissionColumns = [
@@ -1896,6 +2163,17 @@ const createForm = ref<CreateTestChangePayload>({
   checklist: [createChecklistItem()]
 });
 
+const editForm = ref<UpdateTestChangePayload>({
+  title: '',
+  description: '',
+  category: '',
+  subsystem: '',
+  priority: 'MEDIUM',
+  targetBuild: '',
+  dueAt: null,
+  assignedToId: null
+});
+
 const requestForm = ref<{ userId: string; assignment: Exclude<TestAssignmentKind, 'VOLUNTEER'> }>({
   userId: '',
   assignment: 'ADMIN_REQUESTED'
@@ -1908,6 +2186,16 @@ const currentSection = computed(() => {
   return section && ['dashboard', 'changes', 'users', 'settings'].includes(section)
     ? section
     : 'dashboard';
+});
+const requestedChangeId = computed(() => {
+  if (currentSection.value !== 'changes') {
+    return '';
+  }
+
+  const changeId = Array.isArray(route.params.changeId)
+    ? route.params.changeId[0]
+    : route.params.changeId;
+  return typeof changeId === 'string' ? changeId.trim() : '';
 });
 
 function requestedDetailTab(): DetailTab | null {
@@ -1936,7 +2224,11 @@ function requestedNotesModal(): boolean {
   return requested === '1' || requested === 'true';
 }
 
-const activeChange = computed(() => selectedChange.value ?? changes.value[0] ?? null);
+const activeChange = computed(() =>
+  requestedChangeId.value
+    ? selectedChange.value
+    : (selectedChange.value ?? changes.value[0] ?? null)
+);
 const activeChecklistNoteItem = computed(() =>
   activeChange.value?.checklist.find((item) => item.id === checklistNoteItemId.value)
 );
@@ -2248,7 +2540,16 @@ async function loadDashboard() {
   dashboard.value = await api.fetchTestManagerDashboard();
 }
 
+function isNotFoundError(error: unknown) {
+  if (!error || typeof error !== 'object' || !('response' in error)) {
+    return false;
+  }
+
+  return (error as { response?: { status?: number } }).response?.status === 404;
+}
+
 async function loadChanges() {
+  changeUnavailable.value = false;
   const fetchedChanges = await api.fetchTestChanges({
     status: changeStatusFilter.value,
     search: changeSearch.value
@@ -2258,11 +2559,17 @@ async function loadChanges() {
       (change) => changeStatusFilter.value !== 'ACTIVE' || change.viewerTester?.result !== 'PASS'
     )
     .sort(compareChanges);
-  const routeChangeId = Array.isArray(route.params.changeId)
-    ? route.params.changeId[0]
-    : route.params.changeId;
+  const routeChangeId = requestedChangeId.value;
   if (routeChangeId) {
-    selectedChange.value = await api.fetchTestChange(routeChangeId);
+    try {
+      selectedChange.value = await api.fetchTestChange(routeChangeId);
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+      selectedChange.value = null;
+      changeUnavailable.value = true;
+    }
   } else {
     selectedChange.value = changes.value[0] ?? null;
   }
@@ -2365,6 +2672,10 @@ async function saveSettings() {
     settings.value = cloneSettings(result);
     savedSettings.value = cloneSettings(result);
     settingsMessage.value = 'Settings saved.';
+    await authStore.fetchCurrentUser();
+    if (!authStore.canViewTestManager) {
+      await router.push('/dashboard');
+    }
   } catch (error) {
     settingsMessage.value =
       error instanceof Error ? error.message : 'Unable to save role permissions.';
@@ -2396,6 +2707,10 @@ async function loadCurrentSection() {
 
 function goToChange(changeId: string) {
   router.push(`/test-manager/changes/${changeId}`);
+}
+
+function goToChangesList() {
+  router.push('/test-manager/changes');
 }
 
 function goToChangeTesters(changeId: string) {
@@ -2638,6 +2953,32 @@ function closeCreate() {
   resetCreateForm();
 }
 
+function openEditChange() {
+  if (!activeChange.value) {
+    return;
+  }
+
+  editForm.value = {
+    title: activeChange.value.title,
+    description: plainText(activeChange.value.description),
+    category: activeChange.value.category,
+    subsystem: activeChange.value.subsystem,
+    priority: activeChange.value.priority,
+    targetBuild: activeChange.value.targetBuild ?? '',
+    dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
+    assignedToId: activeChange.value.assignedTo?.id ?? null
+  };
+  editOpen.value = true;
+}
+
+function closeEditChange() {
+  if (editSaving.value) {
+    return;
+  }
+  editOpen.value = false;
+  resetEditForm();
+}
+
 function addCreateChecklistItem() {
   createForm.value.checklist.push(createChecklistItem(createForm.value.category));
 }
@@ -2676,6 +3017,19 @@ function resetCreateForm() {
   };
 }
 
+function resetEditForm() {
+  editForm.value = {
+    title: '',
+    description: '',
+    category: '',
+    subsystem: '',
+    priority: 'MEDIUM',
+    targetBuild: '',
+    dueAt: null,
+    assignedToId: null
+  };
+}
+
 function setUserRoleFilter(filter: UserRoleFilter) {
   userRoleFilter.value = filter;
   userPage.value = 1;
@@ -2684,10 +3038,7 @@ function setUserRoleFilter(filter: UserRoleFilter) {
 async function createChange() {
   const payload: CreateTestChangePayload = {
     ...createForm.value,
-    description: createForm.value.description
-      .split(/\n{2,}/)
-      .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
-      .join(''),
+    description: descriptionInputToHtml(createForm.value.description),
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
       .map((item) => ({
@@ -2700,6 +3051,30 @@ async function createChange() {
   resetCreateForm();
   await router.push(`/test-manager/changes/${change.id}`);
   await loadChanges();
+}
+
+async function saveEditChange() {
+  if (!activeChange.value || editSaving.value) {
+    return;
+  }
+
+  editSaving.value = true;
+  try {
+    const dueAt = editForm.value.dueAt?.trim()
+      ? new Date(editForm.value.dueAt).toISOString()
+      : null;
+    selectedChange.value = await api.updateTestChange(activeChange.value.id, {
+      ...editForm.value,
+      description: descriptionInputToHtml(editForm.value.description),
+      targetBuild: editForm.value.targetBuild?.trim() || null,
+      dueAt
+    });
+    editOpen.value = false;
+    resetEditForm();
+    await loadChanges();
+  } finally {
+    editSaving.value = false;
+  }
 }
 
 async function volunteer(change: TestChange) {
@@ -3006,6 +3381,38 @@ async function removeActiveChange() {
   await loadChanges();
 }
 
+function openRemoveTesterConfirm(tester: TestChange['testers'][number]) {
+  testerRemoveConfirm.value = {
+    testerId: tester.id,
+    testerName: tester.user?.displayName ?? 'Tester'
+  };
+}
+
+function closeRemoveTesterConfirm() {
+  if (testerRemovePending.value) {
+    return;
+  }
+  testerRemoveConfirm.value = null;
+}
+
+async function confirmRemoveTester() {
+  if (!activeChange.value || !testerRemoveConfirm.value || testerRemovePending.value) {
+    return;
+  }
+
+  testerRemovePending.value = true;
+  try {
+    selectedChange.value = await api.removeTestChangeTester(
+      activeChange.value.id,
+      testerRemoveConfirm.value.testerId
+    );
+    testerRemoveConfirm.value = null;
+    await loadChanges();
+  } finally {
+    testerRemovePending.value = false;
+  }
+}
+
 async function toggleTester(user: TestManagerUserSummary, tester: boolean) {
   const updated = await api.updateTestManagerUserRole(user.id, tester);
   users.value = users.value.map((entry) =>
@@ -3173,21 +3580,21 @@ function priorityLabel(priority: TestChangePriority) {
 }
 
 function compareChanges(left: TestChange, right: TestChange) {
-  const weights: Record<TestChangePriority, number> = {
-    CRITICAL: 4,
-    HIGH: 3,
-    MEDIUM: 2,
-    LOW: 1
-  };
   return (
     Number(isViewerActivelyTestingChange(right)) - Number(isViewerActivelyTestingChange(left)) ||
-    weights[right.priority] - weights[left.priority] ||
     left.publicId - right.publicId
   );
 }
 
 function isViewerActivelyTestingChange(change: TestChange) {
   return change.viewerTester?.status === 'TESTING' && !change.viewerTester.result;
+}
+
+function isViewerRequestedPending(change: TestChange) {
+  const tester = change.viewerTester;
+  return Boolean(
+    tester?.requestedBy && tester.status === 'NOT_STARTED' && !tester.startedAt && !tester.result
+  );
 }
 
 function statusLabel(status: string) {
@@ -3229,6 +3636,9 @@ function viewerChangeListStatus(change: TestChange): { label: string; tone: stri
   if (tester.status === 'DONE') {
     return { label: 'You tested', tone: 'done' };
   }
+  if (tester.requestedBy && tester.status === 'NOT_STARTED' && !tester.startedAt) {
+    return { label: 'Requested', tone: 'requested' };
+  }
 
   return {
     label: tester.assignment === 'VOLUNTEER' ? 'Not started' : 'Assigned',
@@ -3250,6 +3660,29 @@ function escapeHtml(value: string) {
     (char) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char] ?? char
   );
+}
+
+function descriptionInputToHtml(value: string) {
+  return value
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
+function toLocalDateTimeInput(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 function decodeHtmlEntities(value: string) {
@@ -3469,12 +3902,33 @@ const WorkflowTimeline = defineComponent({
           metadataStatus(event.metadata, 'from') === 'RENEWED'
         );
       });
+    const viewerCompletedTesting = (change: TestChange) => {
+      const tester = change.viewerTester;
+      if (!tester) {
+        return false;
+      }
+
+      return Boolean(
+        tester.startedAt ||
+          tester.completedAt ||
+          tester.result ||
+          tester.status === 'TESTING' ||
+          tester.status === 'DONE' ||
+          tester.checklistProgress.some(
+            (progress) =>
+              progress.completed ||
+              (typeof progress.notesHtml === 'string' && progress.notesHtml.trim())
+          )
+      );
+    };
 
     return () => {
       const activeStep = statusStepMap[props.change.status] ?? props.change.status;
       const activeIndex = steps.indexOf(activeStep);
       const skipRenewed = props.change.status === 'CLOSED' && !wasRenewed(props.change);
       const isTerminalClosed = props.change.status === 'CLOSED';
+      const testingIndex = steps.indexOf('TESTING');
+      const skipTesting = activeIndex > testingIndex && !viewerCompletedTesting(props.change);
       const viewerHasPassed = props.change.viewerTester?.result === 'PASS';
 
       return h('div', { class: 'tm-workflow' }, [
@@ -3484,7 +3938,8 @@ const WorkflowTimeline = defineComponent({
           { class: 'tm-workflow__steps' },
           steps.map((step, index) => {
             const isActive = !isTerminalClosed && step === activeStep;
-            const isSkipped = skipRenewed && step === 'RENEWED';
+            const isSkipped =
+              (skipTesting && step === 'TESTING') || (skipRenewed && step === 'RENEWED');
             const isComplete =
               (activeIndex > index ||
                 (isTerminalClosed && step === 'CLOSED') ||
@@ -3860,29 +4315,86 @@ onBeforeUnmount(() => {
 
 .tm-subnav {
   display: flex;
-  gap: 0;
-  border: 1px solid var(--tm-border);
-  background: rgba(7, 10, 11, 0.92);
+  gap: 0.28rem;
+  align-items: center;
+  border: 1px solid rgba(217, 164, 95, 0.34);
+  border-radius: var(--tm-panel-radius);
+  background:
+    linear-gradient(90deg, rgba(217, 164, 95, 0.16), rgba(85, 183, 255, 0.08) 52%, transparent),
+    rgba(7, 10, 11, 0.94);
   margin-bottom: 0.75rem;
+  padding: 0.28rem;
   overflow-x: auto;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 231, 190, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.24);
 }
 
 .tm-subnav__item {
-  color: var(--tm-muted);
+  color: #d9cfbd;
   text-decoration: none;
-  padding: 0.55rem 1rem;
-  border-right: 1px solid var(--tm-border-soft);
+  padding: 0.58rem 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--tm-control-radius);
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.58rem;
   white-space: nowrap;
   font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  transition:
+    color 0.14s ease,
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-subnav__item:hover,
+.tm-subnav__item:focus-visible {
+  color: #f7e5bf;
+  border-color: rgba(217, 164, 95, 0.34);
+  background: rgba(217, 164, 95, 0.08);
+}
+
+.tm-subnav__icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid rgba(85, 183, 255, 0.22);
+  border-radius: 0.38rem;
+  color: var(--tm-blue);
+  background: rgba(85, 183, 255, 0.08);
+}
+
+.tm-subnav__icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
 }
 
 .tm-subnav__item--active {
-  color: var(--tm-gold);
-  background: rgba(217, 164, 95, 0.09);
-  box-shadow: inset 0 -2px 0 var(--tm-gold);
+  color: #ffe1a1;
+  border-color: rgba(217, 164, 95, 0.52);
+  background:
+    linear-gradient(180deg, rgba(217, 164, 95, 0.2), rgba(217, 164, 95, 0.1)),
+    rgba(15, 22, 22, 0.86);
+  box-shadow:
+    inset 0 -2px 0 var(--tm-gold),
+    0 0 18px rgba(217, 164, 95, 0.12);
+}
+
+.tm-subnav__item--active .tm-subnav__icon {
+  color: #071012;
+  border-color: rgba(255, 231, 190, 0.36);
+  background: var(--tm-gold);
 }
 
 .tm-kpis,
@@ -4131,7 +4643,7 @@ onBeforeUnmount(() => {
   padding: 0.75rem 0.25rem;
   border-bottom: 1px solid var(--tm-border-soft);
   color: inherit;
-  text-align: left;
+  text-align: center;
   background: transparent;
   border-left: 0;
   border-right: 0;
@@ -4167,6 +4679,36 @@ onBeforeUnmount(() => {
   grid-template-columns:
     minmax(7rem, 1.2fr) minmax(6rem, 0.9fr) minmax(5.5rem, 0.8fr) minmax(5.5rem, 0.8fr)
     3rem 5rem;
+}
+
+.tm-table__row--testers-admin {
+  grid-template-columns:
+    minmax(7rem, 1.2fr) minmax(6rem, 0.9fr) minmax(5.5rem, 0.8fr) minmax(5.5rem, 0.8fr)
+    3rem 5rem 5rem;
+}
+
+.tm-table-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.tm-table-action {
+  border: 1px solid rgba(85, 183, 255, 0.4);
+  border-radius: var(--tm-control-radius);
+  background: rgba(20, 68, 105, 0.35);
+  color: #d8efff;
+  padding: 0.42rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tm-table-action--danger {
+  border-color: rgba(255, 107, 85, 0.55);
+  background: rgba(106, 35, 27, 0.44);
+  color: #ffd8d2;
 }
 
 .tm-table__row--users {
@@ -4520,6 +5062,145 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.tm-change-card__request-strip {
+  grid-column: 1 / -1;
+  position: relative;
+  overflow: visible;
+  margin: -0.05rem 0 0;
+  padding: 0.46rem 0.6rem;
+  color: #d9f5ff;
+  border: 1px solid rgba(85, 183, 255, 0.34);
+  border-left: 3px solid #55b7ff;
+  border-radius: 0.35rem;
+  background: rgba(6, 27, 39, 0.84);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow:
+    inset 0 1px 0 rgba(216, 239, 255, 0.05),
+    0 0 0 1px rgba(0, 0, 0, 0.18);
+  text-shadow: none;
+}
+
+.tm-change-card__request-strip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 1.15rem;
+  width: 2.2rem;
+  height: 0.16rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(85, 183, 255, 0),
+    rgba(217, 245, 255, 0.72),
+    rgba(85, 183, 255, 0)
+  );
+  filter: blur(1.4px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: tm-request-strip-glow 30s linear infinite;
+}
+
+@keyframes tm-request-strip-glow {
+  0% {
+    top: 0;
+    left: 1.65rem;
+    width: 2.2rem;
+    height: 0.16rem;
+    background: linear-gradient(
+      90deg,
+      rgba(85, 183, 255, 0),
+      rgba(217, 245, 255, 0.72),
+      rgba(85, 183, 255, 0)
+    );
+    opacity: 0;
+  }
+
+  2% {
+    top: 0;
+    left: 1.65rem;
+    width: 2.2rem;
+    height: 0.16rem;
+    background: linear-gradient(
+      90deg,
+      rgba(85, 183, 255, 0),
+      rgba(217, 245, 255, 0.72),
+      rgba(85, 183, 255, 0)
+    );
+    opacity: 0.58;
+  }
+
+  45% {
+    top: 0;
+    left: calc(100% - 1.65rem);
+    width: 2.2rem;
+    height: 0.16rem;
+    opacity: 0.58;
+  }
+
+  48% {
+    top: 0;
+    left: calc(100% - 1.15rem);
+    opacity: 0;
+  }
+
+  49% {
+    top: 100%;
+    left: calc(100% - 1.15rem);
+    width: 2.2rem;
+    height: 0.16rem;
+    background: linear-gradient(
+      90deg,
+      rgba(85, 183, 255, 0),
+      rgba(217, 245, 255, 0.72),
+      rgba(85, 183, 255, 0)
+    );
+    opacity: 0;
+  }
+
+  51% {
+    top: 100%;
+    left: calc(100% - 1.65rem);
+    width: 2.2rem;
+    height: 0.16rem;
+    opacity: 0.58;
+  }
+
+  94% {
+    top: 100%;
+    left: 1.65rem;
+    width: 2.2rem;
+    height: 0.16rem;
+    opacity: 0.58;
+  }
+
+  97% {
+    top: 100%;
+    left: 1.15rem;
+    opacity: 0;
+  }
+
+  100% {
+    top: 0;
+    left: 1.65rem;
+    width: 2.2rem;
+    height: 0.16rem;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-change-card__request-strip::after {
+    animation: none;
+    top: 0;
+    left: 28%;
+    opacity: 0.48;
+  }
+}
+
 .tm-change-card:hover,
 .tm-change-card:focus-within {
   border-color: rgba(85, 183, 255, 0.82);
@@ -4623,7 +5304,8 @@ onBeforeUnmount(() => {
 }
 
 .tm-dot--viewer-blocked,
-.tm-dot--viewer-assigned {
+.tm-dot--viewer-assigned,
+.tm-dot--viewer-requested {
   background: var(--tm-gold);
 }
 
@@ -4746,9 +5428,16 @@ onBeforeUnmount(() => {
 }
 
 .tm-viewer-status--blocked,
-.tm-viewer-status--assigned {
+.tm-viewer-status--assigned,
+.tm-viewer-status--requested {
   color: var(--tm-gold);
   background: rgba(217, 164, 95, 0.12);
+}
+
+.tm-viewer-status--requested {
+  color: #ffe7a8;
+  border-color: rgba(217, 164, 95, 0.42);
+  background: rgba(217, 164, 95, 0.16);
 }
 
 .tm-viewer-status--unassigned {
@@ -4761,6 +5450,42 @@ onBeforeUnmount(() => {
   height: 100%;
   max-height: none;
   overflow: auto;
+}
+
+.tm-detail-unavailable {
+  grid-column: 3 / -1;
+  display: grid;
+  place-items: center;
+  min-height: 24rem;
+}
+
+.tm-unavailable-state {
+  display: grid;
+  justify-items: center;
+  gap: 0.8rem;
+  max-width: 28rem;
+  text-align: center;
+}
+
+.tm-unavailable-state > span {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  color: var(--tm-gold);
+  border: 1px solid rgba(217, 164, 95, 0.42);
+  border-radius: 50%;
+  background: rgba(217, 164, 95, 0.1);
+  font-size: 1.6rem;
+}
+
+.tm-unavailable-state h2 {
+  margin: 0;
+}
+
+.tm-unavailable-state p {
+  margin: 0;
+  color: var(--tm-muted);
 }
 
 .tm-id {
@@ -5169,8 +5894,19 @@ onBeforeUnmount(() => {
 
 .tm-tester-status-cell {
   display: inline-flex;
+  position: relative;
   align-items: center;
-  gap: 0.46rem;
+  justify-self: center;
+  justify-content: center;
+  min-height: 1.55rem;
+  width: 100%;
+}
+
+.tm-tester-status-cell .tm-status-loader {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 3.45rem);
+  margin-top: -0.475rem;
 }
 
 .tm-status-loader {
@@ -6792,6 +7528,10 @@ onBeforeUnmount(() => {
     0 24px 70px rgba(0, 0, 0, 0.55);
 }
 
+.tm-edit-modal {
+  width: min(58rem, 100%);
+}
+
 .tm-create-modal__header,
 .tm-create-modal__footer {
   display: flex;
@@ -6862,6 +7602,14 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 11rem minmax(0, 1fr);
   overflow: hidden;
+}
+
+.tm-edit-modal__body {
+  min-height: 0;
+  display: grid;
+  gap: 1rem;
+  overflow-y: auto;
+  padding: 1.1rem;
 }
 
 .tm-create-modal__footer {
@@ -7401,6 +8149,10 @@ onBeforeUnmount(() => {
   .tm-change-list {
     height: auto;
     max-height: none;
+  }
+
+  .tm-detail-unavailable {
+    grid-column: auto;
   }
 
   .tm-create-modal__body {

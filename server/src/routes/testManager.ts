@@ -15,6 +15,7 @@ import {
   TEST_MANAGER_ROLE_KEYS,
   createTestChange,
   deleteTestChange,
+  ensureCanViewTestManager,
   getTestChange,
   getTestManagerDashboard,
   getTestManagerSettings,
@@ -22,9 +23,11 @@ import {
   listTestManagerUsers,
   requestTester,
   retestChange,
+  removeTesterFromChange,
   saveChangeNote,
   setTestChangeStatus,
   submitTesterResult,
+  updateTestChange,
   updateTesterChecklistProgress,
   updateTestManagerSettings,
   updateTestManagerUserRole,
@@ -74,14 +77,26 @@ async function requireTesterOrAdmin(
   }
 }
 
+async function requireCanView(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void | FastifyReply> {
+  try {
+    await ensureCanViewTestManager(request.user.userId);
+  } catch (error) {
+    request.log.warn({ error }, 'User attempted to access Test Manager without view permission.');
+    return reply.forbidden('Test Manager view permission required.');
+  }
+}
+
 const richTextSchema = z.string().max(50000);
 
 export async function testManagerRoutes(server: FastifyInstance): Promise<void> {
-  server.get('/dashboard', { preHandler: [authenticate] }, async (request) => {
+  server.get('/dashboard', { preHandler: [authenticate, requireCanView] }, async (request) => {
     return getTestManagerDashboard(request.user.userId);
   });
 
-  server.get('/changes', { preHandler: [authenticate] }, async (request, reply) => {
+  server.get('/changes', { preHandler: [authenticate, requireCanView] }, async (request, reply) => {
     const querySchema = z.object({
       status: z.union([z.nativeEnum(TestChangeStatus), z.literal('ACTIVE')]).optional(),
       search: z.string().max(120).optional()
@@ -94,7 +109,10 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     return listTestChanges(request.user.userId, parsed.data);
   });
 
-  server.post('/changes', { preHandler: [authenticate, requireAdmin] }, async (request, reply) => {
+  server.post(
+    '/changes',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
     const bodySchema = z.object({
       title: z.string().trim().min(3).max(191),
       description: richTextSchema,
@@ -130,26 +148,66 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       request.log.error({ error }, 'Failed to create test change.');
       return reply.badRequest(error instanceof Error ? error.message : 'Unable to create change.');
     }
-  });
-
-  server.get('/changes/:changeId', { preHandler: [authenticate] }, async (request, reply) => {
-    const paramsSchema = z.object({ changeId: z.string().min(1) });
-    const parsed = paramsSchema.safeParse(request.params);
-    if (!parsed.success) {
-      return reply.badRequest(parsed.error.message);
     }
+  );
 
-    const change = await getTestChange(parsed.data.changeId, request.user.userId);
-    if (!change) {
-      return reply.notFound('Change not found.');
+  server.get(
+    '/changes/:changeId',
+    { preHandler: [authenticate, requireCanView] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      const change = await getTestChange(parsed.data.changeId, request.user.userId);
+      if (!change) {
+        return reply.notFound('Change not found.');
+      }
+
+      return { change };
     }
+  );
 
-    return { change };
-  });
+  server.patch(
+    '/changes/:changeId',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({
+        title: z.string().trim().min(3).max(191),
+        description: richTextSchema,
+        category: z.string().trim().min(1).max(80),
+        subsystem: z.string().trim().min(1).max(80),
+        priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
+        targetBuild: z.string().trim().max(120).nullable().optional(),
+        dueAt: z.string().datetime().nullable().optional(),
+        assignedToId: z.string().nullable().optional()
+      });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid change update payload.');
+      }
+
+      try {
+        const change = await updateTestChange(request.user.userId, params.data.changeId, {
+          ...body.data,
+          dueAt: body.data.dueAt ? new Date(body.data.dueAt) : null
+        });
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update change.'
+        );
+      }
+    }
+  );
 
   server.patch(
     '/changes/:changeId/status',
-    { preHandler: [authenticate, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const bodySchema = z.object({
@@ -179,8 +237,36 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
   );
 
   server.delete(
+    '/changes/:changeId/testers/:testerId',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        testerId: z.string().min(1)
+      });
+      const params = paramsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.badRequest(params.error.message);
+      }
+
+      try {
+        const change = await removeTesterFromChange(
+          request.user.userId,
+          params.data.changeId,
+          params.data.testerId
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to remove tester.'
+        );
+      }
+    }
+  );
+
+  server.delete(
     '/changes/:changeId',
-    { preHandler: [authenticate, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const parsed = paramsSchema.safeParse(request.params);
@@ -201,7 +287,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/volunteer',
-    { preHandler: [authenticate, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const parsed = paramsSchema.safeParse(request.params);
@@ -220,7 +306,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/retest',
-    { preHandler: [authenticate, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const parsed = paramsSchema.safeParse(request.params);
@@ -239,7 +325,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/request',
-    { preHandler: [authenticate, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const bodySchema = z.object({
@@ -270,7 +356,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/checklist/:checklistItemId',
-    { preHandler: [authenticate, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({
         changeId: z.string().min(1),
@@ -309,7 +395,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/result',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const bodySchema = z.object({
@@ -339,7 +425,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/notes',
-    { preHandler: [authenticate] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const bodySchema = z.object({ contentHtml: richTextSchema });
@@ -362,13 +448,13 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     }
   );
 
-  server.get('/users', { preHandler: [authenticate] }, async () => {
+  server.get('/users', { preHandler: [authenticate, requireCanView] }, async () => {
     return listTestManagerUsers();
   });
 
   server.patch(
     '/users/:userId',
-    { preHandler: [authenticate, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
       const paramsSchema = z.object({ userId: z.string().min(1) });
       const bodySchema = z.object({ tester: z.boolean() });
@@ -386,11 +472,14 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     }
   );
 
-  server.get('/settings', { preHandler: [authenticate, requireAdmin] }, async () => {
+  server.get('/settings', { preHandler: [authenticate, requireCanView, requireAdmin] }, async () => {
     return getTestManagerSettings();
   });
 
-  server.put('/settings', { preHandler: [authenticate, requireAdmin] }, async (request, reply) => {
+  server.put(
+    '/settings',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
     const bodySchema = z.object({
       roles: z.array(
         z.object({
@@ -422,5 +511,6 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         error instanceof Error ? error.message : 'Unable to update role permission settings.'
       );
     }
-  });
+    }
+  );
 }

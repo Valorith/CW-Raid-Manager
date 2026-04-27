@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   isAdmin: boolean;
   isGuide: boolean;
   isTester: boolean;
+  testManagerPermissions: string[];
   guilds: UserGuildSummary[];
   pendingApplication: PendingGuildApplication | null;
 }
@@ -45,6 +46,7 @@ export const useAuthStore = defineStore('auth', {
     isGuide: (state) => state.user?.isGuide ?? false,
     isTester: (state) => state.user?.isTester ?? false,
     isAdminOrGuide: (state) => (state.user?.isAdmin ?? false) || (state.user?.isGuide ?? false),
+    canViewTestManager: (state) => Boolean(state.user?.testManagerPermissions?.includes('view')),
     primaryGuild: (state) => state.user?.guilds?.[0] ?? null,
     pendingApplication: (state) => state.user?.pendingApplication ?? null
   },
@@ -68,6 +70,9 @@ export const useAuthStore = defineStore('auth', {
             isAdmin: Boolean(response.data.user.isAdmin),
             isGuide: Boolean(response.data.user.isGuide),
             isTester: Boolean(response.data.user.isTester),
+            testManagerPermissions: Array.isArray(response.data.user.testManagerPermissions)
+              ? response.data.user.testManagerPermissions
+              : [],
             guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
             pendingApplication: response.data.user.pendingApplication ?? null
           };

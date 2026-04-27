@@ -134,7 +134,7 @@
           </svg>
           Raids
         </RouterLink>
-        <RouterLink v-if="authStore.isAuthenticated" to="/test-manager" class="nav__tab">
+        <RouterLink v-if="authStore.canViewTestManager" to="/test-manager" class="nav__tab">
           <svg
             class="nav__tab-ico"
             viewBox="0 0 24 24"
