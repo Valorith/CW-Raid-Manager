@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate.js';
 import { ensureAdmin, ensureTesterOrAdmin } from '../services/adminService.js';
 import {
+  TEST_MANAGER_DISCORD_EVENT_KEYS,
   TEST_MANAGER_PERMISSION_KEYS,
   TEST_MANAGER_ROLE_KEYS,
   createTestChange,
@@ -29,6 +30,25 @@ import {
   updateTestManagerUserRole,
   volunteerForChange
 } from '../services/testManagerService.js';
+
+function isDiscordWebhookUrl(value: string): boolean {
+  if (!value) {
+    return true;
+  }
+
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      ['discord.com', 'discordapp.com', 'canary.discord.com', 'ptb.discord.com'].includes(
+        url.hostname
+      ) &&
+      /^\/api\/webhooks\/[^/]+\/[^/]+/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function requireAdmin(
   request: FastifyRequest,
@@ -366,7 +386,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     }
   );
 
-  server.get('/settings', { preHandler: [authenticate] }, async () => {
+  server.get('/settings', { preHandler: [authenticate, requireAdmin] }, async () => {
     return getTestManagerSettings();
   });
 
@@ -377,7 +397,18 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
           key: z.enum(TEST_MANAGER_ROLE_KEYS),
           permissions: z.array(z.enum(TEST_MANAGER_PERMISSION_KEYS)).default([])
         })
-      )
+      ),
+      discordNotifications: z
+        .object({
+          enabled: z.boolean(),
+          webhookUrl: z
+            .string()
+            .trim()
+            .max(500)
+            .refine(isDiscordWebhookUrl, 'Must be a valid Discord webhook URL.'),
+          events: z.array(z.enum(TEST_MANAGER_DISCORD_EVENT_KEYS)).default([])
+        })
+        .optional()
     });
     const parsed = bodySchema.safeParse(request.body ?? {});
     if (!parsed.success) {

@@ -95,16 +95,41 @@
                 <h2>Tester Activity</h2>
                 <RouterLink class="tm-link" to="/test-manager/changes">View All</RouterLink>
               </div>
-              <div class="tm-activity-list">
-                <article
+              <div class="tm-activity-table" aria-label="Tester activity">
+                <div class="tm-activity-table__head" aria-hidden="true">
+                  <span>Tester</span>
+                  <span>Change</span>
+                  <span>Result</span>
+                  <span>Updated</span>
+                </div>
+                <button
                   v-for="activity in dashboard?.testerActivity ?? []"
                   :key="`${activity.change.id}-${activity.tester.id}`"
+                  type="button"
+                  class="tm-activity-table__row"
+                  :aria-label="`Open change #${activity.change.publicId} ${activity.change.title}`"
+                  @click="goToChange(activity.change.id)"
                 >
-                  <strong>{{ activity.tester.user?.displayName ?? 'Tester' }}</strong>
-                  <StatusPill :status="activity.tester.result ?? activity.tester.status" compact />
-                  <span>Tested {{ relativeTime(activity.tester.updatedAt) }}</span>
-                  <p v-if="activity.tester.notesHtml">{{ plainText(activity.tester.notesHtml) }}</p>
-                </article>
+                  <span class="tm-activity-table__tester">
+                    <strong>{{ activity.tester.user?.displayName ?? 'Tester' }}</strong>
+                    <small>{{ assignmentLabel(activity.tester.assignment) }}</small>
+                  </span>
+                  <span class="tm-activity-table__change">
+                    <strong>#{{ activity.change.publicId }} {{ activity.change.title }}</strong>
+                  </span>
+                  <span class="tm-activity-table__status">
+                    <StatusPill
+                      :status="activity.tester.result ?? activity.tester.status"
+                      compact
+                    />
+                  </span>
+                  <span class="tm-activity-table__time">
+                    {{ relativeTime(activity.tester.updatedAt) }}
+                  </span>
+                  <span v-if="activity.tester.notesHtml" class="tm-activity-table__notes">
+                    {{ plainText(activity.tester.notesHtml) }}
+                  </span>
+                </button>
               </div>
             </section>
 
@@ -136,13 +161,20 @@
 
         <section class="tm-panel tm-recent-strip" aria-label="Recent activity">
           <h2>Recent Activity</h2>
-          <article v-for="item in recentDashboardItems" :key="item.key">
+          <button
+            v-for="item in recentDashboardItems"
+            :key="item.key"
+            type="button"
+            class="tm-recent-strip__item"
+            :aria-label="`Open change ${item.detail}`"
+            @click="goToChange(item.changeId)"
+          >
             <StatusPill :status="item.status" compact />
             <span>
               <strong>{{ item.title }}</strong>
               <small>{{ item.detail }}</small>
             </span>
-          </article>
+          </button>
         </section>
       </section>
 
@@ -186,7 +218,10 @@
             v-for="change in changes"
             :key="change.id"
             class="tm-change-card"
-            :class="{ 'tm-change-card--active': activeChange?.id === change.id }"
+            :class="{
+              'tm-change-card--active': activeChange?.id === change.id,
+              'tm-change-card--viewer-testing': isViewerActivelyTestingChange(change)
+            }"
           >
             <button type="button" class="tm-change-card__main" @click="goToChange(change.id)">
               <span class="tm-dot" :class="viewerChangeListDotClass(change)"></span>
@@ -228,6 +263,9 @@
               </span>
             </button>
           </article>
+          <p v-if="!loading && changes.length === 0" class="tm-change-list__empty">
+            {{ changeListEmptyMessage }}
+          </p>
         </aside>
 
         <button
@@ -248,8 +286,22 @@
         <main v-if="activeChange" class="tm-panel tm-detail">
           <div class="tm-detail__header">
             <div>
-              <p class="tm-id">#{{ activeChange.publicId }}</p>
+              <button
+                type="button"
+                class="tm-share-button"
+                :aria-label="`Copy share link for #${activeChange.publicId}`"
+                @click="copyChangeShareLink(activeChange)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <path d="m8.6 10.6 6.8-4.2M8.6 13.4l6.8 4.2" />
+                </svg>
+                <span>Share</span>
+              </button>
               <h2>{{ activeChange.title }}</h2>
+              <p class="tm-id">Change #{{ activeChange.publicId }}</p>
               <p>
                 {{ activeChange.category }} / {{ activeChange.subsystem }} · Submitted by
                 {{ activeChange.createdBy?.displayName ?? 'Unknown' }} · Updated
@@ -258,15 +310,17 @@
             </div>
             <div class="tm-detail__actions">
               <StatusPill :status="activeChange.status" />
-              <button
-                v-if="canStartTesting(activeChange)"
-                type="button"
-                class="tm-btn tm-btn--success"
-                @click="volunteer(activeChange)"
-              >
-                <span aria-hidden="true">▷</span>
-                {{ startTestingLabel(activeChange) }}
-              </button>
+              <div class="tm-detail__action-buttons">
+                <button
+                  v-if="canStartTesting(activeChange)"
+                  type="button"
+                  class="tm-btn tm-btn--success"
+                  @click="volunteer(activeChange)"
+                >
+                  <span aria-hidden="true">▷</span>
+                  {{ startTestingLabel(activeChange) }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -763,6 +817,10 @@
                   <span class="tm-dot tm-dot--failed"></span>Failed
                   <strong>{{ coverageFailedPercent }}%</strong>
                 </li>
+                <li>
+                  <span class="tm-dot tm-dot--coverage-blocked"></span>Blocked
+                  <strong>{{ coverageBlockedPercent }}%</strong>
+                </li>
               </ul>
             </div>
           </section>
@@ -876,6 +934,72 @@
             </span>
           </div>
         </div>
+
+        <section v-if="settings" class="tm-settings-section tm-discord-settings">
+          <div class="tm-settings-section__header">
+            <div>
+              <h3>Discord Notifications</h3>
+              <p>Send structured Test Manager change activity to a Discord webhook.</p>
+            </div>
+            <label
+              class="tm-switch"
+              :class="{
+                'tm-switch--checked': settings.discordNotifications.enabled,
+                'tm-switch--disabled': !authStore.isAdmin || settingsSaving
+              }"
+            >
+              <input
+                v-model="settings.discordNotifications.enabled"
+                type="checkbox"
+                :disabled="!authStore.isAdmin || settingsSaving"
+                @change="settingsMessage = ''"
+              />
+              <span aria-hidden="true"></span>
+              <strong>{{ settings.discordNotifications.enabled ? 'Enabled' : 'Disabled' }}</strong>
+            </label>
+          </div>
+
+          <label class="tm-field tm-discord-settings__webhook">
+            <span>Discord Webhook URL</span>
+            <input
+              v-model.trim="settings.discordNotifications.webhookUrl"
+              class="tm-input"
+              type="url"
+              placeholder="https://discord.com/api/webhooks/..."
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="!authStore.isAdmin || settingsSaving"
+              @input="settingsMessage = ''"
+            />
+          </label>
+
+          <div class="tm-discord-events">
+            <label
+              v-for="event in discordNotificationEvents"
+              :key="event.key"
+              class="tm-discord-event"
+              :class="{
+                'tm-discord-event--checked': hasDiscordNotificationEvent(event.key),
+                'tm-discord-event--disabled': !authStore.isAdmin || settingsSaving
+              }"
+            >
+              <input
+                type="checkbox"
+                :checked="hasDiscordNotificationEvent(event.key)"
+                :disabled="!authStore.isAdmin || settingsSaving"
+                @change="
+                  setDiscordNotificationEvent(
+                    event.key,
+                    ($event.target as HTMLInputElement).checked
+                  )
+                "
+              />
+              <span aria-hidden="true"></span>
+              <strong>{{ event.label }}</strong>
+              <small>{{ event.description }}</small>
+            </label>
+          </div>
+        </section>
       </section>
     </template>
 
@@ -1425,15 +1549,18 @@ import {
   type TestChangeListStatusFilter,
   type TestChangePriority,
   type TestChangeStatus,
+  type TestManagerDiscordEventKey,
   type TestManagerDashboard,
   type TestManagerSettings,
   type TestManagerUserSummary,
   type TestResult,
   type TestRunStatus
 } from '../services/api';
+import { useToastBus } from '../components/ToastBus';
 import { useAuthStore } from '../stores/auth';
 
 const authStore = useAuthStore();
+const { addToast } = useToastBus();
 const route = useRoute();
 const router = useRouter();
 
@@ -1553,6 +1680,77 @@ const permissionColumns = [
   { key: 'settings', label: 'Settings', icon: '⚙' }
 ] as const;
 type TestManagerPermissionKey = (typeof permissionColumns)[number]['key'];
+const discordNotificationEvents: Array<{
+  key: TestManagerDiscordEventKey;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: 'change.created',
+    label: 'Change submitted',
+    description: 'A new change is created and submitted for testing.'
+  },
+  {
+    key: 'change.statusChanged',
+    label: 'Status changed',
+    description: 'A change moves between normal workflow states.'
+  },
+  {
+    key: 'change.renewed',
+    label: 'Change renewed',
+    description: 'A completed testing cycle is reopened for another pass.'
+  },
+  {
+    key: 'change.closed',
+    label: 'Change closed',
+    description: 'A change is marked complete and closed.'
+  },
+  {
+    key: 'change.deleted',
+    label: 'Change deleted',
+    description: 'An administrator removes a change.'
+  },
+  {
+    key: 'tester.requested',
+    label: 'Tester requested',
+    description: 'An administrator requests testing from a specific user.'
+  },
+  {
+    key: 'tester.started',
+    label: 'Testing started',
+    description: 'A tester starts testing a change.'
+  },
+  {
+    key: 'tester.retested',
+    label: 'Re-test started',
+    description: 'A tester reopens a previously submitted result.'
+  },
+  {
+    key: 'tester.resultSubmitted',
+    label: 'Tester result submitted',
+    description: 'A tester submits Pass, Fail, or Blocked input.'
+  },
+  {
+    key: 'checklist.completed',
+    label: 'Checklist item completed',
+    description: 'A tester marks a checklist item complete.'
+  },
+  {
+    key: 'checklist.reopened',
+    label: 'Checklist item reopened',
+    description: 'A tester reopens a previously completed checklist item.'
+  },
+  {
+    key: 'checklist.noteUpdated',
+    label: 'Checklist note updated',
+    description: 'A tester adds or changes a checklist item note.'
+  },
+  {
+    key: 'note.added',
+    label: 'Change testing note added',
+    description: 'A tester adds a cumulative note on the change.'
+  }
+];
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
 
 const createCategoryOptions = [
@@ -1672,7 +1870,12 @@ function cloneSettings(value: TestManagerSettings): TestManagerSettings {
     roles: value.roles.map((role) => ({
       ...role,
       permissions: [...role.permissions]
-    }))
+    })),
+    discordNotifications: {
+      enabled: value.discordNotifications?.enabled ?? false,
+      webhookUrl: value.discordNotifications?.webhookUrl ?? '',
+      events: [...(value.discordNotifications?.events ?? [])]
+    }
   };
 }
 
@@ -1726,6 +1929,11 @@ function syncRequestedDetailTab() {
   if (requested) {
     detailTab.value = requested;
   }
+}
+
+function requestedNotesModal(): boolean {
+  const requested = Array.isArray(route.query.notes) ? route.query.notes[0] : route.query.notes;
+  return requested === '1' || requested === 'true';
 }
 
 const activeChange = computed(() => selectedChange.value ?? changes.value[0] ?? null);
@@ -1825,7 +2033,7 @@ const dashboardMetrics = computed(() => {
     {
       label: 'Awaiting Test',
       value: metrics?.awaitingTest ?? 0,
-      detail: 'Ready for QA pickup',
+      detail: 'Waiting for tester pickup',
       icon: '⌛',
       tone: 'gold'
     },
@@ -1853,7 +2061,7 @@ const dashboardMetrics = computed(() => {
     {
       label: 'Test Coverage',
       value: `${metrics?.coverage ?? 0}%`,
-      detail: 'Resolved pass rate',
+      detail: 'Active changes touched',
       icon: '◉',
       tone: 'purple'
     }
@@ -1944,7 +2152,13 @@ const userPageNumbers = computed(() =>
 
 const coverageTotal = computed(() => {
   const metrics = dashboard.value?.metrics;
-  return Math.max(1, (metrics?.passed ?? 0) + (metrics?.failed ?? 0) + (metrics?.inProgress ?? 0));
+  return Math.max(
+    1,
+    (metrics?.passed ?? 0) +
+      (metrics?.failed ?? 0) +
+      (metrics?.blocked ?? 0) +
+      (metrics?.inProgress ?? 0)
+  );
 });
 const coveragePassedPercent = computed(() =>
   Math.round(((dashboard.value?.metrics.passed ?? 0) / coverageTotal.value) * 100)
@@ -1955,11 +2169,15 @@ const coverageProgressPercent = computed(() =>
 const coverageFailedPercent = computed(() =>
   Math.round(((dashboard.value?.metrics.failed ?? 0) / coverageTotal.value) * 100)
 );
+const coverageBlockedPercent = computed(() =>
+  Math.round(((dashboard.value?.metrics.blocked ?? 0) / coverageTotal.value) * 100)
+);
 const coverageDonutStyle = computed(() => {
   const metrics = dashboard.value?.metrics;
   const segments = [
     { color: 'var(--tm-green)', count: metrics?.passed ?? 0 },
     { color: 'var(--tm-gold)', count: metrics?.inProgress ?? 0 },
+    { color: '#b88cff', count: metrics?.blocked ?? 0 },
     { color: 'var(--tm-red)', count: metrics?.failed ?? 0 }
   ].filter((segment) => segment.count > 0);
 
@@ -2003,6 +2221,7 @@ const assignableUsers = computed(() =>
 const recentDashboardItems = computed(() =>
   (dashboard.value?.testerActivity ?? []).slice(0, 4).map((activity, index) => ({
     key: `${activity.change.id}-${activity.tester.id}-${index}`,
+    changeId: activity.change.id,
     title: `${activity.tester.user?.displayName ?? 'Tester'} ${
       activity.tester.result ? statusLabel(activity.tester.result).toLowerCase() : 'updated'
     }`,
@@ -2012,6 +2231,18 @@ const recentDashboardItems = computed(() =>
     status: activity.tester.result ?? activity.tester.status
   }))
 );
+
+const changeListEmptyMessage = computed(() => {
+  if (changeStatusFilter.value === 'CLOSED') {
+    return 'No closed changes found.';
+  }
+
+  if (changeSearch.value.trim()) {
+    return 'No changes match the current filters.';
+  }
+
+  return 'No changes found.';
+});
 
 async function loadDashboard() {
   dashboard.value = await api.fetchTestManagerDashboard();
@@ -2082,6 +2313,27 @@ function toggleRolePermission(
   role.permissions = orderedPermissions([...permissions]);
 }
 
+function hasDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey): boolean {
+  return Boolean(settings.value?.discordNotifications.events.includes(eventKey));
+}
+
+function setDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey, checked: boolean) {
+  if (!authStore.isAdmin || !settings.value) {
+    return;
+  }
+
+  settingsMessage.value = '';
+  const events = new Set(settings.value.discordNotifications.events);
+  if (checked) {
+    events.add(eventKey);
+  } else {
+    events.delete(eventKey);
+  }
+  settings.value.discordNotifications.events = discordNotificationEvents
+    .filter((event) => events.has(event.key))
+    .map((event) => event.key);
+}
+
 function resetSettings() {
   if (!savedSettings.value || settingsSaving.value) {
     return;
@@ -2103,11 +2355,16 @@ async function saveSettings() {
       roles: settings.value.roles.map((role) => ({
         key: role.key,
         permissions: orderedPermissions(role.permissions)
-      }))
+      })),
+      discordNotifications: {
+        enabled: settings.value.discordNotifications.enabled,
+        webhookUrl: settings.value.discordNotifications.webhookUrl.trim(),
+        events: settings.value.discordNotifications.events
+      }
     });
     settings.value = cloneSettings(result);
     savedSettings.value = cloneSettings(result);
-    settingsMessage.value = 'Role permissions saved.';
+    settingsMessage.value = 'Settings saved.';
   } catch (error) {
     settingsMessage.value =
       error instanceof Error ? error.message : 'Unable to save role permissions.';
@@ -2124,6 +2381,9 @@ async function loadCurrentSection() {
       await loadDashboard();
     } else if (currentSection.value === 'changes') {
       await loadChanges();
+      if (requestedNotesModal() && activeChange.value) {
+        await openNotesModal();
+      }
     } else if (currentSection.value === 'users') {
       await loadUsers();
     } else {
@@ -2144,6 +2404,70 @@ function goToChangeTesters(changeId: string) {
     path: `/test-manager/changes/${changeId}`,
     query: { tab: 'Testers' }
   });
+}
+
+function buildChangeShareUrl(change: TestChange) {
+  const href = router.resolve({
+    path: `/test-manager/changes/${change.id}`,
+    query: detailTab.value === 'Overview' ? undefined : { tab: detailTab.value }
+  }).href;
+
+  if (typeof window === 'undefined') {
+    return href;
+  }
+
+  return new URL(href, window.location.origin).toString();
+}
+
+function copyTextFallback(text: string) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-1000px';
+  textarea.style.left = '-1000px';
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('Clipboard copy was blocked.');
+    }
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+async function copyShareText(text: string) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the legacy path for browsers that expose but block clipboard writes.
+    }
+  }
+
+  copyTextFallback(text);
+}
+
+async function copyChangeShareLink(change: TestChange) {
+  const url = buildChangeShareUrl(change);
+
+  try {
+    await copyShareText(url);
+    addToast({
+      title: 'Share Link Copied',
+      message: `Copied link to #${change.publicId}. Access still depends on Test Manager permissions.`,
+      variant: 'success'
+    });
+  } catch {
+    addToast({
+      title: 'Unable To Copy Link',
+      message: 'Your browser blocked clipboard access. Use the address bar link instead.',
+      variant: 'error'
+    });
+  }
 }
 
 function loadChangeLayoutPreference(): ChangeLayoutWidths {
@@ -4153,6 +4477,15 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
+.tm-change-list__empty {
+  margin: 0.5rem 0 0;
+  padding: 1rem 0.75rem;
+  color: var(--tm-muted);
+  border: 1px solid var(--tm-border-soft);
+  background: rgba(255, 255, 255, 0.018);
+  text-align: center;
+}
+
 .tm-change-card {
   width: 100%;
   display: grid;
@@ -4235,6 +4568,21 @@ onBeforeUnmount(() => {
     rgba(19, 75, 125, 0.28);
 }
 
+.tm-change-card--viewer-testing {
+  border-color: rgba(114, 214, 111, 0.78);
+  box-shadow:
+    inset 0 0 0 1px rgba(114, 214, 111, 0.24),
+    0 0 0 1px rgba(114, 214, 111, 0.06);
+}
+
+.tm-change-card--viewer-testing:hover,
+.tm-change-card--viewer-testing:focus-within,
+.tm-change-card--viewer-testing.tm-change-card--active,
+.tm-change-card--viewer-testing.tm-change-card--active:hover,
+.tm-change-card--viewer-testing.tm-change-card--active:focus-within {
+  border-color: rgba(114, 214, 111, 0.95);
+}
+
 .tm-dot {
   width: 0.55rem;
   height: 0.55rem;
@@ -4258,6 +4606,10 @@ onBeforeUnmount(() => {
 .tm-dot--submitted,
 .tm-dot--awaiting_test {
   background: var(--tm-gold);
+}
+
+.tm-dot--coverage-blocked {
+  background: #b88cff;
 }
 
 .tm-dot--viewer-testing,
@@ -4412,11 +4764,12 @@ onBeforeUnmount(() => {
 }
 
 .tm-id {
-  color: var(--tm-gold);
-  margin: 0;
-  font-size: 1.5rem;
-  font-family: Georgia, 'Times New Roman', serif;
-  text-shadow: 0 0 14px rgba(217, 164, 95, 0.18);
+  color: rgba(207, 194, 174, 0.72);
+  margin: 0.18rem 0 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tm-detail__header h2 {
@@ -4425,11 +4778,97 @@ onBeforeUnmount(() => {
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
 }
 
+.tm-detail__header > div:first-child {
+  min-width: 0;
+}
+
+.tm-share-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.05rem;
+  margin: 0 0 0.55rem;
+  padding: 0.35rem 0.72rem 0.35rem 0.46rem;
+  border: 1px solid rgba(85, 183, 255, 0.3);
+  border-radius: 999px;
+  color: #cfe9f8;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 78%), rgba(13, 36, 52, 0.68);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 8px 18px rgba(0, 0, 0, 0.2);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.tm-share-button svg {
+  width: 1.18rem;
+  height: 1.18rem;
+  padding: 0.25rem;
+  border-radius: 50%;
+  color: #8dd6ff;
+  background: rgba(85, 183, 255, 0.12);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-share-button:hover,
+.tm-share-button:focus-visible {
+  color: #ffffff;
+  border-color: rgba(85, 183, 255, 0.55);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 78%), rgba(18, 50, 72, 0.82);
+  transform: translateY(-1px);
+}
+
+.tm-share-button:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.52);
+  outline-offset: 2px;
+}
+
 .tm-detail__header p:not(.tm-id) {
   color: #cfc2ae;
 }
 
-.tm-detail__actions,
+.tm-detail__actions {
+  align-self: stretch;
+  min-width: 8.8rem;
+  display: grid;
+  justify-items: end;
+  align-content: space-between;
+  gap: 0.75rem;
+}
+
+.tm-detail__actions .tm-status {
+  align-self: start;
+}
+
+.tm-detail__action-buttons {
+  align-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.tm-detail__actions .tm-btn {
+  align-self: end;
+  white-space: nowrap;
+}
+
 .tm-result-buttons,
 .tm-toolbar,
 .tm-settings-actions {
@@ -5126,29 +5565,104 @@ onBeforeUnmount(() => {
   --tm-priority-glow: rgba(85, 183, 255, 0.17);
 }
 
-.tm-activity-list,
 .tm-history {
   display: grid;
   gap: 0.75rem;
 }
 
-.tm-activity-list article,
 .tm-history article {
   border-bottom: 1px solid var(--tm-border-soft);
   padding-bottom: 0.75rem;
 }
 
-.tm-activity-list article {
+.tm-activity-table {
   display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 0.35rem;
+  border: 1px solid var(--tm-border-soft);
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.tm-activity-table__head,
+.tm-activity-table__row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 0.8fr) minmax(8.5rem, 1.25fr) 4.8rem 4.25rem;
+  gap: 0.6rem;
   align-items: center;
 }
 
-.tm-activity-list article p {
+.tm-activity-table__head {
+  padding: 0.48rem 0.6rem;
+  color: var(--tm-muted);
+  border-bottom: 1px solid var(--tm-border-soft);
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tm-activity-table__row {
+  width: 100%;
+  padding: 0.62rem 0.6rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--tm-border-soft);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-activity-table__row:last-child {
+  border-bottom: 0;
+}
+
+.tm-activity-table__row:hover,
+.tm-activity-table__row:focus-visible {
+  background: rgba(85, 183, 255, 0.075);
+  box-shadow: inset 2px 0 0 rgba(85, 183, 255, 0.7);
+  outline: none;
+}
+
+.tm-activity-table__tester,
+.tm-activity-table__change {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.tm-activity-table__tester strong,
+.tm-activity-table__change strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-activity-table__tester small,
+.tm-activity-table__time,
+.tm-activity-table__notes {
+  color: var(--tm-muted);
+  font-size: 0.75rem;
+}
+
+.tm-activity-table__time {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.tm-activity-table__status {
+  justify-self: start;
+}
+
+.tm-activity-table__notes {
   grid-column: 1 / -1;
   margin: 0;
-  color: var(--tm-muted);
+  padding-top: 0.05rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tm-recent-strip {
@@ -5165,14 +5679,34 @@ onBeforeUnmount(() => {
   font-size: 1rem;
 }
 
-.tm-recent-strip article {
+.tm-recent-strip__item {
   display: flex;
   gap: 0.65rem;
   align-items: center;
   min-width: 0;
+  padding: 0.5rem 0.6rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--tm-control-radius);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    transform 0.14s ease;
 }
 
-.tm-recent-strip article span:last-child {
+.tm-recent-strip__item:hover,
+.tm-recent-strip__item:focus-visible {
+  border-color: rgba(85, 183, 255, 0.36);
+  background: rgba(85, 183, 255, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.tm-recent-strip__item span:last-child {
   display: grid;
   min-width: 0;
 }
@@ -5372,7 +5906,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-inspector-hint {
-  margin: -0.15rem 0 0;
+  margin: 0.35rem 0 0;
   color: var(--tm-muted);
   font-size: 0.78rem;
   line-height: 1.35;
@@ -5897,6 +6431,176 @@ onBeforeUnmount(() => {
 
 .tm-permission-toggle:not(.tm-permission-toggle--disabled):hover > span {
   border-color: rgba(217, 164, 95, 0.75);
+}
+
+.tm-settings-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--tm-border-soft);
+}
+
+.tm-settings-section__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.tm-settings-section__header h3 {
+  margin: 0;
+  color: var(--tm-gold);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.15rem;
+}
+
+.tm-settings-section__header p {
+  margin: 0.25rem 0 0;
+  color: var(--tm-muted);
+}
+
+.tm-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--tm-muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  user-select: none;
+}
+
+.tm-switch input,
+.tm-discord-event input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tm-switch > span {
+  width: 3rem;
+  min-width: 3rem;
+  flex: 0 0 3rem;
+  height: 1.55rem;
+  position: relative;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.tm-switch > span::after {
+  content: '';
+  position: absolute;
+  top: 0.25rem;
+  left: 0.25rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  background: var(--tm-muted);
+  transition:
+    transform 0.16s ease,
+    background 0.16s ease;
+}
+
+.tm-switch--checked > span {
+  border-color: rgba(114, 214, 111, 0.62);
+  background: rgba(29, 94, 42, 0.36);
+}
+
+.tm-switch--checked > span::after {
+  left: 0.25rem;
+  transform: translateX(1.45rem);
+  background: var(--tm-green);
+}
+
+.tm-switch.tm-switch--checked input:checked + span::after {
+  left: 0.25rem;
+}
+
+.tm-switch > strong {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.tm-switch--disabled,
+.tm-discord-event--disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+
+.tm-discord-settings__webhook {
+  max-width: 54rem;
+}
+
+.tm-discord-events {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.7rem;
+}
+
+.tm-discord-event {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 0.65rem;
+  row-gap: 0.12rem;
+  align-items: start;
+  padding: 0.72rem 0.78rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: var(--tm-control-radius);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.tm-discord-event > span {
+  grid-row: 1 / span 2;
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--tm-border-soft);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--tm-muted);
+}
+
+.tm-discord-event > span::after {
+  content: '—';
+}
+
+.tm-discord-event strong {
+  color: var(--tm-text);
+}
+
+.tm-discord-event small {
+  color: var(--tm-muted);
+  line-height: 1.35;
+}
+
+.tm-discord-event--checked {
+  border-color: rgba(85, 183, 255, 0.36);
+  background: rgba(20, 68, 105, 0.16);
+}
+
+.tm-discord-event--checked > span {
+  border-color: rgba(85, 183, 255, 0.66);
+  background: rgba(20, 68, 105, 0.55);
+  color: #eef8ff;
+}
+
+.tm-discord-event--checked > span::after {
+  content: '✓';
+  font-size: 1rem;
+}
+
+.tm-discord-event:not(.tm-discord-event--disabled):hover {
+  border-color: rgba(217, 164, 95, 0.58);
 }
 
 .tm-checkmark {
@@ -6766,6 +7470,23 @@ onBeforeUnmount(() => {
   .tm-detail__header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .tm-detail__actions {
+    width: 100%;
+    min-width: 0;
+    align-self: stretch;
+    grid-template-columns: 1fr auto;
+    align-content: center;
+    align-items: center;
+  }
+
+  .tm-detail__actions .tm-status {
+    justify-self: start;
+  }
+
+  .tm-detail__actions .tm-btn {
+    justify-self: end;
   }
 
   .tm-modal {

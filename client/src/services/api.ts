@@ -3146,8 +3146,30 @@ export interface TestManagerRoleSettings {
   permissions: string[];
 }
 
+export type TestManagerDiscordEventKey =
+  | 'change.created'
+  | 'change.statusChanged'
+  | 'change.renewed'
+  | 'change.closed'
+  | 'change.deleted'
+  | 'tester.requested'
+  | 'tester.started'
+  | 'tester.retested'
+  | 'tester.resultSubmitted'
+  | 'checklist.completed'
+  | 'checklist.reopened'
+  | 'checklist.noteUpdated'
+  | 'note.added';
+
+export interface TestManagerDiscordNotificationSettings {
+  enabled: boolean;
+  webhookUrl: string;
+  events: TestManagerDiscordEventKey[];
+}
+
 export interface TestManagerSettings {
   roles: TestManagerRoleSettings[];
+  discordNotifications: TestManagerDiscordNotificationSettings;
 }
 
 export interface TestChangeChecklistItem {
@@ -3244,6 +3266,7 @@ export interface TestManagerDashboard {
     inProgress: number;
     passed: number;
     failed: number;
+    blocked: number;
     coverage: number;
   };
   activeChanges: TestChange[];
@@ -3382,6 +3405,7 @@ export const api = {
   },
   async updateTestManagerSettings(payload: {
     roles: Array<{ key: string; permissions: string[] }>;
+    discordNotifications?: TestManagerDiscordNotificationSettings;
   }): Promise<TestManagerSettings> {
     const response = await axios.put('/api/test-manager/settings', payload);
     return response.data;

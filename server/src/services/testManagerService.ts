@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 
 import { ensureAdmin, ensureTesterOrAdmin } from './adminService.js';
+import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
 const TESTING_READY_STATUSES: TestChangeStatus[] = [
@@ -35,9 +36,25 @@ export const TEST_MANAGER_PERMISSION_KEYS = [
 ] as const;
 
 export const TEST_MANAGER_ROLE_KEYS = ['ADMIN', 'GUIDE', 'TESTER', 'USER'] as const;
+export const TEST_MANAGER_DISCORD_EVENT_KEYS = [
+  'change.created',
+  'change.statusChanged',
+  'change.renewed',
+  'change.closed',
+  'change.deleted',
+  'tester.requested',
+  'tester.started',
+  'tester.retested',
+  'tester.resultSubmitted',
+  'checklist.completed',
+  'checklist.reopened',
+  'checklist.noteUpdated',
+  'note.added'
+] as const;
 
 type TestManagerPermissionKey = (typeof TEST_MANAGER_PERMISSION_KEYS)[number];
 type TestManagerRoleKey = (typeof TEST_MANAGER_ROLE_KEYS)[number];
+type TestManagerDiscordEventKey = (typeof TEST_MANAGER_DISCORD_EVENT_KEYS)[number];
 
 type TestManagerRolePermission = {
   key: TestManagerRoleKey;
@@ -47,9 +64,21 @@ type TestManagerRolePermission = {
 
 type TestManagerSettings = {
   roles: TestManagerRolePermission[];
+  discordNotifications: {
+    enabled: boolean;
+    webhookUrl: string;
+    events: TestManagerDiscordEventKey[];
+  };
 };
 
 const TEST_MANAGER_SETTINGS_KEY = 'testManager.rolePermissions';
+const DISCORD_COLORS = {
+  primary: 0x55b7ff,
+  success: 0x72d66f,
+  warning: 0xd9a45f,
+  danger: 0xff6b55,
+  info: 0x9b7dff
+} as const;
 
 const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
   roles: [
@@ -82,7 +111,12 @@ const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
       label: 'Authenticated User',
       permissions: ['view']
     }
-  ]
+  ],
+  discordNotifications: {
+    enabled: false,
+    webhookUrl: '',
+    events: [...TEST_MANAGER_DISCORD_EVENT_KEYS]
+  }
 };
 
 type UserName = {
@@ -234,7 +268,11 @@ function cloneDefaultTestManagerSettings(): TestManagerSettings {
     roles: DEFAULT_TEST_MANAGER_SETTINGS.roles.map((role) => ({
       ...role,
       permissions: [...role.permissions]
-    }))
+    })),
+    discordNotifications: {
+      ...DEFAULT_TEST_MANAGER_SETTINGS.discordNotifications,
+      events: [...DEFAULT_TEST_MANAGER_SETTINGS.discordNotifications.events]
+    }
   };
 }
 
@@ -249,6 +287,13 @@ function isPermissionKey(value: unknown): value is TestManagerPermissionKey {
   );
 }
 
+function isDiscordEventKey(value: unknown): value is TestManagerDiscordEventKey {
+  return (
+    typeof value === 'string' &&
+    TEST_MANAGER_DISCORD_EVENT_KEYS.includes(value as TestManagerDiscordEventKey)
+  );
+}
+
 function normalizePermissions(value: unknown): TestManagerPermissionKey[] {
   if (!Array.isArray(value)) {
     return [];
@@ -258,10 +303,34 @@ function normalizePermissions(value: unknown): TestManagerPermissionKey[] {
   return TEST_MANAGER_PERMISSION_KEYS.filter((permission) => selected.has(permission));
 }
 
+function normalizeDiscordNotificationSettings(value: unknown): TestManagerSettings['discordNotifications'] {
+  const defaults = cloneDefaultTestManagerSettings().discordNotifications;
+  if (!value || typeof value !== 'object') {
+    return defaults;
+  }
+
+  const record = value as Record<string, unknown>;
+  const eventSource = Array.isArray(record.events) ? record.events : defaults.events;
+  const selectedEvents = new Set(eventSource.filter(isDiscordEventKey));
+
+  return {
+    enabled: typeof record.enabled === 'boolean' ? record.enabled : defaults.enabled,
+    webhookUrl: typeof record.webhookUrl === 'string' ? record.webhookUrl.trim() : '',
+    events: TEST_MANAGER_DISCORD_EVENT_KEYS.filter((event) => selectedEvents.has(event))
+  };
+}
+
 function normalizeTestManagerSettings(value: unknown): TestManagerSettings {
   const defaults = cloneDefaultTestManagerSettings();
   if (!value || typeof value !== 'object' || !('roles' in value) || !Array.isArray(value.roles)) {
-    return defaults;
+    return {
+      ...defaults,
+      discordNotifications: normalizeDiscordNotificationSettings(
+        value && typeof value === 'object' && 'discordNotifications' in value
+          ? (value as Record<string, unknown>).discordNotifications
+          : undefined
+      )
+    };
   }
 
   const incoming = new Map<TestManagerRoleKey, TestManagerPermissionKey[]>();
@@ -277,7 +346,10 @@ function normalizeTestManagerSettings(value: unknown): TestManagerSettings {
     roles: defaults.roles.map((role) => ({
       ...role,
       permissions: incoming.get(role.key) ?? role.permissions
-    }))
+    })),
+    discordNotifications: normalizeDiscordNotificationSettings(
+      'discordNotifications' in value ? value.discordNotifications : undefined
+    )
   };
 }
 
@@ -519,6 +591,282 @@ function serializeChange(change: ChangeRecord, viewerUserId?: string) {
     },
     viewerTester
   };
+}
+
+type SerializedChange = ReturnType<typeof serializeChange>;
+
+interface DiscordWebhookBody {
+  username?: string;
+  allowed_mentions?: { parse: string[] };
+  embeds: Array<{
+    title: string;
+    description?: string;
+    color: number;
+    fields?: Array<{ name: string; value: string; inline?: boolean }>;
+    footer?: { text: string };
+    timestamp?: string;
+    url?: string;
+  }>;
+}
+
+type TestManagerDiscordNotificationInput = {
+  event: TestManagerDiscordEventKey;
+  actorUserId: string | null;
+  change: SerializedChange;
+  detail?: string | null;
+  metadata?: Record<string, string | number | boolean | null | undefined>;
+};
+
+type DiscordDeepLinkTab = 'Overview' | 'Testers' | 'Coverage' | 'History';
+
+const TEST_MANAGER_DISCORD_EVENT_META: Record<
+  TestManagerDiscordEventKey,
+  { label: string; color: number }
+> = {
+  'change.created': { label: 'Change Submitted', color: DISCORD_COLORS.primary },
+  'change.statusChanged': { label: 'Change Status Updated', color: DISCORD_COLORS.info },
+  'change.renewed': { label: 'Change Renewed', color: DISCORD_COLORS.primary },
+  'change.closed': { label: 'Change Closed', color: DISCORD_COLORS.success },
+  'change.deleted': { label: 'Change Deleted', color: DISCORD_COLORS.danger },
+  'tester.requested': { label: 'Tester Requested', color: DISCORD_COLORS.warning },
+  'tester.started': { label: 'Testing Started', color: DISCORD_COLORS.primary },
+  'tester.retested': { label: 'Re-test Started', color: DISCORD_COLORS.primary },
+  'tester.resultSubmitted': { label: 'Tester Result Submitted', color: DISCORD_COLORS.success },
+  'checklist.completed': { label: 'Checklist Item Completed', color: DISCORD_COLORS.success },
+  'checklist.reopened': { label: 'Checklist Item Reopened', color: DISCORD_COLORS.warning },
+  'checklist.noteUpdated': { label: 'Checklist Note Updated', color: DISCORD_COLORS.info },
+  'note.added': { label: 'Testing Note Added', color: DISCORD_COLORS.info }
+};
+
+function formatLabel(value: string): string {
+  return value
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function truncateDiscord(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1))}…` : value;
+}
+
+function buildChangeUrl(
+  change: SerializedChange,
+  tab?: DiscordDeepLinkTab,
+  focus?: 'notes'
+): string {
+  const url = new URL(
+    `${appConfig.clientUrl.replace(/\/$/, '')}/test-manager/changes/${change.id}`
+  );
+
+  if (tab && tab !== 'Overview') {
+    url.searchParams.set('tab', tab);
+  }
+
+  if (focus === 'notes') {
+    url.searchParams.set('notes', '1');
+  }
+
+  return url.toString();
+}
+
+function discordDeepLinkTabForEvent(
+  event: TestManagerDiscordEventKey
+): DiscordDeepLinkTab | undefined {
+  if (event.startsWith('tester.')) {
+    return 'Testers';
+  }
+
+  if (event.startsWith('checklist.')) {
+    return 'Coverage';
+  }
+
+  if (
+    event === 'change.statusChanged' ||
+    event === 'change.renewed' ||
+    event === 'change.closed'
+  ) {
+    return 'History';
+  }
+
+  return undefined;
+}
+
+function discordDeepLinkLabelForEvent(event: TestManagerDiscordEventKey): string {
+  if (event.startsWith('tester.')) {
+    return 'Open tester matrix';
+  }
+
+  if (event.startsWith('checklist.')) {
+    return 'Open checklist coverage';
+  }
+
+  if (
+    event === 'change.statusChanged' ||
+    event === 'change.renewed' ||
+    event === 'change.closed'
+  ) {
+    return 'Open change history';
+  }
+
+  if (event === 'note.added') {
+    return 'Open testing notes';
+  }
+
+  return 'Open change';
+}
+
+function buildDiscordTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return 'Not set';
+  }
+
+  const timestamp = Math.floor(new Date(value).getTime() / 1000);
+  return Number.isFinite(timestamp) ? `<t:${timestamp}:R>` : 'Not set';
+}
+
+function isConfiguredDiscordWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      ['discord.com', 'discordapp.com', 'canary.discord.com', 'ptb.discord.com'].includes(
+        url.hostname
+      ) &&
+      /^\/api\/webhooks\/[^/]+\/[^/]+/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function buildTestManagerDiscordPayload(
+  input: TestManagerDiscordNotificationInput,
+  actor: UserName | null
+): DiscordWebhookBody {
+  const meta = TEST_MANAGER_DISCORD_EVENT_META[input.event];
+  const isDeletedChange = input.event === 'change.deleted';
+  const changeUrl = buildChangeUrl(
+    input.change,
+    discordDeepLinkTabForEvent(input.event),
+    input.event === 'note.added' ? 'notes' : undefined
+  );
+  const coverageUrl = buildChangeUrl(input.change, 'Coverage');
+  const summary = input.change.summary;
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [
+    {
+      name: 'Change',
+      value: isDeletedChange
+        ? `#${input.change.publicId} ${truncateDiscord(input.change.title, 80)}`
+        : `[#${input.change.publicId} ${truncateDiscord(input.change.title, 80)}](${changeUrl})`
+    },
+    { name: 'Status', value: formatLabel(input.change.status), inline: true },
+    { name: 'Priority', value: formatLabel(input.change.priority), inline: true },
+    {
+      name: 'Area',
+      value: truncateDiscord(`${input.change.category} / ${input.change.subsystem}`, 120),
+      inline: true
+    },
+    { name: 'Actor', value: actor ? displayName(actor) : 'System', inline: true },
+    {
+      name: 'Tester Counts',
+      value: `${summary.testerCount} testers • ${summary.passCount} passed • ${summary.failCount} failed • ${summary.blockedCount} blocked`,
+      inline: false
+    },
+    {
+      name: 'Open In Test Manager',
+      value: isDeletedChange
+        ? 'Deleted change record no longer has an active page.'
+        : `[${discordDeepLinkLabelForEvent(input.event)}](${changeUrl})`,
+      inline: false
+    }
+  ];
+
+  if (input.metadata?.testerName) {
+    fields.push({ name: 'Tester', value: String(input.metadata.testerName), inline: true });
+  }
+  if (input.metadata?.result) {
+    fields.push({ name: 'Result', value: formatLabel(String(input.metadata.result)), inline: true });
+  }
+  if (input.metadata?.fromStatus || input.metadata?.toStatus) {
+    fields.push({
+      name: 'Transition',
+      value: `${input.metadata.fromStatus ? formatLabel(String(input.metadata.fromStatus)) : 'Unknown'} → ${
+        input.metadata.toStatus ? formatLabel(String(input.metadata.toStatus)) : 'Unknown'
+      }`,
+      inline: true
+    });
+  }
+  if (input.metadata?.checklistItemTitle) {
+    const checklistItemTitle = truncateDiscord(String(input.metadata.checklistItemTitle), 140);
+    fields.push({
+      name: 'Checklist Item',
+      value: input.event.startsWith('checklist.')
+        ? `[${checklistItemTitle}](${coverageUrl})`
+        : checklistItemTitle
+    });
+  }
+  if (input.change.dueAt) {
+    fields.push({ name: 'Due', value: buildDiscordTimestamp(input.change.dueAt), inline: true });
+  }
+
+  const detail = truncateDiscord(input.detail?.trim() || `${meta.label} in Test Manager.`, 600);
+
+  return {
+    username: 'Test Manager',
+    allowed_mentions: { parse: [] },
+    embeds: [
+      {
+        title: meta.label,
+        ...(isDeletedChange ? {} : { url: changeUrl }),
+        description: detail,
+        color:
+          input.metadata?.result === TestResult.FAIL
+            ? DISCORD_COLORS.danger
+            : input.metadata?.result === TestResult.BLOCKED
+              ? DISCORD_COLORS.warning
+              : meta.color,
+        fields,
+        footer: { text: `Test Manager • Change #${input.change.publicId}` },
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+}
+
+async function sendConfiguredDiscordWebhook(url: string, payload: DiscordWebhookBody) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Discord responded with ${response.status}: ${errorText}`);
+  }
+}
+
+async function notifyTestManagerDiscord(input: TestManagerDiscordNotificationInput) {
+  try {
+    const settings = await getTestManagerSettings();
+    const discordSettings = settings.discordNotifications;
+    if (
+      !discordSettings.enabled ||
+      !discordSettings.webhookUrl ||
+      !discordSettings.events.includes(input.event) ||
+      !isConfiguredDiscordWebhookUrl(discordSettings.webhookUrl)
+    ) {
+      return;
+    }
+
+    const actor = input.actorUserId ? await getCurrentUser(input.actorUserId) : null;
+    await sendConfiguredDiscordWebhook(
+      discordSettings.webhookUrl,
+      buildTestManagerDiscordPayload(input, actor)
+    );
+  } catch (error) {
+    console.error('[TestManager] Failed to send Discord notification:', error);
+  }
 }
 
 async function getCurrentUser(userId: string) {
@@ -891,13 +1239,12 @@ export async function getTestManagerDashboard(userId: string) {
   const serialized = changes.map((change) => serializeChange(change, userId));
   const active = serialized.filter((change) => change.status !== TestChangeStatus.CLOSED);
   const awaiting = serialized.filter((change) => TESTING_READY_STATUSES.includes(change.status));
+  const awaitingTest = serialized.filter((change) => change.status === TestChangeStatus.AWAITING_TEST);
   const inProgress = serialized.filter((change) => change.status === TestChangeStatus.TESTING);
   const passed = serialized.filter((change) => change.status === TestChangeStatus.PASSED);
   const failed = serialized.filter((change) => change.status === TestChangeStatus.FAILED);
-  const resultCount =
-    passed.length +
-    failed.length +
-    serialized.filter((change) => change.status === TestChangeStatus.BLOCKED).length;
+  const blocked = serialized.filter((change) => change.status === TestChangeStatus.BLOCKED);
+  const covered = inProgress.length + passed.length + failed.length + blocked.length;
 
   return {
     viewer: serializeUser(viewer),
@@ -908,11 +1255,12 @@ export async function getTestManagerDashboard(userId: string) {
           change.priority === TestChangePriority.CRITICAL ||
           change.priority === TestChangePriority.HIGH
       ).length,
-      awaitingTest: awaiting.length,
+      awaitingTest: awaitingTest.length,
       inProgress: inProgress.length,
       passed: passed.length,
       failed: failed.length,
-      coverage: resultCount > 0 ? Math.round((passed.length / resultCount) * 100) : 0
+      blocked: blocked.length,
+      coverage: active.length > 0 ? Math.round((covered / active.length) * 100) : 0
     },
     activeChanges: active.slice(0, 12),
     testerActivity: serialized
@@ -1030,7 +1378,16 @@ export async function createTestChange(
     return created;
   });
 
-  return getTestChange(change.id, actorUserId);
+  const serialized = await getTestChange(change.id, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'change.created',
+      actorUserId,
+      change: serialized,
+      detail: `#${serialized.publicId} was submitted for testing.`
+    });
+  }
+  return serialized;
 }
 
 export async function setTestChangeStatus(
@@ -1071,12 +1428,36 @@ export async function setTestChangeStatus(
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event:
+        status === TestChangeStatus.CLOSED
+          ? 'change.closed'
+          : status === TestChangeStatus.RENEWED
+            ? 'change.renewed'
+            : 'change.statusChanged',
+      actorUserId,
+      change: serialized,
+      detail: detail?.trim() || `Status changed from ${formatLabel(existing.status)} to ${formatLabel(status)}.`,
+      metadata: { fromStatus: existing.status, toStatus: status }
+    });
+  }
+  return serialized;
 }
 
 export async function deleteTestChange(actorUserId: string, changeId: string): Promise<void> {
   await ensureAdmin(actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
   await prisma.testChange.delete({ where: { id: changeId } });
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'change.deleted',
+      actorUserId,
+      change: serialized,
+      detail: `#${serialized.publicId} was deleted from Test Manager.`
+    });
+  }
 }
 
 export async function volunteerForChange(actorUserId: string, changeId: string) {
@@ -1120,7 +1501,16 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'tester.started',
+      actorUserId,
+      change: serialized,
+      detail: `${displayName(await getCurrentUser(actorUserId) ?? { displayName: 'Tester', nickname: null })} started testing this change.`
+    });
+  }
+  return serialized;
 }
 
 export async function retestChange(actorUserId: string, changeId: string) {
@@ -1165,7 +1555,16 @@ export async function retestChange(actorUserId: string, changeId: string) {
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'tester.retested',
+      actorUserId,
+      change: serialized,
+      detail: 'A tester reopened their testing run for this change.'
+    });
+  }
+  return serialized;
 }
 
 export async function requestTester(
@@ -1176,6 +1575,7 @@ export async function requestTester(
 ) {
   await ensureAdmin(actorUserId);
 
+  let requestedTesterName = 'Tester';
   await prisma.$transaction(async (tx) => {
     const [change, user] = await Promise.all([
       tx.testChange.findUnique({ where: { id: changeId }, select: { id: true, status: true } }),
@@ -1190,6 +1590,7 @@ export async function requestTester(
     if (!user) {
       throw new Error('User not found.');
     }
+    requestedTesterName = displayName(user);
 
     await tx.testChangeTester.upsert({
       where: { changeId_userId: { changeId, userId } },
@@ -1222,7 +1623,17 @@ export async function requestTester(
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'tester.requested',
+      actorUserId,
+      change: serialized,
+      detail: `Testing was requested from ${requestedTesterName}.`,
+      metadata: { testerName: requestedTesterName, assignment }
+    });
+  }
+  return serialized;
 }
 
 export async function submitTesterResult(
@@ -1289,7 +1700,19 @@ export async function submitTesterResult(
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'tester.resultSubmitted',
+      actorUserId,
+      change: serialized,
+      detail: (
+        notesText || `${displayName(actor)} submitted ${input.result.toLowerCase()} feedback.`
+      ).slice(0, 300),
+      metadata: { testerName: displayName(actor), result: input.result }
+    });
+  }
+  return serialized;
 }
 
 export async function updateTesterChecklistProgress(
@@ -1308,6 +1731,7 @@ export async function updateTesterChecklistProgress(
   const hasNotes = typeof input.notesHtml === 'string';
   const notesHtml = hasNotes ? sanitizeRichText(input.notesHtml ?? '') : undefined;
 
+  let checklistItemTitle = 'Checklist item';
   await prisma.$transaction(async (tx) => {
     const [change, checklistItem] = await Promise.all([
       tx.testChange.findUnique({ where: { id: changeId }, select: { id: true, status: true } }),
@@ -1322,6 +1746,7 @@ export async function updateTesterChecklistProgress(
     if (!checklistItem) {
       throw new Error('Checklist item not found for this change.');
     }
+    checklistItemTitle = checklistItem.title;
 
     ensureChangeAcceptsTesterInput(change);
 
@@ -1372,7 +1797,23 @@ export async function updateTesterChecklistProgress(
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: hasCompleted
+        ? completed
+          ? 'checklist.completed'
+          : 'checklist.reopened'
+        : 'checklist.noteUpdated',
+      actorUserId,
+      change: serialized,
+      detail: hasCompleted
+        ? `${displayName(actor)} ${completed ? 'completed' : 'reopened'} "${checklistItemTitle}".`
+        : `${displayName(actor)} updated checklist notes for "${checklistItemTitle}".`,
+      metadata: { checklistItemTitle, completed: hasCompleted ? completed : undefined }
+    });
+  }
+  return serialized;
 }
 
 export async function saveChangeNote(actorUserId: string, changeId: string, contentHtml: string) {
@@ -1392,6 +1833,7 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
   ensureActiveTestingAssignment(tester);
 
   const sanitized = sanitizeRichText(contentHtml);
+  const plainText = getRichTextPlainText(sanitized).slice(0, 300);
   await prisma.$transaction(async (tx) => {
     await tx.testChangeNote.create({
       data: {
@@ -1406,11 +1848,21 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
       actorUserId,
       eventType: TestHistoryEventType.NOTE_UPDATED,
       label: 'Notes updated',
-      detail: getRichTextPlainText(sanitized).slice(0, 300)
+      detail: plainText
     });
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized) {
+    await notifyTestManagerDiscord({
+      event: 'note.added',
+      actorUserId,
+      change: serialized,
+      detail: plainText || `${displayName(actor)} added a testing note.`,
+      metadata: { testerName: displayName(actor) }
+    });
+  }
+  return serialized;
 }
 
 export async function listTestManagerUsers() {
@@ -1495,7 +1947,14 @@ export async function getTestManagerSettings(): Promise<TestManagerSettings> {
 
 export async function updateTestManagerSettings(
   actorUserId: string,
-  input: { roles: Array<{ key: TestManagerRoleKey; permissions: TestManagerPermissionKey[] }> }
+  input: {
+    roles: Array<{ key: TestManagerRoleKey; permissions: TestManagerPermissionKey[] }>;
+    discordNotifications?: {
+      enabled: boolean;
+      webhookUrl: string;
+      events: TestManagerDiscordEventKey[];
+    };
+  }
 ): Promise<TestManagerSettings> {
   await ensureAdmin(actorUserId);
 
