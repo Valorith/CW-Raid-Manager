@@ -146,7 +146,13 @@
         </section>
       </section>
 
-      <section v-else-if="currentSection === 'changes'" class="tm-grid tm-grid--changes">
+      <section
+        v-else-if="currentSection === 'changes'"
+        ref="changesGrid"
+        class="tm-grid tm-grid--changes"
+        :class="{ 'tm-grid--resizing': activeChangeLayoutDrag }"
+        :style="changeLayoutStyle"
+      >
         <aside class="tm-panel tm-change-list">
           <div class="tm-panel__header">
             <h2>Changes</h2>
@@ -176,30 +182,68 @@
               </option>
             </select>
           </div>
-          <button
+          <article
             v-for="change in changes"
             :key="change.id"
-            type="button"
             class="tm-change-card"
             :class="{ 'tm-change-card--active': activeChange?.id === change.id }"
-            @click="goToChange(change.id)"
           >
-            <span class="tm-dot" :class="viewerChangeListDotClass(change)"></span>
-            <span>
-              <strong>#{{ change.publicId }} {{ change.title }}</strong>
-              <small
-                >{{ change.createdBy?.displayName ?? 'Unknown' }} ·
-                {{ relativeTime(change.updatedAt) }}</small
-              >
-            </span>
-            <span
-              class="tm-viewer-status"
-              :class="`tm-viewer-status--${viewerChangeListStatus(change).tone}`"
+            <button type="button" class="tm-change-card__main" @click="goToChange(change.id)">
+              <span class="tm-dot" :class="viewerChangeListDotClass(change)"></span>
+              <span>
+                <strong>#{{ change.publicId }} {{ change.title }}</strong>
+                <small
+                  >{{ change.createdBy?.displayName ?? 'Unknown' }} ·
+                  {{ relativeTime(change.updatedAt) }}</small
+                >
+                <span
+                  class="tm-viewer-status"
+                  :class="`tm-viewer-status--${viewerChangeListStatus(change).tone}`"
+                >
+                  {{ viewerChangeListStatus(change).label }}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="tm-change-status-counters"
+              :aria-label="`Open testers tab for #${change.publicId}: ${change.summary.testerCount} testers, ${change.summary.failCount} failed, ${change.summary.blockedCount} blocked, ${change.summary.passCount} passed`"
+              @click="goToChangeTesters(change.id)"
             >
-              {{ viewerChangeListStatus(change).label }}
-            </span>
-          </button>
+              <span class="tm-change-status-counter tm-change-status-counter--testers">
+                <strong>{{ change.summary.testerCount }}</strong>
+                <span>Testers</span>
+              </span>
+              <span class="tm-change-status-counter tm-change-status-counter--failed">
+                <strong>{{ change.summary.failCount }}</strong>
+                <span>Failed</span>
+              </span>
+              <span class="tm-change-status-counter tm-change-status-counter--blocked">
+                <strong>{{ change.summary.blockedCount }}</strong>
+                <span>Blocked</span>
+              </span>
+              <span class="tm-change-status-counter tm-change-status-counter--passed">
+                <strong>{{ change.summary.passCount }}</strong>
+                <span>Passed</span>
+              </span>
+            </button>
+          </article>
         </aside>
+
+        <button
+          v-if="activeChange"
+          type="button"
+          class="tm-lane-splitter tm-lane-splitter--left"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize changes list and change details"
+          :aria-valuenow="Math.round(changeLayout.left)"
+          @pointerdown="startChangeLayoutDrag('left', $event)"
+          @dblclick="resetChangeLayout"
+          @keydown="adjustChangeLayoutWithKeyboard('left', $event)"
+        >
+          <span aria-hidden="true"></span>
+        </button>
 
         <main v-if="activeChange" class="tm-panel tm-detail">
           <div class="tm-detail__header">
@@ -361,7 +405,7 @@
                 <option value="REQUIRED">Required</option>
                 <option value="OPTIONAL">Optional</option>
                 <option value="VOLUNTEER">Volunteer</option>
-                <option value="ADMIN_REQUESTED">Admin Requested</option>
+                <option value="ADMIN_REQUESTED">Requested</option>
               </select>
             </div>
             <div class="tm-table">
@@ -380,7 +424,14 @@
               >
                 <span>{{ tester.user?.displayName ?? 'Unknown' }}</span>
                 <span>{{ assignmentLabel(tester.assignment) }}</span>
-                <span><StatusPill :status="tester.status" compact /></span>
+                <span class="tm-tester-status-cell">
+                  <StatusPill :status="tester.status" compact />
+                  <span
+                    v-if="isTesterNotStarted(tester)"
+                    class="tm-status-loader"
+                    aria-label="Awaiting tester start"
+                  ></span>
+                </span>
                 <span
                   ><StatusPill v-if="tester.result" :status="tester.result" compact /><span v-else
                     >—</span
@@ -441,7 +492,10 @@
                   v-for="tester in activeChange.testers"
                   :key="`${item.id}-${tester.id}`"
                   class="tm-coverage-matrix-cell"
-                  :class="coverageCellClass(tester, item.id)"
+                  :class="[
+                    coverageCellClass(tester, item.id),
+                    { 'tm-coverage-matrix-cell--has-note': hasCoverageCellNote(tester, item.id) }
+                  ]"
                 >
                   <button
                     v-if="hasCoverageCellNote(tester, item.id)"
@@ -489,6 +543,21 @@
           </section>
         </main>
 
+        <button
+          v-if="activeChange"
+          type="button"
+          class="tm-lane-splitter tm-lane-splitter--right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize change details and tester input"
+          :aria-valuenow="Math.round(changeLayout.right)"
+          @pointerdown="startChangeLayoutDrag('right', $event)"
+          @dblclick="resetChangeLayout"
+          @keydown="adjustChangeLayoutWithKeyboard('right', $event)"
+        >
+          <span aria-hidden="true"></span>
+        </button>
+
         <aside v-if="activeChange" class="tm-panel tm-inspector">
           <h2>Tester Input</h2>
           <div class="tm-result-buttons">
@@ -527,7 +596,6 @@
               'tm-notes-launch',
               hasActiveChangeNotes ? 'tm-notes-launch--has-notes' : 'tm-notes-launch--empty'
             ]"
-            :disabled="!canUseTesterControls"
             @click="openNotesModal"
           >
             <span aria-hidden="true">▣</span>
@@ -1150,6 +1218,39 @@
     </div>
 
     <div
+      v-if="checklistNotePromptItem"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-note-prompt-title"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--info">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">✎</span>
+          <div>
+            <p>Checklist Complete</p>
+            <h2 id="checklist-note-prompt-title">Leave a testing note?</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          Add context for "{{ checklistNotePromptItem.title }}" while the details are fresh.
+        </p>
+        <div class="tm-confirm-modal__change">
+          <span>Selected change</span>
+          <strong>{{ developerActionChangeLabel }}</strong>
+        </div>
+        <div class="tm-confirm-modal__actions">
+          <button type="button" class="tm-btn tm-btn--ghost" @click="closeChecklistNotePrompt">
+            No
+          </button>
+          <button type="button" class="tm-btn tm-btn--primary" @click="confirmChecklistNotePrompt">
+            Yes, Add Note
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
       v-if="requestOpen"
       class="tm-modal"
       role="dialog"
@@ -1176,7 +1277,7 @@
         <label>
           <span>Assignment</span>
           <select v-model="requestForm.assignment" class="tm-select">
-            <option value="ADMIN_REQUESTED">Admin Requested</option>
+            <option value="ADMIN_REQUESTED">Requested</option>
             <option value="REQUIRED">Required</option>
             <option value="OPTIONAL">Optional</option>
           </select>
@@ -1202,9 +1303,11 @@
           <button type="button" class="tm-icon-btn" @click="closeNotesModal">×</button>
         </div>
 
-        <RichTextEditor ref="notesEditor" />
-        <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
-        <div class="tm-quick-notes" aria-label="Quick notes">
+        <template v-if="canUseTesterControls">
+          <RichTextEditor ref="notesEditor" />
+          <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
+        </template>
+        <div v-if="canUseTesterControls" class="tm-quick-notes" aria-label="Quick notes">
           <button type="button" @click="applyQuickNote('Works as expected')">
             Works as expected
           </button>
@@ -1224,18 +1327,26 @@
         >
           <h3>Recorded Notes</h3>
           <article v-for="note in activeChange.notes.slice(0, 5)" :key="note.id">
-            <div>
+            <div class="tm-recorded-notes__meta">
               <strong>{{ note.author?.displayName ?? 'Unknown' }}</strong>
-              <span>{{ relativeTime(note.createdAt) }}</span>
+              <span class="tm-recorded-notes__time">· {{ relativeTime(note.createdAt) }}</span>
               <StatusPill v-if="note.result" :status="note.result" compact />
             </div>
-            <p>{{ plainText(note.contentHtml) }}</p>
+            <div
+              class="tm-recorded-notes__content tm-rich"
+              v-html="displayRichText(note.contentHtml)"
+            ></div>
           </article>
         </section>
+        <p v-else class="tm-empty-table">No testing notes recorded.</p>
 
         <div class="tm-note-actions">
           <button type="button" class="tm-btn tm-btn--ghost" @click="closeNotesModal">Close</button>
-          <button type="submit" class="tm-btn tm-btn--primary tm-note-save">
+          <button
+            v-if="canUseTesterControls"
+            type="submit"
+            class="tm-btn tm-btn--primary tm-note-save"
+          >
             <span aria-hidden="true">▣</span>
             Save Note
           </button>
@@ -1285,7 +1396,7 @@
           <span v-if="coverageNote.updatedAt"
             >Updated {{ relativeTime(coverageNote.updatedAt) }}</span
           >
-          <div class="tm-rich" v-html="coverageNote.notesHtml"></div>
+          <div class="tm-rich" v-html="displayRichText(coverageNote.notesHtml)"></div>
         </div>
       </section>
     </div>
@@ -1293,7 +1404,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, nextTick, onMounted, ref, watch } from 'vue';
+import {
+  computed,
+  defineComponent,
+  h,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch
+} from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 
 import {
@@ -1316,6 +1437,18 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 
+const CHANGE_LAYOUT_STORAGE_KEY = 'test-manager.changeLaneWidths';
+const CHANGE_LAYOUT_OLD_DEFAULTS = { left: 368, right: 352 };
+const CHANGE_LAYOUT_DEFAULTS = { left: 424, right: 352 };
+const CHANGE_LAYOUT_MIN = { left: 280, detail: 480, right: 280 };
+const CHANGE_LAYOUT_MAX = { left: 640, right: 560 };
+const CHANGE_LAYOUT_SPLITTER_WIDTH = 16;
+type ChangeLayoutPane = 'left' | 'right';
+interface ChangeLayoutWidths {
+  left: number;
+  right: number;
+}
+
 const loading = ref(false);
 const dashboard = ref<TestManagerDashboard | null>(null);
 const changes = ref<TestChange[]>([]);
@@ -1325,6 +1458,9 @@ const settings = ref<TestManagerSettings | null>(null);
 const savedSettings = ref<TestManagerSettings | null>(null);
 const settingsSaving = ref(false);
 const settingsMessage = ref('');
+const changesGrid = ref<HTMLElement | null>(null);
+const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
+const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
 const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'History'>('Overview');
 const priorityFilter = ref<TestChangePriority | ''>('');
 const changeStatusFilter = ref<TestChangeListStatusFilter>('ACTIVE');
@@ -1369,6 +1505,7 @@ const requestOpen = ref(false);
 const notesOpen = ref(false);
 const checklistNoteOpen = ref(false);
 const checklistNoteItemId = ref<string | null>(null);
+const checklistNotePromptItemId = ref<string | null>(null);
 const coverageNote = ref<CoverageNoteView | null>(null);
 const resultActionConfirm = ref<ResultActionConfirm | null>(null);
 const resultActionPending = ref(false);
@@ -1595,6 +1732,9 @@ const activeChange = computed(() => selectedChange.value ?? changes.value[0] ?? 
 const activeChecklistNoteItem = computed(() =>
   activeChange.value?.checklist.find((item) => item.id === checklistNoteItemId.value)
 );
+const checklistNotePromptItem = computed(() =>
+  activeChange.value?.checklist.find((item) => item.id === checklistNotePromptItemId.value)
+);
 const activeChangeNoteCount = computed(() => activeChange.value?.notes.length ?? 0);
 const hasActiveChangeNotes = computed(() => activeChangeNoteCount.value > 0);
 const activeViewerTester = computed(() => activeChange.value?.viewerTester ?? null);
@@ -1605,6 +1745,10 @@ const isActivelyTestingViewer = computed(
     !activeViewerTester.value.result
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
+const changeLayoutStyle = computed<Record<string, string>>(() => ({
+  '--tm-change-left-width': `${Math.round(changeLayout.value.left)}px`,
+  '--tm-change-right-width': `${Math.round(changeLayout.value.right)}px`
+}));
 const developerActionChangeLabel = computed(() =>
   activeChange.value
     ? `#${activeChange.value.publicId} ${activeChange.value.title}`
@@ -1994,6 +2138,172 @@ function goToChange(changeId: string) {
   router.push(`/test-manager/changes/${changeId}`);
 }
 
+function goToChangeTesters(changeId: string) {
+  detailTab.value = 'Testers';
+  router.push({
+    path: `/test-manager/changes/${changeId}`,
+    query: { tab: 'Testers' }
+  });
+}
+
+function loadChangeLayoutPreference(): ChangeLayoutWidths {
+  if (typeof window === 'undefined') {
+    return { ...CHANGE_LAYOUT_DEFAULTS };
+  }
+
+  try {
+    const saved = window.localStorage.getItem(CHANGE_LAYOUT_STORAGE_KEY);
+    if (!saved) {
+      return { ...CHANGE_LAYOUT_DEFAULTS };
+    }
+    const parsed = JSON.parse(saved) as Partial<ChangeLayoutWidths>;
+    const isStoredOldDefault =
+      parsed.left === CHANGE_LAYOUT_OLD_DEFAULTS.left &&
+      parsed.right === CHANGE_LAYOUT_OLD_DEFAULTS.right;
+    if (isStoredOldDefault) {
+      return { ...CHANGE_LAYOUT_DEFAULTS };
+    }
+    return {
+      left:
+        typeof parsed.left === 'number' && Number.isFinite(parsed.left)
+          ? parsed.left
+          : CHANGE_LAYOUT_DEFAULTS.left,
+      right:
+        typeof parsed.right === 'number' && Number.isFinite(parsed.right)
+          ? parsed.right
+          : CHANGE_LAYOUT_DEFAULTS.right
+    };
+  } catch {
+    return { ...CHANGE_LAYOUT_DEFAULTS };
+  }
+}
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
+function clampChangeLayout(widths: ChangeLayoutWidths): ChangeLayoutWidths {
+  const containerWidth = changesGrid.value?.getBoundingClientRect().width ?? 0;
+  const splitterWidth = CHANGE_LAYOUT_SPLITTER_WIDTH * 2;
+
+  if (!containerWidth) {
+    return {
+      left: clampValue(widths.left, CHANGE_LAYOUT_MIN.left, CHANGE_LAYOUT_MAX.left),
+      right: clampValue(widths.right, CHANGE_LAYOUT_MIN.right, CHANGE_LAYOUT_MAX.right)
+    };
+  }
+
+  const leftMax = Math.min(
+    CHANGE_LAYOUT_MAX.left,
+    containerWidth - CHANGE_LAYOUT_MIN.right - CHANGE_LAYOUT_MIN.detail - splitterWidth
+  );
+  let left = clampValue(widths.left, CHANGE_LAYOUT_MIN.left, leftMax);
+  const rightMax = Math.min(
+    CHANGE_LAYOUT_MAX.right,
+    containerWidth - left - CHANGE_LAYOUT_MIN.detail - splitterWidth
+  );
+  let right = clampValue(widths.right, CHANGE_LAYOUT_MIN.right, rightMax);
+  left = clampValue(
+    left,
+    CHANGE_LAYOUT_MIN.left,
+    Math.min(
+      CHANGE_LAYOUT_MAX.left,
+      containerWidth - right - CHANGE_LAYOUT_MIN.detail - splitterWidth
+    )
+  );
+  right = clampValue(
+    right,
+    CHANGE_LAYOUT_MIN.right,
+    Math.min(
+      CHANGE_LAYOUT_MAX.right,
+      containerWidth - left - CHANGE_LAYOUT_MIN.detail - splitterWidth
+    )
+  );
+
+  return { left, right };
+}
+
+function saveChangeLayoutPreference(widths: ChangeLayoutWidths) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.localStorage.setItem(CHANGE_LAYOUT_STORAGE_KEY, JSON.stringify(widths));
+}
+
+function updateChangeLayout(widths: ChangeLayoutWidths, persist = false) {
+  const clamped = clampChangeLayout(widths);
+  changeLayout.value = clamped;
+  if (persist) {
+    saveChangeLayoutPreference(clamped);
+  }
+}
+
+function startChangeLayoutDrag(pane: ChangeLayoutPane, event: PointerEvent) {
+  if (event.button !== 0 || !changesGrid.value) {
+    return;
+  }
+  event.preventDefault();
+  activeChangeLayoutDrag.value = pane;
+  window.addEventListener('pointermove', dragChangeLayout);
+  window.addEventListener('pointerup', stopChangeLayoutDrag, { once: true });
+  window.addEventListener('pointercancel', stopChangeLayoutDrag, { once: true });
+}
+
+function dragChangeLayout(event: PointerEvent) {
+  const pane = activeChangeLayoutDrag.value;
+  const grid = changesGrid.value;
+  if (!pane || !grid) {
+    return;
+  }
+  const bounds = grid.getBoundingClientRect();
+  if (pane === 'left') {
+    updateChangeLayout({ ...changeLayout.value, left: event.clientX - bounds.left });
+    return;
+  }
+  updateChangeLayout({ ...changeLayout.value, right: bounds.right - event.clientX });
+}
+
+function stopChangeLayoutDrag() {
+  if (activeChangeLayoutDrag.value) {
+    saveChangeLayoutPreference(changeLayout.value);
+  }
+  activeChangeLayoutDrag.value = null;
+  window.removeEventListener('pointermove', dragChangeLayout);
+  window.removeEventListener('pointerup', stopChangeLayoutDrag);
+  window.removeEventListener('pointercancel', stopChangeLayoutDrag);
+}
+
+function adjustChangeLayoutWithKeyboard(pane: ChangeLayoutPane, event: KeyboardEvent) {
+  const step = event.shiftKey ? 64 : 24;
+  if (event.key === 'Home') {
+    event.preventDefault();
+    resetChangeLayout();
+    return;
+  }
+
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+    return;
+  }
+
+  event.preventDefault();
+  const direction = event.key === 'ArrowRight' ? 1 : -1;
+  const delta = pane === 'left' ? direction * step : -direction * step;
+  updateChangeLayout(
+    pane === 'left'
+      ? { ...changeLayout.value, left: changeLayout.value.left + delta }
+      : { ...changeLayout.value, right: changeLayout.value.right + delta },
+    true
+  );
+}
+
+function resetChangeLayout() {
+  updateChangeLayout({ ...CHANGE_LAYOUT_DEFAULTS }, true);
+}
+
+function handleChangeLayoutResize() {
+  updateChangeLayout(changeLayout.value);
+}
+
 function openCreate() {
   resetCreateForm();
   createOpen.value = true;
@@ -2069,7 +2379,9 @@ async function createChange() {
 }
 
 async function volunteer(change: TestChange) {
-  selectedChange.value = await api.volunteerForTestChange(change.id);
+  selectedChange.value = change.viewerTester?.result
+    ? await api.retestTestChange(change.id)
+    : await api.volunteerForTestChange(change.id);
   await loadChanges();
 }
 
@@ -2100,11 +2412,6 @@ async function submitRequestTester() {
 }
 
 async function openNotesModal() {
-  if (!canUseTesterControls.value) {
-    feedbackError.value =
-      'Tester input is only available while you are actively testing this change.';
-    return;
-  }
   notesOpen.value = true;
   await nextTick();
 }
@@ -2236,12 +2543,16 @@ async function updateChecklistProgress(checklistItemId: string, completed: boole
   if (!activeChange.value) {
     return;
   }
+  checklistNotePromptItemId.value = null;
   selectedChange.value = await api.updateTestChangeChecklistProgress(
     activeChange.value.id,
     checklistItemId,
     { completed }
   );
   await loadChanges();
+  if (completed) {
+    checklistNotePromptItemId.value = checklistItemId;
+  }
 }
 
 async function openChecklistNote(checklistItemId: string) {
@@ -2255,6 +2566,18 @@ function closeChecklistNote() {
   checklistNoteOpen.value = false;
   checklistNoteItemId.value = null;
   checklistNoteEditor.value?.clear();
+}
+
+async function confirmChecklistNotePrompt() {
+  const checklistItemId = checklistNotePromptItemId.value;
+  checklistNotePromptItemId.value = null;
+  if (checklistItemId) {
+    await openChecklistNote(checklistItemId);
+  }
+}
+
+function closeChecklistNotePrompt() {
+  checklistNotePromptItemId.value = null;
 }
 
 async function saveChecklistNote() {
@@ -2371,11 +2694,16 @@ function canStartTesting(change: TestChange) {
   return (
     (authStore.isTester || authStore.isAdmin) &&
     change.status !== 'CLOSED' &&
-    (!viewerTester || (viewerTester.status === 'NOT_STARTED' && !viewerTester.result))
+    (!viewerTester ||
+      Boolean(viewerTester.result) ||
+      (viewerTester.status === 'NOT_STARTED' && !viewerTester.result))
   );
 }
 
 function startTestingLabel(change: TestChange) {
+  if (change.viewerTester?.result) {
+    return 'Re-test';
+  }
   return change.viewerTester ? 'Start Testing' : 'Test This';
 }
 
@@ -2527,7 +2855,15 @@ function compareChanges(left: TestChange, right: TestChange) {
     MEDIUM: 2,
     LOW: 1
   };
-  return weights[right.priority] - weights[left.priority] || left.publicId - right.publicId;
+  return (
+    Number(isViewerActivelyTestingChange(right)) - Number(isViewerActivelyTestingChange(left)) ||
+    weights[right.priority] - weights[left.priority] ||
+    left.publicId - right.publicId
+  );
+}
+
+function isViewerActivelyTestingChange(change: TestChange) {
+  return change.viewerTester?.status === 'TESTING' && !change.viewerTester.result;
 }
 
 function statusLabel(status: string) {
@@ -2538,7 +2874,14 @@ function statusLabel(status: string) {
 }
 
 function assignmentLabel(assignment: string) {
+  if (assignment === 'ADMIN_REQUESTED') {
+    return 'Requested';
+  }
   return statusLabel(assignment);
+}
+
+function isTesterNotStarted(tester: TestChange['testers'][number]) {
+  return tester.status === 'NOT_STARTED';
 }
 
 function viewerChangeListStatus(change: TestChange): { label: string; tone: string } {
@@ -2574,10 +2917,7 @@ function viewerChangeListDotClass(change: TestChange) {
 }
 
 function plainText(html: string) {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return getRichTextPlainText(html);
 }
 
 function escapeHtml(value: string) {
@@ -2588,10 +2928,95 @@ function escapeHtml(value: string) {
   );
 }
 
+function decodeHtmlEntities(value: string) {
+  const textarea = document.createElement('textarea');
+  let decoded = value;
+  for (let index = 0; index < 3; index += 1) {
+    textarea.innerHTML = decoded;
+    const next = textarea.value;
+    if (next === decoded) {
+      return next;
+    }
+    decoded = next;
+  }
+  return decoded;
+}
+
+const RICH_TEXT_TAG_ALIASES: Record<string, string> = {
+  b: 'strong',
+  i: 'em',
+  div: 'p'
+};
+const RICH_TEXT_ALLOWED_TAGS = new Set([
+  'p',
+  'br',
+  'strong',
+  'em',
+  'u',
+  'ul',
+  'ol',
+  'li',
+  'blockquote',
+  'code'
+]);
+const RICH_TEXT_STRIPPED_TAGS = new Set(['span', 'font']);
+
+function normalizeRichTextTag(tag: string) {
+  const match = tag.match(/^<\s*(\/?)\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/?)>$/i);
+  if (!match) {
+    return null;
+  }
+
+  const tagName = match[2].toLowerCase();
+  if (RICH_TEXT_STRIPPED_TAGS.has(tagName)) {
+    return '';
+  }
+
+  const normalizedName = RICH_TEXT_TAG_ALIASES[tagName] ?? tagName;
+  if (!RICH_TEXT_ALLOWED_TAGS.has(normalizedName)) {
+    return null;
+  }
+
+  if (normalizedName === 'br') {
+    return '<br>';
+  }
+
+  return match[1] ? `</${normalizedName}>` : `<${normalizedName}>`;
+}
+
+function normalizeRichTextHtml(value: string) {
+  const withoutUnsafeBlocks = value
+    .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    .replace(/<\s*\/?\s*(script|style|iframe|object|embed)[^>]*>/gi, '');
+  const tagPattern = /<[^>]*>/g;
+  let cursor = 0;
+  let normalized = '';
+
+  for (const match of withoutUnsafeBlocks.matchAll(tagPattern)) {
+    normalized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index)));
+    normalized += normalizeRichTextTag(match[0]) ?? escapeHtml(decodeHtmlEntities(match[0]));
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+
+  normalized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor)));
+  return normalized
+    .replace(/(?:\u00a0|&nbsp;)/gi, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
+function displayRichText(html: string) {
+  return normalizeRichTextHtml(html);
+}
+
 function getRichTextPlainText(value: string): string {
   const container = document.createElement('div');
-  container.innerHTML = value;
-  return (container.textContent || '').replace(/\s+/g, ' ').trim();
+  container.innerHTML = normalizeRichTextHtml(value);
+  return (container.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function relativeTime(value: string | null) {
@@ -2773,15 +3198,116 @@ const WorkflowTimeline = defineComponent({
 const RichTextEditor = defineComponent({
   setup(_, { expose }) {
     const editor = ref<HTMLElement | null>(null);
-    const command = (name: string) => {
-      document.execCommand(name, false);
+    const activeMarks = reactive({ bold: false, italic: false, underline: false });
+    let savedRange: Range | null = null;
+    const hasActiveMarks = () => activeMarks.bold || activeMarks.italic || activeMarks.underline;
+    const wrapActiveMarks = (html: string) => {
+      let wrapped = html;
+      if (activeMarks.underline) wrapped = `<u>${wrapped}</u>`;
+      if (activeMarks.italic) wrapped = `<em>${wrapped}</em>`;
+      if (activeMarks.bold) wrapped = `<strong>${wrapped}</strong>`;
+      return wrapped;
+    };
+    const saveSelection = () => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !editor.value) {
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (editor.value.contains(range.commonAncestorContainer)) {
+        savedRange = range.cloneRange();
+      }
+    };
+    const restoreSelection = () => {
       editor.value?.focus();
+      if (!savedRange) {
+        return;
+      }
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(savedRange);
+    };
+    const isCurrentSelectionInEditor = () => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || !editor.value) {
+        return false;
+      }
+      return editor.value.contains(selection.getRangeAt(0).commonAncestorContainer);
+    };
+    const prepareSelection = () => {
+      if (isCurrentSelectionInEditor()) {
+        saveSelection();
+      } else {
+        restoreSelection();
+      }
+    };
+    const hasEditorSelection = () => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount || selection.isCollapsed || !editor.value) {
+        return false;
+      }
+      return editor.value.contains(selection.getRangeAt(0).commonAncestorContainer);
+    };
+    const inlineCommands = {
+      bold: 'bold',
+      italic: 'italic',
+      underline: 'underline'
+    } as const;
+    const command = (name: string) => {
+      prepareSelection();
+      document.execCommand('styleWithCSS', false, 'false');
+      if (name in inlineCommands && !hasEditorSelection()) {
+        const mark = inlineCommands[name as keyof typeof inlineCommands];
+        activeMarks[mark] = !activeMarks[mark];
+      } else {
+        document.execCommand(name, false);
+      }
+      saveSelection();
+    };
+    const handleToolbarPointer = (event: MouseEvent) => {
+      event.preventDefault();
+      saveSelection();
+    };
+    const textToEditorHtml = (text: string) =>
+      text
+        .replace(/\r\n?/g, '\n')
+        .split(/\n{2,}/)
+        .map((block) => {
+          const escapedBlock = escapeHtml(block).replace(/\n/g, '<br>');
+          return `<p>${hasActiveMarks() ? wrapActiveMarks(escapedBlock) : escapedBlock}</p>`;
+        })
+        .join('');
+    const handleBeforeInput = (event: InputEvent) => {
+      if (event.inputType !== 'insertText' || !event.data || !hasActiveMarks()) {
+        return;
+      }
+      event.preventDefault();
+      prepareSelection();
+      document.execCommand('insertHTML', false, wrapActiveMarks(escapeHtml(event.data)));
+      saveSelection();
+    };
+    const handlePaste = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData('text/plain');
+      if (!text) {
+        return;
+      }
+      event.preventDefault();
+      prepareSelection();
+      document.execCommand('insertHTML', false, textToEditorHtml(text));
+      saveSelection();
+    };
+    const currentHtml = () => {
+      const normalized = normalizeRichTextHtml(editor.value?.innerHTML.trim() || '');
+      if (editor.value && editor.value.innerHTML !== normalized) {
+        editor.value.innerHTML = normalized;
+      }
+      return normalized;
     };
     expose({
-      getHtml: () => editor.value?.innerHTML.trim() || '',
+      getHtml: currentHtml,
       setHtml: (html: string) => {
         if (editor.value) {
-          editor.value.innerHTML = html;
+          editor.value.innerHTML = normalizeRichTextHtml(html);
         }
       },
       clear: () => {
@@ -2792,17 +3318,77 @@ const RichTextEditor = defineComponent({
     });
     return () =>
       h('div', { class: 'tm-editor' }, [
-        h('div', { class: 'tm-editor__bar' }, [
-          h('button', { type: 'button', onClick: () => command('bold') }, 'B'),
-          h('button', { type: 'button', onClick: () => command('italic') }, 'I'),
-          h('button', { type: 'button', onClick: () => command('underline') }, 'U'),
-          h('button', { type: 'button', onClick: () => command('insertUnorderedList') }, '•'),
-          h('button', { type: 'button', onClick: () => command('insertOrderedList') }, '1.')
+        h('div', { class: 'tm-editor__bar', role: 'toolbar', 'aria-label': 'Formatting tools' }, [
+          h(
+            'button',
+            {
+              type: 'button',
+              title: 'Bold',
+              'aria-label': 'Bold',
+              class: { 'is-active': activeMarks.bold },
+              onMousedown: handleToolbarPointer,
+              onClick: () => command('bold')
+            },
+            'B'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              title: 'Italic',
+              'aria-label': 'Italic',
+              class: { 'is-active': activeMarks.italic },
+              onMousedown: handleToolbarPointer,
+              onClick: () => command('italic')
+            },
+            'I'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              title: 'Underline',
+              'aria-label': 'Underline',
+              class: { 'is-active': activeMarks.underline },
+              onMousedown: handleToolbarPointer,
+              onClick: () => command('underline')
+            },
+            'U'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              title: 'Bulleted list',
+              'aria-label': 'Bulleted list',
+              onMousedown: handleToolbarPointer,
+              onClick: () => command('insertUnorderedList')
+            },
+            '•'
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              title: 'Numbered list',
+              'aria-label': 'Numbered list',
+              onMousedown: handleToolbarPointer,
+              onClick: () => command('insertOrderedList')
+            },
+            '1.'
+          )
         ]),
         h('div', {
           ref: editor,
           class: 'tm-editor__surface',
           contenteditable: 'true',
+          spellcheck: 'true',
+          onFocus: saveSelection,
+          onKeyup: saveSelection,
+          onMouseup: saveSelection,
+          onBeforeinput: handleBeforeInput,
+          onInput: saveSelection,
+          onPaste: handlePaste,
           'data-placeholder': 'Enter detailed testing notes...'
         })
       ]);
@@ -2822,6 +3408,7 @@ watch(
   () => activeChange.value?.id,
   () => {
     notesOpen.value = false;
+    checklistNotePromptItemId.value = null;
     feedbackError.value = '';
     testerSearch.value = '';
     testerStatusFilter.value = 'All Statuses';
@@ -2830,7 +3417,15 @@ watch(
     notesEditor.value?.clear();
   }
 );
-onMounted(loadCurrentSection);
+onMounted(() => {
+  void loadCurrentSection();
+  updateChangeLayout(changeLayout.value);
+  window.addEventListener('resize', handleChangeLayoutResize);
+});
+onBeforeUnmount(() => {
+  stopChangeLayoutDrag();
+  window.removeEventListener('resize', handleChangeLayoutResize);
+});
 </script>
 
 <style scoped>
@@ -3052,8 +3647,90 @@ onMounted(loadCurrentSection);
 }
 
 .tm-grid--changes {
-  grid-template-columns: 23rem minmax(30rem, 1fr) 22rem;
+  grid-template-columns:
+    var(--tm-change-left-width, 26.5rem) var(--tm-change-splitter-width, 1rem)
+    minmax(30rem, 1fr) var(--tm-change-splitter-width, 1rem)
+    var(--tm-change-right-width, 22rem);
+  gap: 0;
   align-items: stretch;
+}
+
+.tm-lane-splitter {
+  position: relative;
+  width: var(--tm-change-splitter-width, 1rem);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.tm-lane-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 0.25rem;
+  border-left: 1px solid rgba(198, 139, 68, 0.18);
+  border-right: 1px solid rgba(85, 183, 255, 0.1);
+  background:
+    linear-gradient(180deg, transparent, rgba(217, 164, 95, 0.14), transparent),
+    rgba(255, 255, 255, 0.015);
+  opacity: 0.72;
+  transition:
+    opacity 0.14s ease,
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.tm-lane-splitter span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.24rem;
+  height: 3.4rem;
+  border-radius: 999px;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(244, 234, 216, 0.44) 0 0.22rem,
+    transparent 0.22rem 0.48rem
+  );
+  transform: translate(-50%, -50%);
+  opacity: 0.55;
+  transition:
+    opacity 0.14s ease,
+    background 0.14s ease;
+}
+
+.tm-lane-splitter:hover::before,
+.tm-lane-splitter:focus-visible::before,
+.tm-grid--resizing .tm-lane-splitter::before {
+  border-left-color: rgba(217, 164, 95, 0.5);
+  border-right-color: rgba(85, 183, 255, 0.34);
+  background:
+    linear-gradient(180deg, transparent, rgba(85, 183, 255, 0.18), transparent),
+    rgba(217, 164, 95, 0.05);
+  opacity: 1;
+}
+
+.tm-lane-splitter:hover span,
+.tm-lane-splitter:focus-visible span,
+.tm-grid--resizing .tm-lane-splitter span {
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 232, 188, 0.8) 0 0.22rem,
+    transparent 0.22rem 0.48rem
+  );
+  opacity: 1;
+}
+
+.tm-lane-splitter:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.65);
+  outline-offset: -2px;
+}
+
+.tm-grid--resizing,
+.tm-grid--resizing * {
+  user-select: none;
 }
 
 .tm-grid--users {
@@ -3479,17 +4156,15 @@ onMounted(loadCurrentSection);
 .tm-change-card {
   width: 100%;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.85rem;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, auto);
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.7rem 0.75rem;
   color: inherit;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--tm-border-soft);
   border-radius: var(--tm-button-radius);
   margin-bottom: 0.5rem;
-  text-align: left;
-  cursor: pointer;
   transition:
     transform 0.12s ease,
     border-color 0.12s ease,
@@ -3497,8 +4172,23 @@ onMounted(loadCurrentSection);
     box-shadow 0.12s ease;
 }
 
+.tm-change-card__main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
 .tm-change-card:hover,
-.tm-change-card:focus-visible {
+.tm-change-card:focus-within {
   border-color: rgba(85, 183, 255, 0.82);
   background:
     linear-gradient(135deg, rgba(85, 183, 255, 0.22), rgba(217, 164, 95, 0.08)),
@@ -3510,14 +4200,16 @@ onMounted(loadCurrentSection);
   transform: translateX(2px) translateY(-1px);
 }
 
-.tm-change-card:focus-visible {
+.tm-change-card:focus-within {
   outline: 2px solid rgba(217, 164, 95, 0.65);
   outline-offset: 2px;
 }
 
-.tm-change-card > span:nth-child(2) {
+.tm-change-card__main > span:nth-child(2) {
   display: grid;
   gap: 0.15rem;
+  min-width: 0;
+  align-content: start;
 }
 
 .tm-change-card strong,
@@ -3526,7 +4218,7 @@ onMounted(loadCurrentSection);
 }
 
 .tm-change-card:hover strong,
-.tm-change-card:focus-visible strong {
+.tm-change-card:focus-within strong {
   color: #fff3dd;
 }
 
@@ -3536,7 +4228,7 @@ onMounted(loadCurrentSection);
 }
 
 .tm-change-card--active:hover,
-.tm-change-card--active:focus-visible {
+.tm-change-card--active:focus-within {
   border-color: rgba(85, 183, 255, 0.95);
   background:
     linear-gradient(135deg, rgba(85, 183, 255, 0.24), rgba(217, 164, 95, 0.08)),
@@ -3551,7 +4243,7 @@ onMounted(loadCurrentSection);
 }
 
 .tm-change-card:hover .tm-dot,
-.tm-change-card:focus-visible .tm-dot {
+.tm-change-card:focus-within .tm-dot {
   box-shadow: 0 0 0 4px rgba(85, 183, 255, 0.12);
 }
 
@@ -3587,6 +4279,88 @@ onMounted(loadCurrentSection);
   background: rgba(188, 178, 164, 0.66);
 }
 
+.tm-change-status-counters {
+  align-self: start;
+  justify-self: end;
+  min-width: 8rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.28rem;
+  padding: 0.3rem;
+  border: 1px solid rgba(117, 154, 175, 0.34);
+  border-radius: 0.65rem;
+  color: #c8dbe4;
+  font: inherit;
+  background: rgba(11, 26, 34, 0.78);
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.tm-change-status-counters:hover,
+.tm-change-status-counters:focus-visible {
+  border-color: rgba(135, 177, 199, 0.54);
+  color: #e5f0f5;
+  background: rgba(13, 34, 45, 0.88);
+  transform: translateY(-1px);
+}
+
+.tm-change-status-counters:focus-visible,
+.tm-change-card__main:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.75);
+  outline-offset: 3px;
+}
+
+.tm-change-status-counter {
+  min-width: 0;
+  min-height: 2.2rem;
+  display: grid;
+  place-items: center;
+  gap: 0.08rem;
+  padding: 0.32rem 0.24rem;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.tm-change-status-counter strong {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.08rem;
+  line-height: 1;
+}
+
+.tm-change-status-counter span {
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-change-status-counter--testers {
+  color: #7cbde8;
+  background: rgba(85, 183, 255, 0.055);
+}
+
+.tm-change-status-counter--failed {
+  color: #e48274;
+  background: rgba(255, 107, 85, 0.055);
+}
+
+.tm-change-status-counter--blocked {
+  color: #c7a16e;
+  background: rgba(217, 164, 95, 0.06);
+}
+
+.tm-change-status-counter--passed {
+  color: #86c784;
+  background: rgba(114, 214, 111, 0.055);
+}
+
 .tm-viewer-status {
   justify-self: end;
   min-width: 6.6rem;
@@ -3600,6 +4374,11 @@ onMounted(loadCurrentSection);
   text-align: center;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.tm-change-card .tm-viewer-status {
+  justify-self: start;
+  margin-top: 0.25rem;
 }
 
 .tm-viewer-status--testing,
@@ -3849,6 +4628,39 @@ onMounted(loadCurrentSection);
   line-height: 1.55;
 }
 
+.tm-rich p,
+.tm-rich ul,
+.tm-rich ol,
+.tm-rich blockquote {
+  margin: 0.35rem 0 0;
+}
+
+.tm-rich > :first-child {
+  margin-top: 0;
+}
+
+.tm-rich ul,
+.tm-rich ol {
+  padding-left: 1.35rem;
+}
+
+.tm-rich li + li {
+  margin-top: 0.2rem;
+}
+
+.tm-rich blockquote {
+  border-left: 2px solid rgba(217, 164, 95, 0.48);
+  padding-left: 0.75rem;
+  color: #d9cec0;
+}
+
+.tm-rich code {
+  padding: 0.05rem 0.22rem;
+  border: 1px solid rgba(85, 183, 255, 0.22);
+  background: rgba(85, 183, 255, 0.08);
+  color: #bfe4ff;
+}
+
 .tm-progress {
   height: 0.45rem;
   background: rgba(255, 255, 255, 0.08);
@@ -3914,6 +4726,30 @@ onMounted(loadCurrentSection);
   display: block;
   height: 100%;
   background: linear-gradient(90deg, var(--tm-blue), var(--tm-green));
+}
+
+.tm-tester-status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.46rem;
+}
+
+.tm-status-loader {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 50%;
+  border: 2px solid rgba(119, 201, 255, 0.16);
+  border-top-color: #77c9ff;
+  border-right-color: rgba(119, 201, 255, 0.58);
+  border-bottom-color: rgba(217, 164, 95, 0.5);
+  box-shadow: 0 0 10px rgba(85, 183, 255, 0.16);
+  animation: tm-status-loader-spin 2.8s linear infinite;
+}
+
+@keyframes tm-status-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .tm-coverage-matrix {
@@ -3983,20 +4819,29 @@ onMounted(loadCurrentSection);
   background: rgba(255, 255, 255, 0.025);
 }
 
+.tm-coverage-matrix-cell--has-note {
+  padding-top: 2.25rem;
+}
+
 .tm-coverage-note-btn {
   position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
-  width: 1.45rem;
-  height: 1.45rem;
+  top: 0.42rem;
+  right: 0.42rem;
+  z-index: 2;
+  width: 1.65rem;
+  height: 1.65rem;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(217, 164, 95, 0.3);
+  border: 1px solid rgba(217, 164, 95, 0.68);
   border-radius: 7px;
-  background: rgba(217, 164, 95, 0.075);
-  color: rgba(239, 197, 132, 0.72);
+  background:
+    linear-gradient(180deg, rgba(73, 49, 19, 0.96), rgba(22, 20, 16, 0.98)), rgba(217, 164, 95, 0.2);
+  color: #ffe0a3;
   cursor: pointer;
-  opacity: 0.72;
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.36),
+    0 0 14px rgba(217, 164, 95, 0.14);
   transition:
     opacity 0.15s ease,
     transform 0.15s ease,
@@ -4448,7 +5293,9 @@ onMounted(loadCurrentSection);
 
 .tm-editor {
   border: 1px solid var(--tm-border-soft);
+  border-radius: var(--tm-control-radius);
   background: rgba(3, 6, 7, 0.68);
+  overflow: hidden;
 }
 
 :deep(.tm-editor__bar) {
@@ -4456,21 +5303,60 @@ onMounted(loadCurrentSection);
   gap: 0.25rem;
   border-bottom: 1px solid var(--tm-border-soft);
   padding: 0.35rem;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 :deep(.tm-editor__bar button) {
-  background: transparent;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.035);
   color: var(--tm-text);
-  border: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
   min-width: 2rem;
   height: 2rem;
   cursor: pointer;
+  font-weight: 800;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+:deep(.tm-editor__bar button:hover),
+:deep(.tm-editor__bar button:focus-visible),
+:deep(.tm-editor__bar button.is-active) {
+  background: rgba(85, 183, 255, 0.12);
+  border-color: rgba(85, 183, 255, 0.32);
+  color: #dff3ff;
 }
 
 :deep(.tm-editor__surface) {
   min-height: 8rem;
   padding: 0.75rem;
   outline: none;
+  color: #eee1cf;
+  line-height: 1.55;
+}
+
+:deep(.tm-editor__surface:focus) {
+  box-shadow: inset 0 0 0 1px rgba(85, 183, 255, 0.28);
+}
+
+:deep(.tm-editor__surface p),
+:deep(.tm-editor__surface ul),
+:deep(.tm-editor__surface ol),
+:deep(.tm-editor__surface blockquote) {
+  margin: 0.35rem 0 0;
+}
+
+:deep(.tm-editor__surface > :first-child) {
+  margin-top: 0;
+}
+
+:deep(.tm-editor__surface ul),
+:deep(.tm-editor__surface ol) {
+  padding-left: 1.35rem;
 }
 
 :deep(.tm-editor__surface:empty::before) {
@@ -5753,10 +6639,11 @@ onMounted(loadCurrentSection);
   padding: 0.55rem 0.65rem;
 }
 
-.tm-recorded-notes article > div {
+.tm-recorded-notes__meta {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  flex-wrap: wrap;
   color: var(--tm-muted);
   font-size: 0.78rem;
 }
@@ -5765,10 +6652,15 @@ onMounted(loadCurrentSection);
   color: var(--tm-text);
 }
 
-.tm-recorded-notes p {
+.tm-recorded-notes__time {
+  color: #a99c8d;
+  white-space: nowrap;
+}
+
+.tm-recorded-notes__content {
   margin: 0.3rem 0 0;
   color: #d9cec0;
-  line-height: 1.35;
+  line-height: 1.45;
 }
 
 .tm-request-modal label {
@@ -5792,7 +6684,12 @@ onMounted(loadCurrentSection);
   .tm-grid--dashboard,
   .tm-grid--users {
     grid-template-columns: 1fr;
+    gap: 1rem;
     align-items: start;
+  }
+
+  .tm-lane-splitter {
+    display: none;
   }
 
   .tm-detail,

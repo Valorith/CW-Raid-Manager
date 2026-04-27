@@ -20,6 +20,7 @@ import {
   listTestChanges,
   listTestManagerUsers,
   requestTester,
+  retestChange,
   saveChangeNote,
   setTestChangeStatus,
   submitTesterResult,
@@ -193,6 +194,25 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         return { change };
       } catch (error) {
         return reply.badRequest(error instanceof Error ? error.message : 'Unable to volunteer.');
+      }
+    }
+  );
+
+  server.post(
+    '/changes/:changeId/retest',
+    { preHandler: [authenticate, requireTesterOrAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      try {
+        const change = await retestChange(request.user.userId, parsed.data.changeId);
+        return { change };
+      } catch (error) {
+        return reply.badRequest(error instanceof Error ? error.message : 'Unable to re-test.');
       }
     }
   );

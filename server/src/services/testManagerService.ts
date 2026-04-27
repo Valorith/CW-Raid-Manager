@@ -114,22 +114,116 @@ function serializeUser(user: UserName | null) {
   };
 }
 
+const RICH_TEXT_TAG_ALIASES: Record<string, string> = {
+  b: 'strong',
+  i: 'em',
+  div: 'p'
+};
+const RICH_TEXT_ALLOWED_TAGS = new Set([
+  'p',
+  'br',
+  'strong',
+  'em',
+  'u',
+  'ul',
+  'ol',
+  'li',
+  'blockquote',
+  'code'
+]);
+const RICH_TEXT_STRIPPED_TAGS = new Set(['span', 'font']);
+
+function decodeHtmlEntities(value: string): string {
+  let decoded = value;
+  for (let index = 0; index < 3; index += 1) {
+    const next = decoded.replace(
+      /&(#x[0-9a-f]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);/gi,
+      (entity, body) => {
+        const normalized = String(body).toLowerCase();
+        if (normalized === 'amp') return '&';
+        if (normalized === 'lt') return '<';
+        if (normalized === 'gt') return '>';
+        if (normalized === 'quot') return '"';
+        if (normalized === 'apos') return "'";
+        if (normalized === 'nbsp') return ' ';
+        if (normalized.startsWith('#x')) {
+          const codePoint = Number.parseInt(normalized.slice(2), 16);
+          return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+            ? String.fromCodePoint(codePoint)
+            : entity;
+        }
+        if (normalized.startsWith('#')) {
+          const codePoint = Number.parseInt(normalized.slice(1), 10);
+          return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+            ? String.fromCodePoint(codePoint)
+            : entity;
+        }
+        return entity;
+      }
+    );
+    if (next === decoded) {
+      return next;
+    }
+    decoded = next;
+  }
+  return decoded;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[char] ?? char
+  );
+}
+
+function normalizeRichTextTag(tag: string): string | null {
+  const match = tag.match(/^<\s*(\/?)\s*([a-z0-9]+)(?:\s[^>]*)?\s*(\/?)>$/i);
+  if (!match) {
+    return null;
+  }
+
+  const tagName = match[2].toLowerCase();
+  if (RICH_TEXT_STRIPPED_TAGS.has(tagName)) {
+    return '';
+  }
+
+  const normalizedName = RICH_TEXT_TAG_ALIASES[tagName] ?? tagName;
+  if (!RICH_TEXT_ALLOWED_TAGS.has(normalizedName)) {
+    return null;
+  }
+
+  if (normalizedName === 'br') {
+    return '<br>';
+  }
+
+  return match[1] ? `</${normalizedName}>` : `<${normalizedName}>`;
+}
+
 function sanitizeRichText(value: string): string {
   const withoutUnsafeBlocks = value
     .replace(/<\s*(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
     .replace(/<\s*\/?\s*(script|style|iframe|object|embed)[^>]*>/gi, '');
+  const tagPattern = /<[^>]*>/g;
+  let cursor = 0;
+  let sanitized = '';
 
-  return withoutUnsafeBlocks
-    .replace(/\son[a-z]+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, '')
-    .replace(/\s(href|src)\s*=\s*(['"]?)javascript:[\s\S]*?\2/gi, '')
+  for (const match of withoutUnsafeBlocks.matchAll(tagPattern)) {
+    sanitized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor, match.index)));
+    sanitized += normalizeRichTextTag(match[0]) ?? escapeHtml(decodeHtmlEntities(match[0]));
+    cursor = (match.index ?? 0) + match[0].length;
+  }
+
+  sanitized += escapeHtml(decodeHtmlEntities(withoutUnsafeBlocks.slice(cursor)));
+  return sanitized
+    .replace(/(?:\u00a0|&nbsp;)/gi, ' ')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .trim();
 }
 
 function getRichTextPlainText(value: string): string {
-  return value
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;|&#160;/gi, ' ')
-    .replace(/&[a-z0-9#]+;/gi, ' ')
+  return decodeHtmlEntities(value.replace(/<[^>]*>/g, ' '))
+    .replace(/\u00a0/g, ' ')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -663,7 +757,7 @@ async function ensureSampleAssignments(actorUserId: string): Promise<void> {
             ? TestHistoryEventType.TEST_RESULT_ADDED
             : TestHistoryEventType.TESTING_REQUESTED,
           label: scenario.result ? `Test result added: ${scenario.result}` : 'Testing in progress',
-          detail: scenario.notesHtml.replace(/<[^>]*>/g, '')
+          detail: getRichTextPlainText(scenario.notesHtml)
         });
       }
     }
@@ -1029,6 +1123,51 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
   return getTestChange(changeId, actorUserId);
 }
 
+export async function retestChange(actorUserId: string, changeId: string) {
+  await ensureTesterOrAdmin(actorUserId);
+
+  await prisma.$transaction(async (tx) => {
+    const [change, tester] = await Promise.all([
+      tx.testChange.findUnique({ where: { id: changeId }, select: { id: true, status: true } }),
+      tx.testChangeTester.findUnique({
+        where: { changeId_userId: { changeId, userId: actorUserId } },
+        select: { id: true, result: true }
+      })
+    ]);
+
+    if (!change) {
+      throw new Error('Change not found.');
+    }
+    if (change.status === TestChangeStatus.CLOSED) {
+      throw new Error('Closed changes cannot be re-tested.');
+    }
+    if (!tester?.result) {
+      throw new Error('You can only re-test a change after submitting tester input.');
+    }
+
+    await tx.testChangeTester.update({
+      where: { id: tester.id },
+      data: {
+        status: TestRunStatus.TESTING,
+        result: null,
+        completedAt: null,
+        startedAt: new Date()
+      }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.TESTER_VOLUNTEERED,
+      label: 'Tester started re-test',
+      detail: 'Tester reopened their testing run for this change.',
+      metadata: { retest: true }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
 export async function requestTester(
   actorUserId: string,
   changeId: string,
@@ -1267,11 +1406,7 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
       actorUserId,
       eventType: TestHistoryEventType.NOTE_UPDATED,
       label: 'Notes updated',
-      detail: sanitized
-        .replace(/<[^>]*>/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 300)
+      detail: getRichTextPlainText(sanitized).slice(0, 300)
     });
   });
 

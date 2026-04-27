@@ -3317,6 +3317,12 @@ export const api = {
     );
     return response.data.change;
   },
+  async retestTestChange(changeId: string): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/retest`
+    );
+    return response.data.change;
+  },
   async requestTestChangeTester(
     changeId: string,
     payload: { userId: string; assignment: TestAssignmentKind }
