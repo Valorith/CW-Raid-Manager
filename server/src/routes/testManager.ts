@@ -14,6 +14,7 @@ import {
   TEST_MANAGER_PERMISSION_KEYS,
   TEST_MANAGER_ROLE_KEYS,
   createTestChange,
+  deleteChangeNote,
   deleteTestChange,
   ensureCanViewTestManager,
   getTestChange,
@@ -444,6 +445,35 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         return { change };
       } catch (error) {
         return reply.badRequest(error instanceof Error ? error.message : 'Unable to save note.');
+      }
+    }
+  );
+
+  server.delete(
+    '/changes/:changeId/notes/:noteId',
+    { preHandler: [authenticate, requireCanView] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        noteId: z.string().min(1)
+      });
+      const params = paramsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.badRequest('Invalid note payload.');
+      }
+
+      try {
+        const change = await deleteChangeNote(
+          request.user.userId,
+          params.data.changeId,
+          params.data.noteId
+        );
+        return { change };
+      } catch (error) {
+        if (error instanceof Error && /own notes/i.test(error.message)) {
+          return reply.forbidden(error.message);
+        }
+        return reply.badRequest(error instanceof Error ? error.message : 'Unable to delete note.');
       }
     }
   );

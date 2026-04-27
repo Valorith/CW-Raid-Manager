@@ -3209,6 +3209,7 @@ export interface TestChangeNote {
   createdAt: string;
   updatedAt: string;
   author: TestManagerUserSummary | null;
+  canDelete: boolean;
 }
 
 export interface TestChangeHistoryEvent {
@@ -3400,6 +3401,14 @@ export const api = {
     const response = await axios.post(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/notes`,
       { contentHtml }
+    );
+    return response.data.change;
+  },
+  async deleteTestChangeNote(changeId: string, noteId: string): Promise<TestChange> {
+    const response = await axios.delete(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/notes/${encodeURIComponent(
+        noteId
+      )}`
     );
     return response.data.change;
   },

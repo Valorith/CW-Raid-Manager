@@ -1700,7 +1700,6 @@
 
         <template v-if="canUseTesterControls">
           <RichTextEditor ref="notesEditor" />
-          <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
         </template>
         <div v-if="canUseTesterControls" class="tm-quick-notes" aria-label="Quick notes">
           <button type="button" @click="applyQuickNote('Works as expected')">
@@ -1714,6 +1713,7 @@
             Not reproducible
           </button>
         </div>
+        <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
 
         <section
           v-if="activeChange.notes.length"
@@ -1721,11 +1721,26 @@
           aria-label="Recorded notes"
         >
           <h3>Recorded Notes</h3>
-          <article v-for="note in activeChange.notes.slice(0, 5)" :key="note.id">
+          <article
+            v-for="note in activeChange.notes.slice(0, 5)"
+            :key="note.id"
+            :class="{ 'tm-recorded-notes__note--own': isOwnNote(note) }"
+          >
             <div class="tm-recorded-notes__meta">
-              <strong>{{ note.author?.displayName ?? 'Unknown' }}</strong>
-              <span class="tm-recorded-notes__time">· {{ relativeTime(note.createdAt) }}</span>
-              <StatusPill v-if="note.result" :status="note.result" compact />
+              <div class="tm-recorded-notes__byline">
+                <strong>{{ note.author?.displayName ?? 'Unknown' }}</strong>
+                <span class="tm-recorded-notes__time">· {{ relativeTime(note.createdAt) }}</span>
+                <StatusPill v-if="note.result" :status="note.result" compact />
+              </div>
+              <button
+                v-if="isOwnNote(note)"
+                type="button"
+                class="tm-recorded-notes__delete"
+                :disabled="isDeletingNote(note.id)"
+                @click="deleteNote(note)"
+              >
+                {{ isDeletingNote(note.id) ? 'Deleting' : 'Delete' }}
+              </button>
             </div>
             <div
               class="tm-recorded-notes__content tm-rich"
@@ -1818,6 +1833,7 @@ import {
   type TestAssignmentKind,
   type TestChange,
   type TestChangeListStatusFilter,
+  type TestChangeNote,
   type TestChangePriority,
   type TestChangeStatus,
   type TestManagerDiscordEventKey,
@@ -1929,6 +1945,7 @@ const developerActionPending = ref(false);
 const testerRemoveConfirm = ref<TesterRemoveConfirm | null>(null);
 const testerRemovePending = ref(false);
 const feedbackError = ref('');
+const deletingNoteIds = ref<Set<string>>(new Set());
 const notesEditor = ref<{
   getHtml: () => string;
   setHtml: (html: string) => void;
@@ -2603,6 +2620,17 @@ function isNotFoundError(error: unknown) {
   }
 
   return (error as { response?: { status?: number } }).response?.status === 404;
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { data?: { message?: unknown } } }).response;
+    if (typeof response?.data?.message === 'string') {
+      return response.data.message;
+    }
+  }
+
+  return error instanceof Error ? error.message : fallback;
 }
 
 async function loadChanges() {
@@ -3366,6 +3394,41 @@ async function saveNote() {
   notesEditor.value?.clear();
   notesOpen.value = false;
   await loadChanges();
+}
+
+function isDeletingNote(noteId: string) {
+  return deletingNoteIds.value.has(noteId);
+}
+
+function isOwnNote(note: TestChangeNote) {
+  return note.canDelete || note.author?.id === authStore.user?.userId;
+}
+
+function setNoteDeleting(noteId: string, deleting: boolean) {
+  const next = new Set(deletingNoteIds.value);
+  if (deleting) {
+    next.add(noteId);
+  } else {
+    next.delete(noteId);
+  }
+  deletingNoteIds.value = next;
+}
+
+async function deleteNote(note: TestChangeNote) {
+  if (!activeChange.value || !note.canDelete || isDeletingNote(note.id)) {
+    return;
+  }
+
+  feedbackError.value = '';
+  setNoteDeleting(note.id, true);
+  try {
+    selectedChange.value = await api.deleteTestChangeNote(activeChange.value.id, note.id);
+    await loadChanges();
+  } catch (error) {
+    feedbackError.value = getApiErrorMessage(error, 'Unable to delete testing note.');
+  } finally {
+    setNoteDeleting(note.id, false);
+  }
 }
 
 async function updateChecklistProgress(checklistItemId: string, completed: boolean) {
@@ -4330,6 +4393,7 @@ watch(
     notesOpen.value = false;
     checklistNotePromptItemId.value = null;
     feedbackError.value = '';
+    deletingNoteIds.value = new Set();
     testerSearch.value = '';
     testerStatusFilter.value = 'All Statuses';
     testerResultFilter.value = 'All Results';
@@ -8297,7 +8361,9 @@ onBeforeUnmount(() => {
 }
 
 .tm-notes-modal {
-  width: min(46rem, 100%);
+  width: min(58rem, 100%);
+  gap: 0.95rem;
+  padding: 1.15rem;
 }
 
 .tm-coverage-note-modal {
@@ -8336,11 +8402,11 @@ onBeforeUnmount(() => {
 
 .tm-recorded-notes {
   display: grid;
-  gap: 0.45rem;
-  max-height: 14rem;
+  gap: 0.65rem;
+  max-height: 22rem;
   overflow: auto;
   border-top: 1px solid var(--tm-border-soft);
-  padding-top: 0.65rem;
+  padding-top: 0.8rem;
 }
 
 .tm-recorded-notes h3 {
@@ -8350,16 +8416,35 @@ onBeforeUnmount(() => {
 .tm-recorded-notes article {
   border: 1px solid var(--tm-border-soft);
   background: rgba(255, 255, 255, 0.018);
-  padding: 0.55rem 0.65rem;
+  padding: 0.7rem 0.85rem;
+  width: min(76%, 42rem);
+  max-width: calc(100% - 2rem);
+  justify-self: start;
+  border-radius: 8px 8px 8px 2px;
+}
+
+.tm-recorded-notes article.tm-recorded-notes__note--own {
+  justify-self: end;
+  border-color: rgba(180, 144, 82, 0.32);
+  background: rgba(180, 144, 82, 0.08);
+  border-radius: 8px 8px 2px 8px;
 }
 
 .tm-recorded-notes__meta {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  flex-wrap: wrap;
+  justify-content: space-between;
   color: var(--tm-muted);
   font-size: 0.78rem;
+}
+
+.tm-recorded-notes__byline {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .tm-recorded-notes strong {
@@ -8369,6 +8454,26 @@ onBeforeUnmount(() => {
 .tm-recorded-notes__time {
   color: #a99c8d;
   white-space: nowrap;
+}
+
+.tm-recorded-notes__delete {
+  border: 1px solid rgba(236, 112, 99, 0.38);
+  background: rgba(236, 112, 99, 0.12);
+  color: #f4afa6;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tm-recorded-notes__delete:hover:not(:disabled) {
+  background: rgba(236, 112, 99, 0.2);
+  color: #ffd1ca;
+}
+
+.tm-recorded-notes__delete:disabled {
+  cursor: wait;
+  opacity: 0.62;
 }
 
 .tm-recorded-notes__content {
@@ -8541,6 +8646,11 @@ onBeforeUnmount(() => {
   .tm-checklist-builder__remove {
     top: 0.55rem;
     right: 0.55rem;
+  }
+
+  .tm-recorded-notes article {
+    width: min(88%, 100%);
+    max-width: 100%;
   }
 }
 </style>

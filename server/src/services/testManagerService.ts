@@ -598,7 +598,8 @@ function serializeChange(change: ChangeRecord, viewerUserId?: string) {
       result: note.result,
       createdAt: note.createdAt.toISOString(),
       updatedAt: note.updatedAt.toISOString(),
-      author: serializeUser(note.author)
+      author: serializeUser(note.author),
+      canDelete: viewerUserId ? note.authorId === viewerUserId : false
     })),
     history: change.history.map((event) => ({
       id: event.id,
@@ -2040,6 +2041,22 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
     });
   }
   return serialized;
+}
+
+export async function deleteChangeNote(actorUserId: string, changeId: string, noteId: string) {
+  const note = await prisma.testChangeNote.findFirst({
+    where: { id: noteId, changeId },
+    select: { id: true, authorId: true }
+  });
+  if (!note) {
+    throw new Error('Note not found.');
+  }
+  if (note.authorId !== actorUserId) {
+    throw new Error('You can only delete your own notes.');
+  }
+
+  await prisma.testChangeNote.delete({ where: { id: note.id } });
+  return getTestChange(changeId, actorUserId);
 }
 
 export async function listTestManagerUsers() {
