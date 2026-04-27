@@ -760,6 +760,9 @@ function resolveViewKey(route: RouteLocationNormalized) {
       : (route.params.raidId as string | undefined);
     return `raid-loot-${raidId ?? 'unknown'}`;
   }
+  if (route.name === 'TestManager') {
+    return 'test-manager';
+  }
   return route.fullPath;
 }
 

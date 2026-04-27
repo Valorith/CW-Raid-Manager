@@ -1802,6 +1802,7 @@ interface ChangeLayoutWidths {
 }
 
 const loading = ref(false);
+const loadedSection = ref<string | null>(null);
 const dashboard = ref<TestManagerDashboard | null>(null);
 const changes = ref<TestChange[]>([]);
 const selectedChange = ref<TestChange | null>(null);
@@ -2685,27 +2686,45 @@ async function saveSettings() {
 }
 
 async function loadCurrentSection() {
-  loading.value = true;
+  const section = currentSection.value;
+  const shouldShowGlobalLoading = loadedSection.value === null;
+  if (shouldShowGlobalLoading) {
+    loading.value = true;
+  }
   try {
     syncRequestedDetailTab();
-    if (currentSection.value === 'dashboard') {
+    if (section === 'dashboard') {
       await loadDashboard();
-    } else if (currentSection.value === 'changes') {
+    } else if (section === 'changes') {
       await loadChanges();
       if (requestedNotesModal() && activeChange.value) {
         await openNotesModal();
       }
-    } else if (currentSection.value === 'users') {
+    } else if (section === 'users') {
       await loadUsers();
     } else {
       await loadSettings();
     }
   } finally {
-    loading.value = false;
+    loadedSection.value = section;
+    if (shouldShowGlobalLoading) {
+      loading.value = false;
+    }
+  }
+}
+
+function selectCachedChange(changeId: string) {
+  if (selectedChange.value?.id !== changeId) {
+    const cachedChange = changes.value.find((change) => change.id === changeId);
+    if (cachedChange) {
+      selectedChange.value = cachedChange;
+      changeUnavailable.value = false;
+    }
   }
 }
 
 function goToChange(changeId: string) {
+  selectCachedChange(changeId);
   router.push(`/test-manager/changes/${changeId}`);
 }
 
@@ -2714,6 +2733,7 @@ function goToChangesList() {
 }
 
 function goToChangeTesters(changeId: string) {
+  selectCachedChange(changeId);
   detailTab.value = 'Testers';
   router.push({
     path: `/test-manager/changes/${changeId}`,
