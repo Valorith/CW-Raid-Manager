@@ -2902,6 +2902,7 @@ onMounted(loadCurrentSection);
 .tm-dashboard {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .tm-hero {
@@ -2973,6 +2974,7 @@ onMounted(loadCurrentSection);
 
 .tm-kpis {
   grid-template-columns: repeat(7, minmax(0, 1fr));
+  flex: 0 0 auto;
   margin-bottom: 1rem;
 }
 
@@ -3046,6 +3048,7 @@ onMounted(loadCurrentSection);
   grid-template-columns: minmax(0, 2fr) minmax(22rem, 1fr);
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .tm-grid--changes {
@@ -3062,6 +3065,12 @@ onMounted(loadCurrentSection);
   padding: 1rem;
   min-width: 0;
   min-height: 0;
+}
+
+.tm-panel--large {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .tm-panel__header,
@@ -3093,10 +3102,18 @@ onMounted(loadCurrentSection);
   display: grid;
   gap: 1rem;
   align-content: start;
+  min-height: 0;
+  overflow: auto;
 }
 
 .tm-table {
   display: grid;
+}
+
+.tm-panel--large > .tm-table {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
 }
 
 .tm-table__head {
@@ -4290,6 +4307,7 @@ onMounted(loadCurrentSection);
 }
 
 .tm-recent-strip {
+  flex: 0 0 auto;
   margin-top: 1rem;
   display: grid;
   grid-template-columns: auto repeat(4, minmax(0, 1fr));
