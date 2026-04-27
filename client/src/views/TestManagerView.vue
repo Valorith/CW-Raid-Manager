@@ -189,7 +189,7 @@
         :class="{ 'tm-grid--resizing': activeChangeLayoutDrag }"
         :style="changeLayoutStyle"
       >
-        <aside class="tm-panel tm-change-list">
+        <aside class="tm-panel tm-change-list" @scroll="hideChangeTooltip">
           <div class="tm-panel__header">
             <h2>Changes</h2>
             <button
@@ -226,6 +226,8 @@
               'tm-change-card--active': activeChange?.id === change.id,
               'tm-change-card--viewer-testing': isViewerActivelyTestingChange(change)
             }"
+            @pointerenter="queueChangeTooltip(change, $event)"
+            @pointerleave="hideChangeTooltip"
           >
             <button type="button" class="tm-change-card__main" @click="goToChange(change.id)">
               <span class="tm-dot" :class="viewerChangeListDotClass(change)"></span>
@@ -1050,6 +1052,51 @@
     </template>
 
     <div
+      v-if="changeTooltip"
+      id="tm-change-tooltip"
+      class="tm-change-tooltip"
+      role="tooltip"
+      :style="{
+        top: `${changeTooltip.top}px`,
+        left: `${changeTooltip.left}px`
+      }"
+    >
+      <header>
+        <span
+          class="tm-priority"
+          :class="`tm-priority--${changeTooltip.change.priority.toLowerCase()}`"
+        >
+          {{ priorityLabel(changeTooltip.change.priority) }}
+        </span>
+        <div>
+          <h3>#{{ changeTooltip.change.publicId }} {{ changeTooltip.change.title }}</h3>
+          <p>{{ changeTooltip.change.category }} / {{ changeTooltip.change.subsystem }}</p>
+        </div>
+      </header>
+      <p class="tm-change-tooltip__description">
+        {{ plainText(changeTooltip.change.description) || 'No description provided.' }}
+      </p>
+      <dl class="tm-change-tooltip__meta">
+        <div>
+          <dt>Status</dt>
+          <dd>{{ statusLabel(changeTooltip.change.status) }}</dd>
+        </div>
+        <div>
+          <dt>Author</dt>
+          <dd>{{ changeTooltip.change.createdBy?.displayName ?? 'Unknown' }}</dd>
+        </div>
+        <div>
+          <dt>Updated</dt>
+          <dd>{{ relativeTime(changeTooltip.change.updatedAt) }}</dd>
+        </div>
+        <div>
+          <dt>Testers</dt>
+          <dd>{{ changeTooltip.change.summary.testerCount }}</dd>
+        </div>
+      </dl>
+    </div>
+
+    <div
       v-if="createOpen"
       class="tm-modal"
       role="dialog"
@@ -1795,10 +1842,17 @@ const CHANGE_LAYOUT_DEFAULTS = { left: 424, right: 352 };
 const CHANGE_LAYOUT_MIN = { left: 280, detail: 480, right: 280 };
 const CHANGE_LAYOUT_MAX = { left: 640, right: 560 };
 const CHANGE_LAYOUT_SPLITTER_WIDTH = 16;
+const CHANGE_TOOLTIP_DELAY_MS = 500;
+const CHANGE_TOOLTIP_WIDTH = 352;
 type ChangeLayoutPane = 'left' | 'right';
 interface ChangeLayoutWidths {
   left: number;
   right: number;
+}
+interface ChangeTooltipState {
+  change: TestChange;
+  top: number;
+  left: number;
 }
 
 const loading = ref(false);
@@ -1815,6 +1869,7 @@ const settingsMessage = ref('');
 const changesGrid = ref<HTMLElement | null>(null);
 const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
 const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
+const changeTooltip = ref<ChangeTooltipState | null>(null);
 const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'History'>('Overview');
 const priorityFilter = ref<TestChangePriority | ''>('');
 const changeStatusFilter = ref<TestChangeListStatusFilter>('ACTIVE');
@@ -2179,6 +2234,7 @@ const requestForm = ref<{ userId: string; assignment: Exclude<TestAssignmentKind
   userId: '',
   assignment: 'ADMIN_REQUESTED'
 });
+let changeTooltipTimer: ReturnType<typeof window.setTimeout> | null = null;
 
 const currentSection = computed(() => {
   const section = Array.isArray(route.params.section)
@@ -2961,6 +3017,60 @@ function resetChangeLayout() {
 
 function handleChangeLayoutResize() {
   updateChangeLayout(changeLayout.value);
+  hideChangeTooltip();
+}
+
+function clearChangeTooltipTimer() {
+  if (!changeTooltipTimer) {
+    return;
+  }
+  window.clearTimeout(changeTooltipTimer);
+  changeTooltipTimer = null;
+}
+
+function changeTooltipPosition(card: HTMLElement) {
+  const bounds = card.getBoundingClientRect();
+  const gap = 14;
+  const edgePadding = 12;
+  const fallbackLeft = bounds.left - CHANGE_TOOLTIP_WIDTH - gap;
+  const preferredLeft = bounds.right + gap;
+  const maxLeft = window.innerWidth - CHANGE_TOOLTIP_WIDTH - edgePadding;
+  const hasRoomOnRight = preferredLeft <= maxLeft;
+  const left = hasRoomOnRight
+    ? preferredLeft
+    : Math.max(edgePadding, Math.min(fallbackLeft, maxLeft));
+  const top = Math.min(
+    Math.max(bounds.top, edgePadding),
+    Math.max(edgePadding, window.innerHeight - 280)
+  );
+
+  return { top, left };
+}
+
+function queueChangeTooltip(change: TestChange, event: MouseEvent) {
+  clearChangeTooltipTimer();
+  changeTooltip.value = null;
+  const card = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  if (!card) {
+    return;
+  }
+
+  changeTooltipTimer = window.setTimeout(() => {
+    changeTooltipTimer = null;
+    if (!document.body.contains(card)) {
+      return;
+    }
+
+    changeTooltip.value = {
+      change,
+      ...changeTooltipPosition(card)
+    };
+  }, CHANGE_TOOLTIP_DELAY_MS);
+}
+
+function hideChangeTooltip() {
+  clearChangeTooltipTimer();
+  changeTooltip.value = null;
 }
 
 function openCreate() {
@@ -4194,7 +4304,18 @@ const RichTextEditor = defineComponent({
   }
 });
 
-watch(() => route.fullPath, loadCurrentSection);
+watch(
+  () => route.fullPath,
+  () => {
+    hideChangeTooltip();
+    void loadCurrentSection();
+  }
+);
+watch(currentSection, (section) => {
+  if (section === 'changes') {
+    void nextTick(() => updateChangeLayout(changeLayout.value));
+  }
+});
 watch([userSearch, userRoleFilter], () => {
   userPage.value = 1;
 });
@@ -4218,10 +4339,11 @@ watch(
 );
 onMounted(() => {
   void loadCurrentSection();
-  updateChangeLayout(changeLayout.value);
+  void nextTick(() => updateChangeLayout(changeLayout.value));
   window.addEventListener('resize', handleChangeLayoutResize);
 });
 onBeforeUnmount(() => {
+  hideChangeTooltip();
   stopChangeLayoutDrag();
   window.removeEventListener('resize', handleChangeLayoutResize);
 });
@@ -4337,6 +4459,8 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 0.28rem;
   align-items: center;
+  flex-wrap: nowrap;
+  min-height: 2.95rem;
   border: 1px solid rgba(217, 164, 95, 0.34);
   border-radius: var(--tm-panel-radius);
   background:
@@ -4345,20 +4469,28 @@ onBeforeUnmount(() => {
   margin-bottom: 0.75rem;
   padding: 0.28rem;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 231, 190, 0.08),
     0 10px 24px rgba(0, 0, 0, 0.24);
 }
 
+.tm-subnav::-webkit-scrollbar {
+  display: none;
+}
+
 .tm-subnav__item {
   color: #d9cfbd;
   text-decoration: none;
-  padding: 0.58rem 1rem;
+  height: 2.38rem;
+  padding: 0 1rem;
   border: 1px solid transparent;
   border-radius: var(--tm-control-radius);
   display: inline-flex;
   align-items: center;
   gap: 0.58rem;
+  flex: 0 0 auto;
   white-space: nowrap;
   font-size: 0.92rem;
   font-weight: 800;
@@ -4397,7 +4529,7 @@ onBeforeUnmount(() => {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .tm-subnav__item--active {
@@ -4504,11 +4636,13 @@ onBeforeUnmount(() => {
 
 .tm-grid--changes {
   grid-template-columns:
-    var(--tm-change-left-width, 26.5rem) var(--tm-change-splitter-width, 1rem)
-    minmax(30rem, 1fr) var(--tm-change-splitter-width, 1rem)
-    var(--tm-change-right-width, 22rem);
+    minmax(0, var(--tm-change-left-width, 26.5rem)) var(--tm-change-splitter-width, 1rem)
+    minmax(0, 1fr) var(--tm-change-splitter-width, 1rem)
+    minmax(0, var(--tm-change-right-width, 22rem));
   gap: 0;
   align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .tm-lane-splitter {
@@ -5282,6 +5416,114 @@ onBeforeUnmount(() => {
 .tm-change-card--viewer-testing.tm-change-card--active:hover,
 .tm-change-card--viewer-testing.tm-change-card--active:focus-within {
   border-color: rgba(114, 214, 111, 0.95);
+}
+
+.tm-change-tooltip {
+  position: fixed;
+  z-index: 10050;
+  width: min(22rem, calc(100vw - 1.5rem));
+  max-height: min(24rem, calc(100vh - 1.5rem));
+  overflow: hidden;
+  pointer-events: none;
+  padding: 0.85rem;
+  border: 1px solid rgba(217, 164, 95, 0.44);
+  border-radius: var(--tm-button-radius);
+  color: var(--tm-text);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(85, 183, 255, 0.12), transparent 12rem),
+    linear-gradient(180deg, rgba(17, 23, 23, 0.98), rgba(6, 9, 10, 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 231, 190, 0.05),
+    0 18px 42px rgba(0, 0, 0, 0.46),
+    0 0 24px rgba(85, 183, 255, 0.12);
+}
+
+.tm-change-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 1.2rem;
+  left: -0.42rem;
+  width: 0.72rem;
+  height: 0.72rem;
+  border-left: 1px solid rgba(217, 164, 95, 0.44);
+  border-bottom: 1px solid rgba(217, 164, 95, 0.44);
+  background: rgba(17, 23, 23, 0.98);
+  transform: rotate(45deg);
+}
+
+.tm-change-tooltip header {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.tm-change-tooltip .tm-priority {
+  min-width: 0;
+  padding-inline: 0.6rem;
+}
+
+.tm-change-tooltip h3 {
+  margin: 0;
+  color: #fff3dd;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.08rem;
+  line-height: 1.15;
+}
+
+.tm-change-tooltip header p {
+  margin: 0.18rem 0 0;
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+}
+
+.tm-change-tooltip__description {
+  margin: 0.85rem 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: #eadfce;
+  font-size: 0.88rem;
+  line-height: 1.42;
+}
+
+.tm-change-tooltip__meta {
+  margin: 0.9rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.tm-change-tooltip__meta div {
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--tm-border-soft);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tm-change-tooltip__meta dt,
+.tm-change-tooltip__meta dd {
+  margin: 0;
+}
+
+.tm-change-tooltip__meta dt {
+  color: var(--tm-muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-change-tooltip__meta dd {
+  margin-top: 0.12rem;
+  overflow: hidden;
+  color: #f4ead8;
+  font-size: 0.83rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tm-dot {
