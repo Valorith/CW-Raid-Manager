@@ -39,57 +39,130 @@
 
     <template v-else>
       <section v-if="currentSection === 'dashboard'" class="tm-dashboard">
-        <div class="tm-kpis">
-          <article v-for="metric in dashboardMetrics" :key="metric.label" class="tm-kpi">
-            <span class="tm-kpi__icon" :class="`tm-kpi__icon--${metric.tone}`" aria-hidden="true">
-              {{ metric.icon }}
-            </span>
-            <strong>{{ metric.value }}</strong>
-            <span>{{ metric.label }}</span>
-            <small>{{ metric.detail }}</small>
-          </article>
-        </div>
-
         <div class="tm-grid tm-grid--dashboard">
-          <section class="tm-panel tm-panel--large">
-            <div class="tm-panel__header">
-              <h2>Active Changes</h2>
-              <div class="tm-toolbar">
-                <select v-model="priorityFilter" class="tm-select">
-                  <option value="">All Priorities</option>
-                  <option value="CRITICAL">Critical</option>
-                  <option value="HIGH">High</option>
-                  <option value="MEDIUM">Medium</option>
-                  <option value="LOW">Low</option>
-                </select>
-              </div>
+          <section class="tm-panel tm-panel--large tm-test-graph-panel">
+            <div class="tm-panel__header tm-state-graph__header">
+              <h2>Test State Trend</h2>
+              <span>Rolling 7-day signal</span>
             </div>
-            <div class="tm-table">
-              <div class="tm-table__head tm-table__row--changes">
-                <span>Priority</span>
-                <span>Change</span>
-                <span>Author</span>
-                <span>Component</span>
-                <span>Status</span>
+
+            <div class="tm-state-graph" aria-label="Test manager multi-line state graph">
+              <div class="tm-state-graph__stats" aria-label="Current test manager metrics">
+                <article v-for="stat in testStateGraphStats" :key="stat.label">
+                  <span>{{ stat.label }}</span>
+                  <strong>{{ stat.value }}</strong>
+                  <small>{{ stat.detail }}</small>
+                </article>
               </div>
-              <button
-                v-for="change in filteredDashboardChanges"
-                :key="change.id"
-                type="button"
-                class="tm-table__row tm-table__row--changes"
-                @click="goToChange(change.id)"
-              >
-                <span class="tm-priority" :class="`tm-priority--${change.priority.toLowerCase()}`">
-                  {{ priorityLabel(change.priority) }}
-                </span>
-                <span>
-                  <strong>#{{ change.publicId }} {{ change.title }}</strong>
-                  <small>{{ plainText(change.description) }}</small>
-                </span>
-                <span>{{ change.createdBy?.displayName ?? 'Unknown' }}</span>
-                <span>{{ change.subsystem }}</span>
-                <span><StatusPill :status="change.status" /></span>
-              </button>
+
+              <div class="tm-state-graph__canvas">
+                <svg
+                  :viewBox="`0 0 ${testStateChart.width} ${testStateChart.height}`"
+                  preserveAspectRatio="none"
+                  role="img"
+                  aria-labelledby="test-state-graph-title test-state-graph-desc"
+                >
+                  <title id="test-state-graph-title">Test Manager state trend</title>
+                  <desc id="test-state-graph-desc">
+                    Multi-line chart comparing active changes, awaiting pickup, in-progress tests,
+                    and risk pressure across the last seven days.
+                  </desc>
+                  <defs>
+                    <filter id="tm-state-line-glow" x="-30%" y="-30%" width="160%" height="160%">
+                      <feGaussianBlur stdDeviation="3.5" result="blur" />
+                      <feMerge>
+                        <feMergeNode in="blur" />
+                        <feMergeNode in="SourceGraphic" />
+                      </feMerge>
+                    </filter>
+                  </defs>
+                  <g class="tm-state-graph__grid" aria-hidden="true">
+                    <line
+                      v-for="line in testStateGraphGridLines"
+                      :key="line.label"
+                      :x1="testStateChart.left"
+                      :x2="testStateChart.width - testStateChart.right"
+                      :y1="line.y"
+                      :y2="line.y"
+                    />
+                    <text
+                      v-for="line in testStateGraphGridLines"
+                      :key="`${line.label}-label`"
+                      :x="testStateChart.left - 10"
+                      :y="line.y + 4"
+                    >
+                      {{ line.label }}
+                    </text>
+                  </g>
+                  <g class="tm-state-graph__axis" aria-hidden="true">
+                    <line
+                      :x1="testStateChart.left"
+                      :x2="testStateChart.width - testStateChart.right"
+                      :y1="testStateChart.height - testStateChart.bottom"
+                      :y2="testStateChart.height - testStateChart.bottom"
+                    />
+                    <text
+                      v-for="point in testStateGraphXLabels"
+                      :key="point.label"
+                      :x="point.x"
+                      :y="testStateChart.height - 13"
+                    >
+                      {{ point.label }}
+                    </text>
+                  </g>
+                  <g>
+                    <path
+                      v-for="series in testStateGraphSeries"
+                      :key="`${series.key}-area`"
+                      class="tm-state-graph__area"
+                      :d="series.areaPath"
+                      :fill="series.color"
+                    />
+                    <path
+                      v-for="series in testStateGraphSeries"
+                      :key="series.key"
+                      class="tm-state-graph__line"
+                      :d="series.path"
+                      :stroke="series.color"
+                    />
+                    <g v-for="series in testStateGraphSeries" :key="`${series.key}-points`">
+                      <circle
+                        v-for="point in series.points"
+                        :key="point.key"
+                        class="tm-state-graph__point"
+                        :cx="point.x"
+                        :cy="point.y"
+                        :r="point.isLatest ? 5.5 : 3.8"
+                        :fill="series.color"
+                      >
+                        <title>{{ `${series.label}: ${point.value} on ${point.label}` }}</title>
+                      </circle>
+                    </g>
+                  </g>
+                </svg>
+              </div>
+
+              <div class="tm-state-graph__legend">
+                <article
+                  v-for="series in testStateGraphSeries"
+                  :key="series.key"
+                  :style="{ '--tm-state-color': series.color }"
+                >
+                  <span aria-hidden="true"></span>
+                  <div>
+                    <strong>{{ series.label }}</strong>
+                  </div>
+                  <em>{{ series.latest }}</em>
+                </article>
+              </div>
+
+              <div class="tm-state-graph__insights">
+                <article v-for="insight in testStateGraphInsights" :key="insight.label">
+                  <span>{{ insight.label }}</span>
+                  <strong>{{ insight.value }}</strong>
+                  <small>{{ insight.detail }}</small>
+                </article>
+              </div>
             </div>
           </section>
 
@@ -1887,7 +1960,6 @@ const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
 const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
 const changeTooltip = ref<ChangeTooltipState | null>(null);
 const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'History'>('Overview');
-const priorityFilter = ref<TestChangePriority | ''>('');
 const changeStatusFilter = ref<TestChangeListStatusFilter>('ACTIVE');
 const changeSearch = ref('');
 const userSearch = ref('');
@@ -2379,67 +2451,315 @@ const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
 );
 
-const dashboardMetrics = computed(() => {
+const dashboardGraphChanges = computed(() => {
+  const list = dashboard.value?.activeChanges ?? [];
+  return [...list].sort(compareChanges);
+});
+const dashboardGraphChangeCount = computed(() => dashboard.value?.metrics.activeChanges ?? 0);
+
+const testStateChart = {
+  width: 760,
+  height: 320,
+  top: 28,
+  right: 28,
+  bottom: 44,
+  left: 48
+} as const;
+
+type TestStateGraphPoint = {
+  key: string;
+  label: string;
+  x: number;
+  y: number;
+  value: number;
+  isLatest: boolean;
+};
+
+type TestStateGraphSeries = {
+  key: string;
+  label: string;
+  color: string;
+  values: number[];
+  points: TestStateGraphPoint[];
+  path: string;
+  areaPath: string;
+  latest: number;
+};
+
+const testStateDayFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short'
+});
+
+const testStateTimelineDays = computed(() => {
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(end);
+    day.setDate(end.getDate() - (6 - index));
+    day.setHours(23, 59, 59, 999);
+
+    return {
+      key: day.toISOString().slice(0, 10),
+      label: testStateDayFormatter.format(day),
+      endAt: day
+    };
+  });
+});
+
+function testStateTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function testStateX(index: number, total: number) {
+  const span = testStateChart.width - testStateChart.left - testStateChart.right;
+  return testStateChart.left + (span * index) / Math.max(1, total - 1);
+}
+
+function testStateY(value: number, maxValue: number) {
+  const span = testStateChart.height - testStateChart.top - testStateChart.bottom;
+  return testStateChart.top + span * (1 - value / Math.max(1, maxValue));
+}
+
+function testStateBuildSeries(
+  key: string,
+  label: string,
+  color: string,
+  values: number[],
+  maxValue: number
+): TestStateGraphSeries {
+  const baseline = testStateChart.height - testStateChart.bottom;
+  const points = values.map((value, index) => ({
+    key: `${key}-${testStateTimelineDays.value[index]?.key ?? index}`,
+    label: testStateTimelineDays.value[index]?.label ?? '',
+    x: testStateX(index, values.length),
+    y: testStateY(value, maxValue),
+    value,
+    isLatest: index === values.length - 1
+  }));
+  const path = points
+    .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+    .join(' ');
+  const first = points[0];
+  const last = points[points.length - 1];
+  const latest = values[values.length - 1] ?? 0;
+
+  return {
+    key,
+    label,
+    color,
+    values,
+    points,
+    path,
+    areaPath:
+      first && last
+        ? `${path} L ${last.x.toFixed(2)} ${baseline.toFixed(2)} L ${first.x.toFixed(
+            2
+          )} ${baseline.toFixed(2)} Z`
+        : '',
+    latest
+  };
+}
+
+function testStateCreatedByDay(change: TestChange, dayEnd: Date) {
+  const createdAt = testStateTimestamp(change.createdAt);
+  return createdAt > 0 && createdAt <= dayEnd.getTime();
+}
+
+function testStateUpdatedByDay(change: TestChange, dayEnd: Date) {
+  const updatedAt = testStateTimestamp(change.updatedAt);
+  return updatedAt > 0 && updatedAt <= dayEnd.getTime();
+}
+
+const testStateGraphRawSeries = computed(() => {
   const metrics = dashboard.value?.metrics;
+  const changes = dashboardGraphChanges.value;
+  const days = testStateTimelineDays.value;
+  const activeNow = dashboardGraphChangeCount.value;
+  const knownActiveGap = Math.max(0, activeNow - changes.length);
+  const awaitingNow = metrics?.awaitingTest ?? 0;
+  const testingNow = metrics?.inProgress ?? 0;
+  const riskChanges = changes.filter(
+    (change) =>
+      ['CRITICAL', 'HIGH'].includes(change.priority) ||
+      ['FAILED', 'BLOCKED'].includes(change.status)
+  );
+  const riskNow = Math.max(metrics?.priorityOne ?? 0, riskChanges.length);
+
+  const statusValues = (statuses: TestChangeStatus[], target: number) => {
+    const matching = changes.filter((change) => statuses.includes(change.status));
+    const gap = Math.max(0, target - matching.length);
+    return days.map((day) => {
+      const current = matching.filter((change) => testStateUpdatedByDay(change, day.endAt)).length;
+      const ratio =
+        matching.length > 0 ? current / matching.length : day === days[days.length - 1] ? 1 : 0;
+      return Math.min(target, current + Math.round(gap * ratio));
+    });
+  };
+
+  const riskValues = days.map((day) => {
+    const current = riskChanges.filter((change) => testStateUpdatedByDay(change, day.endAt)).length;
+    const ratio =
+      riskChanges.length > 0 ? current / riskChanges.length : day === days[days.length - 1] ? 1 : 0;
+    return Math.min(
+      riskNow,
+      current + Math.round(Math.max(0, riskNow - riskChanges.length) * ratio)
+    );
+  });
+
   return [
     {
-      label: 'Active Changes',
-      value: metrics?.activeChanges ?? 0,
-      detail: 'Open test-server changes',
-      icon: '☷',
-      tone: 'blue'
+      key: 'active',
+      label: 'Active changes',
+      color: '#55b7ff',
+      values: days.map((day) =>
+        Math.min(
+          activeNow,
+          knownActiveGap +
+            changes.filter((change) => testStateCreatedByDay(change, day.endAt)).length
+        )
+      )
     },
     {
-      label: 'Priority 1',
-      value: metrics?.priorityOne ?? 0,
-      detail: 'Needs immediate attention',
-      icon: '◇',
-      tone: 'red'
+      key: 'awaiting',
+      label: 'Awaiting pickup',
+      color: '#d9a45f',
+      values: statusValues(['SUBMITTED', 'AWAITING_TEST'], awaitingNow)
     },
     {
-      label: 'Awaiting Test',
-      value: metrics?.awaitingTest ?? 0,
-      detail: 'Waiting for tester pickup',
-      icon: '⌛',
-      tone: 'gold'
+      key: 'testing',
+      label: 'In testing',
+      color: '#72d66f',
+      values: statusValues(['TESTING'], testingNow)
     },
     {
-      label: 'In Progress',
-      value: metrics?.inProgress ?? 0,
-      detail: 'Currently being tested',
-      icon: '⚔',
-      tone: 'blue'
-    },
-    {
-      label: 'Passed',
-      value: metrics?.passed ?? 0,
-      detail: 'Admin disposition',
-      icon: '✓',
-      tone: 'green'
-    },
-    {
-      label: 'Failed',
-      value: metrics?.failed ?? 0,
-      detail: 'Admin disposition',
-      icon: '✕',
-      tone: 'red'
-    },
-    {
-      label: 'Test Coverage',
-      value: `${metrics?.coverage ?? 0}%`,
-      detail: 'Active changes touched',
-      icon: '◉',
-      tone: 'purple'
+      key: 'risk',
+      label: 'Risk pressure',
+      color: '#ff6b55',
+      values: riskValues
     }
   ];
 });
 
-const filteredDashboardChanges = computed(() => {
-  const list = dashboard.value?.activeChanges ?? [];
-  const filtered = priorityFilter.value
-    ? list.filter((change) => change.priority === priorityFilter.value)
-    : list;
-  return [...filtered].sort(compareChanges);
+const testStateGraphMax = computed(() =>
+  Math.max(
+    1,
+    ...testStateGraphRawSeries.value.flatMap((series) => series.values),
+    dashboardGraphChangeCount.value
+  )
+);
+
+const testStateGraphSeries = computed<TestStateGraphSeries[]>(() =>
+  testStateGraphRawSeries.value.map((series) =>
+    testStateBuildSeries(
+      series.key,
+      series.label,
+      series.color,
+      series.values,
+      testStateGraphMax.value
+    )
+  )
+);
+
+const testStateGraphGridLines = computed(() => {
+  const max = testStateGraphMax.value;
+  const ticks = [max, Math.round(max * 0.66), Math.round(max * 0.33), 0].filter(
+    (value, index, list) => list.indexOf(value) === index
+  );
+
+  return ticks.map((value) => ({
+    label: String(value),
+    y: testStateY(value, max)
+  }));
+});
+
+const testStateGraphXLabels = computed(() =>
+  testStateTimelineDays.value.map((day, index) => ({
+    label: day.label,
+    x: testStateX(index, testStateTimelineDays.value.length)
+  }))
+);
+
+const testStateGraphStats = computed(() => {
+  const metrics = dashboard.value?.metrics;
+  return [
+    {
+      label: 'Active',
+      value: dashboardGraphChangeCount.value,
+      detail: 'open changes'
+    },
+    {
+      label: 'Coverage',
+      value: `${metrics?.coverage ?? 0}%`,
+      detail: 'touched by testers'
+    },
+    {
+      label: 'Testing',
+      value: metrics?.inProgress ?? 0,
+      detail: 'currently underway'
+    },
+    {
+      label: 'Awaiting',
+      value: metrics?.awaitingTest ?? 0,
+      detail: 'ready for pickup'
+    }
+  ];
+});
+
+const testStateComponentLeader = computed(() => {
+  const counts = new Map<string, number>();
+  for (const change of dashboardGraphChanges.value) {
+    counts.set(change.subsystem, (counts.get(change.subsystem) ?? 0) + 1);
+  }
+
+  return (
+    [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort(
+        (left, right) => right.count - left.count || left.name.localeCompare(right.name)
+      )[0] ?? {
+      name: 'No component',
+      count: 0
+    }
+  );
+});
+
+const testStateGraphInsights = computed(() => {
+  const metrics = dashboard.value?.metrics;
+  const riskCount = (metrics?.priorityOne ?? 0) + (metrics?.failed ?? 0) + (metrics?.blocked ?? 0);
+  const flowGap = (metrics?.awaitingTest ?? 0) - (metrics?.inProgress ?? 0);
+  return [
+    {
+      label: 'Flow balance',
+      value:
+        flowGap > 0
+          ? `${flowGap} waiting`
+          : flowGap < 0
+            ? `${Math.abs(flowGap)} extra testing`
+            : 'Even',
+      detail: `${metrics?.inProgress ?? 0} testing / ${metrics?.awaitingTest ?? 0} awaiting`
+    },
+    {
+      label: 'Risk signal',
+      value: riskCount,
+      detail:
+        riskCount === 0
+          ? 'no failed, blocked, or priority-one pressure'
+          : 'priority-one, failed, or blocked pressure'
+    },
+    {
+      label: 'Hot component',
+      value: testStateComponentLeader.value.name,
+      detail: `${testStateComponentLeader.value.count} active change${
+        testStateComponentLeader.value.count === 1 ? '' : 's'
+      }`
+    }
+  ];
 });
 
 const filteredActiveTesters = computed(() => {
@@ -4613,19 +4933,11 @@ onBeforeUnmount(() => {
   background: var(--tm-gold);
 }
 
-.tm-kpis,
 .tm-grid {
   display: grid;
   gap: 1rem;
 }
 
-.tm-kpis {
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  flex: 0 0 auto;
-  margin-bottom: 1rem;
-}
-
-.tm-kpi,
 .tm-panel,
 .tm-modal__panel {
   border: 1px solid var(--tm-border);
@@ -4638,64 +4950,31 @@ onBeforeUnmount(() => {
     0 16px 40px rgba(0, 0, 0, 0.25);
 }
 
-.tm-kpi {
-  padding: 0.9rem;
-  min-height: 6.4rem;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 0.85rem;
-  align-items: center;
-}
-
-.tm-kpi strong {
-  font-size: 2rem;
-  font-family: Georgia, 'Times New Roman', serif;
-}
-
-.tm-kpi span:not(.tm-kpi__icon),
-.tm-kpi small {
-  grid-column: 2;
-}
-
-.tm-kpi small,
 .tm-table small,
 .tm-panel p,
 .tm-change-card small {
   color: var(--tm-muted);
 }
 
-.tm-kpi__icon {
-  grid-row: span 3;
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 1.45rem;
-  border: 1px solid currentColor;
-}
-
-.tm-kpi__icon--blue {
-  color: var(--tm-blue);
-}
-.tm-kpi__icon--red {
-  color: var(--tm-red);
-}
-.tm-kpi__icon--gold {
-  color: var(--tm-gold);
-}
-.tm-kpi__icon--green {
-  color: var(--tm-green);
-}
-.tm-kpi__icon--purple {
-  color: #c084fc;
-}
-
 .tm-grid--dashboard {
   grid-template-columns: minmax(0, 2fr) minmax(22rem, 1fr);
   flex: 1 1 auto;
+  width: 100%;
   min-height: 0;
   overflow: hidden;
+  align-items: stretch;
+}
+
+.tm-grid--dashboard > .tm-stack {
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  overflow: hidden;
+}
+
+.tm-grid--dashboard > .tm-stack > .tm-panel:last-child {
+  display: flex;
+  flex-direction: column;
 }
 
 .tm-grid--changes {
@@ -4804,6 +5083,14 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
+.tm-test-graph-panel {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(85, 183, 255, 0.18), transparent 19rem),
+    radial-gradient(circle at 82% 8%, rgba(217, 164, 95, 0.14), transparent 17rem),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgba(10, 18, 22, 0.98), rgba(5, 9, 10, 0.98));
+}
+
 .tm-panel__header,
 .tm-detail__header,
 .tm-section-title {
@@ -4835,6 +5122,202 @@ onBeforeUnmount(() => {
   align-content: start;
   min-height: 0;
   overflow: auto;
+}
+
+.tm-state-graph__header {
+  align-items: baseline;
+}
+
+.tm-state-graph__header > span {
+  color: var(--tm-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-state-graph {
+  display: grid;
+  grid-template-rows: auto minmax(19rem, 1fr) auto auto;
+  gap: 0.9rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tm-state-graph__stats,
+.tm-state-graph__legend,
+.tm-state-graph__insights {
+  display: grid;
+  gap: 0.72rem;
+  min-width: 0;
+}
+
+.tm-state-graph__stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tm-state-graph__stats article,
+.tm-state-graph__legend article,
+.tm-state-graph__insights article {
+  min-width: 0;
+  border: 1px solid rgba(213, 196, 164, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent), rgba(2, 6, 8, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 231, 190, 0.045);
+}
+
+.tm-state-graph__stats article {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.8rem;
+}
+
+.tm-state-graph__stats span,
+.tm-state-graph__insights span {
+  color: var(--tm-gold);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.tm-state-graph__stats strong {
+  color: #f8ead1;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.45rem, 2vw, 2.05rem);
+  line-height: 1;
+}
+
+.tm-state-graph__stats small,
+.tm-state-graph__insights small {
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-state-graph__canvas {
+  min-height: 0;
+  border: 1px solid rgba(85, 183, 255, 0.17);
+  background:
+    radial-gradient(circle at 12% 8%, rgba(85, 183, 255, 0.13), transparent 14rem),
+    radial-gradient(circle at 86% 18%, rgba(217, 164, 95, 0.1), transparent 15rem),
+    linear-gradient(180deg, rgba(7, 16, 20, 0.94), rgba(3, 8, 10, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    inset 0 0 34px rgba(85, 183, 255, 0.07);
+}
+
+.tm-state-graph__canvas svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 19rem;
+}
+
+.tm-state-graph__grid line,
+.tm-state-graph__axis line {
+  stroke: rgba(213, 196, 164, 0.13);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.tm-state-graph__grid text,
+.tm-state-graph__axis text {
+  fill: rgba(188, 178, 164, 0.78);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-anchor: middle;
+  text-transform: uppercase;
+}
+
+.tm-state-graph__grid text {
+  text-anchor: end;
+}
+
+.tm-state-graph__area {
+  opacity: 0.08;
+}
+
+.tm-state-graph__line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3.5;
+  filter: url('#tm-state-line-glow');
+  vector-effect: non-scaling-stroke;
+}
+
+.tm-state-graph__point {
+  stroke: rgba(4, 8, 10, 0.92);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.tm-state-graph__legend {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tm-state-graph__legend article {
+  --tm-state-color: var(--tm-blue);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.66rem 0.75rem;
+}
+
+.tm-state-graph__legend article > span {
+  width: 0.72rem;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: var(--tm-state-color);
+  box-shadow: 0 0 16px var(--tm-state-color);
+}
+
+.tm-state-graph__legend div {
+  min-width: 0;
+}
+
+.tm-state-graph__legend strong {
+  display: block;
+  color: #f5e8c9;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-state-graph__legend em {
+  min-width: 2rem;
+  padding: 0.15rem 0.38rem;
+  border: 1px solid color-mix(in srgb, var(--tm-state-color) 46%, transparent);
+  color: #f8ead1;
+  font-style: normal;
+  font-weight: 800;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.tm-state-graph__insights {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tm-state-graph__insights article {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.8rem;
+}
+
+.tm-state-graph__insights strong {
+  color: #f8ead1;
+  font-size: 1rem;
+  line-height: 1.12;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tm-table {
@@ -8495,16 +8978,20 @@ onBeforeUnmount(() => {
     overflow: visible;
   }
 
-  .tm-kpis {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .tm-grid--changes,
   .tm-grid--dashboard,
   .tm-grid--users {
     grid-template-columns: 1fr;
     gap: 1rem;
     align-items: start;
+  }
+
+  .tm-state-graph {
+    overflow: visible;
+  }
+
+  .tm-state-graph__legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tm-lane-splitter {
@@ -8567,8 +9054,14 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .tm-kpis {
+  .tm-state-graph__stats,
+  .tm-state-graph__legend,
+  .tm-state-graph__insights {
     grid-template-columns: 1fr;
+  }
+
+  .tm-state-graph__canvas svg {
+    min-height: 16rem;
   }
 
   :deep(.tm-workflow__steps) {
