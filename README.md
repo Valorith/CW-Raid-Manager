@@ -28,7 +28,7 @@ CW Raid Manager/
 
 ## Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+ (the repo also declares this in `.node-version`)
 - npm 9+ (or a compatible package manager that supports workspaces)
 - MySQL instance (local or remote)
 - Google OAuth 2.0 credentials (Client ID & Secret)
@@ -74,6 +74,14 @@ npm --workspace server run knex:migrate
 ```
 
 `prisma:migrate` applies the older Prisma migration history, and `knex:migrate` applies newer schema changes.
+
+For an existing database that has already been baselined through Knex, prefer checking Knex status first:
+
+```bash
+npm --workspace server exec -- knex --knexfile knexfile.js migrate:status
+```
+
+Do not apply the older Prisma migration history to a Knex-baselined database just because `prisma migrate status` reports those Prisma migrations as unapplied. That status means Prisma's own migration table is not the source of truth for that database; inspect the active feature area's recent migrations before choosing Prisma or Knex.
 
 ### 4. Start the app
 
@@ -150,7 +158,7 @@ Railway can host both the Fastify API and the Vue client behind a single project
      - No health check required
 
 6. **Run migrations during deployment.**  
-   Apply Prisma migrations against the Railway database any time the schema changes:
+   Apply Prisma migrations against the Railway database only for schema changes that are still authored through Prisma migrations:
 
    ```bash
    railway run npm run --workspace server prisma:deploy

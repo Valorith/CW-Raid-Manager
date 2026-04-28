@@ -129,6 +129,38 @@ type UserName = {
   tester?: boolean | null;
 };
 
+type GitHubPullRequestReference = {
+  owner: string;
+  repo: string;
+  number: number;
+  repository: string;
+  url: string;
+};
+
+type GitHubPullRequestMetadata = {
+  available: boolean;
+  fetchedAt: string;
+  statusMessage?: string;
+  htmlUrl?: string;
+  title?: string;
+  state?: string;
+  draft?: boolean;
+  merged?: boolean;
+  mergedAt?: string | null;
+  authorLogin?: string | null;
+  authorAvatarUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  baseRef?: string | null;
+  headRef?: string | null;
+  additions?: number | null;
+  deletions?: number | null;
+  changedFiles?: number | null;
+  comments?: number | null;
+  reviewComments?: number | null;
+  labels?: Array<{ name: string; color: string | null }>;
+};
+
 function displayName(user: { displayName: string; nickname: string | null }): string {
   return user.nickname?.trim() || user.displayName;
 }
@@ -148,7 +180,9 @@ function serializeUser(user: UserName | null) {
   };
 }
 
-function roleKeyForUser(user: Pick<UserName, 'admin' | 'guide' | 'tester'> | null): TestManagerRoleKey {
+function roleKeyForUser(
+  user: Pick<UserName, 'admin' | 'guide' | 'tester'> | null
+): TestManagerRoleKey {
   if (user?.admin) {
     return 'ADMIN';
   }
@@ -159,6 +193,240 @@ function roleKeyForUser(user: Pick<UserName, 'admin' | 'guide' | 'tester'> | nul
     return 'TESTER';
   }
   return 'USER';
+}
+
+function parseGithubPullRequestUrl(value: string): GitHubPullRequestReference {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error('Enter a full GitHub pull request URL.');
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || (hostname !== 'github.com' && hostname !== 'www.github.com')) {
+    throw new Error('GitHub pull request URLs must use https://github.com/.');
+  }
+
+  const [owner, repo, pullSegment, numberSegment, ...extraSegments] = url.pathname
+    .split('/')
+    .filter(Boolean);
+  const number = Number(numberSegment);
+  if (
+    !owner ||
+    !repo ||
+    pullSegment !== 'pull' ||
+    extraSegments.length > 0 ||
+    !Number.isInteger(number) ||
+    number < 1
+  ) {
+    throw new Error('Enter a GitHub pull request URL like https://github.com/owner/repo/pull/123.');
+  }
+
+  const canonicalUrl = `https://github.com/${owner}/${repo}/pull/${number}`;
+  return {
+    owner,
+    repo,
+    number,
+    repository: `${owner}/${repo}`,
+    url: canonicalUrl
+  };
+}
+
+function normalizeGithubPullRequestUrl(value?: string | null): GitHubPullRequestReference | null {
+  const trimmed = value?.trim();
+  return trimmed ? parseGithubPullRequestUrl(trimmed) : null;
+}
+
+async function fetchGithubJson(
+  pathname: string,
+  signal: AbortSignal
+): Promise<{ ok: boolean; status: number; data: unknown }> {
+  const response = await fetch(`https://api.github.com${pathname}`, {
+    signal,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'CWRaidManager-TestManager'
+    }
+  });
+  const data = (await response.json().catch(() => null)) as unknown;
+  return { ok: response.ok, status: response.status, data };
+}
+
+function githubString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function githubNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function githubBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function githubObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function githubLabels(value: unknown): Array<{ name: string; color: string | null }> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((label) => githubObject(label))
+    .map((label) => ({
+      name: githubString(label.name) ?? '',
+      color: githubString(label.color)
+    }))
+    .filter((label) => label.name)
+    .slice(0, 6);
+}
+
+function githubApiErrorMessage(status: number, data: unknown): string {
+  const message = githubString(githubObject(data).message);
+  if (status === 404) {
+    return 'GitHub could not find this pull request or the repository is private.';
+  }
+  if (status === 403) {
+    return message ?? 'GitHub rate limited the metadata refresh.';
+  }
+  return message ?? `GitHub metadata refresh failed with HTTP ${status}.`;
+}
+
+async function fetchGithubPullRequestMetadata(
+  reference: GitHubPullRequestReference
+): Promise<GitHubPullRequestMetadata> {
+  const fetchedAt = new Date().toISOString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const pull = await fetchGithubJson(
+      `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
+        reference.repo
+      )}/pulls/${reference.number}`,
+      controller.signal
+    );
+
+    if (!pull.ok) {
+      return {
+        available: false,
+        fetchedAt,
+        statusMessage: githubApiErrorMessage(pull.status, pull.data)
+      };
+    }
+
+    const issue = await fetchGithubJson(
+      `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
+        reference.repo
+      )}/issues/${reference.number}`,
+      controller.signal
+    ).catch(() => ({ ok: false, status: 0, data: null }));
+
+    const pullData = githubObject(pull.data);
+    const issueData = issue.ok ? githubObject(issue.data) : {};
+    const user = githubObject(pullData.user);
+    const base = githubObject(pullData.base);
+    const head = githubObject(pullData.head);
+
+    return {
+      available: true,
+      fetchedAt,
+      htmlUrl: githubString(pullData.html_url) ?? reference.url,
+      title: githubString(pullData.title) ?? `Pull request #${reference.number}`,
+      state: githubString(pullData.state) ?? undefined,
+      draft: githubBoolean(pullData.draft) ?? false,
+      merged: Boolean(githubString(pullData.merged_at)),
+      mergedAt: githubString(pullData.merged_at),
+      authorLogin: githubString(user.login),
+      authorAvatarUrl: githubString(user.avatar_url),
+      createdAt: githubString(pullData.created_at),
+      updatedAt: githubString(pullData.updated_at),
+      baseRef: githubString(base.ref),
+      headRef: githubString(head.ref),
+      additions: githubNumber(pullData.additions),
+      deletions: githubNumber(pullData.deletions),
+      changedFiles: githubNumber(pullData.changed_files),
+      comments: githubNumber(pullData.comments),
+      reviewComments: githubNumber(pullData.review_comments),
+      labels: githubLabels(issueData.labels)
+    };
+  } catch (error) {
+    return {
+      available: false,
+      fetchedAt,
+      statusMessage:
+        error instanceof Error && error.name === 'AbortError'
+          ? 'GitHub metadata refresh timed out.'
+          : 'GitHub metadata could not be refreshed.'
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildGithubPullRequestFields(value?: string | null): Promise<{
+  githubPrUrl: string | null;
+  githubPrMetadata: Prisma.InputJsonValue | typeof Prisma.DbNull;
+}> {
+  const reference = normalizeGithubPullRequestUrl(value);
+  if (!reference) {
+    return { githubPrUrl: null, githubPrMetadata: Prisma.DbNull };
+  }
+
+  const metadata = await fetchGithubPullRequestMetadata(reference);
+  return {
+    githubPrUrl: reference.url,
+    githubPrMetadata: metadata as Prisma.InputJsonValue
+  };
+}
+
+function serializeGithubPullRequest(url: string | null, metadata: Prisma.JsonValue | null) {
+  let reference: GitHubPullRequestReference | null = null;
+  try {
+    reference = url ? normalizeGithubPullRequestUrl(url) : null;
+  } catch {
+    reference = null;
+  }
+
+  if (!reference) {
+    return null;
+  }
+
+  const value = githubObject(metadata);
+  const available = typeof value.available === 'boolean' ? value.available : false;
+
+  return {
+    ...reference,
+    metadata: {
+      available,
+      fetchedAt: githubString(value.fetchedAt),
+      statusMessage: githubString(value.statusMessage),
+      htmlUrl: githubString(value.htmlUrl) ?? reference.url,
+      title: githubString(value.title),
+      state: githubString(value.state),
+      draft: githubBoolean(value.draft) ?? false,
+      merged: githubBoolean(value.merged) ?? false,
+      mergedAt: githubString(value.mergedAt),
+      authorLogin: githubString(value.authorLogin),
+      authorAvatarUrl: githubString(value.authorAvatarUrl),
+      createdAt: githubString(value.createdAt),
+      updatedAt: githubString(value.updatedAt),
+      baseRef: githubString(value.baseRef),
+      headRef: githubString(value.headRef),
+      additions: githubNumber(value.additions),
+      deletions: githubNumber(value.deletions),
+      changedFiles: githubNumber(value.changedFiles),
+      comments: githubNumber(value.comments),
+      reviewComments: githubNumber(value.reviewComments),
+      labels: githubLabels(value.labels)
+    }
+  };
 }
 
 export async function getTestManagerUserPermissions(
@@ -342,7 +610,9 @@ function normalizePermissions(value: unknown): TestManagerPermissionKey[] {
   return TEST_MANAGER_PERMISSION_KEYS.filter((permission) => selected.has(permission));
 }
 
-function normalizeDiscordNotificationSettings(value: unknown): TestManagerSettings['discordNotifications'] {
+function normalizeDiscordNotificationSettings(
+  value: unknown
+): TestManagerSettings['discordNotifications'] {
   const defaults = cloneDefaultTestManagerSettings().discordNotifications;
   if (!value || typeof value !== 'object') {
     return defaults;
@@ -577,6 +847,7 @@ function serializeChange(change: ChangeRecord, viewerUserId?: string) {
     priority: change.priority,
     status: change.status,
     targetBuild: change.targetBuild ?? null,
+    githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     dueAt: change.dueAt?.toISOString() ?? null,
     closedAt: change.closedAt?.toISOString() ?? null,
     createdAt: change.createdAt.toISOString(),
@@ -727,11 +998,7 @@ function discordDeepLinkTabForEvent(
     return 'Coverage';
   }
 
-  if (
-    event === 'change.statusChanged' ||
-    event === 'change.renewed' ||
-    event === 'change.closed'
-  ) {
+  if (event === 'change.statusChanged' || event === 'change.renewed' || event === 'change.closed') {
     return 'History';
   }
 
@@ -747,11 +1014,7 @@ function discordDeepLinkLabelForEvent(event: TestManagerDiscordEventKey): string
     return 'Open checklist coverage';
   }
 
-  if (
-    event === 'change.statusChanged' ||
-    event === 'change.renewed' ||
-    event === 'change.closed'
-  ) {
+  if (event === 'change.statusChanged' || event === 'change.renewed' || event === 'change.closed') {
     return 'Open change history';
   }
 
@@ -832,7 +1095,11 @@ function buildTestManagerDiscordPayload(
     fields.push({ name: 'Tester', value: String(input.metadata.testerName), inline: true });
   }
   if (input.metadata?.result) {
-    fields.push({ name: 'Result', value: formatLabel(String(input.metadata.result)), inline: true });
+    fields.push({
+      name: 'Result',
+      value: formatLabel(String(input.metadata.result)),
+      inline: true
+    });
   }
   if (input.metadata?.fromStatus || input.metadata?.toStatus) {
     fields.push({
@@ -1287,7 +1554,9 @@ export async function getTestManagerDashboard(userId: string) {
   const serialized = changes.map((change) => serializeChange(change, userId));
   const active = serialized.filter((change) => change.status !== TestChangeStatus.CLOSED);
   const awaiting = serialized.filter((change) => TESTING_READY_STATUSES.includes(change.status));
-  const awaitingTest = serialized.filter((change) => change.status === TestChangeStatus.AWAITING_TEST);
+  const awaitingTest = serialized.filter(
+    (change) => change.status === TestChangeStatus.AWAITING_TEST
+  );
   const inProgress = serialized.filter((change) => change.status === TestChangeStatus.TESTING);
   const passed = serialized.filter((change) => change.status === TestChangeStatus.PASSED);
   const failed = serialized.filter((change) => change.status === TestChangeStatus.FAILED);
@@ -1385,12 +1654,14 @@ export async function createTestChange(
     subsystem: string;
     priority: TestChangePriority;
     targetBuild?: string | null;
+    githubPrUrl?: string | null;
     dueAt?: Date | null;
     assignedToId?: string | null;
     checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
   }
 ) {
   await ensureAdmin(actorUserId);
+  const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
 
   const change = await prisma.$transaction(async (tx) => {
     const created = await tx.testChange.create({
@@ -1401,6 +1672,8 @@ export async function createTestChange(
         subsystem: input.subsystem.trim(),
         priority: input.priority,
         targetBuild: input.targetBuild?.trim() || null,
+        githubPrUrl: githubPullRequest.githubPrUrl,
+        githubPrMetadata: githubPullRequest.githubPrMetadata,
         dueAt: input.dueAt ?? null,
         assignedToId: input.assignedToId ?? null,
         createdById: actorUserId,
@@ -1448,6 +1721,7 @@ export async function updateTestChange(
     subsystem: string;
     priority: TestChangePriority;
     targetBuild?: string | null;
+    githubPrUrl?: string | null;
     dueAt?: Date | null;
     assignedToId?: string | null;
   }
@@ -1463,6 +1737,7 @@ export async function updateTestChange(
       subsystem: true,
       priority: true,
       targetBuild: true,
+      githubPrUrl: true,
       dueAt: true,
       assignedToId: true
     }
@@ -1471,6 +1746,7 @@ export async function updateTestChange(
     throw new Error('Change not found.');
   }
 
+  const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const data = {
     title: input.title.trim(),
     description: sanitizeRichText(input.description),
@@ -1478,6 +1754,8 @@ export async function updateTestChange(
     subsystem: input.subsystem.trim(),
     priority: input.priority,
     targetBuild: input.targetBuild?.trim() || null,
+    githubPrUrl: githubPullRequest.githubPrUrl,
+    githubPrMetadata: githubPullRequest.githubPrMetadata,
     dueAt: input.dueAt ?? null,
     assignedToId: input.assignedToId ?? null
   };
@@ -1501,6 +1779,7 @@ export async function updateTestChange(
           subsystem: existing.subsystem,
           priority: existing.priority,
           targetBuild: existing.targetBuild,
+          githubPrUrl: existing.githubPrUrl,
           dueAt: existing.dueAt?.toISOString() ?? null,
           assignedToId: existing.assignedToId
         },
@@ -1510,6 +1789,7 @@ export async function updateTestChange(
           subsystem: data.subsystem,
           priority: data.priority,
           targetBuild: data.targetBuild,
+          githubPrUrl: data.githubPrUrl,
           dueAt: data.dueAt?.toISOString() ?? null,
           assignedToId: data.assignedToId
         }
@@ -1569,7 +1849,9 @@ export async function setTestChangeStatus(
             : 'change.statusChanged',
       actorUserId,
       change: serialized,
-      detail: detail?.trim() || `Status changed from ${formatLabel(existing.status)} to ${formatLabel(status)}.`,
+      detail:
+        detail?.trim() ||
+        `Status changed from ${formatLabel(existing.status)} to ${formatLabel(status)}.`,
       metadata: { fromStatus: existing.status, toStatus: status }
     });
   }
@@ -1685,7 +1967,7 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
       event: 'tester.started',
       actorUserId,
       change: serialized,
-      detail: `${displayName(await getCurrentUser(actorUserId) ?? { displayName: 'Tester', nickname: null })} started testing this change.`
+      detail: `${displayName((await getCurrentUser(actorUserId)) ?? { displayName: 'Tester', nickname: null })} started testing this change.`
     });
   }
   return serialized;

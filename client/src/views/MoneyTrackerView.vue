@@ -1328,7 +1328,6 @@ function deleteFromContextMenu(): void {
 }
 
 function handleChartRightClick(event: MouseEvent): void {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartInstance = (chartRef.value as any)?.chart;
   if (!chartInstance) return;
 

@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "description": "Monorepo for CW Raid Manager application (EverQuest raid management platform).",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "workspaces": [
     "client",
     "server"

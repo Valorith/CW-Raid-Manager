@@ -695,7 +695,6 @@ const props = defineProps<{
   event: PlayerEventLog;
 }>();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const eventData = computed((): Record<string, any> => {
   return (props.event.eventData || {}) as Record<string, any>;
 });

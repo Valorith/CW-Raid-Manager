@@ -121,6 +121,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       subsystem: z.string().trim().min(1).max(80),
       priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
       targetBuild: z.string().trim().max(120).nullable().optional(),
+      githubPrUrl: z.string().trim().max(500).nullable().optional(),
       dueAt: z.string().datetime().nullable().optional(),
       assignedToId: z.string().nullable().optional(),
       checklist: z
@@ -183,6 +184,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         subsystem: z.string().trim().min(1).max(80),
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
+        githubPrUrl: z.string().trim().max(500).nullable().optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional()
       });

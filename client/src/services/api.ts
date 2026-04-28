@@ -3222,6 +3222,37 @@ export interface TestChangeHistoryEvent {
   actor: TestManagerUserSummary | null;
 }
 
+export interface TestChangePullRequest {
+  owner: string;
+  repo: string;
+  repository: string;
+  number: number;
+  url: string;
+  metadata: {
+    available: boolean;
+    fetchedAt: string | null;
+    statusMessage: string | null;
+    htmlUrl: string;
+    title: string | null;
+    state: string | null;
+    draft: boolean;
+    merged: boolean;
+    mergedAt: string | null;
+    authorLogin: string | null;
+    authorAvatarUrl: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    baseRef: string | null;
+    headRef: string | null;
+    additions: number | null;
+    deletions: number | null;
+    changedFiles: number | null;
+    comments: number | null;
+    reviewComments: number | null;
+    labels: Array<{ name: string; color: string | null }>;
+  };
+}
+
 export interface TestChange {
   id: string;
   publicId: number;
@@ -3232,6 +3263,7 @@ export interface TestChange {
   priority: TestChangePriority;
   status: TestChangeStatus;
   targetBuild: string | null;
+  githubPullRequest: TestChangePullRequest | null;
   dueAt: string | null;
   closedAt: string | null;
   createdAt: string;
@@ -3287,6 +3319,7 @@ export interface CreateTestChangePayload {
   subsystem: string;
   priority: TestChangePriority;
   targetBuild?: string | null;
+  githubPrUrl?: string | null;
   dueAt?: string | null;
   assignedToId?: string | null;
   checklist: Array<{ title: string; details?: string | null; category?: string | null }>;

@@ -299,10 +299,16 @@
               'tm-change-card--active': activeChange?.id === change.id,
               'tm-change-card--viewer-testing': isViewerActivelyTestingChange(change)
             }"
+            role="button"
+            tabindex="0"
+            :aria-label="`Select change #${change.publicId}: ${change.title}`"
+            @click="goToChange(change.id)"
+            @keydown.enter.prevent="goToChange(change.id)"
+            @keydown.space.prevent="goToChange(change.id)"
             @pointerenter="queueChangeTooltip(change, $event)"
             @pointerleave="hideChangeTooltip"
           >
-            <button type="button" class="tm-change-card__main" @click="goToChange(change.id)">
+            <div class="tm-change-card__main">
               <span class="tm-dot" :class="viewerChangeListDotClass(change)"></span>
               <span>
                 <strong>#{{ change.publicId }} {{ change.title }}</strong>
@@ -317,13 +323,8 @@
                   {{ viewerChangeListStatus(change).label }}
                 </span>
               </span>
-            </button>
-            <button
-              type="button"
-              class="tm-change-status-counters"
-              :aria-label="`Open testers tab for #${change.publicId}: ${change.summary.testerCount} testers, ${change.summary.failCount} failed, ${change.summary.blockedCount} blocked, ${change.summary.passCount} passed`"
-              @click="goToChangeTesters(change.id)"
-            >
+            </div>
+            <div class="tm-change-status-counters" aria-hidden="true">
               <span class="tm-change-status-counter tm-change-status-counter--testers">
                 <strong>{{ change.summary.testerCount }}</strong>
                 <span>Testers</span>
@@ -340,7 +341,7 @@
                 <strong>{{ change.summary.passCount }}</strong>
                 <span>Passed</span>
               </span>
-            </button>
+            </div>
             <p v-if="isViewerRequestedPending(change)" class="tm-change-card__request-strip">
               Your help testing this was requested.
             </p>
@@ -389,6 +390,22 @@
                 {{ activeChange.createdBy?.displayName ?? 'Unknown' }} · Updated
                 {{ relativeTime(activeChange.updatedAt) }}
               </p>
+              <a
+                v-if="activeChange.githubPullRequest"
+                class="tm-github-pr-badge tm-github-pr-badge--header"
+                :class="`tm-github-pr-badge--${githubPrTone(activeChange.githubPullRequest)}`"
+                :href="githubPrHref(activeChange.githubPullRequest)"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="`Open ${githubPrLabel(activeChange.githubPullRequest)} on GitHub`"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                  />
+                </svg>
+                <span>{{ githubPrLabel(activeChange.githubPullRequest) }}</span>
+              </a>
             </div>
             <div class="tm-detail__actions">
               <StatusPill :status="activeChange.status" />
@@ -434,6 +451,91 @@
 
           <section v-if="detailTab === 'Overview'" class="tm-detail-section">
             <WorkflowTimeline :change="activeChange" />
+            <article
+              v-if="activeChange.githubPullRequest"
+              class="tm-github-pr-panel"
+              :class="`tm-github-pr-panel--${githubPrTone(activeChange.githubPullRequest)}`"
+            >
+              <div class="tm-github-pr-panel__brand">
+                <span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                    />
+                  </svg>
+                  GitHub Pull Request
+                </span>
+                <strong>{{ githubPrStateLabel(activeChange.githubPullRequest) }}</strong>
+              </div>
+              <div class="tm-github-pr-panel__body">
+                <div>
+                  <a
+                    :href="githubPrHref(activeChange.githubPullRequest)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{
+                      activeChange.githubPullRequest.metadata.title ||
+                      githubPrLabel(activeChange.githubPullRequest)
+                    }}
+                  </a>
+                  <p>
+                    {{ githubPrLabel(activeChange.githubPullRequest) }}
+                    <template v-if="activeChange.githubPullRequest.metadata.authorLogin">
+                      by @{{ activeChange.githubPullRequest.metadata.authorLogin }}
+                    </template>
+                  </p>
+                </div>
+                <div class="tm-github-pr-panel__metrics">
+                  <span>
+                    <strong>{{
+                      githubPrMetric(activeChange.githubPullRequest.metadata.changedFiles)
+                    }}</strong>
+                    files
+                  </span>
+                  <span>
+                    <strong>{{
+                      githubPrSignedMetric(activeChange.githubPullRequest.metadata.additions, '+')
+                    }}</strong>
+                    added
+                  </span>
+                  <span>
+                    <strong>{{
+                      githubPrSignedMetric(activeChange.githubPullRequest.metadata.deletions, '-')
+                    }}</strong>
+                    removed
+                  </span>
+                </div>
+              </div>
+              <div
+                v-if="activeChange.githubPullRequest.metadata.labels.length"
+                class="tm-github-pr-panel__labels"
+              >
+                <span
+                  v-for="label in activeChange.githubPullRequest.metadata.labels"
+                  :key="label.name"
+                  :style="{ '--label-color': githubLabelColor(label.color) }"
+                >
+                  {{ label.name }}
+                </span>
+              </div>
+              <p
+                v-if="!activeChange.githubPullRequest.metadata.available"
+                class="tm-github-pr-panel__message"
+              >
+                {{
+                  activeChange.githubPullRequest.metadata.statusMessage ||
+                  'GitHub metadata is unavailable.'
+                }}
+              </p>
+              <p v-else class="tm-github-pr-panel__message">
+                {{ githubPrBranchSummary(activeChange.githubPullRequest) }}
+                <template v-if="activeChange.githubPullRequest.metadata.updatedAt">
+                  · GitHub updated
+                  {{ relativeTime(activeChange.githubPullRequest.metadata.updatedAt) }}
+                </template>
+              </p>
+            </article>
             <article v-if="canEditViewerChecklist(activeChange)" class="tm-testing-checklist">
               <div class="tm-section-title tm-section-title--detail">
                 <div>
@@ -1286,6 +1388,16 @@
                     <span aria-hidden="true">⌄</span>
                   </div>
                 </label>
+                <label class="tm-field tm-field--full">
+                  <span>GitHub pull request <small>optional</small></span>
+                  <input
+                    v-model="createForm.githubPrUrl"
+                    class="tm-input"
+                    type="url"
+                    inputmode="url"
+                    placeholder="https://github.com/owner/repo/pull/123"
+                  />
+                </label>
               </div>
             </section>
 
@@ -1494,6 +1606,16 @@
               <label class="tm-field">
                 <span>Due date <small>optional</small></span>
                 <input v-model="editForm.dueAt" class="tm-input" type="datetime-local" />
+              </label>
+              <label class="tm-field tm-field--full">
+                <span>GitHub pull request <small>optional</small></span>
+                <input
+                  v-model="editForm.githubPrUrl"
+                  class="tm-input"
+                  type="url"
+                  inputmode="url"
+                  placeholder="https://github.com/owner/repo/pull/123"
+                />
               </label>
             </div>
           </section>
@@ -1908,6 +2030,7 @@ import {
   type TestChangeListStatusFilter,
   type TestChangeNote,
   type TestChangePriority,
+  type TestChangePullRequest,
   type TestChangeStatus,
   type TestManagerDiscordEventKey,
   type TestManagerDashboard,
@@ -2305,6 +2428,7 @@ const createForm = ref<CreateTestChangePayload>({
   subsystem: '',
   priority: 'MEDIUM',
   targetBuild: '',
+  githubPrUrl: '',
   checklist: [createChecklistItem()]
 });
 
@@ -2315,6 +2439,7 @@ const editForm = ref<UpdateTestChangePayload>({
   subsystem: '',
   priority: 'MEDIUM',
   targetBuild: '',
+  githubPrUrl: '',
   dueAt: null,
   assignedToId: null
 });
@@ -3136,15 +3261,6 @@ function goToChangesList() {
   router.push('/test-manager/changes');
 }
 
-function goToChangeTesters(changeId: string) {
-  selectCachedChange(changeId);
-  detailTab.value = 'Testers';
-  router.push({
-    path: `/test-manager/changes/${changeId}`,
-    query: { tab: 'Testers' }
-  });
-}
-
 function buildChangeShareUrl(change: TestChange) {
   const href = router.resolve({
     path: `/test-manager/changes/${change.id}`,
@@ -3443,6 +3559,7 @@ function openEditChange() {
     subsystem: activeChange.value.subsystem,
     priority: activeChange.value.priority,
     targetBuild: activeChange.value.targetBuild ?? '',
+    githubPrUrl: activeChange.value.githubPullRequest?.url ?? '',
     dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
     assignedToId: activeChange.value.assignedTo?.id ?? null
   };
@@ -3491,6 +3608,7 @@ function resetCreateForm() {
     subsystem: '',
     priority: 'MEDIUM',
     targetBuild: '',
+    githubPrUrl: '',
     checklist: [createChecklistItem()]
   };
 }
@@ -3503,6 +3621,7 @@ function resetEditForm() {
     subsystem: '',
     priority: 'MEDIUM',
     targetBuild: '',
+    githubPrUrl: '',
     dueAt: null,
     assignedToId: null
   };
@@ -3517,6 +3636,7 @@ async function createChange() {
   const payload: CreateTestChangePayload = {
     ...createForm.value,
     description: descriptionInputToHtml(createForm.value.description),
+    githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
       .map((item) => ({
@@ -3545,6 +3665,7 @@ async function saveEditChange() {
       ...editForm.value,
       description: descriptionInputToHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
+      githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
       dueAt
     });
     editOpen.value = false;
@@ -4277,6 +4398,68 @@ function normalizeRichTextHtml(value: string) {
 
 function displayRichText(html: string) {
   return normalizeRichTextHtml(html);
+}
+
+const githubMetricFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+
+function githubPrHref(pullRequest: TestChangePullRequest) {
+  return pullRequest.metadata.htmlUrl || pullRequest.url;
+}
+
+function githubPrLabel(pullRequest: TestChangePullRequest) {
+  return `${pullRequest.repository}#${pullRequest.number}`;
+}
+
+function githubPrTone(pullRequest: TestChangePullRequest) {
+  if (!pullRequest.metadata.available) {
+    return 'unavailable';
+  }
+  if (pullRequest.metadata.draft) {
+    return 'draft';
+  }
+  if (pullRequest.metadata.merged) {
+    return 'merged';
+  }
+  if (pullRequest.metadata.state === 'closed') {
+    return 'closed';
+  }
+  return 'open';
+}
+
+function githubPrStateLabel(pullRequest: TestChangePullRequest) {
+  const tone = githubPrTone(pullRequest);
+  const labels: Record<string, string> = {
+    unavailable: 'Metadata unavailable',
+    draft: 'Draft',
+    merged: 'Merged',
+    closed: 'Closed',
+    open: 'Open'
+  };
+  return labels[tone] ?? 'Linked';
+}
+
+function githubPrMetric(value: number | null) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? githubMetricFormatter.format(value)
+    : 'n/a';
+}
+
+function githubPrSignedMetric(value: number | null, prefix: '+' | '-') {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${prefix}${githubMetricFormatter.format(value)}`
+    : 'n/a';
+}
+
+function githubLabelColor(value: string | null) {
+  return value && /^[0-9a-f]{6}$/i.test(value) ? `#${value}` : 'rgba(139, 148, 158, 0.88)';
+}
+
+function githubPrBranchSummary(pullRequest: TestChangePullRequest) {
+  const { headRef, baseRef } = pullRequest.metadata;
+  if (headRef && baseRef) {
+    return `${headRef} into ${baseRef}`;
+  }
+  return 'GitHub metadata refreshed for this linked pull request.';
 }
 
 function getRichTextPlainText(value: string): string {
@@ -5741,6 +5924,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--tm-border-soft);
   border-radius: var(--tm-button-radius);
   margin-bottom: 0.5rem;
+  cursor: pointer;
   transition:
     transform 0.12s ease,
     border-color 0.12s ease,
@@ -5760,7 +5944,6 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 0;
   text-align: left;
-  cursor: pointer;
 }
 
 .tm-change-card__request-strip {
@@ -5915,7 +6098,8 @@ onBeforeUnmount(() => {
   transform: translateX(2px) translateY(-1px);
 }
 
-.tm-change-card:focus-within {
+.tm-change-card:focus-within,
+.tm-change-card:focus-visible {
   outline: 2px solid rgba(217, 164, 95, 0.65);
   outline-offset: 2px;
 }
@@ -6135,7 +6319,6 @@ onBeforeUnmount(() => {
   color: #c8dbe4;
   font: inherit;
   background: rgba(11, 26, 34, 0.78);
-  cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
   transition:
     transform 0.12s ease,
@@ -6144,16 +6327,15 @@ onBeforeUnmount(() => {
     color 0.12s ease;
 }
 
-.tm-change-status-counters:hover,
-.tm-change-status-counters:focus-visible {
+.tm-change-card:hover .tm-change-status-counters,
+.tm-change-card:focus-visible .tm-change-status-counters {
   border-color: rgba(135, 177, 199, 0.54);
   color: #e5f0f5;
   background: rgba(13, 34, 45, 0.88);
   transform: translateY(-1px);
 }
 
-.tm-change-status-counters:focus-visible,
-.tm-change-card__main:focus-visible {
+.tm-change-card:focus-visible {
   outline: 2px solid rgba(119, 201, 255, 0.75);
   outline-offset: 3px;
 }
@@ -6371,6 +6553,204 @@ onBeforeUnmount(() => {
 .tm-share-button:focus-visible {
   outline: 2px solid rgba(85, 183, 255, 0.52);
   outline-offset: 2px;
+}
+
+.tm-github-pr-badge {
+  --github-tone: #2da44e;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.34rem 0.58rem;
+  border: 1px solid color-mix(in srgb, var(--github-tone) 58%, transparent);
+  border-radius: 999px;
+  color: #f0f6fc;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 74%), rgba(36, 41, 47, 0.82);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 18px rgba(0, 0, 0, 0.2);
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.tm-github-pr-badge svg,
+.tm-github-pr-panel svg {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.tm-github-pr-badge span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-github-pr-badge:hover,
+.tm-github-pr-badge:focus-visible {
+  color: #ffffff;
+  border-color: var(--github-tone);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.26),
+    0 0 0 1px color-mix(in srgb, var(--github-tone) 36%, transparent);
+  transform: translateY(-1px);
+}
+
+.tm-github-pr-badge:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--github-tone) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.tm-github-pr-badge--header {
+  margin-top: 0.65rem;
+}
+
+.tm-github-pr-panel {
+  --github-tone: #2da44e;
+  display: grid;
+  gap: 0.82rem;
+  padding: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--github-tone) 42%, transparent);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--github-tone) 12%, transparent), transparent),
+    rgba(13, 17, 23, 0.74);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.tm-github-pr-badge--merged,
+.tm-github-pr-panel--merged {
+  --github-tone: #8250df;
+}
+
+.tm-github-pr-badge--closed,
+.tm-github-pr-panel--closed {
+  --github-tone: #cf222e;
+}
+
+.tm-github-pr-badge--draft,
+.tm-github-pr-panel--draft {
+  --github-tone: #6e7781;
+}
+
+.tm-github-pr-badge--unavailable,
+.tm-github-pr-panel--unavailable {
+  --github-tone: #d29922;
+}
+
+.tm-github-pr-panel__brand,
+.tm-github-pr-panel__body,
+.tm-github-pr-panel__metrics,
+.tm-github-pr-panel__labels {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.tm-github-pr-panel__brand {
+  justify-content: space-between;
+  color: #f0f6fc;
+}
+
+.tm-github-pr-panel__brand span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-github-pr-panel__brand strong {
+  padding: 0.24rem 0.48rem;
+  border-radius: 999px;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--github-tone) 74%, #000 26%);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.tm-github-pr-panel__body {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.tm-github-pr-panel__body > div:first-child {
+  min-width: 0;
+}
+
+.tm-github-pr-panel__body a {
+  display: block;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 850;
+  line-height: 1.24;
+  text-decoration: none;
+}
+
+.tm-github-pr-panel__body a:hover,
+.tm-github-pr-panel__body a:focus-visible {
+  color: #79c0ff;
+  text-decoration: underline;
+}
+
+.tm-github-pr-panel__body p,
+.tm-github-pr-panel__message {
+  margin: 0.25rem 0 0;
+  color: rgba(201, 209, 217, 0.78);
+  font-size: 0.82rem;
+}
+
+.tm-github-pr-panel__metrics {
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.tm-github-pr-panel__metrics span {
+  min-width: 4.4rem;
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  border-radius: 8px;
+  color: rgba(201, 209, 217, 0.78);
+  background: rgba(1, 4, 9, 0.34);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.tm-github-pr-panel__metrics strong {
+  color: #f0f6fc;
+  font-size: 0.95rem;
+}
+
+.tm-github-pr-panel__labels {
+  flex-wrap: wrap;
+}
+
+.tm-github-pr-panel__labels span {
+  padding: 0.22rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--label-color) 62%, transparent);
+  border-radius: 999px;
+  color: #f0f6fc;
+  background: color-mix(in srgb, var(--label-color) 24%, transparent);
+  font-size: 0.7rem;
+  font-weight: 800;
 }
 
 .tm-detail__header p:not(.tm-id) {

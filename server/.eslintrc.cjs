@@ -28,10 +28,12 @@ module.exports = {
       'error',
       {
         argsIgnorePattern: '^_',
+        caughtErrors: 'none',
         caughtErrorsIgnorePattern: '^_',
-        varsIgnorePattern: '^_'
+        varsIgnorePattern: '^_|^[A-Z0-9_]+$'
       }
     ],
+    '@typescript-eslint/no-empty-object-type': 'off',
     'import/no-unresolved': [
       'error',
       {

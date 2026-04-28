@@ -2370,7 +2370,6 @@ function debugLootCouncilSnapshot(context: string) {
     }))
   }));
   appendDebugLog(`Loot council snapshot: ${context}`, { snapshot });
-  // eslint-disable-next-line no-console
   console.info('[LootCouncil Debug]', context, snapshot);
 }
 
