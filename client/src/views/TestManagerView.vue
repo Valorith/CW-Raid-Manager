@@ -434,7 +434,7 @@
 
           <article class="tm-change-description">
             <h3>Change Description</h3>
-            <div class="tm-rich" v-html="activeChange.description"></div>
+            <div class="tm-rich" v-html="displayRichText(activeChange.description)"></div>
           </article>
 
           <div class="tm-tabs">
@@ -1424,15 +1424,14 @@
                   <span>{{ option.detail }}</span>
                 </label>
               </fieldset>
-              <label class="tm-field tm-field--full">
+              <div class="tm-field tm-field--full">
                 <span>Description</span>
-                <textarea
+                <RichTextEditor
                   v-model="createForm.description"
-                  class="tm-textarea tm-create-description"
-                  required
+                  class="tm-create-description"
                   placeholder="Summarize what changed, where testers should look, and any known risks."
-                ></textarea>
-              </label>
+                />
+              </div>
             </section>
 
             <section class="tm-create-section tm-create-section--checklist">
@@ -1643,14 +1642,14 @@
                 <span>{{ option.detail }}</span>
               </label>
             </fieldset>
-            <label class="tm-field tm-field--full">
+            <div class="tm-field tm-field--full">
               <span>Description</span>
-              <textarea
+              <RichTextEditor
                 v-model="editForm.description"
-                class="tm-textarea tm-create-description"
-                required
-              ></textarea>
-            </label>
+                class="tm-create-description"
+                placeholder="Summarize what changed, where testers should look, and any known risks."
+              />
+            </div>
           </section>
         </div>
 
@@ -2535,7 +2534,7 @@ const createScopeReady = computed(
     Boolean(createForm.value.subsystem.trim())
 );
 const createImpactReady = computed(
-  () => createForm.value.description.trim().length >= 12 && Boolean(createForm.value.priority)
+  () => plainText(createForm.value.description).length >= 12 && Boolean(createForm.value.priority)
 );
 const createChecklistReady = computed(() => createChecklistCount.value > 0);
 const createReadyCount = computed(
@@ -3554,7 +3553,7 @@ function openEditChange() {
 
   editForm.value = {
     title: activeChange.value.title,
-    description: plainText(activeChange.value.description),
+    description: activeChange.value.description,
     category: activeChange.value.category,
     subsystem: activeChange.value.subsystem,
     priority: activeChange.value.priority,
@@ -3635,7 +3634,7 @@ function setUserRoleFilter(filter: UserRoleFilter) {
 async function createChange() {
   const payload: CreateTestChangePayload = {
     ...createForm.value,
-    description: descriptionInputToHtml(createForm.value.description),
+    description: normalizeRichTextHtml(createForm.value.description),
     githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
@@ -3663,7 +3662,7 @@ async function saveEditChange() {
       : null;
     selectedChange.value = await api.updateTestChange(activeChange.value.id, {
       ...editForm.value,
-      description: descriptionInputToHtml(editForm.value.description),
+      description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
       githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
       dueAt
@@ -4296,15 +4295,6 @@ function escapeHtml(value: string) {
   );
 }
 
-function descriptionInputToHtml(value: string) {
-  return value
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
-    .join('');
-}
-
 function toLocalDateTimeInput(value: string | null) {
   if (!value) {
     return null;
@@ -4671,10 +4661,27 @@ const WorkflowTimeline = defineComponent({
 });
 
 const RichTextEditor = defineComponent({
-  setup(_, { expose }) {
+  props: {
+    modelValue: { type: String, default: '' },
+    placeholder: { type: String, default: 'Enter detailed testing notes...' }
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit, expose }) {
     const editor = ref<HTMLElement | null>(null);
     const activeMarks = reactive({ bold: false, italic: false, underline: false });
     let savedRange: Range | null = null;
+    const setEditorHtml = (html: string) => {
+      if (!editor.value) {
+        return;
+      }
+      const normalized = normalizeRichTextHtml(html);
+      if (editor.value.innerHTML !== normalized) {
+        editor.value.innerHTML = normalized;
+      }
+    };
+    const emitCurrentHtml = () => {
+      emit('update:modelValue', editor.value?.innerHTML ?? '');
+    };
     const hasActiveMarks = () => activeMarks.bold || activeMarks.italic || activeMarks.underline;
     const wrapActiveMarks = (html: string) => {
       let wrapped = html;
@@ -4738,6 +4745,7 @@ const RichTextEditor = defineComponent({
         document.execCommand(name, false);
       }
       saveSelection();
+      emitCurrentHtml();
     };
     const handleToolbarPointer = (event: MouseEvent) => {
       event.preventDefault();
@@ -4760,6 +4768,7 @@ const RichTextEditor = defineComponent({
       prepareSelection();
       document.execCommand('insertHTML', false, wrapActiveMarks(escapeHtml(event.data)));
       saveSelection();
+      emitCurrentHtml();
     };
     const handlePaste = (event: ClipboardEvent) => {
       const text = event.clipboardData?.getData('text/plain');
@@ -4770,6 +4779,7 @@ const RichTextEditor = defineComponent({
       prepareSelection();
       document.execCommand('insertHTML', false, textToEditorHtml(text));
       saveSelection();
+      emitCurrentHtml();
     };
     const currentHtml = () => {
       const normalized = normalizeRichTextHtml(editor.value?.innerHTML.trim() || '');
@@ -4781,16 +4791,31 @@ const RichTextEditor = defineComponent({
     expose({
       getHtml: currentHtml,
       setHtml: (html: string) => {
-        if (editor.value) {
-          editor.value.innerHTML = normalizeRichTextHtml(html);
-        }
+        setEditorHtml(html);
+        emitCurrentHtml();
       },
       clear: () => {
-        if (editor.value) {
-          editor.value.innerHTML = '';
-        }
+        setEditorHtml('');
+        emitCurrentHtml();
       }
     });
+    onMounted(() => {
+      setEditorHtml(props.modelValue);
+    });
+    watch(
+      () => props.modelValue,
+      (html) => {
+        if (!editor.value) {
+          return;
+        }
+        const current = normalizeRichTextHtml(editor.value.innerHTML.trim() || '');
+        const incoming = normalizeRichTextHtml(html);
+        if (current !== incoming) {
+          editor.value.innerHTML = incoming;
+        }
+      },
+      { flush: 'post' }
+    );
     return () =>
       h('div', { class: 'tm-editor' }, [
         h('div', { class: 'tm-editor__bar', role: 'toolbar', 'aria-label': 'Formatting tools' }, [
@@ -4862,9 +4887,12 @@ const RichTextEditor = defineComponent({
           onKeyup: saveSelection,
           onMouseup: saveSelection,
           onBeforeinput: handleBeforeInput,
-          onInput: saveSelection,
+          onInput: () => {
+            saveSelection();
+            emitCurrentHtml();
+          },
           onPaste: handlePaste,
-          'data-placeholder': 'Enter detailed testing notes...'
+          'data-placeholder': props.placeholder
         })
       ]);
   }
@@ -8979,6 +9007,10 @@ onBeforeUnmount(() => {
 
 .tm-create-description {
   min-height: 7rem;
+}
+
+.tm-create-description :deep(.tm-editor__surface) {
+  min-height: 9rem;
 }
 
 .tm-combo-field__control {
