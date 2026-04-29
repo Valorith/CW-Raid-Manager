@@ -13,6 +13,8 @@ import {
   TEST_MANAGER_DISCORD_EVENT_KEYS,
   TEST_MANAGER_PERMISSION_KEYS,
   TEST_MANAGER_ROLE_KEYS,
+  type NextPatchChangeView,
+  countNextPatchChanges,
   createTestChange,
   deleteChangeNote,
   deleteTestChange,
@@ -20,12 +22,15 @@ import {
   getTestChange,
   getTestManagerDashboard,
   getTestManagerSettings,
+  listNextPatchChanges,
   listTestChanges,
   listTestManagerUsers,
   requestTester,
+  resetNextPatch,
   retestChange,
   removeTesterFromChange,
   saveChangeNote,
+  setTestChangeNextPatch,
   setTestChangeStatus,
   submitTesterResult,
   updateTestChange,
@@ -91,11 +96,48 @@ async function requireCanView(
 }
 
 const richTextSchema = z.string().max(50000);
+const nextPatchQuerySchema = z.object({
+  view: z.enum(['complete', 'incomplete']).default('complete')
+});
 
 export async function testManagerRoutes(server: FastifyInstance): Promise<void> {
   server.get('/dashboard', { preHandler: [authenticate, requireCanView] }, async (request) => {
     return getTestManagerDashboard(request.user.userId);
   });
+
+  server.get(
+    '/next-patch',
+    { preHandler: [authenticate, requireCanView] },
+    async (request, reply) => {
+      const parsed = nextPatchQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid next patch view.');
+      }
+      return listNextPatchChanges(request.user.userId, parsed.data.view as NextPatchChangeView);
+    }
+  );
+
+  server.get(
+    '/next-patch/count',
+    { preHandler: [authenticate, requireCanView] },
+    async (request) => {
+      return countNextPatchChanges(request.user.userId);
+    }
+  );
+
+  server.post(
+    '/next-patch/reset',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      try {
+        return await resetNextPatch(request.user.userId);
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to reset next patch.'
+        );
+      }
+    }
+  );
 
   server.get('/changes', { preHandler: [authenticate, requireCanView] }, async (request, reply) => {
     const querySchema = z.object({
@@ -114,42 +156,45 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     '/changes',
     { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
-    const bodySchema = z.object({
-      title: z.string().trim().min(3).max(191),
-      description: richTextSchema,
-      category: z.string().trim().min(1).max(80),
-      subsystem: z.string().trim().min(1).max(80),
-      priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
-      targetBuild: z.string().trim().max(120).nullable().optional(),
-      githubPrUrl: z.string().trim().max(500).nullable().optional(),
-      dueAt: z.string().datetime().nullable().optional(),
-      assignedToId: z.string().nullable().optional(),
-      checklist: z
-        .array(
-          z.object({
-            title: z.string().trim().min(1).max(191),
-            details: z.string().trim().max(1000).nullable().optional(),
-            category: z.string().trim().max(80).nullable().optional()
-          })
-        )
-        .max(30)
-        .default([])
-    });
-    const parsed = bodySchema.safeParse(request.body ?? {});
-    if (!parsed.success) {
-      return reply.badRequest(parsed.error.message);
-    }
-
-    try {
-      const change = await createTestChange(request.user.userId, {
-        ...parsed.data,
-        dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null
+      const bodySchema = z.object({
+        title: z.string().trim().min(3).max(191),
+        description: richTextSchema,
+        category: z.string().trim().min(1).max(80),
+        subsystem: z.string().trim().min(1).max(80),
+        priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
+        targetBuild: z.string().trim().max(120).nullable().optional(),
+        githubPrUrl: z.string().trim().max(500).nullable().optional(),
+        includeInNextPatch: z.boolean().optional(),
+        dueAt: z.string().datetime().nullable().optional(),
+        assignedToId: z.string().nullable().optional(),
+        checklist: z
+          .array(
+            z.object({
+              title: z.string().trim().min(1).max(191),
+              details: z.string().trim().max(1000).nullable().optional(),
+              category: z.string().trim().max(80).nullable().optional()
+            })
+          )
+          .max(30)
+          .default([])
       });
-      return reply.code(201).send({ change });
-    } catch (error) {
-      request.log.error({ error }, 'Failed to create test change.');
-      return reply.badRequest(error instanceof Error ? error.message : 'Unable to create change.');
-    }
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      try {
+        const change = await createTestChange(request.user.userId, {
+          ...parsed.data,
+          dueAt: parsed.data.dueAt ? new Date(parsed.data.dueAt) : null
+        });
+        return reply.code(201).send({ change });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to create test change.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to create change.'
+        );
+      }
     }
   );
 
@@ -185,6 +230,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
+        includeInNextPatch: z.boolean().optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional()
       });
@@ -234,6 +280,33 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update status.'
+        );
+      }
+    }
+  );
+
+  server.patch(
+    '/changes/:changeId/next-patch',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({ includeInNextPatch: z.boolean() });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid next patch update payload.');
+      }
+
+      try {
+        const change = await setTestChangeNextPatch(
+          request.user.userId,
+          params.data.changeId,
+          body.data.includeInNextPatch
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update next patch.'
         );
       }
     }
@@ -504,45 +577,49 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
     }
   );
 
-  server.get('/settings', { preHandler: [authenticate, requireCanView, requireAdmin] }, async () => {
-    return getTestManagerSettings();
-  });
+  server.get(
+    '/settings',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async () => {
+      return getTestManagerSettings();
+    }
+  );
 
   server.put(
     '/settings',
     { preHandler: [authenticate, requireCanView, requireAdmin] },
     async (request, reply) => {
-    const bodySchema = z.object({
-      roles: z.array(
-        z.object({
-          key: z.enum(TEST_MANAGER_ROLE_KEYS),
-          permissions: z.array(z.enum(TEST_MANAGER_PERMISSION_KEYS)).default([])
-        })
-      ),
-      discordNotifications: z
-        .object({
-          enabled: z.boolean(),
-          webhookUrl: z
-            .string()
-            .trim()
-            .max(500)
-            .refine(isDiscordWebhookUrl, 'Must be a valid Discord webhook URL.'),
-          events: z.array(z.enum(TEST_MANAGER_DISCORD_EVENT_KEYS)).default([])
-        })
-        .optional()
-    });
-    const parsed = bodySchema.safeParse(request.body ?? {});
-    if (!parsed.success) {
-      return reply.badRequest('Invalid role permission settings payload.');
-    }
+      const bodySchema = z.object({
+        roles: z.array(
+          z.object({
+            key: z.enum(TEST_MANAGER_ROLE_KEYS),
+            permissions: z.array(z.enum(TEST_MANAGER_PERMISSION_KEYS)).default([])
+          })
+        ),
+        discordNotifications: z
+          .object({
+            enabled: z.boolean(),
+            webhookUrl: z
+              .string()
+              .trim()
+              .max(500)
+              .refine(isDiscordWebhookUrl, 'Must be a valid Discord webhook URL.'),
+            events: z.array(z.enum(TEST_MANAGER_DISCORD_EVENT_KEYS)).default([])
+          })
+          .optional()
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid role permission settings payload.');
+      }
 
-    try {
-      return await updateTestManagerSettings(request.user.userId, parsed.data);
-    } catch (error) {
-      return reply.badRequest(
-        error instanceof Error ? error.message : 'Unable to update role permission settings.'
-      );
-    }
+      try {
+        return await updateTestManagerSettings(request.user.userId, parsed.data);
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update role permission settings.'
+        );
+      }
     }
   );
 }

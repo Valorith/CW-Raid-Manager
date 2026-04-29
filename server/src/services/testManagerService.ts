@@ -24,6 +24,10 @@ const OPEN_TEST_RUN_STATUSES: TestRunStatus[] = [
   TestRunStatus.BLOCKED
 ];
 
+export type NextPatchChangeView = 'complete' | 'incomplete';
+
+const NEXT_PATCH_COMPLETE_STATUS = TestChangeStatus.CLOSED;
+
 export const TEST_MANAGER_PERMISSION_KEYS = [
   'view',
   'submit',
@@ -848,6 +852,7 @@ function serializeChange(change: ChangeRecord, viewerUserId?: string) {
     status: change.status,
     targetBuild: change.targetBuild ?? null,
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
+    includeInNextPatch: change.includeInNextPatch,
     dueAt: change.dueAt?.toISOString() ?? null,
     closedAt: change.closedAt?.toISOString() ?? null,
     createdAt: change.createdAt.toISOString(),
@@ -1632,6 +1637,39 @@ export async function listTestChanges(
   return { changes: changes.map((change) => serializeChange(change, userId)) };
 }
 
+export async function listNextPatchChanges(userId: string, view: NextPatchChangeView = 'complete') {
+  await ensureSeedData(userId);
+
+  const changes = await prisma.testChange.findMany({
+    where: {
+      includeInNextPatch: true,
+      status:
+        view === 'complete'
+          ? NEXT_PATCH_COMPLETE_STATUS
+          : {
+              not: NEXT_PATCH_COMPLETE_STATUS
+            }
+    },
+    orderBy: [{ closedAt: 'desc' }, { updatedAt: 'desc' }, { publicId: 'asc' }],
+    include: changeInclude
+  });
+
+  return { changes: changes.map((change) => serializeChange(change, userId)) };
+}
+
+export async function countNextPatchChanges(userId: string) {
+  await ensureSeedData(userId);
+
+  const count = await prisma.testChange.count({
+    where: {
+      includeInNextPatch: true,
+      status: NEXT_PATCH_COMPLETE_STATUS
+    }
+  });
+
+  return { count };
+}
+
 export async function getTestChange(changeId: string, userId: string) {
   await ensureSeedData(userId);
 
@@ -1655,6 +1693,7 @@ export async function createTestChange(
     priority: TestChangePriority;
     targetBuild?: string | null;
     githubPrUrl?: string | null;
+    includeInNextPatch?: boolean;
     dueAt?: Date | null;
     assignedToId?: string | null;
     checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
@@ -1674,6 +1713,7 @@ export async function createTestChange(
         targetBuild: input.targetBuild?.trim() || null,
         githubPrUrl: githubPullRequest.githubPrUrl,
         githubPrMetadata: githubPullRequest.githubPrMetadata,
+        includeInNextPatch: input.includeInNextPatch ?? true,
         dueAt: input.dueAt ?? null,
         assignedToId: input.assignedToId ?? null,
         createdById: actorUserId,
@@ -1722,6 +1762,7 @@ export async function updateTestChange(
     priority: TestChangePriority;
     targetBuild?: string | null;
     githubPrUrl?: string | null;
+    includeInNextPatch?: boolean;
     dueAt?: Date | null;
     assignedToId?: string | null;
   }
@@ -1738,6 +1779,7 @@ export async function updateTestChange(
       priority: true,
       targetBuild: true,
       githubPrUrl: true,
+      includeInNextPatch: true,
       dueAt: true,
       assignedToId: true
     }
@@ -1756,6 +1798,9 @@ export async function updateTestChange(
     targetBuild: input.targetBuild?.trim() || null,
     githubPrUrl: githubPullRequest.githubPrUrl,
     githubPrMetadata: githubPullRequest.githubPrMetadata,
+    ...(typeof input.includeInNextPatch === 'boolean'
+      ? { includeInNextPatch: input.includeInNextPatch }
+      : {}),
     dueAt: input.dueAt ?? null,
     assignedToId: input.assignedToId ?? null
   };
@@ -1780,6 +1825,7 @@ export async function updateTestChange(
           priority: existing.priority,
           targetBuild: existing.targetBuild,
           githubPrUrl: existing.githubPrUrl,
+          includeInNextPatch: existing.includeInNextPatch,
           dueAt: existing.dueAt?.toISOString() ?? null,
           assignedToId: existing.assignedToId
         },
@@ -1790,6 +1836,10 @@ export async function updateTestChange(
           priority: data.priority,
           targetBuild: data.targetBuild,
           githubPrUrl: data.githubPrUrl,
+          includeInNextPatch:
+            typeof data.includeInNextPatch === 'boolean'
+              ? data.includeInNextPatch
+              : existing.includeInNextPatch,
           dueAt: data.dueAt?.toISOString() ?? null,
           assignedToId: data.assignedToId
         }
@@ -1798,6 +1848,85 @@ export async function updateTestChange(
   });
 
   return getTestChange(changeId, actorUserId);
+}
+
+export async function setTestChangeNextPatch(
+  actorUserId: string,
+  changeId: string,
+  includeInNextPatch: boolean
+) {
+  await ensureAdmin(actorUserId);
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      includeInNextPatch: true
+    }
+  });
+  if (!existing) {
+    throw new Error('Change not found.');
+  }
+
+  if (existing.includeInNextPatch === includeInNextPatch) {
+    return getTestChange(changeId, actorUserId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data: { includeInNextPatch }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: includeInNextPatch ? 'Added to next patch' : 'Removed from next patch',
+      detail: includeInNextPatch
+        ? 'This change was marked for inclusion in the next patch.'
+        : 'This change was removed from the next patch list.',
+      metadata: { from: existing.includeInNextPatch, to: includeInNextPatch }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
+export async function resetNextPatch(actorUserId: string) {
+  await ensureAdmin(actorUserId);
+
+  const changes = await prisma.testChange.findMany({
+    where: {
+      includeInNextPatch: true,
+      status: NEXT_PATCH_COMPLETE_STATUS
+    },
+    select: { id: true }
+  });
+
+  if (!changes.length) {
+    return { resetCount: 0 };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.updateMany({
+      where: { id: { in: changes.map((change) => change.id) } },
+      data: { includeInNextPatch: false }
+    });
+
+    for (const change of changes) {
+      await appendHistory(tx, {
+        changeId: change.id,
+        actorUserId,
+        eventType: TestHistoryEventType.STATUS_CHANGED,
+        label: 'Next patch reset',
+        detail: 'This change was cleared from the next patch list after deployment.',
+        metadata: { includeInNextPatch: false, reset: true }
+      });
+    }
+  });
+
+  return { resetCount: changes.length };
 }
 
 export async function setTestChangeStatus(

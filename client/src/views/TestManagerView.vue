@@ -32,6 +32,13 @@
           </svg>
         </span>
         {{ item.label }}
+        <span
+          v-if="item.key === 'next-patch' && nextPatchCount > 0"
+          class="tm-subnav__counter"
+          aria-label="Changes queued for next patch"
+        >
+          {{ nextPatchCount }}
+        </span>
       </RouterLink>
     </nav>
 
@@ -408,7 +415,41 @@
               </a>
             </div>
             <div class="tm-detail__actions">
-              <StatusPill :status="activeChange.status" />
+              <div class="tm-detail__status-stack">
+                <StatusPill :status="activeChange.status" />
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-next-patch-toggle"
+                  :class="{
+                    'tm-next-patch-toggle--included': activeChange.includeInNextPatch,
+                    'tm-next-patch-toggle--excluded': !activeChange.includeInNextPatch
+                  }"
+                  :disabled="nextPatchTogglePending"
+                  :aria-pressed="activeChange.includeInNextPatch"
+                  @click="toggleActiveChangeNextPatch"
+                >
+                  <span class="tm-next-patch-toggle__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <path d="M10 6h10" />
+                      <path d="M10 12h10" />
+                      <path d="M10 18h10" />
+                      <path d="m4 5 1.2 1.2L7.5 4" />
+                      <path d="m4 11 1.2 1.2L7.5 10" />
+                      <path d="m4 17 1.2 1.2L7.5 16" />
+                    </svg>
+                  </span>
+                  <span class="tm-next-patch-toggle__copy">
+                    <strong>Next Patch</strong>
+                    <small>{{
+                      activeChange.includeInNextPatch ? 'Included' : 'Not included'
+                    }}</small>
+                  </span>
+                  <span class="tm-next-patch-toggle__action">
+                    {{ activeChange.includeInNextPatch ? 'Remove' : 'Add' }}
+                  </span>
+                </button>
+              </div>
               <div class="tm-detail__action-buttons">
                 <button
                   v-if="authStore.isAdmin"
@@ -919,6 +960,141 @@
         </aside>
       </section>
 
+      <section v-else-if="currentSection === 'next-patch'" class="tm-next-patch">
+        <main class="tm-panel tm-next-patch-panel">
+          <div class="tm-panel__header tm-next-patch__header">
+            <div>
+              <h2><span aria-hidden="true">✓</span> Next Patch</h2>
+              <p>{{ nextPatchSummaryText }}</p>
+            </div>
+            <div class="tm-next-patch__actions">
+              <div class="tm-next-patch-view-toggle" aria-label="Next patch view">
+                <button
+                  v-for="option in nextPatchViewOptions"
+                  :key="option.key"
+                  type="button"
+                  :class="{
+                    'tm-next-patch-view-toggle__button--active': nextPatchView === option.key
+                  }"
+                  :aria-pressed="nextPatchView === option.key"
+                  @click="setNextPatchView(option.key)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tm-next-patch-stats" aria-label="Next patch summary">
+            <article>
+              <span>{{ nextPatchPrimaryStatLabel }}</span>
+              <strong>{{ nextPatchChanges.length }}</strong>
+              <small>{{ nextPatchPrimaryStatDetail }}</small>
+            </article>
+            <article>
+              <span>Passed</span>
+              <strong>{{ nextPatchPassedCount }}</strong>
+              <small>validated</small>
+            </article>
+            <article>
+              <span>Testers</span>
+              <strong>{{ nextPatchTesterCount }}</strong>
+              <small>records</small>
+            </article>
+            <article>
+              <span>Areas</span>
+              <strong>{{ nextPatchAreaCount }}</strong>
+              <small>subsystems</small>
+            </article>
+            <div
+              v-if="authStore.isAdmin && nextPatchViewIsComplete"
+              class="tm-next-patch-reset-strip"
+            >
+              <span>Patch deployed?</span>
+              <button
+                type="button"
+                class="tm-next-patch-reset-button"
+                :disabled="nextPatchResetPending || nextPatchChanges.length === 0"
+                @click="openNextPatchResetConfirm"
+              >
+                <span aria-hidden="true">↻</span>
+                Reset completed queue
+              </button>
+            </div>
+          </div>
+
+          <div v-if="nextPatchLoading" class="tm-next-patch-loading">Loading changes...</div>
+
+          <div v-else-if="nextPatchChanges.length" class="tm-next-patch-list">
+            <article v-for="change in nextPatchChanges" :key="change.id" class="tm-next-patch-card">
+              <button
+                type="button"
+                class="tm-next-patch-card__main"
+                :aria-label="`Open change #${change.publicId}: ${change.title}`"
+                @click="goToChange(change.id)"
+              >
+                <span class="tm-priority" :class="`tm-priority--${change.priority.toLowerCase()}`">
+                  {{ priorityLabel(change.priority) }}
+                </span>
+                <span>
+                  <strong>#{{ change.publicId }} {{ change.title }}</strong>
+                  <small>{{ change.category }} / {{ change.subsystem }}</small>
+                </span>
+              </button>
+              <div class="tm-next-patch-card__meta">
+                <StatusPill :status="change.status" compact />
+                <span>{{ change.targetBuild || 'No target build' }}</span>
+                <span>{{
+                  change.closedAt
+                    ? `Closed ${relativeTime(change.closedAt)}`
+                    : `Updated ${relativeTime(change.updatedAt)}`
+                }}</span>
+              </div>
+              <div class="tm-next-patch-card__quality">
+                <span>
+                  <strong>{{ change.summary.passCount }}</strong>
+                  passed
+                </span>
+                <span>
+                  <strong>{{ change.summary.testerCount }}</strong>
+                  testers
+                </span>
+                <span>
+                  <strong>{{ checklistProgress(change) }}</strong>
+                  checklist
+                </span>
+              </div>
+              <button
+                v-if="authStore.isAdmin"
+                type="button"
+                class="tm-table-action tm-table-action--danger tm-next-patch-card__remove"
+                :disabled="nextPatchTogglePending"
+                @click="setChangeNextPatch(change, false)"
+              >
+                Remove
+              </button>
+            </article>
+          </div>
+          <div v-else class="tm-next-patch-empty">
+            <span aria-hidden="true">✓</span>
+            <h3>
+              {{
+                nextPatchViewIsComplete
+                  ? 'No completed changes are queued for the next patch.'
+                  : 'No incomplete changes are flagged for the next patch.'
+              }}
+            </h3>
+            <p>
+              {{
+                nextPatchViewIsComplete
+                  ? 'Closed changes appear here when they remain marked for patch inclusion.'
+                  : 'Open changes appear here while they remain marked for patch inclusion.'
+              }}
+            </p>
+          </div>
+        </main>
+      </section>
+
       <section v-else-if="currentSection === 'users'" class="tm-grid tm-grid--users">
         <main class="tm-panel">
           <div class="tm-panel__header">
@@ -1398,6 +1574,12 @@
                     placeholder="https://github.com/owner/repo/pull/123"
                   />
                 </label>
+                <label class="tm-patch-toggle tm-field--full">
+                  <input v-model="createForm.includeInNextPatch" type="checkbox" />
+                  <span aria-hidden="true"></span>
+                  <strong>Include in next patch</strong>
+                  <small>Completed changes stay queued for the next deployment by default.</small>
+                </label>
               </div>
             </section>
 
@@ -1616,6 +1798,12 @@
                   placeholder="https://github.com/owner/repo/pull/123"
                 />
               </label>
+              <label class="tm-patch-toggle tm-field--full">
+                <input v-model="editForm.includeInNextPatch" type="checkbox" />
+                <span aria-hidden="true"></span>
+                <strong>Include in next patch</strong>
+                <small>When completed, this change appears on the Next Patch tab.</small>
+              </label>
             </div>
           </section>
 
@@ -1801,6 +1989,59 @@
             @click="confirmRemoveTester"
           >
             {{ testerRemovePending ? 'Removing...' : 'Remove Tester' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
+      v-if="nextPatchResetConfirm"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="next-patch-reset-confirm-title"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--danger">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">↻</span>
+          <div>
+            <p>Next Patch</p>
+            <h2 id="next-patch-reset-confirm-title">Reset the completed patch queue?</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          This will remove {{ nextPatchChanges.length }} completed change{{
+            nextPatchChanges.length === 1 ? '' : 's'
+          }}
+          from the Complete view of Next Patch.
+        </p>
+        <div class="tm-confirm-modal__details">
+          <span>What this does</span>
+          <p>
+            Use this after a patch has been deployed. The selected completed changes will no longer
+            appear in the next patch queue.
+          </p>
+          <p>
+            Change records, tester notes, checklist history, and closed status are preserved. This
+            only clears their Next Patch flag.
+          </p>
+        </div>
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="nextPatchResetPending"
+            @click="closeNextPatchResetConfirm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="tm-btn tm-btn--danger"
+            :disabled="nextPatchResetPending"
+            @click="confirmNextPatchReset"
+          >
+            {{ nextPatchResetPending ? 'Resetting...' : 'Reset Patch Queue' }}
           </button>
         </div>
       </section>
@@ -2024,6 +2265,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import {
   api,
   type CreateTestChangePayload,
+  type NextPatchChangeView,
   type TestAssignmentKind,
   type TestChange,
   type TestChangeListStatusFilter,
@@ -2050,7 +2292,7 @@ const router = useRouter();
 const CHANGE_LAYOUT_STORAGE_KEY = 'test-manager.changeLaneWidths';
 const CHANGE_LAYOUT_OLD_DEFAULTS = { left: 368, right: 352 };
 const CHANGE_LAYOUT_DEFAULTS = { left: 424, right: 352 };
-const CHANGE_LAYOUT_MIN = { left: 280, detail: 480, right: 280 };
+const CHANGE_LAYOUT_MIN = { left: 352, detail: 480, right: 280 };
 const CHANGE_LAYOUT_MAX = { left: 640, right: 560 };
 const CHANGE_LAYOUT_SPLITTER_WIDTH = 16;
 const CHANGE_TOOLTIP_DELAY_MS = 500;
@@ -2070,6 +2312,10 @@ const loading = ref(false);
 const loadedSection = ref<string | null>(null);
 const dashboard = ref<TestManagerDashboard | null>(null);
 const changes = ref<TestChange[]>([]);
+const nextPatchChanges = ref<TestChange[]>([]);
+const nextPatchView = ref<NextPatchChangeView>('complete');
+const nextPatchCount = ref(0);
+const nextPatchLoading = ref(false);
 const selectedChange = ref<TestChange | null>(null);
 const changeUnavailable = ref(false);
 const users = ref<TestManagerUserSummary[]>([]);
@@ -2138,6 +2384,9 @@ const developerActionConfirm = ref<DeveloperActionConfirm | null>(null);
 const developerActionPending = ref(false);
 const testerRemoveConfirm = ref<TesterRemoveConfirm | null>(null);
 const testerRemovePending = ref(false);
+const nextPatchResetConfirm = ref(false);
+const nextPatchResetPending = ref(false);
+const nextPatchTogglePending = ref(false);
 const feedbackError = ref('');
 const deletingNoteIds = ref<Set<string>>(new Set());
 const notesEditor = ref<{
@@ -2179,6 +2428,19 @@ const subnavItems = [
       'M17.5 2.5 21.5 6.5',
       'M4 4l16 16',
       'M4 8l4-4'
+    ]
+  },
+  {
+    key: 'next-patch',
+    label: 'Next Patch',
+    to: '/test-manager/next-patch',
+    iconPaths: [
+      'M10 6h10',
+      'M10 12h10',
+      'M10 18h10',
+      'm4 5 1.2 1.2L7.5 4',
+      'm4 11 1.2 1.2L7.5 10',
+      'm4 17 1.2 1.2L7.5 16'
     ]
   },
   {
@@ -2284,6 +2546,11 @@ const discordNotificationEvents: Array<{
     label: 'Change testing note added',
     description: 'A tester adds a cumulative note on the change.'
   }
+];
+
+const nextPatchViewOptions: Array<{ key: NextPatchChangeView; label: string }> = [
+  { key: 'complete', label: 'Complete' },
+  { key: 'incomplete', label: 'Incomplete' }
 ];
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
 
@@ -2428,6 +2695,7 @@ const createForm = ref<CreateTestChangePayload>({
   priority: 'MEDIUM',
   targetBuild: '',
   githubPrUrl: '',
+  includeInNextPatch: true,
   checklist: [createChecklistItem()]
 });
 
@@ -2439,6 +2707,7 @@ const editForm = ref<UpdateTestChangePayload>({
   priority: 'MEDIUM',
   targetBuild: '',
   githubPrUrl: '',
+  includeInNextPatch: true,
   dueAt: null,
   assignedToId: null
 });
@@ -2453,7 +2722,7 @@ const currentSection = computed(() => {
   const section = Array.isArray(route.params.section)
     ? route.params.section[0]
     : route.params.section;
-  return section && ['dashboard', 'changes', 'users', 'settings'].includes(section)
+  return section && ['dashboard', 'changes', 'next-patch', 'users', 'settings'].includes(section)
     ? section
     : 'dashboard';
 });
@@ -2516,6 +2785,7 @@ const isActivelyTestingViewer = computed(
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
 const changeLayoutStyle = computed<Record<string, string>>(() => ({
+  '--tm-change-left-min-width': `${CHANGE_LAYOUT_MIN.left}px`,
   '--tm-change-left-width': `${Math.round(changeLayout.value.left)}px`,
   '--tm-change-right-width': `${Math.round(changeLayout.value.right)}px`
 }));
@@ -2574,6 +2844,45 @@ const createSummary = computed(() => {
 const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
 );
+
+const nextPatchReadyStatuses = new Set<TestChangeStatus>(['CLOSED']);
+const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
+const nextPatchPassedCount = computed(() =>
+  nextPatchChanges.value.reduce((total, change) => total + change.summary.passCount, 0)
+);
+const nextPatchTesterCount = computed(() =>
+  nextPatchChanges.value.reduce((total, change) => total + change.summary.testerCount, 0)
+);
+const nextPatchAreaCount = computed(
+  () => new Set(nextPatchChanges.value.map((change) => change.subsystem)).size
+);
+const nextPatchPrimaryStatLabel = computed(() =>
+  nextPatchViewIsComplete.value ? 'Complete' : 'Incomplete'
+);
+const nextPatchPrimaryStatDetail = computed(() =>
+  nextPatchViewIsComplete.value ? 'changes' : 'open changes'
+);
+const nextPatchSummaryText = computed(() => {
+  if (nextPatchLoading.value) {
+    return nextPatchViewIsComplete.value
+      ? 'Loading completed next patch changes.'
+      : 'Loading incomplete next patch changes.';
+  }
+
+  if (nextPatchChanges.value.length === 0) {
+    return nextPatchViewIsComplete.value
+      ? 'Completed, patch-ready changes will appear here.'
+      : 'Open changes flagged for the next patch will appear here.';
+  }
+
+  return nextPatchViewIsComplete.value
+    ? `${nextPatchChanges.value.length} completed change${
+        nextPatchChanges.value.length === 1 ? '' : 's'
+      } queued for deployment.`
+    : `${nextPatchChanges.value.length} incomplete change${
+        nextPatchChanges.value.length === 1 ? '' : 's'
+      } flagged for the next patch.`;
+});
 
 const dashboardGraphChanges = computed(() => {
   const list = dashboard.value?.activeChanges ?? [];
@@ -3058,6 +3367,35 @@ async function loadDashboard() {
   dashboard.value = await api.fetchTestManagerDashboard();
 }
 
+async function loadNextPatch() {
+  nextPatchLoading.value = true;
+  try {
+    nextPatchChanges.value = (await api.fetchTestManagerNextPatch(nextPatchView.value)).sort(
+      compareNextPatchChanges
+    );
+    if (nextPatchViewIsComplete.value) {
+      nextPatchCount.value = nextPatchChanges.value.length;
+    } else {
+      await loadNextPatchCount();
+    }
+  } finally {
+    nextPatchLoading.value = false;
+  }
+}
+
+async function loadNextPatchCount() {
+  nextPatchCount.value = await api.fetchTestManagerNextPatchCount();
+}
+
+async function setNextPatchView(view: NextPatchChangeView) {
+  if (nextPatchView.value === view) {
+    return;
+  }
+  nextPatchView.value = view;
+  nextPatchChanges.value = [];
+  await loadNextPatch();
+}
+
 function isNotFoundError(error: unknown) {
   if (!error || typeof error !== 'object' || !('response' in error)) {
     return false;
@@ -3228,10 +3566,15 @@ async function loadCurrentSection() {
       if (requestedNotesModal() && activeChange.value) {
         await openNotesModal();
       }
+    } else if (section === 'next-patch') {
+      await loadNextPatch();
     } else if (section === 'users') {
       await loadUsers();
     } else {
       await loadSettings();
+    }
+    if (section !== 'next-patch') {
+      await loadNextPatchCount();
     }
   } finally {
     loadedSection.value = section;
@@ -3559,6 +3902,7 @@ function openEditChange() {
     priority: activeChange.value.priority,
     targetBuild: activeChange.value.targetBuild ?? '',
     githubPrUrl: activeChange.value.githubPullRequest?.url ?? '',
+    includeInNextPatch: activeChange.value.includeInNextPatch,
     dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
     assignedToId: activeChange.value.assignedTo?.id ?? null
   };
@@ -3608,6 +3952,7 @@ function resetCreateForm() {
     priority: 'MEDIUM',
     targetBuild: '',
     githubPrUrl: '',
+    includeInNextPatch: true,
     checklist: [createChecklistItem()]
   };
 }
@@ -3621,6 +3966,7 @@ function resetEditForm() {
     priority: 'MEDIUM',
     targetBuild: '',
     githubPrUrl: '',
+    includeInNextPatch: true,
     dueAt: null,
     assignedToId: null
   };
@@ -3636,6 +3982,7 @@ async function createChange() {
     ...createForm.value,
     description: normalizeRichTextHtml(createForm.value.description),
     githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
+    includeInNextPatch: createForm.value.includeInNextPatch ?? true,
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
       .map((item) => ({
@@ -3665,6 +4012,7 @@ async function saveEditChange() {
       description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
       githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
+      includeInNextPatch: editForm.value.includeInNextPatch ?? true,
       dueAt
     });
     editOpen.value = false;
@@ -4004,6 +4352,94 @@ async function setStatus(status: TestChangeStatus) {
   await loadChanges();
 }
 
+function replaceCachedChange(change: TestChange) {
+  changes.value = changes.value.map((entry) => (entry.id === change.id ? change : entry));
+  nextPatchChanges.value = nextPatchChanges.value
+    .map((entry) => (entry.id === change.id ? change : entry))
+    .filter(isChangeInCurrentNextPatchView)
+    .sort(compareNextPatchChanges);
+  if (selectedChange.value?.id === change.id) {
+    selectedChange.value = change;
+  }
+}
+
+async function setChangeNextPatch(change: TestChange, includeInNextPatch: boolean) {
+  if (!authStore.isAdmin || nextPatchTogglePending.value) {
+    return;
+  }
+
+  nextPatchTogglePending.value = true;
+  try {
+    const updated = await api.updateTestChangeNextPatch(change.id, includeInNextPatch);
+    replaceCachedChange(updated);
+    if (currentSection.value === 'next-patch') {
+      await loadNextPatch();
+    } else {
+      await loadNextPatchCount();
+    }
+    addToast({
+      title: includeInNextPatch ? 'Added To Next Patch' : 'Removed From Next Patch',
+      message: `#${updated.publicId} ${includeInNextPatch ? 'will be included' : 'was cleared'} for the next patch.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Next Patch Update Failed',
+      message: getApiErrorMessage(error, 'Unable to update next patch status.'),
+      variant: 'error'
+    });
+  } finally {
+    nextPatchTogglePending.value = false;
+  }
+}
+
+async function toggleActiveChangeNextPatch() {
+  if (!activeChange.value) {
+    return;
+  }
+  await setChangeNextPatch(activeChange.value, !activeChange.value.includeInNextPatch);
+}
+
+function openNextPatchResetConfirm() {
+  if (!authStore.isAdmin || !nextPatchViewIsComplete.value || nextPatchChanges.value.length === 0) {
+    return;
+  }
+  nextPatchResetConfirm.value = true;
+}
+
+function closeNextPatchResetConfirm() {
+  if (nextPatchResetPending.value) {
+    return;
+  }
+  nextPatchResetConfirm.value = false;
+}
+
+async function confirmNextPatchReset() {
+  if (!authStore.isAdmin || nextPatchResetPending.value) {
+    return;
+  }
+
+  nextPatchResetPending.value = true;
+  try {
+    const result = await api.resetTestManagerNextPatch();
+    nextPatchResetConfirm.value = false;
+    await loadNextPatch();
+    addToast({
+      title: 'Patch List Reset',
+      message: `${result.resetCount} change${result.resetCount === 1 ? '' : 's'} cleared from Next Patch.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Reset Failed',
+      message: getApiErrorMessage(error, 'Unable to reset next patch.'),
+      variant: 'error'
+    });
+  } finally {
+    nextPatchResetPending.value = false;
+  }
+}
+
 async function removeActiveChange() {
   if (!activeChange.value) {
     return;
@@ -4219,6 +4655,23 @@ function compareChanges(left: TestChange, right: TestChange) {
   );
 }
 
+function compareNextPatchChanges(left: TestChange, right: TestChange) {
+  const leftTime = Date.parse(left.closedAt ?? left.updatedAt);
+  const rightTime = Date.parse(right.closedAt ?? right.updatedAt);
+  return rightTime - leftTime || left.publicId - right.publicId;
+}
+
+function isNextPatchReady(change: TestChange) {
+  return change.includeInNextPatch && nextPatchReadyStatuses.has(change.status);
+}
+
+function isChangeInCurrentNextPatchView(change: TestChange) {
+  return (
+    change.includeInNextPatch &&
+    (nextPatchViewIsComplete.value ? change.status === 'CLOSED' : change.status !== 'CLOSED')
+  );
+}
+
 function isViewerActivelyTestingChange(change: TestChange) {
   return change.viewerTester?.status === 'TESTING' && !change.viewerTester.result;
 }
@@ -4250,19 +4703,25 @@ function isTesterNotStarted(tester: TestChange['testers'][number]) {
 
 function viewerChangeListStatus(change: TestChange): { label: string; tone: string } {
   const tester = change.viewerTester;
+
+  if (change.status === 'CLOSED') {
+    return { label: 'Closed', tone: 'closed' };
+  }
+
+  if (tester?.result === 'PASS') {
+    return { label: 'You passed', tone: 'passed' };
+  }
+  if (tester?.result === 'FAIL') {
+    return { label: 'You failed', tone: 'failed' };
+  }
+  if (tester?.result === 'BLOCKED' || tester?.status === 'BLOCKED') {
+    return { label: 'You blocked', tone: 'blocked' };
+  }
+
   if (!tester) {
     return { label: 'Pending Test', tone: 'unassigned' };
   }
 
-  if (tester.result === 'PASS') {
-    return { label: 'You passed', tone: 'passed' };
-  }
-  if (tester.result === 'FAIL') {
-    return { label: 'You failed', tone: 'failed' };
-  }
-  if (tester.result === 'BLOCKED' || tester.status === 'BLOCKED') {
-    return { label: 'You blocked', tone: 'blocked' };
-  }
   if (tester.status === 'TESTING') {
     return { label: 'Testing now', tone: 'testing' };
   }
@@ -4596,15 +5055,15 @@ const WorkflowTimeline = defineComponent({
 
       return Boolean(
         tester.startedAt ||
-          tester.completedAt ||
-          tester.result ||
-          tester.status === 'TESTING' ||
-          tester.status === 'DONE' ||
-          tester.checklistProgress.some(
-            (progress) =>
-              progress.completed ||
-              (typeof progress.notesHtml === 'string' && progress.notesHtml.trim())
-          )
+        tester.completedAt ||
+        tester.result ||
+        tester.status === 'TESTING' ||
+        tester.status === 'DONE' ||
+        tester.checklistProgress.some(
+          (progress) =>
+            progress.completed ||
+            (typeof progress.notesHtml === 'string' && progress.notesHtml.trim())
+        )
       );
     };
 
@@ -4995,6 +5454,7 @@ onBeforeUnmount(() => {
 .tm-subnav,
 .tm-grid,
 .tm-dashboard,
+.tm-next-patch,
 .tm-settings,
 .tm-loading {
   width: calc(100% - clamp(2rem, 4vw, 6rem));
@@ -5004,6 +5464,7 @@ onBeforeUnmount(() => {
 
 .tm-grid,
 .tm-dashboard,
+.tm-next-patch,
 .tm-settings,
 .tm-loading {
   flex: 1 1 auto;
@@ -5076,6 +5537,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-subnav__item {
+  position: relative;
   color: #d9cfbd;
   text-decoration: none;
   height: 2.38rem;
@@ -5144,6 +5606,34 @@ onBeforeUnmount(() => {
   background: var(--tm-gold);
 }
 
+.tm-subnav__counter {
+  position: absolute;
+  top: 0.22rem;
+  right: 0.28rem;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 0.28rem;
+  border: 1px solid rgba(255, 231, 190, 0.36);
+  border-radius: 999px;
+  color: #fff3dd;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 72%), rgba(104, 38, 25, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.38),
+    0 4px 10px rgba(0, 0, 0, 0.24);
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  transform: translate(42%, -42%);
+}
+
+.tm-subnav__item--active .tm-subnav__counter {
+  color: #2c120a;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 72%), #f0c06b;
+}
+
 .tm-grid {
   display: grid;
   gap: 1rem;
@@ -5190,7 +5680,8 @@ onBeforeUnmount(() => {
 
 .tm-grid--changes {
   grid-template-columns:
-    minmax(0, var(--tm-change-left-width, 26.5rem)) var(--tm-change-splitter-width, 1rem)
+    minmax(var(--tm-change-left-min-width, 22rem), var(--tm-change-left-width, 26.5rem))
+    var(--tm-change-splitter-width, 1rem)
     minmax(0, 1fr) var(--tm-change-splitter-width, 1rem)
     minmax(0, var(--tm-change-right-width, 22rem));
   gap: 0;
@@ -5280,6 +5771,335 @@ onBeforeUnmount(() => {
 .tm-grid--users {
   grid-template-columns: minmax(0, 1fr) 24rem;
   align-items: stretch;
+}
+
+.tm-next-patch {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tm-next-patch-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 1rem;
+  height: 100%;
+  overflow: hidden;
+}
+
+.tm-next-patch__header {
+  margin-bottom: 0;
+}
+
+.tm-next-patch__header p {
+  margin: 0.28rem 0 0;
+}
+
+.tm-next-patch__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.tm-next-patch-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+  padding: 0.18rem;
+  border: 1px solid rgba(217, 164, 95, 0.26);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 84%), rgba(4, 8, 9, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 231, 190, 0.06);
+}
+
+.tm-next-patch-view-toggle button {
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: rgba(232, 221, 206, 0.76);
+  background: transparent;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.14s ease,
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-next-patch-view-toggle button:hover,
+.tm-next-patch-view-toggle button:focus-visible {
+  color: #fff0cf;
+  border-color: rgba(217, 164, 95, 0.24);
+  background: rgba(217, 164, 95, 0.08);
+}
+
+.tm-next-patch-view-toggle__button--active {
+  color: #1d1307 !important;
+  border-color: rgba(255, 231, 190, 0.34) !important;
+  background: var(--tm-gold) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 6px 14px rgba(0, 0, 0, 0.24);
+}
+
+.tm-next-patch-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.72rem;
+}
+
+.tm-next-patch-stats article {
+  min-width: 0;
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid rgba(213, 196, 164, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent), rgba(2, 6, 8, 0.44);
+  box-shadow: inset 0 1px 0 rgba(255, 231, 190, 0.045);
+}
+
+.tm-next-patch-stats span {
+  color: var(--tm-gold);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.tm-next-patch-stats strong {
+  color: #f8ead1;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
+.tm-next-patch-stats small {
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+}
+
+.tm-next-patch-reset-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  margin-top: -0.18rem;
+  color: rgba(207, 194, 174, 0.74);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.tm-next-patch-reset-strip > span {
+  color: rgba(207, 194, 174, 0.7);
+}
+
+.tm-next-patch-reset-button {
+  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34rem;
+  padding: 0.34rem 0.62rem;
+  border: 1px solid rgba(255, 107, 85, 0.36);
+  border-radius: 999px;
+  color: rgba(255, 216, 210, 0.92);
+  background: rgba(106, 35, 27, 0.28);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.14s ease;
+}
+
+.tm-next-patch-reset-button:hover,
+.tm-next-patch-reset-button:focus-visible {
+  color: #ffe6e1;
+  border-color: rgba(255, 107, 85, 0.58);
+  background: rgba(106, 35, 27, 0.44);
+  transform: translateY(-1px);
+}
+
+.tm-next-patch-reset-button:disabled {
+  opacity: 0.48;
+  cursor: default;
+  transform: none;
+}
+
+.tm-next-patch-list {
+  display: grid;
+  align-content: start;
+  grid-auto-rows: max-content;
+  gap: 0.48rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.tm-next-patch-loading {
+  min-height: 8rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(213, 196, 164, 0.16);
+  border-radius: 6px;
+  color: var(--tm-muted);
+  background: rgba(255, 255, 255, 0.014);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.tm-next-patch-card {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.45fr) minmax(13rem, 0.85fr) auto auto;
+  gap: 0.68rem;
+  align-items: center;
+  min-height: 4.15rem;
+  padding: 0.56rem 0.68rem;
+  border: 1px solid var(--tm-border-soft);
+  border-left: 3px solid rgba(114, 214, 111, 0.72);
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, rgba(114, 214, 111, 0.075), rgba(85, 183, 255, 0.025)),
+    rgba(255, 255, 255, 0.014);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.tm-next-patch-card__main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.62rem;
+  align-items: center;
+  color: inherit;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tm-next-patch-card__main strong,
+.tm-next-patch-card__main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-next-patch-card__main strong {
+  color: #fff3dd;
+  font-size: 0.93rem;
+  line-height: 1.15;
+}
+
+.tm-next-patch-card__main small {
+  color: var(--tm-muted);
+  margin-top: 0.1rem;
+  font-size: 0.78rem;
+}
+
+.tm-next-patch-card__main:hover strong,
+.tm-next-patch-card__main:focus-visible strong {
+  color: #ffffff;
+}
+
+.tm-next-patch-card__main:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 3px;
+}
+
+.tm-next-patch-card__meta,
+.tm-next-patch-card__quality {
+  display: flex;
+  gap: 0.34rem;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--tm-muted);
+  font-size: 0.74rem;
+}
+
+.tm-next-patch-card__quality {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.tm-next-patch-card__quality span {
+  min-width: 3.9rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.08rem;
+  padding: 0.34rem 0.42rem;
+  border: 1px solid rgba(114, 214, 111, 0.28);
+  border-radius: 6px;
+  color: #bfeec0;
+  background: rgba(18, 58, 25, 0.28);
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  line-height: 1.05;
+}
+
+.tm-next-patch-card__quality strong {
+  color: #e2ffdf;
+  font-size: 0.84rem;
+  line-height: 1;
+}
+
+.tm-next-patch-card__remove {
+  justify-self: end;
+  min-height: 0;
+  padding: 0.34rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.tm-next-patch-empty {
+  min-height: 18rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.65rem;
+  border: 1px dashed rgba(213, 196, 164, 0.22);
+  border-radius: 8px;
+  color: var(--tm-muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.tm-next-patch-empty > span {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  border: 1px solid rgba(114, 214, 111, 0.42);
+  border-radius: 50%;
+  color: var(--tm-green);
+  background: rgba(114, 214, 111, 0.1);
+  font-size: 1.4rem;
+}
+
+.tm-next-patch-empty h3,
+.tm-next-patch-empty p {
+  margin: 0;
+}
+
+.tm-next-patch-empty h3 {
+  color: #f4ead8;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.28rem;
 }
 
 .tm-panel {
@@ -5908,6 +6728,78 @@ onBeforeUnmount(() => {
   padding: 0.7rem 0.8rem;
 }
 
+.tm-patch-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.12rem 0.62rem;
+  align-items: center;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid rgba(217, 164, 95, 0.24);
+  border-radius: var(--tm-control-radius);
+  background:
+    linear-gradient(135deg, rgba(217, 164, 95, 0.09), rgba(85, 183, 255, 0.035)),
+    rgba(3, 6, 7, 0.42);
+  cursor: pointer;
+}
+
+.tm-patch-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tm-patch-toggle > span {
+  grid-row: 1 / span 2;
+  width: 2.55rem;
+  height: 1.38rem;
+  border: 1px solid rgba(207, 194, 174, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  position: relative;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.tm-patch-toggle > span::after {
+  content: '';
+  position: absolute;
+  top: 0.18rem;
+  left: 0.2rem;
+  width: 0.88rem;
+  height: 0.88rem;
+  border-radius: 50%;
+  background: rgba(232, 221, 206, 0.78);
+  transition:
+    left 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-patch-toggle input:checked + span {
+  border-color: rgba(114, 214, 111, 0.6);
+  background: rgba(114, 214, 111, 0.18);
+}
+
+.tm-patch-toggle input:checked + span::after {
+  left: 1.32rem;
+  background: var(--tm-green);
+  box-shadow: 0 0 12px rgba(114, 214, 111, 0.32);
+}
+
+.tm-patch-toggle input:focus-visible + span {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 3px;
+}
+
+.tm-patch-toggle strong {
+  color: #f8ead1;
+}
+
+.tm-patch-toggle small {
+  color: var(--tm-muted);
+}
+
 .tm-textarea {
   min-height: 8rem;
   resize: vertical;
@@ -5927,6 +6819,7 @@ onBeforeUnmount(() => {
 
 .tm-change-list {
   height: 100%;
+  min-width: var(--tm-change-left-min-width, 22rem);
   max-height: none;
   overflow: auto;
 }
@@ -6320,6 +7213,11 @@ onBeforeUnmount(() => {
   background: var(--tm-green);
 }
 
+.tm-dot--viewer-closed {
+  background: #b88cff;
+  box-shadow: 0 0 10px rgba(184, 140, 255, 0.35);
+}
+
 .tm-dot--viewer-failed {
   background: var(--tm-red);
 }
@@ -6439,6 +7337,13 @@ onBeforeUnmount(() => {
 .tm-viewer-status--done {
   color: var(--tm-green);
   background: rgba(114, 214, 111, 0.12);
+}
+
+.tm-viewer-status--closed {
+  color: #d8c4ff;
+  border-color: rgba(184, 140, 255, 0.42);
+  background: rgba(126, 74, 210, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(184, 140, 255, 0.08);
 }
 
 .tm-viewer-status--failed {
@@ -6787,15 +7692,148 @@ onBeforeUnmount(() => {
 
 .tm-detail__actions {
   align-self: stretch;
-  min-width: 8.8rem;
+  min-width: 12.8rem;
   display: grid;
   justify-items: end;
   align-content: space-between;
   gap: 0.75rem;
 }
 
+.tm-detail__status-stack {
+  align-self: start;
+  display: grid;
+  justify-items: end;
+  gap: 0.5rem;
+}
+
 .tm-detail__actions .tm-status {
   align-self: start;
+}
+
+.tm-next-patch-toggle {
+  width: min(13.5rem, 100%);
+  min-height: 2.85rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.48rem;
+  padding: 0.38rem 0.44rem;
+  border: 1px solid rgba(217, 164, 95, 0.3);
+  border-radius: 8px;
+  color: #eadcc6;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 86%), rgba(10, 14, 14, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 186, 0.08);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+
+.tm-next-patch-toggle:hover,
+.tm-next-patch-toggle:focus-visible {
+  border-color: rgba(217, 164, 95, 0.54);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 86%), rgba(22, 26, 24, 0.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 235, 186, 0.12),
+    0 0 18px rgba(217, 164, 95, 0.1);
+  transform: translateY(-1px);
+}
+
+.tm-next-patch-toggle:disabled {
+  opacity: 0.58;
+  cursor: default;
+  transform: none;
+}
+
+.tm-next-patch-toggle__icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 231, 190, 0.2);
+  border-radius: 0.38rem;
+  color: #f3c06e;
+  background: rgba(217, 164, 95, 0.12);
+}
+
+.tm-next-patch-toggle__icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-next-patch-toggle__copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.tm-next-patch-toggle__copy strong,
+.tm-next-patch-toggle__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-next-patch-toggle__copy strong {
+  color: #f4e6cf;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.tm-next-patch-toggle__copy small {
+  color: rgba(207, 194, 174, 0.78);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.tm-next-patch-toggle__action {
+  padding: 0.22rem 0.42rem;
+  border: 1px solid rgba(255, 231, 190, 0.16);
+  border-radius: 999px;
+  color: rgba(255, 235, 202, 0.86);
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-next-patch-toggle--included {
+  border-color: rgba(217, 164, 95, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 229, 178, 0.08), transparent 86%), rgba(45, 34, 15, 0.66);
+}
+
+.tm-next-patch-toggle--included .tm-next-patch-toggle__action {
+  color: #ffdca3;
+  border-color: rgba(217, 164, 95, 0.3);
+  background: rgba(217, 164, 95, 0.12);
+}
+
+.tm-next-patch-toggle--excluded {
+  border-color: rgba(85, 183, 255, 0.32);
+}
+
+.tm-next-patch-toggle--excluded .tm-next-patch-toggle__icon {
+  color: #8bd5ff;
+  border-color: rgba(85, 183, 255, 0.24);
+  background: rgba(85, 183, 255, 0.1);
+}
+
+.tm-next-patch-toggle--excluded .tm-next-patch-toggle__action {
+  color: #d8efff;
+  border-color: rgba(85, 183, 255, 0.28);
+  background: rgba(85, 183, 255, 0.1);
 }
 
 .tm-detail__action-buttons {
@@ -6818,6 +7856,31 @@ onBeforeUnmount(() => {
   gap: 0.6rem;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.tm-result-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.78fr) minmax(5.2rem, 1.1fr);
+  align-items: stretch;
+  gap: 0.32rem;
+  width: 100%;
+}
+
+.tm-result-buttons .tm-btn {
+  min-width: 0;
+  min-height: 2.75rem;
+  justify-content: center;
+  align-items: center;
+  gap: 0.32rem;
+  overflow: hidden;
+  padding: 0.56rem 0.34rem;
+  font-size: 0.94rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tm-result-buttons .tm-btn span {
+  flex: 0 0 auto;
 }
 
 .tm-change-description {
@@ -8672,6 +9735,30 @@ onBeforeUnmount(() => {
   line-height: 1.45;
 }
 
+.tm-confirm-modal__details {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.78rem 0.85rem;
+  border: 1px solid rgba(217, 164, 95, 0.24);
+  border-radius: var(--tm-control-radius);
+  background: linear-gradient(180deg, rgba(217, 164, 95, 0.065), transparent), rgba(0, 0, 0, 0.22);
+}
+
+.tm-confirm-modal__details span {
+  color: var(--tm-gold);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-confirm-modal__details p {
+  margin: 0;
+  color: rgba(232, 221, 206, 0.88);
+  font-size: 0.88rem;
+  line-height: 1.42;
+}
+
 .tm-confirm-modal__change {
   display: grid;
   gap: 0.18rem;
@@ -9406,6 +10493,27 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .tm-next-patch-panel {
+    height: auto;
+    overflow: visible;
+  }
+
+  .tm-next-patch-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tm-next-patch-card {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-next-patch-card__quality {
+    justify-content: flex-start;
+  }
+
+  .tm-next-patch-card__remove {
+    justify-self: start;
+  }
+
   .tm-recent-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -9422,6 +10530,7 @@ onBeforeUnmount(() => {
   .tm-inspector,
   .tm-change-list {
     height: auto;
+    min-width: 0;
     max-height: none;
   }
 
@@ -9473,6 +10582,7 @@ onBeforeUnmount(() => {
   .tm-subnav,
   .tm-grid,
   .tm-dashboard,
+  .tm-next-patch,
   .tm-settings,
   .tm-loading {
     width: 100%;
@@ -9544,8 +10654,22 @@ onBeforeUnmount(() => {
 
   .tm-state-graph__stats,
   .tm-state-graph__legend,
+  .tm-next-patch-stats,
   .tm-state-graph__insights {
     grid-template-columns: 1fr;
+  }
+
+  .tm-next-patch-card__main {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-next-patch-card__quality {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tm-next-patch-card__quality span {
+    min-width: 0;
   }
 
   .tm-state-graph__canvas svg {
@@ -9865,6 +10989,15 @@ onBeforeUnmount(() => {
     justify-self: start;
   }
 
+  .tm-detail__status-stack {
+    width: 100%;
+    justify-items: start;
+  }
+
+  .tm-next-patch-toggle {
+    width: 100%;
+  }
+
   .tm-detail__action-buttons {
     display: grid;
     grid-template-columns: 1fr;
@@ -9882,7 +11015,7 @@ onBeforeUnmount(() => {
 
   .tm-result-buttons {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.78fr) minmax(5.2rem, 1.1fr);
   }
 
   .tm-user-tabs {

@@ -3264,6 +3264,7 @@ export interface TestChange {
   status: TestChangeStatus;
   targetBuild: string | null;
   githubPullRequest: TestChangePullRequest | null;
+  includeInNextPatch: boolean;
   dueAt: string | null;
   closedAt: string | null;
   createdAt: string;
@@ -3320,12 +3321,14 @@ export interface CreateTestChangePayload {
   priority: TestChangePriority;
   targetBuild?: string | null;
   githubPrUrl?: string | null;
+  includeInNextPatch?: boolean;
   dueAt?: string | null;
   assignedToId?: string | null;
   checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
 }
 
 export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'>;
+export type NextPatchChangeView = 'complete' | 'incomplete';
 
 export const api = {
   async fetchCurrentUser() {
@@ -3335,6 +3338,16 @@ export const api = {
   async fetchTestManagerDashboard(): Promise<TestManagerDashboard> {
     const response = await axios.get('/api/test-manager/dashboard');
     return response.data;
+  },
+  async fetchTestManagerNextPatch(view: NextPatchChangeView = 'complete'): Promise<TestChange[]> {
+    const response = await axios.get('/api/test-manager/next-patch', {
+      params: { view }
+    });
+    return response.data.changes;
+  },
+  async fetchTestManagerNextPatchCount(): Promise<number> {
+    const response = await axios.get('/api/test-manager/next-patch/count');
+    return response.data.count;
   },
   async fetchTestChanges(params?: {
     status?: TestChangeListStatusFilter;
@@ -3373,6 +3386,20 @@ export const api = {
       { status, detail }
     );
     return response.data.change;
+  },
+  async updateTestChangeNextPatch(
+    changeId: string,
+    includeInNextPatch: boolean
+  ): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/next-patch`,
+      { includeInNextPatch }
+    );
+    return response.data.change;
+  },
+  async resetTestManagerNextPatch(): Promise<{ resetCount: number }> {
+    const response = await axios.post('/api/test-manager/next-patch/reset');
+    return response.data;
   },
   async deleteTestChange(changeId: string): Promise<void> {
     await axios.delete(`/api/test-manager/changes/${encodeURIComponent(changeId)}`);
