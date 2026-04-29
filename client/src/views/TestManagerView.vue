@@ -9525,7 +9525,7 @@ onBeforeUnmount(() => {
   }
 
   .tm-recent-strip {
-    grid-template-columns: 1fr;
+    display: none;
   }
 
   .tm-activity-table__head {
