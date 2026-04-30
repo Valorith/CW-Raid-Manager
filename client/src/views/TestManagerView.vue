@@ -391,7 +391,10 @@
                 <span>Share</span>
               </button>
               <h2>{{ activeChange.title }}</h2>
-              <p class="tm-id">Change #{{ activeChange.publicId }}</p>
+              <div class="tm-detail__kicker">
+                <p class="tm-id">Change #{{ activeChange.publicId }}</p>
+                <StatusPill :status="activeChange.status" compact />
+              </div>
               <p>
                 {{ activeChange.category }} / {{ activeChange.subsystem }} · Submitted by
                 {{ activeChange.createdBy?.displayName ?? 'Unknown' }} · Updated
@@ -416,7 +419,6 @@
             </div>
             <div class="tm-detail__actions">
               <div class="tm-detail__status-stack">
-                <StatusPill :status="activeChange.status" />
                 <button
                   v-if="authStore.isAdmin"
                   type="button"
@@ -454,7 +456,7 @@
                 <button
                   v-if="authStore.isAdmin"
                   type="button"
-                  class="tm-btn"
+                  class="tm-btn tm-detail-edit-btn"
                   @click="openEditChange"
                 >
                   <span aria-hidden="true">✎</span>
@@ -589,19 +591,34 @@
                 >
               </div>
               <div class="tm-testing-checklist__table">
-                <div class="tm-testing-checklist__head">
+                <div
+                  class="tm-testing-checklist__head"
+                  :class="{ 'tm-testing-checklist__head--admin': authStore.isAdmin }"
+                >
                   <span>Done</span>
                   <span>Test</span>
                   <span>Category</span>
                   <span>Notes</span>
                   <span>Status</span>
+                  <span v-if="authStore.isAdmin" class="tm-testing-checklist__add">
+                    <button
+                      type="button"
+                      class="tm-checklist-add-btn"
+                      aria-label="Add checklist item"
+                      title="Add checklist item"
+                      @click="openChecklistAdd"
+                    >
+                      <span aria-hidden="true">+</span>
+                    </button>
+                  </span>
                 </div>
                 <div
                   v-for="(item, index) in activeChange.checklist"
                   :key="item.id"
                   class="tm-testing-checklist__row"
                   :class="{
-                    'tm-testing-checklist__row--complete': isViewerChecklistItemComplete(item.id)
+                    'tm-testing-checklist__row--complete': isViewerChecklistItemComplete(item.id),
+                    'tm-testing-checklist__row--admin': authStore.isAdmin
                   }"
                 >
                   <span>
@@ -881,29 +898,29 @@
           <div class="tm-result-buttons">
             <button
               type="button"
-              class="tm-btn tm-btn--success"
+              class="tm-btn tm-result-btn tm-result-btn--pass"
               :disabled="!canUseTesterControls"
               @click="openResultConfirm('PASS')"
             >
-              <span aria-hidden="true">👍</span>
+              <span aria-hidden="true">✓</span>
               Pass
             </button>
             <button
               type="button"
-              class="tm-btn tm-btn--danger"
+              class="tm-btn tm-result-btn tm-result-btn--fail"
               :disabled="!canUseTesterControls"
               @click="openResultConfirm('FAIL')"
             >
-              <span aria-hidden="true">☟</span>
+              <span aria-hidden="true">×</span>
               Fail
             </button>
             <button
               type="button"
-              class="tm-btn tm-btn--warning"
+              class="tm-btn tm-result-btn tm-result-btn--blocked"
               :disabled="!canUseTesterControls"
               @click="openResultConfirm('BLOCKED')"
             >
-              <span aria-hidden="true">⚠</span>
+              <span aria-hidden="true">!</span>
               Blocked
             </button>
           </div>
@@ -935,8 +952,8 @@
               class="tm-action tm-action--success"
               @click="openDeveloperActionConfirm('close')"
             >
-              <span class="tm-action__icon" aria-hidden="true">🔒</span>
-              <span><strong>Close Change</strong><small>Mark completed and close it.</small></span>
+              <span class="tm-action__icon" aria-hidden="true">✓</span>
+              <span><strong>Closed as Complete</strong><small>Mark completed and close it.</small></span>
             </button>
             <button
               type="button"
@@ -1043,8 +1060,10 @@
               </button>
               <div class="tm-next-patch-card__meta">
                 <StatusPill :status="change.status" compact />
-                <span>{{ change.targetBuild || 'No target build' }}</span>
-                <span>{{
+                <span class="tm-next-patch-card__build">{{
+                  change.targetBuild || 'No target build'
+                }}</span>
+                <span class="tm-next-patch-card__time">{{
                   change.closedAt
                     ? `Closed ${relativeTime(change.closedAt)}`
                     : `Updated ${relativeTime(change.updatedAt)}`
@@ -1138,10 +1157,12 @@
                 <span class="tm-avatar" aria-hidden="true">{{ user.displayName.slice(0, 1) }}</span>
                 <span>
                   <strong>{{ user.displayName }}</strong>
-                  <small>{{ userRoleLabel(user) }} profile</small>
+                  <small :class="userRoleClass(user)">{{ userRoleLabel(user) }} profile</small>
                 </span>
               </span>
-              <span>{{ userRoleLabel(user) }}</span>
+              <span class="tm-user-role" :class="userRoleClass(user)">{{
+                userRoleLabel(user)
+              }}</span>
               <span>{{ user.testingLoad ?? 0 }} open</span>
               <span class="tm-result-minis">
                 <span class="tm-mini tm-mini--pass">{{ user.recentResults?.passed ?? 0 }}</span>
@@ -2048,6 +2069,50 @@
     </div>
 
     <div
+      v-if="showClosedNextPatchPrompt"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="closed-next-patch-confirm-title"
+    >
+      <section class="tm-modal__panel tm-confirm-modal tm-confirm-modal--next-patch">
+        <div class="tm-confirm-modal__header">
+          <span class="tm-confirm-modal__icon" aria-hidden="true">✓</span>
+          <div>
+            <p>Next Patch</p>
+            <h2 id="closed-next-patch-confirm-title">Include this closed change?</h2>
+          </div>
+        </div>
+        <p class="tm-confirm-modal__body">
+          This change is closed, but it is not currently queued for the next patch. Would you like to
+          include it now?
+        </p>
+        <div class="tm-confirm-modal__change">
+          <span>Selected change</span>
+          <strong>{{ developerActionChangeLabel }}</strong>
+        </div>
+        <div class="tm-confirm-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="nextPatchTogglePending"
+            @click="dismissClosedNextPatchPrompt"
+          >
+            No
+          </button>
+          <button
+            type="button"
+            class="tm-btn tm-btn--success"
+            :disabled="nextPatchTogglePending"
+            @click="confirmClosedNextPatchPrompt"
+          >
+            {{ nextPatchTogglePending ? 'Adding...' : 'Yes' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div
       v-if="checklistNotePromptItem"
       class="tm-modal"
       role="dialog"
@@ -2200,6 +2265,88 @@
     </div>
 
     <div
+      v-if="checklistAddOpen"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-add-title"
+    >
+      <form class="tm-modal__panel tm-checklist-add-modal" @submit.prevent="saveChecklistAdd">
+        <div class="tm-panel__header">
+          <div>
+            <p class="tm-modal-eyebrow">Admin Checklist</p>
+            <h2 id="checklist-add-title">Add Checklist Item</h2>
+            <p v-if="activeChange">#{{ activeChange.publicId }} {{ activeChange.title }}</p>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-btn"
+            :disabled="checklistAddSaving"
+            @click="closeChecklistAdd"
+          >
+            ×
+          </button>
+        </div>
+        <div class="tm-checklist-add-templates" aria-label="Checklist item templates">
+          <button
+            v-for="template in checklistAddTemplates"
+            :key="template.key"
+            type="button"
+            @click="applyChecklistAddTemplate(template)"
+          >
+            <strong>{{ template.title }}</strong>
+            <span>{{ template.group }}</span>
+          </button>
+        </div>
+        <label>
+          <span>Test</span>
+          <input
+            v-model="checklistAddForm.title"
+            class="tm-input"
+            type="text"
+            maxlength="191"
+            placeholder="Confirm the new behavior in game"
+            required
+          />
+        </label>
+        <label>
+          <span>Details</span>
+          <textarea
+            v-model="checklistAddForm.details"
+            class="tm-textarea"
+            rows="4"
+            maxlength="1000"
+            placeholder="Optional context for testers"
+          ></textarea>
+        </label>
+        <label>
+          <span>Category</span>
+          <input
+            v-model="checklistAddForm.category"
+            class="tm-input"
+            type="text"
+            maxlength="80"
+            placeholder="Uses the change category if left blank"
+          />
+        </label>
+        <div class="tm-checklist-add-modal__actions">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="checklistAddSaving"
+            @click="closeChecklistAdd"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="tm-btn tm-btn--primary" :disabled="checklistAddSaving">
+            <span aria-hidden="true">+</span>
+            {{ checklistAddSaving ? 'Adding' : 'Add Item' }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div
       v-if="checklistNoteOpen"
       class="tm-modal"
       role="dialog"
@@ -2316,6 +2463,8 @@ const nextPatchChanges = ref<TestChange[]>([]);
 const nextPatchView = ref<NextPatchChangeView>('complete');
 const nextPatchCount = ref(0);
 const nextPatchLoading = ref(false);
+const nextPatchViewCache = ref<Partial<Record<NextPatchChangeView, TestChange[]>>>({});
+let nextPatchLoadSequence = 0;
 const selectedChange = ref<TestChange | null>(null);
 const changeUnavailable = ref(false);
 const users = ref<TestManagerUserSummary[]>([]);
@@ -2368,7 +2517,7 @@ interface CoverageNoteView {
 }
 const userRoleFilter = ref<UserRoleFilter>('all');
 const userPage = ref(1);
-const usersPerPage = 8;
+const usersPerPage = 6;
 const createOpen = ref(false);
 const editOpen = ref(false);
 const editSaving = ref(false);
@@ -2377,6 +2526,8 @@ const notesOpen = ref(false);
 const checklistNoteOpen = ref(false);
 const checklistNoteItemId = ref<string | null>(null);
 const checklistNotePromptItemId = ref<string | null>(null);
+const checklistAddOpen = ref(false);
+const checklistAddSaving = ref(false);
 const coverageNote = ref<CoverageNoteView | null>(null);
 const resultActionConfirm = ref<ResultActionConfirm | null>(null);
 const resultActionPending = ref(false);
@@ -2387,6 +2538,7 @@ const testerRemovePending = ref(false);
 const nextPatchResetConfirm = ref(false);
 const nextPatchResetPending = ref(false);
 const nextPatchTogglePending = ref(false);
+const closedNextPatchPromptDismissedIds = ref<Set<string>>(new Set());
 const feedbackError = ref('');
 const deletingNoteIds = ref<Set<string>>(new Set());
 const notesEditor = ref<{
@@ -2553,6 +2705,10 @@ const nextPatchViewOptions: Array<{ key: NextPatchChangeView; label: string }> =
   { key: 'incomplete', label: 'Incomplete' }
 ];
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
+type ChecklistAddTemplate = CreateChecklistDraft & {
+  group: string;
+  key: string;
+};
 
 const createCategoryOptions = [
   'Spells',
@@ -2662,6 +2818,14 @@ const createChecklistTemplates: Array<{
   }
 ];
 
+const checklistAddTemplates: ChecklistAddTemplate[] = createChecklistTemplates.flatMap((template) =>
+  template.items.map((item) => ({
+    ...item,
+    group: template.label,
+    key: `${template.label}:${item.title}`
+  }))
+);
+
 function createChecklistItem(category = ''): CreateChecklistDraft {
   return { title: '', details: '', category };
 }
@@ -2698,6 +2862,7 @@ const createForm = ref<CreateTestChangePayload>({
   includeInNextPatch: true,
   checklist: [createChecklistItem()]
 });
+const checklistAddForm = ref<CreateChecklistDraft>(createChecklistItem());
 
 const editForm = ref<UpdateTestChangePayload>({
   title: '',
@@ -2784,6 +2949,17 @@ const isActivelyTestingViewer = computed(
     !activeViewerTester.value.result
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
+const showClosedNextPatchPrompt = computed(() => {
+  const change = activeChange.value;
+  return Boolean(
+    authStore.isAdmin &&
+      currentSection.value === 'changes' &&
+      change &&
+      change.status === 'CLOSED' &&
+      !change.includeInNextPatch &&
+      !closedNextPatchPromptDismissedIds.value.has(change.id)
+  );
+});
 const changeLayoutStyle = computed<Record<string, string>>(() => ({
   '--tm-change-left-min-width': `${CHANGE_LAYOUT_MIN.left}px`,
   '--tm-change-left-width': `${Math.round(changeLayout.value.left)}px`,
@@ -3367,19 +3543,63 @@ async function loadDashboard() {
   dashboard.value = await api.fetchTestManagerDashboard();
 }
 
-async function loadNextPatch() {
-  nextPatchLoading.value = true;
+function cacheNextPatchView(view: NextPatchChangeView, changes: TestChange[]) {
+  nextPatchViewCache.value = {
+    ...nextPatchViewCache.value,
+    [view]: changes
+  };
+}
+
+function clearNextPatchCache() {
+  nextPatchViewCache.value = {};
+}
+
+function getOppositeNextPatchView(view: NextPatchChangeView): NextPatchChangeView {
+  return view === 'complete' ? 'incomplete' : 'complete';
+}
+
+async function prefetchNextPatchView(view: NextPatchChangeView) {
+  if (nextPatchViewCache.value[view]) {
+    return;
+  }
+
   try {
-    nextPatchChanges.value = (await api.fetchTestManagerNextPatch(nextPatchView.value)).sort(
-      compareNextPatchChanges
-    );
-    if (nextPatchViewIsComplete.value) {
+    const changes = (await api.fetchTestManagerNextPatch(view)).sort(compareNextPatchChanges);
+    cacheNextPatchView(view, changes);
+  } catch {
+    // Prefetch is opportunistic; the active view load still handles visible failures.
+  }
+}
+
+function refreshNextPatchCountInBackground() {
+  void loadNextPatchCount().catch(() => undefined);
+}
+
+async function loadNextPatch() {
+  const view = nextPatchView.value;
+  const cachedChanges = nextPatchViewCache.value[view];
+  const sequence = ++nextPatchLoadSequence;
+  if (cachedChanges) {
+    nextPatchChanges.value = [...cachedChanges];
+  }
+  nextPatchLoading.value = !cachedChanges;
+  try {
+    const changes = (await api.fetchTestManagerNextPatch(view)).sort(compareNextPatchChanges);
+    cacheNextPatchView(view, changes);
+    if (sequence !== nextPatchLoadSequence || nextPatchView.value !== view) {
+      return;
+    }
+    nextPatchChanges.value = changes;
+    if (view === 'complete') {
       nextPatchCount.value = nextPatchChanges.value.length;
     } else {
-      await loadNextPatchCount();
+      refreshNextPatchCountInBackground();
     }
+    void prefetchNextPatchView(getOppositeNextPatchView(view));
   } finally {
-    nextPatchLoading.value = false;
+    if (sequence === nextPatchLoadSequence && nextPatchView.value === view) {
+      nextPatchLoading.value = false;
+    }
   }
 }
 
@@ -3392,7 +3612,8 @@ async function setNextPatchView(view: NextPatchChangeView) {
     return;
   }
   nextPatchView.value = view;
-  nextPatchChanges.value = [];
+  const cachedChanges = nextPatchViewCache.value[view];
+  nextPatchChanges.value = cachedChanges ? [...cachedChanges] : [];
   await loadNextPatch();
 }
 
@@ -3935,6 +4156,14 @@ function applyChecklistTemplate(items: CreateChecklistDraft[]) {
   }));
 }
 
+function applyChecklistAddTemplate(template: ChecklistAddTemplate) {
+  checklistAddForm.value = {
+    title: template.title,
+    details: template.details ?? '',
+    category: template.category || activeChange.value?.category || ''
+  };
+}
+
 function syncChecklistCategories() {
   createForm.value.checklist.forEach((item) => {
     if (!item.category) {
@@ -3991,6 +4220,7 @@ async function createChange() {
       }))
   };
   const change = await api.createTestChange(payload);
+  replaceCachedChange(change);
   createOpen.value = false;
   resetCreateForm();
   await router.push(`/test-manager/changes/${change.id}`);
@@ -4007,7 +4237,7 @@ async function saveEditChange() {
     const dueAt = editForm.value.dueAt?.trim()
       ? new Date(editForm.value.dueAt).toISOString()
       : null;
-    selectedChange.value = await api.updateTestChange(activeChange.value.id, {
+    const updated = await api.updateTestChange(activeChange.value.id, {
       ...editForm.value,
       description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
@@ -4015,6 +4245,8 @@ async function saveEditChange() {
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
       dueAt
     });
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
     editOpen.value = false;
     resetEditForm();
     await loadChanges();
@@ -4242,6 +4474,61 @@ async function openChecklistNote(checklistItemId: string) {
   checklistNoteEditor.value?.setHtml(viewerChecklistItemNoteHtml(checklistItemId));
 }
 
+function openChecklistAdd() {
+  if (!authStore.isAdmin || !activeChange.value) {
+    return;
+  }
+  checklistAddForm.value = createChecklistItem(activeChange.value.category);
+  checklistAddOpen.value = true;
+}
+
+function closeChecklistAdd() {
+  if (checklistAddSaving.value) {
+    return;
+  }
+  checklistAddOpen.value = false;
+}
+
+async function saveChecklistAdd() {
+  if (!authStore.isAdmin || !activeChange.value || checklistAddSaving.value) {
+    return;
+  }
+
+  const title = checklistAddForm.value.title.trim();
+  if (!title) {
+    addToast({
+      title: 'Checklist Item Required',
+      message: 'Enter a checklist item title before adding it.',
+      variant: 'warning'
+    });
+    return;
+  }
+
+  checklistAddSaving.value = true;
+  try {
+    const updated = await api.addTestChangeChecklistItem(activeChange.value.id, {
+      title,
+      details: checklistAddForm.value.details?.trim() || null,
+      category: checklistAddForm.value.category?.trim() || null
+    });
+    replaceCachedChange(updated);
+    checklistAddOpen.value = false;
+    addToast({
+      title: 'Checklist Item Added',
+      message: `Added "${title}" to #${updated.publicId}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Checklist Add Failed',
+      message: getApiErrorMessage(error, 'Unable to add checklist item.'),
+      variant: 'error'
+    });
+  } finally {
+    checklistAddSaving.value = false;
+  }
+}
+
 function closeChecklistNote() {
   checklistNoteOpen.value = false;
   checklistNoteItemId.value = null;
@@ -4264,11 +4551,13 @@ async function saveChecklistNote() {
   if (!activeChange.value || !checklistNoteItemId.value) {
     return;
   }
-  selectedChange.value = await api.updateTestChangeChecklistProgress(
+  const updated = await api.updateTestChangeChecklistProgress(
     activeChange.value.id,
     checklistNoteItemId.value,
     { notesHtml: checklistNoteEditor.value?.getHtml() || '' }
   );
+  replaceCachedChange(updated);
+  selectedChange.value = updated;
   closeChecklistNote();
   await loadChanges();
 }
@@ -4348,12 +4637,31 @@ async function setStatus(status: TestChangeStatus) {
   if (!activeChange.value) {
     return;
   }
-  selectedChange.value = await api.updateTestChangeStatus(activeChange.value.id, status);
+  const updated = await api.updateTestChangeStatus(activeChange.value.id, status);
+  replaceCachedChange(updated);
+  selectedChange.value = updated;
   await loadChanges();
 }
 
 function replaceCachedChange(change: TestChange) {
   changes.value = changes.value.map((entry) => (entry.id === change.id ? change : entry));
+  const nextPatchCache: Partial<Record<NextPatchChangeView, TestChange[]>> = {
+    ...nextPatchViewCache.value
+  };
+  nextPatchViewOptions.forEach(({ key }) => {
+    const cachedChanges = nextPatchCache[key];
+    if (!cachedChanges) {
+      return;
+    }
+    const belongsInView =
+      change.includeInNextPatch &&
+      (key === 'complete' ? change.status === 'CLOSED' : change.status !== 'CLOSED');
+    const updatedChanges = cachedChanges.filter((entry) => entry.id !== change.id);
+    nextPatchCache[key] = (belongsInView ? [...updatedChanges, change] : updatedChanges).sort(
+      compareNextPatchChanges
+    );
+  });
+  nextPatchViewCache.value = nextPatchCache;
   nextPatchChanges.value = nextPatchChanges.value
     .map((entry) => (entry.id === change.id ? change : entry))
     .filter(isChangeInCurrentNextPatchView)
@@ -4400,6 +4708,25 @@ async function toggleActiveChangeNextPatch() {
   await setChangeNextPatch(activeChange.value, !activeChange.value.includeInNextPatch);
 }
 
+function dismissClosedNextPatchPrompt() {
+  const change = activeChange.value;
+  if (!change) {
+    return;
+  }
+  closedNextPatchPromptDismissedIds.value = new Set([
+    ...closedNextPatchPromptDismissedIds.value,
+    change.id
+  ]);
+}
+
+async function confirmClosedNextPatchPrompt() {
+  const change = activeChange.value;
+  if (!change) {
+    return;
+  }
+  await setChangeNextPatch(change, true);
+}
+
 function openNextPatchResetConfirm() {
   if (!authStore.isAdmin || !nextPatchViewIsComplete.value || nextPatchChanges.value.length === 0) {
     return;
@@ -4423,6 +4750,7 @@ async function confirmNextPatchReset() {
   try {
     const result = await api.resetTestManagerNextPatch();
     nextPatchResetConfirm.value = false;
+    clearNextPatchCache();
     await loadNextPatch();
     addToast({
       title: 'Patch List Reset',
@@ -4445,6 +4773,7 @@ async function removeActiveChange() {
     return;
   }
   await api.deleteTestChange(activeChange.value.id);
+  clearNextPatchCache();
   selectedChange.value = null;
   await router.push('/test-manager/changes');
   await loadChanges();
@@ -4656,9 +4985,7 @@ function compareChanges(left: TestChange, right: TestChange) {
 }
 
 function compareNextPatchChanges(left: TestChange, right: TestChange) {
-  const leftTime = Date.parse(left.closedAt ?? left.updatedAt);
-  const rightTime = Date.parse(right.closedAt ?? right.updatedAt);
-  return rightTime - leftTime || left.publicId - right.publicId;
+  return left.publicId - right.publicId;
 }
 
 function isNextPatchReady(change: TestChange) {
@@ -4979,6 +5306,13 @@ function userRoleLabel(user: TestManagerUserSummary) {
   if (user.isGuide) return 'Guide';
   if (user.isTester) return 'Tester';
   return 'User';
+}
+
+function userRoleClass(user: TestManagerUserSummary) {
+  return {
+    'tm-user-role--admin': user.isAdmin,
+    'tm-user-role--guide': !user.isAdmin && user.isGuide
+  };
 }
 
 function roleIcon(roleKey: string) {
@@ -5474,7 +5808,10 @@ onBeforeUnmount(() => {
 .tm-dashboard {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-gutter: stable;
 }
 
 .tm-hero {
@@ -5659,18 +5996,18 @@ onBeforeUnmount(() => {
 
 .tm-grid--dashboard {
   grid-template-columns: minmax(0, 2fr) minmax(22rem, 1fr);
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   width: 100%;
   min-height: 0;
-  overflow: hidden;
-  align-items: stretch;
+  overflow: visible;
+  align-items: start;
 }
 
 .tm-grid--dashboard > .tm-stack {
-  height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
-  align-content: stretch;
-  overflow: hidden;
+  height: auto;
+  grid-template-rows: auto auto;
+  align-content: start;
+  overflow: visible;
 }
 
 .tm-grid--dashboard > .tm-stack > .tm-panel:last-child {
@@ -5771,6 +6108,29 @@ onBeforeUnmount(() => {
 .tm-grid--users {
   grid-template-columns: minmax(0, 1fr) 24rem;
   align-items: stretch;
+  overflow: hidden;
+}
+
+.tm-grid--users > .tm-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.tm-grid--users > .tm-stack {
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.tm-grid--users .tm-table {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 0.1rem;
+}
+
+.tm-grid--users .tm-table__head,
+.tm-grid--users .tm-table__row {
+  min-width: 48rem;
 }
 
 .tm-next-patch {
@@ -6023,14 +6383,46 @@ onBeforeUnmount(() => {
 .tm-next-patch-card__meta,
 .tm-next-patch-card__quality {
   display: flex;
-  gap: 0.34rem;
   align-items: center;
   flex-wrap: wrap;
   color: var(--tm-muted);
   font-size: 0.74rem;
 }
 
+.tm-next-patch-card__meta {
+  gap: 0.44rem;
+  min-width: 0;
+  padding: 0.18rem 0.2rem;
+  border-radius: 999px;
+}
+
+.tm-next-patch-card__build,
+.tm-next-patch-card__time {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: rgba(214, 207, 196, 0.76);
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tm-next-patch-card__build {
+  color: rgba(231, 220, 204, 0.86);
+}
+
+.tm-next-patch-card__time::before {
+  content: '';
+  width: 0.28rem;
+  height: 0.28rem;
+  margin-right: 0.44rem;
+  border-radius: 50%;
+  background: rgba(217, 164, 95, 0.48);
+  box-shadow: 0 0 8px rgba(217, 164, 95, 0.12);
+}
+
 .tm-next-patch-card__quality {
+  gap: 0.34rem;
   flex-wrap: nowrap;
   justify-content: flex-end;
 }
@@ -6481,6 +6873,20 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.tm-user-role {
+  font-weight: 850;
+}
+
+.tm-user-role--admin {
+  color: #ff9d5c !important;
+  text-shadow: 0 0 12px rgba(255, 157, 92, 0.18);
+}
+
+.tm-user-role--guide {
+  color: #a7eba0 !important;
+  text-shadow: 0 0 12px rgba(167, 235, 160, 0.14);
+}
+
 .tm-result-minis {
   display: inline-flex;
   gap: 0.35rem;
@@ -6533,18 +6939,18 @@ onBeforeUnmount(() => {
   padding: 0.58rem 1.05rem 0.58rem 0.66rem;
   overflow: hidden;
   border-radius: 0.55rem;
-  border-color: rgba(245, 190, 102, 0.42);
+  border-color: rgba(173, 154, 118, 0.38);
   background:
-    linear-gradient(135deg, rgba(72, 35, 20, 0.92), rgba(13, 16, 17, 0.98) 48%),
-    linear-gradient(180deg, rgba(32, 35, 37, 0.96), rgba(5, 7, 8, 0.98));
-  color: #ffe8bc;
+    linear-gradient(135deg, rgba(39, 42, 41, 0.96), rgba(8, 13, 14, 0.98) 54%),
+    linear-gradient(180deg, rgba(34, 38, 38, 0.96), rgba(5, 7, 8, 0.98));
+  color: #ece5d8;
   font-weight: 800;
   letter-spacing: 0;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.78);
   box-shadow:
-    inset 0 1px 0 rgba(255, 235, 186, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
     inset 0 -1px 0 rgba(0, 0, 0, 0.75),
-    0 12px 26px rgba(0, 0, 0, 0.34);
+    0 10px 22px rgba(0, 0, 0, 0.32);
   transition:
     transform 0.14s ease,
     border-color 0.14s ease,
@@ -6557,7 +6963,7 @@ onBeforeUnmount(() => {
   content: '';
   position: absolute;
   inset: 0.22rem;
-  border: 1px solid rgba(255, 221, 151, 0.08);
+  border: 1px solid rgba(228, 211, 175, 0.07);
   border-radius: 0.34rem;
   pointer-events: none;
 }
@@ -6569,23 +6975,23 @@ onBeforeUnmount(() => {
   bottom: 0;
   left: -35%;
   width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(245, 190, 102, 0.14), transparent);
+  background: linear-gradient(90deg, transparent, rgba(228, 211, 175, 0.1), transparent);
   transform: skewX(-18deg);
   transition: left 0.2s ease;
   pointer-events: none;
 }
 
 .tm-create-trigger:hover {
-  border-color: rgba(255, 212, 128, 0.78);
+  border-color: rgba(217, 164, 95, 0.62);
   background:
-    linear-gradient(135deg, rgba(100, 45, 22, 0.98), rgba(18, 21, 21, 0.98) 48%),
-    linear-gradient(180deg, rgba(42, 40, 36, 0.98), rgba(7, 8, 8, 1));
-  color: #fff0cf;
+    linear-gradient(135deg, rgba(52, 49, 40, 0.98), rgba(11, 16, 17, 0.98) 54%),
+    linear-gradient(180deg, rgba(42, 43, 39, 0.98), rgba(7, 8, 8, 1));
+  color: #fff3d8;
   box-shadow:
-    inset 0 1px 0 rgba(255, 235, 186, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
     inset 0 -1px 0 rgba(0, 0, 0, 0.82),
-    0 16px 32px rgba(0, 0, 0, 0.42),
-    0 0 22px rgba(217, 164, 95, 0.16);
+    0 14px 28px rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(217, 164, 95, 0.12);
 }
 
 .tm-create-trigger:hover::after {
@@ -6598,12 +7004,12 @@ onBeforeUnmount(() => {
   border-radius: 0.38rem;
   display: inline-grid;
   place-items: center;
-  color: #ffd67e;
+  color: #f0c77e;
   background:
-    linear-gradient(180deg, rgba(55, 40, 24, 0.96), rgba(10, 11, 11, 0.98)), rgba(0, 0, 0, 0.48);
-  border: 1px solid rgba(255, 211, 130, 0.34);
+    linear-gradient(180deg, rgba(46, 40, 30, 0.96), rgba(11, 13, 13, 0.98)), rgba(0, 0, 0, 0.48);
+  border: 1px solid rgba(217, 164, 95, 0.32);
   box-shadow:
-    inset 0 1px 0 rgba(255, 235, 186, 0.18),
+    inset 0 1px 0 rgba(255, 235, 186, 0.12),
     0 0 0 1px rgba(0, 0, 0, 0.42);
   transition:
     background 0.14s ease,
@@ -6614,7 +7020,7 @@ onBeforeUnmount(() => {
 .tm-create-trigger:hover .tm-create-trigger__icon {
   color: #fff3d6;
   background:
-    linear-gradient(180deg, rgba(87, 57, 27, 0.98), rgba(12, 13, 13, 1)), rgba(0, 0, 0, 0.48);
+    linear-gradient(180deg, rgba(66, 52, 32, 0.98), rgba(12, 13, 13, 1)), rgba(0, 0, 0, 0.48);
   transform: rotate(90deg);
 }
 
@@ -6713,7 +7119,7 @@ onBeforeUnmount(() => {
 
 .tm-create-trigger:focus-visible,
 .tm-change-list__add:focus-visible {
-  outline: 2px solid rgba(255, 212, 128, 0.68);
+  outline: 2px solid rgba(217, 164, 95, 0.58);
   outline-offset: 3px;
 }
 
@@ -7414,11 +7820,33 @@ onBeforeUnmount(() => {
 
 .tm-id {
   color: rgba(207, 194, 174, 0.72);
-  margin: 0.18rem 0 0.4rem;
+  margin: 0;
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.tm-detail__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.18rem 0 0.45rem;
+}
+
+.tm-detail__kicker .tm-status {
+  min-width: 0;
+  padding: 0.18rem 0.48rem;
+  border-color: color-mix(in srgb, currentColor 36%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 75%),
+    rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
 }
 
 .tm-detail__header h2 {
@@ -7711,6 +8139,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-toggle {
+  --next-patch-accent: var(--tm-blue);
   width: min(13.5rem, 100%);
   min-height: 2.85rem;
   display: grid;
@@ -7718,12 +8147,13 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.48rem;
   padding: 0.38rem 0.44rem;
-  border: 1px solid rgba(217, 164, 95, 0.3);
+  border: 1px solid color-mix(in srgb, var(--next-patch-accent) 24%, rgba(213, 196, 164, 0.14));
   border-radius: 8px;
-  color: #eadcc6;
+  color: #d9edf5;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 86%), rgba(10, 14, 14, 0.76);
-  box-shadow: inset 0 1px 0 rgba(255, 235, 186, 0.08);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 86%),
+    color-mix(in srgb, var(--next-patch-accent) 10%, rgba(5, 12, 16, 0.78));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
   text-align: left;
   cursor: pointer;
   transition:
@@ -7735,12 +8165,13 @@ onBeforeUnmount(() => {
 
 .tm-next-patch-toggle:hover,
 .tm-next-patch-toggle:focus-visible {
-  border-color: rgba(217, 164, 95, 0.54);
+  border-color: color-mix(in srgb, var(--next-patch-accent) 44%, rgba(213, 196, 164, 0.18));
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 86%), rgba(22, 26, 24, 0.86);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 86%),
+    color-mix(in srgb, var(--next-patch-accent) 16%, rgba(7, 15, 18, 0.84));
   box-shadow:
-    inset 0 1px 0 rgba(255, 235, 186, 0.12),
-    0 0 18px rgba(217, 164, 95, 0.1);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 18px color-mix(in srgb, var(--next-patch-accent) 10%, transparent);
   transform: translateY(-1px);
 }
 
@@ -7755,10 +8186,10 @@ onBeforeUnmount(() => {
   height: 1.55rem;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 231, 190, 0.2);
+  border: 1px solid color-mix(in srgb, var(--next-patch-accent) 26%, transparent);
   border-radius: 0.38rem;
-  color: #f3c06e;
-  background: rgba(217, 164, 95, 0.12);
+  color: color-mix(in srgb, var(--next-patch-accent) 74%, #ffffff);
+  background: color-mix(in srgb, var(--next-patch-accent) 12%, transparent);
 }
 
 .tm-next-patch-toggle__icon svg {
@@ -7785,23 +8216,23 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-toggle__copy strong {
-  color: #f4e6cf;
+  color: #edf7fb;
   font-size: 0.78rem;
   font-weight: 900;
 }
 
 .tm-next-patch-toggle__copy small {
-  color: rgba(207, 194, 174, 0.78);
+  color: rgba(195, 218, 226, 0.78);
   font-size: 0.68rem;
   font-weight: 700;
 }
 
 .tm-next-patch-toggle__action {
   padding: 0.22rem 0.42rem;
-  border: 1px solid rgba(255, 231, 190, 0.16);
+  border: 1px solid color-mix(in srgb, var(--next-patch-accent) 20%, rgba(255, 255, 255, 0.08));
   border-radius: 999px;
-  color: rgba(255, 235, 202, 0.86);
-  background: rgba(255, 255, 255, 0.045);
+  color: rgba(220, 237, 244, 0.86);
+  background: rgba(255, 255, 255, 0.035);
   font-size: 0.64rem;
   font-weight: 900;
   line-height: 1;
@@ -7809,15 +8240,13 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-toggle--included {
-  border-color: rgba(217, 164, 95, 0.42);
-  background:
-    linear-gradient(180deg, rgba(255, 229, 178, 0.08), transparent 86%), rgba(45, 34, 15, 0.66);
+  --next-patch-accent: #57c7bd;
 }
 
 .tm-next-patch-toggle--included .tm-next-patch-toggle__action {
-  color: #ffdca3;
-  border-color: rgba(217, 164, 95, 0.3);
-  background: rgba(217, 164, 95, 0.12);
+  color: rgba(233, 244, 247, 0.86);
+  border-color: rgba(192, 218, 226, 0.16);
+  background: rgba(255, 255, 255, 0.045);
 }
 
 .tm-next-patch-toggle--excluded {
@@ -7849,6 +8278,52 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.tm-detail-edit-btn {
+  min-height: 2.25rem;
+  padding: 0.36rem 0.66rem;
+  border-color: rgba(85, 183, 255, 0.24);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 78%),
+    rgba(12, 30, 42, 0.48);
+  color: rgba(215, 236, 248, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-detail-edit-btn > span {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: rgba(139, 213, 255, 0.9);
+  background: rgba(85, 183, 255, 0.1);
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.tm-detail-edit-btn:hover,
+.tm-detail-edit-btn:focus-visible {
+  border-color: rgba(85, 183, 255, 0.48);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%),
+    rgba(16, 44, 62, 0.7);
+  color: #f0f9ff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 16px rgba(85, 183, 255, 0.1);
+  transform: translateY(-1px);
+}
+
 .tm-result-buttons,
 .tm-toolbar,
 .tm-settings-actions {
@@ -7860,27 +8335,77 @@ onBeforeUnmount(() => {
 
 .tm-result-buttons {
   display: grid;
-  grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.78fr) minmax(5.2rem, 1.1fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.85fr) minmax(5.25rem, 1.15fr);
   align-items: stretch;
-  gap: 0.32rem;
+  gap: 0.38rem;
   width: 100%;
 }
 
-.tm-result-buttons .tm-btn {
+.tm-result-btn {
+  --result-color: var(--tm-blue);
+  --result-bg: rgba(20, 68, 105, 0.38);
   min-width: 0;
-  min-height: 2.75rem;
+  min-height: 2.58rem;
   justify-content: center;
   align-items: center;
-  gap: 0.32rem;
+  gap: 0.24rem;
   overflow: hidden;
-  padding: 0.56rem 0.34rem;
-  font-size: 0.94rem;
+  padding: 0.42rem 0.28rem;
+  border-color: color-mix(in srgb, var(--result-color) 52%, transparent);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 80%),
+    color-mix(in srgb, var(--result-color) 20%, rgba(4, 9, 10, 0.78));
+  color: color-mix(in srgb, var(--result-color) 72%, #ffffff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    0 8px 18px rgba(0, 0, 0, 0.14);
+  font-size: 0.8rem;
+  font-weight: 850;
   line-height: 1;
   white-space: nowrap;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
-.tm-result-buttons .tm-btn span {
+.tm-result-btn span {
   flex: 0 0 auto;
+  width: 1.24rem;
+  height: 1.24rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--result-color) 18%, transparent);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.tm-result-btn:hover:not(:disabled),
+.tm-result-btn:focus-visible:not(:disabled) {
+  border-color: color-mix(in srgb, var(--result-color) 76%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), transparent 80%),
+    color-mix(in srgb, var(--result-color) 28%, rgba(4, 9, 10, 0.78));
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 18px color-mix(in srgb, var(--result-color) 18%, transparent);
+}
+
+.tm-result-btn--pass {
+  --result-color: var(--tm-green);
+}
+
+.tm-result-btn--fail {
+  --result-color: var(--tm-red);
+}
+
+.tm-result-btn--blocked {
+  --result-color: var(--tm-gold);
 }
 
 .tm-change-description {
@@ -8491,6 +9016,17 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
+.tm-status {
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%),
+    rgba(85, 183, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
 .tm-mini {
   min-width: 2.1rem;
   padding: 0.2rem 0.5rem;
@@ -8498,7 +9034,9 @@ onBeforeUnmount(() => {
 
 .tm-status--compact {
   min-width: 0;
-  padding: 0.22rem 0.45rem;
+  min-height: 1.42rem;
+  padding: 0.24rem 0.54rem;
+  font-size: 0.68rem;
 }
 
 .tm-status--passed,
@@ -8524,6 +9062,17 @@ onBeforeUnmount(() => {
 .tm-status--renewed {
   color: var(--tm-gold);
   background: rgba(217, 164, 95, 0.12);
+}
+
+.tm-status--closed {
+  color: #d8c4ff;
+  border-color: rgba(184, 140, 255, 0.54);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 86%),
+    rgba(126, 74, 210, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 14px rgba(126, 74, 210, 0.14);
 }
 
 .tm-priority {
@@ -8833,12 +9382,13 @@ onBeforeUnmount(() => {
 .tm-inspector h3 {
   color: var(--tm-gold);
   text-transform: uppercase;
-  font-size: 1rem;
-  margin: 0 0 0.75rem;
+  font-size: 0.96rem;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.72rem;
 }
 
 .tm-inspector h3 {
-  margin-top: 1.25rem;
+  margin-top: 1.18rem;
 }
 
 .tm-editor {
@@ -8931,25 +9481,42 @@ onBeforeUnmount(() => {
 .tm-notes-launch {
   width: 100%;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.68rem;
   margin-top: 0.35rem;
   border: 1px solid var(--tm-border-soft);
-  padding: 0.7rem 0.8rem;
+  border-radius: 10px;
+  padding: 0.62rem 0.7rem;
   color: var(--tm-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.025);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 86%),
+    rgba(255, 255, 255, 0.018);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
 .tm-notes-launch span {
+  width: 2rem;
+  height: 2rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(217, 164, 95, 0.28);
+  border-radius: 0.5rem;
   color: var(--tm-gold);
+  background: rgba(217, 164, 95, 0.08);
 }
 
 .tm-notes-launch strong {
-  font-size: 0.95rem;
+  min-width: 0;
+  font-size: 0.9rem;
 }
 
 .tm-notes-launch small {
@@ -8960,7 +9527,9 @@ onBeforeUnmount(() => {
 
 .tm-notes-launch--has-notes {
   border-color: rgba(114, 214, 111, 0.46);
-  background: linear-gradient(90deg, rgba(29, 94, 42, 0.46), rgba(29, 94, 42, 0.16));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 86%),
+    linear-gradient(90deg, rgba(29, 94, 42, 0.34), rgba(29, 94, 42, 0.1));
 }
 
 .tm-notes-launch--has-notes small,
@@ -8968,9 +9537,25 @@ onBeforeUnmount(() => {
   color: #a7eda2;
 }
 
+.tm-notes-launch--has-notes span {
+  border-color: rgba(114, 214, 111, 0.36);
+  background: rgba(29, 94, 42, 0.26);
+}
+
 .tm-notes-launch--empty {
   border-color: rgba(213, 196, 164, 0.18);
-  background: rgba(255, 255, 255, 0.018);
+}
+
+.tm-notes-launch:hover,
+.tm-notes-launch:focus-visible {
+  border-color: rgba(217, 164, 95, 0.34);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%),
+    rgba(255, 255, 255, 0.03);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 16px rgba(217, 164, 95, 0.06);
+  transform: translateY(-1px);
 }
 
 .tm-notes-launch:disabled {
@@ -9004,11 +9589,61 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--tm-border-soft);
 }
 
+.tm-testing-checklist__head--admin,
+.tm-testing-checklist__row--admin {
+  grid-template-columns: 4.5rem minmax(16rem, 1fr) 8rem 4.25rem 7rem 2rem;
+}
+
 .tm-testing-checklist__head {
   color: var(--tm-muted);
   text-transform: uppercase;
   font-size: 0.72rem;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.tm-testing-checklist__add {
+  justify-self: end;
+}
+
+.tm-checklist-add-btn {
+  width: 1.72rem;
+  height: 1.72rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: rgba(213, 196, 164, 0.62);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  font-size: 1.42rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.tm-checklist-add-btn span {
+  transform: translateY(-0.04rem);
+}
+
+.tm-checklist-add-btn:hover,
+.tm-checklist-add-btn:focus-visible {
+  background: rgba(213, 196, 164, 0.08);
+  color: rgba(243, 214, 166, 0.9);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px rgba(213, 196, 164, 0.06);
+}
+
+.tm-checklist-add-btn:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.7);
+  outline-offset: 2px;
 }
 
 .tm-testing-checklist__row {
@@ -9173,18 +9808,116 @@ onBeforeUnmount(() => {
   max-width: 42rem;
 }
 
+.tm-checklist-add-modal {
+  max-width: 34rem;
+}
+
+.tm-checklist-add-templates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  padding: 0.62rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.tm-checklist-add-templates button {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  border: 1px solid rgba(213, 196, 164, 0.14);
+  border-radius: var(--tm-control-radius);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--tm-text);
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.tm-checklist-add-templates button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(217, 164, 95, 0.36);
+  background: rgba(217, 164, 95, 0.08);
+}
+
+.tm-checklist-add-templates button:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.tm-checklist-add-templates strong,
+.tm-checklist-add-templates span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-checklist-add-templates strong {
+  font-size: 0.78rem;
+}
+
+.tm-checklist-add-templates span {
+  color: var(--tm-muted);
+  font-size: 0.68rem;
+}
+
+.tm-checklist-add-modal label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.tm-checklist-add-modal label > span {
+  color: var(--tm-gold);
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-checklist-add-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.2rem;
+}
+
 .tm-action {
+  --action-color: var(--tm-blue);
   width: 100%;
   display: grid;
-  grid-template-columns: 2.5rem minmax(0, 1fr);
-  gap: 0.65rem;
+  grid-template-columns: 2.35rem minmax(0, 1fr);
+  gap: 0.68rem;
   align-items: center;
   text-align: left;
-  margin-bottom: 0.6rem;
+  min-height: 4.18rem;
+  margin-bottom: 0.56rem;
+  padding: 0.64rem 0.72rem;
+  border-color: color-mix(in srgb, var(--action-color) 42%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 84%),
+    color-mix(in srgb, var(--action-color) 18%, rgba(4, 8, 8, 0.78));
+  color: color-mix(in srgb, var(--action-color) 64%, #ffffff);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 10px 20px rgba(0, 0, 0, 0.13);
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
 .tm-action small {
-  color: var(--tm-muted);
+  color: rgba(226, 217, 202, 0.72);
+  line-height: 1.25;
 }
 
 .tm-action > span:last-child {
@@ -9193,23 +9926,38 @@ onBeforeUnmount(() => {
 }
 
 .tm-action__icon {
-  color: inherit;
-  font-size: 1.45rem;
+  width: 2.2rem;
+  height: 2.2rem;
   display: grid;
   place-items: center;
+  border: 1px solid color-mix(in srgb, var(--action-color) 36%, transparent);
+  border-radius: 0.62rem;
+  color: color-mix(in srgb, var(--action-color) 78%, #ffffff);
+  background: color-mix(in srgb, var(--action-color) 14%, transparent);
+  font-size: 1.04rem;
+  line-height: 1;
 }
 
 .tm-action--success {
-  border-color: rgba(114, 214, 111, 0.6);
-  background: rgba(28, 88, 36, 0.52);
+  --action-color: var(--tm-green);
 }
 .tm-action--info {
-  border-color: rgba(85, 183, 255, 0.6);
-  background: rgba(23, 67, 103, 0.52);
+  --action-color: var(--tm-blue);
 }
 .tm-action--danger {
-  border-color: rgba(255, 107, 85, 0.6);
-  background: rgba(90, 28, 23, 0.52);
+  --action-color: var(--tm-red);
+}
+
+.tm-action:hover,
+.tm-action:focus-visible {
+  border-color: color-mix(in srgb, var(--action-color) 66%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 84%),
+    color-mix(in srgb, var(--action-color) 26%, rgba(4, 8, 8, 0.78));
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.075),
+    0 0 18px color-mix(in srgb, var(--action-color) 14%, transparent);
 }
 
 .tm-link {
@@ -9813,6 +10561,17 @@ onBeforeUnmount(() => {
   background: rgba(106, 35, 27, 0.24);
   color: var(--tm-red);
   box-shadow: 0 0 18px rgba(255, 107, 85, 0.18);
+}
+
+.tm-confirm-modal--next-patch {
+  border-color: rgba(87, 199, 189, 0.4);
+}
+
+.tm-confirm-modal--next-patch .tm-confirm-modal__icon {
+  border-color: rgba(87, 199, 189, 0.5);
+  background: rgba(24, 94, 88, 0.2);
+  color: #78d9d0;
+  box-shadow: 0 0 18px rgba(87, 199, 189, 0.14);
 }
 
 .tm-create-modal {
@@ -10485,6 +11244,19 @@ onBeforeUnmount(() => {
     align-items: start;
   }
 
+  .tm-grid--users {
+    overflow: visible;
+  }
+
+  .tm-grid--users > .tm-panel {
+    display: block;
+    overflow: visible;
+  }
+
+  .tm-grid--users > .tm-stack {
+    overflow: visible;
+  }
+
   .tm-state-graph {
     overflow: visible;
   }
@@ -10555,6 +11327,7 @@ onBeforeUnmount(() => {
 
   .tm-create-grid,
   .tm-priority-selector,
+  .tm-checklist-add-templates,
   .tm-checklist-templates {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -11015,7 +11788,7 @@ onBeforeUnmount(() => {
 
   .tm-result-buttons {
     display: grid;
-    grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.78fr) minmax(5.2rem, 1.1fr);
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.85fr) minmax(5.25rem, 1.15fr);
   }
 
   .tm-user-tabs {
@@ -11195,6 +11968,7 @@ onBeforeUnmount(() => {
 
   .tm-create-grid,
   .tm-priority-selector,
+  .tm-checklist-add-templates,
   .tm-checklist-templates,
   .tm-checklist-builder__row {
     grid-template-columns: 1fr;

@@ -2405,6 +2405,63 @@ export async function updateTesterChecklistProgress(
   return serialized;
 }
 
+export async function addTestChangeChecklistItem(
+  actorUserId: string,
+  changeId: string,
+  input: { title: string; details?: string | null; category?: string | null }
+) {
+  await ensureAdmin(actorUserId);
+
+  const title = input.title.trim();
+  const details = input.details?.trim() || null;
+  const category = input.category?.trim() || null;
+  if (!title) {
+    throw new Error('Checklist item title is required.');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const change = await tx.testChange.findUnique({
+      where: { id: changeId },
+      select: {
+        id: true,
+        checklist: {
+          orderBy: { sortOrder: 'desc' },
+          select: { sortOrder: true },
+          take: 1
+        }
+      }
+    });
+    if (!change) {
+      throw new Error('Change not found.');
+    }
+
+    const sortOrder = (change.checklist[0]?.sortOrder ?? -1) + 1;
+    const checklistItem = await tx.testChangeChecklistItem.create({
+      data: {
+        changeId,
+        title,
+        details,
+        category,
+        sortOrder
+      }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: 'Checklist item added',
+      detail: `Checklist item "${checklistItem.title}" was added.`,
+      metadata: {
+        checklistItemId: checklistItem.id,
+        checklistItemTitle: checklistItem.title
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
 export async function saveChangeNote(actorUserId: string, changeId: string, contentHtml: string) {
   const actor = await getCurrentUser(actorUserId);
   if (!actor) {

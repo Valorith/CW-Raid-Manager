@@ -14,6 +14,7 @@ import {
   TEST_MANAGER_PERMISSION_KEYS,
   TEST_MANAGER_ROLE_KEYS,
   type NextPatchChangeView,
+  addTestChangeChecklistItem,
   countNextPatchChanges,
   createTestChange,
   deleteChangeNote,
@@ -425,6 +426,37 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to request testing.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/changes/:changeId/checklist',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({
+        title: z.string().trim().min(1).max(191),
+        details: z.string().trim().max(1000).nullable().optional(),
+        category: z.string().trim().max(80).nullable().optional()
+      });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid checklist item payload.');
+      }
+
+      try {
+        const change = await addTestChangeChecklistItem(
+          request.user.userId,
+          params.data.changeId,
+          body.data
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to add checklist item.'
         );
       }
     }

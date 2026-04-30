@@ -3327,6 +3327,12 @@ export interface CreateTestChangePayload {
   checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
 }
 
+export interface AddTestChangeChecklistItemPayload {
+  title: string;
+  details?: string | null;
+  category?: string | null;
+}
+
 export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'>;
 export type NextPatchChangeView = 'complete' | 'incomplete';
 
@@ -3453,6 +3459,16 @@ export const api = {
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
         checklistItemId
       )}`,
+      payload
+    );
+    return response.data.change;
+  },
+  async addTestChangeChecklistItem(
+    changeId: string,
+    payload: AddTestChangeChecklistItemPayload
+  ): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist`,
       payload
     );
     return response.data.change;
