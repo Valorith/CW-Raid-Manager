@@ -3,12 +3,8 @@
     <header class="app-header">
       <div class="brand">
         <RouterLink :to="brandHomeTo" class="brand__home" :aria-label="`${APP_NAME} home`">
-          <img :src="APP_LOGO_PATH" :alt="brandLabel" class="brand__logo" />
-          <span
-            class="brand__tagline"
-            :class="{ 'brand__tagline--test-manager': isTestManagerSurface }"
-            >{{ brandLabel }}</span
-          >
+          <img :src="APP_LOGO_PATH" :alt="`${APP_NAME} logo`" class="brand__logo" />
+          <span class="brand__tagline">{{ APP_TAGLINE }}</span>
         </RouterLink>
       </div>
       <nav class="nav">
@@ -528,8 +524,6 @@ const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
 const brandHomeTo = computed(() => (authStore.isAuthenticated ? '/dashboard' : '/'));
-const isTestManagerSurface = computed(() => route.path.startsWith('/test-manager'));
-const brandLabel = computed(() => (isTestManagerSurface.value ? 'Test Manager' : APP_TAGLINE));
 
 // Dropdown state for nav menu (hover on fine pointers; tap chevron on touch / no-hover)
 const activeDropdown = ref<string | null>(null);
@@ -950,7 +944,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: inline-grid;
   justify-items: center;
   align-content: center;
-  gap: 0.22rem;
+  gap: 0.32rem;
   color: inherit;
   text-decoration: none;
 }
@@ -976,14 +970,6 @@ function hasRaidStarted(raid: RaidEventSummary) {
   line-height: 1;
   text-align: center;
   white-space: nowrap;
-}
-
-.brand__tagline--test-manager {
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 1rem;
-  letter-spacing: 0;
-  text-transform: none;
-  color: #d9a45f;
 }
 
 .nav {

@@ -1241,6 +1241,10 @@
                   <span class="tm-dot tm-dot--coverage-blocked"></span>Blocked
                   <strong>{{ coverageBlockedPercent }}%</strong>
                 </li>
+                <li>
+                  <span class="tm-dot tm-dot--coverage-uncovered"></span>Uncovered
+                  <strong>{{ coverageUncoveredPercent }}%</strong>
+                </li>
               </ul>
             </div>
           </section>
@@ -3446,14 +3450,7 @@ const userPageNumbers = computed(() =>
 );
 
 const coverageTotal = computed(() => {
-  const metrics = dashboard.value?.metrics;
-  return Math.max(
-    1,
-    (metrics?.passed ?? 0) +
-      (metrics?.failed ?? 0) +
-      (metrics?.blocked ?? 0) +
-      (metrics?.inProgress ?? 0)
-  );
+  return Math.max(1, dashboard.value?.metrics.activeChanges ?? 0);
 });
 const coveragePassedPercent = computed(() =>
   Math.round(((dashboard.value?.metrics.passed ?? 0) / coverageTotal.value) * 100)
@@ -3467,23 +3464,42 @@ const coverageFailedPercent = computed(() =>
 const coverageBlockedPercent = computed(() =>
   Math.round(((dashboard.value?.metrics.blocked ?? 0) / coverageTotal.value) * 100)
 );
+const coverageUncoveredPercent = computed(() => {
+  const metrics = dashboard.value?.metrics;
+  const covered =
+    (metrics?.passed ?? 0) +
+    (metrics?.inProgress ?? 0) +
+    (metrics?.failed ?? 0) +
+    (metrics?.blocked ?? 0);
+  return Math.round(
+    (Math.max(0, (metrics?.activeChanges ?? 0) - covered) / coverageTotal.value) * 100
+  );
+});
 const coverageDonutStyle = computed(() => {
   const metrics = dashboard.value?.metrics;
+  const activeTotal = metrics?.activeChanges ?? 0;
+  const covered =
+    (metrics?.passed ?? 0) +
+    (metrics?.inProgress ?? 0) +
+    (metrics?.failed ?? 0) +
+    (metrics?.blocked ?? 0);
+  const uncovered = Math.max(0, activeTotal - covered);
   const segments = [
     { color: 'var(--tm-green)', count: metrics?.passed ?? 0 },
     { color: 'var(--tm-gold)', count: metrics?.inProgress ?? 0 },
+    { color: 'var(--tm-red)', count: metrics?.failed ?? 0 },
     { color: '#b88cff', count: metrics?.blocked ?? 0 },
-    { color: 'var(--tm-red)', count: metrics?.failed ?? 0 }
+    { color: 'rgba(255, 255, 255, 0.08)', count: uncovered }
   ].filter((segment) => segment.count > 0);
 
-  if (segments.length === 0) {
+  if (activeTotal === 0 || segments.length === 0) {
     return {
       background:
         'radial-gradient(circle, #111 57%, transparent 58%), conic-gradient(from -90deg, rgba(255,255,255,0.08) 0deg 360deg)'
     };
   }
 
-  const total = segments.reduce((sum, segment) => sum + segment.count, 0);
+  const total = activeTotal;
   const gap = segments.length > 1 ? 4 : 0;
   const available = 360 - gap * segments.length;
   let cursor = 0;
@@ -7611,6 +7627,10 @@ onBeforeUnmount(() => {
 
 .tm-dot--coverage-blocked {
   background: #b88cff;
+}
+
+.tm-dot--coverage-uncovered {
+  background: rgba(255, 255, 255, 0.24);
 }
 
 .tm-dot--viewer-testing,
