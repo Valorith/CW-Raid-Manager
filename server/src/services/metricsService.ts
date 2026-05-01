@@ -79,7 +79,7 @@ export interface GuildMetricsPayload {
 
 export interface GuildMetricsOptions {
   guildId: string;
-  start: Date;
+  start?: Date | null;
   end: Date;
 }
 
@@ -91,8 +91,75 @@ function toIsoString(date: Date | null | undefined): IsoDateString | null {
   return iso;
 }
 
+async function findEarliestMetricsDate(guildId: string): Promise<Date | null> {
+  const [earliestAttendanceRaid, earliestLootByCreatedAt, earliestLootByEventTime] =
+    await Promise.all([
+      prisma.raidEvent.findFirst({
+        where: {
+          guildId,
+          attendance: {
+            some: {
+              records: {
+                some: {}
+              }
+            }
+          }
+        },
+        select: {
+          startTime: true
+        },
+        orderBy: {
+          startTime: 'asc'
+        }
+      }),
+      prisma.raidLootEvent.findFirst({
+        where: {
+          guildId
+        },
+        select: {
+          createdAt: true,
+          eventTime: true
+        },
+        orderBy: {
+          createdAt: 'asc'
+        }
+      }),
+      prisma.raidLootEvent.findFirst({
+        where: {
+          guildId,
+          eventTime: {
+            not: null
+          }
+        },
+        select: {
+          eventTime: true
+        },
+        orderBy: {
+          eventTime: 'asc'
+        }
+      })
+    ]);
+
+  const candidates = [
+    earliestAttendanceRaid?.startTime,
+    earliestLootByCreatedAt?.createdAt,
+    earliestLootByEventTime?.eventTime
+  ].filter((date): date is Date => Boolean(date));
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.reduce((earliest, candidate) =>
+    candidate.getTime() < earliest.getTime() ? candidate : earliest
+  );
+}
+
 export async function getGuildMetrics(options: GuildMetricsOptions): Promise<GuildMetricsPayload> {
-  const { guildId, start, end } = options;
+  const { guildId, end } = options;
+  const earliestMetricsDate = await findEarliestMetricsDate(guildId);
+  const start =
+    options.start ?? earliestMetricsDate ?? new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
 
   const attendanceRecordsRaw = await prisma.attendanceRecord.findMany({
     where: {
@@ -246,7 +313,10 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     return mainByUserId.get(userId) ?? [];
   };
 
-  const registerCharacter = (entry: GuildMetricsFilterOptions['characters'][number], key: string) => {
+  const registerCharacter = (
+    entry: GuildMetricsFilterOptions['characters'][number],
+    key: string
+  ) => {
     const existing = uniqueCharacters.get(key);
     if (existing) {
       uniqueCharacters.set(key, {
@@ -282,10 +352,13 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     }
 
     const characterId = record.character?.id ?? record.characterId ?? resolvedByName?.id ?? null;
-    const characterName = record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
+    const characterName =
+      record.character?.name ?? record.characterName ?? resolvedByName?.name ?? '';
     const isMainValue = Boolean(resolvedByName?.isMain ?? record.character?.isMain);
-    const resolvedUserId = record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
-    const resolvedDisplayName = record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
+    const resolvedUserId =
+      record.character?.userId ?? record.character?.user?.id ?? resolvedByName?.userId ?? null;
+    const resolvedDisplayName =
+      record.character?.user?.displayName ?? resolvedByName?.user?.displayName ?? null;
     const resolvedClassFinal = resolvedClass ?? resolvedByName?.class ?? null;
     const effectiveCharacterId = characterId;
     const effectiveCharacterName = characterName;
@@ -326,7 +399,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
         id: effectiveCharacterId,
         name: effectiveCharacterName,
         class: effectiveClass,
-        isMain: effectiveIsMain ? true : record.character?.isMain ?? null,
+        isMain: effectiveIsMain ? true : (record.character?.isMain ?? null),
         userId: effectiveUserId,
         userDisplayName: effectiveDisplayName
       }
@@ -398,62 +471,6 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     raidsTracked: uniqueRaids.size
   };
 
-  let earliestDate: IsoDateString | null = null;
-
-  try {
-    const earliestRaid = await prisma.raidEvent.findFirst({
-      where: {
-        guildId,
-        endedAt: {
-          not: null
-        }
-      },
-      select: {
-        endedAt: true
-      },
-      orderBy: {
-        endedAt: 'asc'
-      }
-    });
-
-    if (earliestRaid?.endedAt) {
-      earliestDate = earliestRaid.endedAt.toISOString();
-    }
-  } catch (error) {
-    // ignore and fall back to attendance events
-  }
-
-  if (!earliestDate) {
-    try {
-      const earliestAttendance = await prisma.attendanceEvent.findFirst({
-        where: {
-          raid: {
-            guildId
-          }
-        },
-        select: {
-          createdAt: true,
-          raid: {
-            select: {
-              startTime: true
-            }
-          }
-        },
-        orderBy: {
-          createdAt: 'asc'
-        }
-      });
-
-      if (earliestAttendance) {
-        earliestDate =
-          earliestAttendance.raid.startTime?.toISOString() ??
-          earliestAttendance.createdAt.toISOString();
-      }
-    } catch (error) {
-      // ignore and fall back to metrics range
-    }
-  }
-
   const filterOptions: GuildMetricsFilterOptions = {
     classes: Array.from(uniqueClasses).sort(),
     characters: Array.from(uniqueCharacters.values()).sort((a, b) => a.name.localeCompare(b.name)),
@@ -472,6 +489,6 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     lootEvents,
     summary,
     filterOptions,
-    earliestRaidDate: earliestDate
+    earliestRaidDate: toIsoString(earliestMetricsDate)
   };
 }

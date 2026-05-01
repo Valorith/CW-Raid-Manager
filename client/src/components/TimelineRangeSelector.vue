@@ -1,5 +1,5 @@
 <template>
-  <section class="timeline" :class="{ 'timeline--disabled': disabled }">
+  <section class="timeline timeline--overview" :class="{ 'timeline--disabled': disabled }">
     <header class="timeline__header">
       <div class="timeline__labels">
         <span class="timeline__label">{{ formatDate(viewStartMs) }}</span>
@@ -8,125 +8,71 @@
       <div class="timeline__summary">
         <slot />
       </div>
-      <div class="timeline__zoom-controls">
+      <div class="timeline__mode">
+        <span class="timeline__mode-filter">All available data</span>
         <button
           type="button"
-          class="timeline__zoom-btn"
-          :disabled="disabled || !canZoomIn"
-          @click="handleZoomIn"
-          aria-label="Zoom in"
+          class="timeline__drill-btn"
+          :disabled="disabled"
+          @click="drillIntoDenseRange"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            <line x1="11" y1="8" x2="11" y2="14" />
-            <line x1="8" y1="11" x2="14" y2="11" />
-          </svg>
-        </button>
-        <span class="timeline__zoom-level">{{ zoomLevelLabel }}</span>
-        <button
-          type="button"
-          class="timeline__zoom-btn"
-          :disabled="disabled || !canZoomOut"
-          @click="handleZoomOut"
-          aria-label="Zoom out"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            <line x1="8" y1="11" x2="14" y2="11" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="timeline__zoom-btn timeline__zoom-btn--reset"
-          :disabled="disabled || isFullyZoomedOut"
-          @click="resetZoom"
-          aria-label="Reset zoom"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
-          </svg>
+          Drill down
         </button>
       </div>
     </header>
 
     <div
       ref="trackRef"
-      class="timeline__track"
+      class="timeline__track timeline__overview-track"
       @pointerdown="handleTrackPointerDown"
-      @wheel.prevent="handleWheel"
     >
-      <div class="timeline__ticks">
-        <span
-          v-for="tick in tickMarkers"
-          :key="tick.date"
-          class="timeline__tick"
-          :style="{ left: `${tick.percent}%` }"
-        >
-          <span class="timeline__tick-label">{{ tick.label }}</span>
-        </span>
-      </div>
-
-      <div class="timeline__daybands">
-        <span
-          v-for="band in dayBands"
-          :key="band.key"
-          class="timeline__dayband"
-          :class="{ 'timeline__dayband--alt': band.alt }"
-          :style="{ left: `${band.left}%`, width: `${band.width}%` }"
-        ></span>
-        <span
-          v-for="band in dayBands"
-          :key="`${band.key}-label`"
-          class="timeline__dayband-label"
-          :style="{ left: `${band.center}%` }"
-        >
-          <span class="timeline__dayband-label-inner">{{ band.label }}</span>
-        </span>
-      </div>
-
-      <div class="timeline__event-range">
-        <span
-          v-for="segment in eventSegments"
-          :key="segment.key"
-          :class="[
-            'timeline__event',
-            { 'timeline__event--active': hoveredEvent?.key === segment.key }
-          ]"
-          :style="{ left: `${segment.left}%`, width: `${segment.width}%` }"
-          role="presentation"
-          tabindex="0"
-          :aria-label="segment.label"
-          @mouseenter="setActiveEvent(segment)"
-          @mouseleave="clearActiveEvent(segment)"
-          @focus="setActiveEvent(segment)"
-          @blur="clearActiveEvent(segment)"
-        >
-          <span
-            v-if="hoveredEvent?.key === segment.key"
-            class="timeline__event-tooltip"
-            role="tooltip"
+      <div class="timeline__overview-frame">
+        <div class="timeline__overview-range-label">
+          <span>{{ formatDate(viewStartMs) }}</span>
+          <strong>{{ overviewRangeLabel }}</strong>
+          <span>{{ formatDate(viewEndMs) }}</span>
+        </div>
+        <div class="timeline__overview-months">
+          <button
+            v-for="bucket in overviewBuckets"
+            :key="bucket.key"
+            type="button"
+            class="timeline__overview-month"
+            :style="{ left: `${bucket.left}%`, width: `${bucket.width}%` }"
+            :aria-label="`Drill into ${bucket.label}`"
+            @pointerdown.stop
+            @click="selectOverviewBucket(bucket)"
           >
-            <strong class="timeline__event-tooltip-title">{{ segment.label }}</strong>
-            <span class="timeline__event-tooltip-row">
-              <span class="timeline__event-tooltip-term">Start</span>
-              <span class="timeline__event-tooltip-value">{{ segment.startLabel }}</span>
-            </span>
-            <span class="timeline__event-tooltip-row">
-              <span class="timeline__event-tooltip-term">End</span>
-              <span class="timeline__event-tooltip-value">{{ segment.endLabel }}</span>
-            </span>
+            {{ bucket.label }}
+          </button>
+        </div>
+        <div class="timeline__overview-bars" aria-hidden="true">
+          <span
+            v-for="bar in overviewActivityBars"
+            :key="bar.key"
+            class="timeline__overview-bar"
+            :style="{ left: `${bar.left}%`, width: `${bar.width}%` }"
+          >
+            <span
+              v-if="bar.raidHeight > 0"
+              class="timeline__overview-bar-segment timeline__overview-bar-segment--raid"
+              :style="{ height: `${bar.raidHeight}%` }"
+            ></span>
+            <span
+              v-if="bar.lootHeight > 0"
+              class="timeline__overview-bar-segment timeline__overview-bar-segment--loot"
+              :style="{ height: `${bar.lootHeight}%` }"
+            ></span>
+            <span
+              v-if="bar.attendanceHeight > 0"
+              class="timeline__overview-bar-segment timeline__overview-bar-segment--attendance"
+              :style="{ height: `${bar.attendanceHeight}%` }"
+            ></span>
           </span>
-        </span>
+        </div>
       </div>
 
-      <div
-        class="timeline__selection"
-        :style="selectionStyle"
-        @pointerdown="handleSelectionPointerDown"
-      >
+      <div class="timeline__selection timeline__selection--overview" :style="selectionStyle">
         <button
           type="button"
           class="timeline__handle timeline__handle--start"
@@ -143,40 +89,49 @@
         ></button>
       </div>
     </div>
+
+    <div class="timeline__overview-legend" aria-label="Overview legend">
+      <span class="timeline__legend-item timeline__legend-item--attendance">Attendance</span>
+      <span class="timeline__legend-item timeline__legend-item--loot">Loot</span>
+      <span class="timeline__legend-item timeline__legend-item--raid">Raids</span>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-type TimelineEventInput = {
-  start: string;
-  end: string;
-  label?: string;
-  startLabel?: string;
-  endLabel?: string;
+type TimelineActivityKind = 'attendance' | 'loot' | 'raid';
+
+type TimelineActivityInput = {
+  timestamp: string;
+  kind: TimelineActivityKind;
 };
 
-type EventSegment = {
+type OverviewBucket = {
+  key: string;
+  startMs: number;
+  endMs: number;
+  label: string;
+  left: number;
+  width: number;
+};
+
+type OverviewActivityBar = {
   key: string;
   left: number;
   width: number;
-  label: string;
-  start: string;
-  end: string;
-  startLabel: string;
-  endLabel: string;
+  total: number;
+  attendanceHeight: number;
+  lootHeight: number;
+  raidHeight: number;
 };
 
-// Time constants for zoom levels
+// Time constants for range calculations
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
-const MS_PER_WEEK = 7 * MS_PER_DAY;
-const MS_PER_MONTH = 30 * MS_PER_DAY;
-const MS_PER_YEAR = 365 * MS_PER_DAY;
-
-// Minimum visible range (1 hour) to prevent over-zooming
-const MIN_VISIBLE_RANGE_MS = MS_PER_HOUR;
+const OVERVIEW_BAR_COUNT = 180;
+const OVERVIEW_DRILL_RANGE_MS = MS_PER_DAY * 30;
 
 // The earliest selectable date: 26 October 2025
 const EARLIEST_DATE_MS = Date.UTC(2025, 9, 26); // Month is 0-indexed
@@ -187,7 +142,7 @@ const props = defineProps<{
   startDate: string;
   endDate: string;
   disabled?: boolean;
-  eventDates?: TimelineEventInput[];
+  activityEvents?: TimelineActivityInput[];
 }>();
 
 const emit = defineEmits<{
@@ -196,14 +151,12 @@ const emit = defineEmits<{
 }>();
 
 const trackRef = ref<HTMLDivElement | null>(null);
-const hoveredEvent = ref<EventSegment | null>(null);
 
-// Full timeline bounds (never changes based on zoom)
+// Full timeline bounds shown by the ribbon.
 const minMs = computed(() => Math.max(parseDate(props.minDate), EARLIEST_DATE_MS));
 const maxMs = computed(() => parseDate(props.maxDate));
 const totalRangeMs = computed(() => Math.max(maxMs.value - minMs.value, 1));
 
-// Zoomed view bounds (what's currently visible)
 const viewStartMs = ref(0);
 const viewEndMs = ref(0);
 
@@ -217,40 +170,12 @@ const dragStartSnapshot = ref<{ start: number; end: number } | null>(null);
 const pointerCaptureEl = ref<HTMLElement | null>(null);
 const activePointerId = ref<number | null>(null);
 
-// The currently visible range in ms
-const viewRangeMs = computed(() => Math.max(viewEndMs.value - viewStartMs.value, 1));
+const activeViewRangeMs = computed(() => Math.max(maxMs.value - minMs.value, 1));
 
-// Zoom level computation
-const zoomRatio = computed(() => totalRangeMs.value / viewRangeMs.value);
-const canZoomIn = computed(() => viewRangeMs.value > MIN_VISIBLE_RANGE_MS);
-const canZoomOut = computed(() => zoomRatio.value > 1.01);
-const isFullyZoomedOut = computed(() => !canZoomOut.value);
-
-// Human-readable zoom level label
-const zoomLevelLabel = computed(() => {
-  const range = viewRangeMs.value;
-  if (range >= MS_PER_YEAR * 2) {
-    const years = Math.round(range / MS_PER_YEAR);
-    return `${years}y`;
-  }
-  if (range >= MS_PER_YEAR) {
-    const months = Math.round(range / MS_PER_MONTH);
-    return `${months}mo`;
-  }
-  if (range >= MS_PER_MONTH) {
-    const months = Math.round(range / MS_PER_MONTH);
-    return `${months}mo`;
-  }
-  if (range >= MS_PER_WEEK) {
-    const weeks = Math.round(range / MS_PER_WEEK);
-    return `${weeks}w`;
-  }
-  if (range >= MS_PER_DAY) {
-    const days = Math.round(range / MS_PER_DAY);
-    return `${days}d`;
-  }
-  const hours = Math.max(1, Math.round(range / MS_PER_HOUR));
-  return `${hours}h`;
+const overviewRangeLabel = computed(() => {
+  const startLabel = formatDate(viewStartMs.value);
+  const endLabel = formatDate(viewEndMs.value);
+  return `${startLabel} — ${endLabel}`;
 });
 
 // Initialize view bounds when props change
@@ -259,90 +184,11 @@ function initializeViewBounds() {
   viewEndMs.value = maxMs.value;
 }
 
-// Zoom in/out with optional focus point (0-1 ratio of track position)
-function zoom(factor: number, focusRatio = 0.5) {
-  const currentRange = viewRangeMs.value;
-  let newRange = currentRange / factor;
-
-  // Clamp to min/max ranges
-  newRange = Math.max(MIN_VISIBLE_RANGE_MS, Math.min(newRange, totalRangeMs.value));
-
-  // Calculate the focus point in ms
-  const focusMs = viewStartMs.value + currentRange * focusRatio;
-
-  // Calculate new bounds centered on focus point
-  let newStart = focusMs - newRange * focusRatio;
-  let newEnd = focusMs + newRange * (1 - focusRatio);
-
-  // Clamp to overall bounds
-  if (newStart < minMs.value) {
-    const shift = minMs.value - newStart;
-    newStart = minMs.value;
-    newEnd = Math.min(newEnd + shift, maxMs.value);
-  }
-  if (newEnd > maxMs.value) {
-    const shift = newEnd - maxMs.value;
-    newEnd = maxMs.value;
-    newStart = Math.max(newStart - shift, minMs.value);
-  }
-
-  viewStartMs.value = newStart;
-  viewEndMs.value = newEnd;
-}
-
-function handleZoomIn() {
-  zoom(1.5, 0.5);
-}
-
-function handleZoomOut() {
-  zoom(0.67, 0.5);
-}
-
-function resetZoom() {
-  initializeViewBounds();
-}
-
-function handleWheel(event: WheelEvent) {
-  if (props.disabled) return;
-
-  const track = trackRef.value;
-  if (!track) return;
-
-  // Calculate focus point based on mouse position
-  const rect = track.getBoundingClientRect();
-  const focusRatio = rect.width === 0 ? 0.5 : (event.clientX - rect.left) / rect.width;
-  const clampedFocus = Math.max(0, Math.min(1, focusRatio));
-
-  // Determine zoom direction and strength
-  // Normalize delta for consistent behavior across browsers/devices
-  const delta = event.deltaY || event.deltaX;
-  const zoomStrength = Math.min(Math.abs(delta) / 100, 0.5) + 0.1;
-
-  if (delta < 0) {
-    // Scroll up = zoom in
-    zoom(1 + zoomStrength, clampedFocus);
-  } else if (delta > 0) {
-    // Scroll down = zoom out
-    zoom(1 / (1 + zoomStrength), clampedFocus);
-  }
-}
-
 // Watch for prop changes and initialize/update bounds
 watch(
   () => [props.minDate, props.maxDate],
   () => {
-    // When overall bounds change, re-initialize view if needed
-    if (viewStartMs.value === 0 || viewEndMs.value === 0) {
-      initializeViewBounds();
-    } else {
-      // Clamp existing view to new bounds
-      viewStartMs.value = Math.max(viewStartMs.value, minMs.value);
-      viewEndMs.value = Math.min(viewEndMs.value, maxMs.value);
-      // Ensure minimum visible range
-      if (viewEndMs.value - viewStartMs.value < MIN_VISIBLE_RANGE_MS) {
-        initializeViewBounds();
-      }
-    }
+    initializeViewBounds();
   },
   { immediate: true }
 );
@@ -365,12 +211,11 @@ watch(
   }
 );
 
-// Use view bounds for calculations instead of full bounds
-const rangeMs = computed(() => viewRangeMs.value);
+const rangeMs = computed(() => activeViewRangeMs.value);
 
 const selectionStyle = computed(() => {
-  const startPercent = ((selectionStartMs.value - viewStartMs.value) / rangeMs.value) * 100;
-  const endPercent = ((selectionEndMs.value - viewStartMs.value) / rangeMs.value) * 100;
+  const startPercent = ((selectionStartMs.value - minMs.value) / rangeMs.value) * 100;
+  const endPercent = ((selectionEndMs.value - minMs.value) / rangeMs.value) * 100;
   const left = Math.min(startPercent, endPercent);
   const width = Math.max(Math.abs(endPercent - startPercent), 0.5);
   // Clamp to visible area
@@ -386,216 +231,100 @@ const selectionStyle = computed(() => {
   };
 });
 
-const tickMarkers = computed(() => {
-  const ticks: Array<{ date: string; percent: number; label: string }> = [];
-  const min = viewStartMs.value;
-  const max = viewEndMs.value;
-  const range = viewRangeMs.value;
+const overviewBuckets = computed<OverviewBucket[]>(() => {
+  const min = minMs.value;
+  const max = maxMs.value;
+  const range = totalRangeMs.value;
+  const buckets: OverviewBucket[] = [];
+  const bucketStarts: number[] = [];
+  const first = new Date(min);
+  let cursor = new Date(first.getFullYear(), first.getMonth(), 1).getTime();
 
-  // Adaptive tick spacing based on visible range
-  let tickInterval: number;
-  if (range <= MS_PER_DAY) {
-    // Less than a day: show hourly ticks
-    tickInterval = MS_PER_HOUR;
-  } else if (range <= MS_PER_WEEK) {
-    // Less than a week: show 6-hour ticks
-    tickInterval = MS_PER_HOUR * 6;
-  } else if (range <= MS_PER_MONTH) {
-    // Less than a month: show daily ticks
-    tickInterval = MS_PER_DAY;
-  } else if (range <= MS_PER_MONTH * 3) {
-    // Less than 3 months: show weekly ticks
-    tickInterval = MS_PER_WEEK;
-  } else if (range <= MS_PER_YEAR) {
-    // Less than a year: show monthly ticks
-    tickInterval = MS_PER_MONTH;
-  } else {
-    // More than a year: show quarterly ticks
-    tickInterval = MS_PER_MONTH * 3;
-  }
-
-  // Minimum pixel spacing between ticks (prevents overcrowding)
-  const minTickSpacingPercent = 3;
-
-  const pushTick = (targetMs: number) => {
-    const clamped = clamp(targetMs, min, max);
-    const percent = ((clamped - min) / range) * 100;
-    const last = ticks[ticks.length - 1];
-    if (last && Math.abs(last.percent - percent) < minTickSpacingPercent) {
-      return;
-    }
-    ticks.push({
-      date: new Date(clamped).toISOString(),
-      percent,
-      label: formatTickLabelAdaptive(targetMs, range)
-    });
-  };
-
-  pushTick(min);
-
-  // Find first aligned tick point after min
-  let cursor = Math.ceil(min / tickInterval) * tickInterval;
   while (cursor < max) {
-    pushTick(cursor);
-    cursor += tickInterval;
+    bucketStarts.push(cursor);
+    const date = new Date(cursor);
+    cursor = new Date(date.getFullYear(), date.getMonth() + 1, 1).getTime();
   }
 
-  pushTick(max);
-
-  return ticks;
-});
-
-const dayBands = computed(() => {
-  const segments: Array<{
-    key: string;
-    left: number;
-    width: number;
-    center: number;
-    alt: boolean;
-    label: string;
-  }> = [];
-  const min = viewStartMs.value;
-  const max = viewEndMs.value;
-  const range = viewRangeMs.value;
-
-  if (max <= min) {
-    return segments;
-  }
-
-  // Adaptive band sizing based on visible range
-  let bandInterval: number;
-  let formatFn: (ms: number) => string;
-
-  if (range <= MS_PER_DAY * 2) {
-    // Less than 2 days: show 6-hour bands
-    bandInterval = MS_PER_HOUR * 6;
-    formatFn = (ms) => formatTimeOnly(ms);
-  } else if (range <= MS_PER_WEEK * 2) {
-    // Less than 2 weeks: show daily bands
-    bandInterval = MS_PER_DAY;
-    formatFn = formatDayLabel;
-  } else if (range <= MS_PER_MONTH * 3) {
-    // Less than 3 months: show weekly bands
-    bandInterval = MS_PER_WEEK;
-    formatFn = (ms) => formatWeekLabel(ms);
-  } else if (range <= MS_PER_YEAR * 2) {
-    // Less than 2 years: show monthly bands
-    bandInterval = MS_PER_MONTH;
-    formatFn = (ms) => formatMonthLabel(ms);
-  } else {
-    // More than 2 years: show quarterly bands
-    bandInterval = MS_PER_MONTH * 3;
-    formatFn = (ms) => formatQuarterLabel(ms);
-  }
-
-  // Align band start to interval boundary
-  let bandStart = Math.floor(min / bandInterval) * bandInterval;
-  let bandIndex = Math.floor(bandStart / bandInterval);
-
-  while (bandStart < max) {
-    const bandEndCandidate = bandStart + bandInterval;
-    const visibleStart = Math.max(bandStart, min);
-    const visibleEnd = Math.min(bandEndCandidate, max);
-    const widthMs = visibleEnd - visibleStart;
-
-    if (widthMs > 0) {
-      const left = ((visibleStart - min) / range) * 100;
-      const width = (widthMs / range) * 100;
-      const center = left + width / 2;
-      segments.push({
-        key: `band-${bandStart}`,
-        left,
-        width,
-        center,
-        label: formatFn(bandStart),
-        alt: bandIndex % 2 === 1
-      });
-    }
-
-    bandStart = bandEndCandidate;
-    bandIndex += 1;
-
-    if (bandStart <= min && bandEndCandidate <= min) {
-      break;
-    }
-  }
-
-  return segments;
-});
-
-const eventSegments = computed<EventSegment[]>(() => {
-  const events = props.eventDates ?? [];
-  const segments: EventSegment[] = [];
-  const min = viewStartMs.value;
-  const max = viewEndMs.value;
-  const range = viewRangeMs.value;
-
-  events.forEach(({ start, end, label, startLabel, endLabel }, idx) => {
-    const startMs = parseDate(start);
-    const endMs = parseDate(end);
-    const eventStart = Math.min(startMs, endMs);
-    const eventEnd = Math.max(startMs, endMs);
-
-    // Skip events entirely outside the view
-    if (eventEnd <= min || eventStart >= max) {
-      return;
-    }
-
-    // Clamp to visible range
-    const clampedStart = clamp(eventStart, min, max);
-    const clampedEnd = clamp(eventEnd, min, max);
-
-    if (clampedEnd <= clampedStart) {
-      return;
-    }
-
-    const left = ((clampedStart - min) / range) * 100;
-    const width = ((clampedEnd - clampedStart) / range) * 100;
-    const finalStartIso = new Date(eventStart).toISOString();
-    const finalEndIso = new Date(eventEnd).toISOString();
-    segments.push({
-      key: `${start}-${end}-${idx}`,
-      left,
-      width,
-      label: label ?? `${formatDateTime(eventStart)} — ${formatDateTime(eventEnd)}`,
-      start: finalStartIso,
-      end: finalEndIso,
-      startLabel: startLabel ?? formatDateTime(eventStart),
-      endLabel: endLabel ?? formatDateTime(eventEnd)
-    });
+  const bucketRanges = bucketStarts.map((startMs, index) => {
+    const nextStart = bucketStarts[index + 1] ?? max;
+    const bucketStart = Math.max(startMs, min);
+    const bucketEnd = Math.min(nextStart, max);
+    return { startMs: bucketStart, endMs: bucketEnd };
   });
 
-  return segments;
+  for (const bucket of bucketRanges) {
+    const date = new Date(bucket.startMs);
+    const left = ((bucket.startMs - min) / range) * 100;
+    const width = Math.max(((bucket.endMs - bucket.startMs) / range) * 100, 0.5);
+    buckets.push({
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      startMs: bucket.startMs,
+      endMs: bucket.endMs,
+      label: date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' }),
+      left,
+      width
+    });
+  }
+
+  return buckets;
 });
 
-watch(
-  () => eventSegments.value,
-  () => {
-    hoveredEvent.value = null;
-  }
-);
+const overviewActivityBars = computed<OverviewActivityBar[]>(() => {
+  const min = minMs.value;
+  const range = totalRangeMs.value;
+  const binWidth = 100 / OVERVIEW_BAR_COUNT;
+  const bins = Array.from({ length: OVERVIEW_BAR_COUNT }, () => ({
+    attendance: 0,
+    loot: 0,
+    raid: 0,
+    total: 0
+  }));
 
-watch(
-  () => props.disabled,
-  (disabled) => {
-    if (disabled) {
-      hoveredEvent.value = null;
+  for (const event of props.activityEvents ?? []) {
+    const eventMs = parseDate(event.timestamp);
+    if (eventMs < minMs.value || eventMs > maxMs.value) {
+      continue;
     }
+    const index = clamp(
+      Math.floor(((eventMs - min) / range) * OVERVIEW_BAR_COUNT),
+      0,
+      OVERVIEW_BAR_COUNT - 1
+    );
+    bins[index][event.kind] += 1;
+    bins[index].total += 1;
   }
-);
 
-function setActiveEvent(segment: EventSegment) {
-  if (props.disabled) {
-    return;
-  }
-  hoveredEvent.value = segment;
-}
+  const maxTotal = Math.max(1, ...bins.map((bin) => bin.total));
 
-function clearActiveEvent(segment: EventSegment) {
-  if (hoveredEvent.value?.key === segment.key) {
-    hoveredEvent.value = null;
-  }
-}
+  return bins.map((bin, index) => {
+    if (bin.total === 0) {
+      return {
+        key: `overview-bar-${index}`,
+        left: index * binWidth,
+        width: Math.max(binWidth * 0.72, 0.12),
+        total: 0,
+        attendanceHeight: 0,
+        lootHeight: 0,
+        raidHeight: 0
+      };
+    }
+
+    const totalHeight = 9 + (bin.total / maxTotal) * 78;
+    return {
+      key: `overview-bar-${index}`,
+      left: index * binWidth,
+      width: Math.max(binWidth * 0.74, 0.12),
+      total: bin.total,
+      attendanceHeight: Math.max(
+        (bin.attendance / bin.total) * totalHeight,
+        bin.attendance > 0 ? 2.8 : 0
+      ),
+      lootHeight: Math.max((bin.loot / bin.total) * totalHeight, bin.loot > 0 ? 2.8 : 0),
+      raidHeight: Math.max((bin.raid / bin.total) * totalHeight, bin.raid > 0 ? 3.5 : 0)
+    };
+  });
+});
 
 function moveHandleToBoundary(target: 'start' | 'end') {
   if (props.disabled) {
@@ -618,7 +347,6 @@ function handleHandlePointerDown(mode: 'start' | 'end', event: PointerEvent) {
     return;
   }
   event.preventDefault();
-  hoveredEvent.value = null;
   beginDrag(mode, event);
 }
 
@@ -630,17 +358,7 @@ function handleTrackPointerDown(event: PointerEvent) {
     return;
   }
   event.preventDefault();
-  hoveredEvent.value = null;
   const pointerMs = positionFromEvent(event);
-  const selectionStart = selectionStartMs.value;
-  const selectionEnd = selectionEndMs.value;
-  const lower = Math.min(selectionStart, selectionEnd);
-  const upper = Math.max(selectionStart, selectionEnd);
-
-  if (pointerMs >= lower && pointerMs <= upper) {
-    beginDrag('range', event);
-    return;
-  }
 
   draggingMode.value = 'new';
   dragAnchorMs.value = pointerMs;
@@ -724,19 +442,61 @@ function handlePointerUp(event: PointerEvent) {
   draggingMode.value = null;
   dragAnchorMs.value = null;
   dragStartSnapshot.value = null;
-  hoveredEvent.value = null;
   removePointerListeners();
   emitSelectionCommit();
 }
 
-function handleSelectionPointerDown(event: PointerEvent) {
+function selectOverviewBucket(bucket: OverviewBucket) {
   if (props.disabled) {
     return;
   }
-  event.stopPropagation();
-  event.preventDefault();
-  hoveredEvent.value = null;
-  beginDrag('range', event);
+  selectionStartMs.value = clamp(bucket.startMs, minMs.value, maxMs.value);
+  selectionEndMs.value = clamp(bucket.endMs, minMs.value, maxMs.value);
+  ensureOrder();
+  emitSelectionUpdate();
+  emitSelectionCommit();
+}
+
+function drillIntoDenseRange() {
+  if (props.disabled) {
+    return;
+  }
+
+  const windowMs = Math.min(OVERVIEW_DRILL_RANGE_MS, totalRangeMs.value);
+  const candidates = (props.activityEvents ?? [])
+    .map((event) => parseDate(event.timestamp))
+    .filter((eventMs) => eventMs >= minMs.value && eventMs <= maxMs.value)
+    .sort((a, b) => a - b);
+
+  if (candidates.length === 0) {
+    selectionStartMs.value = Math.max(minMs.value, maxMs.value - windowMs);
+    selectionEndMs.value = maxMs.value;
+  } else {
+    let bestStart = candidates[0];
+    let bestCount = 0;
+    let endIndex = 0;
+
+    for (let startIndex = 0; startIndex < candidates.length; startIndex += 1) {
+      const start = candidates[startIndex];
+      const end = start + windowMs;
+      while (endIndex < candidates.length && candidates[endIndex] <= end) {
+        endIndex += 1;
+      }
+      const count = endIndex - startIndex;
+      if (count > bestCount) {
+        bestCount = count;
+        bestStart = start;
+      }
+    }
+
+    const nextStart = clamp(bestStart, minMs.value, Math.max(minMs.value, maxMs.value - windowMs));
+    selectionStartMs.value = nextStart;
+    selectionEndMs.value = Math.min(maxMs.value, nextStart + windowMs);
+  }
+
+  ensureOrder();
+  emitSelectionUpdate();
+  emitSelectionCommit();
 }
 
 function addPointerListeners() {
@@ -755,6 +515,7 @@ onMounted(() => {
   selectionStartMs.value = clampMs(selectionStartMs.value);
   selectionEndMs.value = clampMs(selectionEndMs.value);
   ensureOrder();
+  initializeViewBounds();
 });
 
 onBeforeUnmount(() => {
@@ -788,13 +549,12 @@ function emitSelectionCommit() {
 function positionFromEvent(event: PointerEvent): number {
   const track = trackRef.value;
   if (!track) {
-    return viewStartMs.value;
+    return minMs.value;
   }
   const rect = track.getBoundingClientRect();
   const ratio = rect.width === 0 ? 0 : (event.clientX - rect.left) / rect.width;
   const clamped = Math.max(0, Math.min(1, ratio));
-  // Map position to view bounds, but clamp result to full bounds
-  const positionMs = viewStartMs.value + clamped * viewRangeMs.value;
+  const positionMs = minMs.value + clamped * activeViewRangeMs.value;
   return clamp(positionMs, minMs.value, maxMs.value);
 }
 
@@ -819,60 +579,6 @@ function formatDate(msOrIso: number | string): string {
   return formatDateReadable(ms);
 }
 
-function formatDayLabel(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric'
-  });
-}
-
-function formatTimeOnly(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
-function formatWeekLabel(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric'
-  });
-}
-
-function formatMonthLabel(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    year: 'numeric'
-  });
-}
-
-function formatQuarterLabel(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const quarter = Math.floor(date.getMonth() / 3) + 1;
-  return `Q${quarter} ${date.getFullYear()}`;
-}
-
 function formatDateReadable(ms: number): string {
   const date = new Date(ms);
   if (Number.isNaN(date.getTime())) {
@@ -885,56 +591,8 @@ function formatDateReadable(ms: number): string {
   });
 }
 
-function formatTickLabelAdaptive(ms: number, range: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  // Adapt format based on visible range
-  if (range <= MS_PER_DAY) {
-    // Show time for sub-day ranges
-    return date.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-  if (range <= MS_PER_WEEK * 2) {
-    // Show day and month for up to 2 weeks
-    return date.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric'
-    });
-  }
-  if (range <= MS_PER_MONTH * 6) {
-    // Show month and day for up to 6 months
-    return date.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric'
-    });
-  }
-  // Show month and year for longer ranges
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    year: 'numeric'
-  });
-}
-
 function nearlyEqual(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.5;
-}
-
-function formatDateTime(ms: number): string {
-  const date = new Date(ms);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
 }
 </script>
 
@@ -994,178 +652,187 @@ function formatDateTime(ms: number): string {
   cursor: crosshair;
 }
 
-.timeline__ticks {
+.timeline__overview-track {
+  height: 118px;
+  border-radius: 0.65rem;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(14, 165, 233, 0.08), rgba(59, 130, 246, 0.06)),
+    linear-gradient(180deg, rgba(8, 25, 52, 0.96), rgba(7, 23, 48, 0.9));
+  border-color: rgba(56, 189, 248, 0.9);
+  box-shadow:
+    inset 0 0 0 1px rgba(14, 165, 233, 0.22),
+    0 0 0 1px rgba(14, 165, 233, 0.18),
+    0 0 24px rgba(14, 165, 233, 0.18);
+}
+
+.timeline__overview-track::before {
+  content: '';
+  position: absolute;
+  inset: 34px 0 20px;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      rgba(125, 211, 252, 0.08) 0,
+      rgba(125, 211, 252, 0.08) 1px,
+      transparent 1px,
+      transparent 8px
+    ),
+    linear-gradient(180deg, rgba(14, 165, 233, 0.12), transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.timeline__overview-frame {
   position: absolute;
   inset: 0;
+  padding: 0.65rem 0.8rem 0.75rem;
+  z-index: 4;
   pointer-events: none;
 }
 
-.timeline__tick {
+.timeline__overview-range-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+  color: rgba(226, 232, 240, 0.66);
+}
+
+.timeline__overview-range-label strong {
+  font-size: 0.64rem;
+  color: rgba(226, 232, 240, 0.9);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.timeline__overview-range-label span:last-child {
+  text-align: right;
+}
+
+.timeline__overview-months {
+  position: absolute;
+  left: 0.8rem;
+  right: 0.8rem;
+  top: 2.35rem;
+  height: 1rem;
+}
+
+.timeline__overview-month {
   position: absolute;
   top: 0;
-  transform: translateX(-50%);
-  height: 100%;
+  height: 1rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(191, 219, 254, 0.72);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-align: center;
+  text-transform: uppercase;
+  cursor: pointer;
+  overflow: hidden;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.timeline__overview-month:hover,
+.timeline__overview-month:focus-visible {
+  color: #e0f2fe;
+  outline: none;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+}
+
+.timeline__overview-bars {
+  position: absolute;
+  left: 0.8rem;
+  right: 0.8rem;
+  bottom: 0.85rem;
+  height: 58px;
+  pointer-events: none;
+}
+
+.timeline__overview-bars::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(125, 211, 252, 0.4);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.28);
+}
+
+.timeline__overview-bar {
+  position: absolute;
+  bottom: 1px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-}
-
-.timeline__tick::before {
-  content: '';
-  width: 2px;
+  justify-content: flex-end;
   height: 100%;
-  background: linear-gradient(to bottom, rgba(148, 163, 184, 0.32), rgba(148, 163, 184, 0.18));
-  box-shadow:
-    0 0 6px rgba(148, 163, 184, 0.18),
-    0 0 1px rgba(148, 163, 184, 0.35);
+  min-width: 1px;
+  max-width: 5px;
+  overflow: hidden;
+  opacity: 0.92;
 }
 
-.timeline__tick::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(148, 163, 184, 0.55);
-  box-shadow: 0 0 8px rgba(148, 163, 184, 0.45);
+.timeline__overview-bar-segment {
+  display: block;
+  width: 100%;
+  min-height: 1px;
 }
 
-.timeline__tick-label {
-  position: absolute;
-  top: 100%;
-  transform: translate(-50%, 0.35rem);
-  font-size: 0.7rem;
-  white-space: nowrap;
-  color: rgba(226, 232, 240, 0.62);
-  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.9);
+.timeline__overview-bar-segment--attendance {
+  background: linear-gradient(to top, rgba(14, 165, 233, 0.7), rgba(125, 211, 252, 0.95));
+  box-shadow: 0 0 5px rgba(56, 189, 248, 0.35);
 }
 
-.timeline__daybands {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
+.timeline__overview-bar-segment--loot {
+  background: linear-gradient(to top, rgba(217, 119, 6, 0.85), rgba(251, 191, 36, 0.95));
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.45);
 }
 
-.timeline__dayband {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  background: rgba(148, 163, 184, 0.06);
+.timeline__overview-bar-segment--raid {
+  background: linear-gradient(to top, rgba(124, 58, 237, 0.78), rgba(196, 181, 253, 0.92));
+  box-shadow: 0 0 6px rgba(167, 139, 250, 0.38);
 }
 
-.timeline__dayband--alt {
-  background: rgba(148, 163, 184, 0.1);
+.timeline__overview-legend {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 1rem;
+  margin-top: -0.25rem;
+  font-size: 0.62rem;
+  color: rgba(226, 232, 240, 0.72);
 }
 
-.timeline__dayband-label {
-  position: absolute;
-  top: -1.65rem;
-  transform: translateX(-50%);
-  pointer-events: none;
-  z-index: 4;
-  white-space: nowrap;
-}
-
-.timeline__dayband-label-inner {
+.timeline__legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.15rem 0.55rem;
-  font-size: 0.62rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  color: rgba(226, 232, 240, 0.85);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.35);
+  gap: 0.35rem;
 }
 
-.timeline__event-range {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: auto;
-  display: block;
+.timeline__legend-item::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 2px;
 }
 
-.timeline__event {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.18), rgba(249, 115, 22, 0.4));
-  pointer-events: auto;
-  border-radius: inherit;
-  cursor: pointer;
-  transition:
-    background 0.18s ease,
-    box-shadow 0.18s ease,
-    filter 0.18s ease;
+.timeline__legend-item--attendance::before {
+  background: #38bdf8;
 }
 
-.timeline__event:hover,
-.timeline__event:focus-visible,
-.timeline__event--active {
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.32), rgba(249, 115, 22, 0.6));
-  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.3);
-  outline: none;
+.timeline__legend-item--loot::before {
+  background: #f59e0b;
 }
 
-.timeline__event:focus-visible {
-  box-shadow:
-    inset 0 0 0 1px rgba(249, 115, 22, 0.55),
-    0 0 0 2px rgba(249, 115, 22, 0.35);
-}
-
-.timeline__event-tooltip {
-  position: absolute;
-  top: -0.75rem;
-  left: 50%;
-  transform: translate(-50%, -100%) translateY(-0.35rem);
-  min-width: 12rem;
-  background: rgba(15, 23, 42, 0.94);
-  border: 1px solid rgba(249, 115, 22, 0.35);
-  padding: 0.4rem 0.6rem;
-  border-radius: 0.65rem;
-  font-size: 0.68rem;
-  color: #fed7aa;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  pointer-events: none;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.45);
-  z-index: 6;
-}
-
-.timeline__event-tooltip-title {
-  font-weight: 600;
-  font-size: 0.72rem;
-  color: #fed7aa;
-  white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.6);
-}
-
-.timeline__event-tooltip-row {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  white-space: nowrap;
-}
-
-.timeline__event-tooltip-term {
-  font-size: 0.58rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(226, 232, 240, 0.7);
-}
-
-.timeline__event-tooltip-value {
-  font-size: 0.68rem;
-  color: #e2e8f0;
+.timeline__legend-item--raid::before {
+  background: #a78bfa;
 }
 
 .timeline__selection {
@@ -1189,6 +856,22 @@ function formatDateTime(ms: number): string {
   box-shadow: 0 6px 16px rgba(14, 165, 233, 0.22);
   pointer-events: none;
   z-index: 1;
+}
+
+.timeline__selection--overview {
+  height: 86px;
+  top: 58% !important;
+  border-radius: 0.5rem;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.timeline__selection--overview::before {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(56, 189, 248, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(125, 211, 252, 0.24),
+    0 0 18px rgba(14, 165, 233, 0.24);
 }
 
 .timeline__handle {
@@ -1231,99 +914,68 @@ function formatDateTime(ms: number): string {
   transform: translate(-50%, -50%);
 }
 
-.timeline__zoom-controls {
-  display: flex;
+.timeline__mode {
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.45rem;
   margin-left: auto;
   padding-left: 1rem;
 }
 
-.timeline__zoom-btn {
-  display: flex;
+.timeline__mode-filter {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(125, 211, 252, 0.9);
+  white-space: nowrap;
+}
+
+.timeline__mode-filter::after {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 0.35rem;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid currentColor;
+  vertical-align: middle;
+}
+
+.timeline__drill-btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.6);
-  color: rgba(226, 232, 240, 0.85);
+  min-height: 28px;
+  padding: 0 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 0.4rem;
+  background: rgba(15, 23, 42, 0.58);
+  color: rgba(226, 232, 240, 0.86);
+  font-size: 0.66rem;
+  font-weight: 700;
   cursor: pointer;
   transition:
     background 0.15s ease,
     border-color 0.15s ease,
-    color 0.15s ease,
-    transform 0.1s ease;
+    color 0.15s ease;
 }
 
-.timeline__zoom-btn svg {
-  width: 14px;
-  height: 14px;
+.timeline__drill-btn:hover:not(:disabled),
+.timeline__drill-btn:focus-visible {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #e0f2fe;
+  outline: none;
 }
 
-.timeline__zoom-btn:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.25);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: rgba(226, 232, 240, 1);
-  transform: scale(1.05);
-}
-
-.timeline__zoom-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.timeline__zoom-btn:disabled {
-  opacity: 0.35;
+.timeline__drill-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
-}
-
-.timeline__zoom-btn--reset {
-  margin-left: 0.25rem;
-}
-
-.timeline__zoom-level {
-  font-size: 0.68rem;
-  font-weight: 500;
-  min-width: 2.5rem;
-  text-align: center;
-  color: rgba(148, 163, 184, 0.9);
-  letter-spacing: 0.02em;
-  padding: 0.15rem 0.35rem;
-  background: rgba(15, 23, 42, 0.4);
-  border-radius: 4px;
-  border: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 @media (max-width: 640px) {
   .timeline {
     padding: 0.85rem 1rem;
-  }
-
-  .timeline__tick-label {
-    display: none;
-  }
-
-  .timeline__zoom-controls {
-    position: absolute;
-    right: 0;
-    top: -0.25rem;
-    padding-left: 0;
-  }
-
-  .timeline__zoom-level {
-    display: none;
-  }
-
-  .timeline__zoom-btn {
-    width: 22px;
-    height: 22px;
-  }
-
-  .timeline__zoom-btn svg {
-    width: 12px;
-    height: 12px;
   }
 }
 </style>

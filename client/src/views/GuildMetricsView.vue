@@ -52,7 +52,7 @@
         :start-date="currentRangeIso.start"
         :end-date="currentRangeIso.end"
         :disabled="loading"
-        :event-dates="timelineEventDates"
+        :activity-events="timelineActivityEvents"
         @update="handleTimelinePreview"
         @commit="handleTimelineCommit"
       >
@@ -971,11 +971,9 @@ import {
   type AttendanceMetricRecord,
   type GuildMetrics,
   type GuildMetricsQuery,
-  type GuildMetricsSummary,
   type LootMetricEvent,
   type MetricsCharacterOption,
-  type GuildPermissions,
-  type UserCharacter
+  type GuildPermissions
 } from '../services/api';
 import {
   characterClassLabels,
@@ -1030,7 +1028,6 @@ const route = useRoute();
 const guildId = computed(() => route.params.guildId as string);
 const guildBankStore = useGuildBankStore();
 const tooltipStore = useItemTooltipStore();
-const userCharacters = ref<UserCharacter[]>([]);
 
 function openInventory(characterName: string, _currentGuildId?: string) {
   if (!guildId.value) return;
@@ -1102,8 +1099,11 @@ const searchResultsHover = ref(false);
 const activeSearchIndex = ref(-1);
 const searchDropdownSuppressed = ref(false);
 const ignoreNextSearchQueryReset = ref(false);
-const globalSummary = ref<GuildMetricsSummary | null>(null);
-const globalTimeline = ref<{ minMs: number; markers: Map<string, TimelineMarker> } | null>(null);
+const globalTimeline = ref<{
+  minMs: number;
+  markers: Map<string, TimelineMarker>;
+  activityEvents: Map<string, TimelineActivityEvent>;
+} | null>(null);
 const maximizedCard = ref<MaximizableCard | null>(null);
 const showMemberAttendanceModal = ref(false);
 const selectedMemberAttendanceKey = ref<string | null>(null);
@@ -3180,6 +3180,13 @@ interface TimelineMarkerWithMs extends TimelineMarker {
   endMs: number;
 }
 
+type TimelineActivityKind = 'attendance' | 'loot' | 'raid';
+
+interface TimelineActivityEvent {
+  timestamp: string;
+  kind: TimelineActivityKind;
+}
+
 const filteredAttendanceRecordsBase = computed<AttendanceMetricRecord[]>(() => {
   const currentMetrics = metrics.value;
   if (!currentMetrics) {
@@ -5073,7 +5080,7 @@ const recentLootEvents = computed(() => {
 
 const summaryCards = computed(() => {
   const metricData = metrics.value;
-  const summary = globalSummary.value ?? metricData?.summary;
+  const summary = metricData?.summary;
   if (!summary || !metricData) {
     return [] as Array<{ label: string; value: number }>;
   }
@@ -5362,6 +5369,40 @@ const timelineEventDates = computed<
     }));
 });
 
+const timelineActivityEvents = computed<TimelineActivityEvent[]>(() => {
+  const globalEvents = globalTimeline.value?.activityEvents;
+  if (globalEvents && globalEvents.size > 0) {
+    return Array.from(globalEvents.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  }
+
+  if (!metrics.value) {
+    return [];
+  }
+
+  const events: TimelineActivityEvent[] = [];
+
+  for (const record of metrics.value.attendanceRecords) {
+    if (record.timestamp) {
+      events.push({ timestamp: record.timestamp, kind: 'attendance' });
+    }
+  }
+
+  for (const event of normalizedLootEvents.value) {
+    const timestamp = eventPrimaryTimestamp(event);
+    if (timestamp) {
+      events.push({ timestamp, kind: 'loot' });
+    }
+  }
+
+  for (const marker of timelineEventDates.value) {
+    if (marker.start) {
+      events.push({ timestamp: marker.start, kind: 'raid' });
+    }
+  }
+
+  return events;
+});
+
 function createTimelineMarker(startIso: string, endIso: string, label?: string): TimelineMarker {
   return {
     start: startIso,
@@ -5409,44 +5450,6 @@ async function ensureGuildName() {
   }
 }
 
-onMounted(async () => {
-  if (!guildId.value) {
-    error.value = 'Guild ID is missing.';
-    return;
-  }
-  loading.value = true;
-  try {
-    const now = new Date();
-    const defaultEndDate = now.toISOString();
-    const defaultStartDate = new Date(
-      now.getFullYear(),
-      now.getMonth() - 1,
-      now.getDate()
-    ).toISOString();
-
-    const [metricsData, charactersData] = await Promise.all([
-      api.fetchGuildMetrics(guildId.value, {
-        startDate: defaultStartDate,
-        endDate: defaultEndDate
-      }),
-      api.fetchUserCharacters()
-    ]);
-    metrics.value = metricsData;
-    userCharacters.value = charactersData;
-
-    updateGlobalTimeline(metricsData);
-    rangeForm.start = metricsData.range.start;
-    rangeForm.end = metricsData.range.end;
-    globalSummary.value = { ...metricsData.summary };
-    lastSubmittedQuery.value = { startDate: defaultStartDate, endDate: defaultEndDate };
-    syncFiltersWithOptions();
-  } catch (err: any) {
-    error.value = err?.message ?? 'Failed to load metrics.';
-  } finally {
-    loading.value = false;
-  }
-});
-
 async function loadMetrics(params?: GuildMetricsQuery) {
   if (!guildId.value) {
     return;
@@ -5466,9 +5469,6 @@ async function loadMetrics(params?: GuildMetricsQuery) {
       const maxIso = bounds?.max ?? new Date().toISOString();
       rangeForm.start = minIso;
       rangeForm.end = maxIso;
-    }
-    if (!globalSummary.value) {
-      globalSummary.value = { ...result.summary };
     }
     lastSubmittedQuery.value = params ? { ...params } : undefined;
     syncFiltersWithOptions();
@@ -5582,6 +5582,7 @@ function handleTimelineCommit(range: { start: string; end: string }) {
 function updateGlobalTimeline(result: GuildMetrics) {
   const previous = globalTimeline.value;
   const markers = new Map<string, TimelineMarker>(previous?.markers ?? []);
+  const activityEvents = new Map<string, TimelineActivityEvent>(previous?.activityEvents ?? []);
   const nowMs = Date.now();
 
   for (const [key, marker] of Array.from(markers.entries())) {
@@ -5631,6 +5632,12 @@ function updateGlobalTimeline(result: GuildMetrics) {
 
     considerMinFallbacks(record.timestamp);
     considerMinFallbacks(record.raid.startTime);
+    if (record.timestamp) {
+      activityEvents.set(`attendance:${record.id}`, {
+        timestamp: record.timestamp,
+        kind: 'attendance'
+      });
+    }
 
     const candidateStarts = [record.raid.startTime, record.timestamp];
     for (const candidate of candidateStarts) {
@@ -5677,10 +5684,21 @@ function updateGlobalTimeline(result: GuildMetrics) {
     const finalLabel = label ?? existing?.label;
 
     markers.set(raidId, createTimelineMarker(finalStartIso, finalEndIso, finalLabel));
+    activityEvents.set(`raid:${raidId}`, {
+      timestamp: finalStartIso,
+      kind: 'raid'
+    });
   }
 
   for (const event of result.lootEvents) {
-    considerMinFallbacks(eventPrimaryTimestamp(event));
+    const timestamp = eventPrimaryTimestamp(event);
+    considerMinFallbacks(timestamp);
+    if (timestamp) {
+      activityEvents.set(`loot:${event.id}`, {
+        timestamp,
+        kind: 'loot'
+      });
+    }
   }
 
   considerMinFallbacks(result.earliestRaidDate, true);
@@ -5710,7 +5728,8 @@ function updateGlobalTimeline(result: GuildMetrics) {
 
   globalTimeline.value = {
     minMs,
-    markers
+    markers,
+    activityEvents
   };
 }
 
@@ -5901,7 +5920,6 @@ watch(
     if (next && next !== prev) {
       resetFilters();
       lastSubmittedQuery.value = undefined;
-      globalSummary.value = null;
       void loadMetrics();
     }
   }

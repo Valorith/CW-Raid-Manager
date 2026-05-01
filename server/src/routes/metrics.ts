@@ -59,11 +59,9 @@ export async function guildMetricsRoutes(server: FastifyInstance): Promise<void>
 
     const now = new Date();
     const end = parsedEnd ? adjustEndOfDay(parsedEnd, endOriginal) : now;
-    const start = parsedStart
-      ? parsedStart
-      : new Date(end.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const start = parsedStart ?? undefined;
 
-    if (start.getTime() > end.getTime()) {
+    if (start && start.getTime() > end.getTime()) {
       return reply.badRequest('startDate must be before endDate.');
     }
 

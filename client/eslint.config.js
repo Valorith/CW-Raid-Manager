@@ -1,28 +1,61 @@
 import js from '@eslint/js';
-import skipFormatting from '@vue/eslint-config-prettier/skip-formatting';
-import {
-  defineConfigWithVueTs,
-  vueTsConfigs
-} from '@vue/eslint-config-typescript';
+import tsPlugin from '@typescript-eslint/eslint-plugin';
+import tsParser from '@typescript-eslint/parser';
+import eslintConfigPrettier from 'eslint-config-prettier';
 import pluginVue from 'eslint-plugin-vue';
 import globals from 'globals';
+import vueParser from 'vue-eslint-parser';
 
-export default defineConfigWithVueTs(
+const typeScriptFiles = ['**/*.{ts,tsx,vue}'];
+const skipFormatting = {
+  rules: {
+    ...eslintConfigPrettier.rules,
+    'prettier/prettier': 'off'
+  }
+};
+
+export default [
   {
     ignores: ['dist/**', 'node_modules/**']
   },
+  js.configs.recommended,
+  ...pluginVue.configs['flat/essential'],
   {
-    files: ['**/*.{ts,tsx,vue}'],
+    files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       globals: globals.browser,
+      parser: tsParser,
       sourceType: 'module'
     }
   },
-  js.configs.recommended,
-  pluginVue.configs['flat/essential'],
-  vueTsConfigs.recommended,
   {
+    files: ['**/*.vue'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      globals: globals.browser,
+      parser: vueParser,
+      parserOptions: {
+        extraFileExtensions: ['.vue'],
+        parser: tsParser,
+        sourceType: 'module'
+      },
+      sourceType: 'module'
+    }
+  },
+  {
+    files: typeScriptFiles,
+    plugins: {
+      '@typescript-eslint': tsPlugin
+    },
+    rules: {
+      ...tsPlugin.configs.recommended.rules,
+      'no-undef': 'off',
+      'no-unused-vars': 'off'
+    }
+  },
+  {
+    files: typeScriptFiles,
     rules: {
       '@typescript-eslint/no-empty-object-type': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
@@ -42,4 +75,4 @@ export default defineConfigWithVueTs(
     }
   },
   skipFormatting
-);
+];
