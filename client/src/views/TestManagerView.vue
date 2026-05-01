@@ -72,7 +72,7 @@
                   <title id="test-state-graph-title">Test Manager state trend</title>
                   <desc id="test-state-graph-desc">
                     Multi-line chart comparing active changes, awaiting pickup, in-progress tests,
-                    and risk pressure across the last seven days.
+                    and at-risk changes across the last seven days.
                   </desc>
                   <defs>
                     <filter id="tm-state-line-glow" x="-30%" y="-30%" width="160%" height="160%">
@@ -528,6 +528,21 @@
                       by @{{ activeChange.githubPullRequest.metadata.authorLogin }}
                     </template>
                   </p>
+                  <div
+                    v-if="githubPrMergedAt(activeChange.githubPullRequest)"
+                    class="tm-github-pr-panel__merged"
+                  >
+                    <span class="tm-github-pr-panel__merged-icon" aria-hidden="true"></span>
+                    <div>
+                      <strong>Merged</strong>
+                      <time
+                        :datetime="githubPrMergedAt(activeChange.githubPullRequest) || undefined"
+                      >
+                        {{ githubPrMergedAtLabel(activeChange.githubPullRequest) }}
+                      </time>
+                    </div>
+                    <small>{{ githubPrMergedAtRelative(activeChange.githubPullRequest) }}</small>
+                  </div>
                 </div>
                 <div class="tm-github-pr-panel__metrics">
                   <span>
@@ -940,7 +955,8 @@
             </small>
           </button>
           <p v-if="!canUseTesterControls" class="tm-inspector-hint">
-            Tester input unlocks when you are actively testing this change.
+            Result controls unlock when you are actively testing this change. Notes can still be
+            added while the change is open.
           </p>
           <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
 
@@ -1337,14 +1353,18 @@
                 class="tm-permission-toggle"
                 :class="{
                   'tm-permission-toggle--checked': hasRolePermission(role.key, permission.key),
-                  'tm-permission-toggle--disabled': !authStore.isAdmin || settingsSaving
+                  'tm-permission-toggle--disabled':
+                    !authStore.isAdmin || settingsSaving || isRolePermissionLocked(role.key),
+                  'tm-permission-toggle--locked': isRolePermissionLocked(role.key)
                 }"
                 :aria-label="`${role.label} ${permission.label}`"
               >
                 <input
                   type="checkbox"
                   :checked="hasRolePermission(role.key, permission.key)"
-                  :disabled="!authStore.isAdmin || settingsSaving"
+                  :disabled="
+                    !authStore.isAdmin || settingsSaving || isRolePermissionLocked(role.key)
+                  "
                   @change="
                     toggleRolePermission(
                       role.key,
@@ -2202,10 +2222,10 @@
           <button type="button" class="tm-icon-btn" @click="closeNotesModal">×</button>
         </div>
 
-        <template v-if="canUseTesterControls">
+        <template v-if="canAddTestingNote">
           <RichTextEditor ref="notesEditor" />
         </template>
-        <div v-if="canUseTesterControls" class="tm-quick-notes" aria-label="Quick notes">
+        <div v-if="canAddTestingNote" class="tm-quick-notes" aria-label="Quick notes">
           <button type="button" @click="applyQuickNote('Works as expected')">
             Works as expected
           </button>
@@ -2257,7 +2277,7 @@
         <div class="tm-note-actions">
           <button type="button" class="tm-btn tm-btn--ghost" @click="closeNotesModal">Close</button>
           <button
-            v-if="canUseTesterControls"
+            v-if="canAddTestingNote"
             type="submit"
             class="tm-btn tm-btn--primary tm-note-save"
           >
@@ -2632,6 +2652,7 @@ const permissionColumns = [
   { key: 'settings', label: 'Settings', icon: '⚙' }
 ] as const;
 type TestManagerPermissionKey = (typeof permissionColumns)[number]['key'];
+const ADMIN_TEST_MANAGER_PERMISSIONS = permissionColumns.map((permission) => permission.key);
 const discordNotificationEvents: Array<{
   key: TestManagerDiscordEventKey;
   label: string;
@@ -2838,7 +2859,10 @@ function cloneSettings(value: TestManagerSettings): TestManagerSettings {
   return {
     roles: value.roles.map((role) => ({
       ...role,
-      permissions: [...role.permissions]
+      permissions:
+        role.key === 'ADMIN'
+          ? orderedPermissions(ADMIN_TEST_MANAGER_PERMISSIONS)
+          : [...role.permissions]
     })),
     discordNotifications: {
       enabled: value.discordNotifications?.enabled ?? false,
@@ -2953,6 +2977,9 @@ const isActivelyTestingViewer = computed(
     !activeViewerTester.value.result
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
+const canAddTestingNote = computed(() =>
+  Boolean(activeChange.value && activeChange.value.status !== 'CLOSED')
+);
 const showClosedNextPatchPrompt = computed(() => {
   const change = activeChange.value;
   return Boolean(
@@ -3252,7 +3279,7 @@ const testStateGraphRawSeries = computed(() => {
     },
     {
       key: 'risk',
-      label: 'Risk pressure',
+      label: 'P1/fail/block',
       color: '#ff6b55',
       values: riskValues
     }
@@ -3358,12 +3385,12 @@ const testStateGraphInsights = computed(() => {
       detail: `${metrics?.inProgress ?? 0} testing / ${metrics?.awaitingTest ?? 0} awaiting`
     },
     {
-      label: 'Risk signal',
+      label: 'At-risk changes',
       value: riskCount,
       detail:
         riskCount === 0
-          ? 'no failed, blocked, or priority-one pressure'
-          : 'priority-one, failed, or blocked pressure'
+          ? 'no priority-one, failed, or blocked changes'
+          : 'priority-one, failed, or blocked changes'
     },
     {
       label: 'Hot component',
@@ -3696,8 +3723,16 @@ async function loadSettings() {
 }
 
 function hasRolePermission(roleKey: string, permissionKey: TestManagerPermissionKey): boolean {
+  if (isRolePermissionLocked(roleKey)) {
+    return true;
+  }
+
   const role = settings.value?.roles.find((item) => item.key === roleKey);
   return Boolean(role?.permissions.includes(permissionKey));
+}
+
+function isRolePermissionLocked(roleKey: string): boolean {
+  return roleKey === 'ADMIN';
 }
 
 function toggleRolePermission(
@@ -3705,7 +3740,7 @@ function toggleRolePermission(
   permissionKey: TestManagerPermissionKey,
   checked: boolean
 ) {
-  if (!authStore.isAdmin || !settings.value) {
+  if (!authStore.isAdmin || !settings.value || isRolePermissionLocked(roleKey)) {
     return;
   }
 
@@ -3765,7 +3800,10 @@ async function saveSettings() {
     const result = await api.updateTestManagerSettings({
       roles: settings.value.roles.map((role) => ({
         key: role.key,
-        permissions: orderedPermissions(role.permissions)
+        permissions:
+          role.key === 'ADMIN'
+            ? orderedPermissions(ADMIN_TEST_MANAGER_PERMISSIONS)
+            : orderedPermissions(role.permissions)
       })),
       discordNotifications: {
         enabled: settings.value.discordNotifications.enabled,
@@ -4417,9 +4455,8 @@ async function saveNote() {
   if (!activeChange.value) {
     return;
   }
-  if (!canUseTesterControls.value) {
-    feedbackError.value =
-      'Tester input is only available while you are actively testing this change.';
+  if (!canAddTestingNote.value) {
+    feedbackError.value = 'Testing notes can only be added while the change is open.';
     notesOpen.value = false;
     return;
   }
@@ -5027,6 +5064,10 @@ function isViewerRequestedPending(change: TestChange) {
 }
 
 function statusLabel(status: string) {
+  if (status === 'SUBMITTED') {
+    return 'Awaiting Test';
+  }
+
   return status
     .replace(/_/g, ' ')
     .toLowerCase()
@@ -5254,6 +5295,20 @@ function githubPrBranchSummary(pullRequest: TestChangePullRequest) {
   return 'GitHub metadata refreshed for this linked pull request.';
 }
 
+function githubPrMergedAt(pullRequest: TestChangePullRequest) {
+  return pullRequest.metadata.merged ? pullRequest.metadata.mergedAt : null;
+}
+
+function githubPrMergedAtLabel(pullRequest: TestChangePullRequest) {
+  const mergedAt = githubPrMergedAt(pullRequest);
+  return mergedAt ? formatDateTime(mergedAt) : '';
+}
+
+function githubPrMergedAtRelative(pullRequest: TestChangePullRequest) {
+  const mergedAt = githubPrMergedAt(pullRequest);
+  return mergedAt ? relativeTime(mergedAt) : '';
+}
+
 function getRichTextPlainText(value: string): string {
   const container = document.createElement('div');
   container.innerHTML = normalizeRichTextHtml(value);
@@ -5345,17 +5400,21 @@ const StatusPill = defineComponent({
     compact: { type: Boolean, default: false }
   },
   setup(props) {
+    const displayStatus = computed(() =>
+      props.status === 'SUBMITTED' ? 'AWAITING_TEST' : props.status
+    );
+
     return () =>
       h(
         'span',
         {
           class: [
             'tm-status',
-            `tm-status--${props.status.toLowerCase()}`,
+            `tm-status--${displayStatus.value.toLowerCase()}`,
             { 'tm-status--compact': props.compact }
           ]
         },
-        statusLabel(props.status)
+        statusLabel(displayStatus.value)
       );
   }
 });
@@ -5827,6 +5886,13 @@ onBeforeUnmount(() => {
   overflow-x: hidden;
   overflow-y: auto;
   padding-bottom: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.tm-settings {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-bottom: 1.25rem;
   scrollbar-gutter: stable;
 }
 
@@ -8097,6 +8163,70 @@ onBeforeUnmount(() => {
   font-size: 0.82rem;
 }
 
+.tm-github-pr-panel__merged {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.72rem;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--github-tone) 42%, transparent);
+  border-radius: 8px;
+  color: #f5f0ff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 82%),
+    color-mix(in srgb, var(--github-tone) 18%, rgba(1, 4, 9, 0.48));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 0 18px color-mix(in srgb, var(--github-tone) 16%, transparent);
+}
+
+.tm-github-pr-panel__merged-icon {
+  width: 1.35rem;
+  aspect-ratio: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--github-tone) 78%, #000 22%);
+}
+
+.tm-github-pr-panel__merged-icon::before {
+  content: '';
+  width: 0.48rem;
+  height: 0.26rem;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-0.04rem) rotate(-45deg);
+}
+
+.tm-github-pr-panel__merged div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.tm-github-pr-panel__merged strong {
+  color: #ffffff;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-github-pr-panel__merged time {
+  color: #f5f0ff;
+  font-size: 0.82rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.tm-github-pr-panel__merged small {
+  color: rgba(240, 246, 252, 0.68);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .tm-github-pr-panel__metrics {
   flex: 0 0 auto;
   align-items: stretch;
@@ -9037,6 +9167,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-status {
+  position: relative;
   border-radius: 999px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%),
@@ -9057,6 +9188,74 @@ onBeforeUnmount(() => {
   min-height: 1.42rem;
   padding: 0.24rem 0.54rem;
   font-size: 0.68rem;
+}
+
+@property --tm-status-glow-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.tm-status--testing {
+  border-color: rgba(119, 201, 255, 0.36);
+  color: var(--tm-blue);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 86%),
+    rgba(85, 183, 255, 0.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 14px rgba(85, 183, 255, 0.16);
+}
+
+.tm-status--testing::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(119, 201, 255, 0.32);
+  box-shadow:
+    0 0 12px rgba(85, 183, 255, 0.18),
+    inset 0 0 10px rgba(85, 183, 255, 0.12);
+  pointer-events: none;
+}
+
+.tm-status--testing::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--tm-status-glow-angle, 0deg),
+    rgba(85, 183, 255, 0) 0deg,
+    rgba(85, 183, 255, 0.16) 16deg,
+    rgba(159, 228, 255, 0.52) 34deg,
+    rgba(255, 255, 255, 0.96) 52deg,
+    rgba(159, 228, 255, 0.7) 70deg,
+    rgba(85, 183, 255, 0.3) 94deg,
+    rgba(85, 183, 255, 0.12) 118deg,
+    rgba(85, 183, 255, 0) 146deg,
+    rgba(85, 183, 255, 0) 360deg
+  );
+  filter:
+    drop-shadow(0 0 3px rgba(159, 228, 255, 0.72))
+    drop-shadow(0 0 8px rgba(85, 183, 255, 0.42));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: tm-status-perimeter-glow 5s linear infinite;
+}
+
+@keyframes tm-status-perimeter-glow {
+  to {
+    --tm-status-glow-angle: 360deg;
+  }
 }
 
 .tm-status--passed,
@@ -9084,6 +9283,25 @@ onBeforeUnmount(() => {
   background: rgba(217, 164, 95, 0.12);
 }
 
+.tm-status--awaiting_test {
+  gap: 0.32rem;
+}
+
+.tm-status--awaiting_test::before {
+  content: '';
+  flex: 0 0 auto;
+  align-self: center;
+  width: 0.48rem;
+  height: 0.54rem;
+  background:
+    linear-gradient(currentColor 0 0) left center / 0.13rem 0.52rem no-repeat,
+    linear-gradient(currentColor 0 0) right center / 0.13rem 0.52rem no-repeat;
+  border-radius: 1px;
+  opacity: 0.58;
+  box-shadow:
+    0 0 6px rgba(217, 164, 95, 0.2);
+}
+
 .tm-status--closed {
   color: #d8c4ff;
   border-color: rgba(184, 140, 255, 0.54);
@@ -9093,6 +9311,12 @@ onBeforeUnmount(() => {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 0 14px rgba(126, 74, 210, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-status--testing::after {
+    animation: none;
+  }
 }
 
 .tm-priority {
@@ -10211,6 +10435,17 @@ onBeforeUnmount(() => {
 
 .tm-permission-toggle--disabled {
   cursor: default;
+}
+
+.tm-permission-toggle--locked > span {
+  border-color: rgba(114, 214, 111, 0.62);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 82%),
+    rgba(29, 94, 42, 0.42);
+  color: #eaffea;
+  box-shadow:
+    inset 0 0 14px rgba(114, 214, 111, 0.2),
+    0 0 10px rgba(114, 214, 111, 0.08);
 }
 
 .tm-permission-toggle:not(.tm-permission-toggle--disabled):hover > span {

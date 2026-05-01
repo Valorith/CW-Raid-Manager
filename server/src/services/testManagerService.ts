@@ -60,6 +60,8 @@ type TestManagerPermissionKey = (typeof TEST_MANAGER_PERMISSION_KEYS)[number];
 type TestManagerRoleKey = (typeof TEST_MANAGER_ROLE_KEYS)[number];
 type TestManagerDiscordEventKey = (typeof TEST_MANAGER_DISCORD_EVENT_KEYS)[number];
 
+const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [...TEST_MANAGER_PERMISSION_KEYS];
+
 type TestManagerRolePermission = {
   key: TestManagerRoleKey;
   label: string;
@@ -89,16 +91,7 @@ const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
     {
       key: 'ADMIN',
       label: 'Admin',
-      permissions: [
-        'view',
-        'submit',
-        'volunteer',
-        'submitResult',
-        'dispose',
-        'manageTesters',
-        'reports',
-        'settings'
-      ]
+      permissions: [...ADMIN_TEST_MANAGER_PERMISSIONS]
     },
     {
       key: 'GUIDE',
@@ -658,7 +651,10 @@ function normalizeTestManagerSettings(value: unknown): TestManagerSettings {
   return {
     roles: defaults.roles.map((role) => ({
       ...role,
-      permissions: incoming.get(role.key) ?? role.permissions
+      permissions:
+        role.key === 'ADMIN'
+          ? [...ADMIN_TEST_MANAGER_PERMISSIONS]
+          : (incoming.get(role.key) ?? role.permissions)
     })),
     discordNotifications: normalizeDiscordNotificationSettings(
       'discordNotifications' in value ? value.discordNotifications : undefined
@@ -1217,6 +1213,14 @@ function ensureChangeAcceptsTesterInput<T extends { status: TestChangeStatus }>(
 ): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('You must be actively testing this change to submit tester input.');
+  }
+}
+
+function ensureChangeAcceptsTestingNote<T extends { status: TestChangeStatus }>(
+  change: T | null
+): asserts change is T {
+  if (!change || change.status === TestChangeStatus.CLOSED) {
+    throw new Error('Testing notes can only be added while the change is open.');
   }
 }
 
@@ -2475,8 +2479,7 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
       select: { id: true, status: true, result: true }
     })
   ]);
-  ensureChangeAcceptsTesterInput(change);
-  ensureActiveTestingAssignment(tester);
+  ensureChangeAcceptsTestingNote(change);
 
   const sanitized = sanitizeRichText(contentHtml);
   const plainText = getRichTextPlainText(sanitized).slice(0, 300);
@@ -2484,7 +2487,7 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
     await tx.testChangeNote.create({
       data: {
         changeId,
-        testerId: tester.id,
+        testerId: tester?.id ?? null,
         authorId: actorUserId,
         contentHtml: sanitized
       }
