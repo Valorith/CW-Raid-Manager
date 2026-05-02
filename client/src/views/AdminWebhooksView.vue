@@ -48,220 +48,142 @@
     </div>
 
     <section v-if="activeTab === 'endpoints'" class="endpoints">
-      <article class="card">
-        <header class="card__header">
-          <div>
-            <h2>Endpoints</h2>
-            <p class="muted small">Select a webhook to manage details and actions.</p>
-          </div>
-          <div class="card__header-actions">
+      <div class="endpoints-workspace">
+        <aside class="endpoint-sidebar" aria-label="Webhook endpoints">
+          <header class="endpoint-sidebar__header">
+            <div>
+              <h2>Endpoints</h2>
+              <p class="muted small">Manage intake URLs, retention, tests, and actions.</p>
+            </div>
             <button
               class="btn btn--accent btn--small"
               type="button"
               @click="showCreateWebhook = !showCreateWebhook"
             >
-              {{ showCreateWebhook ? 'Hide Create' : 'Create Webhook' }}
+              {{ showCreateWebhook ? 'Close' : 'New' }}
             </button>
-          </div>
-        </header>
-        <div class="endpoint-list">
-          <button
-            v-for="hook in webhooks"
-            :key="hook.id"
-            type="button"
-            :class="['endpoint-item', { 'endpoint-item--active': hook.id === expandedWebhookId }]"
-            @click="toggleWebhook(hook.id)"
-          >
-            <div class="endpoint-item__title">
-              <strong>{{ hook.label }}</strong>
-              <span class="badge" :class="hook.isEnabled ? 'badge--positive' : 'badge--neutral'">
-                {{ hook.isEnabled ? 'Enabled' : 'Disabled' }}
-              </span>
-            </div>
-            <span class="muted small">{{ hook.description || 'No description' }}</span>
-            <span class="endpoint-item__chevron" aria-hidden="true">
-              {{ hook.id === expandedWebhookId ? 'Collapse' : 'Expand' }}
-            </span>
-          </button>
-        </div>
-        <div v-if="webhooks.length === 0" class="muted">No webhooks registered yet.</div>
-        <div v-else-if="!expandedWebhookId" class="muted small">
-          Select an endpoint to view details and actions.
-        </div>
-      </article>
+          </header>
 
-      <article v-if="showCreateWebhook" class="card card--panel">
-        <header class="card__header">
-          <div>
-            <h2>Create Webhook</h2>
-            <p class="muted small">Generate a new inbound webhook URL and configure retention.</p>
-          </div>
-        </header>
-        <div class="form-grid">
-          <label class="form-field">
-            <span>Label</span>
-            <input
-              v-model="createForm.label"
-              class="input"
-              maxlength="120"
-              placeholder="Crash Reports"
-            />
-          </label>
-          <label class="form-field">
-            <span>Description</span>
-            <input
-              v-model="createForm.description"
-              class="input"
-              maxlength="500"
-              placeholder="Optional notes"
-            />
-          </label>
-          <label class="form-field form-field--inline">
-            <span>Enabled</span>
-            <input v-model="createForm.isEnabled" type="checkbox" />
-          </label>
-          <label class="form-field">
-            <span>Retention Mode</span>
-            <select v-model="createForm.retentionMode" class="select">
-              <option value="indefinite">Indefinite</option>
-              <option value="days">Days</option>
-              <option value="maxCount">Max Count</option>
-            </select>
-          </label>
-          <label v-if="createForm.retentionMode === 'days'" class="form-field">
-            <span>Days to Keep</span>
-            <input v-model.number="createForm.retentionDays" type="number" min="1" class="input" />
-          </label>
-          <label v-if="createForm.retentionMode === 'maxCount'" class="form-field">
-            <span>Max Messages</span>
-            <input
-              v-model.number="createForm.retentionMaxCount"
-              type="number"
-              min="1"
-              class="input"
-            />
-          </label>
-        </div>
-        <div class="card__actions">
-          <button
-            class="btn btn--accent"
-            type="button"
-            :disabled="creatingWebhook || !createForm.label.trim()"
-            @click="createWebhook"
-          >
-            {{ creatingWebhook ? 'Creating...' : 'Create Webhook' }}
-          </button>
-        </div>
-      </article>
-
-      <article v-if="selectedWebhook" class="card webhook-card">
-        <header class="card__header card__header--stack">
-          <div>
-            <h3>{{ selectedWebhook.label }}</h3>
-            <p class="muted small">{{ selectedWebhook.description || 'No description' }}</p>
-          </div>
-          <div class="card__header-actions">
-            <button
-              class="btn btn--outline btn--small"
-              type="button"
-              @click="copyUrl(selectedWebhook)"
-            >
-              Copy URL
-            </button>
-            <button
-              class="btn btn--danger btn--small"
-              type="button"
-              @click="deleteWebhook(selectedWebhook)"
-            >
-              Delete
-            </button>
-          </div>
-        </header>
-
-        <div class="endpoint-details">
-          <div class="endpoint-details__column">
-            <section class="detail-panel">
-              <header class="panel-header">
-                <h4>Overview</h4>
-                <button
-                  class="btn btn--outline btn--small"
-                  type="button"
-                  :disabled="savingWebhookId === selectedWebhook.id"
-                  @click="saveWebhook(selectedWebhook)"
-                >
-                  {{ savingWebhookId === selectedWebhook.id ? 'Saving...' : 'Save Changes' }}
-                </button>
-              </header>
-              <div class="webhook-meta">
-                <div>
-                  <span class="label">Webhook ID</span>
-                  <strong>{{ selectedWebhook.id }}</strong>
-                </div>
-                <div>
-                  <span class="label">Last Received</span>
-                  <strong>{{ formatDate(selectedWebhook.lastReceivedAt) }}</strong>
-                </div>
-                <div class="toggle">
-                  <span class="label">Enabled</span>
-                  <input v-model="webhookDrafts[selectedWebhook.id].isEnabled" type="checkbox" />
-                </div>
+          <section v-if="showCreateWebhook" class="endpoint-create-panel">
+            <header class="endpoint-panel__header">
+              <div>
+                <h3>Create Webhook</h3>
+                <p class="muted small">Generate a new endpoint with retention controls.</p>
               </div>
-
-              <div class="form-grid">
-                <label class="form-field">
-                  <span>Label</span>
-                  <input
-                    v-model="webhookDrafts[selectedWebhook.id].label"
-                    class="input"
-                    maxlength="120"
-                  />
-                </label>
-                <label class="form-field">
-                  <span>Description</span>
-                  <input
-                    v-model="webhookDrafts[selectedWebhook.id].description"
-                    class="input"
-                    maxlength="500"
-                  />
+            </header>
+            <div class="form-grid form-grid--single">
+              <label class="form-field">
+                <span>Label</span>
+                <input
+                  v-model="createForm.label"
+                  class="input"
+                  maxlength="120"
+                  placeholder="Crash Reports"
+                />
+              </label>
+              <label class="form-field">
+                <span>Description</span>
+                <input
+                  v-model="createForm.description"
+                  class="input"
+                  maxlength="500"
+                  placeholder="Optional notes"
+                />
+              </label>
+              <div class="endpoint-control-row">
+                <label class="form-field form-field--inline">
+                  <span>Enabled</span>
+                  <input v-model="createForm.isEnabled" type="checkbox" />
                 </label>
                 <label class="form-field">
                   <span>Retention Mode</span>
-                  <select v-model="webhookDrafts[selectedWebhook.id].retentionMode" class="select">
+                  <select v-model="createForm.retentionMode" class="select">
                     <option value="indefinite">Indefinite</option>
                     <option value="days">Days</option>
                     <option value="maxCount">Max Count</option>
                   </select>
                 </label>
-                <label
-                  v-if="webhookDrafts[selectedWebhook.id].retentionMode === 'days'"
-                  class="form-field"
-                >
-                  <span>Days to Keep</span>
-                  <input
-                    v-model.number="webhookDrafts[selectedWebhook.id].retentionDays"
-                    type="number"
-                    min="1"
-                    class="input"
-                  />
-                </label>
-                <label
-                  v-if="webhookDrafts[selectedWebhook.id].retentionMode === 'maxCount'"
-                  class="form-field"
-                >
-                  <span>Max Messages</span>
-                  <input
-                    v-model.number="webhookDrafts[selectedWebhook.id].retentionMaxCount"
-                    type="number"
-                    min="1"
-                    class="input"
-                  />
-                </label>
               </div>
-            </section>
+              <label v-if="createForm.retentionMode === 'days'" class="form-field">
+                <span>Days to Keep</span>
+                <input v-model.number="createForm.retentionDays" type="number" min="1" class="input" />
+              </label>
+              <label v-if="createForm.retentionMode === 'maxCount'" class="form-field">
+                <span>Max Messages</span>
+                <input
+                  v-model.number="createForm.retentionMaxCount"
+                  type="number"
+                  min="1"
+                  class="input"
+                />
+              </label>
+            </div>
+            <button
+              class="btn btn--accent btn--small"
+              type="button"
+              :disabled="creatingWebhook || !createForm.label.trim()"
+              @click="createWebhook"
+            >
+              {{ creatingWebhook ? 'Creating...' : 'Create Webhook' }}
+            </button>
+          </section>
 
-            <section class="detail-panel">
-              <header class="panel-header">
-                <h4>Webhook URL</h4>
+          <div class="endpoint-list">
+            <button
+              v-for="hook in webhooks"
+              :key="hook.id"
+              type="button"
+              :class="['endpoint-item', { 'endpoint-item--active': hook.id === expandedWebhookId }]"
+              @click="toggleWebhook(hook.id)"
+            >
+              <span class="endpoint-item__status">
+                <span
+                  class="endpoint-status-dot"
+                  :class="hook.isEnabled ? 'endpoint-status-dot--on' : 'endpoint-status-dot--off'"
+                  aria-hidden="true"
+                ></span>
+                {{ hook.isEnabled ? 'Enabled' : 'Disabled' }}
+              </span>
+              <strong>{{ hook.label }}</strong>
+              <span class="endpoint-item__description">
+                {{ hook.description || 'No description' }}
+              </span>
+              <span class="endpoint-item__meta">
+                <span>{{ hook.actions?.length || 0 }} actions</span>
+                <span>{{ formatRelativeTime(hook.lastReceivedAt) }}</span>
+              </span>
+            </button>
+          </div>
+
+          <div v-if="webhooks.length === 0" class="endpoint-empty-note">
+            <span class="muted">No webhooks registered yet.</span>
+          </div>
+        </aside>
+
+        <main class="endpoint-main">
+          <section v-if="!selectedWebhook" class="endpoint-empty-state">
+            <span class="endpoint-empty-state__icon" aria-hidden="true">↳</span>
+            <h2>Select an endpoint</h2>
+            <p class="muted">
+              Choose a webhook from the list to edit details, copy its URL, run tests, and manage
+              processing actions.
+            </p>
+          </section>
+
+          <template v-else>
+            <header class="endpoint-hero">
+              <div class="endpoint-hero__identity">
+                <span class="endpoint-kicker">Webhook Endpoint</span>
+                <h2>{{ selectedWebhook.label }}</h2>
+                <p class="muted">{{ selectedWebhook.description || 'No description' }}</p>
+              </div>
+              <div class="endpoint-hero__actions">
+                <span
+                  class="endpoint-state"
+                  :class="selectedWebhook.isEnabled ? 'endpoint-state--enabled' : 'endpoint-state--disabled'"
+                >
+                  {{ selectedWebhook.isEnabled ? 'Enabled' : 'Disabled' }}
+                </span>
                 <button
                   class="btn btn--outline btn--small"
                   type="button"
@@ -269,18 +191,414 @@
                 >
                   Copy URL
                 </button>
+                <button
+                  class="btn btn--danger btn--small"
+                  type="button"
+                  @click="deleteWebhook(selectedWebhook)"
+                >
+                  Delete
+                </button>
+              </div>
+            </header>
+
+            <div class="endpoint-summary-strip">
+              <div>
+                <span class="label">Webhook ID</span>
+                <strong>{{ selectedWebhook.id }}</strong>
+              </div>
+              <div>
+                <span class="label">Last Received</span>
+                <strong>{{ formatDate(selectedWebhook.lastReceivedAt) }}</strong>
+              </div>
+              <div>
+                <span class="label">Actions</span>
+                <strong>{{ selectedWebhook.actions?.length || 0 }}</strong>
+              </div>
+              <div>
+                <span class="label">Retention</span>
+                <strong>{{ selectedWebhook.retentionPolicy.mode }}</strong>
+              </div>
+            </div>
+
+            <section class="endpoint-pipeline" aria-label="Endpoint processing pipeline">
+              <header class="endpoint-pipeline__header">
+                <div>
+                  <h3>Processing Pipeline</h3>
+                  <p class="muted small">Flow of events through this endpoint.</p>
+                </div>
+                <span
+                  :class="[
+                    'endpoint-pipeline__status',
+                    selectedPipelineNeedsActionCount > 0
+                      ? 'endpoint-pipeline__status--warning'
+                      : 'endpoint-pipeline__status--ready'
+                  ]"
+                >
+                  {{ selectedPipelineStatusLabel }}
+                </span>
               </header>
-              <div class="url-row">
-                <input class="input url-input" :value="getWebhookUrl(selectedWebhook)" readonly />
+              <div class="endpoint-pipeline__track">
+                <button
+                  type="button"
+                  :class="[
+                    'endpoint-pipeline-card',
+                    getPipelineCardStatusClass(intakePipelineStatus),
+                    { 'endpoint-pipeline-card--active': activeEndpointSection === 'details' }
+                  ]"
+                  @click="openEndpointDetailsPanel"
+                >
+                  <span class="endpoint-pipeline-card__step">1</span>
+                  <span class="endpoint-pipeline-card__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M12 3v10" />
+                      <path d="m8 9 4 4 4-4" />
+                      <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+                    </svg>
+                  </span>
+                  <span class="endpoint-pipeline-card__title">Intake</span>
+                  <span
+                    class="endpoint-pipeline-card__badge"
+                    :class="getPipelineStatusClass(intakePipelineStatus)"
+                  >
+                    <span class="endpoint-pipeline-card__dot" aria-hidden="true"></span>
+                    {{ intakePipelineStatus.label }}
+                  </span>
+                  <span class="endpoint-pipeline-card__copy">
+                    Receives webhook POST requests from the game server.
+                  </span>
+                  <span class="endpoint-pipeline-card__diagnostic">
+                    {{ intakePipelineStatus.detail }}
+                  </span>
+                  <span class="endpoint-pipeline-card__cta">
+                    Edit URL
+                  </span>
+                </button>
+
+                <span class="endpoint-pipeline__connector" aria-hidden="true"></span>
+
+                <button
+                  type="button"
+                  :class="[
+                    'endpoint-pipeline-card',
+                    getPipelineCardStatusClass(mergePipelineStatus),
+                    { 'endpoint-pipeline-card--active': showWebhookSettings }
+                  ]"
+                  @click="openWebhookSettings(selectedWebhook.id)"
+                >
+                  <span class="endpoint-pipeline-card__step">2</span>
+                  <span class="endpoint-pipeline-card__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M3 7h4a4 4 0 0 1 4 4v2a4 4 0 0 0 4 4h6" />
+                      <path d="m18 14 3 3-3 3" />
+                      <path d="M3 17h4a4 4 0 0 0 4-4v-2a4 4 0 0 1 4-4h6" />
+                      <path d="m18 4 3 3-3 3" />
+                    </svg>
+                  </span>
+                  <span class="endpoint-pipeline-card__title">Merge</span>
+                  <span
+                    class="endpoint-pipeline-card__badge"
+                    :class="getPipelineStatusClass(mergePipelineStatus)"
+                  >
+                    <span class="endpoint-pipeline-card__dot" aria-hidden="true"></span>
+                    {{ mergePipelineStatus.label }}
+                  </span>
+                  <span class="endpoint-pipeline-card__copy">
+                    Groups crash-report bursts within {{ selectedWebhook.mergeWindowSeconds }}s.
+                  </span>
+                  <span class="endpoint-pipeline-card__diagnostic">
+                    {{ mergePipelineStatus.detail }}
+                  </span>
+                  <span class="endpoint-pipeline-card__cta">
+                    Merge Rules
+                  </span>
+                </button>
+
+                <span class="endpoint-pipeline__connector" aria-hidden="true"></span>
+
+                <button
+                  type="button"
+                  :class="[
+                    'endpoint-pipeline-card',
+                    getPipelineCardStatusClass(aiReviewPipelineStatus),
+                    { 'endpoint-pipeline-card--active': activeEndpointSection === 'actions' }
+                  ]"
+                  @click="openEndpointActionsPanel"
+                >
+                  <span class="endpoint-pipeline-card__step">3</span>
+                  <span class="endpoint-pipeline-card__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0 0 6v1a3 3 0 0 0 3 3" />
+                      <path d="M15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 0 6v1a3 3 0 0 1-3 3" />
+                      <path d="M9 4v16" />
+                      <path d="M15 4v16" />
+                      <path d="M9 8H6" />
+                      <path d="M18 8h-3" />
+                      <path d="M9 16H6" />
+                      <path d="M18 16h-3" />
+                      <path d="M9 12h6" />
+                    </svg>
+                  </span>
+                  <span class="endpoint-pipeline-card__title">AI Review</span>
+                  <span
+                    class="endpoint-pipeline-card__badge"
+                    :class="getPipelineStatusClass(aiReviewPipelineStatus)"
+                  >
+                    <span class="endpoint-pipeline-card__dot" aria-hidden="true"></span>
+                    {{ aiReviewPipelineStatus.label }}
+                  </span>
+                  <span class="endpoint-pipeline-card__copy">
+                    Analyzes crash data and writes a concise review.
+                  </span>
+                  <span class="endpoint-pipeline-card__diagnostic">
+                    {{ aiReviewPipelineStatus.detail }}
+                  </span>
+                  <span class="endpoint-pipeline-card__cta">
+                    AI Settings
+                  </span>
+                </button>
+
+                <span class="endpoint-pipeline__connector" aria-hidden="true"></span>
+
+                <button
+                  type="button"
+                  :class="[
+                    'endpoint-pipeline-card',
+                    getPipelineCardStatusClass(discordPipelineStatus),
+                    { 'endpoint-pipeline-card--active': activeEndpointSection === 'actions' }
+                  ]"
+                  @click="openEndpointActionsPanel"
+                >
+                  <span class="endpoint-pipeline-card__step">4</span>
+                  <span class="endpoint-pipeline-card__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v5A3.5 3.5 0 0 1 15.5 15H12l-4 4v-4A3 3 0 0 1 5 12z" />
+                      <path d="M9 8.5h6" />
+                      <path d="M9 11.5h4" />
+                      <path d="m15.5 18.5 1.5 1.5 3-3.5" />
+                    </svg>
+                  </span>
+                  <span class="endpoint-pipeline-card__title">Discord Summary</span>
+                  <span
+                    class="endpoint-pipeline-card__badge"
+                    :class="getPipelineStatusClass(discordPipelineStatus)"
+                  >
+                    <span class="endpoint-pipeline-card__dot" aria-hidden="true"></span>
+                    {{ discordPipelineStatus.label }}
+                  </span>
+                  <span class="endpoint-pipeline-card__copy">
+                    Posts formatted summaries to the configured Discord webhook.
+                  </span>
+                  <span
+                    class="endpoint-pipeline-card__mode"
+                    :class="selectedWebhook.devMode ? 'endpoint-pipeline-card__mode--dev' : 'endpoint-pipeline-card__mode--primary'"
+                  >
+                    {{ getDiscordPipelineTargetLabel(selectedWebhook) }}
+                  </span>
+                  <span class="endpoint-pipeline-card__diagnostic">
+                    {{ discordPipelineStatus.detail }}
+                  </span>
+                  <span class="endpoint-pipeline-card__cta">
+                    Relay Setup
+                  </span>
+                </button>
+
+                <span class="endpoint-pipeline__connector" aria-hidden="true"></span>
+
+                <button
+                  type="button"
+                  :class="[
+                    'endpoint-pipeline-card',
+                    getPipelineCardStatusClass(inboxPipelineStatus)
+                  ]"
+                  @click="openEndpointInbox(selectedWebhook.id)"
+                >
+                  <span class="endpoint-pipeline-card__step">5</span>
+                  <span class="endpoint-pipeline-card__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" role="img">
+                      <path d="M9 4h6" />
+                      <path d="M9 4a3 3 0 0 0-3 3v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7a3 3 0 0 0-3-3" />
+                      <path d="M9 4v3h6V4" />
+                      <path d="m9 14 2 2 4-5" />
+                    </svg>
+                  </span>
+                  <span class="endpoint-pipeline-card__title">Inbox Record</span>
+                  <span
+                    class="endpoint-pipeline-card__badge"
+                    :class="getPipelineStatusClass(inboxPipelineStatus)"
+                  >
+                    <span class="endpoint-pipeline-card__dot" aria-hidden="true"></span>
+                    {{ inboxPipelineStatus.label }}
+                  </span>
+                  <span class="endpoint-pipeline-card__copy">
+                    Stores reports for review, assignment, and lifecycle tracking.
+                  </span>
+                  <span class="endpoint-pipeline-card__diagnostic">
+                    {{ inboxPipelineStatus.detail }}
+                  </span>
+                  <span class="endpoint-pipeline-card__cta">Open Inbox</span>
+                </button>
               </div>
             </section>
 
-            <section class="detail-panel">
-              <header class="panel-header">
-                <div class="panel-title">
-                  <h4>Test Payload</h4>
+            <nav
+              v-if="activeEndpointSection"
+              class="endpoint-section-tabs endpoint-section-tabs--compact"
+              aria-label="Endpoint workspace sections"
+            >
+              <button
+                type="button"
+                :class="[
+                  'endpoint-section-tab',
+                  { 'endpoint-section-tab--active': activeEndpointSection === 'details' }
+                ]"
+                @click="activeEndpointSection = 'details'"
+              >
+                <span>Details</span>
+                <small>Metadata and URL</small>
+              </button>
+              <button
+                type="button"
+                :class="[
+                  'endpoint-section-tab',
+                  { 'endpoint-section-tab--active': activeEndpointSection === 'actions' }
+                ]"
+                @click="activeEndpointSection = 'actions'"
+              >
+                <span>Actions</span>
+                <small>{{ selectedWebhook.actions?.length || 0 }} configured</small>
+              </button>
+              <button
+                type="button"
+                :class="[
+                  'endpoint-section-tab',
+                  { 'endpoint-section-tab--active': activeEndpointSection === 'test' }
+                ]"
+                @click="activeEndpointSection = 'test'"
+              >
+                <span>Test</span>
+                <small>Send sample payloads</small>
+              </button>
+              <button
+                type="button"
+                class="endpoint-section-tab endpoint-section-tab--collapse"
+                @click="activeEndpointSection = null"
+              >
+                <span>Close</span>
+                <small>Return to pipeline</small>
+              </button>
+            </nav>
+
+            <div
+              v-if="activeEndpointSection"
+              class="endpoint-layout"
+              :class="`endpoint-layout--${activeEndpointSection}`"
+            >
+              <section
+                v-if="activeEndpointSection === 'details'"
+                class="endpoint-panel endpoint-panel--overview"
+              >
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Overview</h3>
+                    <p class="muted small">Endpoint metadata and retention behavior.</p>
+                  </div>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    :disabled="savingWebhookId === selectedWebhook.id"
+                    @click="saveWebhook(selectedWebhook)"
+                  >
+                    {{ savingWebhookId === selectedWebhook.id ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                </header>
+
+                <div class="endpoint-form-grid">
+                  <label class="form-field form-field--inline endpoint-toggle-field">
+                    <span>Enabled</span>
+                    <input v-model="webhookDrafts[selectedWebhook.id].isEnabled" type="checkbox" />
+                  </label>
+                  <label class="form-field">
+                    <span>Label</span>
+                    <input
+                      v-model="webhookDrafts[selectedWebhook.id].label"
+                      class="input"
+                      maxlength="120"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Description</span>
+                    <input
+                      v-model="webhookDrafts[selectedWebhook.id].description"
+                      class="input"
+                      maxlength="500"
+                    />
+                  </label>
+                  <label class="form-field">
+                    <span>Retention Mode</span>
+                    <select v-model="webhookDrafts[selectedWebhook.id].retentionMode" class="select">
+                      <option value="indefinite">Indefinite</option>
+                      <option value="days">Days</option>
+                      <option value="maxCount">Max Count</option>
+                    </select>
+                  </label>
+                  <label
+                    v-if="webhookDrafts[selectedWebhook.id].retentionMode === 'days'"
+                    class="form-field"
+                  >
+                    <span>Days to Keep</span>
+                    <input
+                      v-model.number="webhookDrafts[selectedWebhook.id].retentionDays"
+                      type="number"
+                      min="1"
+                      class="input"
+                    />
+                  </label>
+                  <label
+                    v-if="webhookDrafts[selectedWebhook.id].retentionMode === 'maxCount'"
+                    class="form-field"
+                  >
+                    <span>Max Messages</span>
+                    <input
+                      v-model.number="webhookDrafts[selectedWebhook.id].retentionMaxCount"
+                      type="number"
+                      min="1"
+                      class="input"
+                    />
+                  </label>
                 </div>
-                <div class="panel-badges">
+              </section>
+
+              <section
+                v-if="activeEndpointSection === 'details'"
+                class="endpoint-panel endpoint-panel--url"
+              >
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Webhook URL</h3>
+                    <p class="muted small">Use this URL as the game-server webhook target.</p>
+                  </div>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    @click="copyUrl(selectedWebhook)"
+                  >
+                    Copy URL
+                  </button>
+                </header>
+                <div class="url-row endpoint-url-row">
+                  <input class="input url-input" :value="getWebhookUrl(selectedWebhook)" readonly />
+                </div>
+              </section>
+
+              <section
+                v-if="activeEndpointSection === 'test'"
+                class="endpoint-panel endpoint-panel--test"
+              >
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Test Payload</h3>
+                    <p class="muted small">Send sample payloads through the same processing path.</p>
+                  </div>
                   <button
                     class="btn btn--outline btn--small"
                     type="button"
@@ -288,27 +606,25 @@
                   >
                     {{ showTestPanel ? 'Hide' : 'Show' }}
                   </button>
-                </div>
-              </header>
-              <div v-if="showTestPanel" class="detail-panel__content">
-                <div class="test-options">
-                  <label class="form-field form-field--inline form-field--tight">
-                    <span>Run Actions</span>
-                    <input v-model="testDrafts[selectedWebhook.id].runActions" type="checkbox" />
-                  </label>
-                  <label class="form-field form-field--inline form-field--tight">
-                    <span>Repeat</span>
-                    <input
-                      v-model.number="testDrafts[selectedWebhook.id].repeatCount"
-                      type="number"
-                      min="1"
-                      max="10"
-                      class="input input--tiny"
-                    />
-                    <span class="input-suffix">times</span>
-                  </label>
-                </div>
-                <div class="form-grid">
+                </header>
+                <div v-if="showTestPanel" class="endpoint-test-body">
+                  <div class="test-options">
+                    <label class="form-field form-field--inline form-field--tight">
+                      <span>Run Actions</span>
+                      <input v-model="testDrafts[selectedWebhook.id].runActions" type="checkbox" />
+                    </label>
+                    <label class="form-field form-field--inline form-field--tight">
+                      <span>Repeat</span>
+                      <input
+                        v-model.number="testDrafts[selectedWebhook.id].repeatCount"
+                        type="number"
+                        min="1"
+                        max="10"
+                        class="input input--tiny"
+                      />
+                      <span class="input-suffix">times</span>
+                    </label>
+                  </div>
                   <label class="form-field">
                     <span>Payload (JSON or plain text)</span>
                     <textarea
@@ -317,145 +633,274 @@
                       rows="5"
                     ></textarea>
                   </label>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    :disabled="sendingTestId === selectedWebhook.id"
+                    @click="sendTest(selectedWebhook)"
+                  >
+                    {{ sendingTestId === selectedWebhook.id ? 'Sending...' : 'Send Test' }}
+                  </button>
                 </div>
-                <button
-                  class="btn btn--outline btn--small"
-                  type="button"
-                  :disabled="sendingTestId === selectedWebhook.id"
-                  @click="sendTest(selectedWebhook)"
+              </section>
+
+              <section
+                v-if="activeEndpointSection === 'actions'"
+                class="endpoint-panel endpoint-panel--actions"
+              >
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Actions</h3>
+                    <p class="muted small">Processing steps that run after intake and merge.</p>
+                  </div>
+                  <span class="endpoint-count-pill">
+                    {{ selectedWebhook.actions?.length || 0 }} configured
+                  </span>
+                </header>
+
+                <div v-if="(selectedWebhook.actions?.length || 0) === 0" class="endpoint-empty-note">
+                  <span class="muted small">No actions configured yet.</span>
+                </div>
+
+                <div
+                  v-for="action in selectedWebhook.actions"
+                  :key="action.id"
+                  class="action-row endpoint-action-row"
                 >
-                  {{ sendingTestId === selectedWebhook.id ? 'Sending...' : 'Send Test' }}
-                </button>
-              </div>
-            </section>
-          </div>
+                  <div class="action-row__header">
+                    <div>
+                      <span class="endpoint-action-type">{{ getActionLabel(action.type) }}</span>
+                      <strong>{{ action.name }}</strong>
+                    </div>
+                    <label class="toggle">
+                      <span class="label">Enabled</span>
+                      <input v-model="action.isEnabled" type="checkbox" />
+                    </label>
+                  </div>
+                  <div class="endpoint-form-grid">
+                    <label class="form-field">
+                      <span>Name</span>
+                      <input v-model="action.name" class="input" maxlength="120" />
+                    </label>
+                    <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                      <span>Discord Webhook URL</span>
+                      <input
+                        v-model="action.config.discordWebhookUrl"
+                        class="input"
+                        placeholder="https://discord.com/api/webhooks/..."
+                      />
+                    </label>
+                    <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                      <span>Dev Discord Webhook URL</span>
+                      <input
+                        v-model="action.config.devDiscordWebhookUrl"
+                        class="input"
+                        placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
+                      />
+                    </label>
+                    <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                      <span>Relay Mode</span>
+                      <select v-model="action.config.discordMode" class="select">
+                        <option value="WRAP">Wrap payload</option>
+                        <option value="RAW">Send raw</option>
+                      </select>
+                    </label>
+                    <CodeTemplateEditor
+                      v-if="action.type === 'DISCORD_RELAY' && action.config.discordMode !== 'RAW'"
+                      v-model="action.config.discordTemplate"
+                      class="endpoint-field-wide"
+                      label="Wrap Template"
+                      language="Discord template"
+                      :placeholders="discordTemplatePlaceholders"
+                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                      :rows="7"
+                    />
+                    <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                      <span>Model</span>
+                      <select v-model="action.config.crashModel" class="select">
+                        <option v-for="model in crashModelOptions" :key="model" :value="model">
+                          {{ model }}
+                        </option>
+                      </select>
+                    </label>
+                    <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                      <span>Max Input Chars</span>
+                      <input
+                        v-model.number="action.config.crashMaxInputChars"
+                        type="number"
+                        min="1000"
+                        class="input"
+                      />
+                    </label>
+                    <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                      <span>Max Output Tokens</span>
+                      <input
+                        v-model.number="action.config.crashMaxOutputTokens"
+                        type="number"
+                        min="256"
+                        class="input"
+                      />
+                    </label>
+                    <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                      <span>Temperature</span>
+                      <input
+                        v-model.number="action.config.crashTemperature"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        class="input"
+                      />
+                    </label>
+                    <CodeTemplateEditor
+                      v-if="action.type === 'CRASH_REVIEW'"
+                      v-model="action.config.crashPromptTemplate"
+                      class="endpoint-field-wide"
+                      label="Prompt Template"
+                      language="AI prompt"
+                      :placeholders="crashTemplatePlaceholders"
+                      placeholder="Use {{crashReport}} to insert the crash text"
+                      :rows="8"
+                    />
+                  </div>
+                  <div class="action-row__actions">
+                    <button
+                      class="btn btn--outline btn--small"
+                      type="button"
+                      :disabled="savingActionId === action.id"
+                      @click="saveAction(selectedWebhook, action)"
+                    >
+                      {{ savingActionId === action.id ? 'Saving...' : 'Save Action' }}
+                    </button>
+                    <button
+                      class="btn btn--danger btn--small"
+                      type="button"
+                      :disabled="savingActionId === action.id"
+                      @click="deleteAction(selectedWebhook, action)"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </section>
 
-          <div class="endpoint-details__column">
-            <section class="detail-panel">
-              <header class="panel-header">
-                <h4>Actions</h4>
-                <span class="muted small"
-                  >{{ selectedWebhook.actions?.length || 0 }} configured</span
-                >
-              </header>
-
-              <div v-if="(selectedWebhook.actions?.length || 0) === 0" class="muted small">
-                No actions configured yet.
-              </div>
-
-              <div v-for="action in selectedWebhook.actions" :key="action.id" class="action-row">
-                <div class="action-row__header">
-                  <strong>{{ action.type.replace('_', ' ') }}</strong>
-                  <label class="toggle">
-                    <span class="label">Enabled</span>
-                    <input v-model="action.isEnabled" type="checkbox" />
+              <section
+                v-if="activeEndpointSection === 'actions'"
+                class="endpoint-panel endpoint-panel--add"
+              >
+                <header class="endpoint-panel__header">
+                  <div>
+                    <h3>Add Action</h3>
+                    <p class="muted small">Attach another processing or relay step.</p>
+                  </div>
+                </header>
+                <div class="endpoint-form-grid">
+                  <label class="form-field">
+                    <span>Action Type</span>
+                    <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
+                      <option value="DISCORD_RELAY">Discord Relay</option>
+                      <option value="CRASH_REVIEW">Crash Review</option>
+                    </select>
                   </label>
-                </div>
-                <div class="form-grid">
                   <label class="form-field">
                     <span>Name</span>
-                    <input v-model="action.name" class="input" maxlength="120" />
+                    <input
+                      v-model="actionDrafts[selectedWebhook.id].name"
+                      class="input"
+                      maxlength="120"
+                    />
                   </label>
-                  <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                  <label class="form-field form-field--inline endpoint-toggle-field">
+                    <span>Enabled</span>
+                    <input v-model="actionDrafts[selectedWebhook.id].isEnabled" type="checkbox" />
+                  </label>
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
+                    class="form-field"
+                  >
                     <span>Discord Webhook URL</span>
                     <input
-                      v-model="action.config.discordWebhookUrl"
+                      v-model="actionDrafts[selectedWebhook.id].discordWebhookUrl"
                       class="input"
                       placeholder="https://discord.com/api/webhooks/..."
                     />
                   </label>
-                  <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
+                    class="form-field"
+                  >
                     <span>Dev Discord Webhook URL</span>
                     <input
-                      v-model="action.config.devDiscordWebhookUrl"
+                      v-model="actionDrafts[selectedWebhook.id].devDiscordWebhookUrl"
                       class="input"
                       placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
                     />
                   </label>
-                  <label v-if="action.type === 'DISCORD_RELAY'" class="form-field">
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
+                    class="form-field"
+                  >
                     <span>Relay Mode</span>
-                    <select v-model="action.config.discordMode" class="select">
+                    <select v-model="actionDrafts[selectedWebhook.id].discordMode" class="select">
                       <option value="WRAP">Wrap payload</option>
                       <option value="RAW">Send raw</option>
                     </select>
                   </label>
+                  <CodeTemplateEditor
+                    v-if="
+                      actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY' &&
+                      actionDrafts[selectedWebhook.id].discordMode !== 'RAW'
+                    "
+                    v-model="actionDrafts[selectedWebhook.id].discordTemplate"
+                    class="endpoint-field-wide"
+                    label="Wrap Template"
+                    language="Discord template"
+                    :placeholders="discordTemplatePlaceholders"
+                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
+                    :rows="7"
+                  />
                   <label
-                    v-if="action.type === 'DISCORD_RELAY' && action.config.discordMode !== 'RAW'"
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
                     class="form-field"
                   >
-                    <span>Wrap Template</span>
-                    <textarea
-                      v-model="action.config.discordTemplate"
-                      class="textarea"
-                      rows="4"
-                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                    ></textarea>
-                  </label>
-                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                    <span>ClawdBot Webhook URL</span>
-                    <input
-                      v-model="action.config.clawdbotWebhookUrl"
-                      class="input"
-                      placeholder="https://your-clawdbot-instance/api/webhook/..."
-                    />
-                  </label>
-                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                    <span>Dev ClawdBot Webhook URL</span>
-                    <input
-                      v-model="action.config.devClawdbotWebhookUrl"
-                      class="input"
-                      placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
-                    />
-                  </label>
-                  <label v-if="action.type === 'CLAWDBOT_RELAY'" class="form-field">
-                    <span>Relay Mode</span>
-                    <select v-model="action.config.clawdbotMode" class="select">
-                      <option value="WRAP">Wrap payload</option>
-                      <option value="RAW">Send raw</option>
-                    </select>
-                  </label>
-                  <label
-                    v-if="action.type === 'CLAWDBOT_RELAY' && action.config.clawdbotMode !== 'RAW'"
-                    class="form-field"
-                  >
-                    <span>Wrap Template</span>
-                    <textarea
-                      v-model="action.config.clawdbotTemplate"
-                      class="textarea"
-                      rows="4"
-                      placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                    ></textarea>
-                  </label>
-                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
                     <span>Model</span>
-                    <select v-model="action.config.crashModel" class="select">
+                    <select v-model="actionDrafts[selectedWebhook.id].crashModel" class="select">
                       <option v-for="model in crashModelOptions" :key="model" :value="model">
                         {{ model }}
                       </option>
                     </select>
                   </label>
-                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                    class="form-field"
+                  >
                     <span>Max Input Chars</span>
                     <input
-                      v-model.number="action.config.crashMaxInputChars"
+                      v-model.number="actionDrafts[selectedWebhook.id].crashMaxInputChars"
                       type="number"
                       min="1000"
                       class="input"
                     />
                   </label>
-                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                    class="form-field"
+                  >
                     <span>Max Output Tokens</span>
                     <input
-                      v-model.number="action.config.crashMaxOutputTokens"
+                      v-model.number="actionDrafts[selectedWebhook.id].crashMaxOutputTokens"
                       type="number"
                       min="256"
                       class="input"
                     />
                   </label>
-                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
+                  <label
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                    class="form-field"
+                  >
                     <span>Temperature</span>
                     <input
-                      v-model.number="action.config.crashTemperature"
+                      v-model.number="actionDrafts[selectedWebhook.id].crashTemperature"
                       type="number"
                       min="0"
                       max="1"
@@ -463,239 +908,39 @@
                       class="input"
                     />
                   </label>
-                  <label v-if="action.type === 'CRASH_REVIEW'" class="form-field">
-                    <span>Prompt Template</span>
-                    <textarea
-                      v-model="action.config.crashPromptTemplate"
-                      class="textarea"
-                      rows="4"
-                      placeholder="Use {{crashReport}} to insert the crash text"
-                    ></textarea>
-                  </label>
-                </div>
-                <div class="action-row__actions">
-                  <button
-                    class="btn btn--outline btn--small"
-                    type="button"
-                    :disabled="savingActionId === action.id"
-                    @click="saveAction(selectedWebhook, action)"
-                  >
-                    {{ savingActionId === action.id ? 'Saving...' : 'Save Action' }}
-                  </button>
-                  <button
-                    class="btn btn--danger btn--small"
-                    type="button"
-                    :disabled="savingActionId === action.id"
-                    @click="deleteAction(selectedWebhook, action)"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section class="detail-panel">
-              <header class="panel-header">
-                <h4>Add Action</h4>
-              </header>
-              <div class="form-grid">
-                <label class="form-field">
-                  <span>Action Type</span>
-                  <select v-model="actionDrafts[selectedWebhook.id].type" class="select">
-                    <option value="DISCORD_RELAY">Discord Relay</option>
-                    <option value="CLAWDBOT_RELAY">ClawdBot Relay</option>
-                    <option value="CRASH_REVIEW">Crash Review</option>
-                  </select>
-                </label>
-                <label class="form-field">
-                  <span>Name</span>
-                  <input
-                    v-model="actionDrafts[selectedWebhook.id].name"
-                    class="input"
-                    maxlength="120"
-                  />
-                </label>
-                <label class="form-field form-field--inline">
-                  <span>Enabled</span>
-                  <input v-model="actionDrafts[selectedWebhook.id].isEnabled" type="checkbox" />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
-                  class="form-field"
-                >
-                  <span>Discord Webhook URL</span>
-                  <input
-                    v-model="actionDrafts[selectedWebhook.id].discordWebhookUrl"
-                    class="input"
-                    placeholder="https://discord.com/api/webhooks/..."
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
-                  class="form-field"
-                >
-                  <span>Dev Discord Webhook URL</span>
-                  <input
-                    v-model="actionDrafts[selectedWebhook.id].devDiscordWebhookUrl"
-                    class="input"
-                    placeholder="https://discord.com/api/webhooks/... (used when Dev Mode is on)"
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY'"
-                  class="form-field"
-                >
-                  <span>Relay Mode</span>
-                  <select v-model="actionDrafts[selectedWebhook.id].discordMode" class="select">
-                    <option value="WRAP">Wrap payload</option>
-                    <option value="RAW">Send raw</option>
-                  </select>
-                </label>
-                <label
-                  v-if="
-                    actionDrafts[selectedWebhook.id].type === 'DISCORD_RELAY' &&
-                    actionDrafts[selectedWebhook.id].discordMode !== 'RAW'
-                  "
-                  class="form-field"
-                >
-                  <span>Wrap Template</span>
-                  <textarea
-                    v-model="actionDrafts[selectedWebhook.id].discordTemplate"
-                    class="textarea"
-                    rows="4"
-                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                  ></textarea>
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
-                  class="form-field"
-                >
-                  <span>ClawdBot Webhook URL</span>
-                  <input
-                    v-model="actionDrafts[selectedWebhook.id].clawdbotWebhookUrl"
-                    class="input"
-                    placeholder="https://your-clawdbot-instance/api/webhook/..."
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
-                  class="form-field"
-                >
-                  <span>Dev ClawdBot Webhook URL</span>
-                  <input
-                    v-model="actionDrafts[selectedWebhook.id].devClawdbotWebhookUrl"
-                    class="input"
-                    placeholder="https://dev-clawdbot/api/webhook/... (used when Dev Mode is on)"
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY'"
-                  class="form-field"
-                >
-                  <span>Relay Mode</span>
-                  <select v-model="actionDrafts[selectedWebhook.id].clawdbotMode" class="select">
-                    <option value="WRAP">Wrap payload</option>
-                    <option value="RAW">Send raw</option>
-                  </select>
-                </label>
-                <label
-                  v-if="
-                    actionDrafts[selectedWebhook.id].type === 'CLAWDBOT_RELAY' &&
-                    actionDrafts[selectedWebhook.id].clawdbotMode !== 'RAW'
-                  "
-                  class="form-field"
-                >
-                  <span>Wrap Template</span>
-                  <textarea
-                    v-model="actionDrafts[selectedWebhook.id].clawdbotTemplate"
-                    class="textarea"
-                    rows="4"
-                    placeholder="Use {{json}} for pretty JSON or {{raw}} for full JSON"
-                  ></textarea>
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
-                  class="form-field"
-                >
-                  <span>Model</span>
-                  <select v-model="actionDrafts[selectedWebhook.id].crashModel" class="select">
-                    <option v-for="model in crashModelOptions" :key="model" :value="model">
-                      {{ model }}
-                    </option>
-                  </select>
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
-                  class="form-field"
-                >
-                  <span>Max Input Chars</span>
-                  <input
-                    v-model.number="actionDrafts[selectedWebhook.id].crashMaxInputChars"
-                    type="number"
-                    min="1000"
-                    class="input"
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
-                  class="form-field"
-                >
-                  <span>Max Output Tokens</span>
-                  <input
-                    v-model.number="actionDrafts[selectedWebhook.id].crashMaxOutputTokens"
-                    type="number"
-                    min="256"
-                    class="input"
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
-                  class="form-field"
-                >
-                  <span>Temperature</span>
-                  <input
-                    v-model.number="actionDrafts[selectedWebhook.id].crashTemperature"
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    class="input"
-                  />
-                </label>
-                <label
-                  v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
-                  class="form-field"
-                >
-                  <span>Prompt Template</span>
-                  <textarea
+                  <CodeTemplateEditor
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
                     v-model="actionDrafts[selectedWebhook.id].crashPromptTemplate"
-                    class="textarea"
-                    rows="4"
+                    class="endpoint-field-wide"
+                    label="Prompt Template"
+                    language="AI prompt"
+                    :placeholders="crashTemplatePlaceholders"
                     placeholder="Use {{crashReport}} to insert the crash text"
-                  ></textarea>
-                </label>
-              </div>
-              <button
-                class="btn btn--accent btn--small"
-                type="button"
-                :disabled="
-                  creatingActionId === selectedWebhook.id ||
-                  !actionDrafts[selectedWebhook.id].name.trim()
-                "
-                @click="createAction(selectedWebhook)"
-              >
-                {{ creatingActionId === selectedWebhook.id ? 'Adding...' : 'Add Action' }}
-              </button>
-            </section>
-          </div>
-        </div>
-      </article>
+                    :rows="8"
+                  />
+                </div>
+                <button
+                  class="btn btn--accent btn--small"
+                  type="button"
+                  :disabled="
+                    creatingActionId === selectedWebhook.id ||
+                    !actionDrafts[selectedWebhook.id].name.trim()
+                  "
+                  @click="createAction(selectedWebhook)"
+                >
+                  {{ creatingActionId === selectedWebhook.id ? 'Adding...' : 'Add Action' }}
+                </button>
+              </section>
+            </div>
+          </template>
+        </main>
+      </div>
     </section>
 
     <section v-if="activeTab === 'inbox'" class="inbox">
-      <article class="card">
-        <header class="card__header">
-          <div>
+      <article class="card inbox-toolbar-card">
+        <header class="inbox-toolbar">
+          <div class="inbox-toolbar__title">
             <div class="inbox-title-row">
               <h2>Webhook Inbox</h2>
               <span v-if="isAutoMergeActive" class="auto-merge-badge"> Auto-Merge Active </span>
@@ -703,10 +948,24 @@
                 Processing...
               </span>
             </div>
-            <p class="muted small">Review inbound webhook payloads and action results.</p>
+            <p class="muted small inbox-toolbar__description">
+              Review inbound webhook payloads and action results.
+            </p>
+          </div>
+          <div class="inbox-toolbar__actions">
+            <button class="btn btn--outline btn--small" type="button" @click="openWebhookSettings()">
+              Webhook Settings
+            </button>
+            <button
+              class="btn btn--outline btn--small"
+              type="button"
+              @click="showLabelManager = true"
+            >
+              Manage Labels
+            </button>
           </div>
         </header>
-        <div class="inbox-filters">
+        <div class="inbox-filters inbox-filters--compact">
           <div class="inbox-filters__row">
             <label class="form-field form-field--compact">
               <span>Webhook</span>
@@ -744,8 +1003,6 @@
                 </option>
               </select>
             </label>
-          </div>
-          <div class="inbox-filters__row inbox-filters__row--secondary">
             <label class="form-field form-field--compact">
               <span>Page Size</span>
               <select v-model.number="inboxFilters.pageSize" class="select select--small">
@@ -765,18 +1022,6 @@
               </label>
             </div>
           </div>
-        </div>
-        <div class="card__actions">
-          <button class="btn btn--outline btn--small" type="button" @click="openWebhookSettings">
-            Webhook Settings
-          </button>
-          <button
-            class="btn btn--outline btn--small"
-            type="button"
-            @click="showLabelManager = true"
-          >
-            Manage Labels
-          </button>
         </div>
       </article>
 
@@ -1845,174 +2090,182 @@
             </div>
           </div>
 
-          <!-- Webhook Selector -->
-          <div class="settings-section settings-section--selector">
-            <label class="form-field">
-              <span class="form-label">Select Webhook</span>
-              <select
-                v-model="webhookSettingsForm.webhookId"
-                class="select"
-                @change="onWebhookSettingsSelect"
-              >
-                <option value="" disabled>Choose a webhook to configure...</option>
-                <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
-                  {{ hook.label }}
-                </option>
-              </select>
-            </label>
-          </div>
+          <div class="settings-modal-grid">
+            <div class="settings-modal-column">
+              <!-- Webhook Selector -->
+              <div class="settings-section settings-section--selector">
+                <label class="form-field">
+                  <span class="form-label">Select Webhook</span>
+                  <select
+                    v-model="webhookSettingsForm.webhookId"
+                    class="select"
+                    @change="onWebhookSettingsSelect"
+                  >
+                    <option value="" disabled>Choose a webhook to configure...</option>
+                    <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
+                      {{ hook.label }}
+                    </option>
+                  </select>
+                </label>
+              </div>
 
-          <!-- Settings Content (shown when webhook selected) -->
-          <template v-if="webhookSettingsForm.webhookId">
-            <!-- Webhook Info Summary -->
-            <div class="settings-info-banner">
-              <div class="settings-info-item">
-                <span class="settings-info-label">Status</span>
-                <span
-                  :class="[
-                    'settings-info-value',
-                    selectedWebhookForSettings?.isEnabled ? 'text-success' : 'text-muted'
-                  ]"
-                >
-                  {{ selectedWebhookForSettings?.isEnabled ? 'Enabled' : 'Disabled' }}
-                </span>
-              </div>
-              <div class="settings-info-item">
-                <span class="settings-info-label">Last Received</span>
-                <span class="settings-info-value">
-                  {{
-                    selectedWebhookForSettings?.lastReceivedAt
-                      ? formatRelativeTime(selectedWebhookForSettings.lastReceivedAt)
-                      : 'Never'
-                  }}
-                </span>
-              </div>
-              <div class="settings-info-item">
-                <span class="settings-info-label">Actions</span>
-                <span class="settings-info-value">
-                  {{ selectedWebhookForSettings?.actions?.filter((a) => a.isEnabled).length ?? 0 }}
-                  active
-                </span>
+              <!-- Settings Content (shown when webhook selected) -->
+              <template v-if="webhookSettingsForm.webhookId">
+                <!-- Webhook Info Summary -->
+                <div class="settings-info-banner">
+                  <div class="settings-info-item">
+                    <span class="settings-info-label">Status</span>
+                    <span
+                      :class="[
+                        'settings-info-value',
+                        selectedWebhookForSettings?.isEnabled ? 'text-success' : 'text-muted'
+                      ]"
+                    >
+                      {{ selectedWebhookForSettings?.isEnabled ? 'Enabled' : 'Disabled' }}
+                    </span>
+                  </div>
+                  <div class="settings-info-item">
+                    <span class="settings-info-label">Last Received</span>
+                    <span class="settings-info-value">
+                      {{
+                        selectedWebhookForSettings?.lastReceivedAt
+                          ? formatRelativeTime(selectedWebhookForSettings.lastReceivedAt)
+                          : 'Never'
+                      }}
+                    </span>
+                  </div>
+                  <div class="settings-info-item">
+                    <span class="settings-info-label">Actions</span>
+                    <span class="settings-info-value">
+                      {{
+                        selectedWebhookForSettings?.actions?.filter((a) => a.isEnabled).length ?? 0
+                      }}
+                      active
+                    </span>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Empty State -->
+              <div v-else class="settings-empty-state">
+                <div class="settings-empty-icon">⚙️</div>
+                <p>Select a webhook above to configure its settings.</p>
               </div>
             </div>
 
-            <!-- Message Processing Section -->
-            <div class="settings-section">
-              <div class="settings-section-header">
-                <h4 class="settings-section-title">Message Processing</h4>
-                <p class="settings-section-description">
-                  Configure how incoming messages are handled and processed.
-                </p>
-              </div>
-
-              <div class="settings-fields">
-                <!-- Merge Window -->
-                <div class="settings-field">
-                  <div class="settings-field-main">
-                    <label
-                      class="settings-field-label"
-                      :for="`merge-window-${webhookSettingsForm.webhookId}`"
-                    >
-                      Merge Detection Window
-                    </label>
-                    <p class="settings-field-hint">
-                      Messages received within this time window will be grouped together for
-                      potential merging.
-                    </p>
-                  </div>
-                  <div class="settings-field-control">
-                    <div class="input-with-suffix">
-                      <input
-                        :id="`merge-window-${webhookSettingsForm.webhookId}`"
-                        v-model.number="webhookSettingsForm.mergeWindowSeconds"
-                        type="number"
-                        min="1"
-                        max="300"
-                        class="input input--compact"
-                      />
-                      <span class="input-suffix">sec</span>
-                    </div>
-                  </div>
+            <div v-if="webhookSettingsForm.webhookId" class="settings-modal-column">
+              <!-- Message Processing Section -->
+              <div class="settings-section settings-section--processing">
+                <div class="settings-section-header">
+                  <h4 class="settings-section-title">Message Processing</h4>
+                  <p class="settings-section-description">
+                    Configure how incoming messages are handled and processed.
+                  </p>
                 </div>
 
-                <!-- Auto-Merge Toggle -->
-                <div class="settings-field settings-field--toggle">
-                  <div class="settings-field-main">
-                    <label
-                      class="settings-field-label"
-                      :for="`auto-merge-${webhookSettingsForm.webhookId}`"
-                    >
-                      Automatic Merge Processing
-                    </label>
-                    <p class="settings-field-hint">
-                      Automatically sort, combine, and process grouped messages with AI review when
-                      the merge window closes.
-                    </p>
-                  </div>
-                  <div class="settings-field-control">
-                    <div class="toggle-with-status">
-                      <label class="toggle-switch">
-                        <input
-                          :id="`auto-merge-${webhookSettingsForm.webhookId}`"
-                          v-model="webhookSettingsForm.autoMerge"
-                          type="checkbox"
-                        />
-                        <span class="toggle-slider"></span>
-                      </label>
-                      <span
-                        :class="[
-                          'toggle-status',
-                          webhookSettingsForm.autoMerge
-                            ? 'toggle-status--enabled'
-                            : 'toggle-status--disabled'
-                        ]"
+                <div class="settings-fields">
+                  <!-- Merge Window -->
+                  <div class="settings-field">
+                    <div class="settings-field-main">
+                      <label
+                        class="settings-field-label"
+                        :for="`merge-window-${webhookSettingsForm.webhookId}`"
                       >
-                        {{ webhookSettingsForm.autoMerge ? 'Enabled' : 'Disabled' }}
-                      </span>
+                        Merge Detection Window
+                      </label>
+                      <p class="settings-field-hint">
+                        Messages received within this time window will be grouped together for
+                        potential merging.
+                      </p>
+                    </div>
+                    <div class="settings-field-control">
+                      <div class="input-with-suffix">
+                        <input
+                          :id="`merge-window-${webhookSettingsForm.webhookId}`"
+                          v-model.number="webhookSettingsForm.mergeWindowSeconds"
+                          type="number"
+                          min="1"
+                          max="300"
+                          class="input input--compact"
+                        />
+                        <span class="input-suffix">sec</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <!-- Dev Mode Toggle -->
-                <div class="settings-field">
-                  <div class="settings-field-label">
-                    <label :for="`dev-mode-${webhookSettingsForm.webhookId}`">Dev Mode</label>
-                    <p class="settings-field-hint">
-                      When enabled, Discord messages are sent to the Dev Discord Webhook URL instead
-                      of the production URL.
-                    </p>
-                  </div>
-                  <div class="settings-field-control">
-                    <div class="toggle-with-status">
-                      <label class="toggle-switch">
-                        <input
-                          :id="`dev-mode-${webhookSettingsForm.webhookId}`"
-                          v-model="webhookSettingsForm.devMode"
-                          type="checkbox"
-                        />
-                        <span class="toggle-slider"></span>
-                      </label>
-                      <span
-                        :class="[
-                          'toggle-status',
-                          webhookSettingsForm.devMode
-                            ? 'toggle-status--enabled'
-                            : 'toggle-status--disabled'
-                        ]"
+                  <!-- Auto-Merge Toggle -->
+                  <div class="settings-field settings-field--toggle">
+                    <div class="settings-field-main">
+                      <label
+                        class="settings-field-label"
+                        :for="`auto-merge-${webhookSettingsForm.webhookId}`"
                       >
-                        {{ webhookSettingsForm.devMode ? 'Enabled' : 'Disabled' }}
-                      </span>
+                        Automatic Merge Processing
+                      </label>
+                      <p class="settings-field-hint">
+                        Automatically sort, combine, and process grouped messages with AI review when
+                        the merge window closes.
+                      </p>
+                    </div>
+                    <div class="settings-field-control">
+                      <div class="toggle-with-status">
+                        <label class="toggle-switch">
+                          <input
+                            :id="`auto-merge-${webhookSettingsForm.webhookId}`"
+                            v-model="webhookSettingsForm.autoMerge"
+                            type="checkbox"
+                          />
+                          <span class="toggle-slider"></span>
+                        </label>
+                        <span
+                          :class="[
+                            'toggle-status',
+                            webhookSettingsForm.autoMerge
+                              ? 'toggle-status--enabled'
+                              : 'toggle-status--disabled'
+                          ]"
+                        >
+                          {{ webhookSettingsForm.autoMerge ? 'Enabled' : 'Disabled' }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Dev Mode Toggle -->
+                  <div class="settings-field">
+                    <div class="settings-field-label">
+                      <label :for="`dev-mode-${webhookSettingsForm.webhookId}`">Dev Mode</label>
+                      <p class="settings-field-hint">
+                        When enabled, Discord messages are sent to the Dev Discord Webhook URL instead
+                        of the production URL.
+                      </p>
+                    </div>
+                    <div class="settings-field-control">
+                      <div class="toggle-with-status">
+                        <label class="toggle-switch">
+                          <input
+                            :id="`dev-mode-${webhookSettingsForm.webhookId}`"
+                            v-model="webhookSettingsForm.devMode"
+                            type="checkbox"
+                          />
+                          <span class="toggle-slider"></span>
+                        </label>
+                        <span
+                          :class="[
+                            'toggle-status',
+                            webhookSettingsForm.devMode
+                              ? 'toggle-status--enabled'
+                              : 'toggle-status--disabled'
+                          ]"
+                        >
+                          {{ webhookSettingsForm.devMode ? 'Enabled' : 'Disabled' }}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          </template>
-
-          <!-- Empty State -->
-          <div v-else class="settings-empty-state">
-            <div class="settings-empty-icon">⚙️</div>
-            <p>Select a webhook above to configure its settings.</p>
           </div>
         </div>
         <footer class="modal__footer modal__footer--settings">
@@ -2191,6 +2444,7 @@ import {
   type CrashInspectionResult,
   type CrashSegmentSortResult
 } from '../services/api';
+import CodeTemplateEditor from '../components/CodeTemplateEditor.vue';
 import { useToastBus } from '../components/ToastBus';
 
 const route = useRoute();
@@ -2198,6 +2452,7 @@ const route = useRoute();
 const loading = ref(true);
 const componentReady = ref(false);
 const activeTab = ref<'endpoints' | 'inbox'>('inbox');
+const activeEndpointSection = ref<'details' | 'actions' | 'test' | null>(null);
 const pendingMessageId = ref<string | null>(null);
 const { addToast } = useToastBus();
 
@@ -2211,11 +2466,14 @@ let nowTimer: ReturnType<typeof setInterval> | null = null;
 const adminUsers = ref<AdminUserSummary[]>([]);
 const adminAssignableUsers = computed(() => adminUsers.value.filter((user) => user.isAdmin));
 const crashModelOptions = [
+  'gemini-2.5-flash-lite',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-1.5-flash',
   'gemini-1.5-flash-8b'
 ];
+const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
+const crashTemplatePlaceholders = ['{{crashReport}}'];
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -2361,6 +2619,25 @@ const failedCount = computed(
 const selectedWebhook = computed(
   () => webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
+const selectedCrashReviewAction = computed(
+  () => selectedWebhook.value?.actions?.find((action) => action.type === 'CRASH_REVIEW') ?? null
+);
+const selectedDiscordAction = computed(
+  () => selectedWebhook.value?.actions?.find((action) => action.type === 'DISCORD_RELAY') ?? null
+);
+
+type PipelineStageTone = 'ready' | 'info' | 'working' | 'warning' | 'danger' | 'muted';
+
+interface PipelineStageStatus {
+  label: string;
+  detail: string;
+  tone: PipelineStageTone;
+  needsAction: boolean;
+}
+
+function isSupportedWebhookAction(action?: InboundWebhookAction | null): boolean {
+  return action?.type === 'DISCORD_RELAY' || action?.type === 'CRASH_REVIEW';
+}
 const isAutoMergeActive = computed(() => {
   // Auto-Merge is a global setting - check if any webhook has it enabled
   return webhooks.value.some((w) => w.autoMerge);
@@ -2387,6 +2664,395 @@ interface PendingMergeGroup {
 }
 const pendingMergeGroups = ref<PendingMergeGroup[]>([]);
 const processingGroupKey = ref<string | null>(null);
+
+const selectedPendingMergeGroups = computed(() => {
+  const webhookId = selectedWebhook.value?.id;
+  if (!webhookId) return [];
+  return pendingMergeGroups.value.filter((group) => group.webhookId === webhookId);
+});
+const selectedPendingMergeMessageCount = computed(() =>
+  selectedPendingMergeGroups.value.reduce((total, group) => total + group.messageCount, 0)
+);
+const isSelectedWebhookProcessing = computed(() => {
+  const webhookId = selectedWebhook.value?.id;
+  return Boolean(webhookId && processingStatus.pendingWebhookIds.includes(webhookId));
+});
+
+function getActiveDiscordRelayUrl(
+  action?: InboundWebhookAction | null,
+  webhook?: InboundWebhook | null
+) {
+  if (!action) return '';
+  const primaryUrl = action.config.discordWebhookUrl?.trim();
+  const devUrl = action.config.devDiscordWebhookUrl?.trim();
+  if (webhook?.devMode && devUrl) {
+    return devUrl;
+  }
+  return primaryUrl || devUrl || '';
+}
+
+function isValidHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+function isValidPositiveNumber(value: number | undefined, max?: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 && (!max || value <= max);
+}
+
+function isCrashReviewTemplateValid(template?: string) {
+  const trimmed = template?.trim();
+  return !trimmed || /\{\{crashReport\}\}/i.test(trimmed);
+}
+
+function getPipelineStatusClass(status: PipelineStageStatus) {
+  return `endpoint-state--${status.tone}`;
+}
+
+function getPipelineCardStatusClass(status: PipelineStageStatus) {
+  return `endpoint-pipeline-card--${status.tone}`;
+}
+
+function getIntakePipelineStatus(webhook?: InboundWebhook | null): PipelineStageStatus {
+  if (!webhook) {
+    return {
+      label: 'Unavailable',
+      detail: 'Select an endpoint to inspect intake status.',
+      tone: 'muted',
+      needsAction: true
+    };
+  }
+  if (!webhook.token?.trim()) {
+    return {
+      label: 'Needs Token',
+      detail: 'The inbound URL cannot be used without a saved token.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!webhook.isEnabled) {
+    return {
+      label: 'Disabled',
+      detail: 'The endpoint rejects new webhook requests until it is enabled.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!webhookProcessingStatus.effectivelyEnabled) {
+    return {
+      label: 'Intake Only',
+      detail: 'Requests are stored, but downstream processing is paused for this server.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  return {
+    label: webhook.lastReceivedAt ? 'Receiving' : 'Ready',
+    detail: webhook.lastReceivedAt
+      ? `Last payload received ${formatRelativeTime(webhook.lastReceivedAt)}.`
+      : 'URL is enabled and waiting for the first payload.',
+    tone: webhook.lastReceivedAt ? 'ready' : 'info',
+    needsAction: false
+  };
+}
+
+function getMergePipelineStatus(webhook?: InboundWebhook | null): PipelineStageStatus {
+  if (!webhook) {
+    return {
+      label: 'Unavailable',
+      detail: 'Select an endpoint to inspect merge status.',
+      tone: 'muted',
+      needsAction: true
+    };
+  }
+  if (!webhook.isEnabled) {
+    return {
+      label: 'Blocked',
+      detail: 'Merge cannot run while intake is disabled.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!webhookProcessingStatus.effectivelyEnabled) {
+    return {
+      label: 'Paused',
+      detail: 'Merge windows will not process until server processing is enabled.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  if (!isValidPositiveNumber(webhook.mergeWindowSeconds, 300)) {
+    return {
+      label: 'Needs Rules',
+      detail: 'Set a merge window between 1 and 300 seconds.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (selectedPendingMergeGroups.value.length > 0 || isSelectedWebhookProcessing.value) {
+    const isProcessing = selectedPendingMergeGroups.value.some((group) => group.status === 'processing');
+    return {
+      label: isProcessing || isSelectedWebhookProcessing.value ? 'Processing' : 'Collecting',
+      detail:
+        selectedPendingMergeMessageCount.value > 0
+          ? `${selectedPendingMergeMessageCount.value} segment${
+              selectedPendingMergeMessageCount.value === 1 ? '' : 's'
+            } currently inside the merge window.`
+          : 'Webhook messages are being processed.',
+      tone: 'working',
+      needsAction: false
+    };
+  }
+  if (!webhook.autoMerge) {
+    return {
+      label: 'Manual',
+      detail: 'Multi-part crash reports will wait for manual merge review.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  return {
+    label: 'Auto-Ready',
+    detail: `Auto-merge is enabled with a ${webhook.mergeWindowSeconds}s window.`,
+    tone: 'ready',
+    needsAction: false
+  };
+}
+
+function getAiReviewPipelineStatus(action?: InboundWebhookAction | null): PipelineStageStatus {
+  if (!webhookProcessingStatus.effectivelyEnabled) {
+    return {
+      label: 'Paused',
+      detail: 'AI review will not run until webhook processing is enabled.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  if (!action) {
+    return {
+      label: 'Missing',
+      detail: 'Add an AI review action before the Discord relay.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!action.isEnabled) {
+    return {
+      label: 'Disabled',
+      detail: 'The AI action exists but will be skipped during processing.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  if (!action.config.crashModel?.trim()) {
+    return {
+      label: 'Needs Model',
+      detail: 'Choose a crash-review model for this action.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (
+    !isValidPositiveNumber(action.config.crashMaxInputChars) ||
+    !isValidPositiveNumber(action.config.crashMaxOutputTokens) ||
+    typeof action.config.crashTemperature !== 'number' ||
+    action.config.crashTemperature < 0 ||
+    action.config.crashTemperature > 1
+  ) {
+    return {
+      label: 'Invalid Config',
+      detail: 'Review token, input, and temperature limits.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!isCrashReviewTemplateValid(action.config.crashPromptTemplate)) {
+    return {
+      label: 'Template Issue',
+      detail: 'The custom prompt must include {{crashReport}} so the report is analyzed.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  return {
+    label: 'Ready',
+    detail: `${action.config.crashModel} is configured for crash analysis.`,
+    tone: 'ready',
+    needsAction: false
+  };
+}
+
+function getDiscordPipelineStatus(
+  webhook?: InboundWebhook | null,
+  action?: InboundWebhookAction | null,
+  aiStatus?: PipelineStageStatus
+): PipelineStageStatus {
+  if (!webhookProcessingStatus.effectivelyEnabled) {
+    return {
+      label: 'Paused',
+      detail: 'Discord relay will not run until webhook processing is enabled.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  if (!action) {
+    return {
+      label: 'Missing',
+      detail: 'Add a Discord relay action to notify developers.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!action.isEnabled) {
+    return {
+      label: 'Disabled',
+      detail: 'The Discord action exists but will be skipped.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  const relayUrl = getActiveDiscordRelayUrl(action, webhook);
+  if (!relayUrl) {
+    return {
+      label: 'Needs URL',
+      detail: webhook?.devMode
+        ? 'Set a dev or primary Discord webhook URL for dev-mode relay.'
+        : 'Set the primary Discord webhook URL for production relay.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (!isValidHttpUrl(relayUrl)) {
+    return {
+      label: 'Invalid URL',
+      detail: 'The active Discord webhook URL is not a valid HTTP URL.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (
+    action.config.discordMode !== 'RAW' &&
+    action.config.discordTemplate?.trim() &&
+    !/\{\{json\}\}|\{\{raw\}\}/.test(action.config.discordTemplate)
+  ) {
+    return {
+      label: 'Static Template',
+      detail: 'The wrap template has no {{json}} or {{raw}} placeholder.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  if (aiStatus?.needsAction) {
+    return {
+      label: 'Relay Ready',
+      detail: 'Discord can send, but the AI summary stage still needs attention.',
+      tone: 'warning',
+      needsAction: true
+    };
+  }
+  return {
+    label: 'Ready',
+    detail:
+      webhook?.devMode && action.config.devDiscordWebhookUrl?.trim()
+        ? 'Will send summaries to the dev Discord webhook.'
+        : 'Will send summaries to the primary Discord webhook.',
+    tone: 'ready',
+    needsAction: false
+  };
+}
+
+function getDiscordPipelineTargetLabel(webhook?: InboundWebhook | null) {
+  return webhook?.devMode ? 'Dev Discord target' : 'Primary Discord target';
+}
+
+function getInboxPipelineStatus(webhook?: InboundWebhook | null): PipelineStageStatus {
+  if (!webhook) {
+    return {
+      label: 'Unavailable',
+      detail: 'Select an endpoint to inspect inbox status.',
+      tone: 'muted',
+      needsAction: true
+    };
+  }
+  if (!webhook.isEnabled) {
+    return {
+      label: 'Blocked',
+      detail: 'No new inbox records will be created while the endpoint is disabled.',
+      tone: 'danger',
+      needsAction: true
+    };
+  }
+  if (isSelectedWebhookProcessing.value) {
+    return {
+      label: 'Updating',
+      detail: 'Messages for this endpoint are currently being processed.',
+      tone: 'working',
+      needsAction: false
+    };
+  }
+  if (!webhookProcessingStatus.effectivelyEnabled) {
+    return {
+      label: 'Storing Only',
+      detail: 'New reports are saved, but actions are paused.',
+      tone: 'info',
+      needsAction: false
+    };
+  }
+  return {
+    label: webhook.lastReceivedAt ? 'Recording' : 'Ready',
+    detail: webhook.lastReceivedAt
+      ? `Last inbox record received ${formatRelativeTime(webhook.lastReceivedAt)}.`
+      : 'Inbox storage is ready for the first report.',
+    tone: webhook.lastReceivedAt ? 'ready' : 'info',
+    needsAction: false
+  };
+}
+
+const intakePipelineStatus = computed(() => getIntakePipelineStatus(selectedWebhook.value));
+const mergePipelineStatus = computed(() => getMergePipelineStatus(selectedWebhook.value));
+const aiReviewPipelineStatus = computed(() =>
+  getAiReviewPipelineStatus(selectedCrashReviewAction.value)
+);
+const discordPipelineStatus = computed(() =>
+  getDiscordPipelineStatus(
+    selectedWebhook.value,
+    selectedDiscordAction.value,
+    aiReviewPipelineStatus.value
+  )
+);
+const inboxPipelineStatus = computed(() => getInboxPipelineStatus(selectedWebhook.value));
+const selectedPipelineStatuses = computed(() => [
+  intakePipelineStatus.value,
+  mergePipelineStatus.value,
+  aiReviewPipelineStatus.value,
+  discordPipelineStatus.value,
+  inboxPipelineStatus.value
+]);
+const selectedPipelineNeedsActionCount = computed(
+  () => selectedPipelineStatuses.value.filter((status) => status.needsAction).length
+);
+const selectedPipelineStatusLabel = computed(() => {
+  const needsAction = selectedPipelineNeedsActionCount.value;
+  if (needsAction > 0) {
+    return `${needsAction} stage${needsAction === 1 ? '' : 's'} need action`;
+  }
+  if (selectedPipelineStatuses.value.some((status) => status.tone === 'working')) {
+    return 'Processing active';
+  }
+  return 'Pipeline ready';
+});
+
+function openEndpointDetailsPanel() {
+  activeEndpointSection.value = 'details';
+}
+
+function openEndpointActionsPanel() {
+  activeEndpointSection.value = 'actions';
+}
 
 // Computed: messages that are NOT in a pending merge group (to avoid showing duplicates)
 const pendingGroupMessageIds = computed(() => {
@@ -2497,6 +3163,12 @@ watch(isAutoMergeActive, (newVal) => {
     processingStatus.hasPendingProcessing = false;
     processingStatus.pendingWebhookIds = [];
   }
+});
+
+watch(activeTab, () => {
+  activeEndpointSection.value = null;
+  showTestPanel.value = false;
+  showWebhookSettings.value = false;
 });
 
 // Merge group detection
@@ -2655,14 +3327,9 @@ function buildActionDraft() {
     devDiscordWebhookUrl: '',
     discordMode: 'WRAP',
     discordTemplate: 'Webhook payload:\n\n```json\n{{json}}\n```',
-    clawdbotWebhookUrl: '',
-    devClawdbotWebhookUrl: '',
-    clawdbotMode: 'WRAP',
-    clawdbotTemplate:
-      '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
-    crashModel: 'gemini-2.5-pro',
+    crashModel: 'gemini-2.5-flash-lite',
     crashMaxInputChars: 250000,
-    crashMaxOutputTokens: 16384,
+    crashMaxOutputTokens: 4096,
     crashTemperature: 0.2,
     crashPromptTemplate: ''
   };
@@ -2680,37 +3347,37 @@ async function loadWebhooks() {
   const data = await api.fetchInboundWebhooks();
   webhooks.value = data.map((webhook) => ({
     ...webhook,
-    actions: (webhook.actions ?? []).map((action) => ({
-      ...action,
-      config: {
-        discordWebhookUrl: action.config?.discordWebhookUrl,
-        devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
-        discordMode: action.config?.discordMode ?? 'WRAP',
-        discordTemplate:
-          action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-        clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
-        devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
-        clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-        clawdbotTemplate:
-          action.config?.clawdbotTemplate ??
-          '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
-        crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
-        crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
-        crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
-        crashTemperature: action.config?.crashTemperature ?? 0.2,
-        crashPromptTemplate: action.config?.crashPromptTemplate ?? ''
-      }
-    }))
+    actions: (webhook.actions ?? [])
+      .filter(isSupportedWebhookAction)
+      .map((action) => ({
+        ...action,
+        config: {
+          discordWebhookUrl: action.config?.discordWebhookUrl,
+          devDiscordWebhookUrl: action.config?.devDiscordWebhookUrl,
+          discordMode: action.config?.discordMode ?? 'WRAP',
+          discordTemplate:
+            action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
+          crashModel: action.config?.crashModel ?? 'gemini-2.5-flash-lite',
+          crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
+          crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
+          crashTemperature: action.config?.crashTemperature ?? 0.2,
+          crashPromptTemplate: action.config?.crashPromptTemplate ?? ''
+        }
+      }))
   }));
   for (const webhook of webhooks.value) {
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
     testDrafts[webhook.id] = buildTestDraft();
   }
+  if (!webhooks.value.some((webhook) => webhook.id === expandedWebhookId.value)) {
+    expandedWebhookId.value = webhooks.value[0]?.id ?? null;
+  }
 }
 
 function toggleWebhook(webhookId: string) {
   expandedWebhookId.value = expandedWebhookId.value === webhookId ? null : webhookId;
+  activeEndpointSection.value = null;
   showTestPanel.value = false;
 }
 
@@ -3000,6 +3667,8 @@ async function createWebhook() {
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
     testDrafts[webhook.id] = buildTestDraft();
+    expandedWebhookId.value = webhook.id;
+    activeEndpointSection.value = null;
     createForm.label = '';
     createForm.description = '';
     showCreateWebhook.value = false;
@@ -3035,6 +3704,10 @@ async function deleteWebhook(webhook: InboundWebhook) {
   webhooks.value = webhooks.value.filter((item) => item.id !== webhook.id);
   delete webhookDrafts[webhook.id];
   delete actionDrafts[webhook.id];
+  if (expandedWebhookId.value === webhook.id) {
+    expandedWebhookId.value = webhooks.value[0]?.id ?? null;
+    activeEndpointSection.value = null;
+  }
 }
 
 async function createAction(webhook: InboundWebhook) {
@@ -3054,17 +3727,7 @@ async function createAction(webhook: InboundWebhook) {
               discordTemplate:
                 draft.discordMode === 'RAW' ? undefined : draft.discordTemplate?.trim() || undefined
             }
-          : draft.type === 'CLAWDBOT_RELAY'
-            ? {
-                clawdbotWebhookUrl: draft.clawdbotWebhookUrl.trim() || undefined,
-                devClawdbotWebhookUrl: draft.devClawdbotWebhookUrl?.trim() || undefined,
-                clawdbotMode: draft.clawdbotMode,
-                clawdbotTemplate:
-                  draft.clawdbotMode === 'RAW'
-                    ? undefined
-                    : draft.clawdbotTemplate?.trim() || undefined
-              }
-            : draft.type === 'CRASH_REVIEW'
+          : draft.type === 'CRASH_REVIEW'
               ? {
                   crashModel: draft.crashModel?.trim() || undefined,
                   crashMaxInputChars: draft.crashMaxInputChars,
@@ -3084,15 +3747,9 @@ async function createAction(webhook: InboundWebhook) {
           discordMode: action.config?.discordMode ?? 'WRAP',
           discordTemplate:
             action.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-          clawdbotWebhookUrl: action.config?.clawdbotWebhookUrl,
-          devClawdbotWebhookUrl: action.config?.devClawdbotWebhookUrl,
-          clawdbotMode: action.config?.clawdbotMode ?? 'WRAP',
-          clawdbotTemplate:
-            action.config?.clawdbotTemplate ??
-            '{\n  "title": "Crash Report",\n  "description": "{{text}}",\n  "priority": "high",\n  "labels": ["crash-report", "automated"]\n}',
-          crashModel: action.config?.crashModel ?? 'gemini-2.5-pro',
+          crashModel: action.config?.crashModel ?? 'gemini-2.5-flash-lite',
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
-          crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 16384,
+          crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
           crashTemperature: action.config?.crashTemperature ?? 0.2,
           crashPromptTemplate: action.config?.crashPromptTemplate ?? ''
         }
@@ -3121,17 +3778,7 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                   ? undefined
                   : action.config.discordTemplate?.trim() || undefined
             }
-          : action.type === 'CLAWDBOT_RELAY'
-            ? {
-                clawdbotWebhookUrl: action.config.clawdbotWebhookUrl,
-                devClawdbotWebhookUrl: action.config.devClawdbotWebhookUrl,
-                clawdbotMode: action.config.clawdbotMode ?? 'WRAP',
-                clawdbotTemplate:
-                  action.config.clawdbotMode === 'RAW'
-                    ? undefined
-                    : action.config.clawdbotTemplate?.trim() || undefined
-              }
-            : action.type === 'CRASH_REVIEW'
+          : action.type === 'CRASH_REVIEW'
               ? {
                   crashModel: action.config.crashModel?.trim() || undefined,
                   crashMaxInputChars: action.config.crashMaxInputChars,
@@ -3151,13 +3798,9 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
               discordMode: updated.config?.discordMode ?? 'WRAP',
               discordTemplate:
                 updated.config?.discordTemplate ?? 'Webhook payload:\n\n```json\n{{json}}\n```',
-              clawdbotWebhookUrl: updated.config?.clawdbotWebhookUrl,
-              devClawdbotWebhookUrl: updated.config?.devClawdbotWebhookUrl,
-              clawdbotMode: updated.config?.clawdbotMode ?? 'WRAP',
-              clawdbotTemplate: updated.config?.clawdbotTemplate ?? 'Webhook payload:\n\n{{json}}',
-              crashModel: updated.config?.crashModel ?? 'gemini-2.5-pro',
+              crashModel: updated.config?.crashModel ?? 'gemini-2.5-flash-lite',
               crashMaxInputChars: updated.config?.crashMaxInputChars ?? 250000,
-              crashMaxOutputTokens: updated.config?.crashMaxOutputTokens ?? 16384,
+              crashMaxOutputTokens: updated.config?.crashMaxOutputTokens ?? 4096,
               crashTemperature: updated.config?.crashTemperature ?? 0.2,
               crashPromptTemplate: updated.config?.crashPromptTemplate ?? ''
             }
@@ -3193,15 +3836,9 @@ async function sendTest(webhook: InboundWebhook) {
     const hasDiscordRelay = (webhook.actions ?? []).some(
       (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
     );
-    const hasClawdbotRelay = (webhook.actions ?? []).some(
-      (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
-    );
-    if (hasDiscordRelay || hasClawdbotRelay) {
-      const relayTypes = [];
-      if (hasDiscordRelay) relayTypes.push('Discord');
-      if (hasClawdbotRelay) relayTypes.push('ClawdBot');
+    if (hasDiscordRelay) {
       const confirmed = window.confirm(
-        `This test will send ${relayTypes.join(' and ')} relay message(s). Continue?`
+        'This test will send a Discord relay message. Continue?'
       );
       if (!confirmed) {
         return;
@@ -3321,8 +3958,6 @@ function getActionLabel(type?: string | null): string {
       return 'AI Review';
     case 'DISCORD_RELAY':
       return 'Discord';
-    case 'CLAWDBOT_RELAY':
-      return 'ClawdBot';
     default:
       return 'Action';
   }
@@ -3336,7 +3971,7 @@ function getLatestRunsByType(message: InboundWebhookMessage) {
   // Runs are ordered by createdAt asc, so later entries override earlier ones
   for (const run of runs) {
     const type = run.action?.type;
-    if (type) {
+    if (type && isSupportedWebhookAction(run.action)) {
       latestByType.set(type, run);
     }
   }
@@ -3345,7 +3980,9 @@ function getLatestRunsByType(message: InboundWebhookMessage) {
 }
 
 function getNotStartedActions(message: InboundWebhookMessage) {
-  const webhookActions = message.webhook?.actions?.filter((a) => a.isEnabled) || [];
+  const webhookActions = message.webhook?.actions?.filter(
+    (action) => action.isEnabled && isSupportedWebhookAction(action)
+  ) || [];
   const startedActionTypes = new Set(
     (message.actionRuns || []).map((run) => run.action?.type).filter(Boolean)
   );
@@ -3561,7 +4198,7 @@ function getCrashRunTokenUsage(message: InboundWebhookMessage): TokenUsageData |
   // Get max output tokens from the config
   const config = analysisPayload?.config as Record<string, unknown> | undefined;
   const maxOutputTokens =
-    typeof config?.maxOutputTokens === 'number' ? config.maxOutputTokens : 16384;
+    typeof config?.maxOutputTokens === 'number' ? config.maxOutputTokens : 4096;
 
   // Only return if we have meaningful data
   if (totalTokens === 0 && outputTokens === 0) return null;
@@ -4002,8 +4639,8 @@ async function deleteLabel(label: WebhookMessageLabel) {
 }
 
 // Webhook Settings
-function openWebhookSettings() {
-  webhookSettingsForm.webhookId = webhooks.value[0]?.id ?? '';
+function openWebhookSettings(webhookId?: string) {
+  webhookSettingsForm.webhookId = webhookId ?? selectedWebhook.value?.id ?? webhooks.value[0]?.id ?? '';
   if (webhookSettingsForm.webhookId) {
     const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
     webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
@@ -4011,6 +4648,13 @@ function openWebhookSettings() {
     webhookSettingsForm.devMode = hook?.devMode ?? false;
   }
   showWebhookSettings.value = true;
+}
+
+function openEndpointInbox(webhookId: string) {
+  inboxFilters.webhookId = webhookId;
+  inboxFilters.page = 1;
+  activeTab.value = 'inbox';
+  loadInbox();
 }
 
 function onWebhookSettingsSelect() {
@@ -5074,6 +5718,779 @@ function escapeHtml(text: string): string {
   color: rgba(148, 163, 184, 0.8);
 }
 
+.endpoints {
+  --endpoint-panel-bg: rgba(10, 18, 31, 0.82);
+  --endpoint-panel-border: rgba(148, 163, 184, 0.16);
+  --endpoint-panel-strong: rgba(226, 232, 240, 0.96);
+}
+
+.endpoints-workspace {
+  display: grid;
+  grid-template-columns: minmax(18rem, 21rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.endpoint-sidebar,
+.endpoint-main,
+.endpoint-panel,
+.endpoint-create-panel,
+.endpoint-empty-state {
+  border: 1px solid var(--endpoint-panel-border);
+  background: var(--endpoint-panel-bg);
+  box-shadow: 0 18px 36px rgba(2, 6, 23, 0.24);
+}
+
+.endpoint-sidebar {
+  position: sticky;
+  top: 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-height: calc(100vh - 7rem);
+  padding: 1rem;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.endpoint-sidebar__header,
+.endpoint-panel__header,
+.endpoint-hero,
+.endpoint-summary-strip {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.endpoint-sidebar__header {
+  align-items: flex-start;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.endpoint-sidebar__header h2,
+.endpoint-hero h2,
+.endpoint-empty-state h2 {
+  margin: 0;
+  color: var(--endpoint-panel-strong);
+  letter-spacing: 0;
+}
+
+.endpoint-create-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem;
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.78);
+}
+
+.endpoint-create-panel .endpoint-panel__header {
+  padding: 0;
+  border: 0;
+}
+
+.endpoint-create-panel h3,
+.endpoint-panel__header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.endpoint-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.endpoint-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+  min-height: 5.25rem;
+  padding: 0.75rem 0.85rem 0.75rem 1rem;
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  color: #e5e7eb;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.12s ease;
+}
+
+.endpoint-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  border-radius: 0.65rem 0 0 0.65rem;
+  background: transparent;
+}
+
+.endpoint-item:hover {
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(148, 163, 184, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(2, 6, 23, 0.24);
+}
+
+.endpoint-item--active {
+  background: rgba(17, 24, 39, 0.92);
+  border-color: rgba(56, 189, 248, 0.42);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.12);
+}
+
+.endpoint-item--active::before {
+  background: #38bdf8;
+}
+
+.endpoint-item__status,
+.endpoint-item__meta,
+.endpoint-action-type,
+.endpoint-kicker,
+.endpoint-count-pill,
+.endpoint-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.endpoint-item__status {
+  color: rgba(203, 213, 225, 0.8);
+}
+
+.endpoint-item strong {
+  min-width: 0;
+  color: #f8fafc;
+  font-size: 0.98rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-item__description {
+  color: rgba(203, 213, 225, 0.78);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.endpoint-item__meta {
+  justify-content: space-between;
+  gap: 0.7rem;
+  color: rgba(148, 163, 184, 0.82);
+}
+
+.endpoint-status-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 50%;
+}
+
+.endpoint-status-dot--on {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+}
+
+.endpoint-status-dot--off {
+  background: #94a3b8;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.12);
+}
+
+.endpoint-empty-note {
+  padding: 0.85rem 0.9rem;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.endpoint-main {
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+
+.endpoint-empty-state {
+  display: grid;
+  place-items: center;
+  gap: 0.65rem;
+  min-height: 24rem;
+  padding: 3rem 1.5rem;
+  border-radius: 0.5rem;
+  text-align: center;
+}
+
+.endpoint-empty-state__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.14);
+  color: #7dd3fc;
+  font-size: 1.4rem;
+}
+
+.endpoint-hero {
+  align-items: flex-start;
+  margin-bottom: 0.8rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.7rem;
+  background: linear-gradient(135deg, rgba(17, 24, 39, 0.92), rgba(20, 30, 47, 0.76));
+}
+
+.endpoint-hero__identity {
+  min-width: 0;
+}
+
+.endpoint-hero__identity p {
+  margin: 0.35rem 0 0;
+}
+
+.endpoint-kicker {
+  margin-bottom: 0.35rem;
+  color: #7dd3fc;
+}
+
+.endpoint-hero__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.endpoint-state,
+.endpoint-count-pill {
+  min-height: 1.85rem;
+  padding: 0.36rem 0.65rem;
+  border-radius: 999px;
+}
+
+.endpoint-state--enabled {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+.endpoint-state--ready {
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+.endpoint-state--working {
+  color: #67e8f9;
+  background: rgba(6, 182, 212, 0.13);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.endpoint-state--info {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+}
+
+.endpoint-state--warning {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.endpoint-state--danger {
+  color: #fecdd3;
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.32);
+}
+
+.endpoint-state--muted,
+.endpoint-state--disabled {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.endpoint-summary-strip {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1.7fr) repeat(3, minmax(8rem, 1fr));
+  margin-bottom: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.48);
+  overflow: hidden;
+}
+
+.endpoint-summary-strip > div {
+  min-width: 0;
+  padding: 0.72rem 0.9rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.endpoint-summary-strip > div:last-child {
+  border-right: 0;
+}
+
+.endpoint-summary-strip strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: #f8fafc;
+  font-size: 0.86rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-pipeline {
+  margin-bottom: 0.85rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 0.75rem;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.11), transparent 20rem),
+    linear-gradient(180deg, rgba(8, 21, 35, 0.74), rgba(5, 12, 22, 0.86));
+}
+
+.endpoint-pipeline__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.endpoint-pipeline__header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.endpoint-pipeline__status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.endpoint-pipeline__status--ready {
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+}
+
+.endpoint-pipeline__status--warning {
+  border: 1px solid rgba(245, 158, 11, 0.26);
+  background: rgba(245, 158, 11, 0.1);
+  color: #fde68a;
+}
+
+.endpoint-pipeline__track {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  align-items: stretch;
+}
+
+.endpoint-pipeline__connector {
+  display: none;
+}
+
+.endpoint-pipeline-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'step title'
+    'icon badge'
+    'icon copy'
+    'icon mode'
+    'icon diagnostic'
+    'cta cta';
+  gap: 0.45rem 0.65rem;
+  min-height: 12rem;
+  padding: 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.7rem;
+  background: rgba(15, 23, 42, 0.58);
+  color: #e2e8f0;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.12s ease;
+}
+
+.endpoint-pipeline-card::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -0.7rem;
+  width: 0.72rem;
+  height: 1px;
+  background: rgba(56, 189, 248, 0.42);
+}
+
+.endpoint-pipeline-card:last-child::after {
+  display: none;
+}
+
+.endpoint-pipeline-card:hover,
+.endpoint-pipeline-card--active {
+  border-color: rgba(56, 189, 248, 0.52);
+  background: rgba(8, 35, 58, 0.58);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.12);
+  transform: translateY(-1px);
+}
+
+.endpoint-pipeline-card--warning {
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.endpoint-pipeline-card--danger {
+  border-color: rgba(244, 63, 94, 0.32);
+}
+
+.endpoint-pipeline-card--working {
+  border-color: rgba(6, 182, 212, 0.32);
+}
+
+.endpoint-pipeline-card--info {
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.endpoint-pipeline-card__step {
+  grid-area: step;
+  display: inline-grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 0.45rem;
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.endpoint-pipeline-card__icon {
+  grid-area: icon;
+  display: inline-grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 0.65rem;
+  background:
+    linear-gradient(180deg, rgba(14, 165, 233, 0.16), rgba(14, 165, 233, 0.06)),
+    rgba(2, 6, 23, 0.22);
+  box-shadow: inset 0 1px 0 rgba(226, 232, 240, 0.08);
+  align-self: start;
+  color: #38bdf8;
+}
+
+.endpoint-pipeline-card__icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.endpoint-pipeline-card__title {
+  grid-area: title;
+  min-width: 0;
+  align-self: center;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-pipeline-card__badge {
+  grid-area: badge;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-self: start;
+  min-height: 1.55rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.endpoint-pipeline-card__dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.endpoint-pipeline-card__copy {
+  grid-area: copy;
+  min-width: 0;
+  color: rgba(203, 213, 225, 0.82);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.endpoint-pipeline-card__diagnostic {
+  grid-area: diagnostic;
+  min-width: 0;
+  color: rgba(148, 163, 184, 0.92);
+  font-size: 0.73rem;
+  line-height: 1.3;
+}
+
+.endpoint-pipeline-card__mode {
+  grid-area: mode;
+  justify-self: start;
+  min-width: 0;
+  position: relative;
+  padding-left: 0.55rem;
+  color: rgba(148, 163, 184, 0.88);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.endpoint-pipeline-card__mode::before {
+  content: '';
+  position: absolute;
+  top: 0.42em;
+  left: 0;
+  width: 0.28rem;
+  height: 0.28rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.endpoint-pipeline-card__mode--dev {
+  color: rgba(196, 181, 253, 0.74);
+}
+
+.endpoint-pipeline-card__mode--primary {
+  color: rgba(186, 230, 253, 0.72);
+}
+
+.endpoint-pipeline-card__cta {
+  grid-area: cta;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  margin-top: 0.15rem;
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 0.45rem;
+  background: rgba(2, 6, 23, 0.24);
+  color: #dbeafe;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.endpoint-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.85rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.7rem;
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.endpoint-section-tabs--compact {
+  opacity: 0.88;
+}
+
+.endpoint-section-tab {
+  min-width: 0;
+  min-height: 3.2rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: rgba(203, 213, 225, 0.78);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.endpoint-section-tab:hover {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.endpoint-section-tab--active {
+  border-color: rgba(56, 189, 248, 0.42);
+  background: rgba(14, 165, 233, 0.13);
+  color: #e0f2fe;
+}
+
+.endpoint-section-tab--collapse {
+  text-align: right;
+}
+
+.endpoint-section-tab span,
+.endpoint-section-tab small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.endpoint-section-tab span {
+  color: inherit;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.endpoint-section-tab small {
+  margin-top: 0.18rem;
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 0.72rem;
+}
+
+.endpoint-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.endpoint-layout--actions,
+.endpoint-layout--test {
+  grid-template-columns: 1fr;
+}
+
+.endpoint-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 0.7rem;
+}
+
+.endpoint-panel--actions,
+.endpoint-panel--add,
+.endpoint-panel--overview,
+.endpoint-panel--url,
+.endpoint-panel--test {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.endpoint-panel__header {
+  align-items: flex-start;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.endpoint-count-pill {
+  flex: 0 0 auto;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.26);
+}
+
+.endpoint-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.form-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.endpoint-field-wide {
+  grid-column: 1 / -1;
+}
+
+.endpoint-toggle-field {
+  min-height: 2.75rem;
+  align-self: end;
+  padding: 0.68rem 0.8rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.endpoint-control-row {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 0.55fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.endpoint-url-row .input {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+}
+
+.endpoint-test-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.endpoint-action-row {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.7rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.endpoint-action-row .action-row__header {
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.endpoint-action-type {
+  margin-bottom: 0.25rem;
+  color: #7dd3fc;
+}
+
+.endpoint-action-row .action-row__header strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.endpoint-action-row .action-row__actions {
+  padding-top: 0.15rem;
+  justify-content: flex-end;
+}
+
 .label {
   display: block;
   font-size: 0.75rem;
@@ -5089,14 +6506,51 @@ function escapeHtml(text: string): string {
 }
 
 /* Inbox title row */
+.inbox-toolbar-card {
+  gap: 0.85rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(135deg, rgba(15, 23, 42, 0.86), rgba(18, 31, 52, 0.72)),
+    rgba(15, 23, 42, 0.7);
+}
+
+.inbox-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.inbox-toolbar__title {
+  min-width: 0;
+}
+
+.inbox-toolbar__description {
+  margin: 0.25rem 0 0;
+}
+
+.inbox-toolbar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
 .inbox-title-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .inbox-title-row h2 {
   margin: 0;
+  color: #e2e8f0;
+  font-size: 1.35rem;
+  line-height: 1.1;
 }
 
 .auto-merge-badge {
@@ -5164,11 +6618,29 @@ function escapeHtml(text: string): string {
   gap: 0.75rem;
 }
 
+.inbox-filters--compact {
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
 .inbox-filters__row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: flex-end;
+}
+
+.inbox-filters--compact .inbox-filters__row {
+  display: grid;
+  grid-template-columns:
+    minmax(11rem, 1.2fr)
+    minmax(10rem, 0.9fr)
+    minmax(8.5rem, 0.75fr)
+    minmax(10rem, 0.9fr)
+    minmax(6.5rem, 0.45fr)
+    auto;
+  align-items: end;
+  gap: 0.65rem;
 }
 
 .inbox-filters__row--secondary {
@@ -5179,7 +6651,7 @@ function escapeHtml(text: string): string {
 
 .inbox-filters__toggles {
   display: flex;
-  gap: 1.25rem;
+  gap: 0.8rem;
   align-items: center;
   margin-left: auto;
 }
@@ -5189,6 +6661,11 @@ function escapeHtml(text: string): string {
   align-items: center;
   gap: 0.4rem;
   cursor: pointer;
+  min-height: 2.6rem;
+  padding: 0 0.7rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.48);
   font-size: 0.8rem;
   color: rgba(226, 232, 240, 0.85);
   white-space: nowrap;
@@ -5211,6 +6688,10 @@ function escapeHtml(text: string): string {
   flex-direction: column;
   gap: 0.35rem;
   min-width: 130px;
+}
+
+.inbox-filters--compact .form-field--compact {
+  min-width: 0;
 }
 
 .form-field--compact span {
@@ -5844,39 +7325,57 @@ input[type='checkbox']:checked::after {
 }
 
 .modal--settings {
-  width: min(520px, 96vw);
+  width: min(980px, 96vw);
+  max-height: min(86vh, 760px);
+  padding: 1.25rem;
 }
 
 /* Settings Modal Styles */
 .settings-modal-body {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  max-height: 70vh;
+  gap: 1rem;
+  max-height: min(64vh, 560px);
   overflow-y: auto;
+  padding-right: 0.15rem;
+}
+
+.settings-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.settings-modal-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
 }
 
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.8rem;
 }
 
 .settings-section--selector {
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding: 0.9rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0.65rem;
+  background: rgba(15, 23, 42, 0.32);
 }
 
 .settings-section--global {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(30, 41, 59, 0.6) 100%);
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 0.75rem;
-  padding: 1rem 1.25rem;
-  margin-bottom: 1rem;
+  padding: 0.9rem;
 }
 
 .settings-section--global .settings-section-header {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.4rem;
 }
 
 .settings-section--global .settings-section-title {
@@ -5886,7 +7385,7 @@ input[type='checkbox']:checked::after {
 .settings-field--prominent {
   background: rgba(15, 23, 42, 0.4);
   border-radius: 0.5rem;
-  padding: 0.875rem 1rem;
+  padding: 0.8rem;
   border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
@@ -5898,7 +7397,7 @@ input[type='checkbox']:checked::after {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.45rem 0.65rem;
   background: rgba(30, 41, 59, 0.6);
   border-radius: 0.375rem;
   border: 1px solid rgba(148, 163, 184, 0.15);
@@ -5917,9 +7416,10 @@ input[type='checkbox']:checked::after {
 }
 
 .settings-info-banner {
-  display: flex;
-  gap: 1.5rem;
-  padding: 0.875rem 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
   background: rgba(30, 41, 59, 0.5);
   border-radius: 0.5rem;
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -5964,8 +7464,8 @@ input[type='checkbox']:checked::after {
 .settings-fields {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  padding: 1rem;
+  gap: 0.8rem;
+  padding: 0.85rem;
   background: rgba(30, 41, 59, 0.3);
   border-radius: 0.5rem;
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -5979,10 +7479,8 @@ input[type='checkbox']:checked::after {
 }
 
 .settings-field--toggle {
-  padding: 0.75rem 0;
+  padding: 0.65rem 0;
   border-bottom: 1px solid rgba(148, 163, 184, 0.08);
-  /* Debug: make toggle section more visible */
-  margin-top: 1rem;
 }
 
 .settings-field--toggle:last-child {
@@ -6331,6 +7829,74 @@ input[type='checkbox']:checked::after {
   margin: 0.4rem 0 0;
 }
 
+@media (max-width: 1100px) {
+  .modal--settings {
+    width: min(760px, 96vw);
+  }
+
+  .settings-modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .endpoints-workspace,
+  .endpoint-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .inbox-toolbar {
+    flex-direction: column;
+  }
+
+  .inbox-toolbar__actions {
+    justify-content: flex-start;
+  }
+
+  .inbox-filters--compact .inbox-filters__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inbox-filters__toggles {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .endpoint-pipeline__track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .endpoint-pipeline-card::after {
+    display: none;
+  }
+
+  .endpoint-sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .endpoint-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .endpoint-panel--actions,
+  .endpoint-panel--add,
+  .endpoint-panel--overview,
+  .endpoint-panel--url,
+  .endpoint-panel--test {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .endpoint-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .endpoint-summary-strip > div {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  }
+}
+
 @media (max-width: 720px) {
   .section-header {
     flex-direction: column;
@@ -6342,12 +7908,60 @@ input[type='checkbox']:checked::after {
     align-items: flex-start;
   }
 
+  .inbox-filters__toggles {
+    flex-wrap: wrap;
+  }
+
+  .endpoint-pipeline__header {
+    flex-direction: column;
+  }
+
+  .endpoint-pipeline__track,
+  .endpoint-section-tabs {
+    grid-template-columns: 1fr;
+  }
+
   .endpoint-details {
     grid-template-columns: 1fr;
   }
 
+  .endpoint-hero,
+  .endpoint-sidebar__header,
+  .endpoint-panel__header {
+    flex-direction: column;
+  }
+
+  .endpoint-hero__actions {
+    justify-content: flex-start;
+  }
+
+  .endpoint-summary-strip,
+  .endpoint-form-grid,
+  .endpoint-control-row {
+    grid-template-columns: 1fr;
+  }
+
+  .endpoint-summary-strip > div {
+    border-right: 0;
+  }
+
   .modal__content--split {
     grid-template-columns: 1fr;
+  }
+
+  .settings-info-banner {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .inbox-filters--compact .inbox-filters__row {
+    grid-template-columns: 1fr;
+  }
+
+  .inbox-filters__toggles {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -7038,8 +8652,8 @@ input[type='checkbox']:checked::after {
   justify-content: center;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 1.5rem;
-  padding-top: 1.25rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
   border-top: 1px solid rgba(148, 163, 184, 0.15);
 }
 

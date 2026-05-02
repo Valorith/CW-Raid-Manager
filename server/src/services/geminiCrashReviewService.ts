@@ -27,9 +27,9 @@ export type CrashReviewFindings = {
   };
 };
 
-const MODEL_NAME = 'gemini-2.5-pro';
+const MODEL_NAME = 'gemini-2.5-flash-lite';
 const MAX_INPUT_CHARS = 250_000;
-const MAX_OUTPUT_TOKENS = 16384; // Must account for Gemini 2.5's internal thinking tokens
+const MAX_OUTPUT_TOKENS = 4096;
 const FOLLOWUP_OUTPUT_TOKENS = 4096;
 const TEMPERATURE = 0.2;
 const FUNCTION_NAME = 'crash_review';
@@ -1407,8 +1407,7 @@ export interface CrashSegmentSortResult {
   reasoning: string;
 }
 
-// Use Flash model for sorting - faster and doesn't have thinking token overhead
-const SORT_MODEL_NAME = 'gemini-2.0-flash';
+const SORT_MODEL_NAME = 'gemini-2.5-flash-lite';
 
 const SEGMENT_SORT_PROMPT = `Sort crash report segments and identify duplicates.
 

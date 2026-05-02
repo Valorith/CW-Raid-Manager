@@ -179,11 +179,6 @@ export interface InboundWebhookActionConfig {
   crashMaxOutputTokens?: number;
   crashTemperature?: number;
   crashPromptTemplate?: string;
-  // ClawdBot relay fields
-  clawdbotWebhookUrl?: string;
-  devClawdbotWebhookUrl?: string;
-  clawdbotMode?: 'RAW' | 'WRAP';
-  clawdbotTemplate?: string;
 }
 
 export interface CreateInboundWebhookInput {
@@ -611,43 +606,6 @@ export async function retryCrashReviewForMessage(messageId: string) {
       }
     }
 
-    // After successful AI review, also trigger ClawdBot action if configured
-    const clawdbotAction = webhook.actions.find(
-      (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
-    );
-    if (clawdbotAction) {
-      const clawdbotConfig = normalizeActionConfig(clawdbotAction.config);
-      const clawdbotUrl = getClawdbotUrl(clawdbotConfig, webhook.devMode);
-      if (clawdbotUrl) {
-        const clawdbotStartedAt = Date.now();
-        try {
-          // Send the full crash text (rawBody), NOT the AI findings
-          // The rawBody contains the sorted/merged crash report text
-          await sendClawdbotRelay(clawdbotUrl, message.payload, clawdbotConfig, message.rawBody);
-          await prisma.inboundWebhookActionRun.create({
-            data: {
-              messageId,
-              actionId: clawdbotAction.id,
-              status: 'SUCCESS',
-              durationMs: Date.now() - clawdbotStartedAt
-            }
-          });
-          await updateActionSummary(messageId, clawdbotAction.id, 'SUCCESS');
-        } catch (clawdbotError) {
-          await prisma.inboundWebhookActionRun.create({
-            data: {
-              messageId,
-              actionId: clawdbotAction.id,
-              status: 'FAILED',
-              error: clawdbotError instanceof Error ? clawdbotError.message : 'Unknown ClawdBot error',
-              durationMs: Date.now() - clawdbotStartedAt
-            }
-          });
-          await updateActionSummary(messageId, clawdbotAction.id, 'FAILED');
-          console.error('ClawdBot relay failed after AI review:', clawdbotError);
-        }
-      }
-    }
   } catch (error) {
     await prisma.inboundWebhookActionRun.update({
       where: { id: run.id },
@@ -658,6 +616,11 @@ export async function retryCrashReviewForMessage(messageId: string) {
       }
     });
     await updateActionSummary(messageId, crashAction.id, 'FAILED');
+    await prisma.inboundWebhookMessage.update({
+      where: { id: messageId },
+      data: { status: 'FAILED' }
+    });
+    await sendFallbackDiscordAlert(messageId, webhook, message.payload, message.rawBody, error);
   }
 
   return getInboundWebhookMessage(messageId);
@@ -666,13 +629,6 @@ export async function retryCrashReviewForMessage(messageId: string) {
 export async function receiveInboundWebhookMessage(input: InboundWebhookMessageInput) {
   debugLog(`[WEBHOOK RECEIVE] ========== NEW MESSAGE RECEIVED ==========`);
   debugLog(`[WEBHOOK RECEIVE] webhookId: ${input.webhookId}`);
-
-  // Check if webhook processing is disabled (for testing with shared database)
-  const processingEnabled = await isWebhookProcessingEnabled();
-  if (!processingEnabled) {
-    debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - skipping (enable in Webhook Settings or remove DISABLE_WEBHOOK_PROCESSING env var)`);
-    return { id: 'skipped', webhookId: input.webhookId, status: 'SKIPPED' as const };
-  }
 
   const webhook = await prisma.inboundWebhook.findUnique({
     where: { id: input.webhookId },
@@ -688,6 +644,7 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   }
 
   debugLog(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
+  const processingEnabled = await isWebhookProcessingEnabled();
 
   // Check if the message has any meaningful crash report content
   // This specifically looks for crashReportText, message, content, or rawBody
@@ -724,6 +681,12 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   // Apply labels immediately using pattern-based detection (no AI needed)
   // This ensures merge group detection works right away in the UI
   await applyImmediateLabels(message.id, messageContent, webhook.label);
+
+  if (!processingEnabled) {
+    debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
+    debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+    return message;
+  }
 
   // Add message to pending merge group with fixed timer from first message
   const mergeWindow = webhook.mergeWindowSeconds ?? 60;
@@ -837,11 +800,16 @@ async function runInboundWebhookActions(
       }
 
       if (action.type === 'CLAWDBOT_RELAY') {
-        // ClawdBot relay is deferred until after AI review completes
-        // This ensures we send the final merged crash report, not the initial payload
-        // The relay will be triggered in retryCrashReviewForMessage after AI processing
-        debugLog(`[ClawdBot] Skipping immediate relay - will send after AI review`);
-        summary.push({ actionId: action.id, status: 'PENDING_REVIEW' });
+        await prisma.inboundWebhookActionRun.create({
+          data: {
+            messageId,
+            actionId: action.id,
+            status: 'SKIPPED',
+            result: { note: 'ClawdBot integration has been removed.' },
+            durationMs: Date.now() - startedAt
+          }
+        });
+        summary.push({ actionId: action.id, status: 'SKIPPED' });
         continue;
       }
 
@@ -1262,11 +1230,6 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
       typeof raw.crashMaxOutputTokens === 'number' ? raw.crashMaxOutputTokens : undefined,
     crashTemperature: typeof raw.crashTemperature === 'number' ? raw.crashTemperature : undefined,
     crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined,
-    // ClawdBot relay fields
-    clawdbotWebhookUrl: typeof raw.clawdbotWebhookUrl === 'string' ? raw.clawdbotWebhookUrl : undefined,
-    devClawdbotWebhookUrl: typeof raw.devClawdbotWebhookUrl === 'string' ? raw.devClawdbotWebhookUrl : undefined,
-    clawdbotMode: raw.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
-    clawdbotTemplate: typeof raw.clawdbotTemplate === 'string' ? raw.clawdbotTemplate : undefined,
   };
 }
 
@@ -1280,89 +1243,6 @@ function getDiscordUrl(config: InboundWebhookActionConfig, devMode: boolean): st
     return config.devDiscordWebhookUrl;
   }
   return config.discordWebhookUrl;
-}
-
-/**
- * Get the appropriate ClawdBot webhook URL based on devMode setting.
- */
-function getClawdbotUrl(config: InboundWebhookActionConfig, devMode: boolean): string | undefined {
-  if (devMode && config.devClawdbotWebhookUrl) {
-    return config.devClawdbotWebhookUrl;
-  }
-  return config.clawdbotWebhookUrl;
-}
-
-/**
- * Send payload to a ClawdBot webhook endpoint.
- * Similar to Discord relay but targets ClawdBot's webhook ingress.
- */
-async function sendClawdbotRelay(
-  url: string,
-  payload: unknown,
-  config: InboundWebhookActionConfig,
-  rawBody?: string | null
-) {
-  const body = buildClawdbotPayload(payload, config, rawBody);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`ClawdBot responded with ${response.status}: ${errorText}`);
-  }
-}
-
-function buildClawdbotPayload(payload: unknown, config: InboundWebhookActionConfig, rawBody?: string | null) {
-  if (config.clawdbotMode === 'RAW') {
-    return payload;
-  }
-
-  // WRAP mode: format payload with optional template
-  const raw = safeJson(payload);
-  if (!raw) {
-    return { title: 'Webhook Relay', description: 'Webhook relay received an empty payload.' };
-  }
-  const trimmed = raw.length > 4000 ? `${raw.slice(0, 4000)}...` : raw;
-
-  // Extract actual message text (e.g., crash report text)
-  // Prioritize rawBody which contains the full sorted/merged crash text
-  const messageText = (rawBody && typeof rawBody === 'string' && rawBody.trim())
-    ? rawBody
-    : (extractActualMessageContent(payload, null) || '');
-
-  if (config.clawdbotTemplate) {
-    // Try to parse template as JSON for structured payloads
-    try {
-      // Parse template as JSON first
-      const template = JSON.parse(config.clawdbotTemplate);
-
-      // Recursively replace placeholders in the template
-      const result = JSON.parse(JSON.stringify(template, (key, value) => {
-        if (typeof value === 'string') {
-          return value
-            .replace(/\{\{text\}\}/g, messageText)
-            .replace(/\{\{json\}\}/g, trimmed)
-            .replace(/\{\{raw\}\}/g, raw);
-        }
-        return value;
-      }));
-
-      return result;
-    } catch (err) {
-      // If template is not valid JSON, treat it as plain text template
-      const templateStr = config.clawdbotTemplate
-        .replace(/\{\{text\}\}/g, messageText)
-        .replace(/\{\{json\}\}/g, trimmed)
-        .replace(/\{\{raw\}\}/g, raw);
-
-      return { title: 'Webhook Relay', description: templateStr };
-    }
-  }
-
-  return { title: 'Webhook Relay', description: messageText || `Webhook payload:\n\n${trimmed}` };
 }
 
 async function sendDiscordRelay(
@@ -1381,6 +1261,111 @@ async function sendDiscordRelay(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Discord responded with ${response.status}: ${errorText}`);
+  }
+}
+
+async function sendFallbackDiscordAlert(
+  messageId: string,
+  webhook: {
+    id: string;
+    label: string;
+    devMode: boolean;
+    actions: Array<{
+      id: string;
+      type: InboundWebhookActionType;
+      isEnabled: boolean;
+      config: unknown;
+    }>;
+  },
+  payload: unknown,
+  rawBody: string | null,
+  error: unknown
+) {
+  const discordAction = webhook.actions.find(
+    (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+  );
+  if (!discordAction) {
+    return;
+  }
+
+  const config = normalizeActionConfig(discordAction.config);
+  const discordUrl = getDiscordUrl(config, webhook.devMode);
+  if (!discordUrl) {
+    return;
+  }
+
+  const text = buildCrashReviewInput(payload, rawBody, payload);
+  const title = detectQuestError(undefined, '', text)
+    ? 'Script Error Received - AI Review Failed'
+    : 'Crash Report Received - AI Review Failed';
+  const messageUrl = clientBaseUrl
+    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
+    : null;
+  const errorMessage = error instanceof Error ? error.message : 'Unknown AI review error';
+
+  const fallbackPayload: DiscordEmbedPayload = {
+    embeds: [
+      {
+        title,
+        description:
+          'A crash/error report was stored, but the AI review did not complete. Manual review is needed.',
+        color: DISCORD_EMBED_COLORS.warning,
+        fields: [
+          {
+            name: 'Webhook',
+            value: webhook.label,
+            inline: true
+          },
+          {
+            name: 'Payload Size',
+            value: `${text.length.toLocaleString()} chars`,
+            inline: true
+          },
+          {
+            name: 'AI Review Error',
+            value: truncateText(errorMessage, 500),
+            inline: false
+          },
+          ...(messageUrl
+            ? [
+                {
+                  name: 'Full Report',
+                  value: `[View in Webhook Inbox](${messageUrl})`,
+                  inline: false
+                }
+              ]
+            : [])
+        ],
+        footer: { text: 'Fallback alert - manual review required' },
+        timestamp: new Date().toISOString()
+      }
+    ]
+  };
+
+  const startedAt = Date.now();
+  try {
+    await sendDiscordRelay(discordUrl, fallbackPayload, { ...config, discordMode: 'RAW' }, messageId);
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'SUCCESS',
+        result: { note: 'Fallback Discord alert sent after AI review failure.' },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
+  } catch (discordError) {
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'FAILED',
+        error: discordError instanceof Error ? discordError.message : 'Unknown Discord error',
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'FAILED');
   }
 }
 
@@ -2801,16 +2786,6 @@ async function processSpecificGroup(group: PendingMergeGroup) {
         }
       }
 
-      const clawdbotAction = webhook.actions.find(
-        (action) => action.isEnabled && action.type === 'CLAWDBOT_RELAY'
-      );
-      if (clawdbotAction) {
-        const cbConfig = normalizeActionConfig(clawdbotAction.config);
-        const cbUrl = getClawdbotUrl(cbConfig, webhook.devMode);
-        if (cbUrl) {
-          await sendClawdbotRelay(cbUrl, { text: pendingText }, cbConfig);
-        }
-      }
     }
   } finally {
     processingGroups.delete(compositeKey);
@@ -3068,23 +3043,6 @@ async function sendPendingMergeNotification(
   } catch (error) {
     console.error(`[Webhook ${webhook.id}] Error sending pending merge notification:`, error);
   }
-
-  // Also notify ClawdBot if configured
-  const clawdbotAction = webhook.actions.find(
-    (action) => action.type === 'CLAWDBOT_RELAY' && action.isEnabled
-  );
-  if (clawdbotAction) {
-    const cbConfig = normalizeActionConfig(clawdbotAction.config);
-    const cbUrl = getClawdbotUrl(cbConfig, webhook.devMode);
-    if (cbUrl) {
-      const cbText = `📋 **${messages.length} messages pending merge review** for ${webhook.label}${inboxUrl ? `\n🔗 ${inboxUrl}` : ''}`;
-      try {
-        await sendClawdbotRelay(cbUrl, { text: cbText }, cbConfig);
-      } catch (err) {
-        console.error(`[Webhook ${webhook.id}] ClawdBot pending merge notification failed:`, err);
-      }
-    }
-  }
 }
 
 /**
@@ -3261,18 +3219,27 @@ async function processAutoMergeGroup(
     text: extractTextForSorting(msg.payload, msg.rawBody)
   }));
 
-  // Sort segments using AI
-  let sortResult;
-  try {
-    sortResult = await sortCrashReportSegments(segments);
-  } catch (error) {
-    console.error('Failed to sort crash segments:', error);
-    throw error;
+  const deterministicOrder = orderSegmentsByChunkNumber(segments);
+  let orderedIds: string[];
+  let removeIds: string[] = [];
+
+  if (deterministicOrder) {
+    orderedIds = deterministicOrder;
+    debugLog(`[Auto-merge] Ordered ${orderedIds.length} segments by chunk markers without AI`);
+  } else {
+    try {
+      const sortResult = await sortCrashReportSegments(segments);
+      orderedIds = sortResult.orderedIds;
+      removeIds = sortResult.removeIds;
+    } catch (error) {
+      console.error('Failed to sort crash segments:', error);
+      throw error;
+    }
   }
 
   // Filter out segments marked for removal
-  const removeSet = new Set(sortResult.removeIds);
-  const orderedMessages = sortResult.orderedIds
+  const removeSet = new Set(removeIds);
+  const orderedMessages = orderedIds
     .filter(id => !removeSet.has(id))
     .map(id => messages.find(m => m.id === id)!)
     .filter(Boolean);
@@ -3280,9 +3247,9 @@ async function processAutoMergeGroup(
   // If after removing duplicates we have 0-1 messages, handle appropriately
   if (orderedMessages.length === 0) {
     // All messages were duplicates - delete them all
-    if (sortResult.removeIds.length > 0) {
+    if (removeIds.length > 0) {
       await prisma.inboundWebhookMessage.deleteMany({
-        where: { id: { in: sortResult.removeIds } }
+        where: { id: { in: removeIds } }
       });
     }
     return;
@@ -3290,9 +3257,9 @@ async function processAutoMergeGroup(
 
   if (orderedMessages.length === 1) {
     // Only one message left after dedup - delete duplicates and process the single message
-    if (sortResult.removeIds.length > 0) {
+    if (removeIds.length > 0) {
       await prisma.inboundWebhookMessage.deleteMany({
-        where: { id: { in: sortResult.removeIds } }
+        where: { id: { in: removeIds } }
       });
     }
     // Process the single message normally
@@ -3301,9 +3268,9 @@ async function processAutoMergeGroup(
   }
 
   // Delete duplicate/redundant messages identified by the sort
-  if (sortResult.removeIds.length > 0) {
+  if (removeIds.length > 0) {
     await prisma.inboundWebhookMessage.deleteMany({
-      where: { id: { in: sortResult.removeIds } }
+      where: { id: { in: removeIds } }
     });
   }
 
@@ -3399,6 +3366,47 @@ function extractTextForSorting(payload: unknown, rawBody: string | null): string
   } catch {
     return String(payload ?? '');
   }
+}
+
+function extractChunkNumber(text: string): number | null {
+  const patterns = [
+    /\bChunk\D{0,12}(\d{1,4})\b/i,
+    /\bSegment\D{0,12}(\d{1,4})\b/i,
+    /\bPart\D{0,12}(\d{1,4})\b/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const value = Number.parseInt(match[1], 10);
+      if (Number.isSafeInteger(value) && value > 0) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function orderSegmentsByChunkNumber(segments: Array<{ id: string; text: string }>): string[] | null {
+  const numbered = segments.map((segment) => ({
+    id: segment.id,
+    chunk: extractChunkNumber(segment.text)
+  }));
+
+  if (numbered.some((segment) => segment.chunk === null)) {
+    return null;
+  }
+
+  const chunks = numbered.map((segment) => segment.chunk as number);
+  const uniqueChunks = new Set(chunks);
+  if (uniqueChunks.size !== chunks.length) {
+    return null;
+  }
+
+  return [...numbered]
+    .sort((a, b) => (a.chunk as number) - (b.chunk as number))
+    .map((segment) => segment.id);
 }
 
 // Helper to generate CUID-like IDs

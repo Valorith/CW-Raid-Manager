@@ -1586,10 +1586,6 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     devDiscordWebhookUrl: z.string().url().max(512).optional().nullable(),
     discordMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
     discordTemplate: z.string().max(4000).optional().nullable(),
-    clawdbotWebhookUrl: z.string().url().max(512).optional().nullable(),
-    devClawdbotWebhookUrl: z.string().url().max(512).optional().nullable(),
-    clawdbotMode: z.enum(['RAW', 'WRAP']).optional().nullable(),
-    clawdbotTemplate: z.string().max(4000).optional().nullable(),
     crashModel: z.string().max(120).optional().nullable(),
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
@@ -1740,6 +1736,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         config?: ActionConfig | null;
       };
 
+      if (parsedData.type === InboundWebhookActionType.CLAWDBOT_RELAY) {
+        return reply.badRequest('ClawdBot relay actions are no longer supported.');
+      }
+
       const config = (parsedData.config ?? {}) as ActionConfig;
       const normalizedConfig: InboundWebhookActionConfig = {
         discordWebhookUrl:
@@ -1754,19 +1754,6 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         discordTemplate:
           typeof config.discordTemplate === 'string'
             ? config.discordTemplate.trim() || undefined
-            : undefined,
-        clawdbotWebhookUrl:
-          typeof config.clawdbotWebhookUrl === 'string'
-            ? config.clawdbotWebhookUrl.trim() || undefined
-            : undefined,
-        devClawdbotWebhookUrl:
-          typeof config.devClawdbotWebhookUrl === 'string'
-            ? config.devClawdbotWebhookUrl.trim() || undefined
-            : undefined,
-        clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
-        clawdbotTemplate:
-          typeof config.clawdbotTemplate === 'string'
-            ? config.clawdbotTemplate.trim() || undefined
             : undefined,
         crashModel:
           typeof config.crashModel === 'string' ? config.crashModel.trim() || undefined : undefined,
@@ -1805,11 +1792,15 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
 
       const action = await prisma.inboundWebhookAction.findUnique({
         where: { id: actionId },
-        select: { webhookId: true }
+        select: { webhookId: true, type: true }
       });
 
       if (!action || action.webhookId !== webhookId) {
         return reply.notFound('Webhook action not found.');
+      }
+
+      if (action.type === InboundWebhookActionType.CLAWDBOT_RELAY) {
+        return reply.badRequest('ClawdBot relay actions are no longer supported.');
       }
 
       const bodySchema = z
@@ -1850,19 +1841,6 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             discordTemplate:
               typeof config.discordTemplate === 'string'
                 ? config.discordTemplate.trim() || undefined
-                : undefined,
-            clawdbotWebhookUrl:
-              typeof config.clawdbotWebhookUrl === 'string'
-                ? config.clawdbotWebhookUrl.trim() || undefined
-                : undefined,
-            devClawdbotWebhookUrl:
-              typeof config.devClawdbotWebhookUrl === 'string'
-                ? config.devClawdbotWebhookUrl.trim() || undefined
-                : undefined,
-            clawdbotMode: config.clawdbotMode === 'RAW' ? 'RAW' : 'WRAP',
-            clawdbotTemplate:
-              typeof config.clawdbotTemplate === 'string'
-                ? config.clawdbotTemplate.trim() || undefined
                 : undefined,
             crashModel:
               typeof config.crashModel === 'string'
