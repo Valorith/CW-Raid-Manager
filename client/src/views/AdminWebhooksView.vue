@@ -1254,7 +1254,7 @@
                       </svg>
                     </button>
                   </td>
-                  <td>
+                  <td data-label="Received">
                     <span :class="{ 'text-bold': !message.isRead }">{{
                       formatDate(message.receivedAt)
                     }}</span>
@@ -1266,8 +1266,8 @@
                       {{ message.mergedFromIds.length }} merged
                     </span>
                   </td>
-                  <td>{{ message.webhook?.label || message.webhookId }}</td>
-                  <td>
+                  <td data-label="Webhook">{{ message.webhook?.label || message.webhookId }}</td>
+                  <td data-label="Status">
                     <div class="status-cell">
                       <span :class="['badge', statusBadge(message.status)]">{{
                         message.status
@@ -1278,7 +1278,7 @@
                       </span>
                     </div>
                   </td>
-                  <td class="actions-cell">
+                  <td class="actions-cell" data-label="Actions">
                     <div
                       v-if="message.actionRuns?.length || message.webhook?.actions?.length"
                       class="action-pills"
@@ -1329,7 +1329,7 @@
                       {{ getCrashSummary(message) }}
                     </p>
                   </td>
-                  <td class="labels-cell" @click.stop>
+                  <td class="labels-cell" data-label="Labels" @click.stop>
                     <div class="label-chips">
                       <span
                         v-for="label in sortedLabels(message.labels)"
@@ -1373,7 +1373,7 @@
                       </div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Assigned">
                     <select
                       v-model="message.assignedAdminId"
                       class="select select--compact"
@@ -1386,7 +1386,7 @@
                       </option>
                     </select>
                   </td>
-                  <td class="table__actions">
+                  <td class="table__actions" data-label="Open">
                     <div class="table-action-group">
                       <button
                         class="btn btn--outline btn--small"
@@ -7897,10 +7897,188 @@ input[type='checkbox']:checked::after {
   }
 }
 
+@media (max-width: 900px) {
+  .card--table {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .table,
+  .table thead,
+  .table tbody {
+    display: block;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .table tr {
+    display: grid;
+    grid-template-columns: 2.2rem minmax(0, 1fr);
+    gap: 0.55rem 0.85rem;
+    padding: 0.85rem;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 0.85rem;
+    background: rgba(15, 23, 42, 0.72);
+    box-shadow: 0 16px 30px rgba(2, 6, 23, 0.2);
+  }
+
+  .table th,
+  .table td {
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .table td {
+    min-width: 0;
+  }
+
+  .table td[data-label] {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: minmax(5.8rem, 0.34fr) minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+  }
+
+  .table td[data-label]::before {
+    content: attr(data-label);
+    color: rgba(148, 163, 184, 0.82);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    line-height: 1.4;
+    text-transform: uppercase;
+  }
+
+  .table__checkbox-col,
+  .table__star-col {
+    grid-column: 1;
+    display: flex;
+    justify-content: center;
+    width: auto;
+  }
+
+  .table__checkbox-col {
+    grid-row: 1;
+  }
+
+  .table__star-col {
+    grid-row: 2;
+  }
+
+  .table__actions {
+    text-align: left;
+  }
+
+  .table-action-group {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .actions-cell {
+    min-width: 0;
+    max-width: none;
+  }
+
+  .select--compact {
+    min-width: 0;
+  }
+
+  .pending-group-row,
+  .merge-group-footer {
+    display: block;
+  }
+
+  .pending-group-row > td:not([colspan]) {
+    display: none;
+  }
+
+  .pending-group-row > td[colspan],
+  .merge-group-footer > td {
+    display: block;
+  }
+
+  .pending-group-placeholder,
+  .merge-group-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pending-group-actions,
+  .merge-group-banner .btn {
+    width: 100%;
+  }
+}
+
 @media (max-width: 720px) {
+  .webhook-admin {
+    gap: 1rem;
+  }
+
   .section-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .section-header__titles h1 {
+    font-size: 1.35rem;
+  }
+
+  .section-header__actions,
+  .card__header-actions,
+  .card__actions,
+  .endpoint-hero__actions,
+  .action-row__actions,
+  .inbox-toolbar__actions {
+    width: 100%;
+  }
+
+  .section-header__actions .btn,
+  .card__header-actions .btn,
+  .card__actions .btn,
+  .endpoint-hero__actions .btn,
+  .action-row__actions .btn,
+  .inbox-toolbar__actions .btn {
+    flex: 1 1 10rem;
+  }
+
+  .webhook-stats {
+    justify-content: stretch;
+    gap: 0.65rem;
+  }
+
+  .stat-card {
+    max-width: none;
+    min-width: 0;
+    padding: 0.85rem 1rem;
+  }
+
+  .stat-card__value {
+    font-size: 1.55rem;
+  }
+
+  .tabs,
+  .tab {
+    width: 100%;
+  }
+
+  .tab {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: 0.8rem;
   }
 
   .card__header {
@@ -7916,9 +8094,34 @@ input[type='checkbox']:checked::after {
     flex-direction: column;
   }
 
+  .endpoint-sidebar,
+  .endpoint-main,
+  .endpoint-panel,
+  .endpoint-create-panel,
+  .endpoint-empty-state {
+    border-radius: 0.7rem;
+  }
+
+  .endpoint-sidebar,
+  .endpoint-main {
+    padding: 0.85rem;
+  }
+
+  .endpoint-list {
+    grid-template-columns: 1fr;
+  }
+
+  .endpoint-pipeline {
+    padding: 0.75rem;
+  }
+
   .endpoint-pipeline__track,
   .endpoint-section-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .endpoint-pipeline-card {
+    min-height: 0;
   }
 
   .endpoint-details {
@@ -7952,9 +8155,55 @@ input[type='checkbox']:checked::after {
   .settings-info-banner {
     grid-template-columns: 1fr;
   }
+
+  .modal-backdrop {
+    align-items: stretch;
+    padding: 0.75rem;
+  }
+
+  .modal {
+    width: 100%;
+    max-height: calc(100dvh - 1.5rem);
+    padding: 1rem;
+  }
+
+  .modal--settings {
+    width: 100%;
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .settings-modal-body {
+    max-height: none;
+  }
 }
 
 @media (max-width: 520px) {
+  .section-header__actions,
+  .card__header-actions,
+  .card__actions,
+  .endpoint-hero__actions,
+  .action-row__actions,
+  .inbox-toolbar__actions,
+  .pagination__controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .section-header__actions .btn,
+  .card__header-actions .btn,
+  .card__actions .btn,
+  .endpoint-hero__actions .btn,
+  .action-row__actions .btn,
+  .inbox-toolbar__actions .btn,
+  .pagination__button {
+    width: 100%;
+    flex: 0 0 auto;
+  }
+
+  .inbox-toolbar-card {
+    padding: 0.85rem;
+  }
+
   .inbox-filters--compact .inbox-filters__row {
     grid-template-columns: 1fr;
   }
@@ -7962,6 +8211,39 @@ input[type='checkbox']:checked::after {
   .inbox-filters__toggles {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .filter-toggle {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .endpoint-summary-strip {
+    font-size: 0.82rem;
+  }
+
+  .endpoint-section-tab {
+    min-height: 2.75rem;
+  }
+
+  .endpoint-form-grid {
+    gap: 0.7rem;
+  }
+
+  .table tr {
+    grid-template-columns: 1.8rem minmax(0, 1fr);
+    padding: 0.75rem;
+  }
+
+  .table td[data-label] {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+
+  .label-chips,
+  .action-pills,
+  .table-action-group {
+    gap: 0.3rem;
   }
 }
 

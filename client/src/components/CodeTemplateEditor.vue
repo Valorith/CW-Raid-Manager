@@ -253,4 +253,34 @@ async function insertToken(token: string) {
   color: rgba(148, 163, 184, 0.8);
   font-size: 0.72rem;
 }
+
+@media (max-width: 560px) {
+  .code-template-editor__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .code-template-editor__tokens {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .code-template-editor__body {
+    grid-template-columns: 2.45rem minmax(0, 1fr);
+  }
+
+  .code-template-editor__gutter,
+  .code-template-editor__textarea {
+    font-size: 0.78rem;
+  }
+
+  .code-template-editor__textarea {
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+
+  .code-template-editor__gutter span {
+    padding-right: 0.5rem;
+  }
+}
 </style>
