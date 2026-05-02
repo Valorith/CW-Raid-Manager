@@ -9,6 +9,7 @@ export type NotificationEventDefinition = {
   description: string;
   scopeType: NotificationScopeTypeKey;
   recommended: boolean;
+  adminOnly?: boolean;
 };
 
 export type ProviderTargets = Partial<Record<NotificationProviderKey, boolean>>;
@@ -142,9 +143,21 @@ export const MARKET_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[
   }
 ];
 
+export const ADMIN_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[] = [
+  {
+    key: 'webhook.crash_error_report',
+    label: 'Crash/Error Reports',
+    description: 'Alert when an inbound crash or script error report is reviewed by AI and relayed to Discord.',
+    scopeType: 'GLOBAL',
+    recommended: false,
+    adminOnly: true
+  }
+];
+
 export const NOTIFICATION_EVENT_DEFINITIONS = [
   ...GUILD_NOTIFICATION_EVENT_DEFINITIONS,
-  ...MARKET_NOTIFICATION_EVENT_DEFINITIONS
+  ...MARKET_NOTIFICATION_EVENT_DEFINITIONS,
+  ...ADMIN_NOTIFICATION_EVENT_DEFINITIONS
 ] as const;
 
 export const NOTIFICATION_EVENT_DEFINITION_MAP = new Map(

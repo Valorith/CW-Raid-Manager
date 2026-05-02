@@ -10,6 +10,7 @@ import {
 
 import {
   DEFAULT_PROVIDER_TARGETS,
+  ADMIN_NOTIFICATION_EVENT_DEFINITIONS,
   GUILD_NOTIFICATION_EVENT_DEFINITIONS,
   MARKET_NOTIFICATION_EVENT_DEFINITIONS,
   NOTIFICATION_EVENT_DEFINITION_MAP,
@@ -420,7 +421,11 @@ export async function activateWhatsappChannel(options: {
 export async function listNotificationPreferences(
   userId: string
 ): Promise<NotificationPreferenceSummary[]> {
-  const [guilds, rows] = await Promise.all([
+  const [user, guilds, rows] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { admin: true }
+    }),
     prisma.guildMembership.findMany({
       where: { userId },
       select: {
@@ -449,6 +454,13 @@ export async function listNotificationPreferences(
   for (const definition of MARKET_NOTIFICATION_EVENT_DEFINITIONS) {
     const row = rowMap.get(`${NotificationScopeType.GLOBAL}:${GLOBAL_SCOPE_ID}:${definition.key}`);
     summaries.push(buildPreferenceSummary(definition, 'GLOBAL', GLOBAL_SCOPE_ID, 'Account', row));
+  }
+
+  if (user?.admin) {
+    for (const definition of ADMIN_NOTIFICATION_EVENT_DEFINITIONS) {
+      const row = rowMap.get(`${NotificationScopeType.GLOBAL}:${GLOBAL_SCOPE_ID}:${definition.key}`);
+      summaries.push(buildPreferenceSummary(definition, 'GLOBAL', GLOBAL_SCOPE_ID, 'Admin', row));
+    }
   }
 
   for (const guild of guilds) {
@@ -495,14 +507,17 @@ export async function updateNotificationPreferences(
     providerTargets?: ProviderTargets;
   }>
 ): Promise<NotificationPreferenceSummary[]> {
-  const guildIds = new Set(
-    (
-      await prisma.guildMembership.findMany({
+  const [user, memberships] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { admin: true }
+    }),
+    prisma.guildMembership.findMany({
         where: { userId },
         select: { guildId: true }
       })
-    ).map((membership) => membership.guildId)
-  );
+  ]);
+  const guildIds = new Set(memberships.map((membership) => membership.guildId));
 
   for (const update of updates) {
     const definition = NOTIFICATION_EVENT_DEFINITION_MAP.get(update.eventKey);
@@ -512,6 +527,10 @@ export async function updateNotificationPreferences(
 
     if (definition.scopeType !== update.scopeType) {
       throw new Error(`Event "${update.eventKey}" does not belong to ${update.scopeType}.`);
+    }
+
+    if (definition.adminOnly && !user?.admin) {
+      throw new Error(`Event "${update.eventKey}" is only available to administrators.`);
     }
 
     if (update.scopeType === 'GLOBAL') {
@@ -612,6 +631,16 @@ export async function resolveNotificationTargets(input: {
   const definition = NOTIFICATION_EVENT_DEFINITION_MAP.get(input.eventKey);
   if (!definition) {
     return [];
+  }
+
+  if (definition.adminOnly) {
+    const user = await prisma.user.findUnique({
+      where: { id: input.userId },
+      select: { admin: true }
+    });
+    if (!user?.admin) {
+      return [];
+    }
   }
 
   const normalizedScopeId = input.scopeType === 'GLOBAL' ? GLOBAL_SCOPE_ID : input.scopeId;

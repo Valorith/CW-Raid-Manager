@@ -428,6 +428,77 @@
             </div>
           </article>
 
+          <article v-if="authStore.isAdmin" class="preferences-panel">
+            <header class="preferences-panel__header">
+              <h3>Admin Alerts</h3>
+              <p class="muted small">
+                Administrator-only alerts for server health and operational follow-up.
+              </p>
+            </header>
+
+            <div v-if="notificationsLoading" class="muted small">
+              Loading admin preferences...
+            </div>
+            <div v-else class="preference-list">
+              <div
+                v-for="preference in adminAlertPreferences"
+                :key="`${preference.scopeType}:${preference.scopeId}:${preference.eventKey}`"
+                class="preference-row"
+              >
+                <label class="preference-row__main">
+                  <input
+                    type="checkbox"
+                    :checked="preference.isEnabled"
+                    @change="
+                      updateNotificationPreference(preference, {
+                        isEnabled: ($event.target as HTMLInputElement).checked
+                      })
+                    "
+                  />
+                  <span>
+                    <strong>{{ preference.eventLabel }}</strong>
+                    <small class="muted">{{ preference.eventDescription }}</small>
+                  </span>
+                </label>
+                <div class="preference-row__providers">
+                  <label class="provider-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="preference.providerTargets.TELEGRAM !== false"
+                      @change="
+                        updateNotificationPreference(preference, {
+                          providerTargets: {
+                            ...preference.providerTargets,
+                            TELEGRAM: ($event.target as HTMLInputElement).checked
+                          }
+                        })
+                      "
+                    />
+                    <span>Telegram</span>
+                  </label>
+                  <label class="provider-toggle">
+                    <input
+                      type="checkbox"
+                      :checked="preference.providerTargets.WHATSAPP !== false"
+                      @change="
+                        updateNotificationPreference(preference, {
+                          providerTargets: {
+                            ...preference.providerTargets,
+                            WHATSAPP: ($event.target as HTMLInputElement).checked
+                          }
+                        })
+                      "
+                    />
+                    <span>WhatsApp</span>
+                  </label>
+                </div>
+              </div>
+              <p v-if="!adminAlertPreferences.length" class="muted small">
+                No administrator alert options are available.
+              </p>
+            </div>
+          </article>
+
           <article v-if="hasGuildMemberships" class="preferences-panel">
             <header class="preferences-panel__header">
               <h3>Guild Alerts</h3>
@@ -647,7 +718,14 @@ const whatsappChannel = computed(
 const telegramAvailability = computed(() => notificationAvailability.value.TELEGRAM);
 const whatsappAvailability = computed(() => notificationAvailability.value.WHATSAPP);
 const marketAlertPreferences = computed(() =>
-  notificationPreferences.value.filter((preference) => preference.scopeType === 'GLOBAL')
+  notificationPreferences.value.filter(
+    (preference) => preference.scopeType === 'GLOBAL' && preference.eventKey.startsWith('market.')
+  )
+);
+const adminAlertPreferences = computed(() =>
+  notificationPreferences.value.filter(
+    (preference) => preference.scopeType === 'GLOBAL' && preference.eventKey.startsWith('webhook.')
+  )
 );
 const hasGuildMemberships = computed(() => (authStore.user?.guilds?.length ?? 0) > 0);
 const guildAlertGroups = computed(() => {

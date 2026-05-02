@@ -14,6 +14,7 @@ export type CrashReviewFindings = {
   recommendedNextSteps: string[];
   rawModelNotes?: string;
   telemetry?: {
+    provider?: 'gemini' | 'openai';
     model: string;
     inputChars: number;
     outputChars?: number;
@@ -28,6 +29,7 @@ export type CrashReviewFindings = {
 };
 
 const MODEL_NAME = 'gemini-2.5-flash-lite';
+const OPENAI_ESCALATION_MODEL = 'gpt-5.4-mini';
 const MAX_INPUT_CHARS = 250_000;
 const MAX_OUTPUT_TOKENS = 4096;
 const FOLLOWUP_OUTPUT_TOKENS = 4096;
@@ -79,6 +81,23 @@ type GeminiResponseLike = {
   functionCalls?: unknown[] | (() => unknown[]);
 };
 
+type CrashReviewProvider = 'gemini' | 'openai';
+
+type OpenAIResponseLike = {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
+  }>;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  };
+};
+
 type GeminiFunctionCallPart = {
   functionCall?: unknown;
 };
@@ -115,6 +134,7 @@ const _CRASH_REVIEW_SCHEMA = {
 };
 
 export interface CrashReviewOptions {
+  provider?: CrashReviewProvider;
   model?: string;
   maxInputChars?: number;
   maxOutputTokens?: number;
@@ -133,6 +153,14 @@ function requireEnv(name: string): string {
 async function createGeminiClient(apiKey: string) {
   const { GoogleGenAI } = await import('@google/genai');
   return new GoogleGenAI({ apiKey });
+}
+
+function requireOpenAIApiKey(): string {
+  const value = process.env.OpenAI_API_KEY ?? process.env.OPENAI_API_KEY;
+  if (!value) {
+    throw new Error('OpenAI_API_KEY is not configured.');
+  }
+  return value;
 }
 
 function truncate(text: string, maxChars: number) {
@@ -358,6 +386,31 @@ export async function reviewCrashReport(
 
   const prompt = `${promptCore}\n\n${ANALYSIS_SUFFIX}`;
 
+  if (options.provider === 'openai') {
+    const openAiModel = options.model ?? OPENAI_ESCALATION_MODEL;
+    const { text, requestPayload, metadata } = await generateOpenAICrashAnalysis(prompt, {
+      model: openAiModel,
+      maxOutputTokens: effectiveMaxOutputTokens
+    });
+
+    if (!text.trim()) {
+      throw new Error('OpenAI returned an empty analysis response.');
+    }
+
+    const parsed = parseAnalysisToFindings(text);
+    parsed.telemetry = {
+      provider: 'openai',
+      model: openAiModel,
+      inputChars: trimmedInput.length,
+      outputChars: text.length,
+      attempts,
+      requestPayload,
+      ...metadata
+    };
+
+    return processCodeReferencesInFindings(parsed);
+  }
+
   const analysisPayload = {
     model: options.model ?? MODEL_NAME,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -419,6 +472,7 @@ export async function reviewCrashReport(
       parsed.rawModelNotes = parsed.rawModelNotes ?? followupFindings.rawModelNotes;
       const responseMetadata = extractResponseMetadata(analysisResponse);
       parsed.telemetry = {
+        provider: 'gemini',
         model: options.model ?? MODEL_NAME,
         inputChars: trimmedInput.length,
         outputChars: analysisResponse.text?.length ?? 0,
@@ -432,6 +486,7 @@ export async function reviewCrashReport(
   }
   const responseMetadata = extractResponseMetadata(analysisResponse);
   parsed.telemetry = {
+    provider: 'gemini',
     model: options.model ?? MODEL_NAME,
     inputChars: trimmedInput.length,
     outputChars: analysisResponse.text?.length ?? 0,
@@ -441,6 +496,86 @@ export async function reviewCrashReport(
   };
   // Convert code references to GitHub links
   return processCodeReferencesInFindings(parsed);
+}
+
+async function generateOpenAICrashAnalysis(
+  prompt: string,
+  options: {
+    model: string;
+    maxOutputTokens: number;
+  }
+): Promise<{
+  text: string;
+  requestPayload: Record<string, unknown>;
+  metadata: {
+    outputTokens?: number;
+    totalTokens?: number;
+  };
+}> {
+  const apiKey = requireOpenAIApiKey();
+  const requestPayload = {
+    model: options.model,
+    input: prompt,
+    max_output_tokens: options.maxOutputTokens,
+    store: false
+  };
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(requestPayload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`OpenAI responded with ${response.status}: ${errorText || response.statusText}`);
+  }
+
+  const body = (await response.json()) as OpenAIResponseLike;
+  return {
+    text: extractOpenAIResponseText(body),
+    requestPayload,
+    metadata: extractOpenAIResponseMetadata(body)
+  };
+}
+
+function extractOpenAIResponseText(response: OpenAIResponseLike): string {
+  if (typeof response.output_text === 'string') {
+    return response.output_text;
+  }
+
+  const parts: string[] = [];
+  for (const outputItem of response.output ?? []) {
+    for (const content of outputItem.content ?? []) {
+      if (typeof content.text === 'string') {
+        parts.push(content.text);
+      }
+    }
+  }
+
+  return parts.join('\n').trim();
+}
+
+function extractOpenAIResponseMetadata(response: OpenAIResponseLike): {
+  outputTokens?: number;
+  totalTokens?: number;
+} {
+  const metadata: {
+    outputTokens?: number;
+    totalTokens?: number;
+  } = {};
+
+  if (typeof response.usage?.output_tokens === 'number') {
+    metadata.outputTokens = response.usage.output_tokens;
+  }
+  if (typeof response.usage?.total_tokens === 'number') {
+    metadata.totalTokens = response.usage.total_tokens;
+  }
+
+  return metadata;
 }
 
 function extractResponseMetadata(response: GeminiResponseLike): {

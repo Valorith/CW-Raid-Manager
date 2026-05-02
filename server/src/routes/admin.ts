@@ -2104,9 +2104,24 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const paramsSchema = z.object({ messageId: z.string() });
       const { messageId } = paramsSchema.parse(request.params);
+      const bodySchema = z
+        .object({
+          provider: z.enum(['gemini', 'openai']).optional()
+        })
+        .optional();
+      const parsedBody = bodySchema.safeParse(request.body ?? undefined);
+      if (!parsedBody.success) {
+        return reply.badRequest('Invalid crash review retry payload.');
+      }
+      const body = parsedBody.data;
+      const provider = body?.provider ?? 'gemini';
 
       try {
-        const message = await retryCrashReviewForMessage(messageId);
+        const message = await retryCrashReviewForMessage(messageId, {
+          provider,
+          model: provider === 'openai' ? 'gpt-5.4-mini' : undefined,
+          relayAfterReview: provider !== 'openai'
+        });
         return reply.code(201).send({ message });
       } catch (error) {
         request.log.error({ error }, 'Failed to retry crash review.');

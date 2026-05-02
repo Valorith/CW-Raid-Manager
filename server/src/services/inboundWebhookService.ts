@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'crypto';
 import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
 
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
+import { queueUserNotification } from './userNotificationService.js';
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -14,6 +15,7 @@ import { prisma } from '../utils/prisma.js';
 const SERVER_ID = process.env.SERVER_ID || 'default';
 const WEBHOOK_DEBUG_LOGS =
   appConfig.nodeEnv === 'development' || process.env.WEBHOOK_DEBUG_LOGS === 'true';
+const OPENAI_ESCALATION_MODEL = 'gpt-5.4-mini';
 
 function debugLog(...args: unknown[]): void {
   if (WEBHOOK_DEBUG_LOGS) {
@@ -179,6 +181,14 @@ export interface InboundWebhookActionConfig {
   crashMaxOutputTokens?: number;
   crashTemperature?: number;
   crashPromptTemplate?: string;
+}
+
+type CrashReviewProvider = 'gemini' | 'openai';
+
+interface CrashReviewRunOptions {
+  provider?: CrashReviewProvider;
+  model?: string;
+  relayAfterReview?: boolean;
 }
 
 export interface CreateInboundWebhookInput {
@@ -486,7 +496,10 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
   };
 }
 
-export async function retryCrashReviewForMessage(messageId: string) {
+export async function retryCrashReviewForMessage(
+  messageId: string,
+  options: CrashReviewRunOptions = {}
+) {
   const message = await prisma.inboundWebhookMessage.findUnique({
     where: { id: messageId }
   });
@@ -514,7 +527,12 @@ export async function retryCrashReviewForMessage(messageId: string) {
       messageId,
       actionId: crashAction.id,
       status: 'PENDING_REVIEW',
-      result: { note: 'Crash review retry in progress.' }
+      result: {
+        note:
+          options.provider === 'openai'
+            ? 'OpenAI escalation review in progress.'
+            : 'Crash review retry in progress.'
+      }
     }
   });
 
@@ -540,7 +558,11 @@ export async function retryCrashReviewForMessage(messageId: string) {
   }
 
   try {
-    const { findings, attempts } = await reviewCrashReportWithRetry(extracted.combined, crashConfig);
+    const { findings, attempts } = await reviewCrashReportWithRetry(
+      extracted.combined,
+      crashConfig,
+      options
+    );
     await prisma.inboundWebhookActionRun.update({
       where: { id: run.id },
       data: {
@@ -571,7 +593,7 @@ export async function retryCrashReviewForMessage(messageId: string) {
     const discordAction = webhook.actions.find(
       (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
     );
-    if (discordAction) {
+    if (discordAction && options.relayAfterReview !== false) {
       const discordConfig = normalizeActionConfig(discordAction.config);
       const discordUrl = getDiscordUrl(discordConfig, webhook.devMode);
       if (discordUrl) {
@@ -580,6 +602,9 @@ export async function retryCrashReviewForMessage(messageId: string) {
           // Build enriched payload with crash review findings and error type
           const enrichedPayload = enrichPayloadWithCrashReview(message.payload, findings, attempts, errorType);
           await sendDiscordRelay(discordUrl, enrichedPayload, discordConfig, messageId);
+          await queueCrashReportMessengerNotifications(messageId, webhook.label, enrichedPayload).catch((error) => {
+            console.error('Failed to queue crash report messenger notifications:', error);
+          });
           await prisma.inboundWebhookActionRun.create({
             data: {
               messageId,
@@ -787,6 +812,9 @@ async function runInboundWebhookActions(
           throw new Error('Discord webhook URL is missing.');
         }
         await sendDiscordRelay(discordUrl, payloadForActions, config, messageId);
+        await queueCrashReportMessengerNotifications(messageId, webhookLabel ?? 'Webhook', payloadForActions).catch((error) => {
+          console.error('Failed to queue crash report messenger notifications:', error);
+        });
         await prisma.inboundWebhookActionRun.create({
           data: {
             messageId,
@@ -979,16 +1007,26 @@ async function updateActionSummary(
   });
 }
 
-async function reviewCrashReportWithRetry(input: string, config: InboundWebhookActionConfig) {
+async function reviewCrashReportWithRetry(
+  input: string,
+  config: InboundWebhookActionConfig,
+  options: CrashReviewRunOptions = {}
+) {
   let attempt = 0;
   let lastError: unknown;
+  const provider = options.provider ?? 'gemini';
+  const model =
+    provider === 'openai'
+      ? options.model ?? OPENAI_ESCALATION_MODEL
+      : options.model ?? config.crashModel;
 
   while (attempt < 2) {
     attempt += 1;
     try {
       const findings = await withTimeout(
         reviewCrashReport(input, {
-          model: config.crashModel,
+          provider,
+          model,
           maxInputChars: config.crashMaxInputChars,
           maxOutputTokens: config.crashMaxOutputTokens,
           temperature: config.crashTemperature,
@@ -1196,6 +1234,62 @@ function enrichPayloadWithCrashReview(
   };
 }
 
+async function queueCrashReportMessengerNotifications(
+  messageId: string,
+  webhookLabel: string,
+  payload: unknown
+): Promise<void> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const crashReview = record.crashReview;
+  if (!crashReview || typeof crashReview !== 'object' || Array.isArray(crashReview)) {
+    return;
+  }
+
+  const findings = crashReview as Record<string, unknown>;
+  const errorType = findings.errorType === 'script_error' ? 'script_error' : 'crash';
+  const messageUrl = clientBaseUrl
+    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
+    : null;
+  const notificationPayload = {
+    messageId,
+    webhookLabel,
+    messageUrl,
+    errorType,
+    typeLabel: errorType === 'script_error' ? 'Script Error Report' : 'Crash Report',
+    summary: typeof findings.summary === 'string' ? findings.summary : 'AI review completed.',
+    signature:
+      findings.signature && typeof findings.signature === 'object' && !Array.isArray(findings.signature)
+        ? findings.signature
+        : null,
+    hypotheses: Array.isArray(findings.hypotheses) ? findings.hypotheses : [],
+    recommendedNextSteps: Array.isArray(findings.recommendedNextSteps)
+      ? findings.recommendedNextSteps
+      : []
+  };
+
+  const admins = await prisma.user.findMany({
+    where: { admin: true },
+    select: { id: true }
+  });
+
+  await Promise.all(
+    admins.map((admin) =>
+      queueUserNotification({
+        userId: admin.id,
+        scopeType: 'GLOBAL',
+        scopeId: 'global',
+        eventKey: 'webhook.crash_error_report',
+        payload: notificationPayload as Prisma.InputJsonValue,
+        dedupeSeed: messageId
+      })
+    )
+  );
+}
+
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -1204,7 +1298,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
     promise.finally(() => clearTimeout(timeout)),
     new Promise<T>((_, reject) => {
       controller.signal.addEventListener('abort', () => {
-        reject(new Error('Gemini request timed out.'));
+        reject(new Error('AI review request timed out.'));
       });
     })
   ]);

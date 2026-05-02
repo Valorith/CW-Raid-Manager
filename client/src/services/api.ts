@@ -4934,8 +4934,14 @@ export const api = {
     await axios.delete(`/api/admin/webhook-inbox/${messageId}`);
   },
 
-  async retryCrashReview(messageId: string): Promise<InboundWebhookMessage> {
-    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/retry-crash-review`);
+  async retryCrashReview(
+    messageId: string,
+    options?: { provider?: 'gemini' | 'openai' }
+  ): Promise<InboundWebhookMessage> {
+    const response = await axios.post(
+      `/api/admin/webhook-inbox/${messageId}/retry-crash-review`,
+      options ?? {}
+    );
     return response.data.message;
   },
 

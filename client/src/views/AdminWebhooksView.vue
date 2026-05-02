@@ -1028,8 +1028,14 @@
       <article class="card" v-if="inboxLoading">
         <p class="muted">Loading inbox...</p>
       </article>
-      <article class="card" v-else-if="inboxMessages.length === 0">
-        <p class="muted">No inbound webhook messages yet.</p>
+      <article class="card inbox-empty-state" v-else-if="inboxMessages.length === 0">
+        <div class="inbox-empty-state__message">
+          <svg class="inbox-empty-state__icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 5.75A1.75 1.75 0 0 1 5.75 4h12.5A1.75 1.75 0 0 1 20 5.75v8.5A1.75 1.75 0 0 1 18.25 16h-2.3a3.5 3.5 0 0 1-7.9 0h-2.3A1.75 1.75 0 0 1 4 14.25v-8.5Z" />
+            <path d="M8 20h8" />
+          </svg>
+          <span>Nothing to see here yet.</span>
+        </div>
       </article>
       <template v-else>
         <!-- Bulk Actions Toolbar -->
@@ -1738,6 +1744,15 @@
                 >
                   <span class="ai-icon" aria-hidden="true">✦</span> Re-run AI Review
                 </button>
+                <button
+                  class="btn btn--openai btn--small"
+                  type="button"
+                  @click="retryCrashReview(selectedMessage, 'openai')"
+                  :disabled="isCrashReviewPending(selectedMessage)"
+                >
+                  <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
+                  Escalate Review
+                </button>
               </div>
             </div>
 
@@ -1750,6 +1765,15 @@
                 :disabled="isCrashReviewPending(selectedMessage)"
               >
                 <span class="ai-icon" aria-hidden="true">✦</span> Run AI Review
+              </button>
+              <button
+                class="btn btn--openai"
+                type="button"
+                @click="retryCrashReview(selectedMessage, 'openai')"
+                :disabled="isCrashReviewPending(selectedMessage)"
+              >
+                <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
+                Run Escalated Review
               </button>
             </div>
           </section>
@@ -4987,7 +5011,10 @@ async function confirmMerge() {
   }
 }
 
-async function retryCrashReview(message: InboundWebhookMessage) {
+async function retryCrashReview(
+  message: InboundWebhookMessage,
+  provider: 'gemini' | 'openai' = 'gemini'
+) {
   retryingCrashId.value = message.id;
 
   // Find the crash review action from the webhook to use for the optimistic run
@@ -5000,6 +5027,12 @@ async function retryCrashReview(message: InboundWebhookMessage) {
     actionId: crashAction?.id || '',
     status: 'PENDING_REVIEW' as const,
     createdAt: new Date().toISOString(),
+    result: {
+      note:
+        provider === 'openai'
+          ? 'OpenAI escalation review in progress.'
+          : 'Crash review retry in progress.'
+    },
     action: crashAction
   };
 
@@ -5023,7 +5056,7 @@ async function retryCrashReview(message: InboundWebhookMessage) {
   }
 
   try {
-    const updated = await api.retryCrashReview(message.id);
+    const updated = await api.retryCrashReview(message.id, { provider });
     selectedMessage.value = updated;
     const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
     if (index >= 0) {
@@ -5523,6 +5556,42 @@ function escapeHtml(text: string): string {
   background: rgba(15, 23, 42, 0.65);
   border-color: rgba(148, 163, 184, 0.5);
   color: #e2e8f0;
+}
+
+.btn--openai {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-color: rgba(148, 163, 184, 0.38);
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.12), rgba(14, 165, 233, 0.08)),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.98));
+  color: #f8fafc;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 14px 26px rgba(2, 6, 23, 0.24);
+}
+
+.btn--openai:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.62);
+  background:
+    linear-gradient(135deg, rgba(248, 250, 252, 0.16), rgba(14, 165, 233, 0.14)),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 1));
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 16px 30px rgba(2, 6, 23, 0.3),
+    0 0 0 1px rgba(14, 165, 233, 0.1);
+}
+
+.openai-logo {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.22));
 }
 
 .btn--danger {
@@ -6692,6 +6761,44 @@ function escapeHtml(text: string): string {
 
 .inbox-filters--compact .form-field--compact {
   min-width: 0;
+}
+
+.inbox-empty-state {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  min-height: 9.5rem;
+  padding: 1.5rem;
+  border-color: rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.54)),
+    rgba(15, 23, 42, 0.64);
+  color: rgba(148, 163, 184, 0.92);
+}
+
+.inbox-empty-state__message {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 2.4rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.inbox-empty-state__icon {
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+  color: rgba(226, 232, 240, 0.94);
+  fill: none;
+  opacity: 0.68;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .form-field--compact span {

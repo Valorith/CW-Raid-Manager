@@ -78,6 +78,26 @@ function formatListingLines(
   return normalized.join('\n');
 }
 
+function formatCrashHypotheses(value: unknown, fallback: string): string {
+  const hypotheses = Array.isArray(value) ? value : [];
+  if (hypotheses.length === 0) {
+    return fallback;
+  }
+
+  return hypotheses
+    .slice(0, 2)
+    .map((entry, index) => {
+      const hypothesis = asObject(entry);
+      const title = asString(hypothesis.title, 'Unknown cause');
+      const confidence =
+        typeof hypothesis.confidence === 'number'
+          ? ` (${Math.round(hypothesis.confidence * 100)}%)`
+          : '';
+      return `${index + 1}. ${title}${confidence}`;
+    })
+    .join('\n');
+}
+
 export function renderNotificationEvent(
   eventKey: string,
   payload: unknown,
@@ -238,6 +258,44 @@ export function renderNotificationEvent(
             : formatPlainLines(data.lines, asString(data.summary, 'A tracked trader was undercut.'))
         }`
       };
+    case 'webhook.crash_error_report': {
+      const messageUrl = asString(data.messageUrl);
+      const signature = asObject(data.signature);
+      const typeLabel = asString(data.typeLabel, 'Crash/Error Report');
+      const summary = asString(data.summary, 'AI review completed for an inbound crash or error report.');
+      const topFrame = asString(signature.topFrame);
+      const exception = asString(signature.exception);
+      const parts = [
+        `${isTelegram ? '🚨 ' : ''}${typeLabel}: ${asString(data.webhookLabel, 'Webhook')}`,
+        '',
+        summary
+      ];
+
+      const signatureLines = [
+        exception ? `Exception: ${exception}` : '',
+        topFrame ? `Location: ${topFrame}` : ''
+      ].filter(Boolean);
+      if (signatureLines.length > 0) {
+        parts.push('', signatureLines.join('\n'));
+      }
+
+      parts.push(
+        '',
+        `Likely causes:\n${formatCrashHypotheses(data.hypotheses, 'No root-cause hypotheses were generated.')}`
+      );
+
+      const nextSteps = formatPlainLines(
+        data.recommendedNextSteps,
+        'Open the webhook inbox and review the full AI report.'
+      );
+      parts.push('', `Next steps:\n${nextSteps}`);
+
+      if (messageUrl) {
+        parts.push('', messageUrl);
+      }
+
+      return { text: parts.join('\n') };
+    }
     default:
       return {
         text: asString(data.summary, `Notification: ${eventKey}`)

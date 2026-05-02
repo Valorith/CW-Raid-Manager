@@ -3052,7 +3052,6 @@ const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
 );
 
-const nextPatchReadyStatuses = new Set<TestChangeStatus>(['CLOSED']);
 const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
 const nextPatchPassedCount = computed(() =>
   nextPatchChanges.value.reduce((total, change) => total + change.summary.passCount, 0)
@@ -5041,10 +5040,6 @@ function compareNextPatchChanges(left: TestChange, right: TestChange) {
   return left.publicId - right.publicId;
 }
 
-function isNextPatchReady(change: TestChange) {
-  return change.includeInNextPatch && nextPatchReadyStatuses.has(change.status);
-}
-
 function isChangeInCurrentNextPatchView(change: TestChange) {
   return (
     change.includeInNextPatch &&
@@ -5478,12 +5473,14 @@ const WorkflowTimeline = defineComponent({
 
     return () => {
       const activeStep = statusStepMap[props.change.status] ?? props.change.status;
-      const activeIndex = steps.indexOf(activeStep);
+      const viewerHasPassed = props.change.viewerTester?.result === 'PASS';
+      const displayedActiveStep =
+        viewerHasPassed && activeStep === 'TESTING' ? 'PASSED' : activeStep;
+      const activeIndex = steps.indexOf(displayedActiveStep);
       const skipRenewed = props.change.status === 'CLOSED' && !wasRenewed(props.change);
       const isTerminalClosed = props.change.status === 'CLOSED';
       const testingIndex = steps.indexOf('TESTING');
       const skipTesting = activeIndex > testingIndex && !viewerCompletedTesting(props.change);
-      const viewerHasPassed = props.change.viewerTester?.result === 'PASS';
 
       return h('div', { class: 'tm-workflow' }, [
         h('h3', 'Workflow Timeline'),
@@ -5491,7 +5488,6 @@ const WorkflowTimeline = defineComponent({
           'div',
           { class: 'tm-workflow__steps' },
           steps.map((step, index) => {
-            const isActive = !isTerminalClosed && step === activeStep;
             const isSkipped =
               (skipTesting && step === 'TESTING') || (skipRenewed && step === 'RENEWED');
             const isComplete =
@@ -5499,6 +5495,8 @@ const WorkflowTimeline = defineComponent({
                 (isTerminalClosed && step === 'CLOSED') ||
                 (viewerHasPassed && step === 'PASSED')) &&
               !isSkipped;
+            const isActive =
+              !isTerminalClosed && step === displayedActiveStep && !(viewerHasPassed && isComplete);
 
             return h(
               'div',
