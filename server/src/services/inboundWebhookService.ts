@@ -825,9 +825,8 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   debugLog(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
   const processingEnabled = await isWebhookProcessingEnabled();
 
-  // Check if the message has any meaningful crash report content
-  // This specifically looks for crashReportText, message, content, or rawBody
-  // and does NOT fall back to JSON stringification of the payload
+  // Check if the message has any obvious text content for labels, while still
+  // allowing structured non-crash payloads to pass through to relay actions.
   const messageContent = extractActualMessageContent(input.payload, input.rawBody ?? null);
 
   // Log payload structure for debugging
@@ -835,8 +834,8 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   const payloadKeys = input.payload && typeof input.payload === 'object' ? Object.keys(input.payload as object) : [];
   debugLog(`[WEBHOOK RECEIVE] Payload type: ${payloadType}, keys: [${payloadKeys.join(', ')}], rawBody: ${input.rawBody ? 'present' : 'null'}`);
   debugLog(`[WEBHOOK RECEIVE] Content check: hasContent=${!!messageContent}, contentLength=${messageContent?.length ?? 0}`);
-  if (!messageContent || messageContent.trim().length === 0) {
-    debugLog(`[WEBHOOK RECEIVE] >>>>>> DISCARDING MESSAGE - NO CONTENT <<<<<<`);
+  if (!hasRelayableWebhookPayload(input.payload, input.rawBody ?? null)) {
+    debugLog(`[WEBHOOK RECEIVE] >>>>>> DISCARDING MESSAGE - EMPTY PAYLOAD <<<<<<`);
     // Return a minimal response but don't create a message record
     return { id: 'discarded', webhookId: webhook.id, status: 'DISCARDED' as const };
   }
@@ -859,10 +858,19 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
 
   // Apply labels immediately using pattern-based detection (no AI needed)
   // This ensures merge group detection works right away in the UI
-  await applyImmediateLabels(message.id, messageContent, webhook.label);
+  if (messageContent) {
+    await applyImmediateLabels(message.id, messageContent, webhook.label);
+  }
 
   if (!processingEnabled) {
     debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
+    debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+    return message;
+  }
+
+  if (!shouldUseCrashMergePipeline(input.payload, input.rawBody ?? null, input.payload)) {
+    debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, non-crash payload detected - running actions immediately`);
+    await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
   }
@@ -914,6 +922,11 @@ export async function createInboundWebhookMessageForAdmin(options: {
   }
 
   if (options.runActions !== false) {
+    if (!shouldUseCrashMergePipeline(options.payload, null, options.payload)) {
+      await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
+      return message;
+    }
+
     // Add message to pending merge group with fixed timer from first message
     const mergeWindow = webhook.mergeWindowSeconds ?? 60;
     const groupKey = extractCrashFileIdentifier(options.payload, null) || 'default';
@@ -1133,6 +1146,48 @@ function normalizePayload(payload: unknown) {
     return { value: payload };
   }
   return payload as Record<string, unknown>;
+}
+
+function hasRelayableWebhookPayload(payload: unknown, rawBody: string | null): boolean {
+  const messageContent = extractActualMessageContent(payload, rawBody);
+  if (messageContent && messageContent.trim().length > 0) {
+    return true;
+  }
+
+  if (typeof rawBody === 'string' && rawBody.trim().length > 0) {
+    return true;
+  }
+
+  if (payload === undefined || payload === null) {
+    return false;
+  }
+
+  if (typeof payload === 'string') {
+    return payload.trim().length > 0;
+  }
+
+  if (Buffer.isBuffer(payload)) {
+    return payload.length > 0;
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.length > 0;
+  }
+
+  if (typeof payload === 'object') {
+    return Object.keys(payload as Record<string, unknown>).length > 0;
+  }
+
+  return true;
+}
+
+function shouldUseCrashMergePipeline(
+  payload: unknown,
+  rawBody: string | null | undefined,
+  fallbackPayload: unknown
+): boolean {
+  const crashInput = buildCrashReviewInput(payload, rawBody, fallbackPayload);
+  return looksLikeCrashReport(crashInput);
 }
 
 async function updateActionSummary(
