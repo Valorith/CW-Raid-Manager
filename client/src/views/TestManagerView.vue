@@ -856,7 +856,9 @@
               <div>
                 <h3>Linked Crash/Error Reports</h3>
                 <p>
-                  Webhook reports associated with this change from the admin inbox.
+                  Crash or script error reports that are automatically imported from the game server
+                  can be linked by developers to specific changes so testers have additional context
+                  while testing.
                 </p>
               </div>
               <span>{{ activeChange.webhookReports?.length ?? 0 }}</span>
@@ -917,7 +919,7 @@
             <div v-else class="tm-report-empty">
               <span aria-hidden="true">⌁</span>
               <strong>No linked reports yet.</strong>
-              <p>Use the webhook inbox link action to associate crash or script error reports.</p>
+              <p>Crash reports or script errors associated with this change.</p>
             </div>
           </section>
 
