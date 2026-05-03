@@ -643,6 +643,17 @@
               <p class="muted">{{ itemModalTabSummary }}</p>
             </div>
             <div class="market-modal__actions">
+              <a
+                v-if="activeItemEqAllaUrl"
+                class="eq-alla-button"
+                :href="activeItemEqAllaUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                :aria-label="activeItemEqAllaLabel"
+                :title="activeItemEqAllaLabel"
+              >
+                <img :src="EQ_ALLA_LOGO_SRC" alt="EQ Alla 2.0" />
+              </a>
               <button
                 type="button"
                 class="btn btn--outline btn--small"
@@ -1780,6 +1791,8 @@ const marketModalTitleId = 'market-item-trend-title';
 const characterHistoryModalTitleId = 'market-character-history-title';
 const UNKNOWN_MARKET_CHARACTER_LABEL = 'Unknown Trader';
 const REFRESH_COOLDOWN_SECONDS = 60;
+const EQ_ALLA_LOGO_SRC = '/assets/eq-alla-2-logo.png';
+const EQ_ALLA_ITEM_BASE_URL = 'https://alla.clumsysworld.com/items';
 
 const displaySales = computed<MarketRecentSale[]>(() => salesPage.value?.sales ?? []);
 const tickerSales = computed(() => displaySales.value.slice(0, 10));
@@ -1902,6 +1915,14 @@ const activeItemFavoriteButtonLabel = computed(() => {
   }
 
   return isActiveItemFavorited.value ? 'Watching' : 'Watch Item';
+});
+const activeItemEqAllaUrl = computed(() => {
+  const itemId = activeModalItem.value?.itemId;
+  return itemId == null ? null : `${EQ_ALLA_ITEM_BASE_URL}/${encodeURIComponent(String(itemId))}`;
+});
+const activeItemEqAllaLabel = computed(() => {
+  const itemName = activeModalItem.value?.itemName ?? history.value?.itemName ?? 'this item';
+  return `Open ${itemName} in EQ Alla 2.0`;
 });
 const traderAttentionCount = computed(() => traderSummary.value.tradersNeedingAttention);
 const traderAttentionMeta = computed(() => {
@@ -4547,6 +4568,42 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.6rem;
 }
+.eq-alla-button {
+  display: inline-flex;
+  width: 8.75rem;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 0.6rem;
+  background: #070706;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.64),
+    0 10px 22px rgba(2, 6, 23, 0.28);
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.eq-alla-button:hover,
+.eq-alla-button:focus-visible {
+  border-color: rgba(251, 191, 36, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(245, 158, 11, 0.24),
+    0 12px 28px rgba(2, 6, 23, 0.36);
+  transform: translateY(-1px);
+}
+.eq-alla-button:focus-visible {
+  outline: 2px solid rgba(251, 191, 36, 0.7);
+  outline-offset: 2px;
+}
+.eq-alla-button img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .market-modal__toolbar {
   display: flex;
   align-items: center;
@@ -4688,6 +4745,9 @@ onBeforeUnmount(() => {
   .market-modal__actions {
     flex-direction: column;
     align-items: stretch;
+  }
+  .eq-alla-button {
+    width: 100%;
   }
   .market-modal__toolbar {
     flex-direction: column;
