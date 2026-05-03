@@ -167,6 +167,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
+        githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         includeInNextPatch: z.boolean().optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional(),
@@ -233,6 +234,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
+        githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         includeInNextPatch: z.boolean().optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional()

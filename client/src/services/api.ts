@@ -3281,6 +3281,29 @@ export interface TestChangePullRequest {
   };
 }
 
+export interface TestChangeIssue {
+  owner: string;
+  repo: string;
+  repository: string;
+  number: number;
+  url: string;
+  metadata: {
+    available: boolean;
+    fetchedAt: string | null;
+    statusMessage: string | null;
+    htmlUrl: string;
+    title: string | null;
+    state: string | null;
+    authorLogin: string | null;
+    authorAvatarUrl: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    closedAt: string | null;
+    comments: number | null;
+    labels: Array<{ name: string; color: string | null }>;
+  };
+}
+
 export interface TestChange {
   id: string;
   publicId: number;
@@ -3292,6 +3315,7 @@ export interface TestChange {
   status: TestChangeStatus;
   targetBuild: string | null;
   githubPullRequest: TestChangePullRequest | null;
+  githubIssue: TestChangeIssue | null;
   includeInNextPatch: boolean;
   dueAt: string | null;
   closedAt: string | null;
@@ -3350,6 +3374,7 @@ export interface CreateTestChangePayload {
   priority: TestChangePriority;
   targetBuild?: string | null;
   githubPrUrl?: string | null;
+  githubIssueUrl?: string | null;
   includeInNextPatch?: boolean;
   dueAt?: string | null;
   assignedToId?: string | null;
@@ -3418,7 +3443,10 @@ export const api = {
     );
     return response.data.change;
   },
-  async unlinkWebhookReportFromTestChange(changeId: string, messageId: string): Promise<TestChange> {
+  async unlinkWebhookReportFromTestChange(
+    changeId: string,
+    messageId: string
+  ): Promise<TestChange> {
     const response = await axios.delete(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/webhook-reports/${encodeURIComponent(messageId)}`
     );
@@ -4992,9 +5020,7 @@ export const api = {
   },
 
   async sendWebhookDiscordSummary(messageId: string): Promise<InboundWebhookMessage> {
-    const response = await axios.post(
-      `/api/admin/webhook-inbox/${messageId}/send-discord-summary`
-    );
+    const response = await axios.post(`/api/admin/webhook-inbox/${messageId}/send-discord-summary`);
     return response.data.message;
   },
 

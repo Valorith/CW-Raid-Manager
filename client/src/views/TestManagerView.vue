@@ -400,22 +400,50 @@
                 {{ activeChange.createdBy?.displayName ?? 'Unknown' }} · Updated
                 {{ relativeTime(activeChange.updatedAt) }}
               </p>
-              <a
-                v-if="activeChange.githubPullRequest"
-                class="tm-github-pr-badge tm-github-pr-badge--header"
-                :class="`tm-github-pr-badge--${githubPrTone(activeChange.githubPullRequest)}`"
-                :href="githubPrHref(activeChange.githubPullRequest)"
-                target="_blank"
-                rel="noopener noreferrer"
-                :aria-label="`Open ${githubPrLabel(activeChange.githubPullRequest)} on GitHub`"
+              <div
+                v-if="activeChange.githubPullRequest || activeChange.githubIssue"
+                class="tm-github-link-group tm-github-link-group--header"
+                :class="{
+                  'tm-github-link-group--split':
+                    activeChange.githubPullRequest && activeChange.githubIssue
+                }"
+                aria-label="Linked GitHub records"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path
-                    d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
-                  />
-                </svg>
-                <span>{{ githubPrLabel(activeChange.githubPullRequest) }}</span>
-              </a>
+                <a
+                  v-if="activeChange.githubPullRequest"
+                  class="tm-github-pr-badge tm-github-link-part"
+                  :class="`tm-github-pr-badge--${githubPrTone(activeChange.githubPullRequest)}`"
+                  :href="githubPrHref(activeChange.githubPullRequest)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :aria-label="`Open ${githubPrLabel(activeChange.githubPullRequest)} pull request on GitHub`"
+                  @click="openGithubLink($event, githubPrHref(activeChange.githubPullRequest))"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                    />
+                  </svg>
+                  <span>PR {{ githubPrLabel(activeChange.githubPullRequest) }}</span>
+                </a>
+                <a
+                  v-if="activeChange.githubIssue"
+                  class="tm-github-pr-badge tm-github-link-part"
+                  :class="`tm-github-pr-badge--${githubIssueTone(activeChange.githubIssue)}`"
+                  :href="githubIssueHref(activeChange.githubIssue)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :aria-label="`Open ${githubIssueLabel(activeChange.githubIssue)} issue on GitHub`"
+                  @click="openGithubLink($event, githubIssueHref(activeChange.githubIssue))"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                    />
+                  </svg>
+                  <span>Issue {{ githubIssueLabel(activeChange.githubIssue) }}</span>
+                </a>
+              </div>
             </div>
             <div class="tm-detail__actions">
               <div class="tm-detail__status-stack">
@@ -495,9 +523,8 @@
           <section v-if="detailTab === 'Overview'" class="tm-detail-section">
             <WorkflowTimeline :change="activeChange" />
             <article
-              v-if="activeChange.githubPullRequest"
-              class="tm-github-pr-panel"
-              :class="`tm-github-pr-panel--${githubPrTone(activeChange.githubPullRequest)}`"
+              v-if="activeChange.githubPullRequest || activeChange.githubIssue"
+              class="tm-github-pr-panel tm-github-links-panel"
             >
               <div class="tm-github-pr-panel__brand">
                 <span>
@@ -506,93 +533,206 @@
                       d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
                     />
                   </svg>
-                  GitHub Pull Request
+                  GitHub Links
                 </span>
-                <strong>{{ githubPrStateLabel(activeChange.githubPullRequest) }}</strong>
+                <strong>{{ githubIntegrationLabel(activeChange) }}</strong>
               </div>
-              <div class="tm-github-pr-panel__body">
-                <div>
-                  <a
-                    :href="githubPrHref(activeChange.githubPullRequest)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {{
-                      activeChange.githubPullRequest.metadata.title ||
-                      githubPrLabel(activeChange.githubPullRequest)
-                    }}
-                  </a>
-                  <p>
-                    {{ githubPrLabel(activeChange.githubPullRequest) }}
-                    <template v-if="activeChange.githubPullRequest.metadata.authorLogin">
-                      by @{{ activeChange.githubPullRequest.metadata.authorLogin }}
-                    </template>
-                  </p>
-                  <div
-                    v-if="githubPrMergedAt(activeChange.githubPullRequest)"
-                    class="tm-github-pr-panel__merged"
-                  >
-                    <span class="tm-github-pr-panel__merged-icon" aria-hidden="true"></span>
-                    <div>
-                      <strong>Merged</strong>
-                      <time
-                        :datetime="githubPrMergedAt(activeChange.githubPullRequest) || undefined"
-                      >
-                        {{ githubPrMergedAtLabel(activeChange.githubPullRequest) }}
-                      </time>
+              <div class="tm-github-links-panel__items">
+                <section
+                  v-if="activeChange.githubPullRequest"
+                  class="tm-github-linked-record"
+                  :class="`tm-github-linked-record--${githubPrTone(activeChange.githubPullRequest)}`"
+                >
+                  <div class="tm-github-linked-record__body">
+                    <small>Pull Request</small>
+                    <a
+                      :href="githubPrHref(activeChange.githubPullRequest)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      @click="openGithubLink($event, githubPrHref(activeChange.githubPullRequest))"
+                    >
+                      {{
+                        activeChange.githubPullRequest.metadata.title ||
+                        githubPrLabel(activeChange.githubPullRequest)
+                      }}
+                    </a>
+                    <p>
+                      {{ githubPrLabel(activeChange.githubPullRequest) }}
+                      <template v-if="activeChange.githubPullRequest.metadata.authorLogin">
+                        by @{{ activeChange.githubPullRequest.metadata.authorLogin }}
+                      </template>
+                    </p>
+                    <div
+                      v-if="githubPrMergedAt(activeChange.githubPullRequest)"
+                      class="tm-github-pr-panel__merged"
+                    >
+                      <span class="tm-github-pr-panel__merged-icon" aria-hidden="true"></span>
+                      <div>
+                        <strong>Merged</strong>
+                        <time
+                          :datetime="githubPrMergedAt(activeChange.githubPullRequest) || undefined"
+                        >
+                          {{ githubPrMergedAtLabel(activeChange.githubPullRequest) }}
+                        </time>
+                      </div>
+                      <small>{{ githubPrMergedAtRelative(activeChange.githubPullRequest) }}</small>
                     </div>
-                    <small>{{ githubPrMergedAtRelative(activeChange.githubPullRequest) }}</small>
                   </div>
-                </div>
-                <div class="tm-github-pr-panel__metrics">
-                  <span>
-                    <strong>{{
-                      githubPrMetric(activeChange.githubPullRequest.metadata.changedFiles)
-                    }}</strong>
-                    files
-                  </span>
-                  <span>
-                    <strong>{{
-                      githubPrSignedMetric(activeChange.githubPullRequest.metadata.additions, '+')
-                    }}</strong>
-                    added
-                  </span>
-                  <span>
-                    <strong>{{
-                      githubPrSignedMetric(activeChange.githubPullRequest.metadata.deletions, '-')
-                    }}</strong>
-                    removed
-                  </span>
-                </div>
+                  <div class="tm-github-linked-record__actions">
+                    <strong class="tm-github-linked-record__state">
+                      {{ githubPrStateLabel(activeChange.githubPullRequest) }}
+                    </strong>
+                  </div>
+                  <div class="tm-github-pr-panel__metrics">
+                    <span>
+                      <strong>{{
+                        githubPrMetric(activeChange.githubPullRequest.metadata.changedFiles)
+                      }}</strong>
+                      files
+                    </span>
+                    <span>
+                      <strong>{{
+                        githubPrSignedMetric(activeChange.githubPullRequest.metadata.additions, '+')
+                      }}</strong>
+                      added
+                    </span>
+                    <span>
+                      <strong>{{
+                        githubPrSignedMetric(activeChange.githubPullRequest.metadata.deletions, '-')
+                      }}</strong>
+                      removed
+                    </span>
+                  </div>
+                  <div class="tm-github-linked-record__footer">
+                    <p
+                      v-if="!activeChange.githubPullRequest.metadata.available"
+                      class="tm-github-pr-panel__message"
+                    >
+                      {{
+                        activeChange.githubPullRequest.metadata.statusMessage ||
+                        'GitHub metadata is unavailable.'
+                      }}
+                    </p>
+                    <p v-else class="tm-github-pr-panel__message">
+                      {{ githubPrBranchSummary(activeChange.githubPullRequest) }}
+                      <template v-if="activeChange.githubPullRequest.metadata.updatedAt">
+                        · GitHub updated
+                        {{ relativeTime(activeChange.githubPullRequest.metadata.updatedAt) }}
+                      </template>
+                    </p>
+                    <a
+                      class="tm-github-linked-record__open"
+                      :href="githubPrHref(activeChange.githubPullRequest)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open ${githubPrLabel(activeChange.githubPullRequest)} pull request in GitHub`"
+                      @click="openGithubLink($event, githubPrHref(activeChange.githubPullRequest))"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                        />
+                      </svg>
+                      <span>Open in GitHub</span>
+                    </a>
+                  </div>
+                </section>
+
+                <section
+                  v-if="activeChange.githubIssue"
+                  class="tm-github-linked-record"
+                  :class="`tm-github-linked-record--${githubIssueTone(activeChange.githubIssue)}`"
+                >
+                  <div class="tm-github-linked-record__body">
+                    <small>Issue</small>
+                    <a
+                      :href="githubIssueHref(activeChange.githubIssue)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      @click="openGithubLink($event, githubIssueHref(activeChange.githubIssue))"
+                    >
+                      {{
+                        activeChange.githubIssue.metadata.title ||
+                        githubIssueLabel(activeChange.githubIssue)
+                      }}
+                    </a>
+                    <p>
+                      {{ githubIssueLabel(activeChange.githubIssue) }}
+                      <template v-if="activeChange.githubIssue.metadata.authorLogin">
+                        by @{{ activeChange.githubIssue.metadata.authorLogin }}
+                      </template>
+                    </p>
+                  </div>
+                  <div class="tm-github-linked-record__actions">
+                    <strong class="tm-github-linked-record__state">
+                      {{ githubIssueStateLabel(activeChange.githubIssue) }}
+                    </strong>
+                  </div>
+                  <div class="tm-github-pr-panel__metrics tm-github-pr-panel__metrics--issue">
+                    <span>
+                      <strong>{{
+                        githubPrMetric(activeChange.githubIssue.metadata.comments)
+                      }}</strong>
+                      comments
+                    </span>
+                    <span>
+                      <strong>{{ activeChange.githubIssue.metadata.labels.length }}</strong>
+                      labels
+                    </span>
+                    <span>
+                      <strong>{{
+                        activeChange.githubIssue.metadata.closedAt ? 'yes' : 'no'
+                      }}</strong>
+                      closed
+                    </span>
+                  </div>
+                  <div class="tm-github-linked-record__footer">
+                    <p
+                      v-if="!activeChange.githubIssue.metadata.available"
+                      class="tm-github-pr-panel__message"
+                    >
+                      {{
+                        activeChange.githubIssue.metadata.statusMessage ||
+                        'GitHub metadata is unavailable.'
+                      }}
+                    </p>
+                    <p v-else class="tm-github-pr-panel__message">
+                      {{ githubIssueSummary(activeChange.githubIssue) }}
+                      <template v-if="activeChange.githubIssue.metadata.updatedAt">
+                        · GitHub updated
+                        {{ relativeTime(activeChange.githubIssue.metadata.updatedAt) }}
+                      </template>
+                    </p>
+                    <a
+                      class="tm-github-linked-record__open"
+                      :href="githubIssueHref(activeChange.githubIssue)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      :aria-label="`Open ${githubIssueLabel(activeChange.githubIssue)} issue in GitHub`"
+                      @click="openGithubLink($event, githubIssueHref(activeChange.githubIssue))"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                        />
+                      </svg>
+                      <span>Open in GitHub</span>
+                    </a>
+                  </div>
+                </section>
               </div>
               <div
-                v-if="activeChange.githubPullRequest.metadata.labels.length"
+                v-if="githubLabelsForChange(activeChange).length"
                 class="tm-github-pr-panel__labels"
               >
                 <span
-                  v-for="label in activeChange.githubPullRequest.metadata.labels"
-                  :key="label.name"
+                  v-for="label in githubLabelsForChange(activeChange)"
+                  :key="`${label.source}:${label.name}`"
                   :style="{ '--label-color': githubLabelColor(label.color) }"
                 >
                   {{ label.name }}
                 </span>
               </div>
-              <p
-                v-if="!activeChange.githubPullRequest.metadata.available"
-                class="tm-github-pr-panel__message"
-              >
-                {{
-                  activeChange.githubPullRequest.metadata.statusMessage ||
-                  'GitHub metadata is unavailable.'
-                }}
-              </p>
-              <p v-else class="tm-github-pr-panel__message">
-                {{ githubPrBranchSummary(activeChange.githubPullRequest) }}
-                <template v-if="activeChange.githubPullRequest.metadata.updatedAt">
-                  · GitHub updated
-                  {{ relativeTime(activeChange.githubPullRequest.metadata.updatedAt) }}
-                </template>
-              </p>
             </article>
             <article v-if="canEditViewerChecklist(activeChange)" class="tm-testing-checklist">
               <div class="tm-section-title tm-section-title--detail">
@@ -876,7 +1016,9 @@
                 <div class="tm-report-card__icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false">
                     <path d="M8 7h8M8 11h8M8 15h5" />
-                    <path d="M6 3.75h12A1.25 1.25 0 0 1 19.25 5v14A1.25 1.25 0 0 1 18 20.25H6A1.25 1.25 0 0 1 4.75 19V5A1.25 1.25 0 0 1 6 3.75Z" />
+                    <path
+                      d="M6 3.75h12A1.25 1.25 0 0 1 19.25 5v14A1.25 1.25 0 0 1 18 20.25H6A1.25 1.25 0 0 1 4.75 19V5A1.25 1.25 0 0 1 6 3.75Z"
+                    />
                   </svg>
                 </div>
                 <div class="tm-report-card__body">
@@ -893,7 +1035,11 @@
                   </small>
                 </div>
                 <div class="tm-report-card__actions" @click.stop>
-                  <button type="button" class="tm-table-action" @click="openWebhookReportSummary(report)">
+                  <button
+                    type="button"
+                    class="tm-table-action"
+                    @click="openWebhookReportSummary(report)"
+                  >
                     Summary
                   </button>
                   <button
@@ -1041,7 +1187,10 @@
               @click="openDeveloperActionConfirm('close')"
             >
               <span class="tm-action__icon" aria-hidden="true">✓</span>
-              <span><strong>Closed as Complete</strong><small>Mark completed and close it.</small></span>
+              <span
+                ><strong>Closed as Complete</strong
+                ><small>Mark completed and close it.</small></span
+              >
             </button>
             <button
               type="button"
@@ -1681,16 +1830,28 @@
                     <span aria-hidden="true">⌄</span>
                   </div>
                 </label>
-                <label class="tm-field tm-field--full">
-                  <span>GitHub pull request <small>optional</small></span>
-                  <input
-                    v-model="createForm.githubPrUrl"
-                    class="tm-input"
-                    type="url"
-                    inputmode="url"
-                    placeholder="https://github.com/owner/repo/pull/123"
-                  />
-                </label>
+                <div class="tm-github-fields tm-field--full">
+                  <label class="tm-field">
+                    <span>GitHub pull request <small>optional</small></span>
+                    <input
+                      v-model="createForm.githubPrUrl"
+                      class="tm-input"
+                      type="url"
+                      inputmode="url"
+                      placeholder="https://github.com/owner/repo/pull/123"
+                    />
+                  </label>
+                  <label class="tm-field">
+                    <span>GitHub issue <small>optional</small></span>
+                    <input
+                      v-model="createForm.githubIssueUrl"
+                      class="tm-input"
+                      type="url"
+                      inputmode="url"
+                      placeholder="https://github.com/owner/repo/issues/123"
+                    />
+                  </label>
+                </div>
                 <label class="tm-patch-toggle tm-field--full">
                   <input v-model="createForm.includeInNextPatch" type="checkbox" />
                   <span aria-hidden="true"></span>
@@ -1905,16 +2066,28 @@
                 <span>Due date <small>optional</small></span>
                 <input v-model="editForm.dueAt" class="tm-input" type="datetime-local" />
               </label>
-              <label class="tm-field tm-field--full">
-                <span>GitHub pull request <small>optional</small></span>
-                <input
-                  v-model="editForm.githubPrUrl"
-                  class="tm-input"
-                  type="url"
-                  inputmode="url"
-                  placeholder="https://github.com/owner/repo/pull/123"
-                />
-              </label>
+              <div class="tm-github-fields tm-field--full">
+                <label class="tm-field">
+                  <span>GitHub pull request <small>optional</small></span>
+                  <input
+                    v-model="editForm.githubPrUrl"
+                    class="tm-input"
+                    type="url"
+                    inputmode="url"
+                    placeholder="https://github.com/owner/repo/pull/123"
+                  />
+                </label>
+                <label class="tm-field">
+                  <span>GitHub issue <small>optional</small></span>
+                  <input
+                    v-model="editForm.githubIssueUrl"
+                    class="tm-input"
+                    type="url"
+                    inputmode="url"
+                    placeholder="https://github.com/owner/repo/issues/123"
+                  />
+                </label>
+              </div>
               <label class="tm-patch-toggle tm-field--full">
                 <input v-model="editForm.includeInNextPatch" type="checkbox" />
                 <span aria-hidden="true"></span>
@@ -2180,8 +2353,8 @@
           </div>
         </div>
         <p class="tm-confirm-modal__body">
-          This change is closed, but it is not currently queued for the next patch. Would you like to
-          include it now?
+          This change is closed, but it is not currently queued for the next patch. Would you like
+          to include it now?
         </p>
         <div class="tm-confirm-modal__change">
           <span>Selected change</span>
@@ -2567,6 +2740,7 @@ import {
   type NextPatchChangeView,
   type TestAssignmentKind,
   type TestChange,
+  type TestChangeIssue,
   type TestChangeListStatusFilter,
   type TestChangeNote,
   type TestChangePriority,
@@ -3018,6 +3192,7 @@ const createForm = ref<CreateTestChangePayload>({
   priority: 'MEDIUM',
   targetBuild: '',
   githubPrUrl: '',
+  githubIssueUrl: '',
   includeInNextPatch: true,
   checklist: [createChecklistItem()]
 });
@@ -3031,6 +3206,7 @@ const editForm = ref<UpdateTestChangePayload>({
   priority: 'MEDIUM',
   targetBuild: '',
   githubPrUrl: '',
+  githubIssueUrl: '',
   includeInNextPatch: true,
   dueAt: null,
   assignedToId: null
@@ -3115,11 +3291,11 @@ const showClosedNextPatchPrompt = computed(() => {
   const change = activeChange.value;
   return Boolean(
     authStore.isAdmin &&
-      currentSection.value === 'changes' &&
-      change &&
-      change.status === 'CLOSED' &&
-      !change.includeInNextPatch &&
-      !closedNextPatchPromptDismissedIds.value.has(change.id)
+    currentSection.value === 'changes' &&
+    change &&
+    change.status === 'CLOSED' &&
+    !change.includeInNextPatch &&
+    !closedNextPatchPromptDismissedIds.value.has(change.id)
   );
 });
 const changeLayoutStyle = computed<Record<string, string>>(() => ({
@@ -4307,6 +4483,7 @@ function openEditChange() {
     priority: activeChange.value.priority,
     targetBuild: activeChange.value.targetBuild ?? '',
     githubPrUrl: activeChange.value.githubPullRequest?.url ?? '',
+    githubIssueUrl: activeChange.value.githubIssue?.url ?? '',
     includeInNextPatch: activeChange.value.includeInNextPatch,
     dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
     assignedToId: activeChange.value.assignedTo?.id ?? null
@@ -4365,6 +4542,7 @@ function resetCreateForm() {
     priority: 'MEDIUM',
     targetBuild: '',
     githubPrUrl: '',
+    githubIssueUrl: '',
     includeInNextPatch: true,
     checklist: [createChecklistItem()]
   };
@@ -4379,6 +4557,7 @@ function resetEditForm() {
     priority: 'MEDIUM',
     targetBuild: '',
     githubPrUrl: '',
+    githubIssueUrl: '',
     includeInNextPatch: true,
     dueAt: null,
     assignedToId: null
@@ -4395,6 +4574,7 @@ async function createChange() {
     ...createForm.value,
     description: normalizeRichTextHtml(createForm.value.description),
     githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
+    githubIssueUrl: createForm.value.githubIssueUrl?.trim() || null,
     includeInNextPatch: createForm.value.includeInNextPatch ?? true,
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
@@ -4426,6 +4606,7 @@ async function saveEditChange() {
       description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
       githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
+      githubIssueUrl: editForm.value.githubIssueUrl?.trim() || null,
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
       dueAt
     });
@@ -5494,6 +5675,80 @@ function githubPrMergedAtLabel(pullRequest: TestChangePullRequest) {
 function githubPrMergedAtRelative(pullRequest: TestChangePullRequest) {
   const mergedAt = githubPrMergedAt(pullRequest);
   return mergedAt ? relativeTime(mergedAt) : '';
+}
+
+function githubIssueHref(issue: TestChangeIssue) {
+  return issue.metadata.htmlUrl || issue.url;
+}
+
+function githubIssueLabel(issue: TestChangeIssue) {
+  return `${issue.repository}#${issue.number}`;
+}
+
+function githubIssueTone(issue: TestChangeIssue) {
+  if (!issue.metadata.available) {
+    return 'unavailable';
+  }
+  if (issue.metadata.state === 'closed') {
+    return 'completed';
+  }
+  return 'open';
+}
+
+function githubIssueStateLabel(issue: TestChangeIssue) {
+  const tone = githubIssueTone(issue);
+  const labels: Record<string, string> = {
+    unavailable: 'Metadata unavailable',
+    completed: 'Closed',
+    open: 'Open'
+  };
+  return labels[tone] ?? 'Linked';
+}
+
+function githubIssueSummary(issue: TestChangeIssue) {
+  if (issue.metadata.closedAt) {
+    return `Closed ${relativeTime(issue.metadata.closedAt)}.`;
+  }
+  return 'Issue context is linked for tester and developer follow-up.';
+}
+
+function githubIntegrationLabel(change: TestChange) {
+  const count = Number(Boolean(change.githubPullRequest)) + Number(Boolean(change.githubIssue));
+  return count === 2 ? 'PR + Issue' : change.githubPullRequest ? 'Pull Request' : 'Issue';
+}
+
+function githubLabelsForChange(change: TestChange) {
+  const labels = [
+    ...(change.githubPullRequest?.metadata.labels ?? []).map((label) => ({
+      ...label,
+      source: 'pr'
+    })),
+    ...(change.githubIssue?.metadata.labels ?? []).map((label) => ({
+      ...label,
+      source: 'issue'
+    }))
+  ];
+  const seen = new Set<string>();
+  return labels.filter((label) => {
+    const key = label.name.toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function openGithubLink(event: MouseEvent, url: string) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+
+  event.preventDefault();
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  if (opened) {
+    opened.opener = null;
+  }
 }
 
 function getRichTextPlainText(value: string): string {
@@ -8131,8 +8386,7 @@ onBeforeUnmount(() => {
   border-color: color-mix(in srgb, currentColor 36%, transparent);
   border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 75%),
-    rgba(255, 255, 255, 0.035);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 75%), rgba(255, 255, 255, 0.035);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   font-size: 0.66rem;
   font-weight: 900;
@@ -8264,6 +8518,39 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 
+.tm-github-link-group {
+  display: inline-flex;
+  align-items: stretch;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.tm-github-link-group--header {
+  margin-top: 0.65rem;
+}
+
+.tm-github-link-group .tm-github-pr-badge {
+  margin-top: 0;
+}
+
+.tm-github-link-group--split .tm-github-pr-badge {
+  border-radius: 0;
+}
+
+.tm-github-link-group--split .tm-github-pr-badge:first-child {
+  border-top-left-radius: 999px;
+  border-bottom-left-radius: 999px;
+}
+
+.tm-github-link-group--split .tm-github-pr-badge:last-child {
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+}
+
+.tm-github-link-group--split .tm-github-pr-badge + .tm-github-pr-badge {
+  margin-left: -1px;
+}
+
 .tm-github-pr-badge--header {
   margin-top: 0.65rem;
 }
@@ -8285,6 +8572,11 @@ onBeforeUnmount(() => {
 
 .tm-github-pr-badge--merged,
 .tm-github-pr-panel--merged {
+  --github-tone: #8250df;
+}
+
+.tm-github-pr-badge--completed,
+.tm-github-pr-panel--completed {
   --github-tone: #8250df;
 }
 
@@ -8468,6 +8760,179 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+.tm-github-links-panel__items {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.tm-github-links-panel {
+  --github-tone: #6e7781;
+}
+
+.tm-github-linked-record {
+  --github-tone: #2da44e;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem 0.9rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--github-tone) 42%, rgba(240, 246, 252, 0.1));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--github-tone) 14%, transparent), transparent),
+    rgba(1, 4, 9, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 18px color-mix(in srgb, var(--github-tone) 8%, transparent);
+}
+
+.tm-github-linked-record--merged,
+.tm-github-linked-record--completed {
+  --github-tone: #8250df;
+}
+
+.tm-github-linked-record--closed {
+  --github-tone: #cf222e;
+}
+
+.tm-github-linked-record--draft {
+  --github-tone: #6e7781;
+}
+
+.tm-github-linked-record--unavailable {
+  --github-tone: #d29922;
+}
+
+.tm-github-linked-record__body {
+  min-width: 0;
+}
+
+.tm-github-linked-record__body small {
+  display: block;
+  margin-bottom: 0.22rem;
+  color: #d9a45f;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-github-linked-record__body a {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 850;
+  line-height: 1.24;
+  text-decoration: none;
+}
+
+.tm-github-linked-record__body a:hover,
+.tm-github-linked-record__body a:focus-visible {
+  color: #79c0ff;
+  text-decoration: underline;
+}
+
+.tm-github-linked-record__body p {
+  margin: 0.25rem 0 0;
+  color: rgba(201, 209, 217, 0.78);
+  font-size: 0.82rem;
+}
+
+.tm-github-linked-record__actions {
+  align-self: start;
+  display: grid;
+  justify-items: end;
+  gap: 0.42rem;
+}
+
+.tm-github-linked-record__state {
+  padding: 0.24rem 0.48rem;
+  border-radius: 999px;
+  color: #ffffff;
+  background: color-mix(in srgb, var(--github-tone) 74%, #000 26%);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.tm-github-linked-record__open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-height: 1.95rem;
+  padding: 0.38rem 0.58rem;
+  border: 1px solid color-mix(in srgb, var(--github-tone) 48%, rgba(240, 246, 252, 0.12));
+  border-radius: 999px;
+  color: #f0f6fc;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%),
+    color-mix(in srgb, var(--github-tone) 22%, rgba(1, 4, 9, 0.72));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 8px 18px rgba(0, 0, 0, 0.16);
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.tm-github-linked-record__open svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}
+
+.tm-github-linked-record__open:hover,
+.tm-github-linked-record__open:focus-visible {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--github-tone) 78%, rgba(240, 246, 252, 0.18));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.095), transparent 78%),
+    color-mix(in srgb, var(--github-tone) 30%, rgba(1, 4, 9, 0.7));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.075),
+    0 10px 22px rgba(0, 0, 0, 0.2),
+    0 0 0 1px color-mix(in srgb, var(--github-tone) 24%, transparent);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.tm-github-linked-record__open:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--github-tone) 56%, transparent);
+  outline-offset: 2px;
+}
+
+.tm-github-linked-record .tm-github-pr-panel__metrics {
+  grid-column: 1 / -1;
+}
+
+.tm-github-linked-record__footer {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding-top: 0.08rem;
+}
+
+.tm-github-linked-record__footer .tm-github-pr-panel__message {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.tm-github-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
 .tm-detail__header p:not(.tm-id) {
   color: #cfc2ae;
 }
@@ -8638,8 +9103,7 @@ onBeforeUnmount(() => {
   border-color: rgba(85, 183, 255, 0.24);
   border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 78%),
-    rgba(12, 30, 42, 0.48);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 78%), rgba(12, 30, 42, 0.48);
   color: rgba(215, 236, 248, 0.86);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   font-size: 0.8rem;
@@ -8669,8 +9133,7 @@ onBeforeUnmount(() => {
 .tm-detail-edit-btn:focus-visible {
   border-color: rgba(85, 183, 255, 0.48);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%),
-    rgba(16, 44, 62, 0.7);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%), rgba(16, 44, 62, 0.7);
   color: #f0f9ff;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
@@ -9374,8 +9837,7 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 999px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%),
-    rgba(85, 183, 255, 0.1);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%), rgba(85, 183, 255, 0.1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
   font-weight: 850;
   letter-spacing: 0.06em;
@@ -9404,8 +9866,7 @@ onBeforeUnmount(() => {
   border-color: rgba(119, 201, 255, 0.36);
   color: var(--tm-blue);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 86%),
-    rgba(85, 183, 255, 0.15);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 86%), rgba(85, 183, 255, 0.15);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 0 14px rgba(85, 183, 255, 0.16);
@@ -9441,8 +9902,7 @@ onBeforeUnmount(() => {
     rgba(85, 183, 255, 0) 146deg,
     rgba(85, 183, 255, 0) 360deg
   );
-  filter:
-    drop-shadow(0 0 3px rgba(159, 228, 255, 0.72))
+  filter: drop-shadow(0 0 3px rgba(159, 228, 255, 0.72))
     drop-shadow(0 0 8px rgba(85, 183, 255, 0.42));
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -9502,16 +9962,14 @@ onBeforeUnmount(() => {
     linear-gradient(currentColor 0 0) right center / 0.13rem 0.52rem no-repeat;
   border-radius: 1px;
   opacity: 0.58;
-  box-shadow:
-    0 0 6px rgba(217, 164, 95, 0.2);
+  box-shadow: 0 0 6px rgba(217, 164, 95, 0.2);
 }
 
 .tm-status--closed {
   color: #d8c4ff;
   border-color: rgba(184, 140, 255, 0.54);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 86%),
-    rgba(126, 74, 210, 0.2);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 86%), rgba(126, 74, 210, 0.2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 0 14px rgba(126, 74, 210, 0.14);
@@ -10083,8 +10541,7 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 86%),
-    rgba(255, 255, 255, 0.018);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 86%), rgba(255, 255, 255, 0.018);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
   transition:
     border-color 0.14s ease,
@@ -10140,8 +10597,7 @@ onBeforeUnmount(() => {
 .tm-notes-launch:focus-visible {
   border-color: rgba(217, 164, 95, 0.34);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%),
-    rgba(255, 255, 255, 0.03);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 86%), rgba(255, 255, 255, 0.03);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 0 16px rgba(217, 164, 95, 0.06);
@@ -10786,8 +11242,7 @@ onBeforeUnmount(() => {
 .tm-permission-toggle--locked > span {
   border-color: rgba(114, 214, 111, 0.62);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 82%),
-    rgba(29, 94, 42, 0.42);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 82%), rgba(29, 94, 42, 0.42);
   color: #eaffea;
   box-shadow:
     inset 0 0 14px rgba(114, 214, 111, 0.2),
@@ -12096,6 +12551,23 @@ onBeforeUnmount(() => {
     width: 100%;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tm-github-fields,
+  .tm-github-linked-record {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-github-linked-record__actions {
+    justify-items: start;
+  }
+
+  .tm-github-linked-record__footer {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-github-linked-record__state {
+    justify-self: start;
   }
 
   .tm-github-pr-panel__metrics span {

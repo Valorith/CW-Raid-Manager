@@ -61,7 +61,9 @@ type TestManagerPermissionKey = (typeof TEST_MANAGER_PERMISSION_KEYS)[number];
 type TestManagerRoleKey = (typeof TEST_MANAGER_ROLE_KEYS)[number];
 type TestManagerDiscordEventKey = (typeof TEST_MANAGER_DISCORD_EVENT_KEYS)[number];
 
-const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [...TEST_MANAGER_PERMISSION_KEYS];
+const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [
+  ...TEST_MANAGER_PERMISSION_KEYS
+];
 
 type TestManagerRolePermission = {
   key: TestManagerRoleKey;
@@ -159,6 +161,24 @@ type GitHubPullRequestMetadata = {
   labels?: Array<{ name: string; color: string | null }>;
 };
 
+type GitHubIssueReference = GitHubPullRequestReference;
+
+type GitHubIssueMetadata = {
+  available: boolean;
+  fetchedAt: string;
+  statusMessage?: string;
+  htmlUrl?: string;
+  title?: string;
+  state?: string;
+  authorLogin?: string | null;
+  authorAvatarUrl?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  closedAt?: string | null;
+  comments?: number | null;
+  labels?: Array<{ name: string; color: string | null }>;
+};
+
 function displayName(user: { displayName: string; nickname: string | null }): string {
   return user.nickname?.trim() || user.displayName;
 }
@@ -236,6 +256,49 @@ function normalizeGithubPullRequestUrl(value?: string | null): GitHubPullRequest
   return trimmed ? parseGithubPullRequestUrl(trimmed) : null;
 }
 
+function parseGithubIssueUrl(value: string): GitHubIssueReference {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error('Enter a full GitHub issue URL.');
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || (hostname !== 'github.com' && hostname !== 'www.github.com')) {
+    throw new Error('GitHub issue URLs must use https://github.com/.');
+  }
+
+  const [owner, repo, issueSegment, numberSegment, ...extraSegments] = url.pathname
+    .split('/')
+    .filter(Boolean);
+  const number = Number(numberSegment);
+  if (
+    !owner ||
+    !repo ||
+    issueSegment !== 'issues' ||
+    extraSegments.length > 0 ||
+    !Number.isInteger(number) ||
+    number < 1
+  ) {
+    throw new Error('Enter a GitHub issue URL like https://github.com/owner/repo/issues/123.');
+  }
+
+  const canonicalUrl = `https://github.com/${owner}/${repo}/issues/${number}`;
+  return {
+    owner,
+    repo,
+    number,
+    repository: `${owner}/${repo}`,
+    url: canonicalUrl
+  };
+}
+
+function normalizeGithubIssueUrl(value?: string | null): GitHubIssueReference | null {
+  const trimmed = value?.trim();
+  return trimmed ? parseGithubIssueUrl(trimmed) : null;
+}
+
 async function fetchGithubJson(
   pathname: string,
   signal: AbortSignal
@@ -285,10 +348,14 @@ function githubLabels(value: unknown): Array<{ name: string; color: string | nul
     .slice(0, 6);
 }
 
-function githubApiErrorMessage(status: number, data: unknown): string {
+function githubApiErrorMessage(
+  status: number,
+  data: unknown,
+  recordType: 'pull request' | 'issue'
+): string {
   const message = githubString(githubObject(data).message);
   if (status === 404) {
-    return 'GitHub could not find this pull request or the repository is private.';
+    return `GitHub could not find this ${recordType} or the repository is private.`;
   }
   if (status === 403) {
     return message ?? 'GitHub rate limited the metadata refresh.';
@@ -315,7 +382,7 @@ async function fetchGithubPullRequestMetadata(
       return {
         available: false,
         fetchedAt,
-        statusMessage: githubApiErrorMessage(pull.status, pull.data)
+        statusMessage: githubApiErrorMessage(pull.status, pull.data, 'pull request')
       };
     }
 
@@ -368,6 +435,60 @@ async function fetchGithubPullRequestMetadata(
   }
 }
 
+async function fetchGithubIssueMetadata(
+  reference: GitHubIssueReference
+): Promise<GitHubIssueMetadata> {
+  const fetchedAt = new Date().toISOString();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const issue = await fetchGithubJson(
+      `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
+        reference.repo
+      )}/issues/${reference.number}`,
+      controller.signal
+    );
+
+    if (!issue.ok) {
+      return {
+        available: false,
+        fetchedAt,
+        statusMessage: githubApiErrorMessage(issue.status, issue.data, 'issue')
+      };
+    }
+
+    const issueData = githubObject(issue.data);
+    const user = githubObject(issueData.user);
+
+    return {
+      available: true,
+      fetchedAt,
+      htmlUrl: githubString(issueData.html_url) ?? reference.url,
+      title: githubString(issueData.title) ?? `Issue #${reference.number}`,
+      state: githubString(issueData.state) ?? undefined,
+      authorLogin: githubString(user.login),
+      authorAvatarUrl: githubString(user.avatar_url),
+      createdAt: githubString(issueData.created_at),
+      updatedAt: githubString(issueData.updated_at),
+      closedAt: githubString(issueData.closed_at),
+      comments: githubNumber(issueData.comments),
+      labels: githubLabels(issueData.labels)
+    };
+  } catch (error) {
+    return {
+      available: false,
+      fetchedAt,
+      statusMessage:
+        error instanceof Error && error.name === 'AbortError'
+          ? 'GitHub metadata refresh timed out.'
+          : 'GitHub metadata could not be refreshed.'
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function buildGithubPullRequestFields(value?: string | null): Promise<{
   githubPrUrl: string | null;
   githubPrMetadata: Prisma.InputJsonValue | typeof Prisma.DbNull;
@@ -381,6 +502,22 @@ async function buildGithubPullRequestFields(value?: string | null): Promise<{
   return {
     githubPrUrl: reference.url,
     githubPrMetadata: metadata as Prisma.InputJsonValue
+  };
+}
+
+async function buildGithubIssueFields(value?: string | null): Promise<{
+  githubIssueUrl: string | null;
+  githubIssueMetadata: Prisma.InputJsonValue | typeof Prisma.DbNull;
+}> {
+  const reference = normalizeGithubIssueUrl(value);
+  if (!reference) {
+    return { githubIssueUrl: null, githubIssueMetadata: Prisma.DbNull };
+  }
+
+  const metadata = await fetchGithubIssueMetadata(reference);
+  return {
+    githubIssueUrl: reference.url,
+    githubIssueMetadata: metadata as Prisma.InputJsonValue
   };
 }
 
@@ -422,6 +559,41 @@ function serializeGithubPullRequest(url: string | null, metadata: Prisma.JsonVal
       changedFiles: githubNumber(value.changedFiles),
       comments: githubNumber(value.comments),
       reviewComments: githubNumber(value.reviewComments),
+      labels: githubLabels(value.labels)
+    }
+  };
+}
+
+function serializeGithubIssue(url: string | null, metadata: Prisma.JsonValue | null) {
+  let reference: GitHubIssueReference | null = null;
+  try {
+    reference = url ? normalizeGithubIssueUrl(url) : null;
+  } catch {
+    reference = null;
+  }
+
+  if (!reference) {
+    return null;
+  }
+
+  const value = githubObject(metadata);
+  const available = typeof value.available === 'boolean' ? value.available : false;
+
+  return {
+    ...reference,
+    metadata: {
+      available,
+      fetchedAt: githubString(value.fetchedAt),
+      statusMessage: githubString(value.statusMessage),
+      htmlUrl: githubString(value.htmlUrl) ?? reference.url,
+      title: githubString(value.title),
+      state: githubString(value.state),
+      authorLogin: githubString(value.authorLogin),
+      authorAvatarUrl: githubString(value.authorAvatarUrl),
+      createdAt: githubString(value.createdAt),
+      updatedAt: githubString(value.updatedAt),
+      closedAt: githubString(value.closedAt),
+      comments: githubNumber(value.comments),
       labels: githubLabels(value.labels)
     }
   };
@@ -1014,6 +1186,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     status: change.status,
     targetBuild: change.targetBuild ?? null,
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
+    githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
     includeInNextPatch: change.includeInNextPatch,
     dueAt: change.dueAt?.toISOString() ?? null,
     closedAt: change.closedAt?.toISOString() ?? null,
@@ -1939,6 +2112,7 @@ export async function createTestChange(
     priority: TestChangePriority;
     targetBuild?: string | null;
     githubPrUrl?: string | null;
+    githubIssueUrl?: string | null;
     includeInNextPatch?: boolean;
     dueAt?: Date | null;
     assignedToId?: string | null;
@@ -1947,6 +2121,7 @@ export async function createTestChange(
 ) {
   await ensureAdmin(actorUserId);
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
+  const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
 
   const change = await prisma.$transaction(async (tx) => {
     const created = await tx.testChange.create({
@@ -1959,6 +2134,8 @@ export async function createTestChange(
         targetBuild: input.targetBuild?.trim() || null,
         githubPrUrl: githubPullRequest.githubPrUrl,
         githubPrMetadata: githubPullRequest.githubPrMetadata,
+        githubIssueUrl: githubIssue.githubIssueUrl,
+        githubIssueMetadata: githubIssue.githubIssueMetadata,
         includeInNextPatch: input.includeInNextPatch ?? true,
         dueAt: input.dueAt ?? null,
         assignedToId: input.assignedToId ?? null,
@@ -2008,6 +2185,7 @@ export async function updateTestChange(
     priority: TestChangePriority;
     targetBuild?: string | null;
     githubPrUrl?: string | null;
+    githubIssueUrl?: string | null;
     includeInNextPatch?: boolean;
     dueAt?: Date | null;
     assignedToId?: string | null;
@@ -2025,6 +2203,7 @@ export async function updateTestChange(
       priority: true,
       targetBuild: true,
       githubPrUrl: true,
+      githubIssueUrl: true,
       includeInNextPatch: true,
       dueAt: true,
       assignedToId: true
@@ -2035,6 +2214,7 @@ export async function updateTestChange(
   }
 
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
+  const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
   const data = {
     title: input.title.trim(),
     description: sanitizeRichText(input.description),
@@ -2044,6 +2224,8 @@ export async function updateTestChange(
     targetBuild: input.targetBuild?.trim() || null,
     githubPrUrl: githubPullRequest.githubPrUrl,
     githubPrMetadata: githubPullRequest.githubPrMetadata,
+    githubIssueUrl: githubIssue.githubIssueUrl,
+    githubIssueMetadata: githubIssue.githubIssueMetadata,
     ...(typeof input.includeInNextPatch === 'boolean'
       ? { includeInNextPatch: input.includeInNextPatch }
       : {}),
@@ -2071,6 +2253,7 @@ export async function updateTestChange(
           priority: existing.priority,
           targetBuild: existing.targetBuild,
           githubPrUrl: existing.githubPrUrl,
+          githubIssueUrl: existing.githubIssueUrl,
           includeInNextPatch: existing.includeInNextPatch,
           dueAt: existing.dueAt?.toISOString() ?? null,
           assignedToId: existing.assignedToId
@@ -2082,6 +2265,7 @@ export async function updateTestChange(
           priority: data.priority,
           targetBuild: data.targetBuild,
           githubPrUrl: data.githubPrUrl,
+          githubIssueUrl: data.githubIssueUrl,
           includeInNextPatch:
             typeof data.includeInNextPatch === 'boolean'
               ? data.includeInNextPatch

@@ -1419,6 +1419,8 @@ model TestChange {
   targetBuild   String?            @db.VarChar(120)
   githubPrUrl   String?            @db.VarChar(500)
   githubPrMetadata Json?
+  githubIssueUrl String?           @db.VarChar(500)
+  githubIssueMetadata Json?
   includeInNextPatch Boolean        @default(true)
   assignedToId  String?
   createdById   String
