@@ -9,7 +9,7 @@ import {
   TestRunStatus
 } from '@prisma/client';
 
-import { ensureAdmin, ensureTesterOrAdmin } from './adminService.js';
+import { ensureAdmin } from './adminService.js';
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -2480,18 +2480,38 @@ export async function deleteTestChange(actorUserId: string, changeId: string): P
 }
 
 export async function volunteerForChange(actorUserId: string, changeId: string) {
-  await ensureTesterOrAdmin(actorUserId);
+  const actor = await getCurrentUser(actorUserId);
+  if (!actor) {
+    throw new Error('User not found.');
+  }
 
   await prisma.$transaction(async (tx) => {
-    const change = await tx.testChange.findUnique({ where: { id: changeId } });
+    const [change, existingTester] = await Promise.all([
+      tx.testChange.findUnique({ where: { id: changeId } }),
+      tx.testChangeTester.findUnique({
+        where: { changeId_userId: { changeId, userId: actorUserId } },
+        select: { id: true, status: true, result: true }
+      })
+    ]);
     if (!change) {
       throw new Error('Change not found.');
+    }
+    if (change.status === TestChangeStatus.CLOSED) {
+      throw new Error('Closed changes cannot be tested.');
+    }
+    if (
+      !actor.admin &&
+      !actor.tester &&
+      (!existingTester ||
+        existingTester.status !== TestRunStatus.NOT_STARTED ||
+        existingTester.result)
+    ) {
+      throw new Error('You must be requested to test this change before starting.');
     }
 
     await tx.testChangeTester.upsert({
       where: { changeId_userId: { changeId, userId: actorUserId } },
       update: {
-        assignment: TestAssignmentKind.VOLUNTEER,
         status: TestRunStatus.TESTING,
         startedAt: new Date()
       },
@@ -2526,14 +2546,17 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
       event: 'tester.started',
       actorUserId,
       change: serialized,
-      detail: `${displayName((await getCurrentUser(actorUserId)) ?? { displayName: 'Tester', nickname: null })} started testing this change.`
+      detail: `${displayName(actor)} started testing this change.`
     });
   }
   return serialized;
 }
 
 export async function retestChange(actorUserId: string, changeId: string) {
-  await ensureTesterOrAdmin(actorUserId);
+  const actor = await getCurrentUser(actorUserId);
+  if (!actor) {
+    throw new Error('User not found.');
+  }
 
   await prisma.$transaction(async (tx) => {
     const [change, tester] = await Promise.all([
@@ -2741,8 +2764,8 @@ export async function updateTesterChecklistProgress(
   input: { completed?: boolean; notesHtml?: string | null }
 ) {
   const actor = await getCurrentUser(actorUserId);
-  if (!actor?.admin && !actor?.tester) {
-    throw new Error('Tester or Administrator privileges required.');
+  if (!actor) {
+    throw new Error('User not found.');
   }
 
   const hasCompleted = typeof input.completed === 'boolean';

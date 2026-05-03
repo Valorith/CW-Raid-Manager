@@ -5184,18 +5184,23 @@ async function toggleTester(user: TestManagerUserSummary, tester: boolean) {
 
 function canStartTesting(change: TestChange) {
   const viewerTester = change.viewerTester;
-  return (
-    (authStore.isTester || authStore.isAdmin) &&
-    change.status !== 'CLOSED' &&
-    (!viewerTester ||
-      Boolean(viewerTester.result) ||
-      (viewerTester.status === 'NOT_STARTED' && !viewerTester.result))
+  if (change.status === 'CLOSED') {
+    return false;
+  }
+  if (!viewerTester) {
+    return authStore.isTester || authStore.isAdmin;
+  }
+  return Boolean(
+    viewerTester.result || (viewerTester.status === 'NOT_STARTED' && !viewerTester.result)
   );
 }
 
 function startTestingLabel(change: TestChange) {
   if (change.viewerTester?.result) {
     return 'Re-test';
+  }
+  if (isViewerRequestedPending(change)) {
+    return 'Accept Request';
   }
   return change.viewerTester ? 'Start Testing' : 'Test This';
 }
@@ -5385,7 +5390,6 @@ function coverageCellMeta(tester: TestChange['testers'][number], checklistItemId
 
 function canEditViewerChecklist(change: TestChange) {
   return (
-    (authStore.isTester || authStore.isAdmin) &&
     change.status !== 'CLOSED' &&
     change.viewerTester?.status === 'TESTING' &&
     !change.viewerTester.result

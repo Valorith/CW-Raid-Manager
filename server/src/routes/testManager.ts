@@ -8,7 +8,7 @@ import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { ensureAdmin, ensureTesterOrAdmin } from '../services/adminService.js';
+import { ensureAdmin } from '../services/adminService.js';
 import {
   TEST_MANAGER_DISCORD_EVENT_KEYS,
   TEST_MANAGER_PERMISSION_KEYS,
@@ -71,18 +71,6 @@ async function requireAdmin(
   } catch (error) {
     request.log.warn({ error }, 'Non-admin attempted to access Test Manager admin route.');
     return reply.forbidden('Administrator privileges required.');
-  }
-}
-
-async function requireTesterOrAdmin(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void | FastifyReply> {
-  try {
-    await ensureTesterOrAdmin(request.user.userId);
-  } catch (error) {
-    request.log.warn({ error }, 'Non-tester attempted to access Test Manager tester route.');
-    return reply.forbidden('Tester or Administrator privileges required.');
   }
 }
 
@@ -423,7 +411,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/volunteer',
-    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const parsed = paramsSchema.safeParse(request.params);
@@ -442,7 +430,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/retest',
-    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({ changeId: z.string().min(1) });
       const parsed = paramsSchema.safeParse(request.params);
@@ -523,7 +511,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.post(
     '/changes/:changeId/checklist/:checklistItemId',
-    { preHandler: [authenticate, requireCanView, requireTesterOrAdmin] },
+    { preHandler: [authenticate, requireCanView] },
     async (request, reply) => {
       const paramsSchema = z.object({
         changeId: z.string().min(1),
