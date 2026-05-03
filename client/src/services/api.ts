@@ -1619,6 +1619,8 @@ export interface WebhookMessageLabel {
   name: string;
   color: string;
   sortOrder: number;
+  autoArchive: boolean;
+  autoDelete: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -5061,7 +5063,12 @@ export const api = {
   /**
    * Creates a new webhook message label.
    */
-  async createWebhookLabel(payload: { name: string; color: string }): Promise<WebhookMessageLabel> {
+  async createWebhookLabel(payload: {
+    name: string;
+    color: string;
+    autoArchive?: boolean;
+    autoDelete?: boolean;
+  }): Promise<WebhookMessageLabel> {
     const response = await axios.post('/api/admin/webhook-labels', payload);
     return response.data.label;
   },
@@ -5080,7 +5087,13 @@ export const api = {
    */
   async updateWebhookLabel(
     labelId: string,
-    payload: { name?: string; color?: string; sortOrder?: number }
+    payload: {
+      name?: string;
+      color?: string;
+      sortOrder?: number;
+      autoArchive?: boolean;
+      autoDelete?: boolean;
+    }
   ): Promise<WebhookMessageLabel> {
     const response = await axios.put(`/api/admin/webhook-labels/${labelId}`, payload);
     return response.data.label;

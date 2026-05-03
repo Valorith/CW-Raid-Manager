@@ -921,6 +921,8 @@ model WebhookMessageLabel {
   name        String                          @unique @db.VarChar(50)
   color       String                          @db.VarChar(7)
   sortOrder   Int                             @default(0)
+  autoArchive Boolean                         @default(false)
+  autoDelete  Boolean                         @default(false)
   createdAt   DateTime                        @default(now())
   updatedAt   DateTime                        @updatedAt
   assignments WebhookMessageLabelAssignment[]

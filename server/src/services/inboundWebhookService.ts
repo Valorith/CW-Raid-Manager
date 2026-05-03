@@ -703,6 +703,7 @@ export async function retryCrashReviewForMessage(
     await sendFallbackDiscordAlert(messageId, webhook, message.payload, message.rawBody, error);
   }
 
+  await applyLabelAutomationIfComplete(messageId);
   return getInboundWebhookMessage(messageId);
 }
 
@@ -826,9 +827,11 @@ export async function sendManualDiscordSummaryForMessage(messageId: string) {
       }
     });
     await updateActionSummary(messageId, discordAction.id, 'FAILED');
+    await applyLabelAutomationIfComplete(messageId);
     throw error;
   }
 
+  await applyLabelAutomationIfComplete(messageId);
   return getInboundWebhookMessage(messageId);
 }
 
@@ -897,6 +900,9 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
 
   if (!shouldUseCrashMergePipeline(input.payload, input.rawBody ?? null, input.payload)) {
     debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, non-crash payload detected - running actions immediately`);
+    if (messageContent) {
+      await applyPassthroughLabels(message.id, messageContent);
+    }
     await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
@@ -950,6 +956,9 @@ export async function createInboundWebhookMessageForAdmin(options: {
 
   if (options.runActions !== false) {
     if (!shouldUseCrashMergePipeline(options.payload, null, options.payload)) {
+      if (messageContent) {
+        await applyPassthroughLabels(message.id, messageContent);
+      }
       await runInboundWebhookActions(message.id, webhook.actions, message.payload, webhook.label, webhook.devMode);
       return message;
     }
@@ -1046,6 +1055,7 @@ async function runInboundWebhookActions(
         // Check if this message looks like a crash report or script error
         // If not, skip AI review and let it pass through to Discord unchanged
         if (!looksLikeCrashReport(crashInput)) {
+          await applyPassthroughLabels(messageId, crashInput);
           await prisma.inboundWebhookActionRun.create({
             data: {
               messageId,
@@ -1157,6 +1167,7 @@ async function runInboundWebhookActions(
       actionSummary: summary
     }
   });
+  await applyLabelAutomationIfComplete(messageId);
 }
 
 function normalizePayload(payload: unknown) {
@@ -2133,12 +2144,19 @@ export async function listWebhookLabels() {
   });
 }
 
-export async function createWebhookLabel(input: { name: string; color: string }) {
+export async function createWebhookLabel(input: {
+  name: string;
+  color: string;
+  autoArchive?: boolean;
+  autoDelete?: boolean;
+}) {
   return prisma.webhookMessageLabel.create({
     data: {
       id: generateCuid(),
       name: input.name.trim(),
-      color: input.color
+      color: input.color,
+      autoArchive: input.autoArchive ?? false,
+      autoDelete: input.autoDelete ?? false
     }
   });
 }
@@ -2148,7 +2166,9 @@ const STANDARD_LABEL_COLORS: Record<string, string> = {
   'crash': '#dc2626',        // Red
   'script error': '#ea580c', // Orange
   'test': '#8b5cf6',         // Purple
-  'live': '#059669'          // Green
+  'live': '#059669',         // Green
+  'passthrough': '#64748b',  // Slate
+  'cheat': '#facc15'         // Yellow
 };
 
 // Generate a consistent color based on label name (same name = same color)
@@ -2215,12 +2235,14 @@ export async function findOrCreateWebhookLabel(name: string) {
 
 export async function updateWebhookLabel(
   labelId: string,
-  input: { name?: string; color?: string; sortOrder?: number }
+  input: { name?: string; color?: string; sortOrder?: number; autoArchive?: boolean; autoDelete?: boolean }
 ) {
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) data.name = input.name.trim();
   if (input.color !== undefined) data.color = input.color;
   if (input.sortOrder !== undefined) data.sortOrder = input.sortOrder;
+  if (input.autoArchive !== undefined) data.autoArchive = input.autoArchive;
+  if (input.autoDelete !== undefined) data.autoDelete = input.autoDelete;
 
   return prisma.webhookMessageLabel.update({
     where: { id: labelId },
@@ -2250,6 +2272,61 @@ export async function setMessageLabels(messageId: string, labelIds: string[]) {
       }))
     });
   }
+
+  await applyLabelAutomationIfComplete(messageId);
+}
+
+async function applyLabelAutomationIfComplete(messageId: string): Promise<void> {
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    select: {
+      id: true,
+      archivedAt: true,
+      actionSummary: true,
+      actionRuns: {
+        select: { status: true }
+      },
+      labelAssignments: {
+        include: { label: true }
+      }
+    }
+  });
+
+  if (!message) return;
+
+  const hasPendingRun = message.actionRuns.some((run) => run.status === 'PENDING_REVIEW');
+  const summary = Array.isArray(message.actionSummary)
+    ? (message.actionSummary as Array<{ status?: unknown }>)
+    : [];
+  const hasPendingSummary = summary.some((entry) => entry?.status === 'PENDING_REVIEW');
+  if (hasPendingRun || hasPendingSummary) return;
+
+  const automationAction = resolveLabelAutomationAction(
+    message.labelAssignments.map((assignment) => assignment.label)
+  );
+  if (automationAction === 'delete') {
+    await prisma.inboundWebhookMessage.delete({
+      where: { id: messageId }
+    });
+    return;
+  }
+
+  if (automationAction === 'archive' && !message.archivedAt) {
+    await prisma.inboundWebhookMessage.update({
+      where: { id: messageId },
+      data: { archivedAt: new Date() }
+    });
+  }
+}
+
+function resolveLabelAutomationAction(
+  labels: Array<{ autoArchive: boolean; autoDelete: boolean }>
+): 'archive' | 'delete' | null {
+  // Multiple labels can apply to one report. Delete is terminal, so it takes precedence
+  // over archive when any matching label requests deletion.
+  if (labels.some((label) => label.autoDelete)) return 'delete';
+  if (labels.some((label) => label.autoArchive)) return 'archive';
+  return null;
 }
 
 // Default label definitions
@@ -2257,11 +2334,31 @@ const DEFAULT_LABELS = {
   CRASH: { name: 'Crash', color: '#dc2626' },           // Red
   SCRIPT_ERROR: { name: 'Script Error', color: '#ea580c' }, // Orange
   TEST: { name: 'Test', color: '#8b5cf6' },             // Purple
-  LIVE: { name: 'Live', color: '#059669' }              // Green
+  LIVE: { name: 'Live', color: '#059669' },             // Green
+  PASSTHROUGH: { name: 'Passthrough', color: '#64748b' }, // Slate
+  CHEAT: { name: 'Cheat', color: '#facc15' }            // Yellow
 } as const;
 
+type DefaultLabelType = keyof typeof DEFAULT_LABELS;
+
+function getDefaultLabelSortOrder(type: DefaultLabelType): number {
+  switch (type) {
+    case 'CRASH':
+    case 'SCRIPT_ERROR':
+      return 1;
+    case 'PASSTHROUGH':
+    case 'CHEAT':
+      return 2;
+    case 'TEST':
+    case 'LIVE':
+      return 3;
+    default:
+      return 0;
+  }
+}
+
 // Get or create a default label
-async function getOrCreateDefaultLabel(type: keyof typeof DEFAULT_LABELS): Promise<string> {
+async function getOrCreateDefaultLabel(type: DefaultLabelType): Promise<string> {
   const labelDef = DEFAULT_LABELS[type];
 
   // Try to find existing label by name
@@ -2276,12 +2373,60 @@ async function getOrCreateDefaultLabel(type: keyof typeof DEFAULT_LABELS): Promi
         id: generateCuid(),
         name: labelDef.name,
         color: labelDef.color,
-        sortOrder: type === 'CRASH' ? 1 : 2
+        sortOrder: getDefaultLabelSortOrder(type)
       }
     });
   }
 
   return label.id;
+}
+
+async function addDefaultLabelsToMessage(
+  messageId: string,
+  labelTypes: DefaultLabelType[]
+): Promise<string[]> {
+  const uniqueTypes = Array.from(new Set(labelTypes));
+  if (uniqueTypes.length === 0) return [];
+
+  const labels = await Promise.all(
+    uniqueTypes.map(async (type) => ({
+      type,
+      id: await getOrCreateDefaultLabel(type),
+      name: DEFAULT_LABELS[type].name
+    }))
+  );
+
+  await prisma.webhookMessageLabelAssignment.createMany({
+    data: labels.map((label) => ({
+      id: generateCuid(),
+      messageId,
+      labelId: label.id
+    })),
+    skipDuplicates: true
+  });
+
+  return labels.map((label) => label.name);
+}
+
+function looksLikeCheatReport(text: string): boolean {
+  const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
+  const lower = stripped.toLowerCase();
+  return lower.includes('[cheat]') || /\bmqfastmem\b/i.test(stripped);
+}
+
+async function applyPassthroughLabels(messageId: string, rawText: string): Promise<void> {
+  try {
+    const labelTypes: DefaultLabelType[] = ['PASSTHROUGH'];
+    if (looksLikeCheatReport(rawText)) {
+      labelTypes.push('CHEAT');
+    }
+
+    const labelNames = await addDefaultLabelsToMessage(messageId, labelTypes);
+    debugLog(`[WEBHOOK RECEIVE] Applied passthrough labels to message ${messageId}: [${labelNames.join(', ')}]`);
+  } catch (error) {
+    // Don't fail the whole process if passthrough labeling fails
+    console.error('Passthrough labeling failed:', error);
+  }
 }
 
 // Apply labels immediately when a message is received (pattern-based, no AI)
@@ -2295,17 +2440,19 @@ async function applyImmediateLabels(
     const labelsToAdd: string[] = [];
     const labelNames: string[] = [];
 
-    // Detect if this is a quest/script error vs crash using pattern matching
-    const isQuestError = detectQuestError(
-      undefined, // No signature needed for pattern detection
-      '',        // No summary needed
-      rawText    // Raw text is sufficient for detection
-    );
+    if (looksLikeCrashReport(rawText)) {
+      // Detect if this is a quest/script error vs crash using pattern matching.
+      const isQuestError = detectQuestError(
+        undefined, // No signature needed for pattern detection
+        '',        // No summary needed
+        rawText    // Raw text is sufficient for detection
+      );
 
-    // Add crash type label (Crash or Script Error)
-    const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
-    labelsToAdd.push(crashLabelId);
-    labelNames.push(isQuestError ? 'Script Error' : 'Crash');
+      // Add crash type label (Crash or Script Error) only for actual crash/script reports.
+      const crashLabelId = await getOrCreateDefaultLabel(isQuestError ? 'SCRIPT_ERROR' : 'CRASH');
+      labelsToAdd.push(crashLabelId);
+      labelNames.push(isQuestError ? 'Script Error' : 'Crash');
+    }
 
     // Check webhook label for Test/Live server indicators
     if (webhookLabel) {
@@ -2322,13 +2469,14 @@ async function applyImmediateLabels(
     }
 
     // Add labels to the message
-    for (const labelId of labelsToAdd) {
-      await prisma.webhookMessageLabelAssignment.create({
-        data: {
+    if (labelsToAdd.length > 0) {
+      await prisma.webhookMessageLabelAssignment.createMany({
+        data: labelsToAdd.map((labelId) => ({
           id: generateCuid(),
           messageId,
           labelId
-        }
+        })),
+        skipDuplicates: true
       });
     }
 

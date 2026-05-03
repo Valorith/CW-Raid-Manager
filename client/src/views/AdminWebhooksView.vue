@@ -2093,7 +2093,7 @@
 
     <!-- Label Manager Modal (outside tab sections) -->
     <div v-if="showLabelManager" class="modal-backdrop" @click.self="showLabelManager = false">
-      <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal modal--label-manager" role="dialog" aria-modal="true">
         <header class="modal__header">
           <h3>Manage Labels</h3>
           <button class="icon-button" @click="showLabelManager = false" aria-label="Close">
@@ -2102,69 +2102,345 @@
         </header>
         <div class="modal__body">
           <div class="label-manager">
+            <p class="label-manager__hint">
+              Reports can have multiple labels. Auto-delete takes precedence over auto-archive when
+              both are enabled by applied labels.
+            </p>
             <div class="label-manager__list">
               <div v-if="webhookLabels.length === 0" class="muted">No labels yet.</div>
-              <div v-for="label in webhookLabels" :key="label.id" class="label-manager__item">
+              <div
+                v-for="label in paginatedWebhookLabels"
+                :key="label.id"
+                class="label-manager__item"
+              >
                 <template v-if="labelToEdit?.id === label.id">
-                  <input
-                    v-model="labelToEdit.name"
-                    class="input input--small"
-                    maxlength="50"
-                    @keyup.enter="updateLabel"
-                  />
-                  <input v-model="labelToEdit.color" type="color" class="color-picker" />
-                  <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
-                    Save
-                  </button>
-                  <button
-                    class="btn btn--small btn--outline"
-                    type="button"
-                    @click="labelToEdit = null"
-                  >
-                    Cancel
-                  </button>
+                  <div class="label-manager__label-cell">
+                    <input
+                      v-model="labelToEdit.name"
+                      class="input input--small"
+                      maxlength="50"
+                      @keyup.enter="updateLabel"
+                    />
+                    <input v-model="labelToEdit.color" type="color" class="color-picker" />
+                  </div>
+                  <div class="label-manager__automation">
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--archive"
+                      :class="{ 'label-manager__automation-toggle--active': labelToEdit.autoArchive }"
+                      type="button"
+                      :aria-pressed="labelToEdit.autoArchive"
+                      :aria-label="getLabelAutomationTooltip('autoArchive', labelToEdit.autoArchive)"
+                      :data-tooltip="getLabelAutomationTooltip('autoArchive', labelToEdit.autoArchive)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoArchive', labelToEdit.autoArchive)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoArchive', labelToEdit.autoArchive)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="labelToEdit.autoArchive = !labelToEdit.autoArchive"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--delete"
+                      :class="{ 'label-manager__automation-toggle--active': labelToEdit.autoDelete }"
+                      type="button"
+                      :aria-pressed="labelToEdit.autoDelete"
+                      :aria-label="getLabelAutomationTooltip('autoDelete', labelToEdit.autoDelete)"
+                      :data-tooltip="getLabelAutomationTooltip('autoDelete', labelToEdit.autoDelete)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoDelete', labelToEdit.autoDelete)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoDelete', labelToEdit.autoDelete)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="labelToEdit.autoDelete = !labelToEdit.autoDelete"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path
+                          d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                        />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="label-manager__actions">
+                    <button class="btn btn--small btn--accent" type="button" @click="updateLabel">
+                      Save
+                    </button>
+                    <button
+                      class="btn btn--small btn--outline"
+                      type="button"
+                      @click="labelToEdit = null"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </template>
                 <template v-else>
-                  <span class="label-chip" :style="{ backgroundColor: label.color }">
-                    {{ label.name }}
-                  </span>
-                  <button
-                    class="btn btn--small btn--outline"
-                    type="button"
-                    @click="labelToEdit = { ...label }"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    class="btn btn--small btn--danger"
-                    type="button"
-                    @click="deleteLabel(label)"
-                  >
-                    Delete
-                  </button>
+                  <div class="label-manager__label-cell">
+                    <span class="label-chip" :style="{ backgroundColor: label.color }">
+                      {{ label.name }}
+                    </span>
+                  </div>
+                  <div class="label-manager__automation">
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--archive"
+                      :class="{ 'label-manager__automation-toggle--active': label.autoArchive }"
+                      type="button"
+                      :aria-pressed="label.autoArchive"
+                      :aria-label="getLabelAutomationTooltip('autoArchive', label.autoArchive)"
+                      :data-tooltip="getLabelAutomationTooltip('autoArchive', label.autoArchive)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoArchive', label.autoArchive)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoArchive', label.autoArchive)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="toggleLabelAutomation(label, 'autoArchive')"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      class="icon-button label-manager__automation-toggle label-manager__automation-toggle--delete"
+                      :class="{ 'label-manager__automation-toggle--active': label.autoDelete }"
+                      type="button"
+                      :aria-pressed="label.autoDelete"
+                      :aria-label="getLabelAutomationTooltip('autoDelete', label.autoDelete)"
+                      :data-tooltip="getLabelAutomationTooltip('autoDelete', label.autoDelete)"
+                      @mouseenter="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoDelete', label.autoDelete)
+                        )
+                      "
+                      @mouseleave="hideLabelAutomationTooltip"
+                      @focus="
+                        showLabelAutomationTooltip(
+                          $event,
+                          getLabelAutomationTooltip('autoDelete', label.autoDelete)
+                        )
+                      "
+                      @blur="hideLabelAutomationTooltip"
+                      @click="toggleLabelAutomation(label, 'autoDelete')"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path
+                          d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                        />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="label-manager__actions">
+                    <button
+                      class="btn btn--small btn--outline"
+                      type="button"
+                      @click="labelToEdit = { ...label }"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      class="btn btn--small btn--danger"
+                      type="button"
+                      @click="deleteLabel(label)"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </template>
+              </div>
+            </div>
+            <div v-if="labelManagerTotalPages > 1" class="label-manager__pager">
+              <span>
+                Showing {{ labelManagerRangeStart }}-{{ labelManagerRangeEnd }} of
+                {{ webhookLabels.length }}
+              </span>
+              <div class="label-manager__pager-controls">
+                <button
+                  class="pagination__button"
+                  type="button"
+                  :disabled="labelManagerPage === 1"
+                  @click="setLabelManagerPage(labelManagerPage - 1)"
+                >
+                  Previous
+                </button>
+                <span class="label-manager__pager-page">
+                  Page {{ labelManagerPage }} of {{ labelManagerTotalPages }}
+                </span>
+                <button
+                  class="pagination__button"
+                  type="button"
+                  :disabled="labelManagerPage === labelManagerTotalPages"
+                  @click="setLabelManagerPage(labelManagerPage + 1)"
+                >
+                  Next
+                </button>
               </div>
             </div>
             <div class="label-manager__create">
               <h4>Create New Label</h4>
-              <div class="form-row">
-                <input
-                  v-model="newLabelForm.name"
-                  class="input"
-                  placeholder="Label name"
-                  maxlength="50"
-                  @keyup.enter="createLabel"
-                />
-                <input v-model="newLabelForm.color" type="color" class="color-picker" />
-                <button
-                  class="btn btn--accent"
-                  type="button"
-                  :disabled="!newLabelForm.name.trim()"
-                  @click="createLabel"
-                >
-                  Create
-                </button>
+              <div class="label-manager__create-row">
+                <div class="label-manager__label-cell">
+                  <input
+                    v-model="newLabelForm.name"
+                    class="input"
+                    placeholder="Label name"
+                    maxlength="50"
+                    @keyup.enter="createLabel"
+                  />
+                  <input v-model="newLabelForm.color" type="color" class="color-picker" />
+                </div>
+                <div class="label-manager__automation">
+                  <button
+                    class="icon-button label-manager__automation-toggle label-manager__automation-toggle--archive"
+                    :class="{
+                      'label-manager__automation-toggle--active': newLabelForm.autoArchive
+                    }"
+                    type="button"
+                    :aria-pressed="newLabelForm.autoArchive"
+                    :aria-label="getLabelAutomationTooltip('autoArchive', newLabelForm.autoArchive)"
+                    :data-tooltip="getLabelAutomationTooltip('autoArchive', newLabelForm.autoArchive)"
+                    @mouseenter="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('autoArchive', newLabelForm.autoArchive)
+                      )
+                    "
+                    @mouseleave="hideLabelAutomationTooltip"
+                    @focus="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('autoArchive', newLabelForm.autoArchive)
+                      )
+                    "
+                    @blur="hideLabelAutomationTooltip"
+                    @click="newLabelForm.autoArchive = !newLabelForm.autoArchive"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M3 4h18v4H3V4zm2 6h14v10H5V10zm4 2v2h6v-2H9z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    class="icon-button label-manager__automation-toggle label-manager__automation-toggle--delete"
+                    :class="{ 'label-manager__automation-toggle--active': newLabelForm.autoDelete }"
+                    type="button"
+                    :aria-pressed="newLabelForm.autoDelete"
+                    :aria-label="getLabelAutomationTooltip('autoDelete', newLabelForm.autoDelete)"
+                    :data-tooltip="getLabelAutomationTooltip('autoDelete', newLabelForm.autoDelete)"
+                    @mouseenter="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('autoDelete', newLabelForm.autoDelete)
+                      )
+                    "
+                    @mouseleave="hideLabelAutomationTooltip"
+                    @focus="
+                      showLabelAutomationTooltip(
+                        $event,
+                        getLabelAutomationTooltip('autoDelete', newLabelForm.autoDelete)
+                      )
+                    "
+                    @blur="hideLabelAutomationTooltip"
+                    @click="newLabelForm.autoDelete = !newLabelForm.autoDelete"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <polyline points="3 6 5 6 21 6" />
+                      <path
+                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                      />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="label-manager__actions">
+                  <button
+                    class="btn btn--accent"
+                    type="button"
+                    :disabled="!newLabelForm.name.trim()"
+                    @click="createLabel"
+                  >
+                    Create
+                  </button>
+                </div>
               </div>
+            </div>
+            <div
+              v-if="labelAutomationTooltip"
+              class="label-manager-tooltip"
+              role="tooltip"
+              :style="{
+                left: `${labelAutomationTooltip.x}px`,
+                top: `${labelAutomationTooltip.y}px`
+              }"
+            >
+              {{ labelAutomationTooltip.text }}
             </div>
           </div>
         </div>
@@ -2717,6 +2993,7 @@ const crashModelOptions = [
 const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
 const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
+const LABEL_MANAGER_PAGE_SIZE = 6;
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -2747,6 +3024,7 @@ let testChangeLinkLoadSequence = 0;
 const selectedMessageIds = ref<Set<string>>(new Set());
 const webhookLabels = ref<WebhookMessageLabel[]>([]);
 const showLabelManager = ref(false);
+const labelManagerPage = ref(1);
 const labelInputMessageId = ref<string | null>(null);
 const labelInputValue = ref('');
 const showMergeModal = ref(false);
@@ -2761,7 +3039,13 @@ const aiSortResult = ref<CrashSegmentSortResult | null>(null);
 const unreadCount = ref(0);
 const bulkActionInProgress = ref(false);
 const labelToEdit = ref<WebhookMessageLabel | null>(null);
-const newLabelForm = reactive({ name: '', color: '#4a90d9' });
+const labelAutomationTooltip = ref<{ text: string; x: number; y: number } | null>(null);
+const newLabelForm = reactive({
+  name: '',
+  color: '#4a90d9',
+  autoArchive: false,
+  autoDelete: false
+});
 
 // Webhook Settings Modal
 const showWebhookSettings = ref(false);
@@ -2865,6 +3149,19 @@ const inboxPageButtons = computed(() => {
     output.push(page);
   }
   return output;
+});
+const labelManagerTotalPages = computed(() =>
+  Math.max(1, Math.ceil(webhookLabels.value.length / LABEL_MANAGER_PAGE_SIZE))
+);
+const labelManagerRangeStart = computed(() =>
+  webhookLabels.value.length === 0 ? 0 : (labelManagerPage.value - 1) * LABEL_MANAGER_PAGE_SIZE + 1
+);
+const labelManagerRangeEnd = computed(() =>
+  Math.min(webhookLabels.value.length, labelManagerPage.value * LABEL_MANAGER_PAGE_SIZE)
+);
+const paginatedWebhookLabels = computed(() => {
+  const start = (labelManagerPage.value - 1) * LABEL_MANAGER_PAGE_SIZE;
+  return webhookLabels.value.slice(start, start + LABEL_MANAGER_PAGE_SIZE);
 });
 const failedCount = computed(
   () => inboxMessages.value.filter((message) => message.status === 'FAILED').length
@@ -3425,6 +3722,24 @@ watch(activeTab, () => {
   showTestPanel.value = false;
   showWebhookSettings.value = false;
 });
+
+watch(showLabelManager, (isOpen) => {
+  if (isOpen) {
+    labelManagerPage.value = 1;
+  } else {
+    labelAutomationTooltip.value = null;
+    labelToEdit.value = null;
+  }
+});
+
+watch(
+  () => webhookLabels.value.length,
+  () => {
+    if (labelManagerPage.value > labelManagerTotalPages.value) {
+      labelManagerPage.value = labelManagerTotalPages.value;
+    }
+  }
+);
 
 // Merge group detection
 interface MergeGroup {
@@ -4272,6 +4587,10 @@ function setInboxPage(page: number) {
   loadInbox();
 }
 
+function setLabelManagerPage(page: number) {
+  labelManagerPage.value = Math.max(1, Math.min(page, labelManagerTotalPages.value));
+}
+
 watch(
   () => inboxMessages.value,
   () => {
@@ -5071,11 +5390,15 @@ async function createLabel() {
   try {
     const label = await api.createWebhookLabel({
       name: newLabelForm.name.trim(),
-      color: newLabelForm.color
+      color: newLabelForm.color,
+      autoArchive: newLabelForm.autoArchive,
+      autoDelete: newLabelForm.autoDelete
     });
     webhookLabels.value.push(label);
     newLabelForm.name = '';
     newLabelForm.color = '#4a90d9';
+    newLabelForm.autoArchive = false;
+    newLabelForm.autoDelete = false;
     addToast({ title: 'Success', message: 'Label created' });
   } catch (err) {
     addToast({ title: 'Error', message: 'Failed to create label' });
@@ -5087,7 +5410,9 @@ async function updateLabel() {
   try {
     const updated = await api.updateWebhookLabel(labelToEdit.value.id, {
       name: labelToEdit.value.name,
-      color: labelToEdit.value.color
+      color: labelToEdit.value.color,
+      autoArchive: labelToEdit.value.autoArchive,
+      autoDelete: labelToEdit.value.autoDelete
     });
     const index = webhookLabels.value.findIndex((l) => l.id === updated.id);
     if (index >= 0) {
@@ -5100,6 +5425,51 @@ async function updateLabel() {
   } catch (err) {
     addToast({ title: 'Error', message: 'Failed to update label' });
   }
+}
+
+async function toggleLabelAutomation(
+  label: WebhookMessageLabel,
+  field: 'autoArchive' | 'autoDelete'
+) {
+  try {
+    const updated = await api.updateWebhookLabel(label.id, {
+      [field]: !label[field]
+    });
+    const index = webhookLabels.value.findIndex((item) => item.id === updated.id);
+    if (index >= 0) {
+      webhookLabels.value[index] = updated;
+    }
+  } catch (err) {
+    addToast({ title: 'Error', message: 'Failed to update label automation' });
+  }
+}
+
+function getLabelAutomationTooltip(field: 'autoArchive' | 'autoDelete', enabled: boolean) {
+  if (field === 'autoArchive') {
+    return enabled
+      ? 'Auto-archive is on. Click to disable it for this label.'
+      : 'Auto-archive is off. Click to archive reports after this label is applied.';
+  }
+
+  return enabled
+    ? 'Auto-delete is on. Click to disable it for this label.'
+    : 'Auto-delete is off. Click to delete reports after this label is applied.';
+}
+
+function showLabelAutomationTooltip(event: MouseEvent | FocusEvent, text: string) {
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  labelAutomationTooltip.value = {
+    text,
+    x: rect.left + rect.width / 2,
+    y: rect.top - 8
+  };
+}
+
+function hideLabelAutomationTooltip() {
+  labelAutomationTooltip.value = null;
 }
 
 async function deleteLabel(label: WebhookMessageLabel) {
@@ -5169,8 +5539,12 @@ async function setMessageLabels(messageId: string, labelIds: string[]) {
     // Refresh inbox to show updated labels
     await loadInbox();
     if (selectedMessage.value?.id === messageId) {
-      const full = await api.fetchInboundWebhookMessage(messageId);
-      selectedMessage.value = full;
+      try {
+        const full = await api.fetchInboundWebhookMessage(messageId);
+        selectedMessage.value = full;
+      } catch {
+        selectedMessage.value = null;
+      }
     }
   } catch (err) {
     addToast({ title: 'Error', message: 'Failed to update labels' });
@@ -8062,6 +8436,10 @@ input[type='checkbox']:checked::after {
   padding: 1.25rem;
 }
 
+.modal--label-manager {
+  width: min(640px, 94vw);
+}
+
 /* Settings Modal Styles */
 .settings-modal-body {
   display: flex;
@@ -9763,32 +10141,206 @@ input[type='checkbox']:checked::after {
 .label-manager {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.15rem;
+}
+
+.label-manager__hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .label-manager__list {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  width: 100%;
 }
 
-.label-manager__item {
-  display: flex;
+.label-manager__item,
+.label-manager__create-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) auto auto;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
+  justify-content: stretch;
+  gap: 0.55rem;
+  padding: 0.55rem 0.65rem;
   background: rgba(30, 41, 59, 0.4);
   border-radius: 0.5rem;
 }
 
+.label-manager__create-row {
+  grid-template-columns: minmax(18rem, 1fr) auto auto;
+  width: 100%;
+}
+
+.label-manager__label-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.label-manager__label-cell .input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .label-manager__item .label-chip {
-  min-width: 100px;
+  min-width: 7.5rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label-manager__automation,
+.label-manager__actions {
+  display: flex;
+  align-items: center;
+}
+
+.label-manager__automation {
+  position: relative;
+  gap: 0.45rem;
+}
+
+.label-manager__actions {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.label-manager__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  color: rgba(203, 213, 225, 0.78);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.label-manager__pager-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.label-manager__pager .pagination__button {
+  padding: 0.3rem 0.58rem;
+  font-size: 0.72rem;
+}
+
+.label-manager__pager-page {
+  color: rgba(226, 232, 240, 0.78);
+  white-space: nowrap;
+}
+
+.label-manager__automation-toggle {
+  position: relative;
+  overflow: visible;
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.48;
+  background: rgba(15, 23, 42, 0.46);
+  color: rgba(148, 163, 184, 0.86);
+  box-shadow: none;
+}
+
+.label-manager__automation-toggle:hover {
+  z-index: 35;
+  opacity: 0.76;
+}
+
+.label-manager__automation-toggle:focus {
+  z-index: 35;
+}
+
+.label-manager__automation-toggle--archive {
+  border-color: rgba(96, 165, 250, 0.26);
+}
+
+.label-manager__automation-toggle--archive.label-manager__automation-toggle--active {
+  opacity: 1;
+  border-color: rgba(125, 211, 252, 0.78);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.36), rgba(14, 165, 233, 0.24)),
+    rgba(15, 23, 42, 0.82);
+  color: #bfdbfe;
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.12), 0 12px 24px rgba(14, 116, 144, 0.22);
+}
+
+.label-manager__automation-toggle--delete {
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.label-manager__automation-toggle--delete.label-manager__automation-toggle--active {
+  opacity: 1;
+  border-color: rgba(251, 113, 133, 0.78);
+  background:
+    linear-gradient(135deg, rgba(225, 29, 72, 0.34), rgba(244, 63, 94, 0.26)),
+    rgba(15, 23, 42, 0.82);
+  color: #fecdd3;
+  box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.12), 0 12px 24px rgba(190, 18, 60, 0.22);
+}
+
+.label-manager-tooltip {
+  position: fixed;
+  z-index: 80;
+  width: max-content;
+  max-width: 15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 0.55rem;
+  background: rgba(8, 15, 28, 0.98);
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  box-shadow: 0 16px 30px rgba(2, 6, 23, 0.42);
+}
+
+.label-manager-tooltip::after {
+  position: absolute;
+  left: 50%;
+  bottom: -0.33rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.28);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(8, 15, 28, 0.98);
+  content: '';
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .label-manager__create h4 {
   margin: 0 0 0.75rem;
   font-size: 0.9rem;
   color: #94a3b8;
+}
+
+@media (max-width: 760px) {
+  .label-manager__item,
+  .label-manager__create-row {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .label-manager__automation,
+  .label-manager__actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .label-manager__pager {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .form-row {
