@@ -5030,6 +5030,10 @@ function getCrashReportText(message: InboundWebhookMessage) {
   ) {
     return payload.crashReportText;
   }
+  const discordText = payload ? extractDiscordPayloadText(payload) : '';
+  if (discordText) {
+    return discordText;
+  }
   // Check message field
   if (payload && typeof payload.message === 'string' && payload.message.trim().length > 0) {
     return payload.message;
@@ -5063,6 +5067,61 @@ function getCrashReportText(message: InboundWebhookMessage) {
     return message.rawBody;
   }
   return '';
+}
+
+function extractDiscordPayloadText(payload: Record<string, unknown>) {
+  const parts: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (!trimmed || parts.includes(trimmed)) return;
+    parts.push(trimmed);
+  };
+
+  add(payload.message);
+  add(payload.content);
+  add(payload.text);
+  add(payload.body);
+
+  if (Array.isArray(payload.embeds)) {
+    for (const embed of payload.embeds) {
+      if (!embed || typeof embed !== 'object' || Array.isArray(embed)) continue;
+      const embedRecord = embed as Record<string, unknown>;
+      add(embedRecord.title);
+      add(embedRecord.description);
+
+      if (Array.isArray(embedRecord.fields)) {
+        for (const field of embedRecord.fields) {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) continue;
+          const fieldRecord = field as Record<string, unknown>;
+          const name = typeof fieldRecord.name === 'string' ? fieldRecord.name.trim() : '';
+          const value = typeof fieldRecord.value === 'string' ? fieldRecord.value.trim() : '';
+          if (name && value) {
+            add(`${name}: ${value}`);
+          } else {
+            add(name || value);
+          }
+        }
+      }
+
+      if (
+        embedRecord.footer &&
+        typeof embedRecord.footer === 'object' &&
+        !Array.isArray(embedRecord.footer)
+      ) {
+        add((embedRecord.footer as Record<string, unknown>).text);
+      }
+      if (
+        embedRecord.author &&
+        typeof embedRecord.author === 'object' &&
+        !Array.isArray(embedRecord.author)
+      ) {
+        add((embedRecord.author as Record<string, unknown>).name);
+      }
+    }
+  }
+
+  return parts.join('\n');
 }
 
 function formatJson(value: unknown) {

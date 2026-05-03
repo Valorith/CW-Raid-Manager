@@ -1225,6 +1225,9 @@ function shouldUseCrashMergePipeline(
   fallbackPayload: unknown
 ): boolean {
   const crashInput = buildCrashReviewInput(payload, rawBody, fallbackPayload);
+  if (looksLikeExplicitPassthroughReport(crashInput)) {
+    return false;
+  }
   return looksLikeCrashReport(crashInput);
 }
 
@@ -1328,6 +1331,10 @@ function buildCrashReviewInput(
     if (typeof record.crashReportText === 'string') {
       return record.crashReportText;
     }
+    const discordText = extractDiscordPayloadText(record);
+    if (discordText) {
+      return discordText;
+    }
     if (typeof record.message === 'string') {
       return record.message;
     }
@@ -1364,6 +1371,10 @@ function looksLikeCrashReport(text: string): boolean {
   const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
   const lower = stripped.toLowerCase();
   const trimmed = stripped.trim();
+
+  if (looksLikeExplicitPassthroughReport(stripped)) {
+    return false;
+  }
 
   // Check for explicit crash markers
   if (trimmed.startsWith('[Crash]') || lower.startsWith('[crash]')) {
@@ -2336,7 +2347,8 @@ const DEFAULT_LABELS = {
   TEST: { name: 'Test', color: '#8b5cf6' },             // Purple
   LIVE: { name: 'Live', color: '#059669' },             // Green
   PASSTHROUGH: { name: 'Passthrough', color: '#64748b' }, // Slate
-  CHEAT: { name: 'Cheat', color: '#facc15' }            // Yellow
+  CHEAT: { name: 'Cheat', color: '#facc15' },           // Yellow
+  DEBUG: { name: 'Debug', color: '#06b6d4' }            // Cyan
 } as const;
 
 type DefaultLabelType = keyof typeof DEFAULT_LABELS;
@@ -2348,6 +2360,7 @@ function getDefaultLabelSortOrder(type: DefaultLabelType): number {
       return 1;
     case 'PASSTHROUGH':
     case 'CHEAT':
+    case 'DEBUG':
       return 2;
     case 'TEST':
     case 'LIVE':
@@ -2414,11 +2427,28 @@ function looksLikeCheatReport(text: string): boolean {
   return lower.includes('[cheat]') || /\bmqfastmem\b/i.test(stripped);
 }
 
+function looksLikeQuestDebugReport(text: string): boolean {
+  const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
+  return /\[quest debug\]/i.test(stripped);
+}
+
+function looksLikeClientLimitKickReport(text: string): boolean {
+  const stripped = text.replace(/\*\*/g, '').replace(/__/g, '');
+  return /\bkicked with \d+ of \d+ allowed clients detected on IP:/i.test(stripped);
+}
+
+function looksLikeExplicitPassthroughReport(text: string): boolean {
+  return looksLikeQuestDebugReport(text) || looksLikeClientLimitKickReport(text);
+}
+
 async function applyPassthroughLabels(messageId: string, rawText: string): Promise<void> {
   try {
     const labelTypes: DefaultLabelType[] = ['PASSTHROUGH'];
     if (looksLikeCheatReport(rawText)) {
       labelTypes.push('CHEAT');
+    }
+    if (looksLikeQuestDebugReport(rawText)) {
+      labelTypes.push('DEBUG');
     }
 
     const labelNames = await addDefaultLabelsToMessage(messageId, labelTypes);
@@ -3843,6 +3873,11 @@ function extractActualMessageContent(payload: unknown, rawBody: string | null): 
     if (typeof record.crashReportText === 'string' && record.crashReportText.trim().length > 0) {
       return record.crashReportText;
     }
+    // Discord-style webhook payloads can split the visible report between content and embeds.
+    const discordText = extractDiscordPayloadText(record);
+    if (discordText) {
+      return discordText;
+    }
     // Check for message field
     if (typeof record.message === 'string' && record.message.trim().length > 0) {
       return record.message;
@@ -3883,6 +3918,10 @@ function extractTextForSorting(payload: unknown, rawBody: string | null): string
     if (typeof record.crashReportText === 'string') {
       return record.crashReportText;
     }
+    const discordText = extractDiscordPayloadText(record);
+    if (discordText) {
+      return discordText;
+    }
     if (typeof record.message === 'string') {
       return record.message;
     }
@@ -3904,6 +3943,53 @@ function extractTextForSorting(payload: unknown, rawBody: string | null): string
   } catch {
     return String(payload ?? '');
   }
+}
+
+function extractDiscordPayloadText(record: Record<string, unknown>): string | null {
+  const parts: string[] = [];
+  const add = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || parts.includes(trimmed)) return;
+    parts.push(trimmed);
+  };
+
+  add(record.message);
+  add(record.content);
+  add(record.text);
+  add(record.body);
+
+  if (Array.isArray(record.embeds)) {
+    for (const embed of record.embeds) {
+      if (!embed || typeof embed !== 'object' || Array.isArray(embed)) continue;
+      const embedRecord = embed as Record<string, unknown>;
+      add(embedRecord.title);
+      add(embedRecord.description);
+
+      if (Array.isArray(embedRecord.fields)) {
+        for (const field of embedRecord.fields) {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) continue;
+          const fieldRecord = field as Record<string, unknown>;
+          const name = typeof fieldRecord.name === 'string' ? fieldRecord.name.trim() : '';
+          const value = typeof fieldRecord.value === 'string' ? fieldRecord.value.trim() : '';
+          if (name && value) {
+            add(`${name}: ${value}`);
+          } else {
+            add(name || value);
+          }
+        }
+      }
+
+      if (embedRecord.footer && typeof embedRecord.footer === 'object' && !Array.isArray(embedRecord.footer)) {
+        add((embedRecord.footer as Record<string, unknown>).text);
+      }
+      if (embedRecord.author && typeof embedRecord.author === 'object' && !Array.isArray(embedRecord.author)) {
+        add((embedRecord.author as Record<string, unknown>).name);
+      }
+    }
+  }
+
+  return parts.length > 0 ? parts.join('\n') : null;
 }
 
 function extractChunkNumber(text: string): number | null {
