@@ -2,6 +2,10 @@ import { createHash, randomBytes } from 'crypto';
 
 import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
 
+import {
+  getEqemuOracleContextForCrashReport,
+  type EqemuOracleContextTelemetry
+} from './eqemuOracleContextService.js';
 import { reviewCrashReport, sortCrashReportSegments } from './geminiCrashReviewService.js';
 import { queueUserNotification } from './userNotificationService.js';
 import { appConfig } from '../config/appConfig.js';
@@ -181,6 +185,7 @@ export interface InboundWebhookActionConfig {
   crashMaxOutputTokens?: number;
   crashTemperature?: number;
   crashPromptTemplate?: string;
+  useEqemuOracleContext?: boolean;
 }
 
 type CrashReviewProvider = 'gemini' | 'openai';
@@ -189,6 +194,7 @@ interface CrashReviewRunOptions {
   provider?: CrashReviewProvider;
   model?: string;
   relayAfterReview?: boolean;
+  useEqemuOracleContext?: boolean;
 }
 
 export interface CreateInboundWebhookInput {
@@ -289,7 +295,8 @@ function compactActionRunResult(result: Prisma.JsonValue | null): Prisma.JsonVal
         finishReason: telemetry.finishReason,
         thinkingTokens: telemetry.thinkingTokens,
         outputTokens: telemetry.outputTokens,
-        totalTokens: telemetry.totalTokens
+        totalTokens: telemetry.totalTokens,
+        eqemuOracleContext: compactOracleContextTelemetry(telemetry.eqemuOracleContext)
       }
     : undefined;
 
@@ -298,6 +305,23 @@ function compactActionRunResult(result: Prisma.JsonValue | null): Prisma.JsonVal
     signature: record.signature,
     telemetry: compactTelemetry
   } as Prisma.JsonObject;
+}
+
+function compactOracleContextTelemetry(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  return {
+    enabled: record.enabled,
+    available: record.available,
+    sourceCommit: record.sourceCommit,
+    selectedRecordIds: Array.isArray(record.selectedRecordIds)
+      ? record.selectedRecordIds.slice(0, 8)
+      : [],
+    recordCount: record.recordCount,
+    charCount: record.charCount,
+    lookupMs: record.lookupMs,
+    skippedReason: record.skippedReason
+  };
 }
 
 export async function listInboundWebhooks() {
@@ -550,6 +574,10 @@ export async function retryCrashReviewForMessage(
     throw new Error('Crash review action not configured.');
   }
 
+  const crashConfig = normalizeActionConfig(crashAction.config);
+  const useEqemuOracleContext =
+    options.useEqemuOracleContext ?? (crashConfig.useEqemuOracleContext !== false);
+
   const run = await prisma.inboundWebhookActionRun.create({
     data: {
       messageId,
@@ -558,13 +586,12 @@ export async function retryCrashReviewForMessage(
       result: {
         note:
           options.provider === 'openai'
-            ? 'OpenAI escalation review in progress.'
-            : 'Crash review retry in progress.'
+            ? `OpenAI escalation review in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
+            : `Crash review retry in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
       }
     }
   });
 
-  const crashConfig = normalizeActionConfig(crashAction.config);
   const crashInput = buildCrashReviewInput(message.payload, message.rawBody, message.payload);
   const extracted = extractCrashReportSections(crashInput);
   const crashReportExtract = buildCrashReportExtract(extracted);
@@ -1228,6 +1255,23 @@ async function reviewCrashReportWithRetry(
     provider === 'openai'
       ? options.model ?? OPENAI_ESCALATION_MODEL
       : options.model ?? config.crashModel;
+  const useEqemuOracleContext =
+    options.useEqemuOracleContext ?? (config.useEqemuOracleContext !== false);
+  const oracleContext =
+    !useEqemuOracleContext
+      ? {
+          promptText: '',
+          telemetry: {
+            enabled: false,
+            available: false,
+            selectedRecordIds: [],
+            recordCount: 0,
+            charCount: 0,
+            lookupMs: 0,
+            skippedReason: 'disabled'
+          } satisfies EqemuOracleContextTelemetry
+        }
+      : getEqemuOracleContextForCrashReport(input);
 
   while (attempt < 2) {
     attempt += 1;
@@ -1239,7 +1283,9 @@ async function reviewCrashReportWithRetry(
           maxInputChars: config.crashMaxInputChars,
           maxOutputTokens: config.crashMaxOutputTokens,
           temperature: config.crashTemperature,
-          promptTemplate: config.crashPromptTemplate
+          promptTemplate: config.crashPromptTemplate,
+          eqemuOracleContext: oracleContext.promptText,
+          eqemuOracleContextTelemetry: oracleContext.telemetry
         }, attempt),
         GEMINI_TIMEOUT_MS
       );
@@ -1533,6 +1579,8 @@ function normalizeActionConfig(config: unknown): InboundWebhookActionConfig {
       typeof raw.crashMaxOutputTokens === 'number' ? raw.crashMaxOutputTokens : undefined,
     crashTemperature: typeof raw.crashTemperature === 'number' ? raw.crashTemperature : undefined,
     crashPromptTemplate: typeof raw.crashPromptTemplate === 'string' ? raw.crashPromptTemplate : undefined,
+    useEqemuOracleContext:
+      typeof raw.useEqemuOracleContext === 'boolean' ? raw.useEqemuOracleContext : undefined,
   };
 }
 
@@ -1746,7 +1794,11 @@ function buildCrashReviewEmbed(findings: unknown, _template?: string, messageId?
   const hypotheses = Array.isArray(record.hypotheses) ? record.hypotheses : [];
   const recommendedNextSteps = Array.isArray(record.recommendedNextSteps) ? record.recommendedNextSteps : [];
   const signature = record.signature as { exception?: string | null; topFrame?: string | null } | undefined;
-  const telemetry = record.telemetry as { model?: string; attempts?: number } | undefined;
+  const telemetry = record.telemetry as {
+    model?: string;
+    attempts?: number;
+    eqemuOracleContext?: { recordCount?: number };
+  } | undefined;
 
   // Use errorType from findings if available (set by enrichPayloadWithCrashReview),
   // otherwise fall back to detection (for backwards compatibility)
@@ -1857,6 +1909,13 @@ function buildCrashReviewEmbed(findings: unknown, _template?: string, messageId?
   }
   if (telemetry?.attempts && telemetry.attempts > 1) {
     footerParts.push(`Attempts: ${telemetry.attempts}`);
+  }
+  if (
+    telemetry?.eqemuOracleContext &&
+    typeof telemetry.eqemuOracleContext.recordCount === 'number' &&
+    telemetry.eqemuOracleContext.recordCount > 0
+  ) {
+    footerParts.push(`Oracle refs: ${telemetry.eqemuOracleContext.recordCount}`);
   }
   if (footerParts.length === 0) {
     footerParts.push(isQuestError ? 'AI-powered script analysis' : 'AI-powered crash analysis');

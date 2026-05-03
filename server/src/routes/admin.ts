@@ -1591,7 +1591,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     crashMaxInputChars: z.coerce.number().int().positive().optional().nullable(),
     crashMaxOutputTokens: z.coerce.number().int().positive().optional().nullable(),
     crashTemperature: z.coerce.number().min(0).max(1).optional().nullable(),
-    crashPromptTemplate: z.string().max(8000).optional().nullable()
+    crashPromptTemplate: z.string().max(8000).optional().nullable(),
+    useEqemuOracleContext: z.boolean().optional().nullable()
   });
   type ActionConfig = z.infer<typeof actionConfigSchema>;
 
@@ -1767,6 +1768,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         crashPromptTemplate:
           typeof config.crashPromptTemplate === 'string'
             ? config.crashPromptTemplate.trim() || undefined
+            : undefined,
+        useEqemuOracleContext:
+          typeof config.useEqemuOracleContext === 'boolean'
+            ? config.useEqemuOracleContext
             : undefined
       };
 
@@ -1858,6 +1863,10 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
             crashPromptTemplate:
               typeof config.crashPromptTemplate === 'string'
                 ? config.crashPromptTemplate.trim() || undefined
+                : undefined,
+            useEqemuOracleContext:
+              typeof config.useEqemuOracleContext === 'boolean'
+                ? config.useEqemuOracleContext
                 : undefined
           } satisfies InboundWebhookActionConfig)
         : undefined;
@@ -2107,7 +2116,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
       const { messageId } = paramsSchema.parse(request.params);
       const bodySchema = z
         .object({
-          provider: z.enum(['gemini', 'openai']).optional()
+          provider: z.enum(['gemini', 'openai']).optional(),
+          useEqemuOracleContext: z.boolean().optional()
         })
         .optional();
       const parsedBody = bodySchema.safeParse(request.body ?? undefined);
@@ -2121,7 +2131,8 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         const message = await retryCrashReviewForMessage(messageId, {
           provider,
           model: provider === 'openai' ? 'gpt-5.4-mini' : undefined,
-          relayAfterReview: provider !== 'openai'
+          relayAfterReview: provider !== 'openai',
+          useEqemuOracleContext: body?.useEqemuOracleContext
         });
         return reply.code(201).send({ message });
       } catch (error) {

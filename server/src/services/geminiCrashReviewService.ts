@@ -1,3 +1,5 @@
+import type { EqemuOracleContextTelemetry } from './eqemuOracleContextService.js';
+
 export type CrashReviewFindings = {
   summary: string;
   signature?: {
@@ -25,6 +27,7 @@ export type CrashReviewFindings = {
     thinkingTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    eqemuOracleContext?: EqemuOracleContextTelemetry;
   };
 };
 
@@ -140,6 +143,8 @@ export interface CrashReviewOptions {
   maxOutputTokens?: number;
   temperature?: number;
   promptTemplate?: string;
+  eqemuOracleContext?: string;
+  eqemuOracleContextTelemetry?: EqemuOracleContextTelemetry;
 }
 
 function requireEnv(name: string): string {
@@ -339,10 +344,20 @@ export async function reviewCrashReport(
   const maxOutputTokens = options.maxOutputTokens ?? MAX_OUTPUT_TOKENS;
   const effectiveMaxOutputTokens = maxOutputTokens;
   const effectiveTemperature = isStrict ? 0 : options.temperature ?? TEMPERATURE;
+  const eqemuContext = options.eqemuOracleContext?.trim();
+  const eqemuContextBlock = eqemuContext
+    ? [
+        'EQEmu Reference Context:',
+        'Use this retrieved EQEmu Oracle context as supporting reference material only.',
+        'Do not override facts from the crash report, and do not cite context that is not relevant to the evidence.',
+        eqemuContext,
+        ''
+      ].join('\n')
+    : '';
   const promptCore = promptTemplate
-    ? promptTemplate
+    ? `${eqemuContextBlock}${promptTemplate
         .replace(/\{\{crashReport\}\}/gi, analysisInput)
-        .replace(/\{\{CrashReport\}\}/g, analysisInput)
+        .replace(/\{\{CrashReport\}\}/g, analysisInput)}`
     : [
         'You are a senior engineer for an EverQuest emulator server.',
         '',
@@ -380,9 +395,12 @@ export async function reviewCrashReport(
         '- Prefer hypotheses that fit the evidence.',
         '- REQUIRED: Start the Summary with "Native crash:" or "Script error:" to indicate the type.',
         '',
+        eqemuContextBlock,
         'Report to analyze:',
         analysisInput
-      ].join('\n');
+      ]
+        .filter((line) => line !== '')
+        .join('\n');
 
   const prompt = `${promptCore}\n\n${ANALYSIS_SUFFIX}`;
 
@@ -405,6 +423,7 @@ export async function reviewCrashReport(
       outputChars: text.length,
       attempts,
       requestPayload,
+      eqemuOracleContext: options.eqemuOracleContextTelemetry,
       ...metadata
     };
 
@@ -478,6 +497,7 @@ export async function reviewCrashReport(
         outputChars: analysisResponse.text?.length ?? 0,
         attempts,
         requestPayload: { analysis: analysisPayload, followup: followupPayload },
+        eqemuOracleContext: options.eqemuOracleContextTelemetry,
         ...responseMetadata
       };
       // Convert code references to GitHub links
@@ -492,6 +512,7 @@ export async function reviewCrashReport(
     outputChars: analysisResponse.text?.length ?? 0,
     attempts,
     requestPayload: { analysis: analysisPayload },
+    eqemuOracleContext: options.eqemuOracleContextTelemetry,
     ...responseMetadata
   };
   // Convert code references to GitHub links

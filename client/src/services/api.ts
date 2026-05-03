@@ -1570,6 +1570,7 @@ export interface InboundWebhookActionConfig {
   crashMaxOutputTokens?: number;
   crashTemperature?: number;
   crashPromptTemplate?: string;
+  useEqemuOracleContext?: boolean;
 }
 
 export interface InboundWebhookAction {
@@ -5010,7 +5011,7 @@ export const api = {
 
   async retryCrashReview(
     messageId: string,
-    options?: { provider?: 'gemini' | 'openai' }
+    options?: { provider?: 'gemini' | 'openai'; useEqemuOracleContext?: boolean }
   ): Promise<InboundWebhookMessage> {
     const response = await axios.post(
       `/api/admin/webhook-inbox/${messageId}/retry-crash-review`,

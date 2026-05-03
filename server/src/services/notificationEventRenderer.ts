@@ -98,6 +98,11 @@ function formatCrashHypotheses(value: unknown, fallback: string): string {
     .join('\n');
 }
 
+function isUnavailableCrashSummary(summary: string): boolean {
+  const normalized = summary.trim().toLowerCase().replace(/\s+/g, ' ');
+  return normalized === 'crash review analysis unavailable.';
+}
+
 export function renderNotificationEvent(
   eventKey: string,
   payload: unknown,
@@ -262,14 +267,25 @@ export function renderNotificationEvent(
       const messageUrl = asString(data.messageUrl);
       const signature = asObject(data.signature);
       const typeLabel = asString(data.typeLabel, 'Crash/Error Report');
-      const summary = asString(data.summary, 'AI review completed for an inbound crash or error report.');
+      const rawSummary = asString(
+        data.summary,
+        'AI review completed for an inbound crash or error report.'
+      );
       const topFrame = asString(signature.topFrame);
       const exception = asString(signature.exception);
+      const hypotheses = Array.isArray(data.hypotheses) ? data.hypotheses : [];
+      const recommendedNextSteps = asStringArray(data.recommendedNextSteps);
+      const hasAnalysisDetails =
+        Boolean(exception || topFrame) || hypotheses.length > 0 || recommendedNextSteps.length > 0;
+      const summary =
+        isUnavailableCrashSummary(rawSummary) && hasAnalysisDetails ? '' : rawSummary;
       const parts = [
-        `${isTelegram ? '🚨 ' : ''}${typeLabel}: ${asString(data.webhookLabel, 'Webhook')}`,
-        '',
-        summary
+        `${isTelegram ? '🚨 ' : ''}${typeLabel}:`
       ];
+
+      if (summary) {
+        parts.push('', summary);
+      }
 
       const signatureLines = [
         exception ? `Exception: ${exception}` : '',
@@ -281,11 +297,11 @@ export function renderNotificationEvent(
 
       parts.push(
         '',
-        `Likely causes:\n${formatCrashHypotheses(data.hypotheses, 'No root-cause hypotheses were generated.')}`
+        `Likely causes:\n${formatCrashHypotheses(hypotheses, 'No root-cause hypotheses were generated.')}`
       );
 
       const nextSteps = formatPlainLines(
-        data.recommendedNextSteps,
+        recommendedNextSteps,
         'Open the webhook inbox and review the full AI report.'
       );
       parts.push('', `Next steps:\n${nextSteps}`);

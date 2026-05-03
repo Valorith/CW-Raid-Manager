@@ -16,7 +16,8 @@
     "prisma:deploy": "node ../scripts/run-with-db-url.cjs prisma migrate deploy",
     "knex:migrate": "knex --knexfile knexfile.js migrate:latest",
     "knex:rollback": "knex --knexfile knexfile.js migrate:rollback",
-    "knex:make": "knex --knexfile knexfile.js migrate:make"
+    "knex:make": "knex --knexfile knexfile.js migrate:make",
+    "oracle:context": "tsx scripts/updateEqemuOracleContext.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

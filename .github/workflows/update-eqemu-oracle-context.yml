@@ -1,0 +1,59 @@
+name: Update EQEmu Oracle context
+
+on:
+  schedule:
+    - cron: '30 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-context:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout CW-Raid-Manager
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Regenerate Oracle review index
+        run: npm --workspace server run oracle:context
+
+      - name: Capture Oracle metadata
+        id: oracle
+        run: |
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const index = require('./server/src/data/eqemuOracleReviewIndex.json');
+          const sources = index.manifest?.sources ?? {};
+          const docs = sources.docs?.source_ref ? sources.docs.source_ref.slice(0, 12) : 'unknown';
+          const questApi = sources['quest-api']?.source_ref ? sources['quest-api'].source_ref.slice(0, 12) : 'unknown';
+          const schema = sources.schema?.source_ref ? sources.schema.source_ref.slice(0, 12) : 'unknown';
+          console.log(`commit=${index.sourceCommit}`);
+          console.log(`records=${index.records.length}`);
+          console.log(`docs_ref=${docs}`);
+          console.log(`quest_api_ref=${questApi}`);
+          console.log(`schema_ref=${schema}`);
+          NODE
+
+      - name: Open context update PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: codex/update-eqemu-oracle-context
+          title: Update EQEmu Oracle review context
+          commit-message: chore: update eqemu oracle review context
+          body: |
+            Regenerated the compact EQEmu Oracle review index.
+
+            - Oracle commit: `${{ steps.oracle.outputs.commit }}`
+            - Records: `${{ steps.oracle.outputs.records }}`
+            - Quest API ref: `${{ steps.oracle.outputs.quest_api_ref }}`
+            - Schema ref: `${{ steps.oracle.outputs.schema_ref }}`
+            - Docs ref: `${{ steps.oracle.outputs.docs_ref }}`

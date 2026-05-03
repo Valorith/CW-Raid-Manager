@@ -326,17 +326,7 @@
                 >
                   <span class="endpoint-pipeline-card__step">3</span>
                   <span class="endpoint-pipeline-card__icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" role="img">
-                      <path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0 0 6v1a3 3 0 0 0 3 3" />
-                      <path d="M15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 0 6v1a3 3 0 0 1-3 3" />
-                      <path d="M9 4v16" />
-                      <path d="M15 4v16" />
-                      <path d="M9 8H6" />
-                      <path d="M18 8h-3" />
-                      <path d="M9 16H6" />
-                      <path d="M18 16h-3" />
-                      <path d="M9 12h6" />
-                    </svg>
+                    <img class="oracle-logo oracle-logo--pipeline" :src="ORACLE_LOGO_SRC" alt="" />
                   </span>
                   <span class="endpoint-pipeline-card__title">AI Review</span>
                   <span
@@ -347,7 +337,11 @@
                     {{ aiReviewPipelineStatus.label }}
                   </span>
                   <span class="endpoint-pipeline-card__copy">
-                    Analyzes crash data and writes a concise review.
+                    {{
+                      selectedCrashReviewAction?.config.useEqemuOracleContext === false
+                        ? 'Analyzes crash data and writes a concise review.'
+                        : 'Analyzes crash data with EQEmu Oracle context.'
+                    }}
                   </span>
                   <span class="endpoint-pipeline-card__diagnostic">
                     {{ aiReviewPipelineStatus.detail }}
@@ -752,6 +746,35 @@
                         class="input"
                       />
                     </label>
+                    <div
+                      v-if="action.type === 'CRASH_REVIEW'"
+                      class="form-field form-field--inline endpoint-toggle-field endpoint-field-wide oracle-toggle-field"
+                    >
+                      <span class="settings-field-label--branded">
+                        <img class="oracle-logo" :src="ORACLE_LOGO_SRC" alt="" aria-hidden="true" />
+                        EQEmu Oracle Context
+                      </span>
+                      <p class="settings-field-hint">
+                        Use refreshed EQEmu quest API, schema, and docs context when reviewing crash
+                        reports.
+                      </p>
+                      <div class="toggle-with-status">
+                        <label class="toggle-switch">
+                          <input v-model="action.config.useEqemuOracleContext" type="checkbox" />
+                          <span class="toggle-slider"></span>
+                        </label>
+                        <span
+                          :class="[
+                            'toggle-status',
+                            action.config.useEqemuOracleContext
+                              ? 'toggle-status--enabled'
+                              : 'toggle-status--disabled'
+                          ]"
+                        >
+                          {{ action.config.useEqemuOracleContext ? 'Enabled' : 'Disabled' }}
+                        </span>
+                      </div>
+                    </div>
                     <CodeTemplateEditor
                       v-if="action.type === 'CRASH_REVIEW'"
                       v-model="action.config.crashPromptTemplate"
@@ -908,6 +931,42 @@
                       class="input"
                     />
                   </label>
+                  <div
+                    v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
+                    class="form-field form-field--inline endpoint-toggle-field endpoint-field-wide oracle-toggle-field"
+                  >
+                    <span class="settings-field-label--branded">
+                      <img class="oracle-logo" :src="ORACLE_LOGO_SRC" alt="" aria-hidden="true" />
+                      EQEmu Oracle Context
+                    </span>
+                    <p class="settings-field-hint">
+                      Use refreshed EQEmu quest API, schema, and docs context when reviewing crash
+                      reports.
+                    </p>
+                    <div class="toggle-with-status">
+                      <label class="toggle-switch">
+                        <input
+                          v-model="actionDrafts[selectedWebhook.id].useEqemuOracleContext"
+                          type="checkbox"
+                        />
+                        <span class="toggle-slider"></span>
+                      </label>
+                      <span
+                        :class="[
+                          'toggle-status',
+                          actionDrafts[selectedWebhook.id].useEqemuOracleContext
+                            ? 'toggle-status--enabled'
+                            : 'toggle-status--disabled'
+                        ]"
+                      >
+                        {{
+                          actionDrafts[selectedWebhook.id].useEqemuOracleContext
+                            ? 'Enabled'
+                            : 'Disabled'
+                        }}
+                      </span>
+                    </div>
+                  </div>
                   <CodeTemplateEditor
                     v-if="actionDrafts[selectedWebhook.id].type === 'CRASH_REVIEW'"
                     v-model="actionDrafts[selectedWebhook.id].crashPromptTemplate"
@@ -1642,6 +1701,13 @@
               class="llm-content"
             >
               <p class="llm-summary">{{ getCrashRunResult(selectedMessage)?.summary }}</p>
+              <div v-if="getCrashRunOracleContext(selectedMessage)" class="oracle-chip">
+                <img class="oracle-logo" :src="ORACLE_LOGO_SRC" alt="" aria-hidden="true" />
+                <span>EQEmu Oracle context used</span>
+                <span class="oracle-chip__meta">
+                  {{ formatOracleContextMeta(getCrashRunOracleContext(selectedMessage)!) }}
+                </span>
+              </div>
 
               <!-- Token usage bar -->
               <div v-if="getCrashRunTokenUsage(selectedMessage)" class="token-usage">
@@ -1788,7 +1854,7 @@
                 <button
                   class="btn btn--outline btn--small"
                   type="button"
-                  @click="retryCrashReview(selectedMessage)"
+                  @click="retryCrashReview(selectedMessage, 'gemini', manualReviewUseOracle)"
                   :disabled="isCrashReviewPending(selectedMessage)"
                 >
                   <span class="ai-icon" aria-hidden="true">✦</span> Re-run AI Review
@@ -1796,7 +1862,7 @@
                 <button
                   class="btn btn--openai btn--small"
                   type="button"
-                  @click="retryCrashReview(selectedMessage, 'openai')"
+                  @click="retryCrashReview(selectedMessage, 'openai', manualReviewUseOracle)"
                   :disabled="isCrashReviewPending(selectedMessage)"
                 >
                   <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
@@ -1810,7 +1876,7 @@
               <button
                 class="btn btn--accent"
                 type="button"
-                @click="retryCrashReview(selectedMessage)"
+                @click="retryCrashReview(selectedMessage, 'gemini', manualReviewUseOracle)"
                 :disabled="isCrashReviewPending(selectedMessage)"
               >
                 <span class="ai-icon" aria-hidden="true">✦</span> Run AI Review
@@ -1818,12 +1884,23 @@
               <button
                 class="btn btn--openai"
                 type="button"
-                @click="retryCrashReview(selectedMessage, 'openai')"
+                @click="retryCrashReview(selectedMessage, 'openai', manualReviewUseOracle)"
                 :disabled="isCrashReviewPending(selectedMessage)"
               >
                 <img class="openai-logo" src="/assets/openai-logo-light.svg" alt="" aria-hidden="true" />
                 Run Escalated Review
               </button>
+            </div>
+
+            <div v-if="!isCrashReviewPending(selectedMessage)" class="llm-review-controls">
+              <label class="oracle-manual-toggle">
+                <img class="oracle-logo" :src="ORACLE_LOGO_SRC" alt="" aria-hidden="true" />
+                <span>Use Oracle</span>
+                <span class="toggle-switch toggle-switch--compact">
+                  <input v-model="manualReviewUseOracle" type="checkbox" />
+                  <span class="toggle-slider"></span>
+                </span>
+              </label>
             </div>
           </section>
         </div>
@@ -2639,6 +2716,7 @@ const crashModelOptions = [
 ];
 const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
+const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -2650,6 +2728,7 @@ const showTestPanel = ref(false);
 const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
 const showPromptModal = ref(false);
+const manualReviewUseOracle = ref(true);
 let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
 let messagePollTimer: ReturnType<typeof setInterval> | null = null;
 let inboxPollInFlight = false;
@@ -3052,9 +3131,11 @@ function getAiReviewPipelineStatus(action?: InboundWebhookAction | null): Pipeli
       needsAction: true
     };
   }
+  const oracleDetail =
+    action.config.useEqemuOracleContext === false ? '' : ' EQEmu Oracle context is enabled.';
   return {
     label: 'Ready',
-    detail: `${action.config.crashModel} is configured for crash analysis.`,
+    detail: `${action.config.crashModel} is configured for crash analysis.${oracleDetail}`,
     tone: 'ready',
     needsAction: false
   };
@@ -3505,7 +3586,8 @@ function buildActionDraft() {
     crashMaxInputChars: 250000,
     crashMaxOutputTokens: 4096,
     crashTemperature: 0.2,
-    crashPromptTemplate: ''
+    crashPromptTemplate: '',
+    useEqemuOracleContext: true
   };
 }
 
@@ -3535,7 +3617,8 @@ async function loadWebhooks() {
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
           crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
           crashTemperature: action.config?.crashTemperature ?? 0.2,
-          crashPromptTemplate: action.config?.crashPromptTemplate ?? ''
+          crashPromptTemplate: action.config?.crashPromptTemplate ?? '',
+          useEqemuOracleContext: action.config?.useEqemuOracleContext ?? true
         }
       }))
   }));
@@ -4023,7 +4106,8 @@ async function createAction(webhook: InboundWebhook) {
                   crashMaxInputChars: draft.crashMaxInputChars,
                   crashMaxOutputTokens: draft.crashMaxOutputTokens,
                   crashTemperature: draft.crashTemperature,
-                  crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined
+                  crashPromptTemplate: draft.crashPromptTemplate?.trim() || undefined,
+                  useEqemuOracleContext: draft.useEqemuOracleContext
                 }
               : {}
     });
@@ -4041,7 +4125,8 @@ async function createAction(webhook: InboundWebhook) {
           crashMaxInputChars: action.config?.crashMaxInputChars ?? 250000,
           crashMaxOutputTokens: action.config?.crashMaxOutputTokens ?? 4096,
           crashTemperature: action.config?.crashTemperature ?? 0.2,
-          crashPromptTemplate: action.config?.crashPromptTemplate ?? ''
+          crashPromptTemplate: action.config?.crashPromptTemplate ?? '',
+          useEqemuOracleContext: action.config?.useEqemuOracleContext ?? true
         }
       }
     ];
@@ -4074,7 +4159,8 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
                   crashMaxInputChars: action.config.crashMaxInputChars,
                   crashMaxOutputTokens: action.config.crashMaxOutputTokens,
                   crashTemperature: action.config.crashTemperature,
-                  crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined
+                  crashPromptTemplate: action.config.crashPromptTemplate?.trim() || undefined,
+                  useEqemuOracleContext: action.config.useEqemuOracleContext
                 }
               : {}
     });
@@ -4092,7 +4178,8 @@ async function saveAction(webhook: InboundWebhook, action: InboundWebhookAction)
               crashMaxInputChars: updated.config?.crashMaxInputChars ?? 250000,
               crashMaxOutputTokens: updated.config?.crashMaxOutputTokens ?? 4096,
               crashTemperature: updated.config?.crashTemperature ?? 0.2,
-              crashPromptTemplate: updated.config?.crashPromptTemplate ?? ''
+              crashPromptTemplate: updated.config?.crashPromptTemplate ?? '',
+              useEqemuOracleContext: updated.config?.useEqemuOracleContext ?? true
             }
           }
         : item
@@ -4428,6 +4515,43 @@ function getCrashRunResult(message: InboundWebhookMessage) {
   };
 }
 
+interface OracleContextData {
+  recordCount?: number;
+  lookupMs?: number;
+  selectedRecordIds?: string[];
+  skippedReason?: string;
+}
+
+function getCrashRunOracleContext(message: InboundWebhookMessage): OracleContextData | null {
+  const run = getCrashRun(message);
+  if (!run?.result || typeof run.result !== 'object') return null;
+  const telemetry = (run.result as Record<string, unknown>).telemetry as
+    | Record<string, unknown>
+    | undefined;
+  const oracleContext = telemetry?.eqemuOracleContext as Record<string, unknown> | undefined;
+  if (!oracleContext || typeof oracleContext !== 'object') return null;
+  const recordCount =
+    typeof oracleContext.recordCount === 'number' ? oracleContext.recordCount : 0;
+  if (recordCount <= 0) return null;
+  return {
+    recordCount,
+    lookupMs: typeof oracleContext.lookupMs === 'number' ? oracleContext.lookupMs : undefined,
+    selectedRecordIds: Array.isArray(oracleContext.selectedRecordIds)
+      ? oracleContext.selectedRecordIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    skippedReason:
+      typeof oracleContext.skippedReason === 'string' ? oracleContext.skippedReason : undefined
+  };
+}
+
+function formatOracleContextMeta(context: OracleContextData) {
+  const parts = [`${context.recordCount ?? 0} refs`];
+  if (typeof context.lookupMs === 'number') {
+    parts.push(`${context.lookupMs.toFixed(context.lookupMs < 10 ? 1 : 0)} ms`);
+  }
+  return parts.join(' · ');
+}
+
 function getDiscordSummarySendState(message: InboundWebhookMessage): {
   canSend: boolean;
   title: string;
@@ -4731,6 +4855,7 @@ async function openMessage(message: InboundWebhookMessage) {
   const full = await api.fetchInboundWebhookMessage(message.id);
   selectedMessage.value = full;
   showPromptModal.value = false;
+  manualReviewUseOracle.value = true;
   if (getPendingRun(full)) {
     startMessagePolling(full.id);
   }
@@ -5340,7 +5465,8 @@ async function confirmMerge() {
 
 async function retryCrashReview(
   message: InboundWebhookMessage,
-  provider: 'gemini' | 'openai' = 'gemini'
+  provider: 'gemini' | 'openai' = 'gemini',
+  useEqemuOracleContext = true
 ) {
   retryingCrashId.value = message.id;
 
@@ -5357,8 +5483,8 @@ async function retryCrashReview(
     result: {
       note:
         provider === 'openai'
-          ? 'OpenAI escalation review in progress.'
-          : 'Crash review retry in progress.'
+          ? `OpenAI escalation review in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
+          : `Crash review retry in progress${useEqemuOracleContext ? ' with Oracle context' : ''}.`
     },
     action: crashAction
   };
@@ -5383,7 +5509,7 @@ async function retryCrashReview(
   }
 
   try {
-    const updated = await api.retryCrashReview(message.id, { provider });
+    const updated = await api.retryCrashReview(message.id, { provider, useEqemuOracleContext });
     selectedMessage.value = updated;
     const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
     if (index >= 0) {
@@ -5447,6 +5573,7 @@ async function deleteMessage(message: InboundWebhookMessage) {
 function closeMessage() {
   selectedMessage.value = null;
   showPromptModal.value = false;
+  manualReviewUseOracle.value = true;
   if (messagePollTimer) {
     clearInterval(messagePollTimer);
     messagePollTimer = null;
@@ -5493,6 +5620,7 @@ async function openMessageFromUrl(messageId: string) {
   openingMessageId = messageId;
   activeTab.value = 'inbox';
   showPromptModal.value = false;
+  manualReviewUseOracle.value = true;
 
   try {
     // Fetch the message
@@ -5955,6 +6083,89 @@ function escapeHtml(text: string): string {
   flex: 0 0 auto;
   object-fit: contain;
   filter: drop-shadow(0 0 6px rgba(125, 211, 252, 0.22));
+}
+
+.oracle-logo {
+  display: block;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 7px rgba(45, 212, 191, 0.28));
+}
+
+.oracle-logo--pipeline {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.oracle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.45rem 0 0.75rem;
+  padding: 0.38rem 0.58rem;
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.13), rgba(14, 165, 233, 0.1)),
+    rgba(15, 23, 42, 0.72);
+  color: #d1fae5;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.oracle-chip__meta {
+  color: #a7f3d0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.llm-review-controls {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.oracle-manual-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.32rem 0.42rem 0.32rem 0.55rem;
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #d1fae5;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settings-field-label--branded {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #d1fae5;
+  font-weight: 700;
+}
+
+.oracle-toggle-field {
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.oracle-toggle-field .settings-field-hint {
+  flex: 1 1 18rem;
+  margin: 0;
 }
 
 .btn--danger {
@@ -8067,6 +8278,11 @@ input[type='checkbox']:checked::after {
   cursor: pointer;
 }
 
+.toggle-switch--compact {
+  width: 34px;
+  height: 18px;
+}
+
 .toggle-switch input {
   opacity: 0;
   width: 0;
@@ -8096,12 +8312,23 @@ input[type='checkbox']:checked::after {
   transition: transform 0.2s ease;
 }
 
+.toggle-switch--compact .toggle-slider::before {
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+}
+
 .toggle-switch input:checked + .toggle-slider {
   background-color: var(--color-primary, #4a90d9);
 }
 
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(20px);
+}
+
+.toggle-switch--compact input:checked + .toggle-slider::before {
+  transform: translateX(16px);
 }
 
 .toggle-switch input:focus + .toggle-slider {
