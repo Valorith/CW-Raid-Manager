@@ -75,7 +75,14 @@
                     and at-risk changes across the last seven days.
                   </desc>
                   <defs>
-                    <filter id="tm-state-line-glow" x="-30%" y="-30%" width="160%" height="160%">
+                    <filter
+                      id="tm-state-line-glow"
+                      filterUnits="userSpaceOnUse"
+                      :x="-20"
+                      :y="-20"
+                      :width="testStateChart.width + 40"
+                      :height="testStateChart.height + 40"
+                    >
                       <feGaussianBlur stdDeviation="3.5" result="blur" />
                       <feMerge>
                         <feMergeNode in="blur" />
@@ -124,6 +131,12 @@
                       class="tm-state-graph__area"
                       :d="series.areaPath"
                       :fill="series.color"
+                    />
+                    <path
+                      v-for="series in testStateGraphSeries"
+                      :key="`${series.key}-rail`"
+                      class="tm-state-graph__line-rail"
+                      :d="series.path"
                     />
                     <path
                       v-for="series in testStateGraphSeries"
@@ -7204,13 +7217,22 @@ onBeforeUnmount(() => {
   opacity: 0.08;
 }
 
-.tm-state-graph__line {
+.tm-state-graph__line,
+.tm-state-graph__line-rail {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 3.5;
-  filter: url('#tm-state-line-glow');
   vector-effect: non-scaling-stroke;
+}
+
+.tm-state-graph__line-rail {
+  stroke: rgba(2, 8, 12, 0.72);
+  stroke-width: 7.5;
+}
+
+.tm-state-graph__line {
+  stroke-width: 3.75;
+  filter: url('#tm-state-line-glow');
 }
 
 .tm-state-graph__point {
