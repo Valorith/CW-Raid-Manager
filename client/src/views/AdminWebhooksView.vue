@@ -2112,14 +2112,29 @@
             class="linked-change-summary"
           >
             <span class="linked-change-summary__label">Already linked</span>
-            <a
-              v-for="change in linkReportMessage.linkedTestChanges"
-              :key="change.id"
-              class="linked-change-chip"
-              :href="`/test-manager/changes/${change.changeId}?tab=Reports`"
-            >
-              #{{ change.publicId }} {{ change.title }}
-            </a>
+            <div class="linked-change-list">
+              <div
+                v-for="change in linkReportMessage.linkedTestChanges"
+                :key="change.id"
+                class="linked-change-row"
+              >
+                <a
+                  class="linked-change-link"
+                  :href="`/test-manager/changes/${change.changeId}?tab=Reports`"
+                >
+                  <span>#{{ change.publicId }}</span>
+                  <strong>{{ change.title }}</strong>
+                </a>
+                <button
+                  class="linked-change-unlink"
+                  type="button"
+                  :disabled="Boolean(linkingTestChangeId) || unlinkingTestChangeId === change.changeId"
+                  @click="unlinkReportFromChange(change)"
+                >
+                  {{ unlinkingTestChangeId === change.changeId ? 'Unlinking...' : 'Unlink' }}
+                </button>
+              </div>
+            </div>
           </section>
 
           <label class="form-field">
@@ -2140,7 +2155,11 @@
               class="change-link-option"
               :class="{ 'change-link-option--linked': isReportLinkedToChange(change.id) }"
               type="button"
-              :disabled="Boolean(linkingTestChangeId) || isReportLinkedToChange(change.id)"
+              :disabled="
+                Boolean(linkingTestChangeId) ||
+                Boolean(unlinkingTestChangeId) ||
+                isReportLinkedToChange(change.id)
+              "
               @click="linkReportToChange(change)"
             >
               <span class="change-link-option__id">#{{ change.publicId }}</span>
@@ -2641,6 +2660,7 @@ const testChangeLinkOptions = ref<TestChange[]>([]);
 const testChangeLinkSearch = ref('');
 const loadingTestChangeLinks = ref(false);
 const linkingTestChangeId = ref<string | null>(null);
+const unlinkingTestChangeId = ref<string | null>(null);
 let testChangeLinkSearchTimer: ReturnType<typeof window.setTimeout> | null = null;
 let testChangeLinkLoadSequence = 0;
 
@@ -3605,6 +3625,7 @@ function closeReportLinkModal() {
   testChangeLinkSearch.value = '';
   testChangeLinkOptions.value = [];
   linkingTestChangeId.value = null;
+  unlinkingTestChangeId.value = null;
   if (testChangeLinkSearchTimer) {
     clearTimeout(testChangeLinkSearchTimer);
     testChangeLinkSearchTimer = null;
@@ -3633,7 +3654,7 @@ async function refreshMessageAfterLink(messageId: string) {
 }
 
 async function linkReportToChange(change: TestChange) {
-  if (!linkReportMessage.value || linkingTestChangeId.value) {
+  if (!linkReportMessage.value || linkingTestChangeId.value || unlinkingTestChangeId.value) {
     return;
   }
 
@@ -3654,6 +3675,34 @@ async function linkReportToChange(change: TestChange) {
     });
   } finally {
     linkingTestChangeId.value = null;
+  }
+}
+
+async function unlinkReportFromChange(
+  change: NonNullable<InboundWebhookMessage['linkedTestChanges']>[number]
+) {
+  if (!linkReportMessage.value || linkingTestChangeId.value || unlinkingTestChangeId.value) {
+    return;
+  }
+
+  const messageId = linkReportMessage.value.id;
+  unlinkingTestChangeId.value = change.changeId;
+  try {
+    await api.unlinkWebhookReportFromTestChange(change.changeId, messageId);
+    await refreshMessageAfterLink(messageId);
+    addToast({
+      title: 'Report Unlinked',
+      message: `Removed the link to #${change.publicId}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Unable To Unlink Report',
+      message: error instanceof Error ? error.message : 'The report link could not be removed.',
+      variant: 'error'
+    });
+  } finally {
+    unlinkingTestChangeId.value = null;
   }
 }
 
@@ -9324,8 +9373,8 @@ input[type='checkbox']:checked::after {
 
 .linked-change-summary {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.5rem;
   padding: 0.75rem;
   border: 1px solid rgba(96, 165, 250, 0.18);
@@ -9341,18 +9390,73 @@ input[type='checkbox']:checked::after {
   text-transform: uppercase;
 }
 
-.linked-change-chip {
-  display: inline-flex;
+.linked-change-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.linked-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  max-width: 100%;
-  padding: 0.35rem 0.6rem;
+  gap: 0.6rem;
+  padding: 0.45rem 0.5rem;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 999px;
+  border-radius: 0.65rem;
   background: rgba(30, 41, 59, 0.74);
+}
+
+.linked-change-link {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.45rem;
   color: #e2e8f0;
-  font-size: 0.78rem;
   font-weight: 800;
   text-decoration: none;
+}
+
+.linked-change-link span {
+  flex: 0 0 auto;
+  color: #7dd3fc;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.linked-change-link strong {
+  overflow: hidden;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linked-change-unlink {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.18);
+  color: #fecaca;
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 0.28rem 0.55rem;
+  text-transform: uppercase;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.linked-change-unlink:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.68);
+  background: rgba(127, 29, 29, 0.32);
+  color: #fee2e2;
+}
+
+.linked-change-unlink:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .change-link-results {

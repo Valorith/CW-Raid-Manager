@@ -902,6 +902,15 @@
                   >
                     Inbox
                   </button>
+                  <button
+                    v-if="authStore.isAdmin"
+                    type="button"
+                    class="tm-table-action tm-table-action--danger"
+                    :disabled="unlinkingWebhookReportId === report.id"
+                    @click="unlinkWebhookReport(report)"
+                  >
+                    {{ unlinkingWebhookReportId === report.id ? 'Unlinking...' : 'Unlink' }}
+                  </button>
                 </div>
               </article>
             </div>
@@ -2618,6 +2627,7 @@ const changesGrid = ref<HTMLElement | null>(null);
 const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
 const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
 const changeTooltip = ref<ChangeTooltipState | null>(null);
+const unlinkingWebhookReportId = ref<string | null>(null);
 const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'Reports' | 'History'>('Overview');
 const changeStatusFilter = ref<TestChangeListStatusFilter>('ACTIVE');
 const changeSearch = ref('');
@@ -5093,10 +5103,46 @@ function closeWebhookReportSummary() {
 }
 
 async function openWebhookInboxReport(messageId: string) {
+  if (!authStore.isAdmin) {
+    return;
+  }
+
   await router.push({
     path: '/admin/webhooks',
     query: { messageId }
   });
+}
+
+async function unlinkWebhookReport(report: TestChangeWebhookReport) {
+  if (!authStore.isAdmin || !activeChange.value || unlinkingWebhookReportId.value) {
+    return;
+  }
+
+  unlinkingWebhookReportId.value = report.id;
+  try {
+    const updated = await api.unlinkWebhookReportFromTestChange(
+      activeChange.value.id,
+      report.messageId
+    );
+    selectedChange.value = updated;
+    replaceCachedChange(updated);
+    if (selectedWebhookReport.value?.id === report.id) {
+      selectedWebhookReport.value = null;
+    }
+    addToast({
+      title: 'Report Unlinked',
+      message: `Removed ${report.reportType.toLowerCase()} from #${updated.publicId}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Unable To Unlink Report',
+      message: getApiErrorMessage(error, 'The report link could not be removed.'),
+      variant: 'error'
+    });
+  } finally {
+    unlinkingWebhookReportId.value = null;
+  }
 }
 
 async function refreshActiveChangeReportDetails() {
@@ -7060,6 +7106,11 @@ onBeforeUnmount(() => {
   font-weight: 800;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+.tm-table-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .tm-table-action--danger {
@@ -10979,6 +11030,13 @@ onBeforeUnmount(() => {
   padding: 1rem;
   display: grid;
   gap: 0.75rem;
+}
+
+.tm-modal__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.7rem;
 }
 
 .tm-confirm-modal {
