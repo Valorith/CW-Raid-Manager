@@ -63,6 +63,7 @@ import {
   listInboundWebhookMessagesEnhanced,
   listInboundWebhooks,
   retryCrashReviewForMessage,
+  sendManualDiscordSummaryForMessage,
   updateInboundWebhook,
   updateInboundWebhookAction,
   markMessageRead,
@@ -2129,6 +2130,30 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           return reply.notFound(error.message);
         }
         return reply.badRequest('Unable to retry crash review.');
+      }
+    }
+  );
+
+  server.post(
+    '/webhook-inbox/:messageId/send-discord-summary',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const paramsSchema = z.object({ messageId: z.string() });
+      const { messageId } = paramsSchema.parse(request.params);
+
+      try {
+        const message = await sendManualDiscordSummaryForMessage(messageId);
+        return reply.code(201).send({ message });
+      } catch (error) {
+        request.log.error({ error }, 'Failed to send webhook Discord summary.');
+        if (error instanceof Error && error.message.includes('not found')) {
+          return reply.notFound(error.message);
+        }
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to send Discord summary.'
+        );
       }
     }
   );

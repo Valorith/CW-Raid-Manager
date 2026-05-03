@@ -1622,6 +1622,22 @@ export interface WebhookMessageLabel {
   updatedAt?: string;
 }
 
+export interface WebhookMessageLinkedTestChange {
+  id: string;
+  changeId: string;
+  publicId: number;
+  title: string;
+  status: TestChangeStatus;
+  priority: TestChangePriority;
+  linkedAt: string;
+  linkedBy?: {
+    id: string;
+    displayName: string;
+    nickname?: string | null;
+    email?: string | null;
+  } | null;
+}
+
 export interface InboundWebhookMessage {
   id: string;
   webhookId: string;
@@ -1647,6 +1663,7 @@ export interface InboundWebhookMessage {
   isRead?: boolean;
   isStarred?: boolean;
   labels?: WebhookMessageLabel[];
+  linkedTestChanges?: WebhookMessageLinkedTestChange[];
   mergedFromIds?: string[] | null;
   mergedAt?: string | null;
 }
@@ -3218,6 +3235,21 @@ export interface TestChangeHistoryEvent {
   actor: TestManagerUserSummary | null;
 }
 
+export interface TestChangeWebhookReport {
+  id: string;
+  messageId: string;
+  webhookId: string;
+  webhookLabel: string;
+  receivedAt: string;
+  status: InboundWebhookMessageStatus;
+  reportType: string;
+  summary: string | null;
+  aiReviewStatus: InboundWebhookActionRunStatus | null;
+  hasAiReview: boolean;
+  linkedAt: string;
+  linkedBy: TestManagerUserSummary | null;
+}
+
 export interface TestChangePullRequest {
   owner: string;
   repo: string;
@@ -3272,6 +3304,7 @@ export interface TestChange {
   testers: TestChangeTester[];
   notes: TestChangeNote[];
   history: TestChangeHistoryEvent[];
+  webhookReports: TestChangeWebhookReport[];
   summary: {
     testerCount: number;
     requiredTesterCount: number;
@@ -3375,6 +3408,19 @@ export const api = {
     const response = await axios.patch(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}`,
       payload
+    );
+    return response.data.change;
+  },
+  async linkWebhookReportToTestChange(changeId: string, messageId: string): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/webhook-reports`,
+      { messageId }
+    );
+    return response.data.change;
+  },
+  async unlinkWebhookReportFromTestChange(changeId: string, messageId: string): Promise<TestChange> {
+    const response = await axios.delete(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/webhook-reports/${encodeURIComponent(messageId)}`
     );
     return response.data.change;
   },
@@ -4941,6 +4987,13 @@ export const api = {
     const response = await axios.post(
       `/api/admin/webhook-inbox/${messageId}/retry-crash-review`,
       options ?? {}
+    );
+    return response.data.message;
+  },
+
+  async sendWebhookDiscordSummary(messageId: string): Promise<InboundWebhookMessage> {
+    const response = await axios.post(
+      `/api/admin/webhook-inbox/${messageId}/send-discord-summary`
     );
     return response.data.message;
   },

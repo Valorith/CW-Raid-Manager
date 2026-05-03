@@ -49,6 +49,7 @@ model User {
   inboundWebhookAssignments InboundWebhookMessage[] @relation("InboundWebhookAssignee")
   webhookMessageReadStatuses WebhookMessageReadStatus[] @relation("WebhookMessageReadStatus")
   webhookMessageStars WebhookMessageStar[] @relation("WebhookMessageStars")
+  linkedWebhookReports TestChangeWebhookReport[] @relation("WebhookReportLinker")
   bisCandidates      BisSlotCandidate[] @relation("BisCandidateSubmitter")
   bisVotes           BisVote[]          @relation("BisVoteUser")
   bisBansReceived    BisBan[]           @relation("BisBanUser")
@@ -858,6 +859,7 @@ model InboundWebhookMessage {
   readStatuses  WebhookMessageReadStatus[]
   stars         WebhookMessageStar[]
   labelAssignments WebhookMessageLabelAssignment[]
+  testChangeLinks TestChangeWebhookReport[]
 
   @@index([webhookId])
   @@index([receivedAt])
@@ -936,6 +938,22 @@ model WebhookMessageLabelAssignment {
   @@unique([messageId, labelId])
   @@index([messageId])
   @@index([labelId])
+}
+
+model TestChangeWebhookReport {
+  id         String                @id @default(cuid())
+  changeId   String
+  messageId  String
+  linkedById String?
+  createdAt  DateTime              @default(now())
+  change     TestChange            @relation(fields: [changeId], references: [id], onDelete: Cascade)
+  message    InboundWebhookMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  linkedBy   User?                 @relation("WebhookReportLinker", fields: [linkedById], references: [id], onDelete: SetNull)
+
+  @@unique([changeId, messageId])
+  @@index([changeId, createdAt])
+  @@index([messageId, createdAt])
+  @@index([linkedById])
 }
 
 // NPC Respawn Tracker Models
@@ -1416,6 +1434,7 @@ model TestChange {
   testers       TestChangeTester[]
   notes         TestChangeNote[]
   history       TestChangeHistory[]
+  webhookReports TestChangeWebhookReport[]
 
   @@index([status, priority, updatedAt])
   @@index([createdById])

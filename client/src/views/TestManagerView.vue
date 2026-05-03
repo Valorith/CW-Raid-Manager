@@ -851,6 +851,67 @@
             </div>
           </section>
 
+          <section v-else-if="detailTab === 'Reports'" class="tm-detail-section">
+            <div class="tm-section-title">
+              <div>
+                <h3>Linked Crash/Error Reports</h3>
+                <p>
+                  Webhook reports associated with this change from the admin inbox.
+                </p>
+              </div>
+              <span>{{ activeChange.webhookReports?.length ?? 0 }}</span>
+            </div>
+            <div v-if="activeChange.webhookReports?.length" class="tm-report-list">
+              <article
+                v-for="report in activeChange.webhookReports"
+                :key="report.id"
+                class="tm-report-card"
+                tabindex="0"
+                @click="openWebhookReportSummary(report)"
+                @keydown.enter.prevent="openWebhookReportSummary(report)"
+                @keydown.space.prevent="openWebhookReportSummary(report)"
+              >
+                <div class="tm-report-card__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M8 7h8M8 11h8M8 15h5" />
+                    <path d="M6 3.75h12A1.25 1.25 0 0 1 19.25 5v14A1.25 1.25 0 0 1 18 20.25H6A1.25 1.25 0 0 1 4.75 19V5A1.25 1.25 0 0 1 6 3.75Z" />
+                  </svg>
+                </div>
+                <div class="tm-report-card__body">
+                  <div class="tm-report-card__title">
+                    <strong>{{ report.reportType }}</strong>
+                    <StatusPill :status="report.status" compact />
+                  </div>
+                  <p>
+                    {{ report.summary || 'No AI summary is available for this linked report yet.' }}
+                  </p>
+                  <small>
+                    {{ report.webhookLabel }} · Received {{ relativeTime(report.receivedAt) }} ·
+                    Linked {{ relativeTime(report.linkedAt) }}
+                  </small>
+                </div>
+                <div class="tm-report-card__actions" @click.stop>
+                  <button type="button" class="tm-table-action" @click="openWebhookReportSummary(report)">
+                    Summary
+                  </button>
+                  <button
+                    v-if="authStore.isAdmin"
+                    type="button"
+                    class="tm-table-action"
+                    @click="openWebhookInboxReport(report.messageId)"
+                  >
+                    Inbox
+                  </button>
+                </div>
+              </article>
+            </div>
+            <div v-else class="tm-report-empty">
+              <span aria-hidden="true">⌁</span>
+              <strong>No linked reports yet.</strong>
+              <p>Use the webhook inbox link action to associate crash or script error reports.</p>
+            </div>
+          </section>
+
           <section v-else class="tm-detail-section">
             <div class="tm-history">
               <article v-for="event in activeChange.history" :key="event.id">
@@ -2416,6 +2477,62 @@
         </div>
       </section>
     </div>
+
+    <div
+      v-if="selectedWebhookReport"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="webhook-report-title"
+      @click.self="closeWebhookReportSummary"
+    >
+      <section class="tm-modal__panel tm-webhook-report-modal">
+        <div class="tm-panel__header">
+          <div>
+            <p class="tm-modal-eyebrow">Linked Webhook Report</p>
+            <h2 id="webhook-report-title">{{ selectedWebhookReport.reportType }}</h2>
+            <p>
+              {{ selectedWebhookReport.webhookLabel }} ·
+              {{ formatDateTime(selectedWebhookReport.receivedAt) }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-btn"
+            aria-label="Close"
+            @click="closeWebhookReportSummary"
+          >
+            ×
+          </button>
+        </div>
+        <div class="tm-webhook-report-modal__body">
+          <div class="tm-webhook-report-modal__status">
+            <StatusPill :status="selectedWebhookReport.status" compact />
+            <span v-if="selectedWebhookReport.aiReviewStatus">
+              AI review: {{ selectedWebhookReport.aiReviewStatus }}
+            </span>
+            <span v-else>No AI review recorded</span>
+          </div>
+          <p>
+            {{
+              selectedWebhookReport.summary ||
+              'No AI summary is available for this report yet. Open the inbox record for the full payload and processing history.'
+            }}
+          </p>
+        </div>
+        <footer class="tm-modal__footer">
+          <button type="button" class="tm-btn" @click="closeWebhookReportSummary">Close</button>
+          <button
+            v-if="authStore.isAdmin"
+            type="button"
+            class="tm-btn tm-btn--primary"
+            @click="openWebhookInboxReport(selectedWebhookReport.messageId)"
+          >
+            Open Inbox Record
+          </button>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -2444,6 +2561,7 @@ import {
   type TestChangePriority,
   type TestChangePullRequest,
   type TestChangeStatus,
+  type TestChangeWebhookReport,
   type TestManagerDiscordEventKey,
   type TestManagerDashboard,
   type TestManagerSettings,
@@ -2500,7 +2618,7 @@ const changesGrid = ref<HTMLElement | null>(null);
 const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
 const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
 const changeTooltip = ref<ChangeTooltipState | null>(null);
-const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'History'>('Overview');
+const detailTab = ref<'Overview' | 'Testers' | 'Coverage' | 'Reports' | 'History'>('Overview');
 const changeStatusFilter = ref<TestChangeListStatusFilter>('ACTIVE');
 const changeSearch = ref('');
 const userSearch = ref('');
@@ -2553,6 +2671,7 @@ const checklistNotePromptItemId = ref<string | null>(null);
 const checklistAddOpen = ref(false);
 const checklistAddSaving = ref(false);
 const coverageNote = ref<CoverageNoteView | null>(null);
+const selectedWebhookReport = ref<TestChangeWebhookReport | null>(null);
 const resultActionConfirm = ref<ResultActionConfirm | null>(null);
 const resultActionPending = ref(false);
 const developerActionConfirm = ref<DeveloperActionConfirm | null>(null);
@@ -2586,7 +2705,7 @@ const changeStatuses: TestChangeStatus[] = [
   'RENEWED',
   'CLOSED'
 ];
-const detailTabs = ['Overview', 'Testers', 'Coverage', 'History'] as const;
+const detailTabs = ['Overview', 'Testers', 'Coverage', 'Reports', 'History'] as const;
 type DetailTab = (typeof detailTabs)[number];
 const subnavItems = [
   {
@@ -4965,6 +5084,31 @@ function closeCoverageNote() {
   coverageNote.value = null;
 }
 
+function openWebhookReportSummary(report: TestChangeWebhookReport) {
+  selectedWebhookReport.value = report;
+}
+
+function closeWebhookReportSummary() {
+  selectedWebhookReport.value = null;
+}
+
+async function openWebhookInboxReport(messageId: string) {
+  await router.push({
+    path: '/admin/webhooks',
+    query: { messageId }
+  });
+}
+
+async function refreshActiveChangeReportDetails() {
+  if (detailTab.value !== 'Reports' || !activeChange.value) {
+    return;
+  }
+
+  const updated = await api.fetchTestChange(activeChange.value.id);
+  selectedChange.value = updated;
+  replaceCachedChange(updated);
+}
+
 function coverageCellClass(tester: TestChange['testers'][number], checklistItemId: string) {
   const entry = testerChecklistEntry(tester, checklistItemId);
   if (entry?.completed) {
@@ -5784,6 +5928,11 @@ watch(totalUserPages, (pages) => {
     userPage.value = pages;
   }
 });
+watch(detailTab, (tab) => {
+  if (tab === 'Reports') {
+    void refreshActiveChangeReportDetails();
+  }
+});
 watch(
   () => activeChange.value?.id,
   () => {
@@ -5795,7 +5944,11 @@ watch(
     testerStatusFilter.value = 'All Statuses';
     testerResultFilter.value = 'All Results';
     testerAssignmentFilter.value = 'All Assignments';
+    selectedWebhookReport.value = null;
     notesEditor.value?.clear();
+    if (detailTab.value === 'Reports') {
+      void refreshActiveChangeReportDetails();
+    }
   }
 );
 onMounted(() => {
@@ -9370,6 +9523,148 @@ onBeforeUnmount(() => {
   --tm-priority-color: var(--tm-blue);
   --tm-priority-bg: rgba(85, 183, 255, 0.13);
   --tm-priority-glow: rgba(85, 183, 255, 0.17);
+}
+
+.tm-report-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.tm-report-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.85rem;
+  border: 1px solid rgba(85, 183, 255, 0.16);
+  background:
+    linear-gradient(135deg, rgba(85, 183, 255, 0.08), rgba(255, 255, 255, 0.018)),
+    rgba(5, 13, 20, 0.72);
+  color: var(--tm-text);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    transform 0.12s ease,
+    background 0.16s ease;
+}
+
+.tm-report-card:hover,
+.tm-report-card:focus-visible {
+  border-color: rgba(85, 183, 255, 0.46);
+  background:
+    linear-gradient(135deg, rgba(85, 183, 255, 0.12), rgba(255, 255, 255, 0.026)),
+    rgba(8, 18, 29, 0.86);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.tm-report-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 1px solid rgba(85, 183, 255, 0.26);
+  background: rgba(85, 183, 255, 0.1);
+  color: var(--tm-blue);
+}
+
+.tm-report-card__icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.tm-report-card__body {
+  min-width: 0;
+}
+
+.tm-report-card__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.tm-report-card__title strong,
+.tm-report-card__body p,
+.tm-report-card__body small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tm-report-card__body p {
+  display: -webkit-box;
+  margin: 0.28rem 0;
+  color: var(--tm-text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tm-report-card__body small {
+  display: block;
+  color: var(--tm-muted);
+  white-space: nowrap;
+}
+
+.tm-report-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.tm-report-empty {
+  display: grid;
+  place-items: center;
+  gap: 0.35rem;
+  min-height: 9rem;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--tm-muted);
+  text-align: center;
+}
+
+.tm-report-empty span {
+  color: var(--tm-blue);
+  font-size: 1.8rem;
+}
+
+.tm-report-empty strong {
+  color: var(--tm-text);
+}
+
+.tm-report-empty p {
+  margin: 0;
+}
+
+.tm-webhook-report-modal {
+  width: min(640px, calc(100vw - 2rem));
+}
+
+.tm-webhook-report-modal__body {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.tm-webhook-report-modal__body p {
+  margin: 0;
+  color: var(--tm-text);
+  line-height: 1.6;
+}
+
+.tm-webhook-report-modal__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .tm-history {

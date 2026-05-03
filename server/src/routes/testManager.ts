@@ -23,6 +23,7 @@ import {
   getTestChange,
   getTestManagerDashboard,
   getTestManagerSettings,
+  linkWebhookReportToTestChange,
   listNextPatchChanges,
   listTestChanges,
   listTestManagerUsers,
@@ -34,6 +35,7 @@ import {
   setTestChangeNextPatch,
   setTestChangeStatus,
   submitTesterResult,
+  unlinkWebhookReportFromTestChange,
   updateTestChange,
   updateTesterChecklistProgress,
   updateTestManagerSettings,
@@ -250,6 +252,61 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update change.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/changes/:changeId/webhook-reports',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({ messageId: z.string().min(1) });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid webhook report link payload.');
+      }
+
+      try {
+        const change = await linkWebhookReportToTestChange(
+          request.user.userId,
+          params.data.changeId,
+          body.data.messageId
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to link webhook report.'
+        );
+      }
+    }
+  );
+
+  server.delete(
+    '/changes/:changeId/webhook-reports/:messageId',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        messageId: z.string().min(1)
+      });
+      const params = paramsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.badRequest('Invalid webhook report unlink payload.');
+      }
+
+      try {
+        const change = await unlinkWebhookReportFromTestChange(
+          request.user.userId,
+          params.data.changeId,
+          params.data.messageId
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to unlink webhook report.'
         );
       }
     }

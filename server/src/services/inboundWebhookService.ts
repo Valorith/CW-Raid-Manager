@@ -473,6 +473,23 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
       labelAssignments: {
         include: { label: true }
       },
+      testChangeLinks: {
+        include: {
+          linkedBy: {
+            select: { id: true, displayName: true, nickname: true, email: true }
+          },
+          change: {
+            select: {
+              id: true,
+              publicId: true,
+              title: true,
+              status: true,
+              priority: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      },
       readStatuses: userId
         ? { where: { userId }, take: 1 }
         : false,
@@ -488,9 +505,20 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
   return {
     ...message,
     labels: message.labelAssignments.map((la) => la.label),
+    linkedTestChanges: message.testChangeLinks.map((link) => ({
+      id: link.id,
+      changeId: link.changeId,
+      publicId: link.change.publicId,
+      title: link.change.title,
+      status: link.change.status,
+      priority: link.change.priority,
+      linkedAt: link.createdAt.toISOString(),
+      linkedBy: link.linkedBy
+    })),
     isRead: userId && message.readStatuses ? message.readStatuses.length > 0 : undefined,
     isStarred: userId && message.stars ? message.stars.length > 0 : undefined,
     labelAssignments: undefined,
+    testChangeLinks: undefined,
     readStatuses: undefined,
     stars: undefined
   };
@@ -646,6 +674,132 @@ export async function retryCrashReviewForMessage(
       data: { status: 'FAILED' }
     });
     await sendFallbackDiscordAlert(messageId, webhook, message.payload, message.rawBody, error);
+  }
+
+  return getInboundWebhookMessage(messageId);
+}
+
+function getLatestCrashReviewResult(
+  runs: Array<{
+    status: string;
+    result: Prisma.JsonValue | null;
+    createdAt: Date;
+    action: { type: InboundWebhookActionType } | null;
+  }>
+): Prisma.JsonObject | null {
+  const reviewRun = [...runs]
+    .filter(
+      (run) =>
+        run.action?.type === 'CRASH_REVIEW' &&
+        run.status === 'SUCCESS' &&
+        run.result &&
+        typeof run.result === 'object' &&
+        !Array.isArray(run.result)
+    )
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+
+  if (!reviewRun || !reviewRun.result || Array.isArray(reviewRun.result)) {
+    return null;
+  }
+
+  return reviewRun.result as Prisma.JsonObject;
+}
+
+function buildManualDiscordPayload(
+  payload: Prisma.JsonValue,
+  review: Prisma.JsonObject
+): Prisma.JsonObject {
+  const basePayload =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? { ...(payload as Prisma.JsonObject) }
+      : ({ payload } as Prisma.JsonObject);
+
+  return {
+    ...basePayload,
+    crashReview: review,
+    _manualDiscordRelay: true,
+    _manualDiscordRelayAt: new Date().toISOString()
+  };
+}
+
+export async function sendManualDiscordSummaryForMessage(messageId: string) {
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    include: {
+      webhook: {
+        include: {
+          actions: {
+            orderBy: { sortOrder: 'asc' }
+          }
+        }
+      },
+      actionRuns: {
+        include: {
+          action: true
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  if (!message) {
+    throw new Error('Webhook message not found.');
+  }
+
+  const discordAction = message.webhook.actions.find(
+    (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+  );
+  if (!discordAction) {
+    throw new Error('Enabled Discord relay action is not configured.');
+  }
+
+  const discordConfig = normalizeActionConfig(discordAction.config);
+  const discordUrl = getDiscordUrl(discordConfig, message.webhook.devMode);
+  if (!discordUrl?.trim()) {
+    throw new Error(
+      message.webhook.devMode
+        ? 'Dev Discord webhook URL is not configured.'
+        : 'Discord webhook URL is not configured.'
+    );
+  }
+
+  const review = getLatestCrashReviewResult(message.actionRuns);
+  const summary = typeof review?.summary === 'string' ? review.summary.trim() : '';
+  if (!review || !summary) {
+    throw new Error('A completed AI review summary is required before sending to Discord.');
+  }
+
+  const startedAt = Date.now();
+  const enrichedPayload = buildManualDiscordPayload(message.payload, review);
+
+  try {
+    await sendDiscordRelay(discordUrl.trim(), enrichedPayload, discordConfig, messageId);
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'SUCCESS',
+        result: {
+          manual: true,
+          target: message.webhook.devMode ? 'DEV_DISCORD' : 'PRIMARY_DISCORD'
+        },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'SUCCESS');
+  } catch (error) {
+    await prisma.inboundWebhookActionRun.create({
+      data: {
+        messageId,
+        actionId: discordAction.id,
+        status: 'FAILED',
+        error: error instanceof Error ? error.message : 'Unknown Discord error',
+        result: { manual: true },
+        durationMs: Date.now() - startedAt
+      }
+    });
+    await updateActionSummary(messageId, discordAction.id, 'FAILED');
+    throw error;
   }
 
   return getInboundWebhookMessage(messageId);
@@ -2436,6 +2590,23 @@ export async function listInboundWebhookMessagesEnhanced(options: {
         labelAssignments: {
           include: { label: true }
         },
+        testChangeLinks: {
+          include: {
+            linkedBy: {
+              select: { id: true, displayName: true, nickname: true, email: true }
+            },
+            change: {
+              select: {
+                id: true,
+                publicId: true,
+                title: true,
+                status: true,
+                priority: true
+              }
+            }
+          },
+          orderBy: { createdAt: 'desc' }
+        },
         readStatuses: {
           where: { userId },
           take: 1
@@ -2462,10 +2633,21 @@ export async function listInboundWebhookMessagesEnhanced(options: {
     isRead: msg.readStatuses.length > 0,
     isStarred: msg.stars.length > 0,
     labels: msg.labelAssignments.map((la) => la.label),
+    linkedTestChanges: msg.testChangeLinks.map((link) => ({
+      id: link.id,
+      changeId: link.changeId,
+      publicId: link.change.publicId,
+      title: link.change.title,
+      status: link.change.status,
+      priority: link.change.priority,
+      linkedAt: link.createdAt.toISOString(),
+      linkedBy: link.linkedBy
+    })),
     // Clean up internal fields
     readStatuses: undefined,
     stars: undefined,
-    labelAssignments: undefined
+    labelAssignments: undefined,
+    testChangeLinks: undefined
   }));
 
   return { messages: enhancedMessages, total };

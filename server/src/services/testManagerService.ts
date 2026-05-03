@@ -1,4 +1,5 @@
 import {
+  InboundWebhookActionType,
   Prisma,
   TestAssignmentKind,
   TestChangePriority,
@@ -685,7 +686,7 @@ async function appendHistory(
   });
 }
 
-const changeInclude = {
+const baseChangeInclude = {
   createdBy: {
     select: {
       id: true,
@@ -798,9 +799,174 @@ const changeInclude = {
   }
 };
 
-type ChangeRecord = Prisma.TestChangeGetPayload<{ include: typeof changeInclude }>;
+const webhookReportInclude = {
+  orderBy: { createdAt: 'desc' as const },
+  include: {
+    linkedBy: {
+      select: {
+        id: true,
+        displayName: true,
+        nickname: true,
+        email: true,
+        admin: true,
+        guide: true,
+        tester: true
+      }
+    },
+    message: {
+      select: {
+        id: true,
+        webhookId: true,
+        receivedAt: true,
+        status: true,
+        webhook: {
+          select: {
+            id: true,
+            label: true
+          }
+        },
+        labelAssignments: {
+          include: { label: true }
+        },
+        actionRuns: {
+          where: {
+            action: { type: InboundWebhookActionType.CRASH_REVIEW }
+          },
+          select: {
+            id: true,
+            status: true,
+            result: true,
+            createdAt: true,
+            action: {
+              select: { type: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' as const },
+          take: 3
+        }
+      }
+    }
+  }
+};
 
-function serializeChange(change: ChangeRecord, viewerUserId?: string) {
+const changeInclude = {
+  ...baseChangeInclude,
+  webhookReports: webhookReportInclude
+};
+
+const changeListInclude = {
+  ...baseChangeInclude,
+  webhookReports: {
+    orderBy: { createdAt: 'desc' as const },
+    select: {
+      id: true,
+      messageId: true,
+      changeId: true,
+      linkedById: true,
+      createdAt: true,
+      linkedBy: {
+        select: {
+          id: true,
+          displayName: true,
+          nickname: true,
+          email: true,
+          admin: true,
+          guide: true,
+          tester: true
+        }
+      },
+      message: {
+        select: {
+          id: true,
+          webhookId: true,
+          receivedAt: true,
+          status: true,
+          webhook: {
+            select: { id: true, label: true }
+          }
+        }
+      }
+    }
+  }
+};
+
+type ChangeRecord = Prisma.TestChangeGetPayload<{ include: typeof changeInclude }>;
+type ChangeListRecord = Prisma.TestChangeGetPayload<{ include: typeof changeListInclude }>;
+type ChangeSerializeRecord = ChangeRecord | ChangeListRecord;
+
+type WebhookReportLinkRecord = ChangeRecord['webhookReports'][number];
+type WebhookReportListLinkRecord = ChangeListRecord['webhookReports'][number];
+
+function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function latestCrashReviewRun(link: WebhookReportLinkRecord) {
+  return link.message.actionRuns[0] ?? null;
+}
+
+function webhookReportSummary(link: WebhookReportLinkRecord): string | null {
+  const result = jsonObject(latestCrashReviewRun(link)?.result);
+  const summary = result && typeof result.summary === 'string' ? result.summary.trim() : '';
+  return summary.length > 0 ? summary : null;
+}
+
+function webhookReportType(link: WebhookReportLinkRecord): string {
+  const label = link.message.labelAssignments
+    .map((assignment) => assignment.label.name)
+    .find((name) => /crash|script|error/i.test(name));
+  if (label) {
+    return label;
+  }
+
+  return latestCrashReviewRun(link) ? 'AI-reviewed report' : 'Webhook report';
+}
+
+function serializeWebhookReportLink(link: WebhookReportLinkRecord) {
+  const run = latestCrashReviewRun(link);
+  const summary = webhookReportSummary(link);
+  return {
+    id: link.id,
+    messageId: link.messageId,
+    webhookId: link.message.webhookId,
+    webhookLabel: link.message.webhook?.label ?? 'Webhook',
+    receivedAt: link.message.receivedAt.toISOString(),
+    status: link.message.status,
+    reportType: webhookReportType(link),
+    summary,
+    aiReviewStatus: run?.status ?? null,
+    hasAiReview: Boolean(run),
+    linkedAt: link.createdAt.toISOString(),
+    linkedBy: serializeUser(link.linkedBy)
+  };
+}
+
+function serializeWebhookReportListLink(link: WebhookReportListLinkRecord) {
+  return {
+    id: link.id,
+    messageId: link.messageId,
+    webhookId: link.message.webhookId,
+    webhookLabel: link.message.webhook?.label ?? 'Webhook',
+    receivedAt: link.message.receivedAt.toISOString(),
+    status: link.message.status,
+    reportType: 'Webhook report',
+    summary: null,
+    aiReviewStatus: null,
+    hasAiReview: false,
+    linkedAt: link.createdAt.toISOString(),
+    linkedBy: serializeUser(link.linkedBy)
+  };
+}
+
+function hasDetailedWebhookReport(
+  link: WebhookReportLinkRecord | WebhookReportListLinkRecord
+): link is WebhookReportLinkRecord {
+  return 'labelAssignments' in link.message && 'actionRuns' in link.message;
+}
+
+function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
   const testerRows = change.testers.map((tester) => ({
     id: tester.id,
     assignment: tester.assignment,
@@ -882,6 +1048,11 @@ function serializeChange(change: ChangeRecord, viewerUserId?: string) {
       createdAt: event.createdAt.toISOString(),
       actor: serializeUser(event.actor)
     })),
+    webhookReports: change.webhookReports.map((link) =>
+      hasDetailedWebhookReport(link)
+        ? serializeWebhookReportLink(link)
+        : serializeWebhookReportListLink(link)
+    ),
     summary: {
       testerCount: testerRows.length,
       requiredTesterCount: testerRows.filter(
@@ -1556,7 +1727,7 @@ export async function getTestManagerDashboard(userId: string) {
     prisma.testChange.findMany({
       orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
       take: 100,
-      include: changeInclude
+      include: changeListInclude
     })
   ]);
 
@@ -1635,7 +1806,7 @@ export async function listTestChanges(
   const changes = await prisma.testChange.findMany({
     where,
     orderBy: [{ updatedAt: 'desc' }],
-    include: changeInclude
+    include: changeListInclude
   });
 
   return { changes: changes.map((change) => serializeChange(change, userId)) };
@@ -1655,7 +1826,7 @@ export async function listNextPatchChanges(userId: string, view: NextPatchChange
             }
     },
     orderBy: [{ closedAt: 'desc' }, { updatedAt: 'desc' }, { publicId: 'asc' }],
-    include: changeInclude
+    include: changeListInclude
   });
 
   return { changes: changes.map((change) => serializeChange(change, userId)) };
@@ -1685,6 +1856,77 @@ export async function getTestChange(changeId: string, userId: string) {
   });
 
   return change ? serializeChange(change, userId) : null;
+}
+
+async function resolveTestChangeId(changeId: string): Promise<string | null> {
+  const change = await prisma.testChange.findFirst({
+    where: {
+      OR: [{ id: changeId }, { publicId: Number.isNaN(Number(changeId)) ? -1 : Number(changeId) }]
+    },
+    select: { id: true }
+  });
+
+  return change?.id ?? null;
+}
+
+export async function linkWebhookReportToTestChange(
+  actorUserId: string,
+  changeId: string,
+  messageId: string
+) {
+  await ensureAdmin(actorUserId);
+
+  const resolvedChangeId = await resolveTestChangeId(changeId);
+  if (!resolvedChangeId) {
+    throw new Error('Change not found.');
+  }
+
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    select: { id: true }
+  });
+  if (!message) {
+    throw new Error('Webhook report not found.');
+  }
+
+  await prisma.testChangeWebhookReport.upsert({
+    where: {
+      changeId_messageId: {
+        changeId: resolvedChangeId,
+        messageId
+      }
+    },
+    update: {},
+    create: {
+      changeId: resolvedChangeId,
+      messageId,
+      linkedById: actorUserId
+    }
+  });
+
+  return getTestChange(resolvedChangeId, actorUserId);
+}
+
+export async function unlinkWebhookReportFromTestChange(
+  actorUserId: string,
+  changeId: string,
+  messageId: string
+) {
+  await ensureAdmin(actorUserId);
+
+  const resolvedChangeId = await resolveTestChangeId(changeId);
+  if (!resolvedChangeId) {
+    throw new Error('Change not found.');
+  }
+
+  await prisma.testChangeWebhookReport.deleteMany({
+    where: {
+      changeId: resolvedChangeId,
+      messageId
+    }
+  });
+
+  return getTestChange(resolvedChangeId, actorUserId);
 }
 
 export async function createTestChange(

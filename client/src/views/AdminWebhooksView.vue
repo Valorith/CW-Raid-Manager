@@ -1402,6 +1402,55 @@
                         View
                       </button>
                       <button
+                        class="icon-button icon-button--discord-send"
+                        type="button"
+                        :disabled="
+                          !getDiscordSummarySendState(message).canSend ||
+                          isSendingDiscordSummary(message.id)
+                        "
+                        :title="getDiscordSummarySendState(message).title"
+                        aria-label="Send Discord summary"
+                        @click.stop="sendDiscordSummary(message)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M5 12h12m-5.5-5.5L17 12l-5.5 5.5"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        class="icon-button icon-button--link"
+                        :class="{ 'icon-button--linked': message.linkedTestChanges?.length }"
+                        type="button"
+                        :title="
+                          message.linkedTestChanges?.length
+                            ? `${message.linkedTestChanges.length} linked Test Manager change${
+                                message.linkedTestChanges.length === 1 ? '' : 's'
+                              }`
+                            : 'Link to Test Manager change'
+                        "
+                        @click.stop="openReportLinkModal(message)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                          />
+                        </svg>
+                        <span v-if="message.linkedTestChanges?.length" class="link-count">{{
+                          message.linkedTestChanges.length
+                        }}</span>
+                      </button>
+                      <button
                         class="icon-button"
                         type="button"
                         :title="message.archivedAt ? 'Restore' : 'Archive'"
@@ -2045,6 +2094,78 @@
       </div>
     </div>
 
+    <!-- Link Report Modal -->
+    <div v-if="linkReportMessage" class="modal-backdrop" @click.self="closeReportLinkModal">
+      <div class="modal modal--link-report" role="dialog" aria-modal="true">
+        <header class="modal__header">
+          <div class="modal__titles">
+            <h3>Link To Test Manager</h3>
+            <p class="muted small">
+              Associate this report with an existing change record.
+            </p>
+          </div>
+          <button class="icon-button" @click="closeReportLinkModal" aria-label="Close">✕</button>
+        </header>
+        <div class="modal__body link-report-modal">
+          <section
+            v-if="linkReportMessage.linkedTestChanges?.length"
+            class="linked-change-summary"
+          >
+            <span class="linked-change-summary__label">Already linked</span>
+            <a
+              v-for="change in linkReportMessage.linkedTestChanges"
+              :key="change.id"
+              class="linked-change-chip"
+              :href="`/test-manager/changes/${change.changeId}?tab=Reports`"
+            >
+              #{{ change.publicId }} {{ change.title }}
+            </a>
+          </section>
+
+          <label class="form-field">
+            <span>Find Change</span>
+            <input
+              v-model="testChangeLinkSearch"
+              class="input"
+              type="search"
+              placeholder="Search title, category, subsystem, or description..."
+            />
+          </label>
+
+          <div class="change-link-results">
+            <p v-if="loadingTestChangeLinks" class="muted small">Loading changes...</p>
+            <button
+              v-for="change in testChangeLinkOptions"
+              :key="change.id"
+              class="change-link-option"
+              :class="{ 'change-link-option--linked': isReportLinkedToChange(change.id) }"
+              type="button"
+              :disabled="Boolean(linkingTestChangeId) || isReportLinkedToChange(change.id)"
+              @click="linkReportToChange(change)"
+            >
+              <span class="change-link-option__id">#{{ change.publicId }}</span>
+              <span class="change-link-option__body">
+                <strong>{{ change.title }}</strong>
+                <small>{{ change.category }} · {{ change.subsystem }}</small>
+              </span>
+              <span class="change-link-option__meta">
+                <span class="badge badge--neutral">{{ change.status }}</span>
+                <span v-if="isReportLinkedToChange(change.id)">Linked</span>
+                <span v-else-if="linkingTestChangeId === change.id">Linking...</span>
+                <span v-else>Link</span>
+              </span>
+            </button>
+            <p
+              v-if="!loadingTestChangeLinks && testChangeLinkOptions.length === 0"
+              class="muted small"
+            >
+              No active changes match this search.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Webhook Settings Modal -->
     <div
       v-if="showWebhookSettings"
@@ -2464,6 +2585,7 @@ import {
   type InboundWebhookMessageStatus,
   type InboundWebhookRetentionPolicy,
   type AdminUserSummary,
+  type TestChange,
   type WebhookMessageLabel,
   type CrashInspectionResult,
   type CrashSegmentSortResult
@@ -2507,12 +2629,20 @@ const sendingTestId = ref<string | null>(null);
 const showCreateWebhook = ref(false);
 const showTestPanel = ref(false);
 const retryingCrashId = ref<string | null>(null);
+const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
 const showPromptModal = ref(false);
 let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
 let messagePollTimer: ReturnType<typeof setInterval> | null = null;
 let inboxPollInFlight = false;
 
 const selectedMessage = ref<InboundWebhookMessage | null>(null);
+const linkReportMessage = ref<InboundWebhookMessage | null>(null);
+const testChangeLinkOptions = ref<TestChange[]>([]);
+const testChangeLinkSearch = ref('');
+const loadingTestChangeLinks = ref(false);
+const linkingTestChangeId = ref<string | null>(null);
+let testChangeLinkSearchTimer: ReturnType<typeof window.setTimeout> | null = null;
+let testChangeLinkLoadSequence = 0;
 
 // Email inbox-like features
 const selectedMessageIds = ref<Set<string>>(new Set());
@@ -3440,6 +3570,93 @@ async function loadLabels() {
   }
 }
 
+async function loadTestChangeLinkOptions() {
+  const sequence = ++testChangeLinkLoadSequence;
+  loadingTestChangeLinks.value = true;
+  try {
+    const changes = await api.fetchTestChanges({
+      status: 'ACTIVE',
+      search: testChangeLinkSearch.value.trim() || undefined
+    });
+    if (sequence === testChangeLinkLoadSequence) {
+      testChangeLinkOptions.value = changes.slice(0, 20);
+    }
+  } catch (err) {
+    console.error('Failed to load Test Manager changes:', err);
+    if (sequence === testChangeLinkLoadSequence) {
+      testChangeLinkOptions.value = [];
+    }
+  } finally {
+    if (sequence === testChangeLinkLoadSequence) {
+      loadingTestChangeLinks.value = false;
+    }
+  }
+}
+
+function openReportLinkModal(message: InboundWebhookMessage) {
+  linkReportMessage.value = message;
+  testChangeLinkSearch.value = '';
+  testChangeLinkOptions.value = [];
+  loadTestChangeLinkOptions();
+}
+
+function closeReportLinkModal() {
+  linkReportMessage.value = null;
+  testChangeLinkSearch.value = '';
+  testChangeLinkOptions.value = [];
+  linkingTestChangeId.value = null;
+  if (testChangeLinkSearchTimer) {
+    clearTimeout(testChangeLinkSearchTimer);
+    testChangeLinkSearchTimer = null;
+  }
+}
+
+function isReportLinkedToChange(changeId: string) {
+  return Boolean(
+    linkReportMessage.value?.linkedTestChanges?.some((link) => link.changeId === changeId)
+  );
+}
+
+async function refreshMessageAfterLink(messageId: string) {
+  const full = await api.fetchInboundWebhookMessage(messageId);
+  const inboxIndex = inboxMessages.value.findIndex((item) => item.id === messageId);
+  if (inboxIndex >= 0) {
+    inboxMessages.value[inboxIndex] = full;
+  }
+  if (selectedMessage.value?.id === messageId) {
+    selectedMessage.value = full;
+  }
+  if (linkReportMessage.value?.id === messageId) {
+    linkReportMessage.value = full;
+  }
+  return full;
+}
+
+async function linkReportToChange(change: TestChange) {
+  if (!linkReportMessage.value || linkingTestChangeId.value) {
+    return;
+  }
+
+  linkingTestChangeId.value = change.id;
+  try {
+    await api.linkWebhookReportToTestChange(change.id, linkReportMessage.value.id);
+    await refreshMessageAfterLink(linkReportMessage.value.id);
+    addToast({
+      title: 'Report Linked',
+      message: `Linked this webhook report to #${change.publicId}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Unable To Link Report',
+      message: error instanceof Error ? error.message : 'The report could not be linked.',
+      variant: 'error'
+    });
+  } finally {
+    linkingTestChangeId.value = null;
+  }
+}
+
 async function loadUnreadCount() {
   try {
     unreadCount.value = await api.fetchWebhookInboxUnreadCount(inboxFilters.webhookId || undefined);
@@ -3945,6 +4162,18 @@ watch(
   }
 );
 
+watch(testChangeLinkSearch, () => {
+  if (!linkReportMessage.value) {
+    return;
+  }
+  if (testChangeLinkSearchTimer) {
+    clearTimeout(testChangeLinkSearchTimer);
+  }
+  testChangeLinkSearchTimer = window.setTimeout(() => {
+    loadTestChangeLinkOptions();
+  }, 250);
+});
+
 function statusBadge(status: string) {
   switch (status) {
     case 'FAILED':
@@ -4148,6 +4377,55 @@ function getCrashRunResult(message: InboundWebhookMessage) {
     missingInfo?: string[];
     recommendedNextSteps?: string[];
   };
+}
+
+function getDiscordSummarySendState(message: InboundWebhookMessage): {
+  canSend: boolean;
+  title: string;
+} {
+  const discordAction = message.webhook?.actions?.find(
+    (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
+  );
+  if (!discordAction) {
+    return { canSend: false, title: 'Discord relay is not enabled for this endpoint.' };
+  }
+
+  const discordUrl = getActiveDiscordRelayUrl(discordAction, message.webhook);
+  if (!discordUrl) {
+    return { canSend: false, title: 'Discord webhook URL is not configured.' };
+  }
+  if (!isValidHttpUrl(discordUrl)) {
+    return { canSend: false, title: 'Discord webhook URL is not valid.' };
+  }
+
+  if (isCrashReviewPending(message)) {
+    return { canSend: false, title: 'AI review is still running.' };
+  }
+
+  const review = getCrashRunResult(message);
+  if (!review?.summary?.trim()) {
+    return { canSend: false, title: 'A completed AI review summary is required first.' };
+  }
+
+  if (isSendingDiscordSummary(message.id)) {
+    return { canSend: false, title: 'Sending Discord summary...' };
+  }
+
+  return { canSend: true, title: 'Send AI summary to Discord.' };
+}
+
+function isSendingDiscordSummary(messageId: string) {
+  return sendingDiscordSummaryIds.value.has(messageId);
+}
+
+function updateInboxMessage(updated: InboundWebhookMessage) {
+  if (selectedMessage.value?.id === updated.id) {
+    selectedMessage.value = updated;
+  }
+  const index = inboxMessages.value.findIndex((item) => item.id === updated.id);
+  if (index >= 0) {
+    inboxMessages.value[index] = { ...inboxMessages.value[index], ...updated };
+  }
 }
 
 /**
@@ -5067,6 +5345,34 @@ async function retryCrashReview(
   }
 }
 
+async function sendDiscordSummary(message: InboundWebhookMessage) {
+  const sendState = getDiscordSummarySendState(message);
+  if (!sendState.canSend || isSendingDiscordSummary(message.id)) {
+    return;
+  }
+
+  sendingDiscordSummaryIds.value.add(message.id);
+  sendingDiscordSummaryIds.value = new Set(sendingDiscordSummaryIds.value);
+
+  try {
+    const updated = await api.sendWebhookDiscordSummary(message.id);
+    updateInboxMessage(updated);
+    addToast({
+      title: 'Discord summary sent',
+      message: 'The AI summary was sent to the configured Discord webhook.'
+    });
+  } catch (error) {
+    const messageText =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Failed to send Discord summary';
+    addToast({ title: 'Error', message: messageText });
+  } finally {
+    sendingDiscordSummaryIds.value.delete(message.id);
+    sendingDiscordSummaryIds.value = new Set(sendingDiscordSummaryIds.value);
+  }
+}
+
 async function toggleArchive(message: InboundWebhookMessage) {
   const archived = !message.archivedAt;
   const updated = await api.archiveInboundWebhookMessage(message.id, archived);
@@ -5095,6 +5401,10 @@ function closeMessage() {
   if (messagePollTimer) {
     clearInterval(messagePollTimer);
     messagePollTimer = null;
+  }
+  if (testChangeLinkSearchTimer) {
+    clearTimeout(testChangeLinkSearchTimer);
+    testChangeLinkSearchTimer = null;
   }
 }
 
@@ -5265,6 +5575,10 @@ onBeforeUnmount(() => {
   if (messagePollTimer) {
     clearInterval(messagePollTimer);
     messagePollTimer = null;
+  }
+  if (testChangeLinkSearchTimer) {
+    clearTimeout(testChangeLinkSearchTimer);
+    testChangeLinkSearchTimer = null;
   }
   stopProcessingStatusPolling();
   document.removeEventListener('click', handleGlobalClick);
@@ -7048,6 +7362,17 @@ input[type='checkbox']:checked::after {
   transform: translateY(-1px);
 }
 
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.icon-button:disabled:hover {
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: none;
+}
+
 .icon-button svg {
   width: 1rem;
   height: 1rem;
@@ -7056,6 +7381,46 @@ input[type='checkbox']:checked::after {
 .icon-button--danger {
   border-color: rgba(248, 113, 113, 0.5);
   color: rgba(248, 113, 113, 0.9);
+}
+
+.icon-button--link {
+  position: relative;
+}
+
+.icon-button--discord-send {
+  border-color: rgba(96, 165, 250, 0.5);
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.3), rgba(14, 165, 233, 0.18)),
+    rgba(15, 23, 42, 0.78);
+  color: #bfdbfe;
+}
+
+.icon-button--discord-send:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.72);
+  box-shadow: 0 12px 26px rgba(14, 116, 144, 0.22);
+}
+
+.icon-button--linked {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: rgba(37, 99, 235, 0.18);
+  color: #bfdbfe;
+}
+
+.link-count {
+  position: absolute;
+  right: -0.32rem;
+  top: -0.32rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.25rem;
+  border: 1px solid rgba(96, 165, 250, 0.6);
+  border-radius: 999px;
+  background: #1d4ed8;
+  color: #eff6ff;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 0.95rem;
+  text-align: center;
 }
 
 .status-cell {
@@ -8945,6 +9310,122 @@ input[type='checkbox']:checked::after {
 
 .merge-preview-footer .btn--outline {
   margin-right: auto;
+}
+
+.modal--link-report {
+  width: min(760px, calc(100vw - 2rem));
+}
+
+.link-report-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.linked-change-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.linked-change-summary__label {
+  color: #93c5fd;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.linked-change-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.74);
+  color: #e2e8f0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.change-link-results {
+  display: grid;
+  gap: 0.55rem;
+  max-height: 25rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.change-link-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.52);
+  color: #e2e8f0;
+  text-align: left;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.12s ease;
+}
+
+.change-link-option:not(:disabled):hover {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: rgba(30, 41, 59, 0.76);
+  transform: translateY(-1px);
+}
+
+.change-link-option--linked,
+.change-link-option:disabled {
+  cursor: default;
+  opacity: 0.74;
+}
+
+.change-link-option__id {
+  color: #7dd3fc;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.change-link-option__body {
+  min-width: 0;
+}
+
+.change-link-option__body strong,
+.change-link-option__body small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-link-option__body small {
+  margin-top: 0.18rem;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.change-link-option__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 /* Label manager modal */
