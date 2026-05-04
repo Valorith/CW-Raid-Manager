@@ -48,7 +48,7 @@ jobs:
         with:
           branch: codex/update-eqemu-oracle-context
           title: Update EQEmu Oracle review context
-          commit-message: chore: update eqemu oracle review context
+          commit-message: "chore: update eqemu oracle review context"
           body: |
             Regenerated the compact EQEmu Oracle review index.
 
