@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import { api, type ItemStats } from '../services/api';
 
 export interface TooltipItem {
-  itemId: number;
+  itemId?: number | null;
   itemName: string;
   itemIconId?: number | null;
   // Augment item IDs socketed in this item
@@ -24,6 +24,17 @@ interface CachedItemStats {
   stats: ItemStats;
   spellNames: Record<number, string>;
   fetchedAt: number;
+}
+
+interface CachedItemNameSearch {
+  result: ResolvedTooltipItem | null;
+  fetchedAt: number;
+}
+
+interface ResolvedTooltipItem {
+  itemId: number;
+  itemName: string;
+  itemIconId?: number | null;
 }
 
 export interface AugmentInfo {
@@ -51,6 +62,8 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
 
   // Cache
   const statsCache = new Map<number, CachedItemStats>();
+  const nameSearchCache = new Map<string, CachedItemNameSearch | null>();
+  let requestId = 0;
 
   // Computed
   const isVisible = computed(() => visible.value && currentItem.value !== null);
@@ -61,14 +74,62 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     return Date.now() - cached.fetchedAt < CACHE_TTL_MS;
   }
 
+  function isNameCacheValid(nameKey: string): boolean {
+    const cached = nameSearchCache.get(nameKey);
+    return Boolean(cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS);
+  }
+
+  async function resolveTooltipItem(item: TooltipItem): Promise<ResolvedTooltipItem | null> {
+    if (item.itemId && item.itemId > 0) {
+      return {
+        itemId: item.itemId,
+        itemName: item.itemName,
+        itemIconId: item.itemIconId
+      };
+    }
+
+    const itemName = item.itemName.trim();
+    if (!itemName) {
+      return null;
+    }
+
+    const nameKey = itemName.toLowerCase();
+    if (isNameCacheValid(nameKey)) {
+      const cached = nameSearchCache.get(nameKey);
+      return cached?.result ?? null;
+    }
+
+    const response = await api.searchItemsByName([itemName]);
+    const result = response.items[itemName] ?? null;
+    if (!result) {
+      nameSearchCache.set(nameKey, { result: null, fetchedAt: Date.now() });
+      return null;
+    }
+
+    const resolved = {
+      itemId: result.itemId,
+      itemName: result.itemName,
+      itemIconId: result.itemIconId ?? null
+    };
+    nameSearchCache.set(nameKey, { result: resolved, fetchedAt: Date.now() });
+
+    return {
+      itemId: resolved.itemId,
+      itemName: resolved.itemName,
+      itemIconId: resolved.itemIconId
+    };
+  }
+
   /**
    * Show the tooltip for an item at the specified position.
    */
   async function showTooltip(item: TooltipItem, pos: TooltipPosition) {
-    // Don't show tooltip for items without an ID
-    if (!item.itemId || item.itemId <= 0) {
+    const trimmedName = item.itemName.trim();
+    if ((!item.itemId || item.itemId <= 0) && !trimmedName) {
       return;
     }
+
+    const currentRequestId = ++requestId;
 
     // Cancel any pending hide to prevent flicker
     if (hideTimeoutId !== null) {
@@ -76,11 +137,40 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
       hideTimeoutId = null;
     }
 
-    currentItem.value = item;
+    currentItem.value = { ...item, itemName: trimmedName || item.itemName };
     position.value = pos;
     visible.value = true;
+    loading.value = true;
     error.value = null;
+    itemStats.value = null;
+    spellNames.value = {};
     augmentStats.value = [];
+
+    let resolvedItem: Awaited<ReturnType<typeof resolveTooltipItem>>;
+    try {
+      resolvedItem = await resolveTooltipItem(item);
+    } catch (err) {
+      if (currentRequestId !== requestId) return;
+      console.error('Failed to resolve item tooltip:', err);
+      error.value = 'Failed to resolve item';
+      loading.value = false;
+      return;
+    }
+
+    if (currentRequestId !== requestId) return;
+
+    if (!resolvedItem) {
+      error.value = 'Item not found';
+      loading.value = false;
+      return;
+    }
+
+    currentItem.value = {
+      ...item,
+      itemId: resolvedItem.itemId,
+      itemName: resolvedItem.itemName,
+      itemIconId: item.itemIconId ?? resolvedItem.itemIconId
+    };
 
     // Collect augment IDs
     const augmentIds: { slotIndex: number; itemId: number }[] = [];
@@ -98,8 +188,8 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
       augmentIds.push({ slotIndex: 6, itemId: item.augSlot6 });
 
     // Check cache first
-    if (isCacheValid(item.itemId)) {
-      const cached = statsCache.get(item.itemId)!;
+    if (isCacheValid(resolvedItem.itemId)) {
+      const cached = statsCache.get(resolvedItem.itemId)!;
       itemStats.value = cached.stats;
       spellNames.value = cached.spellNames;
       loading.value = false;
@@ -112,12 +202,13 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
     // Fetch item stats
     loading.value = true;
     try {
-      const response = await api.fetchItemStats(item.itemId);
+      const response = await api.fetchItemStats(resolvedItem.itemId);
+      if (currentRequestId !== requestId) return;
       itemStats.value = response.item;
       spellNames.value = response.spellNames;
 
       // Cache the result
-      statsCache.set(item.itemId, {
+      statsCache.set(resolvedItem.itemId, {
         stats: response.item,
         spellNames: response.spellNames,
         fetchedAt: Date.now()
@@ -207,6 +298,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
    * Hide the tooltip with a small delay to prevent flicker from hover transforms.
    */
   function hideTooltip() {
+    requestId += 1;
     // Use a small delay to prevent flicker when CSS transforms shift elements
     // If showTooltip is called before the delay expires, the hide is cancelled
     if (hideTimeoutId !== null) {
@@ -227,6 +319,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
    * Immediately hide the tooltip without delay (for cleanup scenarios).
    */
   function hideTooltipImmediate() {
+    requestId += 1;
     if (hideTimeoutId !== null) {
       clearTimeout(hideTimeoutId);
       hideTimeoutId = null;
@@ -244,6 +337,7 @@ export const useItemTooltipStore = defineStore('itemTooltip', () => {
    */
   function clearCache() {
     statsCache.clear();
+    nameSearchCache.clear();
   }
 
   /**

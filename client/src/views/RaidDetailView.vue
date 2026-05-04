@@ -1228,7 +1228,14 @@
               <span v-else class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
             </div>
             <div>
-              <p class="raid-loot-card__item">{{ entry.itemName }}</p>
+              <p
+                class="raid-loot-card__item"
+                @mouseenter="showItemTooltip($event, entry)"
+                @mousemove="updateTooltipPosition($event)"
+                @mouseleave="hideItemTooltip"
+              >
+                {{ entry.itemName }}
+              </p>
               <p class="raid-loot-card__looter">
                 <template v-if="entry.isGuildBank">
                   <span class="raid-loot-card__looter-name">{{ entry.displayLooterName }}</span>
@@ -2916,8 +2923,7 @@ function openInventory(characterName: string) {
 
 // Tooltip handlers for item icons
 function showItemTooltip(event: MouseEvent, entry: LootEntryDisplay) {
-  if (!entry.itemId) return;
-  tooltipStore.showTooltip(
+  void tooltipStore.showTooltip(
     { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId },
     { x: event.clientX, y: event.clientY }
   );

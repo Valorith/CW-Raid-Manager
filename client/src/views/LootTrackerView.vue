@@ -715,7 +715,14 @@
               <span v-else class="loot-card__emoji">{{ entry.emoji }}</span>
             </div>
             <div>
-              <p class="loot-card__item">{{ entry.itemName }}</p>
+              <p
+                class="loot-card__item"
+                @mouseenter="showItemTooltip($event, entry)"
+                @mousemove="updateTooltipPosition($event)"
+                @mouseleave="hideItemTooltip"
+              >
+                {{ entry.itemName }}
+              </p>
               <p class="loot-card__looter">
                 <template v-if="entry.isGuildBank">
                   <span class="loot-card__looter-name">{{ entry.displayLooterName }}</span>
@@ -1566,8 +1573,7 @@ function openInventory(characterName: string) {
 
 // Tooltip handlers for item icons
 function showItemTooltip(event: MouseEvent, entry: GroupedLootEntry) {
-  if (!entry.itemId) return;
-  tooltipStore.showTooltip(
+  void tooltipStore.showTooltip(
     { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId },
     { x: event.clientX, y: event.clientY }
   );
@@ -1582,8 +1588,7 @@ function hideItemTooltip() {
 }
 
 function showDispositionItemTooltip(event: MouseEvent, entry: LootDispositionEntry) {
-  if (!entry.itemId) return;
-  tooltipStore.showTooltip(
+  void tooltipStore.showTooltip(
     { itemId: entry.itemId, itemName: entry.itemName, itemIconId: entry.itemIconId ?? undefined },
     { x: event.clientX, y: event.clientY }
   );
@@ -1622,7 +1627,6 @@ function getDispositionBadgeClass(actionType: LootDispositionActionType): string
 }
 
 function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemState) {
-  if (!item.itemId) return;
   void tooltipStore.showTooltip(
     { itemId: item.itemId, itemName: item.itemName, itemIconId: item.itemIconId ?? undefined },
     { x: event.clientX, y: event.clientY }
@@ -1630,7 +1634,7 @@ function showLootCouncilItemTooltip(event: MouseEvent, item: LootCouncilItemStat
 }
 
 function showLootCouncilReplacingTooltip(event: MouseEvent, interest: LootCouncilInterestState) {
-  if (!interest.replacingItemId || !interest.replacing) return;
+  if (!interest.replacing) return;
   void tooltipStore.showTooltip(
     {
       itemId: interest.replacingItemId,
