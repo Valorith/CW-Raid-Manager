@@ -7,7 +7,7 @@
           <span class="brand__tagline">{{ APP_TAGLINE }}</span>
         </RouterLink>
       </div>
-      <nav class="nav">
+      <nav class="nav" :class="{ 'nav--dropdown-open': activeDropdown }">
         <!-- Dashboard -->
         <RouterLink v-if="authStore.isAuthenticated" to="/dashboard" class="nav__tab">
           <svg
@@ -979,6 +979,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
   min-width: 0;
 }
 
+.nav--dropdown-open {
+  overflow: visible;
+}
+
 .nav__item {
   position: relative;
 }
@@ -1826,6 +1830,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
     padding-right: 0.35rem;
   }
 
+  .nav--dropdown-open {
+    position: relative;
+    z-index: 1;
+    overflow: visible;
+  }
+
   .nav::-webkit-scrollbar {
     display: none;
   }
@@ -2052,6 +2062,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
     gap: 0.5rem;
     padding-bottom: 0.25rem;
     flex-wrap: nowrap;
+  }
+
+  .nav--dropdown-open {
+    overflow: visible;
   }
 
   .nav__tab,
