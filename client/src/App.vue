@@ -7,7 +7,7 @@
           <span class="brand__tagline">{{ APP_TAGLINE }}</span>
         </RouterLink>
       </div>
-      <nav class="nav" :class="{ 'nav--dropdown-open': activeDropdown }">
+      <nav class="nav">
         <!-- Dashboard -->
         <RouterLink v-if="authStore.isAuthenticated" to="/dashboard" class="nav__tab">
           <svg
@@ -75,41 +75,6 @@
               />
             </svg>
           </button>
-          <Transition name="dropdown">
-            <div v-if="primaryGuild && activeDropdown === 'guild'" class="nav__dropdown">
-              <RouterLink
-                v-if="canManageGuildSettings"
-                :to="{ name: 'GuildSettings', params: { guildId: primaryGuild.id } }"
-                class="nav__dropdown-item"
-              >
-                Settings
-              </RouterLink>
-              <RouterLink
-                :to="{ name: 'GuildMetrics', params: { guildId: primaryGuild.id } }"
-                class="nav__dropdown-item"
-              >
-                Metrics
-              </RouterLink>
-              <RouterLink
-                :to="{ name: 'GuildBank', params: { guildId: primaryGuild.id } }"
-                class="nav__dropdown-item"
-              >
-                Bank
-              </RouterLink>
-              <RouterLink
-                :to="{ name: 'GuildQuestTracker', params: { guildId: primaryGuild.id } }"
-                class="nav__dropdown-item"
-              >
-                Quest Tracker
-              </RouterLink>
-              <RouterLink
-                :to="{ name: 'GuildNpcRespawn', params: { guildId: primaryGuild.id } }"
-                class="nav__dropdown-item"
-              >
-                NPC Respawn
-              </RouterLink>
-            </div>
-          </Transition>
         </div>
 
         <!-- Raids -->
@@ -243,47 +208,6 @@
               />
             </svg>
           </button>
-          <Transition name="dropdown">
-            <div v-if="activeDropdown === 'admin'" class="nav__dropdown">
-              <RouterLink
-                v-if="authStore.isAdmin"
-                to="/admin/player-event-logs"
-                class="nav__dropdown-item"
-              >
-                Player Event Logs
-              </RouterLink>
-              <RouterLink to="/admin/connections" class="nav__dropdown-item">
-                Server Connections
-              </RouterLink>
-              <RouterLink
-                v-if="authStore.isAdmin"
-                to="/admin/money-tracker"
-                class="nav__dropdown-item"
-              >
-                Money Tracker
-              </RouterLink>
-              <RouterLink v-if="authStore.isAdmin" to="/admin/webhooks" class="nav__dropdown-item">
-                Webhook Inbox
-              </RouterLink>
-              <RouterLink v-if="authStore.isAdmin" to="/admin/bis" class="nav__dropdown-item">
-                BiS Moderation
-              </RouterLink>
-              <RouterLink
-                v-if="authStore.isAdmin"
-                to="/admin/metallurgy"
-                class="nav__dropdown-item"
-              >
-                Metallurgy Tracker
-              </RouterLink>
-              <RouterLink
-                v-if="authStore.isAdmin"
-                to="/admin/loot-management"
-                class="nav__dropdown-item"
-              >
-                ML Diagnostics
-              </RouterLink>
-            </div>
-          </Transition>
         </div>
       </nav>
       <div class="nav-alerts">
@@ -438,6 +362,98 @@
         </template>
       </div>
     </header>
+    <Teleport to="body">
+      <Transition name="dropdown">
+        <div
+          v-if="primaryGuild && activeDropdown === 'guild'"
+          ref="activeDropdownMenuRef"
+          class="nav__dropdown"
+          :style="navDropdownStyle"
+          @mouseenter="openDropdown('guild')"
+          @mouseleave="closeDropdown('guild')"
+        >
+          <RouterLink
+            v-if="canManageGuildSettings"
+            :to="{ name: 'GuildSettings', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            Settings
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'GuildMetrics', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            Metrics
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'GuildBank', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            Bank
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'GuildQuestTracker', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            Quest Tracker
+          </RouterLink>
+          <RouterLink
+            :to="{ name: 'GuildNpcRespawn', params: { guildId: primaryGuild.id } }"
+            class="nav__dropdown-item"
+          >
+            NPC Respawn
+          </RouterLink>
+        </div>
+      </Transition>
+      <Transition name="dropdown">
+        <div
+          v-if="activeDropdown === 'admin'"
+          ref="activeDropdownMenuRef"
+          class="nav__dropdown"
+          :style="navDropdownStyle"
+          @mouseenter="openDropdown('admin')"
+          @mouseleave="closeDropdown('admin')"
+        >
+          <RouterLink
+            v-if="authStore.isAdmin"
+            to="/admin/player-event-logs"
+            class="nav__dropdown-item"
+          >
+            Player Event Logs
+          </RouterLink>
+          <RouterLink to="/admin/connections" class="nav__dropdown-item">
+            Server Connections
+          </RouterLink>
+          <RouterLink
+            v-if="authStore.isAdmin"
+            to="/admin/money-tracker"
+            class="nav__dropdown-item"
+          >
+            Money Tracker
+          </RouterLink>
+          <RouterLink v-if="authStore.isAdmin" to="/admin/webhooks" class="nav__dropdown-item">
+            Webhook Inbox
+          </RouterLink>
+          <RouterLink v-if="authStore.isAdmin" to="/admin/bis" class="nav__dropdown-item">
+            BiS Moderation
+          </RouterLink>
+          <RouterLink
+            v-if="authStore.isAdmin"
+            to="/admin/metallurgy"
+            class="nav__dropdown-item"
+          >
+            Metallurgy Tracker
+          </RouterLink>
+          <RouterLink
+            v-if="authStore.isAdmin"
+            to="/admin/loot-management"
+            class="nav__dropdown-item"
+          >
+            ML Diagnostics
+          </RouterLink>
+        </div>
+      </Transition>
+    </Teleport>
     <div v-if="activeRaid" class="active-raid-banner">
       <div class="active-raid-banner__content">
         <div class="active-raid-banner__status">
@@ -490,7 +506,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue';
 import {
   RouterLink,
   RouterView,
@@ -535,6 +551,8 @@ const prefersHoverDropdowns = ref(
 
 const guildDropdownNavRef = ref<HTMLElement | null>(null);
 const adminDropdownNavRef = ref<HTMLElement | null>(null);
+const activeDropdownMenuRef = ref<HTMLElement | null>(null);
+const navDropdownStyle = ref<CSSProperties>({});
 
 let hoverDropdownMediaQuery: MediaQueryList | null = null;
 
@@ -544,12 +562,51 @@ function updateHoverDropdownPreference() {
     window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 }
 
-function openDropdown(name: string) {
+function getDropdownAnchor(name: string) {
+  if (name === 'guild') {
+    return guildDropdownNavRef.value;
+  }
+  if (name === 'admin') {
+    return adminDropdownNavRef.value;
+  }
+  return null;
+}
+
+function updateDropdownPosition(name = activeDropdown.value) {
+  if (typeof window === 'undefined' || !name) {
+    return;
+  }
+  const anchor = getDropdownAnchor(name);
+  if (!anchor) {
+    return;
+  }
+
+  const rect = anchor.getBoundingClientRect();
+  const margin = 12;
+  const measuredWidth = activeDropdownMenuRef.value?.offsetWidth;
+  const dropdownWidth = Math.max(180, measuredWidth ?? 220);
+  const maxLeft = Math.max(margin, window.innerWidth - dropdownWidth - margin);
+  const desiredLeft = rect.left + rect.width / 2 - dropdownWidth / 2;
+  const left = Math.min(Math.max(desiredLeft, margin), maxLeft);
+  const anchorCenter = rect.left + rect.width / 2;
+  const arrowLeft = Math.min(Math.max(anchorCenter - left, 18), dropdownWidth - 18);
+
+  navDropdownStyle.value = {
+    top: `${rect.bottom + 6}px`,
+    left: `${left}px`,
+    '--nav-dropdown-arrow-left': `${arrowLeft}px`
+  } as CSSProperties;
+}
+
+async function openDropdown(name: string) {
   if (dropdownTimeout) {
     clearTimeout(dropdownTimeout);
     dropdownTimeout = null;
   }
   activeDropdown.value = name;
+  updateDropdownPosition(name);
+  await nextTick();
+  updateDropdownPosition(name);
 }
 
 function closeDropdown(name: string) {
@@ -577,11 +634,22 @@ function onNavDropdownMouseLeave(name: string) {
   closeDropdown(name);
 }
 
-function toggleTouchDropdown(name: string) {
+async function toggleTouchDropdown(name: string) {
   if (prefersHoverDropdowns.value) {
     return;
   }
-  activeDropdown.value = activeDropdown.value === name ? null : name;
+  if (activeDropdown.value === name) {
+    activeDropdown.value = null;
+    return;
+  }
+  activeDropdown.value = name;
+  updateDropdownPosition(name);
+  await nextTick();
+  updateDropdownPosition(name);
+}
+
+function handleDropdownViewportChange() {
+  updateDropdownPosition();
 }
 
 function closeDropdownsFromOutside(target: Node) {
@@ -592,6 +660,9 @@ function closeDropdownsFromOutside(target: Node) {
     return;
   }
   if (adminDropdownNavRef.value?.contains(target)) {
+    return;
+  }
+  if (activeDropdownMenuRef.value?.contains(target)) {
     return;
   }
   activeDropdown.value = null;
@@ -790,6 +861,8 @@ onMounted(async () => {
   hoverDropdownMediaQuery.addEventListener('change', updateHoverDropdownPreference);
   document.addEventListener('pointerdown', onDocumentPointerDown, true);
   document.addEventListener('keydown', onDocumentKeydown, true);
+  window.addEventListener('resize', handleDropdownViewportChange);
+  window.addEventListener('scroll', handleDropdownViewportChange, true);
 
   await authStore.fetchCurrentUser();
   if (primaryGuild.value) {
@@ -815,6 +888,8 @@ onBeforeUnmount(() => {
   hoverDropdownMediaQuery = null;
   document.removeEventListener('pointerdown', onDocumentPointerDown, true);
   document.removeEventListener('keydown', onDocumentKeydown, true);
+  window.removeEventListener('resize', handleDropdownViewportChange);
+  window.removeEventListener('scroll', handleDropdownViewportChange, true);
 
   window.removeEventListener('active-raid-updated', handleActiveRaidEvent);
   window.removeEventListener('loot-assigned', handleLootAssigned as EventListener);
@@ -977,10 +1052,6 @@ function hasRaidStarted(raid: RaidEventSummary) {
   gap: 2px;
   align-items: center;
   min-width: 0;
-}
-
-.nav--dropdown-open {
-  overflow: visible;
 }
 
 .nav__item {
@@ -1202,11 +1273,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav__dropdown {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: none;
   min-width: 180px;
+  max-width: calc(100vw - 1.5rem);
   background: rgba(15, 23, 42, 0.98);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -1215,14 +1287,14 @@ function hasRaidStarted(raid: RaidEventSummary) {
   box-shadow:
     0 20px 40px rgba(0, 0, 0, 0.4),
     0 0 1px rgba(148, 163, 184, 0.3);
-  z-index: 10000;
+  z-index: 10050;
 }
 
 .nav__dropdown::before {
   content: '';
   position: absolute;
   top: -6px;
-  left: 50%;
+  left: var(--nav-dropdown-arrow-left, 50%);
   transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
@@ -1283,12 +1355,12 @@ function hasRaidStarted(raid: RaidEventSummary) {
 
 .dropdown-enter-from {
   opacity: 0;
-  transform: translateX(-50%) translateY(-8px) scale(0.96);
+  transform: translateY(-8px) scale(0.96);
 }
 
 .dropdown-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(-4px) scale(0.98);
+  transform: translateY(-4px) scale(0.98);
 }
 
 .nav-monitor {
@@ -1830,24 +1902,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
     padding-right: 0.35rem;
   }
 
-  .nav--dropdown-open {
-    position: relative;
-    z-index: 1;
-    overflow: visible;
-  }
-
   .nav::-webkit-scrollbar {
     display: none;
-  }
-
-  .nav__dropdown {
-    left: 0;
-    transform: none;
-  }
-
-  .nav__dropdown::before {
-    left: 24px;
-    transform: rotate(45deg);
   }
 
   .dropdown-enter-from,
@@ -2062,10 +2118,6 @@ function hasRaidStarted(raid: RaidEventSummary) {
     gap: 0.5rem;
     padding-bottom: 0.25rem;
     flex-wrap: nowrap;
-  }
-
-  .nav--dropdown-open {
-    overflow: visible;
   }
 
   .nav__tab,
