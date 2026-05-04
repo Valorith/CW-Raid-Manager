@@ -1188,6 +1188,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
     includeInNextPatch: change.includeInNextPatch,
+    autoClosePassCount: change.autoClosePassCount,
     dueAt: change.dueAt?.toISOString() ?? null,
     closedAt: change.closedAt?.toISOString() ?? null,
     createdAt: change.createdAt.toISOString(),
@@ -1566,6 +1567,65 @@ function ensureChangeAcceptsTestingNote<T extends { status: TestChangeStatus }>(
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('Testing notes can only be added while the change is open.');
   }
+}
+
+type AutoCloseResult = {
+  threshold: number;
+  passCount: number;
+};
+
+async function maybeAutoCloseChange(
+  tx: Prisma.TransactionClient,
+  changeId: string
+): Promise<AutoCloseResult | null> {
+  const change = await tx.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      status: true,
+      autoClosePassCount: true,
+      testers: {
+        select: { result: true }
+      }
+    }
+  });
+  if (!change || change.status === TestChangeStatus.CLOSED || change.autoClosePassCount <= 0) {
+    return null;
+  }
+
+  const passCount = change.testers.filter((tester) => tester.result === TestResult.PASS).length;
+  const hasBlockingReview = change.testers.some(
+    (tester) => tester.result === TestResult.FAIL || tester.result === TestResult.BLOCKED
+  );
+  if (hasBlockingReview || passCount < change.autoClosePassCount) {
+    return null;
+  }
+
+  const closedAt = new Date();
+  await tx.testChange.update({
+    where: { id: changeId },
+    data: {
+      status: TestChangeStatus.CLOSED,
+      closedAt,
+      closedById: null
+    }
+  });
+
+  await appendHistory(tx, {
+    changeId,
+    actorUserId: null,
+    eventType: TestHistoryEventType.CHANGE_CLOSED,
+    label: 'Change auto-closed',
+    detail: `Auto-closed after ${passCount} passing tester review${passCount === 1 ? '' : 's'} met the ${change.autoClosePassCount}-pass threshold.`,
+    metadata: {
+      autoClose: true,
+      passCount,
+      threshold: change.autoClosePassCount,
+      closedAt: closedAt.toISOString()
+    }
+  });
+
+  return { threshold: change.autoClosePassCount, passCount };
 }
 
 async function ensureSeedData(actorUserId: string): Promise<void> {
@@ -2114,6 +2174,7 @@ export async function createTestChange(
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
     includeInNextPatch?: boolean;
+    autoClosePassCount?: number;
     dueAt?: Date | null;
     assignedToId?: string | null;
     checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
@@ -2137,6 +2198,7 @@ export async function createTestChange(
         githubIssueUrl: githubIssue.githubIssueUrl,
         githubIssueMetadata: githubIssue.githubIssueMetadata,
         includeInNextPatch: input.includeInNextPatch ?? true,
+        autoClosePassCount: input.autoClosePassCount ?? 0,
         dueAt: input.dueAt ?? null,
         assignedToId: input.assignedToId ?? null,
         createdById: actorUserId,
@@ -2187,6 +2249,7 @@ export async function updateTestChange(
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
     includeInNextPatch?: boolean;
+    autoClosePassCount?: number;
     dueAt?: Date | null;
     assignedToId?: string | null;
   }
@@ -2205,6 +2268,7 @@ export async function updateTestChange(
       githubPrUrl: true,
       githubIssueUrl: true,
       includeInNextPatch: true,
+      autoClosePassCount: true,
       dueAt: true,
       assignedToId: true
     }
@@ -2215,6 +2279,9 @@ export async function updateTestChange(
 
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
+  const shouldEvaluateAutoClose =
+    typeof input.autoClosePassCount === 'number' &&
+    input.autoClosePassCount !== existing.autoClosePassCount;
   const data = {
     title: input.title.trim(),
     description: sanitizeRichText(input.description),
@@ -2229,11 +2296,14 @@ export async function updateTestChange(
     ...(typeof input.includeInNextPatch === 'boolean'
       ? { includeInNextPatch: input.includeInNextPatch }
       : {}),
+    ...(typeof input.autoClosePassCount === 'number'
+      ? { autoClosePassCount: input.autoClosePassCount }
+      : {}),
     dueAt: input.dueAt ?? null,
     assignedToId: input.assignedToId ?? null
   };
 
-  await prisma.$transaction(async (tx) => {
+  const autoCloseResult = await prisma.$transaction(async (tx) => {
     await tx.testChange.update({
       where: { id: changeId },
       data
@@ -2255,6 +2325,7 @@ export async function updateTestChange(
           githubPrUrl: existing.githubPrUrl,
           githubIssueUrl: existing.githubIssueUrl,
           includeInNextPatch: existing.includeInNextPatch,
+          autoClosePassCount: existing.autoClosePassCount,
           dueAt: existing.dueAt?.toISOString() ?? null,
           assignedToId: existing.assignedToId
         },
@@ -2270,14 +2341,37 @@ export async function updateTestChange(
             typeof data.includeInNextPatch === 'boolean'
               ? data.includeInNextPatch
               : existing.includeInNextPatch,
+          autoClosePassCount:
+            typeof data.autoClosePassCount === 'number'
+              ? data.autoClosePassCount
+              : existing.autoClosePassCount,
           dueAt: data.dueAt?.toISOString() ?? null,
           assignedToId: data.assignedToId
         }
       }
     });
+
+    if (shouldEvaluateAutoClose) {
+      return maybeAutoCloseChange(tx, changeId);
+    }
+    return null;
   });
 
-  return getTestChange(changeId, actorUserId);
+  const serialized = await getTestChange(changeId, actorUserId);
+  if (serialized && autoCloseResult) {
+    await notifyTestManagerDiscord({
+      event: 'change.closed',
+      actorUserId: null,
+      change: serialized,
+      detail: `Auto-closed after ${autoCloseResult.passCount} passing tester review${autoCloseResult.passCount === 1 ? '' : 's'} met the ${autoCloseResult.threshold}-pass threshold.`,
+      metadata: {
+        autoClose: true,
+        passCount: autoCloseResult.passCount,
+        threshold: autoCloseResult.threshold
+      }
+    });
+  }
+  return serialized;
 }
 
 export async function setTestChangeNextPatch(
@@ -2717,7 +2811,7 @@ export async function submitTesterResult(
 
   const status = input.result === TestResult.BLOCKED ? TestRunStatus.BLOCKED : TestRunStatus.DONE;
 
-  await prisma.$transaction(async (tx) => {
+  const autoCloseResult = await prisma.$transaction(async (tx) => {
     const tester = await tx.testChangeTester.update({
       where: { id: existing.id },
       data: {
@@ -2751,6 +2845,11 @@ export async function submitTesterResult(
       ).slice(0, 300),
       metadata: { result: input.result }
     });
+
+    if (input.result === TestResult.PASS) {
+      return maybeAutoCloseChange(tx, changeId);
+    }
+    return null;
   });
 
   const serialized = await getTestChange(changeId, actorUserId);
@@ -2764,6 +2863,19 @@ export async function submitTesterResult(
       ).slice(0, 300),
       metadata: { testerName: displayName(actor), result: input.result }
     });
+    if (autoCloseResult) {
+      await notifyTestManagerDiscord({
+        event: 'change.closed',
+        actorUserId: null,
+        change: serialized,
+        detail: `Auto-closed after ${autoCloseResult.passCount} passing tester review${autoCloseResult.passCount === 1 ? '' : 's'} met the ${autoCloseResult.threshold}-pass threshold.`,
+        metadata: {
+          autoClose: true,
+          passCount: autoCloseResult.passCount,
+          threshold: autoCloseResult.threshold
+        }
+      });
+    }
   }
   return serialized;
 }
@@ -2916,6 +3028,42 @@ export async function addTestChangeChecklistItem(
       eventType: TestHistoryEventType.CHECKLIST_UPDATED,
       label: 'Checklist item added',
       detail: `Checklist item "${checklistItem.title}" was added.`,
+      metadata: {
+        checklistItemId: checklistItem.id,
+        checklistItemTitle: checklistItem.title
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
+export async function deleteTestChangeChecklistItem(
+  actorUserId: string,
+  changeId: string,
+  checklistItemId: string
+) {
+  await ensureAdmin(actorUserId);
+
+  await prisma.$transaction(async (tx) => {
+    const checklistItem = await tx.testChangeChecklistItem.findFirst({
+      where: { id: checklistItemId, changeId },
+      select: { id: true, title: true }
+    });
+    if (!checklistItem) {
+      throw new Error('Checklist item not found for this change.');
+    }
+
+    await tx.testChangeChecklistItem.delete({
+      where: { id: checklistItem.id }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+      label: 'Checklist item deleted',
+      detail: `Checklist item "${checklistItem.title}" was deleted.`,
       metadata: {
         checklistItemId: checklistItem.id,
         checklistItemTitle: checklistItem.title

@@ -19,6 +19,7 @@ import {
   createTestChange,
   deleteChangeNote,
   deleteTestChange,
+  deleteTestChangeChecklistItem,
   ensureCanViewTestManager,
   getTestChange,
   getTestManagerDashboard,
@@ -157,6 +158,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         includeInNextPatch: z.boolean().optional(),
+        autoClosePassCount: z.number().int().min(0).max(99).optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional(),
         checklist: z
@@ -224,6 +226,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         includeInNextPatch: z.boolean().optional(),
+        autoClosePassCount: z.number().int().min(0).max(99).optional(),
         dueAt: z.string().datetime().nullable().optional(),
         assignedToId: z.string().nullable().optional()
       });
@@ -573,6 +576,34 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to submit result.'
+        );
+      }
+    }
+  );
+
+  server.delete(
+    '/changes/:changeId/checklist/:checklistItemId',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        changeId: z.string().min(1),
+        checklistItemId: z.string().min(1)
+      });
+      const params = paramsSchema.safeParse(request.params);
+      if (!params.success) {
+        return reply.badRequest('Invalid checklist item payload.');
+      }
+
+      try {
+        const change = await deleteTestChangeChecklistItem(
+          request.user.userId,
+          params.data.changeId,
+          params.data.checklistItemId
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to delete checklist item.'
         );
       }
     }

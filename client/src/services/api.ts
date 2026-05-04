@@ -3320,6 +3320,7 @@ export interface TestChange {
   githubPullRequest: TestChangePullRequest | null;
   githubIssue: TestChangeIssue | null;
   includeInNextPatch: boolean;
+  autoClosePassCount: number;
   dueAt: string | null;
   closedAt: string | null;
   createdAt: string;
@@ -3379,6 +3380,7 @@ export interface CreateTestChangePayload {
   githubPrUrl?: string | null;
   githubIssueUrl?: string | null;
   includeInNextPatch?: boolean;
+  autoClosePassCount?: number;
   dueAt?: string | null;
   assignedToId?: string | null;
   checklist: Array<{ title: string; details?: string | null; category?: string | null }>;
@@ -3543,6 +3545,17 @@ export const api = {
     const response = await axios.post(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist`,
       payload
+    );
+    return response.data.change;
+  },
+  async deleteTestChangeChecklistItem(
+    changeId: string,
+    checklistItemId: string
+  ): Promise<TestChange> {
+    const response = await axios.delete(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/checklist/${encodeURIComponent(
+        checklistItemId
+      )}`
     );
     return response.data.change;
   },

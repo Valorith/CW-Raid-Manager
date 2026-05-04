@@ -362,6 +362,14 @@
                 <span>Passed</span>
               </span>
             </div>
+            <div
+              v-if="change.autoClosePassCount > 0"
+              class="tm-change-card__auto-close"
+              :class="`tm-change-card__auto-close--${autoCloseTone(change)}`"
+            >
+              <span>{{ autoCloseListLabel(change) }}</span>
+              <strong>{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong>
+            </div>
             <p v-if="isViewerRequestedPending(change)" class="tm-change-card__request-strip">
               Your help testing this was requested.
             </p>
@@ -407,6 +415,23 @@
               <div class="tm-detail__kicker">
                 <p class="tm-id">Change #{{ activeChange.publicId }}</p>
                 <StatusPill :status="activeChange.status" compact />
+                <span
+                  class="tm-auto-close-badge"
+                  :class="`tm-auto-close-badge--${autoCloseTone(activeChange)}`"
+                  :title="autoCloseDetail(activeChange)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 3v4" />
+                    <path d="M12 17v4" />
+                    <path d="M5.6 5.6 8.4 8.4" />
+                    <path d="m15.6 15.6 2.8 2.8" />
+                    <path d="M3 12h4" />
+                    <path d="M17 12h4" />
+                    <path d="m5.6 18.4 2.8-2.8" />
+                    <path d="m15.6 8.4 2.8-2.8" />
+                  </svg>
+                  {{ autoCloseLabel(activeChange) }}
+                </span>
               </div>
               <p>
                 {{ activeChange.category }} / {{ activeChange.subsystem }} · Submitted by
@@ -833,6 +858,22 @@
                     }"
                   >
                     {{ isViewerChecklistItemComplete(item.id) ? 'Complete' : 'Pending' }}
+                  </span>
+                  <span v-if="authStore.isAdmin" class="tm-testing-checklist__delete">
+                    <button
+                      type="button"
+                      class="tm-checklist-delete-btn"
+                      :aria-label="`Delete checklist item ${item.title}`"
+                      :title="`Delete ${item.title}`"
+                      :disabled="isDeletingChecklistItem(item.id)"
+                      @click.stop="deleteChecklistItem(item)"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-1 6h8l-.6 11H8.6L8 9Zm2 2v7h1v-7h-1Zm3 0v7h1v-7h-1Z"
+                        />
+                      </svg>
+                    </button>
                   </span>
                 </div>
               </div>
@@ -1871,6 +1912,30 @@
                   <strong>Include in next patch</strong>
                   <small>Completed changes stay queued for the next deployment by default.</small>
                 </label>
+                <div class="tm-auto-close-control tm-field--full">
+                  <div class="tm-auto-close-control__header">
+                    <span aria-hidden="true">✓</span>
+                    <div>
+                      <strong>Auto-close on passes</strong>
+                      <small>{{ createAutoCloseDetail }}</small>
+                    </div>
+                  </div>
+                  <label class="tm-auto-close-control__input">
+                    <span>Pass target</span>
+                    <input
+                      v-model.number="createForm.autoClosePassCount"
+                      type="number"
+                      min="0"
+                      max="99"
+                      step="1"
+                      inputmode="numeric"
+                    />
+                  </label>
+                  <p>
+                    Set to 0 to keep auto-close disabled. Any fail or blocked review prevents
+                    automatic closing.
+                  </p>
+                </div>
               </div>
             </section>
 
@@ -2107,6 +2172,48 @@
                 <strong>Include in next patch</strong>
                 <small>When completed, this change appears on the Next Patch tab.</small>
               </label>
+              <div
+                class="tm-auto-close-control tm-field--full"
+                :class="{
+                  'tm-auto-close-control--blocked':
+                    activeChange && autoCloseBlocked(activeChange) && editAutoCloseTarget > 0,
+                  'tm-auto-close-control--ready':
+                    activeChange &&
+                    editAutoCloseTarget > 0 &&
+                    !autoCloseBlocked(activeChange) &&
+                    activeChange.summary.passCount >= editAutoCloseTarget
+                }"
+              >
+                <div class="tm-auto-close-control__header">
+                  <span aria-hidden="true">✓</span>
+                  <div>
+                    <strong>Auto-close on passes</strong>
+                    <small>{{ editAutoCloseDetail }}</small>
+                  </div>
+                </div>
+                <label class="tm-auto-close-control__input">
+                  <span>Pass target</span>
+                  <input
+                    v-model.number="editForm.autoClosePassCount"
+                    type="number"
+                    min="0"
+                    max="99"
+                    step="1"
+                    inputmode="numeric"
+                  />
+                </label>
+                <div
+                  v-if="activeChange && editAutoCloseTarget > 0"
+                  class="tm-auto-close-control__meter"
+                  role="meter"
+                  aria-label="Auto-close pass progress"
+                  aria-valuemin="0"
+                  :aria-valuemax="editAutoCloseTarget"
+                  :aria-valuenow="activeChange.summary.passCount"
+                >
+                  <span :style="{ width: editAutoCloseProgress }"></span>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -2883,6 +2990,7 @@ const nextPatchTogglePending = ref(false);
 const closedNextPatchPromptDismissedIds = ref<Set<string>>(new Set());
 const feedbackError = ref('');
 const deletingNoteIds = ref<Set<string>>(new Set());
+const deletingChecklistItemIds = ref<Set<string>>(new Set());
 const notesEditor = ref<{
   getHtml: () => string;
   setHtml: (html: string) => void;
@@ -3207,6 +3315,7 @@ const createForm = ref<CreateTestChangePayload>({
   githubPrUrl: '',
   githubIssueUrl: '',
   includeInNextPatch: true,
+  autoClosePassCount: 0,
   checklist: [createChecklistItem()]
 });
 const checklistAddForm = ref<CreateChecklistDraft>(createChecklistItem());
@@ -3221,6 +3330,7 @@ const editForm = ref<UpdateTestChangePayload>({
   githubPrUrl: '',
   githubIssueUrl: '',
   includeInNextPatch: true,
+  autoClosePassCount: 0,
   dueAt: null,
   assignedToId: null
 });
@@ -3367,6 +3477,45 @@ const createSummary = computed(() => {
   const subsystem = createForm.value.subsystem.trim() || 'No subsystem';
   const build = createForm.value.targetBuild?.trim() || 'No target build';
   return `${category} / ${subsystem} · ${build}`;
+});
+const createAutoCloseDetail = computed(() => {
+  const target = normalizeAutoClosePassCount(createForm.value.autoClosePassCount);
+  if (target === 0) {
+    return 'Disabled. Admins can still close manually.';
+  }
+  return `Closes after ${target} clean passing review${target === 1 ? '' : 's'}.`;
+});
+const editAutoCloseTarget = computed(() =>
+  normalizeAutoClosePassCount(editForm.value.autoClosePassCount)
+);
+const editAutoCloseDetail = computed(() => {
+  const target = editAutoCloseTarget.value;
+  const change = activeChange.value;
+  if (target === 0) {
+    return 'Disabled. Manual close controls are unchanged.';
+  }
+  if (!change) {
+    return `Closes after ${target} clean passing review${target === 1 ? '' : 's'}.`;
+  }
+  if (change.status === 'CLOSED') {
+    return 'This change is already closed.';
+  }
+  const blockers = change.summary.failCount + change.summary.blockedCount;
+  if (blockers > 0) {
+    return `${blockers} failing or blocked review${blockers === 1 ? '' : 's'} currently prevent auto-close.`;
+  }
+  if (change.summary.passCount >= target) {
+    return 'Saving this target will close the change automatically.';
+  }
+  return `${change.summary.passCount} of ${target} passing reviews registered.`;
+});
+const editAutoCloseProgress = computed(() => {
+  const target = normalizeAutoClosePassCount(editForm.value.autoClosePassCount);
+  const passes = activeChange.value?.summary.passCount ?? 0;
+  if (target <= 0) {
+    return '0%';
+  }
+  return `${Math.min(100, Math.round((passes / target) * 100))}%`;
 });
 const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
@@ -4498,6 +4647,7 @@ function openEditChange() {
     githubPrUrl: activeChange.value.githubPullRequest?.url ?? '',
     githubIssueUrl: activeChange.value.githubIssue?.url ?? '',
     includeInNextPatch: activeChange.value.includeInNextPatch,
+    autoClosePassCount: activeChange.value.autoClosePassCount,
     dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
     assignedToId: activeChange.value.assignedTo?.id ?? null
   };
@@ -4557,6 +4707,7 @@ function resetCreateForm() {
     githubPrUrl: '',
     githubIssueUrl: '',
     includeInNextPatch: true,
+    autoClosePassCount: 0,
     checklist: [createChecklistItem()]
   };
 }
@@ -4572,9 +4723,75 @@ function resetEditForm() {
     githubPrUrl: '',
     githubIssueUrl: '',
     includeInNextPatch: true,
+    autoClosePassCount: 0,
     dueAt: null,
     assignedToId: null
   };
+}
+
+function normalizeAutoClosePassCount(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.min(99, Math.max(0, Math.floor(parsed)));
+}
+
+function autoCloseBlocked(change: TestChange) {
+  return change.summary.failCount > 0 || change.summary.blockedCount > 0;
+}
+
+function autoCloseTone(change: TestChange) {
+  if (change.autoClosePassCount <= 0) {
+    return 'disabled';
+  }
+  if (autoCloseBlocked(change)) {
+    return 'blocked';
+  }
+  if (change.status === 'CLOSED') {
+    return 'closed';
+  }
+  if (change.summary.passCount >= change.autoClosePassCount) {
+    return 'ready';
+  }
+  return 'armed';
+}
+
+function autoCloseLabel(change: TestChange) {
+  if (change.autoClosePassCount <= 0) {
+    return 'Auto-close off';
+  }
+  if (autoCloseBlocked(change)) {
+    return 'Auto-close blocked';
+  }
+  if (change.status === 'CLOSED') {
+    return 'Auto-close met';
+  }
+  return `${change.summary.passCount}/${change.autoClosePassCount} auto-close`;
+}
+
+function autoCloseListLabel(change: TestChange) {
+  if (autoCloseBlocked(change)) {
+    return 'Blocked';
+  }
+  if (change.status === 'CLOSED') {
+    return 'Met';
+  }
+  return 'Auto-close';
+}
+
+function autoCloseDetail(change: TestChange) {
+  if (change.autoClosePassCount <= 0) {
+    return 'Auto-close is disabled for this change.';
+  }
+  const blockers = change.summary.failCount + change.summary.blockedCount;
+  if (blockers > 0) {
+    return `${blockers} failing or blocked review${blockers === 1 ? '' : 's'} prevent automatic closing.`;
+  }
+  if (change.status === 'CLOSED') {
+    return `Pass target was ${change.autoClosePassCount}; ${change.summary.passCount} passing review${change.summary.passCount === 1 ? '' : 's'} are registered.`;
+  }
+  return `Closes automatically at ${change.autoClosePassCount} passing review${change.autoClosePassCount === 1 ? '' : 's'} when no fail or blocked reviews exist.`;
 }
 
 function setUserRoleFilter(filter: UserRoleFilter) {
@@ -4589,6 +4806,7 @@ async function createChange() {
     githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
     githubIssueUrl: createForm.value.githubIssueUrl?.trim() || null,
     includeInNextPatch: createForm.value.includeInNextPatch ?? true,
+    autoClosePassCount: normalizeAutoClosePassCount(createForm.value.autoClosePassCount),
     checklist: createForm.value.checklist
       .filter((item) => item.title.trim())
       .map((item) => ({
@@ -4621,6 +4839,7 @@ async function saveEditChange() {
       githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
       githubIssueUrl: editForm.value.githubIssueUrl?.trim() || null,
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
+      autoClosePassCount: normalizeAutoClosePassCount(editForm.value.autoClosePassCount),
       dueAt
     });
     replaceCachedChange(updated);
@@ -4903,6 +5122,54 @@ async function saveChecklistAdd() {
     });
   } finally {
     checklistAddSaving.value = false;
+  }
+}
+
+function isDeletingChecklistItem(checklistItemId: string) {
+  return deletingChecklistItemIds.value.has(checklistItemId);
+}
+
+function setChecklistItemDeleting(checklistItemId: string, deleting: boolean) {
+  const next = new Set(deletingChecklistItemIds.value);
+  if (deleting) {
+    next.add(checklistItemId);
+  } else {
+    next.delete(checklistItemId);
+  }
+  deletingChecklistItemIds.value = next;
+}
+
+async function deleteChecklistItem(item: TestChange['checklist'][number]) {
+  if (!authStore.isAdmin || !activeChange.value || isDeletingChecklistItem(item.id)) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Delete checklist item "${item.title}"? This removes its progress for every tester.`
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  setChecklistItemDeleting(item.id, true);
+  try {
+    const updated = await api.deleteTestChangeChecklistItem(activeChange.value.id, item.id);
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    addToast({
+      title: 'Checklist Item Deleted',
+      message: `Removed "${item.title}" from #${updated.publicId}.`,
+      variant: 'success'
+    });
+    await loadChanges();
+  } catch (error) {
+    addToast({
+      title: 'Checklist Delete Failed',
+      message: getApiErrorMessage(error, 'Unable to delete checklist item.'),
+      variant: 'error'
+    });
+  } finally {
+    setChecklistItemDeleting(item.id, false);
   }
 }
 
@@ -6260,6 +6527,7 @@ watch(
     checklistNotePromptItemId.value = null;
     feedbackError.value = '';
     deletingNoteIds.value = new Set();
+    deletingChecklistItemIds.value = new Set();
     testerSearch.value = '';
     testerStatusFilter.value = 'All Statuses';
     testerResultFilter.value = 'All Results';
@@ -7773,6 +8041,114 @@ onBeforeUnmount(() => {
   color: var(--tm-muted);
 }
 
+.tm-auto-close-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 9rem);
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.82rem;
+  border: 1px solid rgba(85, 183, 255, 0.22);
+  border-radius: var(--tm-control-radius);
+  background:
+    linear-gradient(135deg, rgba(85, 183, 255, 0.075), rgba(114, 214, 111, 0.035)),
+    rgba(3, 6, 7, 0.42);
+}
+
+.tm-auto-close-control--ready {
+  border-color: rgba(114, 214, 111, 0.42);
+  background:
+    linear-gradient(135deg, rgba(114, 214, 111, 0.11), rgba(85, 183, 255, 0.04)),
+    rgba(3, 6, 7, 0.42);
+}
+
+.tm-auto-close-control--blocked {
+  border-color: rgba(255, 107, 85, 0.38);
+  background:
+    linear-gradient(135deg, rgba(255, 107, 85, 0.12), rgba(217, 164, 95, 0.045)),
+    rgba(3, 6, 7, 0.42);
+}
+
+.tm-auto-close-control__header {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  gap: 0.68rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.tm-auto-close-control__header > span {
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 1px solid rgba(85, 183, 255, 0.3);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #bfe8ff;
+  background: rgba(85, 183, 255, 0.08);
+  font-weight: 900;
+}
+
+.tm-auto-close-control__header strong {
+  display: block;
+  color: #f8ead1;
+}
+
+.tm-auto-close-control__header small,
+.tm-auto-close-control p {
+  color: var(--tm-muted);
+}
+
+.tm-auto-close-control p {
+  grid-column: 1 / -1;
+  margin: -0.28rem 0 0;
+  font-size: 0.76rem;
+}
+
+.tm-auto-close-control__input {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.tm-auto-close-control__input span {
+  color: var(--tm-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-auto-close-control__input input {
+  width: 100%;
+  border: 1px solid rgba(85, 183, 255, 0.28);
+  border-radius: var(--tm-control-radius);
+  background: rgba(3, 6, 7, 0.74);
+  color: #eef7ff;
+  padding: 0.58rem 0.68rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.tm-auto-close-control__input input:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 2px;
+}
+
+.tm-auto-close-control__meter {
+  grid-column: 1 / -1;
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tm-auto-close-control__meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(85, 183, 255, 0.7), rgba(114, 214, 111, 0.82));
+}
+
 .tm-textarea {
   min-height: 8rem;
   resize: vertical;
@@ -8289,6 +8665,40 @@ onBeforeUnmount(() => {
   background: rgba(114, 214, 111, 0.055);
 }
 
+.tm-change-card__auto-close {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.32rem;
+  padding: 0.34rem 0.48rem;
+  border: 1px solid color-mix(in srgb, currentColor 36%, transparent);
+  border-radius: 0.48rem;
+  color: #9ed8ff;
+  background: rgba(85, 183, 255, 0.055);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.tm-change-card__auto-close strong {
+  display: inline;
+  color: currentColor;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.86rem;
+}
+
+.tm-change-card__auto-close--ready,
+.tm-change-card__auto-close--closed {
+  color: #a8efa2;
+  background: rgba(114, 214, 111, 0.07);
+}
+
+.tm-change-card__auto-close--blocked {
+  color: #ffb1a4;
+  background: rgba(255, 107, 85, 0.08);
+}
+
 .tm-viewer-status {
   justify-self: end;
   min-width: 6.6rem;
@@ -8417,6 +8827,51 @@ onBeforeUnmount(() => {
   font-size: 0.66rem;
   font-weight: 900;
   letter-spacing: 0.08em;
+}
+
+.tm-auto-close-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-height: 1.5rem;
+  padding: 0.18rem 0.52rem;
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--tm-muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tm-auto-close-badge svg {
+  width: 0.86rem;
+  height: 0.86rem;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.tm-auto-close-badge--armed {
+  color: #9ed8ff;
+  background: rgba(85, 183, 255, 0.08);
+}
+
+.tm-auto-close-badge--ready,
+.tm-auto-close-badge--closed {
+  color: #a8efa2;
+  background: rgba(114, 214, 111, 0.09);
+}
+
+.tm-auto-close-badge--blocked {
+  color: #ffb1a4;
+  background: rgba(255, 107, 85, 0.1);
+}
+
+.tm-auto-close-badge--disabled {
+  color: rgba(188, 178, 164, 0.7);
 }
 
 .tm-detail__header h2 {
@@ -10677,6 +11132,10 @@ onBeforeUnmount(() => {
   justify-self: end;
 }
 
+.tm-testing-checklist__delete {
+  justify-self: end;
+}
+
 .tm-checklist-add-btn {
   width: 1.72rem;
   height: 1.72rem;
@@ -10716,6 +11175,51 @@ onBeforeUnmount(() => {
 .tm-checklist-add-btn:focus-visible {
   outline: 2px solid rgba(85, 183, 255, 0.7);
   outline-offset: 2px;
+}
+
+.tm-checklist-delete-btn {
+  width: 1.72rem;
+  height: 1.72rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: rgba(213, 196, 164, 0.4);
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.tm-checklist-delete-btn svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.tm-checklist-delete-btn:hover,
+.tm-checklist-delete-btn:focus-visible {
+  background: rgba(255, 107, 85, 0.08);
+  color: rgba(255, 145, 126, 0.92);
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px rgba(255, 107, 85, 0.06);
+}
+
+.tm-checklist-delete-btn:focus-visible {
+  outline: 2px solid rgba(85, 183, 255, 0.7);
+  outline-offset: 2px;
+}
+
+.tm-checklist-delete-btn:disabled {
+  cursor: default;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
 }
 
 .tm-testing-checklist__row {
@@ -12421,6 +12925,10 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .tm-auto-close-control {
+    grid-template-columns: 1fr;
+  }
+
   .tm-checklist-builder__row {
     grid-template-columns: 2rem minmax(12rem, 1fr) minmax(10rem, 1fr);
   }
@@ -12660,6 +13168,11 @@ onBeforeUnmount(() => {
   .tm-testing-checklist__row > span:nth-child(4),
   .tm-testing-checklist__row > span:nth-child(5) {
     grid-column: 2;
+  }
+
+  .tm-testing-checklist__row > span:nth-child(6) {
+    grid-column: 2;
+    justify-self: end;
   }
 
   .tm-testing-checklist__row > span:nth-child(3),
