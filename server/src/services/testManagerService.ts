@@ -2587,6 +2587,17 @@ export async function retestChange(actorUserId: string, changeId: string) {
       }
     });
 
+    await tx.testChangeChecklistProgress.updateMany({
+      where: {
+        testerId: tester.id,
+        OR: [{ completed: true }, { completedAt: { not: null } }]
+      },
+      data: {
+        completed: false,
+        completedAt: null
+      }
+    });
+
     await appendHistory(tx, {
       changeId,
       actorUserId,
