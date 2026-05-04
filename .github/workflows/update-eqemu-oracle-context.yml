@@ -44,6 +44,8 @@ jobs:
           NODE
 
       - name: Open context update PR
+        id: context_pr
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v6
         with:
           branch: codex/update-eqemu-oracle-context
@@ -57,3 +59,16 @@ jobs:
             - Quest API ref: `${{ steps.oracle.outputs.quest_api_ref }}`
             - Schema ref: `${{ steps.oracle.outputs.schema_ref }}`
             - Docs ref: `${{ steps.oracle.outputs.docs_ref }}`
+
+      - name: Report manual PR fallback
+        if: steps.context_pr.outcome == 'failure'
+        run: |
+          {
+            echo "### Manual PR needed"
+            echo
+            echo "The context update branch was pushed, but repository settings do not allow GitHub Actions to create pull requests."
+            echo
+            echo "Open the PR manually from:"
+            echo "https://github.com/${{ github.repository }}/pull/new/codex/update-eqemu-oracle-context"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Repository settings do not allow GitHub Actions to create pull requests. Open the context update PR manually from the pushed branch."
