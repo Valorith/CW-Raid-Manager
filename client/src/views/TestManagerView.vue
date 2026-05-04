@@ -366,6 +366,12 @@
               v-if="change.autoClosePassCount > 0"
               class="tm-change-card__auto-close"
               :class="`tm-change-card__auto-close--${autoCloseTone(change)}`"
+              :style="{ '--auto-close-progress': `${autoCloseProgressPercent(change)}%` }"
+              role="progressbar"
+              :aria-label="autoCloseDetail(change)"
+              :aria-valuenow="Math.min(change.summary.passCount, change.autoClosePassCount)"
+              aria-valuemin="0"
+              :aria-valuemax="change.autoClosePassCount"
             >
               <span>{{ autoCloseListLabel(change) }}</span>
               <strong>{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong>
@@ -4757,6 +4763,13 @@ function autoCloseTone(change: TestChange) {
   return 'armed';
 }
 
+function autoCloseProgressPercent(change: TestChange) {
+  if (change.autoClosePassCount <= 0) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, (change.summary.passCount / change.autoClosePassCount) * 100));
+}
+
 function autoCloseLabel(change: TestChange) {
   if (change.autoClosePassCount <= 0) {
     return 'Auto-close off';
@@ -8667,6 +8680,9 @@ onBeforeUnmount(() => {
 
 .tm-change-card__auto-close {
   grid-column: 1 / -1;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -8675,10 +8691,38 @@ onBeforeUnmount(() => {
   padding: 0.34rem 0.48rem;
   border: 1px solid color-mix(in srgb, currentColor 36%, transparent);
   border-radius: 0.48rem;
-  color: #9ed8ff;
-  background: rgba(85, 183, 255, 0.055);
+  color: #d9f1ff;
+  background:
+    linear-gradient(180deg, rgba(6, 12, 18, 0.32), rgba(3, 8, 12, 0.16)),
+    rgba(85, 183, 255, 0.055);
   font-size: 0.68rem;
   font-weight: 850;
+  box-shadow: inset 0 0 0 1px rgba(2, 6, 12, 0.28);
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.42),
+    rgba(125, 211, 252, 0.24)
+  );
+}
+
+.tm-change-card__auto-close::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: var(--auto-close-progress, 0%);
+  min-width: 0;
+  background: var(--auto-close-fill);
+  border-right: 1px solid rgba(224, 242, 254, 0.26);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+  transition: width 0.28s ease;
+}
+
+.tm-change-card__auto-close > span,
+.tm-change-card__auto-close strong {
+  position: relative;
+  z-index: 1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
 }
 
 .tm-change-card__auto-close strong {
@@ -8690,13 +8734,27 @@ onBeforeUnmount(() => {
 
 .tm-change-card__auto-close--ready,
 .tm-change-card__auto-close--closed {
-  color: #a8efa2;
-  background: rgba(114, 214, 111, 0.07);
+  color: #e7ffe3;
+  background:
+    linear-gradient(180deg, rgba(5, 14, 9, 0.34), rgba(3, 10, 6, 0.18)),
+    rgba(114, 214, 111, 0.07);
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(34, 197, 94, 0.44),
+    rgba(134, 239, 172, 0.26)
+  );
 }
 
 .tm-change-card__auto-close--blocked {
-  color: #ffb1a4;
-  background: rgba(255, 107, 85, 0.08);
+  color: #ffe3de;
+  background:
+    linear-gradient(180deg, rgba(18, 6, 5, 0.34), rgba(12, 4, 3, 0.18)),
+    rgba(255, 107, 85, 0.08);
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(248, 113, 113, 0.38),
+    rgba(252, 165, 165, 0.22)
+  );
 }
 
 .tm-viewer-status {
