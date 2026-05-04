@@ -993,7 +993,8 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 24px;
   padding: 14px 32px;
@@ -1051,7 +1052,15 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: flex;
   gap: 2px;
   align-items: center;
+  width: 100%;
   min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.nav::-webkit-scrollbar {
+  display: none;
 }
 
 .nav__item {
@@ -1104,10 +1113,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-left: auto;
   min-width: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
+  padding-left: 0.25rem;
 }
 
 .nav-attention {
@@ -1536,6 +1545,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -1826,29 +1836,36 @@ function hasRaidStarted(raid: RaidEventSummary) {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1360px) {
   .app-header {
-    flex-wrap: wrap;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'brand auth'
+      'nav alerts';
     align-items: center;
     column-gap: 1rem;
     row-gap: 0.85rem;
   }
 
   .brand {
-    margin-right: auto;
+    grid-area: brand;
+    margin-right: 0;
   }
 
   .nav {
-    order: 3;
-    flex: 1 1 30rem;
+    grid-area: nav;
     justify-content: flex-start;
     gap: 0.5rem;
   }
 
   .nav-alerts {
-    order: 4;
-    flex: 1 1 24rem;
+    grid-area: alerts;
     margin-left: 0;
+    width: 100%;
+  }
+
+  .auth {
+    grid-area: auth;
   }
 
   .nav-monitor {
