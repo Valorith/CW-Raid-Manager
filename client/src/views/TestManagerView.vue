@@ -5481,7 +5481,7 @@ function canStartTesting(change: TestChange) {
     return false;
   }
   if (!viewerTester) {
-    return authStore.isTester || authStore.isAdmin;
+    return authStore.canVolunteerTestManager;
   }
   return Boolean(
     viewerTester.result || (viewerTester.status === 'NOT_STARTED' && !viewerTester.result)

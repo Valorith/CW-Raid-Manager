@@ -2578,6 +2578,7 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
   if (!actor) {
     throw new Error('User not found.');
   }
+  const actorCanVolunteer = (await getTestManagerUserPermissions(actor)).includes('volunteer');
 
   await prisma.$transaction(async (tx) => {
     const [change, existingTester] = await Promise.all([
@@ -2594,8 +2595,7 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
       throw new Error('Closed changes cannot be tested.');
     }
     if (
-      !actor.admin &&
-      !actor.tester &&
+      !actorCanVolunteer &&
       (!existingTester ||
         existingTester.status !== TestRunStatus.NOT_STARTED ||
         existingTester.result)
