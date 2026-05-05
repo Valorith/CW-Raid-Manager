@@ -25,6 +25,7 @@ import {
   getTestChange,
   getTestManagerDashboard,
   getTestManagerSettings,
+  generateNextPatchNotes,
   linkWebhookReportToTestChange,
   listNextPatchChanges,
   listTestChanges,
@@ -35,6 +36,7 @@ import {
   removeTesterFromChange,
   saveChangeNote,
   setTestChangeNextPatch,
+  setTestChangeReadyToTest,
   setTestChangeStatus,
   submitTesterResult,
   unlinkWebhookReportFromTestChange,
@@ -139,6 +141,21 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to reset next patch.'
+        );
+      }
+    }
+  );
+
+  server.post(
+    '/next-patch/patch-notes',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      try {
+        return await generateNextPatchNotes(request.user.userId);
+      } catch (error) {
+        request.log.error({ error }, 'Failed to generate next patch notes.');
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to generate patch notes.'
         );
       }
     }
@@ -371,6 +388,33 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update next patch.'
+        );
+      }
+    }
+  );
+
+  server.patch(
+    '/changes/:changeId/ready-to-test',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({ readyToTest: z.boolean() });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid ready-to-test update payload.');
+      }
+
+      try {
+        const change = await setTestChangeReadyToTest(
+          request.user.userId,
+          params.data.changeId,
+          body.data.readyToTest
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update ready-to-test status.'
         );
       }
     }

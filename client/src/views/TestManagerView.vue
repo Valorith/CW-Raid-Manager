@@ -422,6 +422,18 @@
                 <p class="tm-id">Change #{{ activeChange.publicId }}</p>
                 <StatusPill :status="activeChange.status" compact />
                 <span
+                  v-if="!isChangeReadyToTest(activeChange)"
+                  class="tm-readiness-badge tm-readiness-badge--not-ready"
+                  title="Tester input is paused until an admin marks this change ready."
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 8v5" />
+                    <path d="M12 17h.01" />
+                    <path d="M10.3 4.4 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.4a2 2 0 0 0-3.4 0Z" />
+                  </svg>
+                  Not Ready To Test
+                </span>
+                <span
                   class="tm-auto-close-badge"
                   :class="`tm-auto-close-badge--${autoCloseTone(activeChange)}`"
                   :title="autoCloseDetail(activeChange)"
@@ -491,6 +503,32 @@
             </div>
             <div class="tm-detail__actions">
               <div class="tm-detail__status-stack">
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-ready-test-toggle"
+                  :class="{
+                    'tm-ready-test-toggle--ready': isChangeReadyToTest(activeChange),
+                    'tm-ready-test-toggle--not-ready': !isChangeReadyToTest(activeChange)
+                  }"
+                  :disabled="readyToTestTogglePending"
+                  :aria-pressed="isChangeReadyToTest(activeChange)"
+                  @click="toggleActiveChangeReadyToTest"
+                >
+                  <span class="tm-ready-test-toggle__icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                      <path d="M9 12.5 11 14.5 15.5 9.5" />
+                      <path d="M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17Z" />
+                    </svg>
+                  </span>
+                  <span class="tm-ready-test-toggle__copy">
+                    <strong>Ready To Test</strong>
+                    <small>{{ isChangeReadyToTest(activeChange) ? 'Enabled' : 'Paused' }}</small>
+                  </span>
+                  <span class="tm-ready-test-toggle__action">
+                    {{ isChangeReadyToTest(activeChange) ? 'Pause' : 'Enable' }}
+                  </span>
+                </button>
                 <button
                   v-if="authStore.isAdmin"
                   type="button"
@@ -1233,8 +1271,11 @@
             </small>
           </button>
           <p v-if="!canUseTesterControls" class="tm-inspector-hint">
-            Result controls unlock when you are actively testing this change. Notes can still be
-            added while the change is open.
+            {{
+              activeChangeReadyToTest
+                ? 'Result controls unlock when you are actively testing this change. Notes can still be added while the change is open.'
+                : 'Tester input is paused until an admin marks this change ready to test.'
+            }}
           </p>
           <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
 
@@ -1277,9 +1318,29 @@
       <section v-else-if="currentSection === 'next-patch'" class="tm-next-patch">
         <main class="tm-panel tm-next-patch-panel">
           <div class="tm-panel__header tm-next-patch__header">
-            <div>
+            <div class="tm-next-patch__intro">
               <h2><span aria-hidden="true">✓</span> Next Patch</h2>
               <p>{{ nextPatchSummaryText }}</p>
+            </div>
+            <div
+              class="tm-next-patch-progress"
+              :class="{ 'tm-next-patch-progress--empty': nextPatchProgressTotal === 0 }"
+              role="progressbar"
+              :aria-label="nextPatchProgressAriaLabel"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="nextPatchProgressPercent"
+            >
+              <div class="tm-next-patch-progress__header">
+                <span>Patch Readiness</span>
+                <strong>{{ nextPatchProgressPercent }}%</strong>
+              </div>
+              <div class="tm-next-patch-progress__track" aria-hidden="true">
+                <span :style="{ width: `${nextPatchProgressPercent}%` }"></span>
+              </div>
+              <div class="tm-next-patch-progress__footer">
+                <span>{{ nextPatchProgressLabel }}</span>
+              </div>
             </div>
             <div class="tm-next-patch__actions">
               <label v-if="!nextPatchViewIsComplete" class="tm-next-patch-needs-action">
@@ -1324,20 +1385,38 @@
               <strong>{{ nextPatchAreaCount }}</strong>
               <small>subsystems</small>
             </article>
-            <div
-              v-if="authStore.isAdmin && nextPatchViewIsComplete"
-              class="tm-next-patch-reset-strip"
-            >
-              <span>Patch deployed?</span>
+            <div v-if="canUsePatchNotesGenerator" class="tm-next-patch-reset-strip">
               <button
                 type="button"
-                class="tm-next-patch-reset-button"
-                :disabled="nextPatchResetPending || visibleNextPatchChanges.length === 0"
-                @click="openNextPatchResetConfirm"
+                class="tm-next-patch-notes-button"
+                aria-label="Generate patch notes"
+                title="Generate patch notes"
+                :disabled="
+                  nextPatchLoading || patchNotesGenerating || visibleNextPatchChanges.length === 0
+                "
+                @click="openPatchNotesGenerator"
               >
-                <span aria-hidden="true">↻</span>
-                Reset completed queue
+                <span class="tm-next-patch-notes-button__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <path d="M12 3 13.4 8.1 18.5 9.5 13.4 10.9 12 16 10.6 10.9 5.5 9.5 10.6 8.1 12 3Z" />
+                    <path d="M18.5 14.5 19.2 17 21.7 17.7 19.2 18.4 18.5 20.9 17.8 18.4 15.3 17.7 17.8 17 18.5 14.5Z" />
+                    <path d="M5.5 15.2 6.1 17.1 8 17.7 6.1 18.3 5.5 20.2 4.9 18.3 3 17.7 4.9 17.1 5.5 15.2Z" />
+                  </svg>
+                </span>
+                {{ patchNotesGenerating ? 'Generating...' : 'Generate Patch Notes' }}
               </button>
+              <div class="tm-next-patch-reset-strip__actions">
+                <span>Patch deployed?</span>
+                <button
+                  type="button"
+                  class="tm-next-patch-reset-button"
+                  :disabled="nextPatchResetPending || visibleNextPatchChanges.length === 0"
+                  @click="openNextPatchResetConfirm"
+                >
+                  <span aria-hidden="true">↻</span>
+                  Reset completed queue
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2499,6 +2578,174 @@
     </div>
 
     <div
+      v-if="patchNotesGeneratorOpen && canUsePatchNotesGenerator"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="patch-notes-generator-title"
+    >
+      <section class="tm-modal__panel tm-patch-notes-modal">
+        <header class="tm-patch-notes-modal__header">
+          <div class="tm-patch-notes-modal__title">
+            <span class="tm-patch-notes-modal__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M12 3 13.4 8.1 18.5 9.5 13.4 10.9 12 16 10.6 10.9 5.5 9.5 10.6 8.1 12 3Z" />
+                <path d="M18.5 14.5 19.2 17 21.7 17.7 19.2 18.4 18.5 20.9 17.8 18.4 15.3 17.7 17.8 17 18.5 14.5Z" />
+              </svg>
+            </span>
+            <div>
+              <p class="tm-modal-eyebrow">Next Patch</p>
+              <h2 id="patch-notes-generator-title">Patch Notes Generator</h2>
+              <small>
+                Review, edit, and copy Gemini-generated notes for completed changes queued for
+                deployment.
+              </small>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-button tm-icon-button--plain"
+            aria-label="Close patch notes generator"
+            @click="closePatchNotesGenerator"
+          >
+            ×
+          </button>
+        </header>
+
+        <div class="tm-patch-notes-toolbar">
+          <label class="tm-field tm-patch-notes-start">
+            <span>Starting Patch Note #</span>
+            <input
+              v-model.number="patchNotesStartNumber"
+              type="number"
+              min="1"
+              step="1"
+              inputmode="numeric"
+              @change="normalizePatchNotesStartNumber"
+            />
+          </label>
+          <div class="tm-patch-notes-toolbar__summary">
+            <template v-if="patchNotesGenerating">
+              <strong>AI</strong>
+              <span>generating notes with {{ patchNotesModel || 'Gemini' }}</span>
+            </template>
+            <template v-else>
+              <strong>{{ patchNoteDrafts.length ? includedPatchNotesCount : visibleNextPatchChanges.length }}</strong>
+              <span v-if="patchNoteDrafts.length">
+                selected of {{ patchNoteDrafts.length }} generated note{{
+                  patchNoteDrafts.length === 1 ? '' : 's'
+                }}
+              </span>
+              <span v-else>completed changes ready to send to Gemini</span>
+            </template>
+          </div>
+          <div class="tm-patch-notes-toolbar__actions">
+            <button
+              type="button"
+              class="tm-btn tm-btn--ghost"
+              :disabled="patchNotesGenerating || patchNoteDrafts.length === 0"
+              @click="selectAllPatchNotes"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              class="tm-btn tm-btn--ghost"
+              :disabled="patchNotesGenerating || patchNoteDrafts.length === 0"
+              @click="deselectAllPatchNotes"
+            >
+              Deselect All
+            </button>
+          </div>
+        </div>
+
+        <div v-if="patchNotesGenerating" class="tm-patch-notes-loading">
+          <span aria-hidden="true"></span>
+          <div>
+            <strong>Generating patch notes...</strong>
+            <p>Gemini is drafting one editable note for each completed next-patch change.</p>
+          </div>
+        </div>
+        <div v-else-if="patchNotesError" class="tm-patch-notes-empty tm-patch-notes-empty--error">
+          <strong>Patch notes could not be generated.</strong>
+          <p>{{ patchNotesError }}</p>
+          <button type="button" class="tm-btn tm-btn--primary" @click="generatePatchNotes">
+            Try Again
+          </button>
+        </div>
+        <div v-else-if="patchNoteDrafts.length" class="tm-patch-notes-list">
+          <article
+            v-for="draft in patchNoteDrafts"
+            :key="draft.changeId"
+            class="tm-patch-note-row"
+            :class="{ 'tm-patch-note-row--excluded': !draft.included }"
+          >
+            <label class="tm-patch-note-row__toggle">
+              <input v-model="draft.included" type="checkbox" />
+              <span aria-hidden="true"></span>
+              <strong>{{ draft.included ? 'Included' : 'Excluded' }}</strong>
+            </label>
+            <div class="tm-patch-note-row__body">
+              <div class="tm-patch-note-row__meta">
+                <span class="tm-patch-note-row__number">{{ patchNoteDisplayNumber(draft) }}</span>
+                <div>
+                  <strong>#{{ draft.publicId }} {{ draft.title }}</strong>
+                  <small>{{ draft.category }} / {{ draft.subsystem }}</small>
+                </div>
+              </div>
+              <textarea
+                v-model="draft.note"
+                rows="3"
+                :disabled="patchNotesGenerating"
+                :aria-label="`Patch note for change #${draft.publicId}`"
+              ></textarea>
+            </div>
+          </article>
+        </div>
+        <div v-else class="tm-patch-notes-empty">
+          <strong>Ready to generate patch notes.</strong>
+          <p>
+            Nothing has been sent to Gemini yet. Generate drafts when you are ready to review and
+            edit notes for the {{ visibleNextPatchChanges.length }} completed next-patch change{{
+              visibleNextPatchChanges.length === 1 ? '' : 's'
+            }}.
+          </p>
+          <button type="button" class="tm-btn tm-btn--primary" @click="generatePatchNotes">
+            Generate with Gemini
+          </button>
+        </div>
+
+        <footer class="tm-patch-notes-footer">
+          <p v-if="patchNoteDrafts.length">
+            Copy will include {{ includedPatchNotesCount }} selected note{{
+              includedPatchNotesCount === 1 ? '' : 's'
+            }}
+            starting at #{{ normalizedPatchNotesStartNumber }}.
+          </p>
+          <p v-else>Generation starts only after you click the in-modal Gemini button.</p>
+          <div class="tm-patch-notes-footer__actions">
+            <button
+              type="button"
+              class="tm-btn tm-btn--ghost"
+              :disabled="patchNotesGenerating"
+              @click="closePatchNotesGenerator"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              class="tm-btn tm-btn--primary tm-patch-notes-copy"
+              :disabled="patchNotesGenerating || includedPatchNotesCount === 0"
+              @click="copyPatchNotesToClipboard"
+            >
+              Copy to clipboard
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div
       v-if="showClosedNextPatchPrompt"
       class="tm-modal"
       role="dialog"
@@ -2997,6 +3244,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import {
   api,
   type CreateTestChangePayload,
+  type GeneratedPatchNote,
   type NextPatchChangeView,
   type TestAssignmentKind,
   type TestChange,
@@ -3009,6 +3257,7 @@ import {
   type TestChangeWebhookReport,
   type TestManagerDiscordEventKey,
   type TestManagerDashboard,
+  type TestManagerNextPatchCounts,
   type TestManagerSettings,
   type TestManagerUserSummary,
   type UpdateTestChangePayload,
@@ -3041,6 +3290,15 @@ interface ChangeTooltipState {
   top: number;
   left: number;
 }
+interface PatchNoteDraft {
+  changeId: string;
+  publicId: number;
+  title: string;
+  category: string;
+  subsystem: string;
+  note: string;
+  included: boolean;
+}
 
 const loading = ref(false);
 const loadedSection = ref<string | null>(null);
@@ -3049,10 +3307,23 @@ const changes = ref<TestChange[]>([]);
 const nextPatchChanges = ref<TestChange[]>([]);
 const nextPatchView = ref<NextPatchChangeView>('complete');
 const nextPatchCount = ref(0);
+const nextPatchCounts = ref<TestManagerNextPatchCounts>({
+  count: 0,
+  completeCount: 0,
+  incompleteCount: 0,
+  totalCount: 0
+});
 const nextPatchLoading = ref(false);
 const nextPatchNeedsActionOnly = ref(false);
 const nextPatchViewCache = ref<Partial<Record<NextPatchChangeView, TestChange[]>>>({});
 let nextPatchLoadSequence = 0;
+const patchNotesGeneratorOpen = ref(false);
+const patchNotesGenerating = ref(false);
+const patchNotesModel = ref('');
+const patchNotesError = ref('');
+const patchNotesStartNumber = ref(1);
+const patchNoteDrafts = ref<PatchNoteDraft[]>([]);
+const readyToTestTogglePending = ref(false);
 const selectedChange = ref<TestChange | null>(null);
 const changeUnavailable = ref(false);
 const users = ref<TestManagerUserSummary[]>([]);
@@ -3558,15 +3829,21 @@ const checklistNotePromptItem = computed(() =>
 const activeChangeNoteCount = computed(() => activeChange.value?.notes.length ?? 0);
 const hasActiveChangeNotes = computed(() => activeChangeNoteCount.value > 0);
 const activeViewerTester = computed(() => activeChange.value?.viewerTester ?? null);
+const activeChangeReadyToTest = computed(() =>
+  activeChange.value ? isChangeReadyToTest(activeChange.value) : true
+);
 const isActivelyTestingViewer = computed(
   () =>
     activeChange.value?.status !== 'CLOSED' &&
+    activeChangeReadyToTest.value &&
     activeViewerTester.value?.status === 'TESTING' &&
     !activeViewerTester.value.result
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
 const canAddTestingNote = computed(() =>
-  Boolean(activeChange.value && activeChange.value.status !== 'CLOSED')
+  Boolean(
+    activeChange.value && activeChangeReadyToTest.value && activeChange.value.status !== 'CLOSED'
+  )
 );
 const canOpenWebhookInbox = computed(() => authStore.user?.isAdmin === true);
 const showClosedNextPatchPrompt = computed(() => {
@@ -3681,6 +3958,9 @@ const settingsDirty = computed(
 );
 
 const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
+const canUsePatchNotesGenerator = computed(
+  () => authStore.isAdmin && nextPatchViewIsComplete.value
+);
 const nextPatchNeedsActionFilterActive = computed(
   () => !nextPatchViewIsComplete.value && nextPatchNeedsActionOnly.value
 );
@@ -3703,6 +3983,31 @@ const nextPatchPrimaryStatLabel = computed(() =>
 );
 const nextPatchPrimaryStatDetail = computed(() =>
   nextPatchViewIsComplete.value ? 'changes' : 'open changes'
+);
+const nextPatchProgressComplete = computed(() => nextPatchCounts.value.completeCount);
+const nextPatchProgressTotal = computed(() => nextPatchCounts.value.totalCount);
+const nextPatchProgressPercent = computed(() =>
+  nextPatchProgressTotal.value > 0
+    ? Math.round((nextPatchProgressComplete.value / nextPatchProgressTotal.value) * 100)
+    : 0
+);
+const nextPatchProgressLabel = computed(() => {
+  if (nextPatchProgressTotal.value === 0) {
+    return 'No changes flagged';
+  }
+
+  return `${nextPatchProgressComplete.value} of ${nextPatchProgressTotal.value} ready`;
+});
+const nextPatchProgressAriaLabel = computed(() => {
+  if (nextPatchProgressTotal.value === 0) {
+    return 'No changes are flagged for the next patch.';
+  }
+
+  return `${nextPatchProgressComplete.value} completed changes out of ${nextPatchProgressTotal.value} changes flagged for the next patch.`;
+});
+const normalizedPatchNotesStartNumber = computed(() => normalizePatchNoteNumber(patchNotesStartNumber.value));
+const includedPatchNotesCount = computed(
+  () => patchNoteDrafts.value.filter((draft) => draft.included).length
 );
 const nextPatchSummaryText = computed(() => {
   if (nextPatchLoading.value) {
@@ -4282,9 +4587,8 @@ async function loadNextPatch() {
     nextPatchChanges.value = changes;
     if (view === 'complete') {
       nextPatchCount.value = nextPatchChanges.value.length;
-    } else {
-      refreshNextPatchCountInBackground();
     }
+    refreshNextPatchCountInBackground();
     void prefetchNextPatchView(getOppositeNextPatchView(view));
   } finally {
     if (sequence === nextPatchLoadSequence && nextPatchView.value === view) {
@@ -4294,7 +4598,9 @@ async function loadNextPatch() {
 }
 
 async function loadNextPatchCount() {
-  nextPatchCount.value = await api.fetchTestManagerNextPatchCount();
+  const counts = await api.fetchTestManagerNextPatchCounts();
+  nextPatchCounts.value = counts;
+  nextPatchCount.value = counts.count;
 }
 
 async function setNextPatchView(view: NextPatchChangeView) {
@@ -5564,6 +5870,40 @@ async function toggleActiveChangeNextPatch() {
   await setChangeNextPatch(activeChange.value, !activeChange.value.includeInNextPatch);
 }
 
+async function setChangeReadyToTest(change: TestChange, readyToTest: boolean) {
+  if (!authStore.isAdmin || readyToTestTogglePending.value) {
+    return;
+  }
+
+  readyToTestTogglePending.value = true;
+  try {
+    const updated = await api.updateTestChangeReadyToTest(change.id, readyToTest);
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    await loadChanges();
+    addToast({
+      title: readyToTest ? 'Ready To Test' : 'Tester Input Paused',
+      message: `#${updated.publicId} ${readyToTest ? 'can now receive tester input' : 'is no longer accepting tester input'}.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    addToast({
+      title: 'Ready-To-Test Update Failed',
+      message: getApiErrorMessage(error, 'Unable to update ready-to-test status.'),
+      variant: 'error'
+    });
+  } finally {
+    readyToTestTogglePending.value = false;
+  }
+}
+
+async function toggleActiveChangeReadyToTest() {
+  if (!activeChange.value) {
+    return;
+  }
+  await setChangeReadyToTest(activeChange.value, !isChangeReadyToTest(activeChange.value));
+}
+
 function dismissClosedNextPatchPrompt() {
   const change = activeChange.value;
   if (!change) {
@@ -5595,6 +5935,130 @@ function closeNextPatchResetConfirm() {
     return;
   }
   nextPatchResetConfirm.value = false;
+}
+
+function normalizePatchNoteNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.max(1, Math.floor(numeric)) : 1;
+}
+
+function normalizePatchNotesStartNumber() {
+  patchNotesStartNumber.value = normalizedPatchNotesStartNumber.value;
+}
+
+function createPatchNoteDraft(note: GeneratedPatchNote): PatchNoteDraft {
+  return {
+    changeId: note.changeId,
+    publicId: note.publicId,
+    title: note.title,
+    category: note.category,
+    subsystem: note.subsystem,
+    note: note.note.replace(/^\s*\d+\.\s*/, '').trim(),
+    included: true
+  };
+}
+
+async function generatePatchNotes() {
+  if (!canUsePatchNotesGenerator.value) {
+    return;
+  }
+
+  if (patchNotesGenerating.value) {
+    return;
+  }
+
+  patchNotesGenerating.value = true;
+  patchNotesError.value = '';
+  try {
+    const result = await api.generateTestManagerPatchNotes();
+    patchNotesModel.value = result.model;
+    patchNoteDrafts.value = result.notes.map(createPatchNoteDraft);
+  } catch (error) {
+    patchNoteDrafts.value = [];
+    patchNotesError.value = getApiErrorMessage(error, 'Unable to generate patch notes.');
+    addToast({
+      title: 'Patch Notes Failed',
+      message: patchNotesError.value,
+      variant: 'error'
+    });
+  } finally {
+    patchNotesGenerating.value = false;
+  }
+}
+
+function openPatchNotesGenerator() {
+  if (!canUsePatchNotesGenerator.value || visibleNextPatchChanges.value.length === 0) {
+    return;
+  }
+
+  patchNotesStartNumber.value = 1;
+  patchNotesError.value = '';
+  patchNotesModel.value = '';
+  patchNoteDrafts.value = [];
+  patchNotesGeneratorOpen.value = true;
+}
+
+function closePatchNotesGenerator() {
+  if (patchNotesGenerating.value) {
+    return;
+  }
+  patchNotesGeneratorOpen.value = false;
+}
+
+function selectAllPatchNotes() {
+  patchNoteDrafts.value.forEach((draft) => {
+    draft.included = true;
+  });
+}
+
+function deselectAllPatchNotes() {
+  patchNoteDrafts.value.forEach((draft) => {
+    draft.included = false;
+  });
+}
+
+function patchNoteDisplayNumber(draft: PatchNoteDraft) {
+  if (!draft.included) {
+    return 'Excluded';
+  }
+
+  const includedIndex = patchNoteDrafts.value
+    .filter((item) => item.included)
+    .findIndex((item) => item.changeId === draft.changeId);
+
+  return `${normalizedPatchNotesStartNumber.value + Math.max(includedIndex, 0)}.`;
+}
+
+function buildPatchNotesClipboardText() {
+  let noteNumber = normalizedPatchNotesStartNumber.value;
+  return patchNoteDrafts.value
+    .filter((draft) => draft.included)
+    .map((draft) => `${noteNumber++}. ${draft.note.trim()}`)
+    .join('\n');
+}
+
+async function copyPatchNotesToClipboard() {
+  const text = buildPatchNotesClipboardText();
+  if (!text) {
+    return;
+  }
+
+  try {
+    await copyShareText(text);
+    addToast({
+      title: 'Patch Notes Copied',
+      message: `${includedPatchNotesCount.value} note${
+        includedPatchNotesCount.value === 1 ? '' : 's'
+      } copied to clipboard.`,
+      variant: 'success'
+    });
+  } catch {
+    addToast({
+      title: 'Unable To Copy',
+      message: 'Your browser blocked clipboard access.',
+      variant: 'error'
+    });
+  }
 }
 
 async function confirmNextPatchReset() {
@@ -5676,7 +6140,7 @@ async function toggleTester(user: TestManagerUserSummary, tester: boolean) {
 
 function canStartTesting(change: TestChange) {
   const viewerTester = change.viewerTester;
-  if (change.status === 'CLOSED') {
+  if (change.status === 'CLOSED' || !isChangeReadyToTest(change)) {
     return false;
   }
   if (!viewerTester) {
@@ -5691,6 +6155,7 @@ function needsViewerNextPatchAction(change: TestChange) {
   const viewerTester = change.viewerTester;
   return (
     change.status !== 'CLOSED' &&
+    isChangeReadyToTest(change) &&
     Boolean(
       viewerTester &&
         !viewerTester.result &&
@@ -5902,9 +6367,14 @@ function coverageCellMeta(tester: TestChange['testers'][number], checklistItemId
 function canEditViewerChecklist(change: TestChange) {
   return (
     change.status !== 'CLOSED' &&
+    isChangeReadyToTest(change) &&
     change.viewerTester?.status === 'TESTING' &&
     !change.viewerTester.result
   );
+}
+
+function isChangeReadyToTest(change: TestChange) {
+  return change.readyToTest !== false;
 }
 
 function priorityLabel(priority: TestChangePriority) {
@@ -7218,12 +7688,110 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.tm-next-patch__header {
+.tm-panel__header.tm-next-patch__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 28rem) minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
   margin-bottom: 0;
 }
 
 .tm-next-patch__header p {
   margin: 0.28rem 0 0;
+}
+
+.tm-next-patch__intro {
+  min-width: 0;
+}
+
+.tm-next-patch-progress {
+  width: 100%;
+  min-width: 0;
+  justify-self: center;
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem 0.82rem;
+  border: 1px solid rgba(84, 202, 137, 0.26);
+  border-radius: 0.85rem;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(84, 202, 137, 0.16), transparent 8rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 72%),
+    rgba(3, 13, 11, 0.64);
+  box-shadow:
+    inset 0 1px 0 rgba(214, 255, 226, 0.08),
+    0 12px 26px rgba(0, 0, 0, 0.18);
+}
+
+.tm-next-patch-progress__header,
+.tm-next-patch-progress__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.tm-next-patch-progress__header span {
+  color: rgba(228, 239, 224, 0.78);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tm-next-patch-progress__header strong {
+  color: #eaffd7;
+  font-size: 0.98rem;
+  line-height: 1;
+  text-shadow: 0 0 16px rgba(84, 202, 137, 0.34);
+}
+
+.tm-next-patch-progress__track {
+  position: relative;
+  height: 0.62rem;
+  overflow: hidden;
+  border: 1px solid rgba(198, 232, 196, 0.16);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent),
+    rgba(0, 0, 0, 0.34);
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.54);
+}
+
+.tm-next-patch-progress__track span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(72, 187, 120, 0.92), rgba(194, 244, 113, 0.95)),
+    #58d68d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 0 18px rgba(99, 220, 132, 0.36);
+  transition: width 0.25s ease;
+}
+
+.tm-next-patch-progress__footer span {
+  min-width: 0;
+  color: rgba(226, 236, 216, 0.72);
+  font-size: 0.72rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-next-patch-progress--empty {
+  border-color: rgba(213, 196, 164, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 72%),
+    rgba(9, 10, 9, 0.62);
+}
+
+.tm-next-patch-progress--empty .tm-next-patch-progress__header strong {
+  color: rgba(236, 226, 209, 0.78);
+  text-shadow: none;
 }
 
 .tm-next-patch__actions {
@@ -7387,7 +7955,7 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.55rem;
   margin-top: -0.18rem;
   color: rgba(207, 194, 174, 0.74);
@@ -7395,8 +7963,92 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
-.tm-next-patch-reset-strip > span {
+.tm-next-patch-reset-strip__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.tm-next-patch-reset-strip__actions > span {
   color: rgba(207, 194, 174, 0.7);
+}
+
+.tm-next-patch-notes-button {
+  --patch-notes-accent: #a78bfa;
+  min-height: 2.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.44rem;
+  padding: 0.36rem 0.72rem 0.36rem 0.44rem;
+  border: 1px solid color-mix(in srgb, var(--patch-notes-accent) 42%, rgba(213, 196, 164, 0.12));
+  border-radius: 999px;
+  color: #efe7ff;
+  background:
+    radial-gradient(circle at 16% 0%, rgba(167, 139, 250, 0.24), transparent 5.5rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%),
+    rgba(42, 27, 79, 0.38);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 22px rgba(15, 10, 30, 0.2);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-next-patch-notes-button:hover,
+.tm-next-patch-notes-button:focus-visible {
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--patch-notes-accent) 68%, rgba(255, 255, 255, 0.16));
+  background:
+    radial-gradient(circle at 16% 0%, rgba(167, 139, 250, 0.32), transparent 5.8rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.095), transparent 78%),
+    rgba(55, 36, 99, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 12px 24px rgba(15, 10, 30, 0.24),
+    0 0 18px rgba(167, 139, 250, 0.16);
+  transform: translateY(-1px);
+}
+
+.tm-next-patch-notes-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tm-next-patch-notes-button__icon {
+  width: 1.32rem;
+  height: 1.32rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(221, 214, 254, 0.22);
+  border-radius: 50%;
+  color: #ddd6fe;
+  background: rgba(167, 139, 250, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.tm-next-patch-notes-button__icon svg {
+  width: 0.88rem;
+  height: 0.88rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .tm-next-patch-reset-button {
@@ -7727,6 +8379,341 @@ onBeforeUnmount(() => {
   color: #f4ead8;
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 1.28rem;
+}
+
+.tm-patch-notes-modal {
+  width: min(72rem, calc(100vw - 2rem));
+  max-height: min(86vh, 56rem);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  border-color: rgba(167, 139, 250, 0.36);
+  background:
+    radial-gradient(circle at 16% 0%, rgba(167, 139, 250, 0.16), transparent 18rem),
+    radial-gradient(circle at 76% 0%, rgba(68, 178, 255, 0.12), transparent 18rem),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 5px),
+    linear-gradient(180deg, rgba(19, 27, 43, 0.98), rgba(8, 11, 15, 0.98));
+}
+
+.tm-patch-notes-modal__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem 1rem;
+  border-bottom: 1px solid rgba(167, 139, 250, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent);
+}
+
+.tm-patch-notes-modal__title {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.tm-patch-notes-modal__title h2,
+.tm-patch-notes-modal__title p,
+.tm-patch-notes-modal__title small {
+  margin: 0;
+}
+
+.tm-patch-notes-modal__title h2 {
+  color: #f8ead1;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.35rem, 2.2vw, 1.85rem);
+  line-height: 1.05;
+}
+
+.tm-patch-notes-modal__title small {
+  display: block;
+  margin-top: 0.32rem;
+  color: rgba(219, 211, 196, 0.74);
+  font-size: 0.88rem;
+}
+
+.tm-patch-notes-modal__icon {
+  width: 2.6rem;
+  height: 2.6rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(221, 214, 254, 0.28);
+  border-radius: 12px;
+  color: #ddd6fe;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.18), transparent 1.2rem),
+    rgba(88, 58, 153, 0.34);
+  box-shadow: 0 0 22px rgba(167, 139, 250, 0.16);
+}
+
+.tm-patch-notes-modal__icon svg {
+  width: 1.34rem;
+  height: 1.34rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-patch-notes-toolbar {
+  display: grid;
+  grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: end;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 231, 190, 0.08);
+}
+
+.tm-patch-notes-start input {
+  max-width: 10rem;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.tm-patch-notes-toolbar__summary {
+  min-height: 3.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  border-radius: 10px;
+  background: rgba(167, 139, 250, 0.08);
+}
+
+.tm-patch-notes-toolbar__summary strong {
+  color: #f8ead1;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.55rem;
+  line-height: 1;
+}
+
+.tm-patch-notes-toolbar__summary span {
+  color: rgba(219, 211, 196, 0.72);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.tm-patch-notes-toolbar__actions,
+.tm-patch-notes-footer__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.tm-patch-notes-list {
+  min-height: 0;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  overflow: auto;
+}
+
+.tm-patch-note-row {
+  display: grid;
+  grid-template-columns: 7.25rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: stretch;
+  padding: 0.8rem;
+  border: 1px solid rgba(123, 204, 139, 0.22);
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, rgba(59, 169, 91, 0.13), transparent 35%),
+    rgba(6, 14, 16, 0.56);
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    opacity 0.14s ease;
+}
+
+.tm-patch-note-row--excluded {
+  border-color: rgba(255, 231, 190, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  opacity: 0.72;
+}
+
+.tm-patch-note-row__toggle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.48rem;
+  min-height: 7.4rem;
+  border: 1px solid rgba(255, 231, 190, 0.1);
+  border-radius: 10px;
+  color: #dff9df;
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  text-align: center;
+}
+
+.tm-patch-note-row__toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tm-patch-note-row__toggle span {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(123, 204, 139, 0.42);
+  border-radius: 50%;
+  background: rgba(42, 142, 65, 0.2);
+}
+
+.tm-patch-note-row__toggle span::after {
+  content: '✓';
+  color: #c8f7bd;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.tm-patch-note-row__toggle input:not(:checked) + span {
+  border-color: rgba(255, 231, 190, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tm-patch-note-row__toggle input:not(:checked) + span::after {
+  content: '–';
+  color: rgba(219, 211, 196, 0.68);
+}
+
+.tm-patch-note-row__toggle strong {
+  color: currentColor;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-patch-note-row__body {
+  min-width: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tm-patch-note-row__meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.tm-patch-note-row__meta strong,
+.tm-patch-note-row__meta small {
+  display: block;
+}
+
+.tm-patch-note-row__meta strong {
+  color: #fff7e8;
+}
+
+.tm-patch-note-row__meta small {
+  color: rgba(219, 211, 196, 0.68);
+  font-size: 0.78rem;
+}
+
+.tm-patch-note-row__number {
+  min-width: 4.8rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  border-radius: 999px;
+  color: #efe7ff;
+  background: rgba(167, 139, 250, 0.12);
+  font-size: 0.75rem;
+  font-weight: 950;
+}
+
+.tm-patch-note-row textarea {
+  width: 100%;
+  min-height: 5.7rem;
+  resize: vertical;
+  border: 1px solid rgba(255, 231, 190, 0.14);
+  border-radius: 10px;
+  color: #fff7e8;
+  background: rgba(3, 7, 10, 0.56);
+  padding: 0.78rem 0.85rem;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.tm-patch-note-row textarea:focus {
+  outline: none;
+  border-color: rgba(167, 139, 250, 0.55);
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.14);
+}
+
+.tm-patch-notes-loading,
+.tm-patch-notes-empty {
+  min-height: 16rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.7rem;
+  padding: 2rem;
+  color: rgba(219, 211, 196, 0.76);
+  text-align: center;
+}
+
+.tm-patch-notes-loading {
+  grid-template-columns: auto minmax(0, 24rem);
+}
+
+.tm-patch-notes-loading > span {
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 3px solid rgba(167, 139, 250, 0.18);
+  border-top-color: #ddd6fe;
+  border-radius: 50%;
+  animation: tm-spin 0.9s linear infinite;
+}
+
+.tm-patch-notes-loading strong,
+.tm-patch-notes-empty strong {
+  color: #fff7e8;
+}
+
+.tm-patch-notes-loading p,
+.tm-patch-notes-empty p {
+  margin: 0.28rem 0 0;
+}
+
+.tm-patch-notes-empty--error {
+  color: rgba(255, 190, 177, 0.82);
+}
+
+.tm-patch-notes-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid rgba(255, 231, 190, 0.1);
+  background: rgba(5, 8, 12, 0.68);
+}
+
+.tm-patch-notes-footer p {
+  margin: 0;
+  color: rgba(219, 211, 196, 0.72);
+  font-size: 0.86rem;
+}
+
+.tm-patch-notes-copy {
+  min-width: 10.5rem;
+}
+
+@keyframes tm-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .tm-panel {
@@ -9333,6 +10320,40 @@ onBeforeUnmount(() => {
   color: rgba(188, 178, 164, 0.7);
 }
 
+.tm-readiness-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-height: 1.5rem;
+  padding: 0.18rem 0.52rem;
+  border: 1px solid color-mix(in srgb, currentColor 32%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 76%),
+    rgba(255, 255, 255, 0.035);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tm-readiness-badge svg {
+  width: 0.86rem;
+  height: 0.86rem;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.tm-readiness-badge--not-ready {
+  color: #ffd38a;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 76%),
+    rgba(217, 164, 95, 0.09);
+}
+
 .tm-detail__header h2 {
   font-size: 1.9rem;
   color: #fff3dd;
@@ -10022,6 +11043,117 @@ onBeforeUnmount(() => {
   color: #d8efff;
   border-color: rgba(85, 183, 255, 0.28);
   background: rgba(85, 183, 255, 0.1);
+}
+
+.tm-ready-test-toggle {
+  --ready-test-accent: #72d66f;
+  width: min(13.5rem, 100%);
+  min-height: 2.85rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.48rem;
+  padding: 0.38rem 0.44rem;
+  border: 1px solid color-mix(in srgb, var(--ready-test-accent) 28%, rgba(213, 196, 164, 0.14));
+  border-radius: 8px;
+  color: #e6f6e3;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 86%),
+    color-mix(in srgb, var(--ready-test-accent) 10%, rgba(5, 12, 16, 0.78));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
+}
+
+.tm-ready-test-toggle:hover,
+.tm-ready-test-toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--ready-test-accent) 46%, rgba(213, 196, 164, 0.18));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 86%),
+    color-mix(in srgb, var(--ready-test-accent) 15%, rgba(7, 15, 18, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 18px color-mix(in srgb, var(--ready-test-accent) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.tm-ready-test-toggle:disabled {
+  opacity: 0.58;
+  cursor: default;
+  transform: none;
+}
+
+.tm-ready-test-toggle__icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ready-test-accent) 28%, transparent);
+  border-radius: 0.38rem;
+  color: color-mix(in srgb, var(--ready-test-accent) 74%, #ffffff);
+  background: color-mix(in srgb, var(--ready-test-accent) 12%, transparent);
+}
+
+.tm-ready-test-toggle__icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-ready-test-toggle__copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.tm-ready-test-toggle__copy strong,
+.tm-ready-test-toggle__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-ready-test-toggle__copy strong {
+  color: #f0faed;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.tm-ready-test-toggle__copy small {
+  color: rgba(212, 232, 205, 0.78);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.tm-ready-test-toggle__action {
+  padding: 0.22rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--ready-test-accent) 22%, rgba(255, 255, 255, 0.08));
+  border-radius: 999px;
+  color: rgba(230, 245, 224, 0.88);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-ready-test-toggle--not-ready {
+  --ready-test-accent: #d9a45f;
+  color: #ffe6ba;
+}
+
+.tm-ready-test-toggle--not-ready .tm-ready-test-toggle__copy small,
+.tm-ready-test-toggle--not-ready .tm-ready-test-toggle__action {
+  color: #ffe1ac;
 }
 
 .tm-detail__action-buttons {
@@ -13527,6 +14659,20 @@ onBeforeUnmount(() => {
     overflow: visible;
   }
 
+  .tm-panel__header.tm-next-patch__header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .tm-next-patch-progress {
+    width: min(32rem, 100%);
+    justify-self: start;
+  }
+
+  .tm-next-patch__actions {
+    justify-content: flex-start;
+  }
+
   .tm-next-patch-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -13641,6 +14787,62 @@ onBeforeUnmount(() => {
   .tm-hero__actions,
   .tm-create-trigger {
     width: 100%;
+  }
+
+  .tm-next-patch-reset-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tm-next-patch-reset-strip__actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .tm-next-patch-notes-button,
+  .tm-next-patch-reset-button {
+    width: 100%;
+  }
+
+  .tm-patch-notes-modal {
+    width: min(100%, calc(100vw - 1rem));
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .tm-patch-notes-modal__header,
+  .tm-patch-notes-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tm-patch-notes-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-patch-notes-toolbar__actions,
+  .tm-patch-notes-footer__actions {
+    justify-content: stretch;
+  }
+
+  .tm-patch-notes-toolbar__actions .tm-btn,
+  .tm-patch-notes-footer__actions .tm-btn {
+    flex: 1 1 10rem;
+    justify-content: center;
+  }
+
+  .tm-patch-note-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tm-patch-note-row__toggle {
+    min-height: auto;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    padding: 0.6rem 0.7rem;
+  }
+
+  .tm-patch-notes-loading {
+    grid-template-columns: 1fr;
   }
 
   .tm-create-trigger {
@@ -14058,7 +15260,8 @@ onBeforeUnmount(() => {
     justify-items: start;
   }
 
-  .tm-next-patch-toggle {
+  .tm-next-patch-toggle,
+  .tm-ready-test-toggle {
     width: 100%;
   }
 

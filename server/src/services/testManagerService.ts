@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 
 import { ensureAdmin } from './adminService.js';
+import { generatePatchNotesForChanges } from './geminiPatchNotesService.js';
 import { buildCrashReviewInput } from './inboundWebhookService.js';
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
@@ -1305,6 +1306,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
     includeInNextPatch: change.includeInNextPatch,
+    readyToTest: change.readyToTest,
     autoClosePassCount: change.autoClosePassCount,
     dueAt: change.dueAt?.toISOString() ?? null,
     closedAt: change.closedAt?.toISOString() ?? null,
@@ -1670,19 +1672,29 @@ function ensureActiveTestingAssignment<
   }
 }
 
-function ensureChangeAcceptsTesterInput<T extends { status: TestChangeStatus }>(
+function ensureChangeAcceptsTesterInput<
+  T extends { status: TestChangeStatus; readyToTest: boolean }
+>(
   change: T | null
 ): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('You must be actively testing this change to submit tester input.');
   }
+  if (!change.readyToTest) {
+    throw new Error('This change is not ready for tester input yet.');
+  }
 }
 
-function ensureChangeAcceptsTestingNote<T extends { status: TestChangeStatus }>(
+function ensureChangeAcceptsTestingNote<
+  T extends { status: TestChangeStatus; readyToTest: boolean }
+>(
   change: T | null
 ): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('Testing notes can only be added while the change is open.');
+  }
+  if (!change.readyToTest) {
+    throw new Error('Testing notes can only be added once this change is ready to test.');
   }
 }
 
@@ -2175,7 +2187,7 @@ export async function listNextPatchChanges(userId: string, view: NextPatchChange
               not: NEXT_PATCH_COMPLETE_STATUS
             }
     },
-    orderBy: [{ closedAt: 'desc' }, { updatedAt: 'desc' }, { publicId: 'asc' }],
+    orderBy: [{ publicId: 'asc' }],
     include: changeListInclude
   });
 
@@ -2185,14 +2197,64 @@ export async function listNextPatchChanges(userId: string, view: NextPatchChange
 export async function countNextPatchChanges(userId: string) {
   await ensureSeedData(userId);
 
-  const count = await prisma.testChange.count({
+  const [completeCount, totalCount] = await Promise.all([
+    prisma.testChange.count({
+      where: {
+        includeInNextPatch: true,
+        status: NEXT_PATCH_COMPLETE_STATUS
+      }
+    }),
+    prisma.testChange.count({
+      where: {
+        includeInNextPatch: true
+      }
+    })
+  ]);
+
+  return {
+    count: completeCount,
+    completeCount,
+    incompleteCount: Math.max(totalCount - completeCount, 0),
+    totalCount
+  };
+}
+
+export async function generateNextPatchNotes(userId: string) {
+  await ensureSeedData(userId);
+  await ensureAdmin(userId);
+
+  const changes = await prisma.testChange.findMany({
     where: {
       includeInNextPatch: true,
       status: NEXT_PATCH_COMPLETE_STATUS
+    },
+    orderBy: [{ publicId: 'asc' }],
+    select: {
+      id: true,
+      publicId: true,
+      title: true,
+      description: true,
+      category: true,
+      subsystem: true,
+      priority: true,
+      targetBuild: true
     }
   });
 
-  return { count };
+  const result = await generatePatchNotesForChanges(changes);
+
+  return {
+    model: result.model,
+    notes: result.notes.map((note) => {
+      const change = changes.find((item) => item.id === note.changeId);
+      return {
+        ...note,
+        title: change?.title ?? '',
+        category: change?.category ?? '',
+        subsystem: change?.subsystem ?? ''
+      };
+    })
+  };
 }
 
 export async function getTestChange(changeId: string, userId: string) {
@@ -2534,6 +2596,53 @@ export async function setTestChangeNextPatch(
   return getTestChange(changeId, actorUserId);
 }
 
+export async function setTestChangeReadyToTest(
+  actorUserId: string,
+  changeId: string,
+  readyToTest: boolean
+) {
+  await ensureAdmin(actorUserId);
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      readyToTest: true
+    }
+  });
+  if (!existing) {
+    throw new Error('Change not found.');
+  }
+
+  if (existing.readyToTest === readyToTest) {
+    return getTestChange(changeId, actorUserId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data: { readyToTest }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: readyToTest ? 'Ready to test enabled' : 'Ready to test disabled',
+      detail: readyToTest
+        ? 'Tester input was enabled for this change.'
+        : 'Tester input was paused until this change is ready.',
+      metadata: {
+        from: existing.readyToTest,
+        to: readyToTest,
+        readyToTest
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
 export async function resetNextPatch(actorUserId: string) {
   await ensureAdmin(actorUserId);
 
@@ -2711,6 +2820,9 @@ export async function volunteerForChange(actorUserId: string, changeId: string) 
     if (change.status === TestChangeStatus.CLOSED) {
       throw new Error('Closed changes cannot be tested.');
     }
+    if (!change.readyToTest) {
+      throw new Error('This change is not ready for tester input yet.');
+    }
     if (
       !actorCanVolunteer &&
       (!existingTester ||
@@ -2771,7 +2883,10 @@ export async function retestChange(actorUserId: string, changeId: string) {
 
   await prisma.$transaction(async (tx) => {
     const [change, tester] = await Promise.all([
-      tx.testChange.findUnique({ where: { id: changeId }, select: { id: true, status: true } }),
+      tx.testChange.findUnique({
+        where: { id: changeId },
+        select: { id: true, status: true, readyToTest: true }
+      }),
       tx.testChangeTester.findUnique({
         where: { changeId_userId: { changeId, userId: actorUserId } },
         select: { id: true, result: true }
@@ -2783,6 +2898,9 @@ export async function retestChange(actorUserId: string, changeId: string) {
     }
     if (change.status === TestChangeStatus.CLOSED) {
       throw new Error('Closed changes cannot be re-tested.');
+    }
+    if (!change.readyToTest) {
+      throw new Error('This change is not ready for tester input yet.');
     }
     if (!tester?.result) {
       throw new Error('You can only re-test a change after submitting tester input.');
@@ -2911,7 +3029,10 @@ export async function submitTesterResult(
   }
 
   const [change, existing] = await Promise.all([
-    prisma.testChange.findUnique({ where: { id: changeId }, select: { status: true } }),
+    prisma.testChange.findUnique({
+      where: { id: changeId },
+      select: { status: true, readyToTest: true }
+    }),
     prisma.testChangeTester.findUnique({
       where: { changeId_userId: { changeId, userId: actorUserId } },
       select: { id: true, status: true, result: true }
@@ -3020,7 +3141,10 @@ export async function updateTesterChecklistProgress(
   let checklistItemTitle = 'Checklist item';
   await prisma.$transaction(async (tx) => {
     const [change, checklistItem] = await Promise.all([
-      tx.testChange.findUnique({ where: { id: changeId }, select: { id: true, status: true } }),
+      tx.testChange.findUnique({
+        where: { id: changeId },
+        select: { id: true, status: true, readyToTest: true }
+      }),
       tx.testChangeChecklistItem.findFirst({
         where: { id: checklistItemId, changeId },
         select: { id: true, title: true }
@@ -3202,7 +3326,10 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
   }
 
   const [change, tester] = await Promise.all([
-    prisma.testChange.findUnique({ where: { id: changeId }, select: { status: true } }),
+    prisma.testChange.findUnique({
+      where: { id: changeId },
+      select: { status: true, readyToTest: true }
+    }),
     prisma.testChangeTester.findUnique({
       where: { changeId_userId: { changeId, userId: actorUserId } },
       select: { id: true, status: true, result: true }

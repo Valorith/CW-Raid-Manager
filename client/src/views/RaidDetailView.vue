@@ -2112,11 +2112,13 @@
   <AttendanceEventModal
     v-if="selectedAttendanceEvent"
     :event="selectedAttendanceEvent"
+    :previous-event="selectedAttendancePreviousEvent"
     :can-edit="canManageRaid"
     :saving="attendanceModalSaving"
     @close="closeAttendanceEvent"
     @upload="handleAttendanceUploadFromModal"
     @save="handleAttendanceModalSave"
+    @copy-previous="handleAttendanceCopyPrevious"
   />
   <ConfirmationModal
     v-if="confirmModal.visible"
@@ -2373,6 +2375,20 @@ const validCharacterClasses = new Set<CharacterClass>(
   Object.keys(characterClassLabels) as CharacterClass[]
 );
 const attendanceStatusOptions: AttendanceStatus[] = ['PRESENT', 'LATE', 'BENCHED', 'ABSENT'];
+const chronologicalAttendanceEvents = computed(() =>
+  attendanceEvents.value
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+);
+const selectedAttendancePreviousEvent = computed(() => {
+  if (!selectedAttendanceEvent.value) {
+    return null;
+  }
+  const selectedIndex = chronologicalAttendanceEvents.value.findIndex(
+    (event) => event.id === selectedAttendanceEvent.value?.id
+  );
+  return selectedIndex > 0 ? chronologicalAttendanceEvents.value[selectedIndex - 1] : null;
+});
 const lootEvents = ref<RaidLootEvent[]>([]);
 const npcNotes = ref<GuildNpcNote[]>([]);
 const npcNotesLoaded = ref(false);
@@ -6309,6 +6325,49 @@ async function handleAttendanceModalSave(payload: {
     selectedAttendanceEvent.value = updatedEvent;
   } catch (error) {
     actionError.value = extractErrorMessage(error, 'Unable to save attendance snapshot.');
+  } finally {
+    attendanceModalSaving.value = false;
+  }
+}
+
+async function handleAttendanceCopyPrevious(payload: {
+  eventId: string;
+  previousEventId: string;
+}) {
+  if (attendanceModalSaving.value) {
+    return;
+  }
+
+  const previousEvent = attendanceEvents.value.find((event) => event.id === payload.previousEventId);
+  if (!previousEvent) {
+    actionError.value = 'Unable to find the previous attendance event.';
+    return;
+  }
+
+  attendanceModalSaving.value = true;
+  try {
+    const copiedRecords: AttendanceRecordInput[] = previousEvent.records.map((record) => ({
+      characterId: record.characterId ?? undefined,
+      characterName: record.characterName,
+      level: record.level ?? null,
+      class: record.class ?? null,
+      groupNumber: record.groupNumber ?? null,
+      status: record.status ?? undefined,
+      flags: record.flags ?? null
+    }));
+
+    await api.updateAttendanceEvent(payload.eventId, {
+      records: copiedRecords
+    });
+    await loadAttendance({ syncSignups: true });
+    const updatedEvent =
+      attendanceEvents.value.find((event) => event.id === payload.eventId) ?? null;
+    selectedAttendanceEvent.value = updatedEvent;
+  } catch (error) {
+    actionError.value = extractErrorMessage(
+      error,
+      'Unable to copy attendance from the previous event.'
+    );
   } finally {
     attendanceModalSaving.value = false;
   }

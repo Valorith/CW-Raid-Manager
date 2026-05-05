@@ -1424,6 +1424,7 @@ model TestChange {
   githubIssueUrl String?           @db.VarChar(500)
   githubIssueMetadata Json?
   includeInNextPatch Boolean        @default(true)
+  readyToTest   Boolean             @default(true)
   autoClosePassCount Int            @default(0)
   assignedToId  String?
   createdById   String

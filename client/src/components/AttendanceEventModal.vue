@@ -31,14 +31,25 @@
           </div>
         </div>
         <div class="summary__stats">
-          <div v-for="status in visibleStatuses" :key="status" class="summary__stat">
-            <span class="label">{{ statusLabels[status] }}</span>
-            <strong>{{ statusCounts[status] ?? 0 }}</strong>
+          <div class="summary__stat-group">
+            <div v-for="status in visibleStatuses" :key="status" class="summary__stat">
+              <span class="label">{{ statusLabels[status] }}</span>
+              <strong>{{ statusCounts[status] ?? 0 }}</strong>
+            </div>
+            <div class="summary__stat">
+              <span class="label">Total</span>
+              <strong>{{ currentRecords.length }}</strong>
+            </div>
           </div>
-          <div class="summary__stat">
-            <span class="label">Total</span>
-            <strong>{{ currentRecords.length }}</strong>
-          </div>
+          <button
+            v-if="canCopyPreviousEvent"
+            class="btn btn--copy-last"
+            type="button"
+            :disabled="saving"
+            @click="copyPreviousEvent"
+          >
+            {{ saving ? 'Copying...' : 'Copy last event' }}
+          </button>
         </div>
       </section>
 
@@ -191,6 +202,7 @@ type EditableAttendanceRecordInput = {
 
 const props = defineProps<{
   event: AttendanceEvent;
+  previousEvent?: AttendanceEvent | null;
   canEdit?: boolean;
   saving?: boolean;
 }>();
@@ -199,6 +211,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'upload', attendanceEventId: string): void;
   (e: 'save', payload: { eventId: string; records: EditableAttendanceRecordInput[] }): void;
+  (e: 'copy-previous', payload: { eventId: string; previousEventId: string }): void;
 }>();
 
 const isEditing = ref(false);
@@ -225,6 +238,9 @@ const classOptions = computed(() => Object.keys(characterClassLabels));
 
 const currentRecords = computed(() =>
   isEditing.value ? editableRecords.value : props.event.records
+);
+const canCopyPreviousEvent = computed(
+  () => Boolean(props.canEdit && props.previousEvent && !isEditing.value)
 );
 
 const statusCounts = computed<Record<string, number>>(() => {
@@ -269,6 +285,16 @@ function close() {
 
 function upload() {
   emit('upload', props.event.id);
+}
+
+function copyPreviousEvent() {
+  if (!props.previousEvent || saving.value) {
+    return;
+  }
+  emit('copy-previous', {
+    eventId: props.event.id,
+    previousEventId: props.previousEvent.id
+  });
 }
 
 function startEdit() {
@@ -498,6 +524,16 @@ function formatStatus(status?: AttendanceStatus | null) {
 
 .summary__stats {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.summary__stat-group {
+  flex: 1 1 360px;
+  min-width: 0;
+  display: flex;
   flex-wrap: wrap;
   gap: 1rem;
 }
@@ -523,6 +559,28 @@ function formatStatus(status?: AttendanceStatus | null) {
 .summary__stat strong {
   font-size: 1.25rem;
   font-weight: 600;
+}
+
+.btn--copy-last {
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-color: rgba(56, 189, 248, 0.36);
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(59, 130, 246, 0.22));
+  color: #dbeafe;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 26px rgba(14, 165, 233, 0.12);
+  white-space: nowrap;
+}
+
+.btn--copy-last:focus-visible,
+.btn--copy-last:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.7);
+  color: #f8fafc;
+  transform: translateY(-1px);
+}
+
+.btn--copy-last:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .table-wrapper {

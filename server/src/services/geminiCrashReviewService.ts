@@ -31,7 +31,8 @@ export type CrashReviewFindings = {
   };
 };
 
-const MODEL_NAME = 'gemini-2.5-flash-lite';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const MODEL_NAME = DEFAULT_GEMINI_MODEL;
 const OPENAI_ESCALATION_MODEL = 'gpt-5.4-mini';
 const MAX_INPUT_CHARS = 250_000;
 const MAX_OUTPUT_TOKENS = 4096;

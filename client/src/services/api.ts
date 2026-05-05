@@ -3337,6 +3337,7 @@ export interface TestChange {
   githubPullRequest: TestChangePullRequest | null;
   githubIssue: TestChangeIssue | null;
   includeInNextPatch: boolean;
+  readyToTest?: boolean;
   autoClosePassCount: number;
   dueAt: string | null;
   closedAt: string | null;
@@ -3411,6 +3412,21 @@ export interface AddTestChangeChecklistItemPayload {
 
 export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'>;
 export type NextPatchChangeView = 'complete' | 'incomplete';
+export interface TestManagerNextPatchCounts {
+  count: number;
+  completeCount: number;
+  incompleteCount: number;
+  totalCount: number;
+}
+
+export interface GeneratedPatchNote {
+  changeId: string;
+  publicId: number;
+  title: string;
+  category: string;
+  subsystem: string;
+  note: string;
+}
 
 export const api = {
   async fetchCurrentUser() {
@@ -3430,6 +3446,10 @@ export const api = {
   async fetchTestManagerNextPatchCount(): Promise<number> {
     const response = await axios.get('/api/test-manager/next-patch/count');
     return response.data.count;
+  },
+  async fetchTestManagerNextPatchCounts(): Promise<TestManagerNextPatchCounts> {
+    const response = await axios.get('/api/test-manager/next-patch/count');
+    return response.data;
   },
   async fetchTestChanges(params?: {
     status?: TestChangeListStatusFilter;
@@ -3495,8 +3515,19 @@ export const api = {
     );
     return response.data.change;
   },
+  async updateTestChangeReadyToTest(changeId: string, readyToTest: boolean): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/ready-to-test`,
+      { readyToTest }
+    );
+    return response.data.change;
+  },
   async resetTestManagerNextPatch(): Promise<{ resetCount: number }> {
     const response = await axios.post('/api/test-manager/next-patch/reset');
+    return response.data;
+  },
+  async generateTestManagerPatchNotes(): Promise<{ model: string; notes: GeneratedPatchNote[] }> {
+    const response = await axios.post('/api/test-manager/next-patch/patch-notes');
     return response.data;
   },
   async deleteTestChange(changeId: string): Promise<void> {
