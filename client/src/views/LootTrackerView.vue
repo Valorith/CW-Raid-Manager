@@ -1397,7 +1397,11 @@ import {
   type LootCouncilInterestMode,
   type LootCouncilConsideredOrigin
 } from '../services/lootCouncilParser';
-import { parseNpcKills, type ParsedNpcKillEvent } from '../services/npcKillParser';
+import {
+  RAID_NPC_KILL_END_GRACE_MINUTES,
+  parseNpcKills,
+  type ParsedNpcKillEvent
+} from '../services/npcKillParser';
 import { useAuthStore } from '../stores/auth';
 import { useMonitorStore } from '../stores/monitor';
 import { useAttentionStore } from '../stores/attention';
@@ -6206,7 +6210,9 @@ function processLogContent(
   const patterns = getPatternsForParsing();
   const emoji = parserSettings.value?.emoji ?? '💎';
   const parsed = parseLootLog(content, options.start, patterns, options.end ?? null);
-  const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null);
+  const npcKillEvents = parseNpcKills(content, options.start, options.end ?? null, {
+    endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES
+  });
   const shouldTrackLootCouncil = Boolean(monitorSession.value?.isOwner);
   if (shouldTrackLootCouncil) {
     try {

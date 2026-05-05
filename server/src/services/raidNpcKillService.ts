@@ -5,6 +5,9 @@ import type { FastifyBaseLogger } from 'fastify';
 import { recordKillForTrackedNpc, type ZoneOption } from './npcRespawnService.js';
 import { prisma } from '../utils/prisma.js';
 
+const RAID_NPC_KILL_END_GRACE_MINUTES = 10;
+const RAID_NPC_KILL_END_GRACE_MS = RAID_NPC_KILL_END_GRACE_MINUTES * 60 * 1000;
+
 // Type for kills that need instance clarification
 export type PendingInstanceClarification = {
   id: string;
@@ -61,6 +64,53 @@ function chunkArray<T>(items: T[], size: number) {
     chunks.push(items.slice(index, index + size));
   }
   return chunks;
+}
+
+function getRaidStartTime(raid: { startedAt: Date | null; startTime: Date }) {
+  return raid.startedAt ?? raid.startTime;
+}
+
+async function findRaidForNpcKill(guildId: string, killedAt: Date) {
+  const graceStart = new Date(killedAt.getTime() - RAID_NPC_KILL_END_GRACE_MS);
+  const candidateRaids = await prisma.raidEvent.findMany({
+    where: {
+      guildId,
+      startTime: {
+        lte: killedAt
+      },
+      OR: [
+        { endedAt: null },
+        {
+          endedAt: {
+            gte: graceStart
+          }
+        }
+      ]
+    },
+    orderBy: [{ startTime: 'desc' }],
+    take: 10,
+    select: {
+      id: true,
+      startTime: true,
+      startedAt: true,
+      endedAt: true
+    }
+  });
+
+  return (
+    candidateRaids
+      .filter((raid) => {
+        const start = getRaidStartTime(raid);
+        if (killedAt < start) {
+          return false;
+        }
+        if (!raid.endedAt) {
+          return true;
+        }
+        return killedAt.getTime() <= raid.endedAt.getTime() + RAID_NPC_KILL_END_GRACE_MS;
+      })
+      .sort((a, b) => getRaidStartTime(b).getTime() - getRaidStartTime(a).getTime())[0] ?? null
+  );
 }
 
 export async function recordRaidNpcKills(
@@ -333,6 +383,75 @@ export async function recordRaidNpcKills(
   }
 
   return { inserted, pendingClarifications, pendingZoneClarifications };
+}
+
+export async function recordTrackedNpcKillInRecentRaid(
+  guildId: string,
+  input: {
+    npcDefinitionId: string;
+    killedAt: Date;
+    killedByName?: string | null;
+    killRecordId?: string | null;
+  },
+  logger?: FastifyBaseLogger
+) {
+  if (!(input.killedAt instanceof Date) || Number.isNaN(input.killedAt.getTime())) {
+    return { recorded: false, raidId: null };
+  }
+
+  const definition = await prisma.npcDefinition.findFirst({
+    where: {
+      guildId,
+      id: input.npcDefinitionId
+    },
+    select: {
+      id: true,
+      npcName: true,
+      npcNameNormalized: true,
+      zoneName: true
+    }
+  });
+
+  if (!definition) {
+    return { recorded: false, raidId: null };
+  }
+
+  const raid = await findRaidForNpcKill(guildId, input.killedAt);
+  if (!raid) {
+    return { recorded: false, raidId: null };
+  }
+
+  const existing = await prisma.raidNpcKillEvent.findFirst({
+    where: {
+      raidId: raid.id,
+      npcNameNormalized: definition.npcNameNormalized,
+      occurredAt: input.killedAt
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (existing) {
+    return { recorded: false, raidId: raid.id };
+  }
+
+  const result = await recordRaidNpcKills(
+    raid.id,
+    guildId,
+    [
+      {
+        npcName: definition.npcName,
+        occurredAt: input.killedAt,
+        killerName: input.killedByName ?? null,
+        rawLine: `respawn-tracker:${definition.id}:${input.killRecordId ?? input.killedAt.toISOString()}`,
+        zoneName: definition.zoneName
+      }
+    ],
+    logger
+  );
+
+  return { recorded: result.inserted > 0, raidId: raid.id };
 }
 
 export async function listRaidNpcKillSummary(raidId: string) {

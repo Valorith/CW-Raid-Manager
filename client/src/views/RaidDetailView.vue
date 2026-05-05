@@ -2320,7 +2320,7 @@ import {
 } from '../utils/lootNames';
 import { normalizeOptionalUrl } from '../utils/urls';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
-import { parseNpcKills } from '../services/npcKillParser';
+import { RAID_NPC_KILL_END_GRACE_MINUTES, parseNpcKills } from '../services/npcKillParser';
 import {
   easternDateInputToIso,
   easternDateKey,
@@ -4740,7 +4740,9 @@ async function uploadKillLogFile(file: File) {
   uploadingKillLog.value = true;
   try {
     const content = await file.text();
-    const parsed = parseNpcKills(content, start, end);
+    const parsed = parseNpcKills(content, start, end, {
+      endGraceMinutes: RAID_NPC_KILL_END_GRACE_MINUTES
+    });
     await api.deleteRaidNpcKills(raidId);
     if (parsed.length > 0) {
       const payload = parsed.map((entry) => ({

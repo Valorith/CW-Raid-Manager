@@ -1,6 +1,8 @@
 const timestampRegex =
   /^\[(?<day>\w{3}) (?<month>\w{3}) (?<date>\d{1,2}) (?<time>\d{2}:\d{2}:\d{2}) (?<year>\d{4})]/;
 
+export const RAID_NPC_KILL_END_GRACE_MINUTES = 10;
+
 export interface ParsedNpcKillEvent {
   timestamp: Date | null;
   npcName: string;
@@ -67,10 +69,17 @@ function isWithinRaid(timestamp: Date, raidStart: Date, raidEnd?: Date | null) {
 export function parseNpcKills(
   logContent: string,
   raidStart: Date,
-  raidEnd?: Date | null
+  raidEnd?: Date | null,
+  options?: { endGraceMinutes?: number }
 ): ParsedNpcKillEvent[] {
+  const endGraceMinutes = Math.max(0, options?.endGraceMinutes ?? 0);
+  const effectiveRaidEnd =
+    raidEnd && endGraceMinutes > 0
+      ? new Date(raidEnd.getTime() + endGraceMinutes * 60 * 1000)
+      : raidEnd;
+
   return parseNpcKillEvents(logContent).filter(
-    (kill) => kill.timestamp && isWithinRaid(kill.timestamp, raidStart, raidEnd)
+    (kill) => kill.timestamp && isWithinRaid(kill.timestamp, raidStart, effectiveRaidEnd)
   );
 }
 

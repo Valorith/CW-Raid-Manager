@@ -22,6 +22,7 @@ import {
   getEnabledContentFlags,
   NPC_CONTENT_FLAGS
 } from '../services/npcRespawnService.js';
+import { recordTrackedNpcKillInRecentRaid } from '../services/raidNpcKillService.js';
 import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
@@ -280,6 +281,17 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         data.npcDefinitionId,
         data.isInstance ?? false,
         record.id
+      );
+
+      await recordTrackedNpcKillInRecentRaid(
+        guildId,
+        {
+          npcDefinitionId: data.npcDefinitionId,
+          killedAt: new Date(data.killedAt),
+          killedByName: data.killedByName ?? null,
+          killRecordId: record.id
+        },
+        request.log
       );
 
       // Check if NPC is a raid target and trigger webhook (unless explicitly disabled)
