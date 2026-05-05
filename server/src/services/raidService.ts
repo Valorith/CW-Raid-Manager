@@ -10,6 +10,7 @@ import {
 } from './raidNotificationService.js';
 import { listRaidNpcKillSummary, listRaidNpcKillEvents } from './raidNpcKillService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
+import { addEasternDays, addEasternMonths } from '../utils/easternTime.js';
 import { prisma } from '../utils/prisma.js';
 
 const MAX_RECURRENCE_INTERVAL = 52;
@@ -1066,40 +1067,14 @@ function calculateNextOccurrence(
   const interval = Math.max(1, series.interval);
   switch (series.frequency) {
     case 'DAILY':
-      return addDays(startTime, interval);
+      return addEasternDays(startTime, interval);
     case 'WEEKLY':
-      return addDays(startTime, interval * 7);
+      return addEasternDays(startTime, interval * 7);
     case 'MONTHLY':
-      return addMonths(startTime, interval);
+      return addEasternMonths(startTime, interval);
     default:
       return null;
   }
-}
-
-function addDays(date: Date, days: number) {
-  const result = new Date(date);
-  result.setUTCDate(result.getUTCDate() + days);
-  return result;
-}
-
-function addMonths(date: Date, months: number) {
-  const year = date.getUTCFullYear();
-  const month = date.getUTCMonth();
-  const day = date.getUTCDate();
-  const hours = date.getUTCHours();
-  const minutes = date.getUTCMinutes();
-  const seconds = date.getUTCSeconds();
-  const milliseconds = date.getUTCMilliseconds();
-
-  const totalMonths = month + months;
-  const targetYear = year + Math.floor(totalMonths / 12);
-  const targetMonth = ((totalMonths % 12) + 12) % 12;
-  const daysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
-  const clampedDay = Math.min(day, daysInTargetMonth);
-
-  return new Date(
-    Date.UTC(targetYear, targetMonth, clampedDay, hours, minutes, seconds, milliseconds)
-  );
 }
 
 function normalizeRecurrenceInput(settings?: RecurrenceSettingsInput | null) {

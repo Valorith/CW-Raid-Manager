@@ -693,6 +693,7 @@ import type { CharacterClass } from '../services/types';
 import { useAuthStore } from '../stores/auth';
 import { useGuildBankStore } from '../stores/guildBank';
 import { useItemTooltipStore } from '../stores/itemTooltip';
+import { EASTERN_TIME_ZONE, formatEasternDateTime } from '../utils/easternTime';
 import { getLootIconSrc, hasValidIconId } from '../utils/itemIcons';
 import { getGuildBankDisplayName, normalizeLooterName } from '../utils/lootNames';
 
@@ -2002,9 +2003,7 @@ function toggleDashboardDensity() {
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value)
-  );
+  return formatEasternDateTime(value);
 }
 
 function formatClass(characterClass?: CharacterClass | null) {
@@ -2120,11 +2119,14 @@ function isWithinNextDays(value: string, days: number) {
 }
 
 function formatDayOfMonth(value: string) {
-  return new Intl.DateTimeFormat('en-US', { day: '2-digit' }).format(new Date(value));
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: EASTERN_TIME_ZONE,
+    day: '2-digit'
+  }).format(new Date(value));
 }
 
 function formatWeekdayShort(value: string) {
-  return new Intl.DateTimeFormat('en-US', { weekday: 'short' })
+  return new Intl.DateTimeFormat('en-US', { timeZone: EASTERN_TIME_ZONE, weekday: 'short' })
     .format(new Date(value))
     .toUpperCase();
 }

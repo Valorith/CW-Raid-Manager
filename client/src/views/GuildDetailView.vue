@@ -341,7 +341,7 @@
                   {{ raidItem.name }}
                 </strong>
                 <span class="muted raid-meta">
-                  {{ formatDate(raidItem.startTime) }} •
+                  {{ formatRaidDate(raidItem.startTime) }} •
                   {{ formatTargetZones(raidItem.targetZones) }}
                 </span>
               </div>
@@ -452,6 +452,7 @@ import { guildRoleOrder, characterClassLabels, getCharacterClassIcon } from '../
 import { useAuthStore } from '../stores/auth';
 import { useGuildBankStore } from '../stores/guildBank';
 import { buildCharacterFilterOptions } from '../hooks/useCharacterFilters';
+import { formatEasternDate, formatEasternDateTime } from '../utils/easternTime';
 
 const route = useRoute();
 const guildId = route.params.guildId as string;
@@ -1111,7 +1112,20 @@ function formatDate(date?: string | null) {
   }).format(parsed);
 }
 
-function formatDateOnly(date?: string | null) {
+function formatRaidDate(date?: string | null) {
+  if (!date) {
+    return '—';
+  }
+
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return '—';
+  }
+
+  return formatEasternDateTime(parsed);
+}
+
+function formatRaidDateOnly(date?: string | null) {
   if (!date) {
     return '—';
   }
@@ -1119,9 +1133,7 @@ function formatDateOnly(date?: string | null) {
   if (Number.isNaN(parsed.getTime())) {
     return '—';
   }
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium'
-  }).format(parsed);
+  return formatEasternDate(parsed);
 }
 
 function preferredUserName(user: { displayName?: string; nickname?: string | null }) {
@@ -1198,7 +1210,7 @@ function recurrenceTooltip(raid: RaidEventSummary) {
 
   let summary = `Repeats ${everyLabel}`;
   if (raid.recurrence.endDate) {
-    summary += ` until ${formatDateOnly(raid.recurrence.endDate)}`;
+    summary += ` until ${formatRaidDateOnly(raid.recurrence.endDate)}`;
   }
   if (raid.recurrence.isActive === false) {
     summary += ' (paused)';

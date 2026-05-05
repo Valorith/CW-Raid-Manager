@@ -801,12 +801,18 @@ import {
 } from '../services/api';
 import type { GuildRole } from '../services/types';
 import { useAuthStore } from '../stores/auth';
+import {
+  easternDateKey,
+  formatEasternDate,
+  formatEasternDateTime,
+  formatEasternTime
+} from '../utils/easternTime';
 
 type RaidStatusVariant = 'badge--neutral' | 'badge--positive' | 'badge--negative';
 type RaidStatusBadge = { label: string; variant: RaidStatusVariant };
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
-const todayKey = formatDateKey(new Date());
+const todayKey = easternDateKey(new Date());
 
 const raids = ref<RaidEventSummary[]>([]);
 const selectedGuildPermissions = ref<{ canManage: boolean; role: GuildRole } | null>(null);
@@ -1206,7 +1212,7 @@ const paginatedHistoryRaids = computed(() => {
 const raidsByDate = computed(() => {
   const map = new Map<string, RaidEventSummary[]>();
   for (const raid of raids.value) {
-    const key = formatDateKey(new Date(raid.startTime));
+    const key = easternDateKey(raid.startTime);
     if (!map.has(key)) {
       map.set(key, []);
     }
@@ -1318,25 +1324,11 @@ function openRaid(raidId: string) {
 }
 
 function formatDate(date: string) {
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Unknown start';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(parsed);
+  return formatEasternDateTime(date);
 }
 
 function formatDateOnly(date: string) {
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) {
-    return 'unknown date';
-  }
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium'
-  }).format(parsed);
+  return formatEasternDate(date);
 }
 
 function formatTargetZones(zones: unknown): string {
@@ -1513,11 +1505,7 @@ function isHistoryRaid(raid: RaidEventSummary) {
 }
 
 function formatTime(date: string) {
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Unknown time';
-  }
-  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return formatEasternTime(date);
 }
 
 function goToPreviousMonth() {
@@ -1537,17 +1525,16 @@ function goToCurrentMonth() {
 }
 
 function buildRaidStartDateTime(date: Date) {
-  const draft = new Date(date);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  let hours = 20;
+  let minutes = 0;
   const defaultStart = selectedGuildDefaults.value?.start;
   if (defaultStart && /^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultStart)) {
-    const [hours, minutes] = defaultStart.split(':').map(Number);
-    draft.setHours(hours, minutes, 0, 0);
-  } else {
-    draft.setHours(20, 0, 0, 0);
+    [hours, minutes] = defaultStart.split(':').map(Number);
   }
-  const offset = draft.getTimezoneOffset();
-  const local = new Date(draft.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 16);
+  return `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
 function handleCalendarDayContextMenu(day: { date: Date }, event: MouseEvent) {

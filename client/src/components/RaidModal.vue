@@ -105,6 +105,11 @@
 import { computed, reactive, ref, watch } from 'vue';
 
 import { api } from '../services/api';
+import {
+  easternDateInputToIso,
+  easternDateTimeInputToIso,
+  isoToEasternDateTimeInput
+} from '../utils/easternTime';
 import { normalizeOptionalUrl } from '../utils/urls';
 
 const props = defineProps<{
@@ -196,15 +201,20 @@ async function submit() {
           frequency: form.recurrenceFrequency,
           interval: Math.max(1, form.recurrenceInterval),
           endDate: form.recurrenceEndDate
-            ? new Date(`${form.recurrenceEndDate}T00:00:00`).toISOString()
+            ? easternDateInputToIso(form.recurrenceEndDate, 'end')
             : null
         }
       : null;
 
+    const startTime = easternDateTimeInputToIso(form.startTime);
+    if (!startTime) {
+      throw new Error('Invalid raid start time.');
+    }
+
     await api.createRaidEvent({
       guildId: props.guildId,
       name: form.name,
-      startTime: new Date(form.startTime).toISOString(),
+      startTime,
       targetZones: splitAndFilter(form.targetZones),
       targetBosses: splitAndFilter(form.targetBosses),
       notes: form.notes || undefined,
@@ -234,14 +244,17 @@ function buildDateInput(defaultTime?: string | null, preset?: string | null) {
   if (preset) {
     return preset;
   }
-  const date = new Date();
+  const input = isoToEasternDateTimeInput(new Date().toISOString());
+  const date = input ? new Date(input) : new Date();
   if (defaultTime && /^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultTime)) {
     const [hours, minutes] = defaultTime.split(':').map(Number);
     date.setHours(hours, minutes, 0, 0);
   }
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 16);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes()
+  ).padStart(2, '0')}`;
 }
 
 function formatDefaultClock(value?: string | null) {
@@ -249,12 +262,9 @@ function formatDefaultClock(value?: string | null) {
     return null;
   }
   const [hours, minutes] = value.split(':').map(Number);
-  const date = new Date();
-  date.setHours(hours, minutes, 0, 0);
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit'
-  }).format(date);
+  const hour12 = hours % 12 || 12;
+  const period = hours >= 12 ? 'PM' : 'AM';
+  return `${hour12}:${String(minutes).padStart(2, '0')} ${period} ET`;
 }
 </script>
 

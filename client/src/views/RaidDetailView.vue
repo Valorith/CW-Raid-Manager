@@ -42,7 +42,7 @@
           raidStatusBadge.label
         }}</span>
         <p class="muted">
-          {{ formatDate(raid.startTime) }} • Targets:
+          {{ formatRaidDate(raid.startTime) }} • Targets:
           {{ formattedTargetZonesHeader || 'Not specified' }}
         </p>
         <span v-if="userGuildRoleLabel" class="badge">{{ userGuildRoleLabel }}</span>
@@ -668,7 +668,7 @@
             </div>
             <div v-if="recurrenceForm.endDate" class="recurrence-note">
               <span class="recurrence-note__icon" aria-hidden="true">📅</span>
-              <span>Next events run until {{ formatDateOnly(recurrenceForm.endDate) }}.</span>
+              <span>Next events run until {{ formatRaidDateOnly(recurrenceForm.endDate) }}.</span>
             </div>
           </div>
         </transition>
@@ -1059,7 +1059,7 @@
       <div class="timing-grid">
         <div class="timing-field">
           <span class="label">Scheduled Start</span>
-          <p class="muted">{{ formatDate(raid.startTime) }}</p>
+          <p class="muted">{{ formatRaidDate(raid.startTime) }}</p>
         </div>
         <div class="timing-actual-group">
           <div class="timing-field timing-field--actual">
@@ -1559,7 +1559,7 @@
                         :key="raidOption.id"
                         :value="raidOption.id"
                       >
-                        {{ raidOption.name }} — {{ formatDateOnly(raidOption.startTime) }}
+                        {{ raidOption.name }} — {{ formatRaidDateOnly(raidOption.startTime) }}
                       </option>
                     </select>
                   </label>
@@ -1570,7 +1570,7 @@
                       <div>
                         <p class="targets-copy__preview-title">{{ selectedCopyRaid.name }}</p>
                         <p class="targets-copy__preview-date">
-                          {{ formatDateOnly(selectedCopyRaid.startTime) }}
+                          {{ formatRaidDateOnly(selectedCopyRaid.startTime) }}
                         </p>
                       </div>
                       <div class="targets-copy__preview-metrics">
@@ -2328,6 +2328,14 @@ import {
 import { normalizeOptionalUrl } from '../utils/urls';
 import { ensureChartJsRegistered } from '../utils/registerCharts';
 import { parseNpcKills } from '../services/npcKillParser';
+import {
+  easternDateInputToIso,
+  easternDateKey,
+  easternDateTimeInputToIso,
+  formatEasternDate,
+  formatEasternDateTime,
+  isoToEasternDateTimeInput
+} from '../utils/easternTime';
 
 type AttendanceModalRecordInput = Omit<AttendanceRecordInput, 'characterId' | 'status'> & {
   characterId?: string | null;
@@ -3493,7 +3501,7 @@ async function updateRaidTargets(bosses: string[], zones: string[]) {
 function resetAddKillModalFields() {
   addKillModal.npcName = '';
   addKillModal.killerName = '';
-  addKillModal.occurredAt = toInputValue(new Date().toISOString());
+  addKillModal.occurredAt = toLocalInputValue(new Date().toISOString());
   addKillModal.error = '';
 }
 
@@ -3521,7 +3529,7 @@ async function submitManualKill() {
     addKillModal.error = 'Enter the NPC name.';
     return;
   }
-  const occurredAtIso = fromInputValue(addKillModal.occurredAt);
+  const occurredAtIso = fromLocalInputValue(addKillModal.occurredAt);
   if (!occurredAtIso) {
     addKillModal.error = 'Select when the kill occurred.';
     return;
@@ -5354,6 +5362,10 @@ function normalizeRecordFlags(value?: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function formatRaidDate(date: string) {
+  return formatEasternDateTime(date);
+}
+
 function formatDate(date: string) {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
@@ -5361,7 +5373,19 @@ function formatDate(date: string) {
   }).format(new Date(date));
 }
 
-function toInputValue(isoString: string | null | undefined) {
+function toRaidInputValue(isoString: string | null | undefined) {
+  return isoToEasternDateTimeInput(isoString);
+}
+
+function fromRaidInputValue(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  return easternDateTimeInputToIso(value);
+}
+
+function toLocalInputValue(isoString: string | null | undefined) {
   if (!isoString) {
     return '';
   }
@@ -5373,7 +5397,7 @@ function toInputValue(isoString: string | null | undefined) {
   return local.toISOString().slice(0, 16);
 }
 
-function fromInputValue(value: string) {
+function fromLocalInputValue(value: string) {
   if (!value) {
     return null;
   }
@@ -5386,15 +5410,18 @@ function composeInputFromDefault(baseIso: string | null | undefined, defaultTime
   if (!defaultTime || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(defaultTime)) {
     return '';
   }
-  const base = baseIso ? new Date(baseIso) : new Date();
+  const baseInput = isoToEasternDateTimeInput(baseIso ?? new Date().toISOString());
+  const base = baseInput ? new Date(baseInput) : new Date();
   const [hours, minutes] = defaultTime.split(':').map(Number);
   base.setHours(hours, minutes, 0, 0);
-  const offset = base.getTimezoneOffset();
-  const local = new Date(base.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 16);
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(
+    base.getDate()
+  ).padStart(2, '0')}T${String(base.getHours()).padStart(2, '0')}:${String(
+    base.getMinutes()
+  ).padStart(2, '0')}`;
 }
 
-function formatDateOnly(value?: string | null) {
+function formatRaidDateOnly(value?: string | null) {
   if (!value) {
     return 'unknown date';
   }
@@ -5402,9 +5429,7 @@ function formatDateOnly(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) {
     return 'unknown date';
   }
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium'
-  }).format(parsed);
+  return formatEasternDate(parsed);
 }
 
 function toDateInputOnly(value?: string | null) {
@@ -5415,10 +5440,7 @@ function toDateInputOnly(value?: string | null) {
   if (Number.isNaN(parsed.getTime())) {
     return '';
   }
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, '0');
-  const day = String(parsed.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return easternDateKey(parsed);
 }
 
 function describeRecurrence(settings: {
@@ -5433,7 +5455,7 @@ function describeRecurrence(settings: {
   const everyLabel = interval === 1 ? `every ${unit}` : `every ${interval} ${unit}s`;
   let summary = `Repeats ${everyLabel}`;
   if (settings.endDate) {
-    summary += ` until ${formatDateOnly(settings.endDate)}`;
+    summary += ` until ${formatRaidDateOnly(settings.endDate)}`;
   }
   if (settings.isActive === false) {
     summary += ' (paused)';
@@ -5449,11 +5471,11 @@ function describeRaidRecurrence(detail: RaidDetail | null | undefined) {
 }
 
 function setTimingInputs(current: RaidDetail) {
-  let startValue = toInputValue(current.startedAt);
+  let startValue = toRaidInputValue(current.startedAt);
   if (!startValue && current.guild?.defaultRaidStartTime) {
     startValue = composeInputFromDefault(current.startTime, current.guild.defaultRaidStartTime);
   }
-  let endValue = toInputValue(current.endedAt);
+  let endValue = toRaidInputValue(current.endedAt);
   if (!endValue && current.guild?.defaultRaidEndTime) {
     endValue = composeInputFromDefault(current.startTime, current.guild.defaultRaidEndTime);
   }
@@ -5499,7 +5521,7 @@ async function saveRecurrence() {
           frequency: recurrenceForm.frequency,
           interval: Math.max(1, recurrenceForm.interval),
           endDate: recurrenceForm.endDate
-            ? new Date(`${recurrenceForm.endDate}T00:00:00`).toISOString()
+            ? easternDateInputToIso(recurrenceForm.endDate, 'end')
             : null,
           isActive: true
         }
@@ -5800,8 +5822,8 @@ async function saveTiming() {
 
   savingTimes.value = true;
   try {
-    const startedAtValue = startedAtInput.value ? fromInputValue(startedAtInput.value) : null;
-    const endedAtValue = endedAtInput.value ? fromInputValue(endedAtInput.value) : null;
+    const startedAtValue = startedAtInput.value ? fromRaidInputValue(startedAtInput.value) : null;
+    const endedAtValue = endedAtInput.value ? fromRaidInputValue(endedAtInput.value) : null;
 
     await api.updateRaid(raidId, {
       startedAt: startedAtValue,

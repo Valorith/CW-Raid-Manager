@@ -601,6 +601,11 @@ import {
 } from '../services/api';
 import type { GuildRole } from '../services/types';
 import { characterClassLabels, guildRoleOrder } from '../services/types';
+import {
+  easternDateTimeInputToIso,
+  formatEasternDateTime,
+  isoToEasternDateTimeInput
+} from '../utils/easternTime';
 
 type UserRole = 'member' | 'guide' | 'admin';
 
@@ -797,10 +802,7 @@ function formatRaidDate(value?: string | null) {
     return 'Date pending';
   }
 
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(parsed);
+  return formatEasternDateTime(parsed);
 }
 
 function raidStatusBadge(raid: {
@@ -829,9 +831,7 @@ function toLocalInput(value?: string | null) {
     return '';
   }
 
-  const offset = parsed.getTimezoneOffset();
-  const local = new Date(parsed.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 16);
+  return isoToEasternDateTimeInput(value);
 }
 
 function raidHasEnded(raid: { endedAt?: string | null }) {
@@ -858,12 +858,7 @@ function fromLocalInput(value?: string | null): string | null | undefined {
     return null;
   }
 
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed.toISOString();
+  return easternDateTimeInputToIso(trimmed);
 }
 
 function parseMultiValueInput(value: string) {
@@ -1152,9 +1147,15 @@ async function saveRaidDetails() {
     return;
   }
 
+  const parsedStartTime = raidForm.startTime ? easternDateTimeInputToIso(raidForm.startTime) : null;
+  if (raidForm.startTime && !parsedStartTime) {
+    raidError.value = 'Invalid raid start time.';
+    return;
+  }
+
   const payload = {
     name: raidForm.name.trim() || undefined,
-    startTime: raidForm.startTime ? new Date(raidForm.startTime).toISOString() : undefined,
+    startTime: parsedStartTime ?? undefined,
     startedAt: fromLocalInput(raidForm.startedAt),
     endedAt: fromLocalInput(raidForm.endedAt),
     targetZones: parseMultiValueInput(raidForm.targetZones),
