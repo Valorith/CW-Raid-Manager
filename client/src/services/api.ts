@@ -3247,6 +3247,23 @@ export interface TestChangeWebhookReport {
   status: InboundWebhookMessageStatus;
   reportType: string;
   summary: string | null;
+  rawReport: string | null;
+  aiReview: {
+    summary: string | null;
+    signature: {
+      exception: string | null;
+      topFrame: string | null;
+    } | null;
+    hypotheses: Array<{
+      title: string;
+      confidence: number | null;
+      evidence: string[];
+      nextSteps: string[];
+    }>;
+    missingInfo: string[];
+    recommendedNextSteps: string[];
+    rawModelNotes: string | null;
+  } | null;
   aiReviewStatus: InboundWebhookActionRunStatus | null;
   hasAiReview: boolean;
   linkedAt: string;
@@ -3953,6 +3970,16 @@ export const api = {
       }
     });
     return normalizeGuildMetrics(response.data.metrics ?? {});
+  },
+
+  async ignoreUnknownGuildAttendance(
+    guildId: string,
+    payload: { characterName: string }
+  ): Promise<{ characterName: string; ignoredThrough: string }> {
+    const response = await axios.post(`/api/guilds/${guildId}/metrics/unknown-attendance/ignore`, {
+      characterName: payload.characterName
+    });
+    return response.data.ignored;
   },
 
   async updateGuildSettings(
@@ -5055,6 +5082,14 @@ export const api = {
   async fetchWebhookInboxUnreadCount(webhookId?: string): Promise<number> {
     const query = webhookId ? `?webhookId=${webhookId}` : '';
     const response = await axios.get(`/api/admin/webhook-inbox/unread-count${query}`);
+    return response.data.count ?? 0;
+  },
+
+  /**
+   * Fetches the number of unarchived webhook inbox messages with pending action runs.
+   */
+  async fetchWebhookInboxPendingActionCount(): Promise<number> {
+    const response = await axios.get('/api/admin/webhook-inbox/pending-action-count');
     return response.data.count ?? 0;
   },
 

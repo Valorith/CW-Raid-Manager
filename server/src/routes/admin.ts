@@ -68,6 +68,7 @@ import {
   updateInboundWebhookAction,
   markMessageRead,
   getUnreadCount,
+  getPendingActionMessageCount,
   toggleMessageStar,
   listWebhookLabels,
   createWebhookLabel,
@@ -1969,6 +1970,17 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         labelIds: labelIdsArray
       });
       return result;
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/pending-action-count',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async () => {
+      const count = await getPendingActionMessageCount();
+      return { count };
     }
   );
 

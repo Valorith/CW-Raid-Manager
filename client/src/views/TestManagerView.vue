@@ -1103,7 +1103,7 @@
                     Summary
                   </button>
                   <button
-                    v-if="authStore.isAdmin"
+                    v-if="canOpenWebhookInbox"
                     type="button"
                     class="tm-table-action"
                     @click="openWebhookInboxReport(report.messageId)"
@@ -2858,17 +2858,116 @@
             </span>
             <span v-else>No AI review recorded</span>
           </div>
-          <p>
-            {{
-              selectedWebhookReport.summary ||
-              'No AI summary is available for this report yet. Open the inbox record for the full payload and processing history.'
-            }}
-          </p>
+          <div
+            class="tm-webhook-report-tabs"
+            role="tablist"
+            aria-label="Linked webhook report views"
+          >
+            <button
+              type="button"
+              class="tm-webhook-report-tab"
+              :class="{ 'tm-webhook-report-tab--active': webhookReportModalTab === 'raw' }"
+              role="tab"
+              :aria-selected="webhookReportModalTab === 'raw'"
+              @click="webhookReportModalTab = 'raw'"
+            >
+              Raw Report
+            </button>
+            <button
+              type="button"
+              class="tm-webhook-report-tab"
+              :class="{ 'tm-webhook-report-tab--active': webhookReportModalTab === 'ai' }"
+              role="tab"
+              :aria-selected="webhookReportModalTab === 'ai'"
+              @click="webhookReportModalTab = 'ai'"
+            >
+              AI Summary
+            </button>
+          </div>
+          <div v-if="webhookReportModalTab === 'raw'" class="tm-webhook-report-pane">
+            <pre v-if="selectedWebhookReport.rawReport" class="tm-webhook-report-raw">{{
+              selectedWebhookReport.rawReport
+            }}</pre>
+            <p v-else class="tm-webhook-report-empty">
+              No raw report text is available for this linked webhook report.
+            </p>
+          </div>
+          <div v-else class="tm-webhook-report-pane tm-webhook-report-ai">
+            <template v-if="selectedWebhookReport.aiReview">
+              <section v-if="selectedWebhookReport.aiReview.summary">
+                <span class="tm-webhook-report-pane__label">Summary</span>
+                <p>{{ selectedWebhookReport.aiReview.summary }}</p>
+              </section>
+              <section v-if="selectedWebhookReport.aiReview.signature">
+                <span class="tm-webhook-report-pane__label">Signature</span>
+                <dl class="tm-webhook-report-signature">
+                  <div v-if="selectedWebhookReport.aiReview.signature.exception">
+                    <dt>Exception</dt>
+                    <dd>{{ selectedWebhookReport.aiReview.signature.exception }}</dd>
+                  </div>
+                  <div v-if="selectedWebhookReport.aiReview.signature.topFrame">
+                    <dt>Top frame</dt>
+                    <dd>{{ selectedWebhookReport.aiReview.signature.topFrame }}</dd>
+                  </div>
+                </dl>
+              </section>
+              <section v-if="selectedWebhookReport.aiReview.hypotheses.length">
+                <span class="tm-webhook-report-pane__label">Likely Causes</span>
+                <article
+                  v-for="hypothesis in selectedWebhookReport.aiReview.hypotheses"
+                  :key="hypothesis.title"
+                  class="tm-webhook-report-hypothesis"
+                >
+                  <header>
+                    <strong>{{ hypothesis.title }}</strong>
+                    <span v-if="hypothesis.confidence !== null">
+                      {{ formatAiConfidence(hypothesis.confidence) }}
+                    </span>
+                  </header>
+                  <ul v-if="hypothesis.evidence.length">
+                    <li v-for="item in hypothesis.evidence" :key="item">{{ item }}</li>
+                  </ul>
+                  <ol v-if="hypothesis.nextSteps.length">
+                    <li v-for="item in hypothesis.nextSteps" :key="item">{{ item }}</li>
+                  </ol>
+                </article>
+              </section>
+              <section v-if="selectedWebhookReport.aiReview.recommendedNextSteps.length">
+                <span class="tm-webhook-report-pane__label">Recommended Next Steps</span>
+                <ul>
+                  <li
+                    v-for="step in selectedWebhookReport.aiReview.recommendedNextSteps"
+                    :key="step"
+                  >
+                    {{ step }}
+                  </li>
+                </ul>
+              </section>
+              <section v-if="selectedWebhookReport.aiReview.missingInfo.length">
+                <span class="tm-webhook-report-pane__label">Missing Info</span>
+                <ul>
+                  <li v-for="item in selectedWebhookReport.aiReview.missingInfo" :key="item">
+                    {{ item }}
+                  </li>
+                </ul>
+              </section>
+              <section v-if="selectedWebhookReport.aiReview.rawModelNotes">
+                <span class="tm-webhook-report-pane__label">Model Notes</span>
+                <pre class="tm-webhook-report-raw tm-webhook-report-raw--compact">{{
+                  selectedWebhookReport.aiReview.rawModelNotes
+                }}</pre>
+              </section>
+            </template>
+            <p v-else class="tm-webhook-report-empty">
+              No AI summary is available for this report yet. Open the inbox record for the full
+              payload and processing history.
+            </p>
+          </div>
         </div>
         <footer class="tm-modal__footer">
           <button type="button" class="tm-btn" @click="closeWebhookReportSummary">Close</button>
           <button
-            v-if="authStore.isAdmin"
+            v-if="canOpenWebhookInbox"
             type="button"
             class="tm-btn tm-btn--primary"
             @click="openWebhookInboxReport(selectedWebhookReport.messageId)"
@@ -3005,6 +3104,7 @@ interface CoverageNoteView {
   notesHtml: string;
   updatedAt: string | null;
 }
+type WebhookReportModalTab = 'raw' | 'ai';
 const userRoleFilter = ref<UserRoleFilter>('all');
 const userPage = ref(1);
 const usersPerPage = 6;
@@ -3020,6 +3120,7 @@ const checklistAddOpen = ref(false);
 const checklistAddSaving = ref(false);
 const coverageNote = ref<CoverageNoteView | null>(null);
 const selectedWebhookReport = ref<TestChangeWebhookReport | null>(null);
+const webhookReportModalTab = ref<WebhookReportModalTab>('raw');
 const resultActionConfirm = ref<ResultActionConfirm | null>(null);
 const resultActionPending = ref(false);
 const developerActionConfirm = ref<DeveloperActionConfirm | null>(null);
@@ -3467,6 +3568,7 @@ const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
 const canAddTestingNote = computed(() =>
   Boolean(activeChange.value && activeChange.value.status !== 'CLOSED')
 );
+const canOpenWebhookInbox = computed(() => authStore.user?.isAdmin === true);
 const showClosedNextPatchPrompt = computed(() => {
   const change = activeChange.value;
   return Boolean(
@@ -5686,14 +5788,21 @@ function closeCoverageNote() {
 
 function openWebhookReportSummary(report: TestChangeWebhookReport) {
   selectedWebhookReport.value = report;
+  webhookReportModalTab.value = 'raw';
 }
 
 function closeWebhookReportSummary() {
   selectedWebhookReport.value = null;
+  webhookReportModalTab.value = 'raw';
+}
+
+function formatAiConfidence(confidence: number) {
+  const normalized = confidence > 1 ? confidence : confidence * 100;
+  return `${Math.round(normalized)}% confidence`;
 }
 
 async function openWebhookInboxReport(messageId: string) {
-  if (!authStore.isAdmin) {
+  if (!canOpenWebhookInbox.value) {
     return;
   }
 
@@ -10984,13 +11093,18 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.tm-webhook-report-modal {
-  width: min(640px, calc(100vw - 2rem));
+.tm-modal__panel.tm-webhook-report-modal {
+  width: min(72rem, calc(100vw - 2.5rem));
+  max-height: calc(100dvh - 3rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  overflow: hidden;
 }
 
 .tm-webhook-report-modal__body {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.7rem;
+  min-height: 0;
 }
 
 .tm-webhook-report-modal__body p {
@@ -11007,6 +11121,171 @@ onBeforeUnmount(() => {
   color: var(--tm-muted);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.tm-webhook-report-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 0.25rem;
+  padding: 0.22rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.tm-webhook-report-tab {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tm-muted);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.45rem 0.9rem;
+  text-transform: uppercase;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.tm-webhook-report-tab:hover,
+.tm-webhook-report-tab:focus-visible {
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--tm-text);
+}
+
+.tm-webhook-report-tab--active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 165, 233, 0.22);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.14);
+  color: var(--tm-text);
+}
+
+.tm-webhook-report-pane {
+  display: grid;
+  gap: 0.95rem;
+  max-height: min(26rem, 40dvh);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.tm-webhook-report-pane section {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.tm-webhook-report-pane ul,
+.tm-webhook-report-pane ol {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--tm-text);
+  line-height: 1.55;
+}
+
+.tm-webhook-report-pane__label {
+  color: var(--tm-gold);
+  font-family: var(--tm-font-display);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tm-webhook-report-raw {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 0.85rem;
+  background: rgba(0, 0, 0, 0.32);
+  color: #dbeafe;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tm-webhook-report-raw--compact {
+  max-height: 16rem;
+}
+
+.tm-webhook-report-empty {
+  margin: 0;
+  color: var(--tm-muted);
+}
+
+.tm-webhook-report-signature {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.tm-webhook-report-signature div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.tm-webhook-report-signature dt {
+  color: var(--tm-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-webhook-report-signature dd {
+  margin: 0;
+  color: var(--tm-text);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.tm-webhook-report-ai {
+  color: var(--tm-text);
+}
+
+@media (min-width: 880px) {
+  .tm-webhook-report-ai {
+    grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+    align-items: start;
+  }
+
+  .tm-webhook-report-ai section:first-child,
+  .tm-webhook-report-ai section:nth-child(3) {
+    grid-column: 1;
+  }
+}
+
+.tm-webhook-report-hypothesis {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem;
+  border: 1px solid var(--tm-border-soft);
+  border-radius: 0.85rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tm-webhook-report-hypothesis header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.tm-webhook-report-hypothesis header span {
+  color: var(--tm-blue);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tm-history {

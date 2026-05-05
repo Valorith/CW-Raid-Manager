@@ -2500,6 +2500,26 @@
             />
           </label>
 
+          <div
+            class="change-link-tabs"
+            role="tablist"
+            aria-label="Filter Test Manager changes by status"
+          >
+            <button
+              v-for="tab in testChangeLinkStatusTabs"
+              :key="tab.value"
+              type="button"
+              class="change-link-tab"
+              :class="{ 'change-link-tab--active': testChangeLinkStatusFilter === tab.value }"
+              role="tab"
+              :aria-selected="testChangeLinkStatusFilter === tab.value"
+              :disabled="loadingTestChangeLinks && testChangeLinkStatusFilter === tab.value"
+              @click="setTestChangeLinkStatusFilter(tab.value)"
+            >
+              <span>{{ tab.label }}</span>
+            </button>
+          </div>
+
           <div class="change-link-results">
             <p v-if="loadingTestChangeLinks" class="muted small">Loading changes...</p>
             <button
@@ -2531,7 +2551,7 @@
               v-if="!loadingTestChangeLinks && testChangeLinkOptions.length === 0"
               class="muted small"
             >
-              No active changes match this search.
+              {{ emptyTestChangeLinkMessage }}
             </p>
           </div>
         </div>
@@ -3009,16 +3029,30 @@ const manualReviewUseOracle = ref(true);
 let inboxPollTimer: ReturnType<typeof setInterval> | null = null;
 let messagePollTimer: ReturnType<typeof setInterval> | null = null;
 let inboxPollInFlight = false;
+let pendingActionCountNoticeAt = 0;
 
 const selectedMessage = ref<InboundWebhookMessage | null>(null);
 const linkReportMessage = ref<InboundWebhookMessage | null>(null);
 const testChangeLinkOptions = ref<TestChange[]>([]);
 const testChangeLinkSearch = ref('');
+const testChangeLinkStatusFilter = ref<'ACTIVE' | 'CLOSED'>('ACTIVE');
 const loadingTestChangeLinks = ref(false);
 const linkingTestChangeId = ref<string | null>(null);
 const unlinkingTestChangeId = ref<string | null>(null);
 let testChangeLinkSearchTimer: ReturnType<typeof window.setTimeout> | null = null;
 let testChangeLinkLoadSequence = 0;
+
+const testChangeLinkStatusTabs = [
+  { label: 'Active', value: 'ACTIVE' },
+  { label: 'Closed', value: 'CLOSED' }
+] as const;
+
+const emptyTestChangeLinkMessage = computed(() => {
+  const scope = testChangeLinkStatusFilter.value === 'CLOSED' ? 'closed' : 'active';
+  return testChangeLinkSearch.value.trim()
+    ? `No ${scope} changes match this search.`
+    : `No ${scope} changes are available to link.`;
+});
 
 // Email inbox-like features
 const selectedMessageIds = ref<Set<string>>(new Set());
@@ -3621,6 +3655,15 @@ const filteredInboxMessages = computed(() => {
   return inboxMessages.value.filter((m) => !pendingGroupMessageIds.value.has(m.id));
 });
 
+function notifyWebhookPendingActionsChanged(force = false) {
+  const now = Date.now();
+  if (!force && now - pendingActionCountNoticeAt < 5000) {
+    return;
+  }
+  pendingActionCountNoticeAt = now;
+  window.dispatchEvent(new CustomEvent('webhook-pending-actions-changed'));
+}
+
 async function pollPendingMergeGroups() {
   try {
     const groups = await api.getPendingMergeGroups();
@@ -3968,6 +4011,7 @@ async function loadInbox() {
     });
     inboxMessages.value = result.messages;
     inboxTotal.value = result.total;
+    notifyWebhookPendingActionsChanged();
     const totalPages = Math.max(1, Math.ceil(inboxTotal.value / inboxFilters.pageSize));
     if (inboxFilters.page > totalPages) {
       inboxFilters.page = totalPages;
@@ -3993,7 +4037,7 @@ async function loadTestChangeLinkOptions() {
   loadingTestChangeLinks.value = true;
   try {
     const changes = await api.fetchTestChanges({
-      status: 'ACTIVE',
+      status: testChangeLinkStatusFilter.value,
       search: testChangeLinkSearch.value.trim() || undefined
     });
     if (sequence === testChangeLinkLoadSequence) {
@@ -4011,9 +4055,19 @@ async function loadTestChangeLinkOptions() {
   }
 }
 
+function setTestChangeLinkStatusFilter(status: 'ACTIVE' | 'CLOSED') {
+  if (testChangeLinkStatusFilter.value === status) {
+    return;
+  }
+  testChangeLinkStatusFilter.value = status;
+  testChangeLinkOptions.value = [];
+  loadTestChangeLinkOptions();
+}
+
 function openReportLinkModal(message: InboundWebhookMessage) {
   linkReportMessage.value = message;
   testChangeLinkSearch.value = '';
+  testChangeLinkStatusFilter.value = 'ACTIVE';
   testChangeLinkOptions.value = [];
   loadTestChangeLinkOptions();
 }
@@ -10267,6 +10321,52 @@ input[type='checkbox']:checked::after {
   max-height: 25rem;
   overflow: auto;
   padding-right: 0.2rem;
+}
+
+.change-link-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 0.2rem;
+  padding: 0.22rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.change-link-tab {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 0.42rem 0.85rem;
+  text-transform: uppercase;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.change-link-tab:hover:not(:disabled),
+.change-link-tab:focus-visible {
+  color: #e0f2fe;
+  background: rgba(30, 41, 59, 0.86);
+}
+
+.change-link-tab--active {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.34), rgba(14, 165, 233, 0.22));
+  box-shadow: 0 10px 22px rgba(14, 165, 233, 0.16);
+  color: #f8fafc;
+}
+
+.change-link-tab:disabled {
+  cursor: wait;
 }
 
 .change-link-option {

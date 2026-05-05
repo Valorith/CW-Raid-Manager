@@ -1321,7 +1321,7 @@ async function reviewCrashReportWithRetry(
   throw lastError instanceof Error ? lastError : new Error('Unknown crash review error.');
 }
 
-function buildCrashReviewInput(
+export function buildCrashReviewInput(
   payload: unknown,
   rawBody: string | null | undefined,
   fallbackPayload: unknown
@@ -2116,6 +2116,19 @@ export async function getUnreadCount(userId: string, webhookId?: string) {
 
   return prisma.inboundWebhookMessage.count({
     where: whereMessage
+  });
+}
+
+export async function getPendingActionMessageCount() {
+  return prisma.inboundWebhookMessage.count({
+    where: {
+      archivedAt: null,
+      actionRuns: {
+        some: {
+          status: 'PENDING_REVIEW'
+        }
+      }
+    }
   });
 }
 

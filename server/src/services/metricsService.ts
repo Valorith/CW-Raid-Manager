@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 import { AttendanceEventType, AttendanceStatus, CharacterClass } from '@prisma/client';
 
 import { prisma } from '../utils/prisma.js';
@@ -83,12 +85,126 @@ export interface GuildMetricsOptions {
   end: Date;
 }
 
+export interface IgnoredUnknownAttendanceResult {
+  characterName: string;
+  ignoredThrough: IsoDateString;
+}
+
+const UNKNOWN_ATTENDANCE_IGNORE_PREFIX = 'metrics:unknownAttendanceIgnore';
+
 function toIsoString(date: Date | null | undefined): IsoDateString | null {
   if (!date) {
     return null;
   }
   const iso = date.toISOString();
   return iso;
+}
+
+function normalizeUnknownAttendanceName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function getUnknownAttendanceIgnoreKey(guildId: string, normalizedName: string): string {
+  const nameHash = createHash('sha1').update(normalizedName).digest('hex');
+  return `${UNKNOWN_ATTENDANCE_IGNORE_PREFIX}:${guildId}:${nameHash}`;
+}
+
+function parseIgnoredUnknownAttendanceSetting(
+  guildId: string,
+  value: string
+): { normalizedName: string; ignoredThrough: Date } | null {
+  try {
+    const parsed = JSON.parse(value) as {
+      guildId?: unknown;
+      normalizedName?: unknown;
+      ignoredThrough?: unknown;
+    };
+    if (parsed.guildId !== guildId) {
+      return null;
+    }
+    if (typeof parsed.normalizedName !== 'string' || typeof parsed.ignoredThrough !== 'string') {
+      return null;
+    }
+    const ignoredThrough = new Date(parsed.ignoredThrough);
+    if (Number.isNaN(ignoredThrough.getTime())) {
+      return null;
+    }
+    return {
+      normalizedName: parsed.normalizedName,
+      ignoredThrough
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function listIgnoredUnknownAttendance(guildId: string): Promise<Map<string, Date>> {
+  const rows = await prisma.systemSetting.findMany({
+    where: {
+      key: {
+        startsWith: `${UNKNOWN_ATTENDANCE_IGNORE_PREFIX}:${guildId}:`
+      }
+    },
+    select: {
+      value: true
+    }
+  });
+
+  const ignoredByName = new Map<string, Date>();
+  for (const row of rows) {
+    const parsed = parseIgnoredUnknownAttendanceSetting(guildId, row.value);
+    if (!parsed) {
+      continue;
+    }
+    const existing = ignoredByName.get(parsed.normalizedName);
+    if (!existing || parsed.ignoredThrough.getTime() > existing.getTime()) {
+      ignoredByName.set(parsed.normalizedName, parsed.ignoredThrough);
+    }
+  }
+  return ignoredByName;
+}
+
+export async function ignoreUnknownAttendanceThrough({
+  guildId,
+  characterName,
+  ignoredByUserId,
+  ignoredThrough = new Date()
+}: {
+  guildId: string;
+  characterName: string;
+  ignoredByUserId: string;
+  ignoredThrough?: Date;
+}): Promise<IgnoredUnknownAttendanceResult> {
+  const normalizedName = normalizeUnknownAttendanceName(characterName);
+  if (!normalizedName) {
+    throw new Error('Character name is required.');
+  }
+
+  const key = getUnknownAttendanceIgnoreKey(guildId, normalizedName);
+  const payload = {
+    guildId,
+    characterName: characterName.trim(),
+    normalizedName,
+    ignoredThrough: ignoredThrough.toISOString(),
+    ignoredByUserId,
+    ignoredAt: new Date().toISOString()
+  };
+
+  await prisma.systemSetting.upsert({
+    where: { key },
+    update: {
+      value: JSON.stringify(payload)
+    },
+    create: {
+      key,
+      value: JSON.stringify(payload)
+    }
+  });
+
+  return {
+    characterName: payload.characterName,
+    ignoredThrough: payload.ignoredThrough
+  };
 }
 
 async function findEarliestMetricsDate(guildId: string): Promise<Date | null> {
@@ -233,6 +349,23 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     }
   });
 
+  const ignoredUnknownAttendance = await listIgnoredUnknownAttendance(guildId);
+  const attendanceRecordsForMetrics = attendanceRecordsRaw.filter((record) => {
+    const linkedUserId = record.character?.userId ?? record.character?.user?.id ?? null;
+    if (linkedUserId) {
+      return true;
+    }
+    const normalizedName = normalizeUnknownAttendanceName(
+      record.character?.name ?? record.characterName ?? ''
+    );
+    const ignoredThrough = ignoredUnknownAttendance.get(normalizedName);
+    if (!ignoredThrough) {
+      return true;
+    }
+    const occurredAt = record.attendanceEvent.raid?.startTime ?? record.attendanceEvent.createdAt;
+    return occurredAt.getTime() > ignoredThrough.getTime();
+  });
+
   const attendanceRecords: AttendanceMetricRecord[] = [];
   const lootEvents: LootMetricEvent[] = [];
 
@@ -273,7 +406,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
 
   const missingIds = Array.from(
     new Set(
-      attendanceRecordsRaw
+      attendanceRecordsForMetrics
         .filter((record) => !record.characterId)
         .map((record) => record.characterName?.trim().toLowerCase())
         .filter(Boolean) as string[]
@@ -335,7 +468,7 @@ export async function getGuildMetrics(options: GuildMetricsOptions): Promise<Gui
     attendanceRecords.push(record);
   };
 
-  for (const record of attendanceRecordsRaw) {
+  for (const record of attendanceRecordsForMetrics) {
     const raid = record.attendanceEvent.raid;
     if (raid) {
       uniqueRaids.set(raid.id, { id: raid.id, name: raid.name });

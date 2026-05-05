@@ -182,6 +182,13 @@
               />
             </svg>
             Admin
+            <span
+              v-if="webhookPendingActionCount > 0"
+              class="nav__pending-badge"
+              :title="webhookPendingActionLabel"
+            >
+              {{ formatCounter(webhookPendingActionCount) }}
+            </span>
             <svg
               v-if="prefersHoverDropdowns"
               class="nav__chevron"
@@ -432,7 +439,14 @@
             Money Tracker
           </RouterLink>
           <RouterLink v-if="authStore.isAdmin" to="/admin/webhooks" class="nav__dropdown-item">
-            Webhook Inbox
+            <span>Webhook Inbox</span>
+            <span
+              v-if="webhookPendingActionCount > 0"
+              class="nav__pending-badge nav__pending-badge--dropdown"
+              :title="webhookPendingActionLabel"
+            >
+              {{ formatCounter(webhookPendingActionCount) }}
+            </span>
           </RouterLink>
           <RouterLink v-if="authStore.isAdmin" to="/admin/bis" class="nav__dropdown-item">
             BiS Moderation
@@ -540,6 +554,9 @@ const monitorStore = useMonitorStore();
 const attentionStore = useAttentionStore();
 const npcRespawnStore = useNpcRespawnStore();
 const brandHomeTo = computed(() => (authStore.isAuthenticated ? '/dashboard' : '/'));
+const webhookPendingActionCount = ref(0);
+let webhookPendingActionRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let webhookPendingActionRefreshInFlight = false;
 
 // Dropdown state for nav menu (hover on fine pointers; tap chevron on touch / no-hover)
 const activeDropdown = ref<string | null>(null);
@@ -727,6 +744,54 @@ const canManageGuildSettings = computed(() => {
   return role === 'LEADER' || role === 'OFFICER';
 });
 
+const webhookPendingActionLabel = computed(() => {
+  const count = webhookPendingActionCount.value;
+  return count === 1
+    ? '1 webhook inbox item is pending action.'
+    : `${count} webhook inbox items are pending action.`;
+});
+
+function formatCounter(count: number) {
+  return count > 99 ? '99+' : String(count);
+}
+
+async function refreshWebhookPendingActionCount() {
+  if (!authStore.isAdmin || webhookPendingActionRefreshInFlight) {
+    if (!authStore.isAdmin) {
+      webhookPendingActionCount.value = 0;
+    }
+    return;
+  }
+
+  webhookPendingActionRefreshInFlight = true;
+  try {
+    webhookPendingActionCount.value = await api.fetchWebhookInboxPendingActionCount();
+  } catch (error) {
+    console.warn('Unable to fetch webhook inbox pending action count.', error);
+  } finally {
+    webhookPendingActionRefreshInFlight = false;
+  }
+}
+
+function startWebhookPendingActionRefresh() {
+  stopWebhookPendingActionRefresh();
+  refreshWebhookPendingActionCount();
+  webhookPendingActionRefreshTimer = window.setInterval(refreshWebhookPendingActionCount, 60000);
+}
+
+function stopWebhookPendingActionRefresh() {
+  if (webhookPendingActionRefreshTimer) {
+    window.clearInterval(webhookPendingActionRefreshTimer);
+    webhookPendingActionRefreshTimer = null;
+  }
+  webhookPendingActionRefreshInFlight = false;
+  webhookPendingActionCount.value = 0;
+}
+
+function handleWebhookPendingActionsChanged() {
+  refreshWebhookPendingActionCount();
+}
+
 function loginWithGoogle() {
   window.location.href = '/api/auth/google';
 }
@@ -881,6 +946,10 @@ onMounted(async () => {
   window.addEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
   window.addEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
   window.addEventListener('show-toast', handleShowToast as EventListener);
+  window.addEventListener(
+    'webhook-pending-actions-changed',
+    handleWebhookPendingActionsChanged as EventListener
+  );
 });
 
 onBeforeUnmount(() => {
@@ -897,16 +966,35 @@ onBeforeUnmount(() => {
   window.removeEventListener('loot-actions-pending', handleLootActionsPending as EventListener);
   window.removeEventListener('raid-share-copied', handleRaidShareCopied as EventListener);
   window.removeEventListener('show-toast', handleShowToast as EventListener);
+  window.removeEventListener(
+    'webhook-pending-actions-changed',
+    handleWebhookPendingActionsChanged as EventListener
+  );
   // Stop NPC respawn monitoring when app unmounts
   stopNpcRespawnMonitoring();
   // Cleanup webhook debug store
   webhookDebugStore.cleanup();
+  stopWebhookPendingActionRefresh();
 });
 
 watch(
   () => route.fullPath,
   () => {
     activeDropdown.value = null;
+    if (authStore.isAdmin) {
+      refreshWebhookPendingActionCount();
+    }
+  }
+);
+
+watch(
+  () => authStore.isAdmin,
+  (isAdmin) => {
+    if (isAdmin) {
+      startWebhookPendingActionRefresh();
+    } else {
+      stopWebhookPendingActionRefresh();
+    }
   }
 );
 
@@ -1233,6 +1321,36 @@ function hasRaidStarted(raid: RaidEventSummary) {
   opacity: 0.85;
 }
 
+.nav__pending-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.42);
+  background:
+    linear-gradient(180deg, rgba(248, 113, 113, 0.24), rgba(127, 29, 29, 0.42)),
+    rgba(69, 10, 10, 0.62);
+  color: #fecaca;
+  box-shadow:
+    inset 0 1px 0 rgba(254, 202, 202, 0.14),
+    0 0 12px rgba(239, 68, 68, 0.16);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.nav__pending-badge--dropdown {
+  height: 17px;
+  min-width: 17px;
+  margin-left: 1rem;
+  color: #fee2e2;
+}
+
 /* Keep old .nav__link as alias for any remaining uses */
 .nav__link {
   color: var(--nx-ink-2, #a6b6cd);
@@ -1324,7 +1442,10 @@ function hasRaidStarted(raid: RaidEventSummary) {
 }
 
 .nav__dropdown-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
   padding: 0.6rem 0.85rem;
   color: #e2e8f0;
   text-decoration: none;

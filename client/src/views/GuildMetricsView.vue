@@ -805,14 +805,31 @@
                         {{ unknownAssignmentError }}
                       </p>
                     </div>
-                    <div v-else>
+                    <div v-else class="unknown-action-group">
                       <button
                         type="button"
                         class="btn btn--small unknown-assign-trigger"
+                        :disabled="ignoringUnknownCharacterKey === entry.key"
                         @click="beginUnknownCharacterAssignment(entry)"
                       >
                         Assign
                       </button>
+                      <button
+                        type="button"
+                        class="btn btn--small unknown-ignore-trigger"
+                        :disabled="ignoringUnknownCharacterKey === entry.key"
+                        :aria-label="`Ignore historical attendance for ${entry.name}`"
+                        title="Ignore attendance tracked through now. Future attendance will still appear."
+                        @click="ignoreUnknownCharacterAttendance(entry)"
+                      >
+                        {{ ignoringUnknownCharacterKey === entry.key ? 'Ignoring...' : 'Ignore' }}
+                      </button>
+                      <p
+                        v-if="unknownActionErrorKey === entry.key && unknownAssignmentError"
+                        class="metrics-modal-table__error"
+                      >
+                        {{ unknownAssignmentError }}
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -1114,6 +1131,8 @@ const unknownAssignment = reactive<{ memberUserId: string }>({
 });
 const unknownAssignmentLoading = ref(false);
 const unknownAssignmentError = ref<string | null>(null);
+const ignoringUnknownCharacterKey = ref<string | null>(null);
+const unknownActionErrorKey = ref<string | null>(null);
 const showLootDetailModal = ref(false);
 const lootDetailTarget = ref<{
   entry: LootParticipantSummary;
@@ -4384,6 +4403,8 @@ function resetUnknownAssignmentState() {
   unknownAssignment.memberUserId = '';
   unknownAssignmentError.value = null;
   unknownAssignmentLoading.value = false;
+  ignoringUnknownCharacterKey.value = null;
+  unknownActionErrorKey.value = null;
 }
 
 function beginUnknownCharacterAssignment(entry: AttendanceCharacterSummary) {
@@ -4394,6 +4415,7 @@ function beginUnknownCharacterAssignment(entry: AttendanceCharacterSummary) {
   unknownAssignment.memberUserId = '';
   unknownAssignmentError.value = null;
   unknownAssignmentLoading.value = false;
+  unknownActionErrorKey.value = null;
 }
 
 function cancelUnknownCharacterAssignment() {
@@ -4405,20 +4427,24 @@ function cancelUnknownCharacterAssignment() {
 
 async function assignUnknownCharacterToMember(entry: AttendanceCharacterSummary) {
   if (!guildId.value) {
+    unknownActionErrorKey.value = entry.key;
     unknownAssignmentError.value = 'Missing guild context. Reload and try again.';
     return;
   }
   if (!unknownAssignment.memberUserId) {
+    unknownActionErrorKey.value = entry.key;
     unknownAssignmentError.value = 'Select a member to assign this character to.';
     return;
   }
   if (!entry.class) {
+    unknownActionErrorKey.value = entry.key;
     unknownAssignmentError.value = 'Character class is missing. Please update attendance data.';
     return;
   }
 
   unknownAssignmentLoading.value = true;
   unknownAssignmentError.value = null;
+  unknownActionErrorKey.value = null;
   try {
     await api.assignGuildMemberCharacter(guildId.value, unknownAssignment.memberUserId, {
       name: entry.name.trim(),
@@ -4429,9 +4455,41 @@ async function assignUnknownCharacterToMember(entry: AttendanceCharacterSummary)
     await loadMetrics(lastSubmittedQuery.value);
     resetUnknownAssignmentState();
   } catch (error) {
+    unknownActionErrorKey.value = entry.key;
     unknownAssignmentError.value = resolveApiErrorMessage(error, 'Unable to assign character.');
   } finally {
     unknownAssignmentLoading.value = false;
+  }
+}
+
+async function ignoreUnknownCharacterAttendance(entry: AttendanceCharacterSummary) {
+  if (!canAssignUnknownCharacters.value) {
+    return;
+  }
+  if (!guildId.value) {
+    unknownActionErrorKey.value = entry.key;
+    unknownAssignmentError.value = 'Missing guild context. Reload and try again.';
+    return;
+  }
+
+  ignoringUnknownCharacterKey.value = entry.key;
+  assigningUnknownCharacterKey.value = null;
+  unknownAssignment.memberUserId = '';
+  unknownAssignmentError.value = null;
+  unknownActionErrorKey.value = null;
+  try {
+    await api.ignoreUnknownGuildAttendance(guildId.value, {
+      characterName: entry.name.trim()
+    });
+    await loadMetrics(lastSubmittedQuery.value);
+  } catch (error) {
+    unknownActionErrorKey.value = entry.key;
+    unknownAssignmentError.value = resolveApiErrorMessage(
+      error,
+      'Unable to ignore historical attendance.'
+    );
+  } finally {
+    ignoringUnknownCharacterKey.value = null;
   }
 }
 
@@ -6735,7 +6793,7 @@ onMounted(() => {
 }
 
 .metrics-modal {
-  width: min(840px, 100%);
+  width: min(900px, 100%);
 }
 
 .modal__header {
@@ -6785,7 +6843,7 @@ onMounted(() => {
 
 .metrics-modal-table {
   width: 100%;
-  min-width: 640px;
+  min-width: 780px;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
@@ -6838,9 +6896,17 @@ onMounted(() => {
 }
 
 .metrics-modal-table__actions {
-  width: 1%;
+  min-width: 10.5rem;
   white-space: nowrap;
   vertical-align: top;
+}
+
+.unknown-action-group {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  width: 100%;
 }
 
 .unknown-assignment {
@@ -6927,10 +6993,39 @@ onMounted(() => {
     filter 0.2s ease;
 }
 
-.unknown-assign-trigger:hover,
-.unknown-assign-trigger:focus-visible {
+.unknown-assign-trigger:hover:not(:disabled),
+.unknown-assign-trigger:focus-visible:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 12px 22px rgba(37, 99, 235, 0.45);
+  filter: brightness(1.08);
+}
+
+.unknown-assign-trigger:disabled,
+.unknown-ignore-trigger:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+  box-shadow: none;
+}
+
+.unknown-ignore-trigger {
+  min-width: 4.9rem;
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.78), rgba(185, 28, 28, 0.58));
+  border: 1px solid rgba(248, 113, 113, 0.52);
+  color: #fee2e2;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 18px rgba(127, 29, 29, 0.32);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.unknown-ignore-trigger:hover:not(:disabled),
+.unknown-ignore-trigger:focus-visible:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(185, 28, 28, 0.42);
   filter: brightness(1.08);
 }
 
@@ -6938,6 +7033,8 @@ onMounted(() => {
   margin: 0;
   font-size: 0.75rem;
   color: #fca5a5;
+  white-space: normal;
+  width: 100%;
 }
 
 .loot-detail__cell-item {

@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 
 import { ensureAdmin } from './adminService.js';
+import { buildCrashReviewInput } from './inboundWebhookService.js';
 import { appConfig } from '../config/appConfig.js';
 import { prisma } from '../utils/prisma.js';
 
@@ -1030,6 +1031,8 @@ const webhookReportInclude = {
         webhookId: true,
         receivedAt: true,
         status: true,
+        payload: true,
+        rawBody: true,
         webhook: {
           select: {
             id: true,
@@ -1108,7 +1111,7 @@ type ChangeSerializeRecord = ChangeRecord | ChangeListRecord;
 type WebhookReportLinkRecord = ChangeRecord['webhookReports'][number];
 type WebhookReportListLinkRecord = ChangeListRecord['webhookReports'][number];
 
-function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
+function jsonObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
@@ -1122,6 +1125,77 @@ function webhookReportSummary(link: WebhookReportLinkRecord): string | null {
   const result = jsonObject(latestCrashReviewRun(link)?.result);
   const summary = result && typeof result.summary === 'string' ? result.summary.trim() : '';
   return summary.length > 0 ? summary : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function webhookReportRawReport(link: WebhookReportLinkRecord): string | null {
+  const rawReport = buildCrashReviewInput(
+    link.message.payload,
+    link.message.rawBody,
+    link.message.payload
+  );
+  const trimmed = rawReport.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function webhookReportAiReview(link: WebhookReportLinkRecord) {
+  const result = jsonObject(latestCrashReviewRun(link)?.result);
+  if (!result) {
+    return null;
+  }
+
+  const signature = jsonObject(result.signature);
+  const hypotheses = Array.isArray(result.hypotheses)
+    ? result.hypotheses
+        .map((item) => {
+          const hypothesis = jsonObject(item);
+          if (!hypothesis) {
+            return null;
+          }
+          return {
+            title: typeof hypothesis.title === 'string' ? hypothesis.title : 'Untitled hypothesis',
+            confidence:
+              typeof hypothesis.confidence === 'number' && Number.isFinite(hypothesis.confidence)
+                ? hypothesis.confidence
+                : null,
+            evidence: stringArray(hypothesis.evidence),
+            nextSteps: stringArray(hypothesis.nextSteps)
+          };
+        })
+        .filter(
+          (
+            item
+          ): item is {
+            title: string;
+            confidence: number | null;
+            evidence: string[];
+            nextSteps: string[];
+          } => Boolean(item)
+        )
+    : [];
+
+  return {
+    summary:
+      typeof result.summary === 'string' && result.summary.trim() ? result.summary.trim() : null,
+    signature: signature
+      ? {
+          exception: typeof signature.exception === 'string' ? signature.exception : null,
+          topFrame: typeof signature.topFrame === 'string' ? signature.topFrame : null
+        }
+      : null,
+    hypotheses,
+    missingInfo: stringArray(result.missingInfo),
+    recommendedNextSteps: stringArray(result.recommendedNextSteps),
+    rawModelNotes:
+      typeof result.rawModelNotes === 'string' && result.rawModelNotes.trim()
+        ? result.rawModelNotes.trim()
+        : null
+  };
 }
 
 function webhookReportType(link: WebhookReportLinkRecord): string {
@@ -1147,6 +1221,8 @@ function serializeWebhookReportLink(link: WebhookReportLinkRecord) {
     status: link.message.status,
     reportType: webhookReportType(link),
     summary,
+    rawReport: webhookReportRawReport(link),
+    aiReview: webhookReportAiReview(link),
     aiReviewStatus: run?.status ?? null,
     hasAiReview: Boolean(run),
     linkedAt: link.createdAt.toISOString(),
@@ -1164,6 +1240,8 @@ function serializeWebhookReportListLink(link: WebhookReportListLinkRecord) {
     status: link.message.status,
     reportType: 'Webhook report',
     summary: null,
+    rawReport: null,
+    aiReview: null,
     aiReviewStatus: null,
     hasAiReview: false,
     linkedAt: link.createdAt.toISOString(),

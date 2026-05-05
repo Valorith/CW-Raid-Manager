@@ -2,7 +2,8 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
-import { getGuildMetrics } from '../services/metricsService.js';
+import { canManageGuild, getUserGuildRole } from '../services/guildService.js';
+import { getGuildMetrics, ignoreUnknownAttendanceThrough } from '../services/metricsService.js';
 import { ensureUserCanViewGuild } from '../services/raidService.js';
 
 function parseDate(value?: string | null): { date: Date | null; original: string | null } {
@@ -80,4 +81,37 @@ export async function guildMetricsRoutes(server: FastifyInstance): Promise<void>
 
     return { metrics };
   });
+
+  server.post(
+    '/:guildId/metrics/unknown-attendance/ignore',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const paramsSchema = z.object({
+        guildId: z.string()
+      });
+      const bodySchema = z.object({
+        characterName: z.string().trim().min(1).max(64)
+      });
+
+      const { guildId } = paramsSchema.parse(request.params);
+      const parsedBody = bodySchema.safeParse(request.body ?? {});
+
+      if (!parsedBody.success) {
+        return reply.badRequest('Character name is required.');
+      }
+
+      const membership = await getUserGuildRole(request.user.userId, guildId);
+      if (!canManageGuild(membership?.role)) {
+        return reply.forbidden('You do not have permission to ignore unknown attendance.');
+      }
+
+      const ignored = await ignoreUnknownAttendanceThrough({
+        guildId,
+        characterName: parsedBody.data.characterName,
+        ignoredByUserId: request.user.userId
+      });
+
+      return { ignored };
+    }
+  );
 }
