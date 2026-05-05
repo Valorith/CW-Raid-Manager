@@ -1201,6 +1201,9 @@
           @click="handleLootCardClick($event, entry.itemName, entry.itemId)"
           @contextmenu.prevent="openLootContextMenu($event, entry)"
           @keyup.enter="handleLootCardKeyEnter($event, entry.itemName, entry.itemId)"
+          @pointerenter="showItemTooltip($event, entry)"
+          @pointermove="updateTooltipPosition($event)"
+          @pointerleave="hideItemTooltip"
         >
           <span
             v-if="entry.isWhitelisted"
@@ -1212,12 +1215,7 @@
           </span>
           <div class="raid-loot-card__count">{{ entry.count }}×</div>
           <header class="raid-loot-card__header">
-            <div
-              class="raid-loot-card__icon"
-              @mouseenter="showItemTooltip($event, entry)"
-              @mousemove="updateTooltipPosition($event)"
-              @mouseleave="hideItemTooltip"
-            >
+            <div class="raid-loot-card__icon">
               <template v-if="hasValidIconId(entry.itemIconId)">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -1228,12 +1226,7 @@
               <span v-else class="raid-loot-card__emoji">{{ entry.emoji ?? '💎' }}</span>
             </div>
             <div>
-              <p
-                class="raid-loot-card__item"
-                @mouseenter="showItemTooltip($event, entry)"
-                @mousemove="updateTooltipPosition($event)"
-                @mouseleave="hideItemTooltip"
-              >
+              <p class="raid-loot-card__item">
                 {{ entry.itemName }}
               </p>
               <p class="raid-loot-card__looter">

@@ -282,13 +282,13 @@
               :key="item.key"
               :class="['loot-council-column', getLootCouncilViewerClasses(item)]"
             >
-              <header class="loot-council-column__header">
-                <div
-                  class="loot-council-column__icon"
-                  @mouseenter="showLootCouncilItemTooltip($event, item)"
-                  @mousemove="updateTooltipPosition($event)"
-                  @mouseleave="hideItemTooltip"
-                >
+              <header
+                class="loot-council-column__header"
+                @pointerenter="showLootCouncilItemTooltip($event, item)"
+                @pointermove="updateTooltipPosition($event)"
+                @pointerleave="hideItemTooltip"
+              >
+                <div class="loot-council-column__icon">
                   <template v-if="hasValidIconId(item.itemIconId)">
                     <img
                       :src="getLootIconSrc(item.itemIconId)"
@@ -299,12 +299,7 @@
                   <span v-else class="loot-council-column__icon-placeholder">?</span>
                 </div>
                 <div class="loot-council-column__info">
-                  <p
-                    class="loot-council-column__name"
-                    @mouseenter="showLootCouncilItemTooltip($event, item)"
-                    @mousemove="updateTooltipPosition($event)"
-                    @mouseleave="hideItemTooltip"
-                  >
+                  <p class="loot-council-column__name">
                     {{ item.itemName }}
                   </p>
                   <p class="loot-council-column__meta">
@@ -372,9 +367,9 @@
                         <div
                           v-if="hasValidIconId(interest.replacingItemIconId)"
                           class="loot-council-interest__replacement-icon"
-                          @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
-                          @mousemove="updateTooltipPosition($event)"
-                          @mouseleave="hideItemTooltip"
+                          @pointerenter="showLootCouncilReplacingTooltip($event, interest)"
+                          @pointermove="updateTooltipPosition($event)"
+                          @pointerleave="hideItemTooltip"
                         >
                           <img
                             :src="getLootIconSrc(interest.replacingItemIconId)"
@@ -384,9 +379,9 @@
                         </div>
                         <span
                           class="loot-council-interest__replacement-name"
-                          @mouseenter="showLootCouncilReplacingTooltip($event, interest)"
-                          @mousemove="updateTooltipPosition($event)"
-                          @mouseleave="hideItemTooltip"
+                          @pointerenter="showLootCouncilReplacingTooltip($event, interest)"
+                          @pointermove="updateTooltipPosition($event)"
+                          @pointerleave="hideItemTooltip"
                         >
                           {{ interest.replacing }}
                         </span>
@@ -621,9 +616,9 @@
                 <td class="loot-disposition-table__item">
                   <div
                     class="loot-disposition-item"
-                    @mouseenter="showDispositionItemTooltip($event, entry)"
-                    @mousemove="updateTooltipPosition($event)"
-                    @mouseleave="hideItemTooltip"
+                    @pointerenter="showDispositionItemTooltip($event, entry)"
+                    @pointermove="updateTooltipPosition($event)"
+                    @pointerleave="hideItemTooltip"
                   >
                     <span
                       v-if="hasValidIconId(entry.itemIconId)"
@@ -696,15 +691,13 @@
           @click="handleExistingLootCardClick($event, entry.itemName, entry.itemId)"
           @contextmenu.prevent="openLootContextMenu($event, entry)"
           @keyup.enter="handleExistingLootCardKeyEnter($event, entry.itemName, entry.itemId)"
+          @pointerenter="showItemTooltip($event, entry)"
+          @pointermove="updateTooltipPosition($event)"
+          @pointerleave="hideItemTooltip"
         >
           <div class="loot-card__count">{{ entry.count }}×</div>
           <header class="loot-card__header">
-            <div
-              class="loot-card__icon"
-              @mouseenter="showItemTooltip($event, entry)"
-              @mousemove="updateTooltipPosition($event)"
-              @mouseleave="hideItemTooltip"
-            >
+            <div class="loot-card__icon">
               <template v-if="hasValidIconId(entry.itemIconId)">
                 <img
                   :src="getLootIconSrc(entry.itemIconId)"
@@ -715,12 +708,7 @@
               <span v-else class="loot-card__emoji">{{ entry.emoji }}</span>
             </div>
             <div>
-              <p
-                class="loot-card__item"
-                @mouseenter="showItemTooltip($event, entry)"
-                @mousemove="updateTooltipPosition($event)"
-                @mouseleave="hideItemTooltip"
-              >
+              <p class="loot-card__item">
                 {{ entry.itemName }}
               </p>
               <p class="loot-card__looter">
@@ -1555,6 +1543,12 @@ interface LootDispositionEntry {
   recipientName: string | null;
 }
 
+type ResolvedLootItemInfo = {
+  itemId: number;
+  itemIconId: number | null;
+  itemName: string;
+};
+
 defineOptions({ name: 'LootTrackerView' });
 
 const route = useRoute();
@@ -1851,6 +1845,7 @@ const lootCouncilState = reactive<{
 });
 const resolvedLootCouncilItems = new Map<string, Date>();
 const itemIdToIconCache = new Map<number, number | null>();
+const itemNameToInfoCache = new Map<string, ResolvedLootItemInfo | null>();
 let itemIconResolutionPending = false;
 let itemIconResolutionNeeded = false;
 let itemIconResolutionDebounceId: ReturnType<typeof setTimeout> | null = null;
@@ -2644,6 +2639,157 @@ async function fetchAndApplySharedLootCouncilState(force = false) {
   }
 }
 
+function getItemNameResolutionKey(itemName: string | null | undefined): string {
+  return itemName?.trim().toLowerCase() ?? '';
+}
+
+function collectItemNamesForResolution(): string[] {
+  const namesByKey = new Map<string, string>();
+
+  const addName = (itemName: string | null | undefined, needsResolution: boolean) => {
+    if (!needsResolution) {
+      return;
+    }
+    const trimmedName = itemName?.trim();
+    if (!trimmedName) {
+      return;
+    }
+    const key = getItemNameResolutionKey(trimmedName);
+    if (!key || itemNameToInfoCache.has(key) || namesByKey.has(key)) {
+      return;
+    }
+    namesByKey.set(key, trimmedName);
+  };
+
+  for (const item of lootCouncilState.items) {
+    addName(item.itemName, item.itemId == null || item.itemIconId == null);
+    for (const interest of item.interests) {
+      addName(
+        interest.replacing,
+        Boolean(interest.replacing) &&
+          (interest.replacingItemId == null || interest.replacingItemIconId == null)
+      );
+    }
+  }
+
+  for (const entry of lootDispositionHistory.value) {
+    addName(entry.itemName, entry.itemId == null || entry.itemIconId == null);
+  }
+
+  return Array.from(namesByKey.values());
+}
+
+async function resolveItemNamesByName(itemNames: string[]) {
+  if (itemNames.length === 0) {
+    return;
+  }
+
+  try {
+    const response = await api.searchItemsByName(itemNames);
+    for (const itemName of itemNames) {
+      const key = getItemNameResolutionKey(itemName);
+      const result = response.items[itemName] ?? null;
+      itemNameToInfoCache.set(
+        key,
+        result
+          ? {
+              itemId: result.itemId,
+              itemIconId: result.itemIconId ?? null,
+              itemName: result.itemName
+            }
+          : null
+      );
+    }
+  } catch (error) {
+    console.error('Failed to resolve loot item names:', error);
+  }
+}
+
+function applyItemNameResolutionFromCache() {
+  let lootCouncilUpdated = false;
+  let dispositionUpdated = false;
+
+  const applyResolvedInfo = (
+    itemName: string | null | undefined,
+    currentItemId: number | null | undefined,
+    currentIconId: number | null | undefined,
+    apply: (resolved: ResolvedLootItemInfo) => void
+  ) => {
+    const key = getItemNameResolutionKey(itemName);
+    const resolved = key ? itemNameToInfoCache.get(key) : undefined;
+    if (!resolved) {
+      return false;
+    }
+    const canUseIcon =
+      currentItemId == null || currentItemId <= 0 || currentItemId === resolved.itemId;
+    if (
+      (currentItemId == null || currentItemId <= 0) ||
+      ((currentIconId == null || currentIconId <= 0) && canUseIcon)
+    ) {
+      apply(resolved);
+      return true;
+    }
+    return false;
+  };
+
+  for (const item of lootCouncilState.items) {
+    if (
+      applyResolvedInfo(item.itemName, item.itemId, item.itemIconId, (resolved) => {
+        if (item.itemId == null || item.itemId <= 0) {
+          item.itemId = resolved.itemId;
+        }
+        if (item.itemIconId == null || item.itemIconId <= 0) {
+          item.itemIconId = resolved.itemIconId;
+        }
+      })
+    ) {
+      lootCouncilUpdated = true;
+    }
+
+    for (const interest of item.interests) {
+      if (
+        applyResolvedInfo(
+          interest.replacing,
+          interest.replacingItemId,
+          interest.replacingItemIconId,
+          (resolved) => {
+            if (interest.replacingItemId == null || interest.replacingItemId <= 0) {
+              interest.replacingItemId = resolved.itemId;
+            }
+            if (interest.replacingItemIconId == null || interest.replacingItemIconId <= 0) {
+              interest.replacingItemIconId = resolved.itemIconId;
+            }
+          }
+        )
+      ) {
+        lootCouncilUpdated = true;
+      }
+    }
+  }
+
+  for (const entry of lootDispositionHistory.value) {
+    if (
+      applyResolvedInfo(entry.itemName, entry.itemId, entry.itemIconId, (resolved) => {
+        if (entry.itemId == null || entry.itemId <= 0) {
+          entry.itemId = resolved.itemId;
+        }
+        if (entry.itemIconId == null || entry.itemIconId <= 0) {
+          entry.itemIconId = resolved.itemIconId;
+        }
+      })
+    ) {
+      dispositionUpdated = true;
+    }
+  }
+
+  if (lootCouncilUpdated) {
+    scheduleLootCouncilStateBroadcast();
+  }
+  if (dispositionUpdated) {
+    persistLootDispositionHistory();
+  }
+}
+
 async function resolveLootCouncilItemIcons() {
   if (itemIconResolutionPending) {
     itemIconResolutionNeeded = true;
@@ -2652,6 +2798,12 @@ async function resolveLootCouncilItemIcons() {
   itemIconResolutionPending = true;
   itemIconResolutionNeeded = false;
   try {
+    const itemNamesToResolve = collectItemNamesForResolution();
+    if (itemNamesToResolve.length > 0) {
+      await resolveItemNamesByName(itemNamesToResolve);
+      applyItemNameResolutionFromCache();
+    }
+
     const itemIdsToResolve = new Set<number>();
     for (const item of lootCouncilState.items) {
       if (item.itemId != null && item.itemIconId == null && !itemIdToIconCache.has(item.itemId)) {

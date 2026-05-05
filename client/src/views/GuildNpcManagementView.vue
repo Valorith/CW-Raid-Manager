@@ -174,183 +174,239 @@
           <h3>{{ editingNpc ? 'Edit NPC' : 'Add New NPC' }}</h3>
           <button class="modal__close" @click="closeModal">&times;</button>
         </header>
-        <div class="modal__body">
-          <div class="form-row">
-            <div class="form-group form-group--wide">
-              <label for="npc-name">NPC Name *</label>
-              <input
-                id="npc-name"
-                v-model="form.npcName"
-                type="text"
-                class="input"
-                placeholder="e.g., Lord Nagafen"
-                required
-              />
-            </div>
-            <div class="form-group">
-              <label for="npc-zone">Zone</label>
-              <input
-                id="npc-zone"
-                v-model="form.zoneName"
-                type="text"
-                class="input"
-                placeholder="e.g., Nagafen's Lair"
-              />
-            </div>
-          </div>
+        <div class="modal__body npc-modal-body">
+          <div class="npc-modal-grid">
+            <div class="npc-modal-column">
+              <div class="form-row">
+                <div class="form-group form-group--wide">
+                  <label for="npc-name">NPC Name *</label>
+                  <input
+                    id="npc-name"
+                    v-model="form.npcName"
+                    type="text"
+                    class="input"
+                    placeholder="e.g., Lord Nagafen"
+                    required
+                    @input="resetLogTest"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="npc-zone">Zone</label>
+                  <input
+                    id="npc-zone"
+                    v-model="form.zoneName"
+                    type="text"
+                    class="input"
+                    placeholder="e.g., Nagafen's Lair"
+                  />
+                </div>
+              </div>
 
-          <div class="respawn-section">
-            <div class="respawn-input-group">
-              <label class="respawn-label">Min Respawn</label>
-              <div class="time-inputs">
-                <div class="time-input-field">
-                  <input
-                    id="respawn-min-days"
-                    v-model.number="respawnMinDays"
-                    type="number"
-                    min="0"
-                    max="99"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">d</span>
+              <div class="respawn-section">
+                <div class="respawn-input-group">
+                  <label class="respawn-label">Min Respawn</label>
+                  <div class="time-inputs">
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-min-days"
+                        v-model.number="respawnMinDays"
+                        type="number"
+                        min="0"
+                        max="99"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">d</span>
+                    </div>
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-min-hours"
+                        v-model.number="respawnMinHours"
+                        type="number"
+                        min="0"
+                        max="23"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">h</span>
+                    </div>
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-min-minutes"
+                        v-model.number="respawnMinMins"
+                        type="number"
+                        min="0"
+                        max="59"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">m</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="time-input-field">
-                  <input
-                    id="respawn-min-hours"
-                    v-model.number="respawnMinHours"
-                    type="number"
-                    min="0"
-                    max="23"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">h</span>
+
+                <div class="respawn-input-group">
+                  <label class="respawn-label">Max Respawn</label>
+                  <div class="time-inputs">
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-max-days"
+                        v-model.number="respawnMaxDays"
+                        type="number"
+                        min="0"
+                        max="99"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">d</span>
+                    </div>
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-max-hours"
+                        v-model.number="respawnMaxHours"
+                        type="number"
+                        min="0"
+                        max="23"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">h</span>
+                    </div>
+                    <div class="time-input-field">
+                      <input
+                        id="respawn-max-minutes"
+                        v-model.number="respawnMaxMins"
+                        type="number"
+                        min="0"
+                        max="59"
+                        class="input input--time"
+                        placeholder="0"
+                      />
+                      <span class="time-unit">m</span>
+                    </div>
+                  </div>
                 </div>
-                <div class="time-input-field">
-                  <input
-                    id="respawn-min-minutes"
-                    v-model.number="respawnMinMins"
-                    type="number"
-                    min="0"
-                    max="59"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">m</span>
-                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="npc-alla">Allakhazam Link</label>
+                <input
+                  id="npc-alla"
+                  v-model="form.allaLink"
+                  type="url"
+                  class="input"
+                  placeholder="https://alla.clumsysworld.com/..."
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="npc-notes">Notes</label>
+                <textarea
+                  id="npc-notes"
+                  v-model="form.notes"
+                  class="input input--textarea"
+                  rows="2"
+                  placeholder="Any additional notes about this NPC..."
+                ></textarea>
               </div>
             </div>
 
-            <div class="respawn-input-group">
-              <label class="respawn-label">Max Respawn</label>
-              <div class="time-inputs">
-                <div class="time-input-field">
-                  <input
-                    id="respawn-max-days"
-                    v-model.number="respawnMaxDays"
-                    type="number"
-                    min="0"
-                    max="99"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">d</span>
+            <div class="npc-modal-column npc-modal-column--side">
+              <section class="log-test-card">
+                <div class="log-test-card__header">
+                  <div>
+                    <h4>Log Match Check</h4>
+                    <p>Load an EQ log to verify this exact NPC name is detected.</p>
+                  </div>
+                  <button
+                    class="btn btn--outline btn--small"
+                    type="button"
+                    :disabled="logTestLoading || !form.npcName.trim()"
+                    @click="chooseLogTestFile"
+                  >
+                    {{ logTestLoading ? 'Checking...' : 'Load Log' }}
+                  </button>
                 </div>
-                <div class="time-input-field">
-                  <input
-                    id="respawn-max-hours"
-                    v-model.number="respawnMaxHours"
-                    type="number"
-                    min="0"
-                    max="23"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">h</span>
+                <input
+                  ref="logTestInput"
+                  class="visually-hidden"
+                  type="file"
+                  accept=".txt,.log,text/plain"
+                  @change="handleLogTestFileSelected"
+                />
+                <p v-if="logTestError" class="log-test-card__error">{{ logTestError }}</p>
+                <div
+                  v-else-if="logTestResult"
+                  :class="[
+                    'log-test-result',
+                    logTestResult.matchCount > 0
+                      ? 'log-test-result--match'
+                      : 'log-test-result--miss'
+                  ]"
+                >
+                  <div class="log-test-result__count">
+                    <strong>{{ logTestResult.matchCount }}</strong>
+                    <span>{{ logTestResult.matchCount === 1 ? 'match' : 'matches' }}</span>
+                  </div>
+                  <p>
+                    Checked {{ logTestResult.totalKillLines }}
+                    {{ logTestResult.totalKillLines === 1 ? 'kill line' : 'kill lines' }} in
+                    {{ logTestResult.fileName }}.
+                  </p>
+                  <ul v-if="logTestResult.sampleLines.length > 0" class="log-test-samples">
+                    <li v-for="line in logTestResult.sampleLines" :key="line">{{ line }}</li>
+                  </ul>
                 </div>
-                <div class="time-input-field">
-                  <input
-                    id="respawn-max-minutes"
-                    v-model.number="respawnMaxMins"
-                    type="number"
-                    min="0"
-                    max="59"
-                    class="input input--time"
-                    placeholder="0"
-                  />
-                  <span class="time-unit">m</span>
+                <p v-else class="log-test-card__hint">
+                  This does not upload or save the log. It only checks the file in your browser.
+                </p>
+              </section>
+
+              <div class="settings-grid">
+                <div class="form-group form-group--checkbox">
+                  <label class="checkbox-label">
+                    <input
+                      id="npc-raid-target"
+                      v-model="form.isRaidTarget"
+                      type="checkbox"
+                      class="checkbox-input"
+                    />
+                    <span class="checkbox-text">Raid Target</span>
+                  </label>
+                  <p class="checkbox-hint">
+                    Manual kills trigger the "Raid Target Killed" Discord webhook notification.
+                  </p>
+                </div>
+
+                <div class="form-group form-group--checkbox">
+                  <label class="checkbox-label">
+                    <input
+                      id="npc-has-instance"
+                      v-model="form.hasInstanceVersion"
+                      type="checkbox"
+                      class="checkbox-input"
+                    />
+                    <span class="checkbox-text">Track Instance Version</span>
+                  </label>
+                  <p class="checkbox-hint">
+                    Track Overworld and Instance kills with independent respawn timers.
+                  </p>
                 </div>
               </div>
+
+              <div class="form-group">
+                <label for="npc-content-flag">Content Flag</label>
+                <select id="npc-content-flag" v-model="form.contentFlag" class="input input--select">
+                  <option :value="null">None (Always Visible)</option>
+                  <option v-for="flag in NPC_CONTENT_FLAGS" :key="flag" :value="flag">
+                    {{ flag }}
+                  </option>
+                </select>
+                <p class="field-hint">
+                  Only show this NPC when the matching content flag is enabled.
+                </p>
+              </div>
             </div>
-          </div>
-
-          <div class="form-group">
-            <label for="npc-alla">Allakhazam Link</label>
-            <input
-              id="npc-alla"
-              v-model="form.allaLink"
-              type="url"
-              class="input"
-              placeholder="https://alla.clumsysworld.com/..."
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="npc-notes">Notes</label>
-            <textarea
-              id="npc-notes"
-              v-model="form.notes"
-              class="input input--textarea"
-              rows="2"
-              placeholder="Any additional notes about this NPC..."
-            ></textarea>
-          </div>
-
-          <div class="form-group form-group--checkbox">
-            <label class="checkbox-label">
-              <input
-                id="npc-raid-target"
-                v-model="form.isRaidTarget"
-                type="checkbox"
-                class="checkbox-input"
-              />
-              <span class="checkbox-text">Raid Target</span>
-            </label>
-            <p class="checkbox-hint">
-              When enabled, manual kills will trigger the "Raid Target Killed" Discord webhook
-              notification.
-            </p>
-          </div>
-
-          <div class="form-group form-group--checkbox">
-            <label class="checkbox-label">
-              <input
-                id="npc-has-instance"
-                v-model="form.hasInstanceVersion"
-                type="checkbox"
-                class="checkbox-input"
-              />
-              <span class="checkbox-text">Track Instance Version</span>
-            </label>
-            <p class="checkbox-hint">
-              When enabled, this NPC will be tracked separately for Overworld and Instance kills.
-              Two entries will appear on the tracker with independent respawn timers.
-            </p>
-          </div>
-
-          <div class="form-group">
-            <label for="npc-content-flag">Content Flag</label>
-            <select id="npc-content-flag" v-model="form.contentFlag" class="input input--select">
-              <option :value="null">None (Always Visible)</option>
-              <option v-for="flag in NPC_CONTENT_FLAGS" :key="flag" :value="flag">
-                {{ flag }}
-              </option>
-            </select>
-            <p class="field-hint">
-              If set, this NPC will only appear on the tracker when the corresponding content flag
-              is enabled in the game database.
-            </p>
           </div>
         </div>
         <footer class="modal__actions">
@@ -403,6 +459,7 @@ import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
 import type { NpcDefinition, NpcDefinitionInput } from '../services/api';
 import { NPC_CONTENT_FLAGS } from '../services/api';
+import { parseNpcKillEvents } from '../services/npcKillParser';
 import { getExpansionForZone } from '../data/expansionZones';
 import ErrorModal from '../components/ErrorModal.vue';
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
@@ -444,6 +501,15 @@ const respawnMinMins = ref<number | null>(null);
 const respawnMaxDays = ref<number | null>(null);
 const respawnMaxHours = ref<number | null>(null);
 const respawnMaxMins = ref<number | null>(null);
+const logTestInput = ref<HTMLInputElement | null>(null);
+const logTestLoading = ref(false);
+const logTestResult = ref<{
+  fileName: string;
+  matchCount: number;
+  totalKillLines: number;
+  sampleLines: string[];
+} | null>(null);
+const logTestError = ref<string | null>(null);
 
 // Watch time inputs and update form values
 watch([respawnMinDays, respawnMinHours, respawnMinMins], ([days, hours, mins]) => {
@@ -509,6 +575,10 @@ function isContentFlagEnabled(flag: string | null): boolean {
 }
 
 // Methods
+function normalizeNpcLogName(name: string): string {
+  return name.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 function formatRespawnRange(min: number | null, max: number | null): string {
   if (min === null) return 'Unknown';
   const formatTime = (totalMinutes: number) => {
@@ -552,6 +622,15 @@ function resetForm() {
   respawnMaxDays.value = null;
   respawnMaxHours.value = null;
   respawnMaxMins.value = null;
+  resetLogTest();
+}
+
+function resetLogTest() {
+  logTestResult.value = null;
+  logTestError.value = null;
+  if (logTestInput.value) {
+    logTestInput.value.value = '';
+  }
 }
 
 function openAddModal() {
@@ -562,6 +641,7 @@ function openAddModal() {
 
 function openEditModal(npc: NpcDefinition) {
   editingNpc.value = npc;
+  resetLogTest();
   form.value = {
     npcName: npc.npcName,
     zoneName: npc.zoneName,
@@ -589,6 +669,47 @@ function closeModal() {
   showModal.value = false;
   editingNpc.value = null;
   resetForm();
+}
+
+function chooseLogTestFile() {
+  logTestInput.value?.click();
+}
+
+async function handleLogTestFileSelected(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0] ?? null;
+  if (!file) {
+    return;
+  }
+
+  const targetName = normalizeNpcLogName(form.value.npcName);
+  if (!targetName) {
+    logTestResult.value = null;
+    logTestError.value = 'Enter an NPC name before checking a log.';
+    input.value = '';
+    return;
+  }
+
+  logTestLoading.value = true;
+  logTestError.value = null;
+  logTestResult.value = null;
+
+  try {
+    const content = await file.text();
+    const kills = parseNpcKillEvents(content);
+    const matches = kills.filter((kill) => normalizeNpcLogName(kill.npcName) === targetName);
+    logTestResult.value = {
+      fileName: file.name,
+      matchCount: matches.length,
+      totalKillLines: kills.length,
+      sampleLines: matches.slice(0, 3).map((kill) => kill.rawLine)
+    };
+  } catch (error) {
+    logTestError.value = error instanceof Error ? error.message : 'Unable to read that log file.';
+  } finally {
+    logTestLoading.value = false;
+    input.value = '';
+  }
 }
 
 async function submitForm() {
@@ -980,23 +1101,24 @@ onMounted(async () => {
   border-radius: 1rem;
   width: 100%;
   max-width: 400px;
-  max-height: 90vh;
-  overflow-y: auto;
+  max-height: min(860px, calc(100vh - 2rem));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
 }
 
 .modal--large {
-  max-width: 600px;
+  max-width: min(960px, calc(100vw - 2rem));
 }
 
 .modal__header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.25rem 1.5rem;
+  padding: 1rem 1.5rem;
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-  position: sticky;
-  top: 0;
   background: inherit;
   z-index: 1;
 }
@@ -1022,10 +1144,33 @@ onMounted(async () => {
 }
 
 .modal__body {
-  padding: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.npc-modal-body {
+  padding-bottom: 1rem;
+}
+
+.npc-modal-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.npc-modal-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.npc-modal-column--side {
+  gap: 0.9rem;
 }
 
 .form-row {
@@ -1074,7 +1219,7 @@ onMounted(async () => {
 
 .input--textarea {
   resize: vertical;
-  min-height: 60px;
+  min-height: 54px;
 }
 
 .input--small {
@@ -1082,17 +1227,17 @@ onMounted(async () => {
 }
 
 .input--time {
-  width: 60px;
+  width: 52px;
   text-align: center;
   padding: 0.5rem 0.4rem;
 }
 
 /* Respawn time section */
 .respawn-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 0.85rem;
   background: rgba(30, 41, 59, 0.4);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 0.5rem;
@@ -1114,7 +1259,8 @@ onMounted(async () => {
 .time-inputs {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.25rem;
+  flex-wrap: wrap;
 }
 
 .time-input-field {
@@ -1150,13 +1296,12 @@ onMounted(async () => {
 }
 
 .modal__actions {
+  flex: 0 0 auto;
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
   padding: 1rem 1.5rem;
   border-top: 1px solid rgba(148, 163, 184, 0.15);
-  position: sticky;
-  bottom: 0;
   background: inherit;
 }
 
@@ -1176,6 +1321,7 @@ onMounted(async () => {
   transition: all 0.15s ease;
   text-decoration: none;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .btn svg {
@@ -1309,6 +1455,134 @@ onMounted(async () => {
   font-size: 0.75rem;
   color: #64748b;
   line-height: 1.4;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.log-test-card {
+  padding: 0.85rem;
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, rgba(8, 47, 73, 0.55), rgba(15, 23, 42, 0.62));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.log-test-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.log-test-card h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #e0f2fe;
+}
+
+.log-test-card p {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #8fb7d5;
+}
+
+.log-test-card__hint {
+  padding-top: 0.75rem;
+  color: #7da6c2 !important;
+}
+
+.log-test-card__error {
+  margin-top: 0.75rem !important;
+  color: #fecaca !important;
+}
+
+.log-test-result {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.log-test-result--match {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(20, 83, 45, 0.26);
+}
+
+.log-test-result--miss {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(120, 53, 15, 0.24);
+}
+
+.log-test-result__count {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.log-test-result__count strong {
+  font-size: 1.75rem;
+  line-height: 1;
+  color: #f8fafc;
+}
+
+.log-test-result__count span {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #cbd5e1;
+}
+
+.log-test-samples {
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.log-test-samples li {
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.45rem;
+  background: rgba(2, 6, 23, 0.45);
+  color: #dbeafe;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+    monospace;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 860px) {
+  .npc-modal-grid,
+  .respawn-section {
+    grid-template-columns: 1fr;
+  }
+
+  .modal--large {
+    max-width: min(640px, calc(100vw - 1rem));
+  }
 }
 
 /* Pagination */

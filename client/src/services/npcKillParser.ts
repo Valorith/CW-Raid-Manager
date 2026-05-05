@@ -69,6 +69,12 @@ export function parseNpcKills(
   raidStart: Date,
   raidEnd?: Date | null
 ): ParsedNpcKillEvent[] {
+  return parseNpcKillEvents(logContent).filter(
+    (kill) => kill.timestamp && isWithinRaid(kill.timestamp, raidStart, raidEnd)
+  );
+}
+
+export function parseNpcKillEvents(logContent: string): ParsedNpcKillEvent[] {
   const lines = logContent.split(/\r?\n/);
   const kills: ParsedNpcKillEvent[] = [];
 
@@ -119,7 +125,7 @@ export function parseNpcKills(
     }
 
     const timestamp = extractTimestamp(line);
-    if (!timestamp || !isWithinRaid(timestamp, raidStart, raidEnd)) {
+    if (!timestamp) {
       continue;
     }
 
