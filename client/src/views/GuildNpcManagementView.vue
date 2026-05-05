@@ -312,7 +312,10 @@
             </div>
 
             <div class="npc-modal-column npc-modal-column--side">
-              <section class="log-test-card">
+              <section
+                class="log-test-card"
+                :class="{ 'log-test-card--has-result': logTestResult }"
+              >
                 <div class="log-test-card__header">
                   <div>
                     <h4>Log Match Check</h4>
@@ -348,7 +351,7 @@
                     <strong>{{ logTestResult.matchCount }}</strong>
                     <span>{{ logTestResult.matchCount === 1 ? 'match' : 'matches' }}</span>
                   </div>
-                  <p>
+                  <p class="log-test-result__summary">
                     Checked {{ logTestResult.totalKillLines }}
                     {{ logTestResult.totalKillLines === 1 ? 'kill line' : 'kill lines' }} in
                     {{ logTestResult.fileName }}.
@@ -1157,7 +1160,7 @@ onMounted(async () => {
 
 .npc-modal-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
   gap: 1.25rem;
   align-items: start;
 }
@@ -1170,7 +1173,7 @@ onMounted(async () => {
 }
 
 .npc-modal-column--side {
-  gap: 0.9rem;
+  gap: 0.75rem;
 }
 
 .form-row {
@@ -1464,18 +1467,22 @@ onMounted(async () => {
 }
 
 .log-test-card {
-  padding: 0.85rem;
+  padding: 0.8rem;
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 0.75rem;
   background: linear-gradient(135deg, rgba(8, 47, 73, 0.55), rgba(15, 23, 42, 0.62));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
+.log-test-card--has-result {
+  padding-bottom: 0.75rem;
+}
+
 .log-test-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .log-test-card h4 {
@@ -1488,7 +1495,7 @@ onMounted(async () => {
 .log-test-card p {
   margin: 0.25rem 0 0;
   font-size: 0.78rem;
-  line-height: 1.45;
+  line-height: 1.35;
   color: #8fb7d5;
 }
 
@@ -1503,8 +1510,8 @@ onMounted(async () => {
 }
 
 .log-test-result {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
+  margin-top: 0.6rem;
+  padding: 0.65rem;
   border-radius: 0.65rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(15, 23, 42, 0.62);
@@ -1527,38 +1534,45 @@ onMounted(async () => {
 }
 
 .log-test-result__count strong {
-  font-size: 1.75rem;
+  font-size: 1.6rem;
   line-height: 1;
   color: #f8fafc;
 }
 
 .log-test-result__count span {
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #cbd5e1;
 }
 
+.log-test-result__summary {
+  margin-top: 0.2rem !important;
+}
+
 .log-test-samples {
-  margin: 0.65rem 0 0;
+  margin: 0.55rem 0 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  max-height: 7.25rem;
+  overflow-y: auto;
+  padding-right: 0.2rem;
 }
 
 .log-test-samples li {
-  padding: 0.45rem 0.55rem;
+  padding: 0.4rem 0.5rem;
   border-radius: 0.45rem;
   background: rgba(2, 6, 23, 0.45);
   color: #dbeafe;
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
-  font-size: 0.68rem;
-  line-height: 1.35;
+  font-size: 0.66rem;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
