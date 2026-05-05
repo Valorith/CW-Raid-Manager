@@ -20,6 +20,7 @@ import {
   deleteChangeNote,
   deleteTestChange,
   deleteTestChangeChecklistItem,
+  ensureCanManageTestManagerSettings,
   ensureCanViewTestManager,
   getTestChange,
   getTestManagerDashboard,
@@ -84,6 +85,18 @@ async function requireCanView(
   } catch (error) {
     request.log.warn({ error }, 'User attempted to access Test Manager without view permission.');
     return reply.forbidden('Test Manager view permission required.');
+  }
+}
+
+async function requireCanManageSettings(
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void | FastifyReply> {
+  try {
+    await ensureCanManageTestManagerSettings(request.user.userId);
+  } catch (error) {
+    request.log.warn({ error }, 'User attempted to access Test Manager settings without permission.');
+    return reply.forbidden('Test Manager settings permission required.');
   }
 }
 
@@ -689,7 +702,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.get(
     '/settings',
-    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
     async () => {
       return getTestManagerSettings();
     }
@@ -697,7 +710,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
 
   server.put(
     '/settings',
-    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
     async (request, reply) => {
       const bodySchema = z.object({
         roles: z.array(

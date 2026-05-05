@@ -20,7 +20,7 @@
 
     <nav class="tm-subnav" aria-label="Test Manager navigation">
       <RouterLink
-        v-for="item in subnavItems"
+        v-for="item in visibleSubnavItems"
         :key="item.key"
         :to="item.to"
         class="tm-subnav__item"
@@ -1599,7 +1599,7 @@
             <button
               type="button"
               class="tm-btn tm-btn--primary"
-              :disabled="!authStore.isAdmin || settingsSaving || !settingsDirty"
+              :disabled="!authStore.canManageTestManagerSettings || settingsSaving || !settingsDirty"
               @click="saveSettings"
             >
               <span aria-hidden="true">▣</span>
@@ -1608,7 +1608,7 @@
             <button
               type="button"
               class="tm-btn"
-              :disabled="settingsSaving || !settingsDirty"
+              :disabled="!authStore.canManageTestManagerSettings || settingsSaving || !settingsDirty"
               @click="resetSettings"
             >
               <span aria-hidden="true">↻</span>
@@ -1635,8 +1635,10 @@
                 :class="{
                   'tm-permission-toggle--checked': hasRolePermission(role.key, permission.key),
                   'tm-permission-toggle--disabled':
-                    !authStore.isAdmin || settingsSaving || isRolePermissionLocked(role.key),
-                  'tm-permission-toggle--locked': isRolePermissionLocked(role.key)
+                    !authStore.canManageTestManagerSettings ||
+                    settingsSaving ||
+                    isRolePermissionLocked(role.key, permission.key),
+                  'tm-permission-toggle--locked': isRolePermissionLocked(role.key, permission.key)
                 }"
                 :aria-label="`${role.label} ${permission.label}`"
               >
@@ -1644,7 +1646,9 @@
                   type="checkbox"
                   :checked="hasRolePermission(role.key, permission.key)"
                   :disabled="
-                    !authStore.isAdmin || settingsSaving || isRolePermissionLocked(role.key)
+                    !authStore.canManageTestManagerSettings ||
+                    settingsSaving ||
+                    isRolePermissionLocked(role.key, permission.key)
                   "
                   @change="
                     toggleRolePermission(
@@ -1670,13 +1674,13 @@
               class="tm-switch"
               :class="{
                 'tm-switch--checked': settings.discordNotifications.enabled,
-                'tm-switch--disabled': !authStore.isAdmin || settingsSaving
+                'tm-switch--disabled': !authStore.canManageTestManagerSettings || settingsSaving
               }"
             >
               <input
                 v-model="settings.discordNotifications.enabled"
                 type="checkbox"
-                :disabled="!authStore.isAdmin || settingsSaving"
+                :disabled="!authStore.canManageTestManagerSettings || settingsSaving"
                 @change="settingsMessage = ''"
               />
               <span aria-hidden="true"></span>
@@ -1693,7 +1697,7 @@
               placeholder="https://discord.com/api/webhooks/..."
               autocomplete="off"
               spellcheck="false"
-              :disabled="!authStore.isAdmin || settingsSaving"
+              :disabled="!authStore.canManageTestManagerSettings || settingsSaving"
               @input="settingsMessage = ''"
             />
           </label>
@@ -1705,13 +1709,14 @@
               class="tm-discord-event"
               :class="{
                 'tm-discord-event--checked': hasDiscordNotificationEvent(event.key),
-                'tm-discord-event--disabled': !authStore.isAdmin || settingsSaving
+                'tm-discord-event--disabled':
+                  !authStore.canManageTestManagerSettings || settingsSaving
               }"
             >
               <input
                 type="checkbox"
                 :checked="hasDiscordNotificationEvent(event.key)"
-                :disabled="!authStore.isAdmin || settingsSaving"
+                :disabled="!authStore.canManageTestManagerSettings || settingsSaving"
                 @change="
                   setDiscordNotificationEvent(
                     event.key,
@@ -3078,13 +3083,16 @@ const permissionColumns = [
   { key: 'submit', label: 'Submit Changes', icon: '➤' },
   { key: 'volunteer', label: 'Volunteer', icon: '⚔' },
   { key: 'submitResult', label: 'Submit Results', icon: '✎' },
+  { key: 'noteForPass', label: 'Note for Pass', icon: '✦' },
   { key: 'dispose', label: 'Dispose', icon: '✓' },
   { key: 'manageTesters', label: 'Manage Testers', icon: '♟' },
   { key: 'reports', label: 'Reports', icon: '▥' },
   { key: 'settings', label: 'Settings', icon: '⚙' }
 ] as const;
 type TestManagerPermissionKey = (typeof permissionColumns)[number]['key'];
-const ADMIN_TEST_MANAGER_PERMISSIONS = permissionColumns.map((permission) => permission.key);
+const ADMIN_TEST_MANAGER_PERMISSIONS = permissionColumns
+  .filter((permission) => permission.key !== 'noteForPass')
+  .map((permission) => permission.key);
 const discordNotificationEvents: Array<{
   key: TestManagerDiscordEventKey;
   label: string;
@@ -3293,7 +3301,10 @@ function cloneSettings(value: TestManagerSettings): TestManagerSettings {
       ...role,
       permissions:
         role.key === 'ADMIN'
-          ? orderedPermissions(ADMIN_TEST_MANAGER_PERMISSIONS)
+          ? orderedPermissions([
+              ...ADMIN_TEST_MANAGER_PERMISSIONS,
+              ...(role.permissions.includes('noteForPass') ? ['noteForPass'] : [])
+            ])
           : [...role.permissions]
     })),
     discordNotifications: {
@@ -3347,14 +3358,23 @@ const requestForm = ref<{ userId: string; assignment: Exclude<TestAssignmentKind
 });
 let changeTooltipTimer: ReturnType<typeof window.setTimeout> | null = null;
 
-const currentSection = computed(() => {
+function requestedSectionParam() {
   const section = Array.isArray(route.params.section)
     ? route.params.section[0]
     : route.params.section;
-  return section && ['dashboard', 'changes', 'next-patch', 'users', 'settings'].includes(section)
-    ? section
-    : 'dashboard';
+  return typeof section === 'string' ? section : '';
+}
+
+const currentSection = computed(() => {
+  const section = requestedSectionParam();
+  if (!section || !['dashboard', 'changes', 'next-patch', 'users', 'settings'].includes(section)) {
+    return 'dashboard';
+  }
+  return section === 'settings' && !authStore.canManageTestManagerSettings ? 'dashboard' : section;
 });
+const visibleSubnavItems = computed(() =>
+  subnavItems.filter((item) => item.key !== 'settings' || authStore.canManageTestManagerSettings)
+);
 const requestedChangeId = computed(() => {
   if (currentSection.value !== 'changes') {
     return '';
@@ -4197,7 +4217,7 @@ async function loadSettings() {
 }
 
 function hasRolePermission(roleKey: string, permissionKey: TestManagerPermissionKey): boolean {
-  if (isRolePermissionLocked(roleKey)) {
+  if (isRolePermissionLocked(roleKey, permissionKey)) {
     return true;
   }
 
@@ -4205,8 +4225,8 @@ function hasRolePermission(roleKey: string, permissionKey: TestManagerPermission
   return Boolean(role?.permissions.includes(permissionKey));
 }
 
-function isRolePermissionLocked(roleKey: string): boolean {
-  return roleKey === 'ADMIN';
+function isRolePermissionLocked(roleKey: string, permissionKey: TestManagerPermissionKey): boolean {
+  return roleKey === 'ADMIN' && permissionKey !== 'noteForPass';
 }
 
 function toggleRolePermission(
@@ -4214,7 +4234,11 @@ function toggleRolePermission(
   permissionKey: TestManagerPermissionKey,
   checked: boolean
 ) {
-  if (!authStore.isAdmin || !settings.value || isRolePermissionLocked(roleKey)) {
+  if (
+    !authStore.canManageTestManagerSettings ||
+    !settings.value ||
+    isRolePermissionLocked(roleKey, permissionKey)
+  ) {
     return;
   }
 
@@ -4238,7 +4262,7 @@ function hasDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey): bool
 }
 
 function setDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey, checked: boolean) {
-  if (!authStore.isAdmin || !settings.value) {
+  if (!authStore.canManageTestManagerSettings || !settings.value) {
     return;
   }
 
@@ -4255,7 +4279,7 @@ function setDiscordNotificationEvent(eventKey: TestManagerDiscordEventKey, check
 }
 
 function resetSettings() {
-  if (!savedSettings.value || settingsSaving.value) {
+  if (!authStore.canManageTestManagerSettings || !savedSettings.value || settingsSaving.value) {
     return;
   }
 
@@ -4264,7 +4288,12 @@ function resetSettings() {
 }
 
 async function saveSettings() {
-  if (!authStore.isAdmin || !settings.value || settingsSaving.value || !settingsDirty.value) {
+  if (
+    !authStore.canManageTestManagerSettings ||
+    !settings.value ||
+    settingsSaving.value ||
+    !settingsDirty.value
+  ) {
     return;
   }
 
@@ -4276,7 +4305,10 @@ async function saveSettings() {
         key: role.key,
         permissions:
           role.key === 'ADMIN'
-            ? orderedPermissions(ADMIN_TEST_MANAGER_PERMISSIONS)
+            ? orderedPermissions([
+                ...ADMIN_TEST_MANAGER_PERMISSIONS,
+                ...(role.permissions.includes('noteForPass') ? ['noteForPass'] : [])
+              ])
             : orderedPermissions(role.permissions)
       })),
       discordNotifications: {
@@ -4291,6 +4323,8 @@ async function saveSettings() {
     await authStore.fetchCurrentUser();
     if (!authStore.canViewTestManager) {
       await router.push('/dashboard');
+    } else if (!authStore.canManageTestManagerSettings) {
+      await router.push('/test-manager/dashboard');
     }
   } catch (error) {
     settingsMessage.value =
@@ -4924,13 +4958,20 @@ function openResultConfirm(result: TestResult) {
     void openNotesModal();
     return;
   }
+  if (result === 'PASS' && authStore.requiresTestManagerPassNote && !notesText) {
+    feedbackError.value = 'Testing notes are required to pass this change.';
+    void openNotesModal();
+    return;
+  }
 
   feedbackError.value = '';
   const confirmations: Record<TestResult, ResultActionConfirm> = {
     PASS: {
       result,
       title: 'Mark this test as passed?',
-      body: 'This records your tester input as Passed for the selected change and indicates your validation found no blocking issues.',
+      body: authStore.requiresTestManagerPassNote
+        ? 'This records your tester input as Passed and attaches your current testing notes for the selected change.'
+        : 'This records your tester input as Passed for the selected change and indicates your validation found no blocking issues.',
       confirmLabel: 'Confirm Pass',
       confirmClass: 'tm-btn--success',
       tone: 'success',
@@ -4994,6 +5035,11 @@ async function submitResult(result: TestResult) {
   const notesText = getRichTextPlainText(notesHtml);
   if ((result === 'FAIL' || result === 'BLOCKED') && !notesText) {
     feedbackError.value = 'Tester comments are required for Failed or Blocked feedback.';
+    void openNotesModal();
+    return;
+  }
+  if (result === 'PASS' && authStore.requiresTestManagerPassNote && !notesText) {
+    feedbackError.value = 'Testing notes are required to pass this change.';
     void openNotesModal();
     return;
   }
@@ -6514,6 +6560,25 @@ watch(
     hideChangeTooltip();
     void loadCurrentSection();
   }
+);
+watch(
+  () => [
+    requestedSectionParam(),
+    authStore.user?.userId ?? '',
+    authStore.user?.testManagerPermissions.join('|') ?? ''
+  ],
+  ([section]) => {
+    if (section !== 'settings' || !authStore.user) {
+      return;
+    }
+
+    if (!authStore.canManageTestManagerSettings) {
+      void router.replace('/test-manager/dashboard');
+    } else if (loadedSection.value !== 'settings') {
+      void loadCurrentSection();
+    }
+  },
+  { immediate: true }
 );
 watch(currentSection, (section) => {
   if (section === 'changes') {
@@ -11731,24 +11796,59 @@ onBeforeUnmount(() => {
 }
 
 .tm-permissions {
+  position: relative;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   border: 1px solid var(--tm-border);
   background: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset -1.25rem 0 1.5rem -1.45rem rgba(244, 190, 107, 0.9),
+    inset 1.25rem 0 1.5rem -1.45rem rgba(244, 190, 107, 0.7);
+  scrollbar-color: rgba(244, 190, 107, 0.55) rgba(255, 255, 255, 0.05);
+  scrollbar-width: thin;
+}
+
+.tm-permissions::-webkit-scrollbar {
+  height: 0.7rem;
+}
+
+.tm-permissions::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tm-permissions::-webkit-scrollbar-thumb {
+  background: rgba(244, 190, 107, 0.52);
+  border-radius: 999px;
 }
 
 .tm-permissions__head,
 .tm-permissions__row {
   display: grid;
-  grid-template-columns: 14rem repeat(8, minmax(8rem, 1fr));
+  grid-template-columns: 15rem repeat(9, minmax(9.75rem, 1fr));
   align-items: center;
   border-bottom: 1px solid var(--tm-border-soft);
-  min-width: 1120px;
+  min-width: 104rem;
 }
 
 .tm-permissions__head > span,
 .tm-permissions__row > span,
 .tm-permissions__row > strong {
   padding: 0.8rem 0.9rem;
+}
+
+.tm-permissions__head > span:first-child,
+.tm-permissions__row > strong {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background:
+    linear-gradient(90deg, rgba(18, 15, 11, 0.98), rgba(18, 15, 11, 0.92)),
+    var(--tm-panel-bg);
+  box-shadow: 0.7rem 0 1rem -1rem rgba(0, 0, 0, 0.95);
+}
+
+.tm-permissions__head > span:first-child {
+  z-index: 3;
 }
 
 .tm-permissions__row > span,
@@ -13505,95 +13605,20 @@ onBeforeUnmount(() => {
     justify-content: center;
   }
 
+  .tm-permissions {
+    overflow-x: auto;
+  }
+
   .tm-permissions__head,
   .tm-permissions__row {
-    grid-template-columns: 9rem repeat(8, minmax(5.75rem, 1fr));
-    min-width: 55rem;
+    grid-template-columns: 12rem repeat(9, minmax(8rem, 1fr));
+    min-width: 84rem;
   }
 
   .tm-permissions__head > span,
   .tm-permissions__row > span,
   .tm-permissions__row > strong {
     padding: 0.68rem 0.58rem;
-  }
-
-  .tm-permissions {
-    display: grid;
-    gap: 0.7rem;
-    overflow: visible;
-    border: 0;
-    background: transparent;
-  }
-
-  .tm-permissions__head {
-    display: none;
-  }
-
-  .tm-permissions__row {
-    min-width: 0;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.55rem;
-    padding: 0.72rem;
-    border: 1px solid var(--tm-border-soft);
-    background: rgba(255, 255, 255, 0.018);
-  }
-
-  .tm-permissions__row > strong {
-    grid-column: 1 / -1;
-    padding: 0 0 0.58rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--tm-border-soft);
-  }
-
-  .tm-permissions__row > span {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.55rem;
-    align-items: center;
-    padding: 0.55rem;
-    border: 1px solid var(--tm-border-soft);
-    background: rgba(0, 0, 0, 0.16);
-  }
-
-  .tm-permissions__row > span::before {
-    color: var(--tm-muted);
-    font-size: 0.68rem;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    line-height: 1.2;
-    text-transform: uppercase;
-  }
-
-  .tm-permissions__row > span:nth-child(2)::before {
-    content: 'View Changes';
-  }
-
-  .tm-permissions__row > span:nth-child(3)::before {
-    content: 'Submit Changes';
-  }
-
-  .tm-permissions__row > span:nth-child(4)::before {
-    content: 'Volunteer';
-  }
-
-  .tm-permissions__row > span:nth-child(5)::before {
-    content: 'Submit Results';
-  }
-
-  .tm-permissions__row > span:nth-child(6)::before {
-    content: 'Dispose';
-  }
-
-  .tm-permissions__row > span:nth-child(7)::before {
-    content: 'Manage Testers';
-  }
-
-  .tm-permissions__row > span:nth-child(8)::before {
-    content: 'Reports';
-  }
-
-  .tm-permissions__row > span:nth-child(9)::before {
-    content: 'Settings';
   }
 
   .tm-discord-events {

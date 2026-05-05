@@ -34,6 +34,7 @@ export const TEST_MANAGER_PERMISSION_KEYS = [
   'submit',
   'volunteer',
   'submitResult',
+  'noteForPass',
   'dispose',
   'manageTesters',
   'reports',
@@ -63,7 +64,7 @@ type TestManagerDiscordEventKey = (typeof TEST_MANAGER_DISCORD_EVENT_KEYS)[numbe
 
 const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [
   ...TEST_MANAGER_PERMISSION_KEYS
-];
+].filter((permission) => permission !== 'noteForPass');
 
 type TestManagerRolePermission = {
   key: TestManagerRoleKey;
@@ -72,6 +73,7 @@ type TestManagerRolePermission = {
 };
 
 type TestManagerSettings = {
+  schemaVersion: number;
   roles: TestManagerRolePermission[];
   discordNotifications: {
     enabled: boolean;
@@ -81,6 +83,7 @@ type TestManagerSettings = {
 };
 
 const TEST_MANAGER_SETTINGS_KEY = 'testManager.rolePermissions';
+const TEST_MANAGER_SETTINGS_SCHEMA_VERSION = 2;
 const DISCORD_COLORS = {
   primary: 0x55b7ff,
   success: 0x72d66f,
@@ -90,6 +93,7 @@ const DISCORD_COLORS = {
 } as const;
 
 const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
+  schemaVersion: TEST_MANAGER_SETTINGS_SCHEMA_VERSION,
   roles: [
     {
       key: 'ADMIN',
@@ -625,6 +629,24 @@ export async function ensureCanViewTestManager(userId: string): Promise<void> {
   }
 }
 
+export async function userCanManageTestManagerSettings(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { admin: true, guide: true, tester: true }
+  });
+  if (!user) {
+    return false;
+  }
+
+  return (await getTestManagerUserPermissions(user)).includes('settings');
+}
+
+export async function ensureCanManageTestManagerSettings(userId: string): Promise<void> {
+  if (!(await userCanManageTestManagerSettings(userId))) {
+    throw new Error('Test Manager settings permission required.');
+  }
+}
+
 const RICH_TEXT_TAG_ALIASES: Record<string, string> = {
   b: 'strong',
   i: 'em',
@@ -742,6 +764,7 @@ function getRichTextPlainText(value: string): string {
 
 function cloneDefaultTestManagerSettings(): TestManagerSettings {
   return {
+    schemaVersion: DEFAULT_TEST_MANAGER_SETTINGS.schemaVersion,
     roles: DEFAULT_TEST_MANAGER_SETTINGS.roles.map((role) => ({
       ...role,
       permissions: [...role.permissions]
@@ -799,8 +822,16 @@ function normalizeDiscordNotificationSettings(
   };
 }
 
-function normalizeTestManagerSettings(value: unknown): TestManagerSettings {
+function normalizeTestManagerSettings(
+  value: unknown,
+  options: { preserveNoteForPass?: boolean } = {}
+): TestManagerSettings {
   const defaults = cloneDefaultTestManagerSettings();
+  const canPreserveNoteForPass =
+    options.preserveNoteForPass ||
+    (value !== null &&
+      typeof value === 'object' &&
+      (value as Record<string, unknown>).schemaVersion === TEST_MANAGER_SETTINGS_SCHEMA_VERSION);
   if (!value || typeof value !== 'object' || !('roles' in value) || !Array.isArray(value.roles)) {
     return {
       ...defaults,
@@ -822,12 +853,20 @@ function normalizeTestManagerSettings(value: unknown): TestManagerSettings {
   }
 
   return {
+    schemaVersion: TEST_MANAGER_SETTINGS_SCHEMA_VERSION,
     roles: defaults.roles.map((role) => ({
       ...role,
       permissions:
         role.key === 'ADMIN'
-          ? [...ADMIN_TEST_MANAGER_PERMISSIONS]
-          : (incoming.get(role.key) ?? role.permissions)
+          ? normalizePermissions([
+              ...ADMIN_TEST_MANAGER_PERMISSIONS,
+              ...(canPreserveNoteForPass && incoming.get(role.key)?.includes('noteForPass')
+                ? ['noteForPass']
+                : [])
+            ])
+          : (incoming.get(role.key) ?? role.permissions).filter(
+              (permission) => canPreserveNoteForPass || permission !== 'noteForPass'
+            )
     })),
     discordNotifications: normalizeDiscordNotificationSettings(
       'discordNotifications' in value ? value.discordNotifications : undefined
@@ -2808,6 +2847,10 @@ export async function submitTesterResult(
   if ((input.result === TestResult.FAIL || input.result === TestResult.BLOCKED) && !notesText) {
     throw new Error('Tester comments are required when reporting a failed or blocked result.');
   }
+  const actorPermissions = await getTestManagerUserPermissions(actor);
+  if (input.result === TestResult.PASS && actorPermissions.includes('noteForPass') && !notesText) {
+    throw new Error('Testing notes are required when reporting a passing result.');
+  }
 
   const status = input.result === TestResult.BLOCKED ? TestRunStatus.BLOCKED : TestRunStatus.DONE;
 
@@ -3229,9 +3272,9 @@ export async function updateTestManagerSettings(
     };
   }
 ): Promise<TestManagerSettings> {
-  await ensureAdmin(actorUserId);
+  await ensureCanManageTestManagerSettings(actorUserId);
 
-  const normalized = normalizeTestManagerSettings(input);
+  const normalized = normalizeTestManagerSettings(input, { preserveNoteForPass: true });
   await prisma.systemSetting.upsert({
     where: { key: TEST_MANAGER_SETTINGS_KEY },
     create: {
