@@ -4105,6 +4105,62 @@ onBeforeUnmount(() => {
   .market-grid {
     grid-template-columns: 1fr;
   }
+
+  .nx-card--bis .nx-card__head {
+    flex-direction: column;
+    align-items: flex-start;
+    flex-wrap: nowrap;
+  }
+
+  .nx-card--bis .nx-card__title {
+    width: 100%;
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    row-gap: 0.42rem;
+  }
+
+  .nx-card--bis .nx-card__title h2 {
+    min-width: 0;
+  }
+
+  .nx-card--bis .nx-action {
+    width: 100%;
+    flex: 0 0 auto;
+    margin-left: 0;
+  }
+
+  .char {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+    gap: 0.78rem;
+  }
+
+  .char__rail {
+    width: 100%;
+    min-width: 0;
+    justify-items: stretch;
+  }
+
+  .char__rail-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .char__progress-copy {
+    justify-content: flex-end;
+  }
+
+  .char__attendance-meter {
+    max-width: none;
+  }
+
+  .char__actions {
+    flex-wrap: wrap;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
 }
 
 @media (max-width: 900px) {
@@ -4131,21 +4187,6 @@ onBeforeUnmount(() => {
       'market';
   }
 
-  .char {
-    grid-template-columns: 1fr;
-  }
-
-  .char__rail {
-    justify-items: flex-start;
-    min-width: 0;
-  }
-
-  .char__actions {
-    opacity: 1;
-    transform: none;
-    pointer-events: auto;
-  }
-
   .attendance-overview,
   .market-grid {
     grid-template-columns: 1fr;
@@ -4160,6 +4201,21 @@ onBeforeUnmount(() => {
   .page-head__actions,
   .page-head__actions .nx-action {
     width: 100%;
+  }
+
+  .nx-card--bis .nx-card__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+  }
+
+  .nx-card--bis .nx-card__title {
+    flex-basis: 100%;
+  }
+
+  .nx-card--bis .nx-action {
+    width: 100%;
+    margin-left: 0;
   }
 
   .nx-card {
@@ -4184,6 +4240,37 @@ onBeforeUnmount(() => {
   .raid-list__item,
   .loot-list__item {
     grid-template-columns: 1fr;
+  }
+
+  .char {
+    padding: 0.7rem;
+  }
+
+  .char__identity {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .char__meta {
+    flex-wrap: wrap;
+    row-gap: 0.18rem;
+    line-height: 1.25;
+  }
+
+  .char__rail-top {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 0.42rem;
+  }
+
+  .char__main-badge,
+  .char__progress-copy {
+    margin: 0;
+  }
+
+  .char__actions {
+    width: 100%;
+    gap: 0.6rem;
   }
 
   .raid-list__status {

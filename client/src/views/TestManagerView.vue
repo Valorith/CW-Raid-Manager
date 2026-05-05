@@ -1282,6 +1282,10 @@
               <p>{{ nextPatchSummaryText }}</p>
             </div>
             <div class="tm-next-patch__actions">
+              <label v-if="!nextPatchViewIsComplete" class="tm-next-patch-needs-action">
+                <input v-model="nextPatchNeedsActionOnly" type="checkbox" />
+                <span>Needs Action</span>
+              </label>
               <div class="tm-next-patch-view-toggle" aria-label="Next patch view">
                 <button
                   v-for="option in nextPatchViewOptions"
@@ -1302,7 +1306,7 @@
           <div class="tm-next-patch-stats" aria-label="Next patch summary">
             <article>
               <span>{{ nextPatchPrimaryStatLabel }}</span>
-              <strong>{{ nextPatchChanges.length }}</strong>
+              <strong>{{ visibleNextPatchChanges.length }}</strong>
               <small>{{ nextPatchPrimaryStatDetail }}</small>
             </article>
             <article>
@@ -1328,7 +1332,7 @@
               <button
                 type="button"
                 class="tm-next-patch-reset-button"
-                :disabled="nextPatchResetPending || nextPatchChanges.length === 0"
+                :disabled="nextPatchResetPending || visibleNextPatchChanges.length === 0"
                 @click="openNextPatchResetConfirm"
               >
                 <span aria-hidden="true">↻</span>
@@ -1339,8 +1343,15 @@
 
           <div v-if="nextPatchLoading" class="tm-next-patch-loading">Loading changes...</div>
 
-          <div v-else-if="nextPatchChanges.length" class="tm-next-patch-list">
-            <article v-for="change in nextPatchChanges" :key="change.id" class="tm-next-patch-card">
+          <div v-else-if="visibleNextPatchChanges.length" class="tm-next-patch-list">
+            <article
+              v-for="change in visibleNextPatchChanges"
+              :key="change.id"
+              class="tm-next-patch-card"
+              :class="{
+                'tm-next-patch-card--auto-close': change.autoClosePassCount > 0
+              }"
+            >
               <button
                 type="button"
                 class="tm-next-patch-card__main"
@@ -1365,6 +1376,21 @@
                     ? `Closed ${relativeTime(change.closedAt)}`
                     : `Updated ${relativeTime(change.updatedAt)}`
                 }}</span>
+              </div>
+              <div
+                v-if="change.autoClosePassCount > 0"
+                class="tm-next-patch-card__auto-close"
+                :class="`tm-next-patch-card__auto-close--${autoCloseTone(change)}`"
+                :style="{ '--auto-close-progress': `${autoCloseProgressPercent(change)}%` }"
+                role="progressbar"
+                :aria-label="autoCloseDetail(change)"
+                :aria-valuenow="Math.min(change.summary.passCount, change.autoClosePassCount)"
+                aria-valuemin="0"
+                :aria-valuemax="change.autoClosePassCount"
+                :title="autoCloseDetail(change)"
+              >
+                <span>{{ autoCloseListLabel(change) }}</span>
+                <strong>{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong>
               </div>
               <div class="tm-next-patch-card__quality">
                 <span>
@@ -1395,14 +1421,18 @@
             <span aria-hidden="true">✓</span>
             <h3>
               {{
-                nextPatchViewIsComplete
+                nextPatchNeedsActionFilterActive
+                  ? 'No incomplete changes need your action.'
+                  : nextPatchViewIsComplete
                   ? 'No completed changes are queued for the next patch.'
                   : 'No incomplete changes are flagged for the next patch.'
               }}
             </h3>
             <p>
               {{
-                nextPatchViewIsComplete
+                nextPatchNeedsActionFilterActive
+                  ? 'Assigned changes you have not started or are actively testing appear here.'
+                  : nextPatchViewIsComplete
                   ? 'Closed changes appear here when they remain marked for patch inclusion.'
                   : 'Open changes appear here while they remain marked for patch inclusion.'
               }}
@@ -2921,6 +2951,7 @@ const nextPatchChanges = ref<TestChange[]>([]);
 const nextPatchView = ref<NextPatchChangeView>('complete');
 const nextPatchCount = ref(0);
 const nextPatchLoading = ref(false);
+const nextPatchNeedsActionOnly = ref(false);
 const nextPatchViewCache = ref<Partial<Record<NextPatchChangeView, TestChange[]>>>({});
 let nextPatchLoadSequence = 0;
 const selectedChange = ref<TestChange | null>(null);
@@ -3548,14 +3579,22 @@ const settingsDirty = computed(
 );
 
 const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
+const nextPatchNeedsActionFilterActive = computed(
+  () => !nextPatchViewIsComplete.value && nextPatchNeedsActionOnly.value
+);
+const visibleNextPatchChanges = computed(() =>
+  nextPatchNeedsActionFilterActive.value
+    ? nextPatchChanges.value.filter(needsViewerNextPatchAction)
+    : nextPatchChanges.value
+);
 const nextPatchPassedCount = computed(() =>
-  nextPatchChanges.value.reduce((total, change) => total + change.summary.passCount, 0)
+  visibleNextPatchChanges.value.reduce((total, change) => total + change.summary.passCount, 0)
 );
 const nextPatchTesterCount = computed(() =>
-  nextPatchChanges.value.reduce((total, change) => total + change.summary.testerCount, 0)
+  visibleNextPatchChanges.value.reduce((total, change) => total + change.summary.testerCount, 0)
 );
 const nextPatchAreaCount = computed(
-  () => new Set(nextPatchChanges.value.map((change) => change.subsystem)).size
+  () => new Set(visibleNextPatchChanges.value.map((change) => change.subsystem)).size
 );
 const nextPatchPrimaryStatLabel = computed(() =>
   nextPatchViewIsComplete.value ? 'Complete' : 'Incomplete'
@@ -3570,18 +3609,30 @@ const nextPatchSummaryText = computed(() => {
       : 'Loading incomplete next patch changes.';
   }
 
-  if (nextPatchChanges.value.length === 0) {
+  if (nextPatchNeedsActionFilterActive.value) {
+    if (visibleNextPatchChanges.value.length === 0) {
+      return nextPatchChanges.value.length === 0
+        ? 'Open changes flagged for the next patch will appear here.'
+        : 'No incomplete next patch changes currently need your action.';
+    }
+
+    return `${visibleNextPatchChanges.value.length} incomplete change${
+      visibleNextPatchChanges.value.length === 1 ? '' : 's'
+    } need${visibleNextPatchChanges.value.length === 1 ? 's' : ''} your action.`;
+  }
+
+  if (visibleNextPatchChanges.value.length === 0) {
     return nextPatchViewIsComplete.value
       ? 'Completed, patch-ready changes will appear here.'
       : 'Open changes flagged for the next patch will appear here.';
   }
 
   return nextPatchViewIsComplete.value
-    ? `${nextPatchChanges.value.length} completed change${
-        nextPatchChanges.value.length === 1 ? '' : 's'
+    ? `${visibleNextPatchChanges.value.length} completed change${
+        visibleNextPatchChanges.value.length === 1 ? '' : 's'
       } queued for deployment.`
-    : `${nextPatchChanges.value.length} incomplete change${
-        nextPatchChanges.value.length === 1 ? '' : 's'
+    : `${visibleNextPatchChanges.value.length} incomplete change${
+        visibleNextPatchChanges.value.length === 1 ? '' : 's'
       } flagged for the next patch.`;
 });
 
@@ -5534,6 +5585,18 @@ function canStartTesting(change: TestChange) {
   );
 }
 
+function needsViewerNextPatchAction(change: TestChange) {
+  const viewerTester = change.viewerTester;
+  return (
+    change.status !== 'CLOSED' &&
+    Boolean(
+      viewerTester &&
+        !viewerTester.result &&
+        (viewerTester.status === 'NOT_STARTED' || viewerTester.status === 'TESTING')
+    )
+  );
+}
+
 function startTestingLabel(change: TestChange) {
   if (change.viewerTester?.result) {
     return 'Re-test';
@@ -7062,6 +7125,72 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.tm-next-patch-needs-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.46rem;
+  min-height: 2.28rem;
+  padding: 0.28rem 0.72rem 0.28rem 0.34rem;
+  border: 1px solid rgba(213, 196, 164, 0.16);
+  border-radius: 999px;
+  color: rgba(236, 226, 209, 0.82);
+  background: rgba(255, 255, 255, 0.018);
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tm-next-patch-needs-action input {
+  appearance: none;
+  position: relative;
+  width: 2.28rem;
+  height: 1.28rem;
+  margin: 0;
+  border: 1px solid rgba(213, 196, 164, 0.24);
+  border-radius: 999px;
+  background: rgba(5, 9, 12, 0.74);
+  box-shadow: inset 0 0 0 1px rgba(2, 6, 12, 0.4);
+  cursor: inherit;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease;
+}
+
+.tm-next-patch-needs-action input::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.2rem;
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 50%;
+  background: rgba(213, 196, 164, 0.78);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
+  transition:
+    left 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.tm-next-patch-needs-action input:checked {
+  border-color: rgba(217, 164, 95, 0.72);
+  background: rgba(217, 164, 95, 0.18);
+}
+
+.tm-next-patch-needs-action input:checked::after {
+  left: 1.18rem;
+  background: #ffd38a;
+  box-shadow: 0 0 12px rgba(217, 164, 95, 0.45);
+}
+
+.tm-next-patch-needs-action:has(input:focus-visible) {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 3px;
+}
+
 .tm-next-patch-view-toggle {
   display: inline-flex;
   align-items: center;
@@ -7221,6 +7350,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(18rem, 1.45fr) minmax(13rem, 0.85fr) auto auto;
   gap: 0.68rem;
@@ -7234,6 +7364,11 @@ onBeforeUnmount(() => {
     linear-gradient(90deg, rgba(114, 214, 111, 0.075), rgba(85, 183, 255, 0.025)),
     rgba(255, 255, 255, 0.014);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.tm-next-patch-card--auto-close {
+  min-height: 4.7rem;
+  padding-bottom: 1.06rem;
 }
 
 .tm-next-patch-card__main {
@@ -7318,6 +7453,98 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: rgba(217, 164, 95, 0.48);
   box-shadow: 0 0 8px rgba(217, 164, 95, 0.12);
+}
+
+.tm-next-patch-card__auto-close {
+  position: absolute;
+  left: 6.55rem;
+  bottom: 0.54rem;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.42rem;
+  width: min(14rem, calc(100% - 34rem));
+  min-width: 8rem;
+  min-height: 0.46rem;
+  padding: 0 0.28rem;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 999px;
+  color: #d9f1ff;
+  background:
+    linear-gradient(180deg, rgba(6, 12, 18, 0.56), rgba(3, 8, 12, 0.42)),
+    rgba(85, 183, 255, 0.04);
+  font-size: 0.54rem;
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.42),
+    rgba(125, 211, 252, 0.24)
+  );
+}
+
+.tm-next-patch-card__auto-close::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: var(--auto-close-progress, 0%);
+  max-width: 100%;
+  background: var(--auto-close-fill);
+  border-right: 1px solid rgba(224, 242, 254, 0.22);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.18);
+  transition: width 0.28s ease;
+}
+
+.tm-next-patch-card__auto-close > span,
+.tm-next-patch-card__auto-close strong {
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
+  transition: opacity 0.14s ease;
+}
+
+.tm-next-patch-card:hover .tm-next-patch-card__auto-close > span,
+.tm-next-patch-card:hover .tm-next-patch-card__auto-close strong,
+.tm-next-patch-card__auto-close:focus-visible > span,
+.tm-next-patch-card__auto-close:focus-visible strong {
+  opacity: 1;
+}
+
+.tm-next-patch-card__auto-close strong {
+  color: currentColor;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.64rem;
+  line-height: 1;
+}
+
+.tm-next-patch-card__auto-close--ready,
+.tm-next-patch-card__auto-close--closed {
+  color: #e7ffe3;
+  background:
+    linear-gradient(180deg, rgba(5, 14, 9, 0.34), rgba(3, 10, 6, 0.18)),
+    rgba(114, 214, 111, 0.07);
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(34, 197, 94, 0.44),
+    rgba(134, 239, 172, 0.26)
+  );
+}
+
+.tm-next-patch-card__auto-close--blocked {
+  color: #ffe3de;
+  background:
+    linear-gradient(180deg, rgba(18, 6, 5, 0.34), rgba(12, 4, 3, 0.18)),
+    rgba(255, 107, 85, 0.08);
+  --auto-close-fill: linear-gradient(
+    90deg,
+    rgba(248, 113, 113, 0.38),
+    rgba(252, 165, 165, 0.22)
+  );
 }
 
 .tm-next-patch-card__quality {
@@ -13027,6 +13254,14 @@ onBeforeUnmount(() => {
 
   .tm-next-patch-card {
     grid-template-columns: 1fr;
+  }
+
+  .tm-next-patch-card__auto-close {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: min(16rem, 100%);
+    margin-top: -0.2rem;
   }
 
   .tm-next-patch-card__quality {
