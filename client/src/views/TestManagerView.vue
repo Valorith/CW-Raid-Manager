@@ -35,7 +35,7 @@
         <span
           v-if="item.key === 'next-patch' && nextPatchCount > 0"
           class="tm-subnav__counter"
-          aria-label="Changes queued for next patch"
+          aria-label="Incomplete changes queued for next patch"
         >
           {{ nextPatchCount }}
         </span>
@@ -1353,12 +1353,21 @@
                   :key="option.key"
                   type="button"
                   :class="{
-                    'tm-next-patch-view-toggle__button--active': nextPatchView === option.key
+                    'tm-next-patch-view-toggle__button--active': nextPatchView === option.key,
+                    'tm-next-patch-view-toggle__button--counted':
+                      option.key === 'incomplete' && nextPatchCounts.incompleteCount > 0
                   }"
                   :aria-pressed="nextPatchView === option.key"
                   @click="setNextPatchView(option.key)"
                 >
                   {{ option.label }}
+                  <span
+                    v-if="option.key === 'incomplete' && nextPatchCounts.incompleteCount > 0"
+                    class="tm-next-patch-view-toggle__counter"
+                    aria-label="Incomplete changes queued for next patch"
+                  >
+                    {{ nextPatchCounts.incompleteCount }}
+                  </span>
                 </button>
               </div>
             </div>
@@ -1457,19 +1466,24 @@
                 }}</span>
               </div>
               <div
-                v-if="change.autoClosePassCount > 0"
                 class="tm-next-patch-card__auto-close"
                 :class="`tm-next-patch-card__auto-close--${autoCloseTone(change)}`"
                 :style="{ '--auto-close-progress': `${autoCloseProgressPercent(change)}%` }"
-                role="progressbar"
+                :role="change.autoClosePassCount > 0 ? 'progressbar' : undefined"
                 :aria-label="autoCloseDetail(change)"
-                :aria-valuenow="Math.min(change.summary.passCount, change.autoClosePassCount)"
-                aria-valuemin="0"
-                :aria-valuemax="change.autoClosePassCount"
+                :aria-valuenow="
+                  change.autoClosePassCount > 0
+                    ? Math.min(change.summary.passCount, change.autoClosePassCount)
+                    : undefined
+                "
+                :aria-valuemin="change.autoClosePassCount > 0 ? 0 : undefined"
+                :aria-valuemax="change.autoClosePassCount > 0 ? change.autoClosePassCount : undefined"
                 :title="autoCloseDetail(change)"
               >
                 <span>{{ autoCloseListLabel(change) }}</span>
-                <strong>{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong>
+                <strong v-if="change.autoClosePassCount > 0"
+                  >{{ change.summary.passCount }}/{{ change.autoClosePassCount }}</strong
+                >
               </div>
               <div class="tm-next-patch-card__quality">
                 <span>
@@ -4585,9 +4599,6 @@ async function loadNextPatch() {
       return;
     }
     nextPatchChanges.value = changes;
-    if (view === 'complete') {
-      nextPatchCount.value = nextPatchChanges.value.length;
-    }
     refreshNextPatchCountInBackground();
     void prefetchNextPatchView(getOppositeNextPatchView(view));
   } finally {
@@ -4600,7 +4611,7 @@ async function loadNextPatch() {
 async function loadNextPatchCount() {
   const counts = await api.fetchTestManagerNextPatchCounts();
   nextPatchCounts.value = counts;
-  nextPatchCount.value = counts.count;
+  nextPatchCount.value = counts.incompleteCount;
 }
 
 async function setNextPatchView(view: NextPatchChangeView) {
@@ -5277,6 +5288,9 @@ function autoCloseLabel(change: TestChange) {
 }
 
 function autoCloseListLabel(change: TestChange) {
+  if (change.autoClosePassCount <= 0) {
+    return 'Manual Close Only';
+  }
   if (autoCloseBlocked(change)) {
     return 'Blocked';
   }
@@ -5288,7 +5302,7 @@ function autoCloseListLabel(change: TestChange) {
 
 function autoCloseDetail(change: TestChange) {
   if (change.autoClosePassCount <= 0) {
-    return 'Auto-close is disabled for this change.';
+    return 'Manual close only. This change will not automatically close from passing reviews.';
   }
   const blockers = change.summary.failCount + change.summary.blockedCount;
   if (blockers > 0) {
@@ -7881,6 +7895,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-view-toggle button {
+  position: relative;
   min-height: 2rem;
   padding: 0 0.8rem;
   border: 1px solid transparent;
@@ -7899,6 +7914,34 @@ onBeforeUnmount(() => {
     box-shadow 0.14s ease;
 }
 
+.tm-next-patch-view-toggle__button--counted {
+  padding-right: 1.82rem !important;
+}
+
+.tm-next-patch-view-toggle__counter {
+  position: absolute;
+  top: 0.24rem;
+  right: 0.24rem;
+  min-width: 1.14rem;
+  height: 1.14rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 0.26rem;
+  border: 1px solid rgba(255, 231, 190, 0.36);
+  border-radius: 999px;
+  color: #fff3dd;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 72%), rgba(104, 38, 25, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.38),
+    0 4px 10px rgba(0, 0, 0, 0.24);
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1;
+  transform: translate(42%, -42%);
+  pointer-events: none;
+}
+
 .tm-next-patch-view-toggle button:hover,
 .tm-next-patch-view-toggle button:focus-visible {
   color: #fff0cf;
@@ -7913,6 +7956,11 @@ onBeforeUnmount(() => {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     0 6px 14px rgba(0, 0, 0, 0.24);
+}
+
+.tm-next-patch-view-toggle__button--active .tm-next-patch-view-toggle__counter {
+  color: #2c120a;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.24), transparent 72%), #f0c06b;
 }
 
 .tm-next-patch-stats {
@@ -8114,10 +8162,15 @@ onBeforeUnmount(() => {
   position: relative;
   display: grid;
   grid-template-columns: minmax(18rem, 1.45fr) minmax(13rem, 0.85fr) auto auto;
-  gap: 0.68rem;
+  grid-template-areas:
+    'main meta quality remove'
+    'progress progress quality remove';
+  grid-template-rows: minmax(2.7rem, auto) 0.84rem;
+  column-gap: 0.68rem;
+  row-gap: 0.3rem;
   align-items: center;
-  min-height: 4.15rem;
-  padding: 0.56rem 0.68rem;
+  min-height: 5.05rem;
+  padding: 0.56rem 0.68rem 0.68rem;
   border: 1px solid var(--tm-border-soft);
   border-left: 3px solid rgba(114, 214, 111, 0.72);
   border-radius: 6px;
@@ -8128,11 +8181,11 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card--auto-close {
-  min-height: 4.7rem;
-  padding-bottom: 1.06rem;
+  grid-template-rows: minmax(2.7rem, auto) 0.84rem;
 }
 
 .tm-next-patch-card__main {
+  grid-area: main;
   min-width: 0;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -8185,6 +8238,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card__meta {
+  grid-area: meta;
   gap: 0.44rem;
   min-width: 0;
   padding: 0.18rem 0.2rem;
@@ -8217,26 +8271,25 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card__auto-close {
-  position: absolute;
-  left: 6.55rem;
-  bottom: 0.54rem;
+  grid-area: progress;
+  position: relative;
   isolation: isolate;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.42rem;
-  width: min(14rem, calc(100% - 34rem));
-  min-width: 8rem;
-  min-height: 0.46rem;
-  padding: 0 0.28rem;
+  gap: 0.34rem;
+  width: min(22.4rem, 100%);
+  min-width: 9.6rem;
+  min-height: 0.84rem;
+  padding: 0.05rem 0.3rem;
   border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
   border-radius: 999px;
   color: #d9f1ff;
   background:
     linear-gradient(180deg, rgba(6, 12, 18, 0.56), rgba(3, 8, 12, 0.42)),
     rgba(85, 183, 255, 0.04);
-  font-size: 0.54rem;
+  font-size: 0.48rem;
   font-weight: 850;
   line-height: 1;
   text-transform: uppercase;
@@ -8264,22 +8317,13 @@ onBeforeUnmount(() => {
 .tm-next-patch-card__auto-close strong {
   position: relative;
   z-index: 1;
-  opacity: 0;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.72);
-  transition: opacity 0.14s ease;
-}
-
-.tm-next-patch-card:hover .tm-next-patch-card__auto-close > span,
-.tm-next-patch-card:hover .tm-next-patch-card__auto-close strong,
-.tm-next-patch-card__auto-close:focus-visible > span,
-.tm-next-patch-card__auto-close:focus-visible strong {
-  opacity: 1;
 }
 
 .tm-next-patch-card__auto-close strong {
   color: currentColor;
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: 0.64rem;
+  font-size: 0.55rem;
   line-height: 1;
 }
 
@@ -8296,6 +8340,17 @@ onBeforeUnmount(() => {
   );
 }
 
+.tm-next-patch-card__auto-close--disabled {
+  justify-content: center;
+  text-align: center;
+  color: rgba(225, 215, 198, 0.86);
+  border-color: rgba(213, 196, 164, 0.22);
+  background:
+    linear-gradient(180deg, rgba(20, 20, 19, 0.36), rgba(10, 11, 11, 0.22)),
+    rgba(213, 196, 164, 0.045);
+  --auto-close-fill: linear-gradient(90deg, transparent, transparent);
+}
+
 .tm-next-patch-card__auto-close--blocked {
   color: #ffe3de;
   background:
@@ -8309,6 +8364,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card__quality {
+  grid-area: quality;
   gap: 0.34rem;
   flex-wrap: nowrap;
   justify-content: flex-end;
@@ -8337,6 +8393,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-next-patch-card__remove {
+  grid-area: remove;
   justify-self: end;
   min-height: 0;
   padding: 0.34rem 0.5rem;
@@ -14679,14 +14736,17 @@ onBeforeUnmount(() => {
 
   .tm-next-patch-card {
     grid-template-columns: 1fr;
+    grid-template-rows: auto 0.84rem auto auto auto;
+    grid-template-areas:
+      'main'
+      'meta'
+      'progress'
+      'quality'
+      'remove';
   }
 
   .tm-next-patch-card__auto-close {
-    position: relative;
-    left: auto;
-    bottom: auto;
-    width: min(16rem, 100%);
-    margin-top: -0.2rem;
+    width: min(19.2rem, 100%);
   }
 
   .tm-next-patch-card__quality {
