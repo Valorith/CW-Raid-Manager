@@ -1594,7 +1594,7 @@
                   <input
                     type="checkbox"
                     :checked="user.isTester"
-                    :disabled="!authStore.isAdmin"
+                    :disabled="!authStore.canManageTestManagerTesters"
                     @change="toggleTester(user, ($event.target as HTMLInputElement).checked)"
                   />
                   <span></span>
@@ -3790,10 +3790,21 @@ const currentSection = computed(() => {
   if (!section || !['dashboard', 'changes', 'next-patch', 'users', 'settings'].includes(section)) {
     return 'dashboard';
   }
+  if (section === 'users' && !authStore.canManageTestManagerTesters) {
+    return 'dashboard';
+  }
   return section === 'settings' && !authStore.canManageTestManagerSettings ? 'dashboard' : section;
 });
 const visibleSubnavItems = computed(() =>
-  subnavItems.filter((item) => item.key !== 'settings' || authStore.canManageTestManagerSettings)
+  subnavItems.filter((item) => {
+    if (item.key === 'settings') {
+      return authStore.canManageTestManagerSettings;
+    }
+    if (item.key === 'users') {
+      return authStore.canManageTestManagerTesters;
+    }
+    return true;
+  })
 );
 const requestedChangeId = computed(() => {
   if (currentSection.value !== 'changes') {
@@ -7241,13 +7252,18 @@ watch(
     authStore.user?.testManagerPermissions.join('|') ?? ''
   ],
   ([section]) => {
-    if (section !== 'settings' || !authStore.user) {
+    if (!authStore.user) {
       return;
     }
 
-    if (!authStore.canManageTestManagerSettings) {
+    if (section === 'settings' && !authStore.canManageTestManagerSettings) {
       void router.replace('/test-manager/dashboard');
-    } else if (loadedSection.value !== 'settings') {
+    } else if (section === 'users' && !authStore.canManageTestManagerTesters) {
+      void router.replace('/test-manager/dashboard');
+    } else if (
+      (section === 'settings' && loadedSection.value !== 'settings') ||
+      (section === 'users' && loadedSection.value !== 'users')
+    ) {
       void loadCurrentSection();
     }
   },

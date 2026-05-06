@@ -649,6 +649,24 @@ export async function ensureCanManageTestManagerSettings(userId: string): Promis
   }
 }
 
+export async function userCanManageTestManagerTesters(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { admin: true, guide: true, tester: true }
+  });
+  if (!user) {
+    return false;
+  }
+
+  return (await getTestManagerUserPermissions(user)).includes('manageTesters');
+}
+
+export async function ensureCanManageTestManagerTesters(userId: string): Promise<void> {
+  if (!(await userCanManageTestManagerTesters(userId))) {
+    throw new Error('Test Manager tester management permission required.');
+  }
+}
+
 const RICH_TEXT_TAG_ALIASES: Record<string, string> = {
   b: 'strong',
   i: 'em',
@@ -3432,7 +3450,7 @@ export async function updateTestManagerUserRole(
   userId: string,
   tester: boolean
 ) {
-  await ensureAdmin(actorUserId);
+  await ensureCanManageTestManagerTesters(actorUserId);
   const user = await prisma.user.update({
     where: { id: userId },
     data: { tester },
