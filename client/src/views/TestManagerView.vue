@@ -2618,11 +2618,14 @@
           </div>
           <button
             type="button"
-            class="tm-icon-button tm-icon-button--plain"
+            class="tm-icon-button tm-icon-button--plain tm-patch-notes-close"
             aria-label="Close patch notes generator"
             @click="closePatchNotesGenerator"
           >
-            ×
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
           </button>
         </header>
 
@@ -4871,13 +4874,23 @@ function buildChangeShareUrl(change: TestChange) {
 
 function copyTextFallback(text: string) {
   const textarea = document.createElement('textarea');
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   textarea.value = text;
   textarea.setAttribute('readonly', '');
   textarea.style.position = 'fixed';
-  textarea.style.top = '-1000px';
-  textarea.style.left = '-1000px';
+  textarea.style.top = '50%';
+  textarea.style.left = '50%';
+  textarea.style.width = '2px';
+  textarea.style.height = '2px';
+  textarea.style.padding = '0';
+  textarea.style.border = '0';
+  textarea.style.opacity = '0.01';
+  textarea.style.pointerEvents = 'none';
+  textarea.style.transform = 'translate(-50%, -50%)';
   document.body.appendChild(textarea);
+  textarea.focus({ preventScroll: true });
   textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
 
   try {
     if (!document.execCommand('copy')) {
@@ -4885,20 +4898,24 @@ function copyTextFallback(text: string) {
     }
   } finally {
     document.body.removeChild(textarea);
+    activeElement?.focus({ preventScroll: true });
   }
 }
 
 async function copyShareText(text: string) {
-  if (navigator.clipboard?.writeText && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch {
-      // Fall through to the legacy path for browsers that expose but block clipboard writes.
-    }
+  try {
+    copyTextFallback(text);
+    return;
+  } catch {
+    // Some browser contexts block execCommand; try the async clipboard path below.
   }
 
-  copyTextFallback(text);
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  throw new Error('Clipboard copy was blocked.');
 }
 
 async function copyChangeShareLink(change: TestChange) {
@@ -8513,6 +8530,50 @@ onBeforeUnmount(() => {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.tm-patch-notes-close {
+  flex: 0 0 auto;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 1px solid rgba(221, 214, 254, 0.24);
+  border-radius: 10px;
+  color: rgba(232, 226, 245, 0.84);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.025)),
+    rgba(20, 27, 44, 0.76);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 10px 22px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.tm-patch-notes-close svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.tm-patch-notes-close:hover,
+.tm-patch-notes-close:focus-visible {
+  color: #ffffff;
+  border-color: rgba(167, 139, 250, 0.54);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+    rgba(74, 52, 127, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 26px rgba(0, 0, 0, 0.22),
+    0 0 18px rgba(167, 139, 250, 0.14);
+  transform: translateY(-1px);
 }
 
 .tm-patch-notes-toolbar {
