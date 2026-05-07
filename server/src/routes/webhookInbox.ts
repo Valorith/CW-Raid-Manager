@@ -19,6 +19,8 @@ export async function webhookInboxRoutes(server: FastifyInstance): Promise<void>
       rawBody = payload;
     } else if (Buffer.isBuffer(payload)) {
       rawBody = payload.toString('utf-8');
+    } else {
+      rawBody = JSON.stringify(payload);
     }
 
     const headers = request.headers as Record<string, unknown>;

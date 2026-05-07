@@ -598,12 +598,6 @@ export async function retryCrashReviewForMessage(
 
   if (message.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)) {
     const payloadCopy = { ...(message.payload as Record<string, unknown>) };
-    const crashReportText = typeof payloadCopy.crashReportText === 'string' ? payloadCopy.crashReportText : null;
-
-    if (crashReportText && crashReportText.length > RAW_HEAD_CHARS + RAW_TAIL_CHARS) {
-      payloadCopy.crashReportText = undefined;
-    }
-
     payloadCopy.crashReport = crashReportExtract;
 
     await prisma.inboundWebhookMessage.update({
@@ -1083,12 +1077,6 @@ async function runInboundWebhookActions(
 
         if (message?.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)) {
           const payloadCopy = { ...(message.payload as Record<string, unknown>) };
-          const crashReportText = typeof payloadCopy.crashReportText === 'string' ? payloadCopy.crashReportText : null;
-
-          if (crashReportText && crashReportText.length > RAW_HEAD_CHARS + RAW_TAIL_CHARS) {
-            payloadCopy.crashReportText = undefined;
-          }
-
           payloadCopy.crashReport = crashReportExtract;
 
           await prisma.inboundWebhookMessage.update({
@@ -2848,6 +2836,8 @@ export async function listInboundWebhookMessagesEnhanced(options: {
         webhookId: true,
         receivedAt: true,
         sourceIp: true,
+        payload: true,
+        rawBody: true,
         status: true,
         actionSummary: true,
         assignedAdminId: true,
@@ -2929,8 +2919,8 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   const enhancedMessages = messages.map((msg) => ({
     ...msg,
     headers: {},
-    payload: null,
-    rawBody: null,
+    payload: msg.payload,
+    rawBody: msg.rawBody,
     actionRuns: msg.actionRuns.map((run) => ({
       ...run,
       result: compactActionRunResult(run.result)

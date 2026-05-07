@@ -1461,6 +1461,15 @@
                         View
                       </button>
                       <button
+                        class="icon-button icon-button--copy-handoff"
+                        type="button"
+                        title="Copy issue handoff package"
+                        aria-label="Copy issue handoff package"
+                        @click.stop="copyIssueHandoff(message)"
+                      >
+                        <span class="handoff-icon" aria-hidden="true"></span>
+                      </button>
+                      <button
                         class="icon-button icon-button--discord-send"
                         type="button"
                         :disabled="
@@ -1635,7 +1644,7 @@
 
     <!-- Message View Modal (outside tab sections) -->
     <div v-if="selectedMessage" class="modal-backdrop" @click.self="closeMessage">
-      <div class="modal modal--wide" role="dialog" aria-modal="true">
+      <div class="modal modal--wide modal--payload-view" role="dialog" aria-modal="true">
         <header class="modal__header">
           <div class="modal__titles">
             <h3>Webhook Payload</h3>
@@ -1651,7 +1660,12 @@
             <header class="panel-header">
               <h4>Crash Report</h4>
             </header>
-            <pre class="crash-report">{{ getCrashReportText(selectedMessage) }}</pre>
+            <pre v-if="getCrashReportText(selectedMessage)" class="crash-report">{{
+              getCrashReportText(selectedMessage)
+            }}</pre>
+            <div v-else class="crash-report-empty">
+              Full crash or script error text was not stored with this webhook message.
+            </div>
             <div class="result-actions">
               <button class="btn btn--outline btn--small" type="button" @click="copyReport">
                 Copy Report
@@ -4565,9 +4579,157 @@ async function deleteAction(webhook: InboundWebhook, action: InboundWebhookActio
   webhook.actions = (webhook.actions ?? []).filter((item) => item.id !== action.id);
 }
 
-async function copyUrl(webhook: InboundWebhook) {
+function copyUrl(webhook: InboundWebhook) {
   const url = `${window.location.origin}/api/webhook-inbox/${webhook.id}/${webhook.token}`;
-  await navigator.clipboard.writeText(url);
+  void writeClipboardText(url).catch(() => {
+    addToast({
+      title: 'Copy Failed',
+      message: 'Could not copy the webhook URL to clipboard.'
+    });
+  });
+}
+
+function copyIssueHandoff(message: InboundWebhookMessage) {
+  const handoffText = formatIssueHandoff(message);
+  const clipboardWrite = writeClipboardText(handoffText)
+    .then(() => true)
+    .catch(() => false);
+  const copied = copyTextWithSelection(handoffText);
+
+  if (copied) {
+    addToast({
+      title: 'Issue Handoff Copied',
+      message: `Copied handoff package for ${message.id}.`
+    });
+    return;
+  }
+
+  void clipboardWrite.then((clipboardCopied) => {
+    if (clipboardCopied) {
+      addToast({
+        title: 'Issue Handoff Copied',
+        message: `Copied handoff package for ${message.id}.`
+      });
+      return;
+    }
+
+    addToast({
+      title: 'Copy Failed',
+      message: 'Could not copy the issue handoff package to clipboard.'
+    });
+  });
+}
+
+async function writeClipboardText(text: string) {
+  if (!navigator.clipboard?.writeText) {
+    throw new Error('Clipboard API is unavailable.');
+  }
+
+  await navigator.clipboard.writeText(text);
+}
+
+function copyTextWithSelection(text: string) {
+  const textArea = document.createElement('textarea');
+  textArea.value = text;
+  textArea.style.position = 'fixed';
+  textArea.style.left = '0';
+  textArea.style.top = '0';
+  textArea.style.width = '1px';
+  textArea.style.height = '1px';
+  textArea.style.opacity = '0';
+  textArea.style.pointerEvents = 'none';
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  textArea.setSelectionRange(0, textArea.value.length);
+
+  try {
+    return document.execCommand('copy');
+  } finally {
+    document.body.removeChild(textArea);
+  }
+}
+
+function formatIssueHandoff(message: InboundWebhookMessage) {
+  const labels = sortedLabels(message.labels)
+    .map((label) => label.name)
+    .join(', ');
+  const reportText = getCrashReportText(message);
+  const reviewText = formatIssueHandoffReview(message);
+  const linkedChanges =
+    message.linkedTestChanges && message.linkedTestChanges.length > 0
+      ? message.linkedTestChanges
+          .map((link) => `#${link.publicId} ${link.title} (${link.status}, ${link.priority})`)
+          .join('\n')
+      : 'None';
+
+  return [
+    'Issue handoff package',
+    '',
+    `Inbox message id: ${message.id}`,
+    `Webhook: ${message.webhook?.label || message.webhookId}`,
+    `Received: ${formatDate(message.receivedAt)}`,
+    `Status: ${message.status}`,
+    `Labels: ${labels || 'None'}`,
+    `Assigned: ${formatAdminName(message.assignedAdmin ?? undefined)}`,
+    `Source IP: ${message.sourceIp || 'Unknown'}`,
+    '',
+    'Linked Test Manager changes:',
+    linkedChanges,
+    '',
+    'Full report:',
+    reportText || '[Full crash or script error text was not stored with this webhook message.]',
+    '',
+    'AI review:',
+    reviewText,
+    '',
+    'Suggested task:',
+    [
+      'Investigate the referenced crash or script error.',
+      'Use the Oracle plugin to ground the investigation in EQEmu context before proposing or making changes.',
+      'Identify the likely source, make the smallest safe fix, and run targeted validation.',
+      'Use the inbox message id above to verify current data if needed.'
+    ].join(' ')
+  ].join('\n');
+}
+
+function formatIssueHandoffReview(message: InboundWebhookMessage) {
+  const run = getCrashRun(message);
+  const result = getCrashRunResult(message);
+  const model = getCrashRunModel(message);
+  const lines = [
+    `Status: ${run?.status ?? 'N/A'}`,
+    model ? `Model: ${model}` : null,
+    run?.error ? `Error: ${run.error}` : null
+  ].filter((line): line is string => Boolean(line));
+
+  if (!result) {
+    return lines.length > 0 ? lines.join('\n') : 'No AI review has been run.';
+  }
+
+  const hypotheses = result.hypotheses?.length
+    ? result.hypotheses.map((item, index) => {
+        const confidence =
+          typeof item.confidence === 'number' ? ` (${Math.round(item.confidence * 100)}%)` : '';
+        const evidence = item.evidence?.length
+          ? `\n   Evidence: ${item.evidence.join('; ')}`
+          : '';
+        return `${index + 1}. ${item.title}${confidence}${evidence}`;
+      })
+    : [];
+
+  return [
+    ...lines,
+    result.summary ? `Summary: ${result.summary}` : null,
+    hypotheses.length ? 'Possible causes:' : null,
+    ...hypotheses,
+    result.missingInfo?.length ? 'Missing information:' : null,
+    ...(result.missingInfo ?? []).map((item) => `- ${item}`),
+    result.recommendedNextSteps?.length ? 'Recommended next steps:' : null,
+    ...(result.recommendedNextSteps ?? []).map((item, index) => `${index + 1}. ${item}`)
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
 }
 
 function getWebhookUrl(webhook: InboundWebhook) {
@@ -5075,52 +5237,70 @@ function getCrashRunPrompt(message: InboundWebhookMessage | null) {
 }
 
 function getCrashReportText(message: InboundWebhookMessage) {
-  const payload = message.payload as Record<string, unknown> | null;
-  // Check crashReportText (primary field for crash reports)
-  if (
-    payload &&
-    typeof payload.crashReportText === 'string' &&
-    payload.crashReportText.trim().length > 0
-  ) {
-    return payload.crashReportText;
+  const candidates: string[] = [];
+  const addCandidate = (value: unknown) => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (!trimmed || candidates.includes(trimmed)) return;
+    candidates.push(trimmed);
+  };
+
+  collectCrashReportTextCandidates(message.payload, addCandidate);
+  addCandidate(extractRawBodyReportText(message.rawBody));
+
+  const longestCandidate = candidates.reduce(
+    (longest, candidate) => (candidate.length > longest.length ? candidate : longest),
+    ''
+  );
+  if (longestCandidate) {
+    return longestCandidate;
   }
-  const discordText = payload ? extractDiscordPayloadText(payload) : '';
-  if (discordText) {
-    return discordText;
-  }
-  // Check message field
-  if (payload && typeof payload.message === 'string' && payload.message.trim().length > 0) {
-    return payload.message;
-  }
-  // Check content field
-  if (payload && typeof payload.content === 'string' && payload.content.trim().length > 0) {
-    return payload.content;
-  }
-  // Check text field (common alternative)
-  if (payload && typeof payload.text === 'string' && payload.text.trim().length > 0) {
-    return payload.text;
-  }
-  // Check body field
-  if (payload && typeof payload.body === 'string' && payload.body.trim().length > 0) {
-    return payload.body;
-  }
-  // Check raw field (used when payload was a raw string that got normalized)
-  if (payload && typeof payload.raw === 'string' && payload.raw.trim().length > 0) {
-    return payload.raw;
-  }
-  // Check crashReport.rawHead (legacy format)
-  const rawHead =
-    payload?.crashReport && typeof payload.crashReport === 'object'
-      ? (payload.crashReport as Record<string, unknown>).rawHead
-      : null;
-  if (typeof rawHead === 'string' && rawHead.trim().length > 0) {
-    return rawHead;
-  }
-  // Check rawBody as last resort
-  if (typeof message.rawBody === 'string' && message.rawBody.trim().length > 0) {
-    return message.rawBody;
-  }
+
   return '';
+}
+
+function collectCrashReportTextCandidates(
+  payload: unknown,
+  addCandidate: (value: unknown) => void
+) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    addCandidate(payload);
+    return;
+  }
+
+  const record = payload as Record<string, unknown>;
+  addCandidate(record.crashReportText);
+  addCandidate(extractDiscordPayloadText(record));
+  addCandidate(record.message);
+  addCandidate(record.content);
+  addCandidate(record.text);
+  addCandidate(record.body);
+  addCandidate(record.raw);
+}
+
+function extractRawBodyReportText(rawBody: string | null | undefined) {
+  if (typeof rawBody !== 'string' || rawBody.trim().length === 0) {
+    return '';
+  }
+
+  const trimmed = rawBody.trim();
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const candidates: string[] = [];
+    collectCrashReportTextCandidates(parsed, (value) => {
+      if (typeof value !== 'string') return;
+      const valueText = value.trim();
+      if (valueText && !candidates.includes(valueText)) {
+        candidates.push(valueText);
+      }
+    });
+    return candidates.reduce(
+      (longest, candidate) => (candidate.length > longest.length ? candidate : longest),
+      ''
+    );
+  } catch {
+    return trimmed;
+  }
 }
 
 function extractDiscordPayloadText(payload: Record<string, unknown>) {
@@ -6010,6 +6190,13 @@ async function retryCrashReview(
 async function sendDiscordSummary(message: InboundWebhookMessage) {
   const sendState = getDiscordSummarySendState(message);
   if (!sendState.canSend || isSendingDiscordSummary(message.id)) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Send the AI summary for this ${message.webhook?.label || 'webhook'} message to the configured Discord webhook?`
+  );
+  if (!confirmed) {
     return;
   }
 
@@ -8141,6 +8328,25 @@ input[type='checkbox']:checked::after {
   position: relative;
 }
 
+.icon-button--copy-handoff {
+  border-color: rgba(45, 212, 191, 0.45);
+  color: #99f6e4;
+}
+
+.handoff-icon {
+  width: 1.36rem;
+  height: 1.36rem;
+  display: block;
+  background: currentColor;
+  mask: url('/icons/handshake-handoff.svg') center / contain no-repeat;
+  -webkit-mask: url('/icons/handshake-handoff.svg') center / contain no-repeat;
+}
+
+.icon-button--copy-handoff:hover:not(:disabled) {
+  border-color: rgba(94, 234, 212, 0.72);
+  box-shadow: 0 12px 26px rgba(13, 148, 136, 0.2);
+}
+
 .icon-button--discord-send {
   border-color: rgba(96, 165, 250, 0.5);
   background:
@@ -8552,6 +8758,16 @@ input[type='checkbox']:checked::after {
   width: min(1100px, 96vw);
 }
 
+.modal--payload-view {
+  width: min(1100px, 86vw);
+  max-height: min(82vh, 780px);
+  padding: 1.25rem;
+}
+
+.modal--payload-view .modal__content--split {
+  height: min(620px, calc(82vh - 7.5rem));
+}
+
 .modal--settings {
   width: min(980px, 96vw);
   max-height: min(86vh, 760px);
@@ -8923,6 +9139,19 @@ input[type='checkbox']:checked::after {
   overflow: auto;
   min-height: 0;
   max-height: none !important;
+}
+
+.crash-report-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border-radius: 0.65rem;
+  color: rgba(226, 232, 240, 0.75);
+  text-align: center;
 }
 
 .llm-content {
@@ -9951,7 +10180,7 @@ input[type='checkbox']:checked::after {
 
   .table-action-group {
     display: grid;
-    grid-template-columns: minmax(5.5rem, 1fr) repeat(4, 2rem);
+    grid-template-columns: minmax(5.5rem, 1fr) repeat(5, 2rem);
     gap: 0.35rem;
     width: 100%;
   }
@@ -11059,6 +11288,7 @@ input[type='checkbox']:checked::after {
 
   .modal,
   .modal--wide,
+  .modal--payload-view,
   .modal--settings,
   .modal--label-manager,
   .modal--link-report,
@@ -11270,6 +11500,7 @@ input[type='checkbox']:checked::after {
 @media (max-width: 420px) {
   .modal,
   .modal--wide,
+  .modal--payload-view,
   .modal--settings,
   .modal--label-manager,
   .modal--link-report,
