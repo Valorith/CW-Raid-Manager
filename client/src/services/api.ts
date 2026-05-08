@@ -3337,7 +3337,7 @@ export interface TestChange {
   githubPullRequest: TestChangePullRequest | null;
   githubIssue: TestChangeIssue | null;
   includeInNextPatch: boolean;
-  readyToTest?: boolean;
+  readyToTest: boolean;
   autoClosePassCount: number;
   dueAt: string | null;
   closedAt: string | null;

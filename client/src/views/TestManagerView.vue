@@ -5608,7 +5608,9 @@ async function deleteNote(note: TestChangeNote) {
 }
 
 async function updateChecklistProgress(checklistItemId: string, completed: boolean) {
-  if (!activeChange.value) {
+  if (!activeChange.value || !canEditViewerChecklist(activeChange.value)) {
+    feedbackError.value =
+      'Checklist items can only be updated while this change is ready to test and you are actively testing it.';
     return;
   }
   checklistNotePromptItemId.value = null;
@@ -5624,6 +5626,11 @@ async function updateChecklistProgress(checklistItemId: string, completed: boole
 }
 
 async function openChecklistNote(checklistItemId: string) {
+  if (!activeChange.value || !canEditViewerChecklist(activeChange.value)) {
+    feedbackError.value =
+      'Checklist item notes can only be updated while this change is ready to test and you are actively testing it.';
+    return;
+  }
   checklistNoteItemId.value = checklistItemId;
   checklistNoteOpen.value = true;
   await nextTick();
@@ -5753,6 +5760,12 @@ function closeChecklistNotePrompt() {
 
 async function saveChecklistNote() {
   if (!activeChange.value || !checklistNoteItemId.value) {
+    return;
+  }
+  if (!canEditViewerChecklist(activeChange.value)) {
+    feedbackError.value =
+      'Checklist item notes can only be updated while this change is ready to test and you are actively testing it.';
+    closeChecklistNote();
     return;
   }
   const updated = await api.updateTestChangeChecklistProgress(
@@ -5922,6 +5935,10 @@ async function setChangeReadyToTest(change: TestChange, readyToTest: boolean) {
     const updated = await api.updateTestChangeReadyToTest(change.id, readyToTest);
     replaceCachedChange(updated);
     selectedChange.value = updated;
+    if (!readyToTest) {
+      closeChecklistNote();
+      checklistNotePromptItemId.value = null;
+    }
     await loadChanges();
     addToast({
       title: readyToTest ? 'Ready To Test' : 'Tester Input Paused',
@@ -7303,6 +7320,15 @@ watch(
     notesEditor.value?.clear();
     if (detailTab.value === 'Reports') {
       void refreshActiveChangeReportDetails();
+    }
+  }
+);
+watch(
+  () => activeChange.value?.readyToTest,
+  (readyToTest) => {
+    if (readyToTest === false) {
+      closeChecklistNote();
+      checklistNotePromptItemId.value = null;
     }
   }
 );
