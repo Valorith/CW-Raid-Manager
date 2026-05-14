@@ -1177,7 +1177,18 @@
         </div>
 
         <article class="card card--table">
-          <table class="table">
+          <table class="table table--inbox">
+            <colgroup>
+              <col class="inbox-table__col inbox-table__col--checkbox" />
+              <col class="inbox-table__col inbox-table__col--star" />
+              <col class="inbox-table__col inbox-table__col--received" />
+              <col class="inbox-table__col inbox-table__col--webhook" />
+              <col class="inbox-table__col inbox-table__col--status" />
+              <col class="inbox-table__col inbox-table__col--actions" />
+              <col class="inbox-table__col inbox-table__col--labels" />
+              <col class="inbox-table__col inbox-table__col--assigned" />
+              <col class="inbox-table__col inbox-table__col--controls" />
+            </colgroup>
             <thead>
               <tr>
                 <th class="table__checkbox-col">
@@ -8255,6 +8266,7 @@ input[type='checkbox']:checked::after {
 
 .card--table {
   padding: 0;
+  overflow: hidden;
 }
 
 .table {
@@ -8262,11 +8274,67 @@ input[type='checkbox']:checked::after {
   border-collapse: collapse;
 }
 
+.table--inbox {
+  table-layout: fixed;
+}
+
+.inbox-table__col--checkbox,
+.inbox-table__col--star {
+  width: 2.5rem;
+}
+
+.inbox-table__col--received {
+  width: 9.5%;
+}
+
+.inbox-table__col--webhook {
+  width: 10.5%;
+}
+
+.inbox-table__col--status {
+  width: 11%;
+}
+
+.inbox-table__col--actions {
+  width: 18%;
+}
+
+.inbox-table__col--labels {
+  width: 12%;
+}
+
+.inbox-table__col--assigned {
+  width: 14%;
+}
+
+.inbox-table__col--controls {
+  width: 19%;
+}
+
 .table th,
 .table td {
   padding: 0.85rem 1rem;
   text-align: left;
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.table--inbox th,
+.table--inbox td {
+  min-width: 0;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.table--inbox .select--compact {
+  width: 100%;
+  min-width: 0;
+}
+
+.table--inbox .status-cell,
+.table--inbox .action-pills,
+.table--inbox .label-chips,
+.table--inbox .table-action-group {
+  max-width: 100%;
 }
 
 .table__actions {
@@ -8277,6 +8345,7 @@ input[type='checkbox']:checked::after {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.4rem;
   min-width: 0;
 }
@@ -9306,6 +9375,26 @@ input[type='checkbox']:checked::after {
   margin: 0.4rem 0 0;
 }
 
+@media (max-width: 1300px) {
+  .table--inbox th,
+  .table--inbox td {
+    padding: 0.78rem 0.7rem;
+  }
+
+  .table--inbox .table-action-group {
+    gap: 0.32rem;
+  }
+
+  .table--inbox .btn--small {
+    padding-inline: 0.7rem;
+  }
+
+  .table--inbox .icon-button {
+    width: 1.95rem;
+    height: 1.95rem;
+  }
+}
+
 @media (max-width: 1100px) {
   .modal--settings {
     width: min(760px, 96vw);
@@ -10035,6 +10124,7 @@ input[type='checkbox']:checked::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 14px;
   height: 14px;
   padding: 0;
@@ -10107,6 +10197,12 @@ input[type='checkbox']:checked::after {
 
 .labels-cell {
   min-width: 100px;
+}
+
+.table--inbox .actions-cell,
+.table--inbox .labels-cell {
+  min-width: 0;
+  max-width: none;
 }
 
 /* Badge for merged messages */
