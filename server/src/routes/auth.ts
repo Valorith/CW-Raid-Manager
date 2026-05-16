@@ -9,9 +9,16 @@ import {
   upsertGoogleUser
 } from '../services/authService.js';
 import { getTestManagerUserPermissions } from '../services/testManagerService.js';
+import {
+  captureOAuthException,
+  fetchOAuthProvider,
+  runOAuthOperationWithRetry,
+  type OAuthProvider
+} from '../utils/oauthReliability.js';
 import { prisma } from '../utils/prisma.js';
 
 const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
+const GENERIC_OAUTH_LOGIN_ERROR = 'Sign-in could not be completed. Please try again.';
 
 function isLoopbackHostname(hostname: string): boolean {
   return (
@@ -38,6 +45,17 @@ function normalizeOrigin(value?: string): string | null {
   } catch {
     return null;
   }
+}
+
+function buildOAuthLoginErrorUrl(
+  postAuthBaseUrl: string,
+  provider: OAuthProvider,
+  message = GENERIC_OAUTH_LOGIN_ERROR
+): string {
+  const url = new URL('/auth/callback', postAuthBaseUrl);
+  url.searchParams.set('error', message);
+  url.searchParams.set('provider', provider);
+  return url.toString();
 }
 
 export async function authRoutes(server: FastifyInstance): Promise<void> {
@@ -126,26 +144,88 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           reply.clearCookie('cwraid_link_user', { path: '/' });
         }
 
-        const token = await server.googleOAuth2?.getAccessTokenFromAuthorizationCodeFlow(request);
+        const token = await runOAuthOperationWithRetry(
+          () => {
+            if (!server.googleOAuth2) {
+              throw new Error('Google OAuth plugin is unavailable during callback.');
+            }
+            return server.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+          },
+          {
+            provider: 'google',
+            phase: 'token_exchange',
+            request
+          }
+        );
         const accessToken = token?.token.access_token;
 
         if (!accessToken) {
+          captureOAuthException(
+            new Error('Google OAuth token response did not include an access token.'),
+            {
+              provider: 'google',
+              phase: 'missing_access_token',
+              request,
+              extra: {
+                callbackUrl: appConfig.google?.callbackUrl
+              }
+            }
+          );
           request.log.error('Missing Google access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Google account linking.')}`
             );
           }
-          return reply.internalServerError('Unable to complete Google sign-in.');
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
         }
 
-        const googleUserResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
+        let googleUserResponse: Response;
+        try {
+          googleUserResponse = await fetchOAuthProvider(
+            request,
+            'google',
+            'profile_fetch',
+            'https://www.googleapis.com/oauth2/v2/userinfo',
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`
+              }
+            }
+          );
+        } catch (profileFetchError) {
+          captureOAuthException(profileFetchError, {
+            provider: 'google',
+            phase: 'profile_fetch',
+            request,
+            extra: {
+              callbackUrl: appConfig.google?.callbackUrl
+            }
+          });
+          request.log.error({ error: profileFetchError }, 'Error fetching Google user profile');
+          if (linkingUserId) {
+            return reply.redirect(
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
+            );
           }
-        });
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
+        }
 
         if (!googleUserResponse.ok) {
+          captureOAuthException(
+            new Error(
+              `Google profile request failed with HTTP ${googleUserResponse.status} ${googleUserResponse.statusText}`
+            ),
+            {
+              provider: 'google',
+              phase: 'profile_fetch',
+              request,
+              extra: {
+                responseStatus: googleUserResponse.status,
+                callbackUrl: appConfig.google?.callbackUrl
+              }
+            }
+          );
           request.log.error(
             { status: googleUserResponse.status, statusText: googleUserResponse.statusText },
             'Failed to fetch Google user profile'
@@ -155,15 +235,31 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
             );
           }
-          return reply.internalServerError('Unable to complete Google sign-in.');
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
         }
 
-        const profile = (await googleUserResponse.json()) as {
+        let profile: {
           id: string;
           email: string;
           name?: string;
           verified_email?: boolean;
         };
+        try {
+          profile = (await googleUserResponse.json()) as typeof profile;
+        } catch (profileParseError) {
+          captureOAuthException(profileParseError, {
+            provider: 'google',
+            phase: 'profile_parse',
+            request
+          });
+          request.log.error({ error: profileParseError }, 'Error parsing Google user profile');
+          if (linkingUserId) {
+            return reply.redirect(
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Google profile.')}`
+            );
+          }
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
+        }
 
         // If this is a linking flow, link the account and redirect back to settings
         if (linkingUserId) {
@@ -181,18 +277,44 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         }
 
         // Normal login flow
-        const user = await upsertGoogleUser(profile);
-        const jwt = await reply.jwtSign(
-          {
-            userId: user.id,
-            email: user.email
-          },
-          {
-            sign: {
-              expiresIn: '7d'
+        let user;
+        try {
+          user = await upsertGoogleUser(profile);
+        } catch (dbError) {
+          captureOAuthException(dbError, {
+            provider: 'google',
+            phase: 'db_upsert',
+            request
+          });
+          request.log.error(
+            { error: dbError, googleId: profile.id },
+            'Failed to upsert Google user'
+          );
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
+        }
+
+        let jwt: string;
+        try {
+          jwt = await reply.jwtSign(
+            {
+              userId: user.id,
+              email: user.email
+            },
+            {
+              sign: {
+                expiresIn: '7d'
+              }
             }
-          }
-        );
+          );
+        } catch (jwtError) {
+          captureOAuthException(jwtError, {
+            provider: 'google',
+            phase: 'jwt_sign',
+            request
+          });
+          request.log.error({ error: jwtError }, 'Failed to sign JWT for Google user');
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
+        }
 
         reply.setCookie('cwraid_token', jwt, {
           signed: true,
@@ -207,6 +329,14 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         const errStack = error instanceof Error ? error.stack : undefined;
+        captureOAuthException(error, {
+          provider: 'google',
+          phase: 'callback_unhandled',
+          request,
+          extra: {
+            callbackUrl: appConfig.google?.callbackUrl
+          }
+        });
         request.log.error(
           {
             error,
@@ -220,7 +350,8 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           },
           'Error during Google OAuth callback'
         );
-        return reply.internalServerError('Unable to complete Google sign-in.');
+        const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+        return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'google'));
       }
     });
   } else {
@@ -267,7 +398,13 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord OAuth was cancelled or failed.')}`
             );
           }
-          return reply.internalServerError('Unable to complete Discord sign-in.');
+          return reply.redirect(
+            buildOAuthLoginErrorUrl(
+              postAuthBaseUrl,
+              'discord',
+              'Discord sign-in was cancelled or failed. Please try again.'
+            )
+          );
         }
 
         request.log.info(
@@ -280,21 +417,52 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           'Discord OAuth callback received'
         );
 
-        const token = await server.discordOAuth2?.getAccessTokenFromAuthorizationCodeFlow(request);
+        const token = await runOAuthOperationWithRetry(
+          () => {
+            if (!server.discordOAuth2) {
+              throw new Error('Discord OAuth plugin is unavailable during callback.');
+            }
+            return server.discordOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+          },
+          {
+            provider: 'discord',
+            phase: 'token_exchange',
+            request
+          }
+        );
         if (!token?.token.access_token) {
+          captureOAuthException(
+            new Error('Discord OAuth token response did not include an access token.'),
+            {
+              provider: 'discord',
+              phase: 'missing_access_token',
+              request,
+              extra: {
+                callbackUrl: appConfig.discord?.callbackUrl
+              }
+            }
+          );
           request.log.error('Missing Discord access token in OAuth callback response.');
           if (linkingUserId) {
             return reply.redirect(
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
             );
           }
-          return reply.internalServerError('Unable to complete Discord sign-in.');
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
         }
         accessToken = token.token.access_token as string;
       } catch (tokenError) {
         const errorMessage =
           tokenError instanceof Error ? tokenError.message : 'Unknown token exchange error';
         const errorDetails = tokenError instanceof Error ? tokenError.stack : String(tokenError);
+        captureOAuthException(tokenError, {
+          provider: 'discord',
+          phase: 'token_exchange',
+          request,
+          extra: {
+            callbackUrl: appConfig.discord?.callbackUrl
+          }
+        });
         request.log.error(
           {
             error: tokenError,
@@ -309,7 +477,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to complete Discord account linking.')}`
           );
         }
-        return reply.internalServerError('Unable to complete Discord sign-in.');
+        return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
       }
 
       // Step 2: Fetch Discord user profile
@@ -321,13 +489,33 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
         verified?: boolean;
       };
       try {
-        const discordUserResponse = await fetch('https://discord.com/api/users/@me', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
+        const discordUserResponse = await fetchOAuthProvider(
+          request,
+          'discord',
+          'profile_fetch',
+          'https://discord.com/api/users/@me',
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            }
           }
-        });
+        );
 
         if (!discordUserResponse.ok) {
+          captureOAuthException(
+            new Error(
+              `Discord profile request failed with HTTP ${discordUserResponse.status} ${discordUserResponse.statusText}`
+            ),
+            {
+              provider: 'discord',
+              phase: 'profile_fetch',
+              request,
+              extra: {
+                responseStatus: discordUserResponse.status,
+                callbackUrl: appConfig.discord?.callbackUrl
+              }
+            }
+          );
           request.log.error(
             { status: discordUserResponse.status, statusText: discordUserResponse.statusText },
             'Failed to fetch Discord user profile'
@@ -337,18 +525,41 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
               `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
             );
           }
-          return reply.internalServerError('Unable to complete Discord sign-in.');
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
         }
 
-        profile = (await discordUserResponse.json()) as typeof profile;
+        try {
+          profile = (await discordUserResponse.json()) as typeof profile;
+        } catch (profileParseError) {
+          captureOAuthException(profileParseError, {
+            provider: 'discord',
+            phase: 'profile_parse',
+            request
+          });
+          request.log.error({ error: profileParseError }, 'Error parsing Discord user profile');
+          if (linkingUserId) {
+            return reply.redirect(
+              `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
+            );
+          }
+          return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
+        }
       } catch (fetchError) {
+        captureOAuthException(fetchError, {
+          provider: 'discord',
+          phase: 'profile_fetch',
+          request,
+          extra: {
+            callbackUrl: appConfig.discord?.callbackUrl
+          }
+        });
         request.log.error({ error: fetchError }, 'Error fetching Discord user profile');
         if (linkingUserId) {
           return reply.redirect(
             `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Unable to fetch Discord profile.')}`
           );
         }
-        return reply.internalServerError('Unable to complete Discord sign-in.');
+        return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
       }
 
       // Step 3: Validate email exists
@@ -359,7 +570,13 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
             `${postAuthBaseUrl}/settings/account?error=${encodeURIComponent('Discord account must have a verified email address.')}`
           );
         }
-        return reply.badRequest('Discord account must have a verified email address.');
+        return reply.redirect(
+          buildOAuthLoginErrorUrl(
+            postAuthBaseUrl,
+            'discord',
+            'Discord account must have a verified email address.'
+          )
+        );
       }
 
       // If this is a linking flow, link the account and redirect back to settings
@@ -382,11 +599,16 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
       try {
         user = await upsertDiscordUser(profile);
       } catch (dbError) {
+        captureOAuthException(dbError, {
+          provider: 'discord',
+          phase: 'db_upsert',
+          request
+        });
         request.log.error(
           { error: dbError, discordId: profile.id },
           'Failed to upsert Discord user'
         );
-        return reply.internalServerError('Unable to complete Discord sign-in.');
+        return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
       }
 
       // Step 5: Create JWT and set cookie
@@ -414,8 +636,13 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
         return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
       } catch (jwtError) {
+        captureOAuthException(jwtError, {
+          provider: 'discord',
+          phase: 'jwt_sign',
+          request
+        });
         request.log.error({ error: jwtError }, 'Failed to sign JWT for Discord user');
-        return reply.internalServerError('Unable to complete Discord sign-in.');
+        return reply.redirect(buildOAuthLoginErrorUrl(postAuthBaseUrl, 'discord'));
       }
     });
   } else {
