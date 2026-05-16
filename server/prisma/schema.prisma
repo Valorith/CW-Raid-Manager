@@ -1423,6 +1423,7 @@ model TestChange {
   githubPrMetadata Json?
   githubIssueUrl String?           @db.VarChar(500)
   githubIssueMetadata Json?
+  contextLinks  Json?
   includeInNextPatch Boolean        @default(true)
   readyToTest   Boolean             @default(true)
   autoClosePassCount Int            @default(0)

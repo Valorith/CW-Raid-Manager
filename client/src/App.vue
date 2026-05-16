@@ -2298,7 +2298,7 @@ function hasRaidStarted(raid: RaidEventSummary) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  z-index: 9999;
+  z-index: 20000;
 }
 
 .toast-enter-active,

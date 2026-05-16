@@ -3270,6 +3270,16 @@ export interface TestChangeWebhookReport {
   linkedBy: TestManagerUserSummary | null;
 }
 
+export type TestChangeContextLinkKind = 'DISCORD' | 'GITHUB' | 'DOCUMENT' | 'OTHER';
+
+export interface TestChangeContextLink {
+  id: string;
+  kind: TestChangeContextLinkKind;
+  label: string;
+  url: string;
+  description: string;
+}
+
 export interface TestChangePullRequest {
   owner: string;
   repo: string;
@@ -3336,6 +3346,7 @@ export interface TestChange {
   targetBuild: string | null;
   githubPullRequest: TestChangePullRequest | null;
   githubIssue: TestChangeIssue | null;
+  contextLinks: TestChangeContextLink[];
   includeInNextPatch: boolean;
   readyToTest: boolean;
   autoClosePassCount: number;
@@ -3397,6 +3408,7 @@ export interface CreateTestChangePayload {
   targetBuild?: string | null;
   githubPrUrl?: string | null;
   githubIssueUrl?: string | null;
+  contextLinks?: TestChangeContextLink[];
   includeInNextPatch?: boolean;
   autoClosePassCount?: number;
   dueAt?: string | null;
@@ -3475,6 +3487,16 @@ export const api = {
     const response = await axios.patch(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}`,
       payload
+    );
+    return response.data.change;
+  },
+  async updateTestChangeContextLinks(
+    changeId: string,
+    contextLinks: TestChangeContextLink[]
+  ): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/context-links`,
+      { contextLinks }
     );
     return response.data.change;
   },

@@ -42,6 +42,7 @@ import {
   submitTesterResult,
   unlinkWebhookReportFromTestChange,
   updateTestChange,
+  updateTestChangeContextLinks,
   updateTesterChecklistProgress,
   updateTestManagerSettings,
   updateTestManagerUserRole,
@@ -116,6 +117,13 @@ async function requireCanManageTesters(
 }
 
 const richTextSchema = z.string().max(50000);
+const contextLinkSchema = z.object({
+  id: z.string().trim().max(64).optional(),
+  kind: z.enum(['DISCORD', 'GITHUB', 'DOCUMENT', 'OTHER']).optional(),
+  label: z.string().trim().max(140).optional(),
+  url: z.string().trim().url().max(1000),
+  description: z.string().trim().max(500).optional()
+});
 const nextPatchQuerySchema = z.object({
   view: z.enum(['complete', 'incomplete']).default('complete')
 });
@@ -200,6 +208,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         targetBuild: z.string().trim().max(120).nullable().optional(),
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
+        contextLinks: z.array(contextLinkSchema).max(20).optional().default([]),
         includeInNextPatch: z.boolean().optional(),
         autoClosePassCount: z.number().int().min(0).max(99).optional(),
         dueAt: z.string().datetime().nullable().optional(),
@@ -268,6 +277,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         targetBuild: z.string().trim().max(120).nullable().optional(),
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
+        contextLinks: z.array(contextLinkSchema).max(20).optional(),
         includeInNextPatch: z.boolean().optional(),
         autoClosePassCount: z.number().int().min(0).max(99).optional(),
         dueAt: z.string().datetime().nullable().optional(),
@@ -288,6 +298,35 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update change.'
+        );
+      }
+    }
+  );
+
+  server.patch(
+    '/changes/:changeId/context-links',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({
+        contextLinks: z.array(contextLinkSchema).max(20).default([])
+      });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid context link payload.');
+      }
+
+      try {
+        const change = await updateTestChangeContextLinks(
+          request.user.userId,
+          params.data.changeId,
+          body.data.contextLinks
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update context links.'
         );
       }
     }

@@ -403,20 +403,36 @@
         <main v-if="activeChange" class="tm-panel tm-detail">
           <div class="tm-detail__header">
             <div>
-              <button
-                type="button"
-                class="tm-share-button"
-                :aria-label="`Copy share link for #${activeChange.publicId}`"
-                @click="copyChangeShareLink(activeChange)"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <circle cx="18" cy="5" r="3" />
-                  <circle cx="6" cy="12" r="3" />
-                  <circle cx="18" cy="19" r="3" />
-                  <path d="m8.6 10.6 6.8-4.2M8.6 13.4l6.8 4.2" />
-                </svg>
-                <span>Share</span>
-              </button>
+              <div class="tm-detail__quick-actions">
+                <button
+                  type="button"
+                  class="tm-share-button"
+                  :aria-label="`Copy share link for #${activeChange.publicId}`"
+                  @click="copyChangeShareLink(activeChange)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <path d="m8.6 10.6 6.8-4.2M8.6 13.4l6.8 4.2" />
+                  </svg>
+                  <span>Share</span>
+                </button>
+                <button
+                  type="button"
+                  class="tm-context-link-trigger"
+                  :class="{ 'tm-context-link-trigger--empty': activeContextLinks.length === 0 }"
+                  :aria-label="`Open context links for #${activeChange.publicId}`"
+                  @click="openContextLinksModal"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+                    <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+                  </svg>
+                  <span>Context</span>
+                  <strong>{{ activeContextLinks.length }}</strong>
+                </button>
+              </div>
               <h2>{{ activeChange.title }}</h2>
               <div class="tm-detail__kicker">
                 <p class="tm-id">Change #{{ activeChange.publicId }}</p>
@@ -3088,6 +3104,329 @@
     </div>
 
     <div
+      v-if="contextLinksOpen && activeChange"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="context-links-title"
+      @click.self="closeContextLinksModal"
+    >
+      <section class="tm-modal__panel tm-context-links-modal">
+        <header class="tm-context-links-modal__header">
+          <div class="tm-context-links-modal__title">
+            <span class="tm-context-links-modal__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+                <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+              </svg>
+            </span>
+            <div>
+              <p class="tm-modal-eyebrow">Change Context</p>
+              <h2 id="context-links-title">Linked Context</h2>
+              <small>#{{ activeChange.publicId }} {{ activeChange.title }}</small>
+            </div>
+          </div>
+          <div class="tm-context-links-modal__actions">
+            <span>
+              {{ contextLinkDisplayCount }} link{{ contextLinkDisplayCount === 1 ? '' : 's' }}
+            </span>
+            <button
+              type="button"
+              class="tm-icon-btn"
+              aria-label="Close"
+              :disabled="contextLinksSaving"
+              @click="closeContextLinksModal"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+
+        <div v-if="contextLinksEditing" class="tm-context-link-edit-body">
+          <div class="tm-context-link-editor tm-context-link-editor--modal">
+            <div class="tm-context-link-editor__header">
+              <div>
+                <strong>Manage context links</strong>
+                <small>Attach Discord threads, docs, GitHub records, or other references.</small>
+              </div>
+            </div>
+            <div v-if="contextLinkDrafts.length" class="tm-context-link-fields">
+              <article
+                v-for="(link, index) in contextLinkDrafts"
+                :key="link.id"
+                class="tm-context-link-field"
+              >
+                <label class="tm-field">
+                  <span>Type</span>
+                  <select v-model="link.kind" class="tm-input" :disabled="contextLinksSaving">
+                    <option
+                      v-for="kind in contextLinkKinds"
+                      :key="kind.value"
+                      :value="kind.value"
+                    >
+                      {{ kind.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="tm-field">
+                  <span>Title</span>
+                  <input
+                    v-model="link.label"
+                    class="tm-input"
+                    maxlength="140"
+                    placeholder="Discord report thread"
+                    :disabled="contextLinksSaving"
+                  />
+                </label>
+                <label class="tm-field tm-field--full">
+                  <span>URL</span>
+                  <input
+                    v-model="link.url"
+                    class="tm-input"
+                    type="url"
+                    inputmode="url"
+                    maxlength="1000"
+                    placeholder="https://discord.com/channels/..."
+                    :disabled="contextLinksSaving"
+                  />
+                </label>
+                <label class="tm-field tm-field--full">
+                  <span>Context note <small>optional</small></span>
+                  <input
+                    v-model="link.description"
+                    class="tm-input"
+                    maxlength="500"
+                    placeholder="Why this link matters"
+                    :disabled="contextLinksSaving"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="tm-context-link-field__remove"
+                  aria-label="Remove context link"
+                  :disabled="contextLinksSaving"
+                  @click="removeContextLinkDraft(index)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Z" />
+                    <path d="M6.5 9h11l-.7 11H7.2L6.5 9Z" />
+                    <path d="M10 11.5v6M14 11.5v6" />
+                  </svg>
+                </button>
+              </article>
+            </div>
+            <p v-else>No draft links yet. Add one when you have context to attach.</p>
+            <button
+              type="button"
+              class="tm-context-link-add"
+              :disabled="contextLinksSaving"
+              @click="addContextLinkDraft"
+            >
+              <span aria-hidden="true">＋</span>
+              {{ contextLinkDrafts.length ? 'Add Another Link' : 'Add Link' }}
+            </button>
+          </div>
+        </div>
+        <div v-else-if="activeContextLinkGroups.length" class="tm-context-link-groups">
+          <section
+            v-for="group in activeContextLinkGroups"
+            :key="group.kind"
+            class="tm-context-link-group"
+            :class="`tm-context-link-group--${group.kind.toLowerCase()}`"
+          >
+            <div class="tm-context-link-group__title">
+              <span aria-hidden="true">{{ contextLinkKindMeta(group.kind).icon }}</span>
+              <strong>{{ group.label }}</strong>
+              <small>{{ group.links.length }}</small>
+            </div>
+            <div class="tm-context-link-cards">
+              <article
+                v-for="link in group.links"
+                :key="link.id"
+                class="tm-context-link-card"
+                :class="`tm-context-link-card--${contextLinkTone(link)}`"
+              >
+                <div class="tm-context-link-card__icon" aria-hidden="true">
+                  {{ contextLinkKindMeta(link.kind).icon }}
+                </div>
+                <div class="tm-context-link-card__body">
+                  <a
+                    :href="link.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click="openContextWebLink($event, link)"
+                  >
+                    {{ link.label }}
+                  </a>
+                  <p v-if="link.description">{{ link.description }}</p>
+                  <small>{{ contextLinkHost(link) }}</small>
+                </div>
+                <div class="tm-context-link-card__actions">
+                  <button
+                    v-if="link.kind === 'DISCORD' && contextLinkAppHref(link)"
+                    type="button"
+                    class="tm-context-link-card__open tm-context-link-card__open--discord"
+                    :aria-label="`Open ${link.label} in Discord app`"
+                    @click="openDiscordHandoffPrompt($event, link)"
+                  >
+                    <svg
+                      class="tm-context-link-card__open-icon tm-context-link-card__open-icon--discord"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path
+                        d="M18.9 5.2A16 16 0 0 0 15.1 4l-.2.4a12.3 12.3 0 0 1 3 1.4 13.3 13.3 0 0 0-9.8 0 12.3 12.3 0 0 1 3-1.4L10.9 4a16 16 0 0 0-3.8 1.2C4.7 8.8 4 12.3 4.3 15.8a15.6 15.6 0 0 0 4.7 2.4l.9-1.5a9.9 9.9 0 0 1-1.4-.7l.3-.2a11.4 11.4 0 0 0 6.4 0l.3.2a9.9 9.9 0 0 1-1.4.7l.9 1.5a15.6 15.6 0 0 0 4.7-2.4c.4-4.1-.7-7.5-2.8-10.6ZM9.5 13.8c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm5 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+                      />
+                    </svg>
+                    <span>Open</span>
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    class="tm-context-link-card__open"
+                    :aria-label="`Open ${link.label}`"
+                    @click="openContextLink($event, link)"
+                  >
+                    <svg
+                      class="tm-context-link-card__open-icon"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+                      <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1" />
+                    </svg>
+                    <span>Open</span>
+                  </button>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+        <div v-else class="tm-context-links-empty">
+          <span aria-hidden="true">↗</span>
+          <strong>No context links attached</strong>
+          <p>Discord threads, docs, and related references can be attached here.</p>
+        </div>
+
+        <footer class="tm-modal__footer tm-context-links-modal__footer">
+          <template v-if="contextLinksEditing">
+            <button
+              type="button"
+              class="tm-btn"
+              :disabled="contextLinksSaving"
+              @click="cancelContextLinksEdit"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="tm-btn tm-btn--primary"
+              :disabled="contextLinksSaving"
+              @click="saveContextLinks"
+            >
+              {{ contextLinksSaving ? 'Saving...' : 'Save Links' }}
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="tm-btn" @click="closeContextLinksModal">Close</button>
+            <button
+              v-if="authStore.isAdmin && activeContextLinks.length"
+              type="button"
+              class="tm-btn"
+              @click="startContextLinksEdit()"
+            >
+              Edit Links
+            </button>
+            <button
+              v-if="authStore.isAdmin"
+              type="button"
+              class="tm-btn tm-btn--primary"
+              @click="startContextLinksEdit(true)"
+            >
+              Add Link
+            </button>
+          </template>
+          <p
+            v-if="contextLinksLaunchNotice && !contextLinksEditing"
+            class="tm-context-links-modal__notice"
+            role="status"
+          >
+            {{ contextLinksLaunchNotice }}
+          </p>
+        </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="discordHandoffLink && discordHandoffHref"
+      class="tm-modal tm-modal--handoff"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="discord-handoff-title"
+      @click.self="closeDiscordHandoffPrompt"
+    >
+      <section class="tm-modal__panel tm-discord-handoff">
+        <header class="tm-discord-handoff__header">
+          <span class="tm-discord-handoff__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path
+                d="M18.9 5.2A16 16 0 0 0 15.1 4l-.2.4a12.3 12.3 0 0 1 3 1.4 13.3 13.3 0 0 0-9.8 0 12.3 12.3 0 0 1 3-1.4L10.9 4a16 16 0 0 0-3.8 1.2C4.7 8.8 4 12.3 4.3 15.8a15.6 15.6 0 0 0 4.7 2.4l.9-1.5a9.9 9.9 0 0 1-1.4-.7l.3-.2a11.4 11.4 0 0 0 6.4 0l.3.2a9.9 9.9 0 0 1-1.4.7l.9 1.5a15.6 15.6 0 0 0 4.7-2.4c.4-4.1-.7-7.5-2.8-10.6ZM9.5 13.8c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm5 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+              />
+            </svg>
+          </span>
+          <div>
+            <p class="tm-modal-eyebrow">Discord Handoff</p>
+            <h2 id="discord-handoff-title">Open Discord?</h2>
+            <small>Continue this context link in the desktop app.</small>
+          </div>
+        </header>
+
+        <div class="tm-discord-handoff__body">
+          <div class="tm-discord-handoff__target">
+            <span aria-hidden="true">#</span>
+            <div>
+              <strong>{{ discordHandoffLink.label }}</strong>
+              <p v-if="discordHandoffLink.description">{{ discordHandoffLink.description }}</p>
+              <small>{{ contextLinkHost(discordHandoffLink) }}</small>
+            </div>
+          </div>
+
+          <div class="tm-discord-handoff__steps" aria-label="Discord handoff steps">
+            <span>1</span>
+            <p>Choose <strong>Open Discord</strong> below.</p>
+            <span>2</span>
+            <p>If your browser asks for permission, choose <strong>Open Discord</strong>.</p>
+          </div>
+        </div>
+
+        <footer class="tm-discord-handoff__footer">
+          <p>
+            The final permission prompt is controlled by your browser for app-launch safety.
+          </p>
+          <div class="tm-discord-handoff__actions">
+            <button type="button" class="tm-btn" @click="closeDiscordHandoffPrompt">
+              Cancel
+            </button>
+            <a
+              class="tm-btn tm-btn--primary tm-discord-handoff__launch"
+              :href="discordHandoffHref ?? undefined"
+              @click="handleDiscordHandoffLaunch"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M18.9 5.2A16 16 0 0 0 15.1 4l-.2.4a12.3 12.3 0 0 1 3 1.4 13.3 13.3 0 0 0-9.8 0 12.3 12.3 0 0 1 3-1.4L10.9 4a16 16 0 0 0-3.8 1.2C4.7 8.8 4 12.3 4.3 15.8a15.6 15.6 0 0 0 4.7 2.4l.9-1.5a9.9 9.9 0 0 1-1.4-.7l.3-.2a11.4 11.4 0 0 0 6.4 0l.3.2a9.9 9.9 0 0 1-1.4.7l.9 1.5a15.6 15.6 0 0 0 4.7-2.4c.4-4.1-.7-7.5-2.8-10.6ZM9.5 13.8c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm5 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"
+                />
+              </svg>
+              Open Discord
+            </a>
+          </div>
+        </footer>
+      </section>
+    </div>
+
+    <div
       v-if="selectedWebhookReport"
       class="tm-modal"
       role="dialog"
@@ -3265,6 +3604,8 @@ import {
   type NextPatchChangeView,
   type TestAssignmentKind,
   type TestChange,
+  type TestChangeContextLink,
+  type TestChangeContextLinkKind,
   type TestChangeIssue,
   type TestChangeListStatusFilter,
   type TestChangeNote,
@@ -3393,6 +3734,11 @@ interface CoverageNoteView {
   updatedAt: string | null;
 }
 type WebhookReportModalTab = 'raw' | 'ai';
+interface ContextLinkGroup {
+  kind: TestChangeContextLinkKind;
+  label: string;
+  links: TestChangeContextLink[];
+}
 const userRoleFilter = ref<UserRoleFilter>('all');
 const userPage = ref(1);
 const usersPerPage = 6;
@@ -3401,6 +3747,12 @@ const editOpen = ref(false);
 const editSaving = ref(false);
 const requestOpen = ref(false);
 const notesOpen = ref(false);
+const contextLinksOpen = ref(false);
+const contextLinksEditing = ref(false);
+const contextLinksSaving = ref(false);
+const contextLinksLaunchNotice = ref('');
+const discordHandoffLink = ref<TestChangeContextLink | null>(null);
+const contextLinkDrafts = ref<TestChangeContextLink[]>([]);
 const checklistNoteOpen = ref(false);
 const checklistNoteItemId = ref<string | null>(null);
 const checklistNotePromptItemId = ref<string | null>(null);
@@ -3419,6 +3771,9 @@ const nextPatchResetConfirm = ref(false);
 const nextPatchResetPending = ref(false);
 const nextPatchTogglePending = ref(false);
 const closedNextPatchPromptDismissedIds = ref<Set<string>>(new Set());
+const discordHandoffHref = computed(() =>
+  discordHandoffLink.value ? contextLinkAppHref(discordHandoffLink.value) : null
+);
 const feedbackError = ref('');
 const deletingNoteIds = ref<Set<string>>(new Set());
 const deletingChecklistItemIds = ref<Set<string>>(new Set());
@@ -3637,6 +3992,18 @@ const createPriorityOptions: Array<{
   { value: 'CRITICAL', label: 'Critical', detail: 'Blocks release confidence' }
 ];
 
+const contextLinkKinds: Array<{
+  value: TestChangeContextLinkKind;
+  label: string;
+  icon: string;
+  hint: string;
+}> = [
+  { value: 'DISCORD', label: 'Discord', icon: '#', hint: 'Conversation' },
+  { value: 'GITHUB', label: 'GitHub', icon: '<>', hint: 'Code or issue' },
+  { value: 'DOCUMENT', label: 'Docs', icon: '[]', hint: 'Reference' },
+  { value: 'OTHER', label: 'Web', icon: '↗', hint: 'Context' }
+];
+
 const createChecklistTemplates: Array<{
   label: string;
   items: CreateChecklistDraft[];
@@ -3713,6 +4080,15 @@ const checklistAddTemplates: ChecklistAddTemplate[] = createChecklistTemplates.f
 
 function createChecklistItem(category = ''): CreateChecklistDraft {
   return { title: '', details: '', category };
+}
+
+function createContextLink(kind: TestChangeContextLinkKind = 'DISCORD'): TestChangeContextLink {
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `ctx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  return { id, kind, label: '', url: '', description: '' };
 }
 
 function cloneSettings(value: TestManagerSettings): TestManagerSettings {
@@ -3847,6 +4223,29 @@ const activeChange = computed(() =>
   requestedChangeId.value
     ? selectedChange.value
     : (selectedChange.value ?? changes.value[0] ?? null)
+);
+const activeContextLinks = computed(() => activeChange.value?.contextLinks ?? []);
+const activeContextLinkGroups = computed<ContextLinkGroup[]>(() => {
+  const linksByKind = new Map<TestChangeContextLinkKind, TestChangeContextLink[]>();
+  for (const link of activeContextLinks.value) {
+    const links = linksByKind.get(link.kind) ?? [];
+    links.push(link);
+    linksByKind.set(link.kind, links);
+  }
+
+  return contextLinkKinds
+    .map((kind) => ({
+      kind: kind.value,
+      label: kind.label,
+      links: linksByKind.get(kind.value) ?? []
+    }))
+    .filter((group) => group.links.length > 0);
+});
+const contextLinkDraftCount = computed(
+  () => normalizeContextLinkDrafts(contextLinkDrafts.value).length
+);
+const contextLinkDisplayCount = computed(() =>
+  contextLinksEditing.value ? contextLinkDraftCount.value : activeContextLinks.value.length
 );
 const activeChecklistNoteItem = computed(() =>
   activeChange.value?.checklist.find((item) => item.id === checklistNoteItemId.value)
@@ -4948,6 +5347,251 @@ async function copyChangeShareLink(change: TestChange) {
   }
 }
 
+function contextLinkKindMeta(kind: TestChangeContextLinkKind) {
+  const fallback = contextLinkKinds[
+    contextLinkKinds.length - 1
+  ] as (typeof contextLinkKinds)[number];
+  return contextLinkKinds.find((item) => item.value === kind) ?? fallback;
+}
+
+function contextLinkHost(link: TestChangeContextLink) {
+  try {
+    return new URL(link.url).hostname.replace(/^www\./, '');
+  } catch {
+    return link.url;
+  }
+}
+
+function contextLinkTone(link: TestChangeContextLink) {
+  return link.kind.toLowerCase();
+}
+
+function openContextLinksModal() {
+  contextLinksEditing.value = false;
+  contextLinksSaving.value = false;
+  contextLinksLaunchNotice.value = '';
+  discordHandoffLink.value = null;
+  contextLinkDrafts.value = [];
+  contextLinksOpen.value = true;
+}
+
+function closeContextLinksModal() {
+  if (contextLinksSaving.value) {
+    return;
+  }
+  contextLinksOpen.value = false;
+  contextLinksEditing.value = false;
+  contextLinksLaunchNotice.value = '';
+  discordHandoffLink.value = null;
+  contextLinkDrafts.value = [];
+}
+
+function startContextLinksEdit(addNewLink = false) {
+  if (!authStore.isAdmin) {
+    return;
+  }
+
+  contextLinksLaunchNotice.value = '';
+  discordHandoffLink.value = null;
+  const drafts = activeContextLinks.value.map((link) => ({ ...link }));
+  if (addNewLink || drafts.length === 0) {
+    drafts.push(createContextLink());
+  }
+  contextLinkDrafts.value = drafts;
+  contextLinksEditing.value = true;
+}
+
+function cancelContextLinksEdit() {
+  if (contextLinksSaving.value) {
+    return;
+  }
+  contextLinksEditing.value = false;
+  contextLinkDrafts.value = [];
+}
+
+function addContextLinkDraft() {
+  contextLinkDrafts.value = [...contextLinkDrafts.value, createContextLink()];
+}
+
+function removeContextLinkDraft(index: number) {
+  contextLinkDrafts.value = contextLinkDrafts.value.filter(
+    (_link, linkIndex) => linkIndex !== index
+  );
+}
+
+async function saveContextLinks() {
+  if (!activeChange.value || contextLinksSaving.value) {
+    return;
+  }
+
+  contextLinksSaving.value = true;
+  try {
+    const updated = await api.updateTestChangeContextLinks(
+      activeChange.value.id,
+      normalizeContextLinkDrafts(contextLinkDrafts.value)
+    );
+    replaceCachedChange(updated);
+    selectedChange.value = updated;
+    contextLinksEditing.value = false;
+    contextLinkDrafts.value = [];
+    addToast({
+      title: 'Context Links Updated',
+      message: 'Linked context references were saved for this change.',
+      variant: 'success'
+    });
+  } catch {
+    addToast({
+      title: 'Unable To Save Links',
+      message: 'Check each URL and try again.',
+      variant: 'error'
+    });
+  } finally {
+    contextLinksSaving.value = false;
+  }
+}
+
+function isPlainPrimaryClick(event: MouseEvent) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return false;
+  }
+  return true;
+}
+
+function openLinkInNewTab(url: string) {
+  const opened = window.open(url, '_blank');
+  if (opened) {
+    opened.opener = null;
+    return true;
+  }
+  return false;
+}
+
+function openLinkWithFallback(url: string) {
+  if (!openLinkInNewTab(url)) {
+    window.location.assign(url);
+  }
+}
+
+function discordDesktopUrls(url: string): string[] {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    const suffix = `${parsed.search}${parsed.hash}`;
+    const appUrls: string[] = [];
+    const pathWithSuffix = `${parsed.pathname}${suffix}`;
+    const isDiscordHost =
+      hostname === 'discord.com' ||
+      hostname.endsWith('.discord.com') ||
+      hostname === 'discordapp.com' ||
+      hostname.endsWith('.discordapp.com');
+
+    if (isDiscordHost) {
+      appUrls.push(`discord:${pathWithSuffix}`);
+      if (parsed.pathname.startsWith('/channels/')) {
+        appUrls.push(
+          `discord://-${pathWithSuffix}`,
+          `discord://${pathWithSuffix}`,
+          `discord://channels${parsed.pathname.replace(/^\/channels/, '')}${suffix}`
+        );
+      }
+      appUrls.push(
+        `discord://discord.com${pathWithSuffix}`,
+        `discord://discordapp.com${pathWithSuffix}`
+      );
+      return Array.from(new Set(appUrls));
+    }
+
+    if (hostname === 'discord.gg' || hostname.endsWith('.discord.gg')) {
+      return Array.from(
+        new Set([
+          `discord://-/invite${parsed.pathname}${suffix}`,
+          `discord://${hostname}${parsed.pathname}${suffix}`
+        ])
+      );
+    }
+  } catch {
+    return [];
+  }
+
+  return [];
+}
+
+function contextLinkAppHref(link: TestChangeContextLink): string | null {
+  if (link.kind !== 'DISCORD') {
+    return null;
+  }
+  return discordDesktopUrls(link.url)[0] ?? null;
+}
+
+function tryOpenDiscordApp(url: string): boolean {
+  const appUrls = discordDesktopUrls(url);
+  if (!appUrls.length) {
+    return false;
+  }
+
+  window.location.assign(appUrls[0]);
+  return true;
+}
+
+function openDiscordHandoffPrompt(event: MouseEvent, link: TestChangeContextLink) {
+  if (!isPlainPrimaryClick(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  contextLinksLaunchNotice.value = '';
+  discordHandoffLink.value = link;
+}
+
+function closeDiscordHandoffPrompt() {
+  discordHandoffLink.value = null;
+}
+
+function handleDiscordHandoffLaunch(event: MouseEvent) {
+  if (!isPlainPrimaryClick(event)) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    discordHandoffLink.value = null;
+    contextLinksLaunchNotice.value =
+      'Discord app handoff sent. If your browser asks, choose Open Discord. If Discord does not move to the thread, open the link title in your browser.';
+    addToast({
+      title: 'Opening Discord App',
+      message:
+        'If your browser asks, choose Open Discord. If Discord does not move, open the link title in your browser.',
+      variant: 'info'
+    });
+  }, 0);
+}
+
+function openContextWebLink(event: MouseEvent, link: TestChangeContextLink) {
+  if (link.kind === 'DISCORD') {
+    return;
+  }
+  openContextLink(event, link);
+}
+
+function openContextLink(event: MouseEvent, link: TestChangeContextLink) {
+  if (!isPlainPrimaryClick(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  if (link.kind === 'DISCORD' || discordDesktopUrls(link.url).length > 0) {
+    if (!tryOpenDiscordApp(link.url)) {
+      addToast({
+        title: 'Discord App Link Failed',
+        message: 'Use the link title to open the Discord web URL instead.',
+        variant: 'warning'
+      });
+    }
+    return;
+  }
+
+  openLinkWithFallback(link.url);
+}
+
 function loadChangeLayoutPreference(): ChangeLayoutWidths {
   if (typeof window === 'undefined') {
     return { ...CHANGE_LAYOUT_DEFAULTS };
@@ -5265,6 +5909,20 @@ function resetEditForm() {
     dueAt: null,
     assignedToId: null
   };
+}
+
+function normalizeContextLinkDrafts(
+  links: TestChangeContextLink[] | undefined
+): TestChangeContextLink[] {
+  return (links ?? [])
+    .filter((link) => link.url.trim())
+    .map((link) => ({
+      id: link.id,
+      kind: link.kind,
+      label: link.label.trim(),
+      url: link.url.trim(),
+      description: link.description.trim()
+    }));
 }
 
 function normalizeAutoClosePassCount(value: unknown) {
@@ -10524,12 +11182,20 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.tm-detail__quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.48rem;
+  margin: 0 0 0.55rem;
+}
+
 .tm-share-button {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   min-height: 2.05rem;
-  margin: 0 0 0.55rem;
+  margin: 0;
   padding: 0.35rem 0.72rem 0.35rem 0.46rem;
   border: 1px solid rgba(85, 183, 255, 0.3);
   border-radius: 999px;
@@ -10578,6 +11244,81 @@ onBeforeUnmount(() => {
 
 .tm-share-button:focus-visible {
   outline: 2px solid rgba(85, 183, 255, 0.52);
+  outline-offset: 2px;
+}
+
+.tm-context-link-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.05rem;
+  padding: 0.35rem 0.42rem 0.35rem 0.48rem;
+  border: 1px solid rgba(120, 217, 208, 0.32);
+  border-radius: 999px;
+  color: #d5f7f4;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 78%), rgba(16, 52, 50, 0.66);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 8px 18px rgba(0, 0, 0, 0.2);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.tm-context-link-trigger--empty {
+  color: #bfd4d1;
+  border-color: rgba(148, 163, 184, 0.26);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 78%), rgba(20, 31, 34, 0.62);
+}
+
+.tm-context-link-trigger svg {
+  width: 1.18rem;
+  height: 1.18rem;
+  padding: 0.25rem;
+  border-radius: 50%;
+  color: #78d9d0;
+  background: rgba(120, 217, 208, 0.12);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tm-context-link-trigger strong {
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #061716;
+  background: #78d9d0;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.tm-context-link-trigger:hover,
+.tm-context-link-trigger:focus-visible {
+  color: #ffffff;
+  border-color: rgba(120, 217, 208, 0.6);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 78%), rgba(20, 69, 66, 0.8);
+  transform: translateY(-1px);
+}
+
+.tm-context-link-trigger:focus-visible {
+  outline: 2px solid rgba(120, 217, 208, 0.52);
   outline-offset: 2px;
 }
 
@@ -11052,6 +11793,180 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.tm-context-link-editor {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.78rem;
+  border: 1px solid rgba(120, 217, 208, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(120, 217, 208, 0.08), rgba(255, 255, 255, 0.018)),
+    rgba(0, 0, 0, 0.18);
+}
+
+.tm-context-link-editor__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.tm-context-link-editor__header div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.tm-context-link-editor__header strong {
+  color: var(--tm-text);
+  font-size: 0.95rem;
+}
+
+.tm-context-link-editor__header small,
+.tm-context-link-editor > p {
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+}
+
+.tm-context-link-editor > p {
+  margin: 0;
+}
+
+.tm-context-link-fields {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tm-context-link-add {
+  width: 100%;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.48rem;
+  border: 1px dashed rgba(120, 217, 208, 0.34);
+  border-radius: 8px;
+  color: #d5f7f4;
+  background:
+    linear-gradient(180deg, rgba(120, 217, 208, 0.08), rgba(120, 217, 208, 0.02)),
+    rgba(3, 13, 14, 0.32);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.tm-context-link-add span {
+  width: 1.4rem;
+  height: 1.4rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #061716;
+  background: #78d9d0;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.tm-context-link-add:hover,
+.tm-context-link-add:focus-visible {
+  color: #ffffff;
+  border-color: rgba(120, 217, 208, 0.62);
+  background:
+    linear-gradient(180deg, rgba(120, 217, 208, 0.14), rgba(120, 217, 208, 0.04)),
+    rgba(6, 28, 30, 0.5);
+  transform: translateY(-1px);
+}
+
+.tm-context-link-add:focus-visible {
+  outline: 2px solid rgba(120, 217, 208, 0.52);
+  outline-offset: 2px;
+}
+
+.tm-context-link-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.tm-context-link-edit-body {
+  min-height: 0;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.tm-context-link-editor--modal {
+  min-height: 100%;
+  align-content: start;
+  border-color: rgba(120, 217, 208, 0.28);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(141, 162, 251, 0.12), transparent 16rem),
+    linear-gradient(135deg, rgba(120, 217, 208, 0.1), rgba(255, 255, 255, 0.018)),
+    rgba(0, 0, 0, 0.22);
+}
+
+.tm-context-link-field {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  padding: 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(1, 4, 9, 0.28);
+}
+
+.tm-context-link-field .tm-field--full {
+  grid-column: 1 / 3;
+}
+
+.tm-context-link-field__remove {
+  grid-row: 1;
+  grid-column: 3;
+  align-self: end;
+  width: 2.4rem;
+  height: 2.4rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 107, 85, 0.26);
+  border-radius: 8px;
+  color: var(--tm-red);
+  background: rgba(106, 35, 27, 0.14);
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease;
+}
+
+.tm-context-link-field__remove svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: currentColor;
+}
+
+.tm-context-link-field__remove:hover,
+.tm-context-link-field__remove:focus-visible {
+  color: #ffffff;
+  border-color: rgba(255, 107, 85, 0.54);
+  background: rgba(106, 35, 27, 0.3);
+  transform: translateY(-1px);
+}
+
+.tm-context-link-field__remove:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .tm-detail__header p:not(.tm-id) {
@@ -12382,6 +13297,587 @@ onBeforeUnmount(() => {
 }
 
 .tm-report-empty p {
+  margin: 0;
+}
+
+.tm-modal__panel.tm-context-links-modal {
+  width: min(58rem, calc(100vw - 2.5rem));
+  max-height: calc(100dvh - 3rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-color: rgba(120, 217, 208, 0.36);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(120, 217, 208, 0.15), transparent 20rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 18rem),
+    rgba(5, 8, 9, 0.97);
+}
+
+.tm-context-links-modal__header,
+.tm-context-links-modal__footer {
+  padding: 1rem 1.15rem;
+  background:
+    linear-gradient(90deg, rgba(120, 217, 208, 0.12), transparent 54%), rgba(6, 10, 11, 0.84);
+}
+
+.tm-context-links-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--tm-border-soft);
+}
+
+.tm-context-links-modal__title {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.tm-context-links-modal__title h2 {
+  margin: 0.12rem 0;
+  color: var(--tm-text);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.tm-context-links-modal__title small {
+  display: block;
+  overflow: hidden;
+  color: var(--tm-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-context-links-modal__icon {
+  width: 2.8rem;
+  height: 2.8rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(120, 217, 208, 0.38);
+  border-radius: 50%;
+  color: #78d9d0;
+  background: rgba(24, 94, 88, 0.18);
+  box-shadow: 0 0 18px rgba(120, 217, 208, 0.14);
+}
+
+.tm-context-links-modal__icon svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.tm-context-links-modal__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.tm-context-links-modal__actions span {
+  padding: 0.32rem 0.58rem;
+  border: 1px solid rgba(120, 217, 208, 0.26);
+  border-radius: 999px;
+  color: #d5f7f4;
+  background: rgba(24, 94, 88, 0.16);
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.tm-context-links-modal__notice {
+  flex: 1 1 18rem;
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0 auto;
+  padding: 0.5rem 0.72rem;
+  border: 1px solid rgba(141, 162, 251, 0.32);
+  border-radius: 8px;
+  color: #e8edff;
+  background:
+    linear-gradient(180deg, rgba(141, 162, 251, 0.13), rgba(141, 162, 251, 0.04)),
+    rgba(10, 18, 36, 0.72);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.tm-context-link-groups {
+  min-height: 0;
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.tm-context-link-group {
+  --context-tone: #78d9d0;
+  display: grid;
+  gap: 0.58rem;
+}
+
+.tm-context-link-group--discord {
+  --context-tone: #8da2fb;
+}
+
+.tm-context-link-group--github {
+  --context-tone: #f0f6fc;
+}
+
+.tm-context-link-group--document {
+  --context-tone: #d9a45f;
+}
+
+.tm-context-link-group--other {
+  --context-tone: #78d9d0;
+}
+
+.tm-context-link-group__title {
+  display: flex;
+  align-items: center;
+  gap: 0.48rem;
+  color: var(--context-tone);
+}
+
+.tm-context-link-group__title span {
+  width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--context-tone) 40%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--context-tone) 12%, transparent);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.tm-context-link-group__title strong {
+  color: var(--tm-text);
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tm-context-link-group__title small {
+  min-width: 1.35rem;
+  min-height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #081214;
+  background: var(--context-tone);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.tm-context-link-cards {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tm-context-link-card {
+  --context-tone: #78d9d0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--context-tone) 36%, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--context-tone) 11%, transparent), transparent),
+    rgba(1, 4, 9, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 28px rgba(0, 0, 0, 0.16);
+}
+
+.tm-context-link-card--discord {
+  --context-tone: #8da2fb;
+}
+
+.tm-context-link-card--github {
+  --context-tone: #f0f6fc;
+}
+
+.tm-context-link-card--document {
+  --context-tone: #d9a45f;
+}
+
+.tm-context-link-card--other {
+  --context-tone: #78d9d0;
+}
+
+.tm-context-link-card__icon {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--context-tone) 44%, transparent);
+  border-radius: 8px;
+  color: var(--context-tone);
+  background: color-mix(in srgb, var(--context-tone) 12%, transparent);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.tm-context-link-card__body {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.tm-context-link-card__body a {
+  overflow-wrap: anywhere;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 850;
+  line-height: 1.24;
+  text-decoration: none;
+}
+
+.tm-context-link-card__body a:hover,
+.tm-context-link-card__body a:focus-visible {
+  color: #9be8e2;
+  text-decoration: underline;
+}
+
+.tm-context-link-card__body p {
+  margin: 0;
+  color: rgba(232, 221, 206, 0.86);
+  line-height: 1.4;
+}
+
+.tm-context-link-card__body small {
+  color: var(--tm-muted);
+  font-size: 0.78rem;
+}
+
+.tm-context-link-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.44rem;
+}
+
+.tm-context-link-card__open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-height: 2rem;
+  padding: 0.38rem 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--context-tone) 48%, rgba(240, 246, 252, 0.12));
+  border-radius: 999px;
+  color: #f9ffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 78%),
+    color-mix(in srgb, var(--context-tone) 20%, rgba(1, 4, 9, 0.74));
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.tm-context-link-card__open svg {
+  width: 0.92rem;
+  height: 0.92rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.tm-context-link-card__open:hover,
+.tm-context-link-card__open:focus-visible {
+  border-color: color-mix(in srgb, var(--context-tone) 72%, rgba(255, 255, 255, 0.18));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.095), transparent 78%),
+    color-mix(in srgb, var(--context-tone) 28%, rgba(1, 4, 9, 0.7));
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.tm-context-link-card__open--discord {
+  border-color: color-mix(in srgb, #8da2fb 62%, rgba(240, 246, 252, 0.12));
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 78%),
+    color-mix(in srgb, #8da2fb 28%, rgba(1, 4, 9, 0.72));
+}
+
+.tm-context-link-card__open .tm-context-link-card__open-icon--discord {
+  fill: currentColor;
+  stroke: none;
+}
+
+.tm-modal.tm-modal--handoff {
+  z-index: 10070;
+  background:
+    linear-gradient(180deg, rgba(8, 13, 24, 0.72), rgba(0, 0, 0, 0.82)),
+    rgba(0, 0, 0, 0.74);
+  backdrop-filter: blur(5px);
+}
+
+.tm-discord-handoff {
+  width: min(36rem, calc(100vw - 2rem));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(141, 162, 251, 0.44);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(88, 101, 242, 0.18), transparent 42%),
+    linear-gradient(180deg, rgba(9, 14, 28, 0.98), rgba(4, 7, 10, 0.99));
+  box-shadow:
+    0 26px 80px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.tm-discord-handoff__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: center;
+  padding: 1.1rem 1.15rem;
+  border-bottom: 1px solid rgba(141, 162, 251, 0.22);
+  background:
+    linear-gradient(90deg, rgba(88, 101, 242, 0.2), transparent 70%),
+    rgba(255, 255, 255, 0.03);
+}
+
+.tm-discord-handoff__header h2 {
+  margin: 0.1rem 0 0.18rem;
+  color: #ffffff;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.tm-discord-handoff__header small {
+  color: rgba(232, 236, 255, 0.78);
+  font-size: 0.84rem;
+}
+
+.tm-discord-handoff__mark {
+  width: 3.15rem;
+  height: 3.15rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(173, 187, 255, 0.46);
+  border-radius: 11px;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 76%),
+    #5865f2;
+  box-shadow:
+    0 14px 32px rgba(88, 101, 242, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.tm-discord-handoff__mark svg {
+  width: 1.72rem;
+  height: 1.72rem;
+  fill: currentColor;
+}
+
+.tm-discord-handoff__body {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.05rem 1.15rem 0.95rem;
+}
+
+.tm-discord-handoff__target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.72rem;
+  align-items: center;
+  padding: 0.9rem;
+  border: 1px solid rgba(141, 162, 251, 0.3);
+  border-radius: 10px;
+  background:
+    linear-gradient(135deg, rgba(141, 162, 251, 0.13), transparent 64%),
+    rgba(1, 4, 9, 0.42);
+}
+
+.tm-discord-handoff__target > span {
+  width: 2.35rem;
+  height: 2.35rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(141, 162, 251, 0.44);
+  border-radius: 8px;
+  color: #cbd5ff;
+  background: rgba(88, 101, 242, 0.16);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.tm-discord-handoff__target strong,
+.tm-discord-handoff__target p,
+.tm-discord-handoff__target small {
+  overflow-wrap: anywhere;
+}
+
+.tm-discord-handoff__target strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.tm-discord-handoff__target p {
+  margin: 0.18rem 0;
+  color: rgba(232, 221, 206, 0.88);
+  line-height: 1.4;
+}
+
+.tm-discord-handoff__target small {
+  color: rgba(232, 236, 255, 0.62);
+}
+
+.tm-discord-handoff__steps {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem 0.68rem;
+  align-items: center;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid rgba(120, 217, 208, 0.18);
+  border-radius: 10px;
+  background: rgba(120, 217, 208, 0.055);
+}
+
+.tm-discord-handoff__steps span {
+  width: 1.45rem;
+  height: 1.45rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #061214;
+  background: #78d9d0;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.tm-discord-handoff__steps p {
+  margin: 0;
+  color: rgba(232, 236, 255, 0.82);
+  line-height: 1.4;
+}
+
+.tm-discord-handoff__steps strong {
+  color: #ffffff;
+}
+
+.tm-discord-handoff__footer {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.95rem 1.15rem 1.1rem;
+  border-top: 1px solid rgba(141, 162, 251, 0.18);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.tm-discord-handoff__footer p {
+  margin: 0;
+  color: rgba(232, 236, 255, 0.66);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.tm-discord-handoff__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
+.tm-discord-handoff__launch {
+  gap: 0.5rem;
+  color: #ffffff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 78%),
+    #5865f2;
+  box-shadow: 0 12px 26px rgba(88, 101, 242, 0.24);
+  text-decoration: none;
+}
+
+.tm-discord-handoff__launch svg {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.tm-discord-handoff__launch:hover,
+.tm-discord-handoff__launch:focus-visible {
+  text-decoration: none;
+}
+
+@media (max-width: 640px) {
+  .tm-discord-handoff {
+    width: min(100%, calc(100vw - 1.1rem));
+  }
+
+  .tm-discord-handoff__header,
+  .tm-discord-handoff__target {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tm-discord-handoff__mark {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .tm-discord-handoff__actions,
+  .tm-discord-handoff__actions .tm-btn {
+    width: 100%;
+  }
+
+  .tm-discord-handoff__actions .tm-btn {
+    justify-content: center;
+  }
+}
+
+.tm-context-links-empty {
+  min-height: 17rem;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.45rem;
+  padding: 2rem;
+  color: var(--tm-muted);
+  text-align: center;
+}
+
+.tm-context-links-empty span {
+  width: 3rem;
+  height: 3rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(120, 217, 208, 0.28);
+  border-radius: 50%;
+  color: #78d9d0;
+  background: rgba(24, 94, 88, 0.16);
+  font-size: 1.35rem;
+}
+
+.tm-context-links-empty strong {
+  color: var(--tm-text);
+}
+
+.tm-context-links-empty p {
+  max-width: 28rem;
   margin: 0;
 }
 
@@ -15125,8 +16621,34 @@ onBeforeUnmount(() => {
   }
 
   .tm-github-fields,
-  .tm-github-linked-record {
+  .tm-github-linked-record,
+  .tm-context-link-field,
+  .tm-context-link-card {
     grid-template-columns: 1fr;
+  }
+
+  .tm-context-link-field .tm-field--full,
+  .tm-context-link-field__remove {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .tm-context-link-field__remove,
+  .tm-context-link-card__actions {
+    justify-self: start;
+  }
+
+  .tm-context-link-card__actions {
+    justify-content: flex-start;
+  }
+
+  .tm-context-links-modal__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tm-context-links-modal__actions {
+    justify-content: space-between;
   }
 
   .tm-github-linked-record__actions {

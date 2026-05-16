@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   InboundWebhookActionType,
   Prisma,
@@ -60,9 +62,20 @@ export const TEST_MANAGER_DISCORD_EVENT_KEYS = [
   'note.added'
 ] as const;
 
+const TEST_CHANGE_CONTEXT_LINK_KINDS = ['DISCORD', 'GITHUB', 'DOCUMENT', 'OTHER'] as const;
+
 type TestManagerPermissionKey = (typeof TEST_MANAGER_PERMISSION_KEYS)[number];
 type TestManagerRoleKey = (typeof TEST_MANAGER_ROLE_KEYS)[number];
 type TestManagerDiscordEventKey = (typeof TEST_MANAGER_DISCORD_EVENT_KEYS)[number];
+type TestChangeContextLinkKind = (typeof TEST_CHANGE_CONTEXT_LINK_KINDS)[number];
+
+type TestChangeContextLinkInput = {
+  id?: string | null;
+  kind?: string | null;
+  label?: string | null;
+  url?: string | null;
+  description?: string | null;
+};
 
 const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [
   ...TEST_MANAGER_PERMISSION_KEYS
@@ -525,6 +538,119 @@ async function buildGithubIssueFields(value?: string | null): Promise<{
     githubIssueUrl: reference.url,
     githubIssueMetadata: metadata as Prisma.InputJsonValue
   };
+}
+
+function isTestChangeContextLinkKind(value: unknown): value is TestChangeContextLinkKind {
+  return (
+    typeof value === 'string' &&
+    TEST_CHANGE_CONTEXT_LINK_KINDS.includes(value as TestChangeContextLinkKind)
+  );
+}
+
+function trimmedString(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength).trim() : '';
+}
+
+function normalizeContextLinkUrl(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function inferContextLinkKind(url: string): TestChangeContextLinkKind {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname === 'discord.com' || hostname.endsWith('.discord.com')) {
+      return 'DISCORD';
+    }
+    if (hostname === 'discordapp.com' || hostname.endsWith('.discordapp.com')) {
+      return 'DISCORD';
+    }
+    if (hostname === 'github.com' || hostname.endsWith('.github.com')) {
+      return 'GITHUB';
+    }
+    if (/docs?|wiki|notion|confluence|readme/.test(hostname)) {
+      return 'DOCUMENT';
+    }
+  } catch {
+    // Fall through to OTHER below.
+  }
+
+  return 'OTHER';
+}
+
+function contextLinkFallbackLabel(kind: TestChangeContextLinkKind, url: string): string {
+  const labels: Record<TestChangeContextLinkKind, string> = {
+    DISCORD: 'Discord context',
+    GITHUB: 'GitHub reference',
+    DOCUMENT: 'Documentation',
+    OTHER: 'Context link'
+  };
+
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return `${labels[kind]} · ${hostname}`;
+  } catch {
+    return labels[kind];
+  }
+}
+
+function normalizeContextLinks(value: unknown): Array<{
+  id: string;
+  kind: TestChangeContextLinkKind;
+  label: string;
+  url: string;
+  description: string;
+}> {
+  const rawLinks = Array.isArray(value) ? value.slice(0, 20) : [];
+
+  return rawLinks
+    .map((item) => {
+      const raw = jsonObject(item);
+      if (!raw) {
+        return null;
+      }
+
+      const url = normalizeContextLinkUrl(raw.url);
+      if (!url) {
+        return null;
+      }
+
+      const kind = isTestChangeContextLinkKind(raw.kind)
+        ? raw.kind
+        : inferContextLinkKind(url);
+      const rawId = trimmedString(raw.id, 64);
+      const id = /^[A-Za-z0-9_-]{1,64}$/.test(rawId) ? rawId : `ctx_${randomUUID()}`;
+      const label = trimmedString(raw.label, 140) || contextLinkFallbackLabel(kind, url);
+      const description = trimmedString(raw.description, 500);
+
+      return { id, kind, label, url, description };
+    })
+    .filter(
+      (
+        link
+      ): link is {
+        id: string;
+        kind: TestChangeContextLinkKind;
+        label: string;
+        url: string;
+        description: string;
+      } => Boolean(link)
+    );
+}
+
+function contextLinksJson(value: unknown): Prisma.InputJsonValue {
+  return normalizeContextLinks(value) as Prisma.InputJsonValue;
 }
 
 function serializeGithubPullRequest(url: string | null, metadata: Prisma.JsonValue | null) {
@@ -1323,6 +1449,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     targetBuild: change.targetBuild ?? null,
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
+    contextLinks: normalizeContextLinks(change.contextLinks),
     includeInNextPatch: change.includeInNextPatch,
     readyToTest: change.readyToTest,
     autoClosePassCount: change.autoClosePassCount,
@@ -2370,6 +2497,7 @@ export async function createTestChange(
     targetBuild?: string | null;
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
+    contextLinks?: TestChangeContextLinkInput[];
     includeInNextPatch?: boolean;
     autoClosePassCount?: number;
     dueAt?: Date | null;
@@ -2394,6 +2522,7 @@ export async function createTestChange(
         githubPrMetadata: githubPullRequest.githubPrMetadata,
         githubIssueUrl: githubIssue.githubIssueUrl,
         githubIssueMetadata: githubIssue.githubIssueMetadata,
+        contextLinks: contextLinksJson(input.contextLinks ?? []),
         includeInNextPatch: input.includeInNextPatch ?? true,
         autoClosePassCount: input.autoClosePassCount ?? 0,
         dueAt: input.dueAt ?? null,
@@ -2445,6 +2574,7 @@ export async function updateTestChange(
     targetBuild?: string | null;
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
+    contextLinks?: TestChangeContextLinkInput[];
     includeInNextPatch?: boolean;
     autoClosePassCount?: number;
     dueAt?: Date | null;
@@ -2464,6 +2594,7 @@ export async function updateTestChange(
       targetBuild: true,
       githubPrUrl: true,
       githubIssueUrl: true,
+      contextLinks: true,
       includeInNextPatch: true,
       autoClosePassCount: true,
       dueAt: true,
@@ -2476,6 +2607,10 @@ export async function updateTestChange(
 
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
+  const nextContextLinks =
+    typeof input.contextLinks === 'undefined'
+      ? normalizeContextLinks(existing.contextLinks)
+      : normalizeContextLinks(input.contextLinks);
   const shouldEvaluateAutoClose =
     typeof input.autoClosePassCount === 'number' &&
     input.autoClosePassCount !== existing.autoClosePassCount;
@@ -2490,6 +2625,9 @@ export async function updateTestChange(
     githubPrMetadata: githubPullRequest.githubPrMetadata,
     githubIssueUrl: githubIssue.githubIssueUrl,
     githubIssueMetadata: githubIssue.githubIssueMetadata,
+    ...(typeof input.contextLinks === 'undefined'
+      ? {}
+      : { contextLinks: contextLinksJson(input.contextLinks) }),
     ...(typeof input.includeInNextPatch === 'boolean'
       ? { includeInNextPatch: input.includeInNextPatch }
       : {}),
@@ -2521,6 +2659,7 @@ export async function updateTestChange(
           targetBuild: existing.targetBuild,
           githubPrUrl: existing.githubPrUrl,
           githubIssueUrl: existing.githubIssueUrl,
+          contextLinks: normalizeContextLinks(existing.contextLinks),
           includeInNextPatch: existing.includeInNextPatch,
           autoClosePassCount: existing.autoClosePassCount,
           dueAt: existing.dueAt?.toISOString() ?? null,
@@ -2534,6 +2673,7 @@ export async function updateTestChange(
           targetBuild: data.targetBuild,
           githubPrUrl: data.githubPrUrl,
           githubIssueUrl: data.githubIssueUrl,
+          contextLinks: nextContextLinks,
           includeInNextPatch:
             typeof data.includeInNextPatch === 'boolean'
               ? data.includeInNextPatch
@@ -2569,6 +2709,52 @@ export async function updateTestChange(
     });
   }
   return serialized;
+}
+
+export async function updateTestChangeContextLinks(
+  actorUserId: string,
+  changeId: string,
+  contextLinks: TestChangeContextLinkInput[]
+) {
+  await ensureAdmin(actorUserId);
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      contextLinks: true
+    }
+  });
+  if (!existing) {
+    throw new Error('Change not found.');
+  }
+
+  const previousLinks = normalizeContextLinks(existing.contextLinks);
+  const nextLinks = normalizeContextLinks(contextLinks);
+  if (JSON.stringify(previousLinks) === JSON.stringify(nextLinks)) {
+    return getTestChange(changeId, actorUserId);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data: { contextLinks: contextLinksJson(nextLinks) }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: 'Context links updated',
+      detail: 'Linked context references were updated by an administrator.',
+      metadata: {
+        from: { contextLinks: previousLinks },
+        to: { contextLinks: nextLinks }
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
 }
 
 export async function setTestChangeNextPatch(
