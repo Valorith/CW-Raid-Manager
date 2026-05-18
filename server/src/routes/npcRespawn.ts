@@ -509,7 +509,8 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
         queued: 0,
         processed: 0,
         deliveryStatus: null,
-        lastError: unavailableReason
+        lastError: unavailableReason,
+        skippedReason: null
       };
     }
 
@@ -522,7 +523,12 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
     const processed = queueResult.queued > 0 ? await processNotificationOutbox(10) : 0;
     const delivery = await getTelegramDeliveryStatus(queueResult.dedupeKey);
 
-    return { queued: queueResult.queued, processed, ...delivery };
+    return {
+      queued: queueResult.queued,
+      processed,
+      skippedReason: queueResult.skippedReason ?? null,
+      ...delivery
+    };
   });
 
   // Development-only helper for creating a server-backed TestNPC respawn entry.

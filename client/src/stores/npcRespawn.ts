@@ -504,6 +504,10 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   }
 
   function handleTelegramNotificationResult(result: NpcRespawnTelegramNotificationResult) {
+    if (result.skippedReason === 'current_state_before_telegram_enabled') {
+      return;
+    }
+
     if (result.lastError) {
       showNotificationToast({
         title: 'Telegram notification failed',

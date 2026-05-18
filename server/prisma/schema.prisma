@@ -1015,6 +1015,7 @@ model NpcRespawnSubscription {
   isEnabled         Boolean       @default(true)
   browserNotificationsEnabled Boolean       @default(true)
   telegramNotificationsEnabled Boolean       @default(false)
+  telegramNotificationsEnabledAt DateTime?
   isInstanceVariant Boolean       @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt

@@ -48,11 +48,13 @@ type NpcSubscriptionRecord = {
   npcDefinitionId: string;
   isInstanceVariant: boolean;
   notifyMinutes: number;
+  telegramNotificationsEnabledAt: Date | null;
 };
 
 export type RespawnTelegramQueueResult = {
   queued: number;
   dedupeKey: string | null;
+  skippedReason?: 'current_state_before_telegram_enabled';
 };
 
 function buildTelegramDedupeKey(options: {
@@ -125,6 +127,25 @@ function buildWindowEnteredRespawnNotificationDedupeSeed(
   return `${buildRespawnNotificationDedupeSeed(killRecordId, npcDefinitionId, isInstanceVariant)}:window-entered`;
 }
 
+function didRespawnTransitionHappenAfterTelegramWasEnabled(
+  subscription: Pick<NpcSubscriptionRecord, 'telegramNotificationsEnabledAt'>,
+  transitionTime: Date | null | undefined
+): boolean {
+  if (!transitionTime || !subscription.telegramNotificationsEnabledAt) {
+    return true;
+  }
+
+  return transitionTime.getTime() > subscription.telegramNotificationsEnabledAt.getTime();
+}
+
+function buildCurrentStateBeforeTelegramEnabledResult(): RespawnTelegramQueueResult {
+  return {
+    queued: 0,
+    dedupeKey: null,
+    skippedReason: 'current_state_before_telegram_enabled'
+  };
+}
+
 async function queueRespawnUserNotifications(options: {
   guildId: string;
   guildName: string;
@@ -150,6 +171,10 @@ async function queueRespawnUserNotifications(options: {
         );
 
         if (now >= thresholdTime) {
+          if (!didRespawnTransitionHappenAfterTelegramWasEnabled(subscription, thresholdTime)) {
+            continue;
+          }
+
           const minutesUntilWindow = Math.max(
             0,
             Math.ceil((npc.status.respawnMinTime.getTime() - now.getTime()) / 60000)
@@ -182,6 +207,15 @@ async function queueRespawnUserNotifications(options: {
       }
 
       if (npc.status.respawnMinTime && npc.status.respawnStatus === 'window') {
+        if (
+          !didRespawnTransitionHappenAfterTelegramWasEnabled(
+            subscription,
+            npc.status.respawnMinTime
+          )
+        ) {
+          continue;
+        }
+
         await queueUserNotification({
           userId: subscription.userId,
           scopeType: 'GUILD',
@@ -208,6 +242,11 @@ async function queueRespawnUserNotifications(options: {
       }
 
       if (npc.status.respawnStatus === 'up') {
+        const upSinceTime = npc.status.respawnMaxTime ?? npc.status.respawnMinTime;
+        if (!didRespawnTransitionHappenAfterTelegramWasEnabled(subscription, upSinceTime)) {
+          continue;
+        }
+
         await queueUserNotification({
           userId: subscription.userId,
           scopeType: 'GUILD',
@@ -220,8 +259,7 @@ async function queueRespawnUserNotifications(options: {
             zoneName: npc.zoneName,
             isInstanceVariant: npc.isInstanceVariant,
             killRecordId: npc.lastKillRecordId,
-            upSinceTime:
-              (npc.status.respawnMaxTime ?? npc.status.respawnMinTime)?.toISOString() ?? null
+            upSinceTime: upSinceTime?.toISOString() ?? null
           },
           dedupeSeed: buildRespawnNotificationDedupeSeed(
             npc.lastKillRecordId,
@@ -254,6 +292,7 @@ export async function queueRespawnTelegramNotificationForUser(options: {
       isEnabled: true,
       telegramNotificationsEnabled: true,
       notifyMinutes: true,
+      telegramNotificationsEnabledAt: true,
       npcDefinition: {
         select: {
           id: true,
@@ -312,6 +351,9 @@ export async function queueRespawnTelegramNotificationForUser(options: {
     if (now < thresholdTime) {
       return { queued: 0, dedupeKey: null };
     }
+    if (!didRespawnTransitionHappenAfterTelegramWasEnabled(subscription, thresholdTime)) {
+      return buildCurrentStateBeforeTelegramEnabledResult();
+    }
 
     const minutesUntilWindow = Math.max(
       0,
@@ -355,6 +397,12 @@ export async function queueRespawnTelegramNotificationForUser(options: {
   }
 
   if (status.respawnMinTime && status.respawnStatus === 'window') {
+    if (
+      !didRespawnTransitionHappenAfterTelegramWasEnabled(subscription, status.respawnMinTime)
+    ) {
+      return buildCurrentStateBeforeTelegramEnabledResult();
+    }
+
     const eventKey = 'npc.respawn.window_open';
     const dedupeSeed = buildWindowEnteredRespawnNotificationDedupeSeed(
       lastKill.id,
@@ -392,6 +440,11 @@ export async function queueRespawnTelegramNotificationForUser(options: {
   }
 
   if (status.respawnStatus === 'up') {
+    const upSinceTime = status.respawnMaxTime ?? status.respawnMinTime;
+    if (!didRespawnTransitionHappenAfterTelegramWasEnabled(subscription, upSinceTime)) {
+      return buildCurrentStateBeforeTelegramEnabledResult();
+    }
+
     const eventKey = 'npc.respawn.up';
     const dedupeSeed = buildRespawnNotificationDedupeSeed(
       lastKill.id,
@@ -410,7 +463,7 @@ export async function queueRespawnTelegramNotificationForUser(options: {
         zoneName: npc.zoneName,
         isInstanceVariant: options.isInstanceVariant,
         killRecordId: lastKill.id,
-        upSinceTime: (status.respawnMaxTime ?? status.respawnMinTime)?.toISOString() ?? null
+        upSinceTime: upSinceTime?.toISOString() ?? null
       },
       dedupeSeed,
       providers: ['TELEGRAM']
@@ -673,7 +726,8 @@ async function processGuildRespawnNotifications(
       userId: true,
       npcDefinitionId: true,
       isInstanceVariant: true,
-      notifyMinutes: true
+      notifyMinutes: true,
+      telegramNotificationsEnabledAt: true
     }
   });
   const subscriptionsByVariant = new Map<string, NpcSubscriptionRecord[]>();

@@ -537,6 +537,7 @@ export async function getUserSubscriptions(userId: string, guildId: string) {
     isEnabled: sub.isEnabled,
     browserNotificationsEnabled: sub.browserNotificationsEnabled,
     telegramNotificationsEnabled: sub.telegramNotificationsEnabled,
+    telegramNotificationsEnabledAt: sub.telegramNotificationsEnabledAt,
     isInstanceVariant: sub.isInstanceVariant,
     createdAt: sub.createdAt,
     updatedAt: sub.updatedAt,
@@ -563,6 +564,14 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
     input.telegramNotificationsEnabled ?? existing?.telegramNotificationsEnabled ?? false;
   const isEnabled =
     input.isEnabled ?? (browserNotificationsEnabled || telegramNotificationsEnabled);
+  const existingTelegramActive =
+    existing?.isEnabled === true && existing.telegramNotificationsEnabled === true;
+  const telegramNotificationsEnabledAt =
+    isEnabled && telegramNotificationsEnabled
+      ? existingTelegramActive
+        ? existing.telegramNotificationsEnabledAt ?? existing.updatedAt
+        : new Date()
+      : null;
 
   if (existing) {
     return prisma.npcRespawnSubscription.update({
@@ -571,7 +580,8 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
         notifyMinutes: input.notifyMinutes ?? existing.notifyMinutes,
         isEnabled,
         browserNotificationsEnabled,
-        telegramNotificationsEnabled
+        telegramNotificationsEnabled,
+        telegramNotificationsEnabledAt
       }
     });
   }
@@ -584,6 +594,7 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
       isEnabled,
       browserNotificationsEnabled,
       telegramNotificationsEnabled,
+      telegramNotificationsEnabledAt,
       isInstanceVariant
     }
   });

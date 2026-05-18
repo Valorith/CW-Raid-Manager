@@ -1008,6 +1008,7 @@ export interface NpcRespawnSubscription {
   isEnabled: boolean;
   browserNotificationsEnabled: boolean;
   telegramNotificationsEnabled: boolean;
+  telegramNotificationsEnabledAt: string | null;
   isInstanceVariant: boolean;
   createdAt: string;
   updatedAt: string;
@@ -1061,6 +1062,7 @@ export interface NpcRespawnTelegramNotificationResult {
   processed: number;
   deliveryStatus: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | null;
   lastError: string | null;
+  skippedReason: 'current_state_before_telegram_enabled' | null;
 }
 
 // Type for NPC favorites - user preference for prioritizing NPCs in the tracker
