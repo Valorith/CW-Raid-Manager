@@ -405,8 +405,16 @@
                   :class="[
                     'action-btn action-btn--notify',
                     `action-btn--notify-${getNotificationMode(npc.id, npc.isInstanceVariant)}`,
-                    { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }
+                    {
+                      'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant),
+                      'action-btn--busy': isNotificationTogglePending(
+                        npc.id,
+                        npc.isInstanceVariant
+                      )
+                    }
                   ]"
+                  type="button"
+                  :disabled="isNotificationTogglePending(npc.id, npc.isInstanceVariant)"
                   :title="getNotificationTitle(getNotificationMode(npc.id, npc.isInstanceVariant))"
                   :aria-label="
                     getNotificationTitle(getNotificationMode(npc.id, npc.isInstanceVariant))
@@ -722,6 +730,7 @@ const selectedNpc = ref<NpcRespawnTrackerEntry | null>(null);
 const submittingKill = ref(false);
 const killModalMode = ref<'create' | 'edit'>('create');
 const editingKillRecordId = ref<string | null>(null);
+const pendingNotificationToggleKeys = ref<Set<string>>(new Set());
 const currentPage = ref(1);
 const itemsPerPage = 10;
 
@@ -982,11 +991,32 @@ function getNotificationTitle(mode: NpcNotificationMode): string {
   return titles[mode];
 }
 
+function getNotificationToggleKey(npcId: string, isInstanceVariant: boolean): string {
+  return `${npcId}:${isInstanceVariant}`;
+}
+
+function isNotificationTogglePending(npcId: string, isInstanceVariant: boolean): boolean {
+  return pendingNotificationToggleKeys.value.has(
+    getNotificationToggleKey(npcId, isInstanceVariant)
+  );
+}
+
 async function toggleNotify(npcId: string, isInstanceVariant: boolean) {
+  const toggleKey = getNotificationToggleKey(npcId, isInstanceVariant);
+  if (pendingNotificationToggleKeys.value.has(toggleKey)) return;
+
+  pendingNotificationToggleKeys.value = new Set(pendingNotificationToggleKeys.value).add(
+    toggleKey
+  );
   try {
     await store.toggleSubscription(guildId, npcId, isInstanceVariant);
   } catch (err) {
     console.error('Failed to toggle subscription:', err);
+    showErrorFromException(err, 'Failed to update NPC notification settings');
+  } finally {
+    const nextPendingKeys = new Set(pendingNotificationToggleKeys.value);
+    nextPendingKeys.delete(toggleKey);
+    pendingNotificationToggleKeys.value = nextPendingKeys;
   }
 }
 
@@ -2062,10 +2092,19 @@ watch(
   transition: all 0.15s ease;
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.5);
   color: #f8fafc;
+}
+
+.action-btn:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.action-btn--busy {
+  transform: scale(0.96);
 }
 
 .action-btn svg {

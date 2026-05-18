@@ -291,6 +291,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       subscriptions.value = await api.fetchNpcSubscriptions(guildId);
       checkForNotifications(guildId);
     } catch (err: any) {
+      error.value =
+        err?.response?.data?.message ?? err?.message ?? 'Failed to load NPC notification settings.';
       console.error('[NpcRespawnStore] Error loading subscriptions:', err);
     }
   }
