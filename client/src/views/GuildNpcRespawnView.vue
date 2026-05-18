@@ -7,6 +7,15 @@
           <p class="muted">Track NPC kills and anticipate respawn times</p>
         </div>
         <div class="header-actions">
+          <button
+            v-if="showDebugRespawnTools && canManage"
+            class="btn btn--outline btn--debug"
+            type="button"
+            :disabled="loading || creatingDebugRespawnTestNpc"
+            @click="addDebugRespawnTestNpc"
+          >
+            {{ creatingDebugRespawnTestNpc ? 'Adding...' : 'TestNPC 1m' }}
+          </button>
           <RouterLink
             v-if="canManage"
             class="btn btn--primary"
@@ -349,6 +358,7 @@
             <td class="col-actions">
               <div class="action-buttons">
                 <button
+                  v-if="!isDebugRespawnTestNpc(npc)"
                   class="action-btn action-btn--kill"
                   title="Record Kill"
                   @click="openKillModal(npc)"
@@ -358,7 +368,7 @@
                   </svg>
                 </button>
                 <button
-                  v-if="npc.respawnStatus !== 'up'"
+                  v-if="!isDebugRespawnTestNpc(npc) && npc.respawnStatus !== 'up'"
                   class="action-btn action-btn--spawn"
                   title="It's Up! - Confirm NPC has spawned"
                   @click="confirmSpawnUp(npc)"
@@ -368,7 +378,7 @@
                   </svg>
                 </button>
                 <button
-                  v-if="npc.respawnStatus !== 'down'"
+                  v-if="!isDebugRespawnTestNpc(npc) && npc.respawnStatus !== 'down'"
                   class="action-btn action-btn--down"
                   title="It's Down! - Mark NPC as killed"
                   @click="confirmMarkDown(npc)"
@@ -378,14 +388,65 @@
                   </svg>
                 </button>
                 <button
-                  :class="[
-                    'action-btn action-btn--notify',
-                    { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }
-                  ]"
-                  title="Toggle Notifications"
-                  @click="toggleNotify(npc.id, npc.isInstanceVariant)"
+                  v-if="isDebugRespawnTestNpc(npc)"
+                  class="action-btn action-btn--debug-delete"
+                  title="Remove TestNPC"
+                  aria-label="Remove TestNPC"
+                  @click="removeDebugRespawnTestNpc(npc)"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 6h18" />
+                    <path d="M8 6V4h8v2" />
+                    <path d="M19 6l-1 14H6L5 6" />
+                    <path d="M10 11v5M14 11v5" />
+                  </svg>
+                </button>
+                <button
+                  :class="[
+                    'action-btn action-btn--notify',
+                    `action-btn--notify-${getNotificationMode(npc.id, npc.isInstanceVariant)}`,
+                    { 'action-btn--active': isSubscribed(npc.id, npc.isInstanceVariant) }
+                  ]"
+                  :title="getNotificationTitle(getNotificationMode(npc.id, npc.isInstanceVariant))"
+                  :aria-label="
+                    getNotificationTitle(getNotificationMode(npc.id, npc.isInstanceVariant))
+                  "
+                  @click="toggleNotify(npc.id, npc.isInstanceVariant)"
+                >
+                  <svg
+                    v-if="getNotificationMode(npc.id, npc.isInstanceVariant) === 'telegram'"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M21.6 3.3 2.9 10.5c-1.2.5-1.2 1.2-.2 1.5l4.8 1.5 1.8 5.7c.2.6.3.8.7.8.3 0 .5-.1.8-.4l2.6-2.5 5.4 4c1 .5 1.6.2 1.9-.9l3.4-16c.3-1.3-.5-1.8-1.5-1.4ZM8.2 13.1l10.5-6.6c.5-.3.9-.1.5.2l-8.5 7.7-.3 3.3-1.3-4.1 9.9-7.1-10.8 6.6Z"
+                    />
+                  </svg>
+                  <span
+                    v-else-if="getNotificationMode(npc.id, npc.isInstanceVariant) === 'both'"
+                    class="notify-combo-icon"
+                    aria-hidden="true"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path
+                        d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"
+                      />
+                    </svg>
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path
+                        d="M21.6 3.3 2.9 10.5c-1.2.5-1.2 1.2-.2 1.5l4.8 1.5 1.8 5.7c.2.6.3.8.7.8.3 0 .5-.1.8-.4l2.6-2.5 5.4 4c1 .5 1.6.2 1.9-.9l3.4-16c.3-1.3-.5-1.8-1.5-1.4ZM8.2 13.1l10.5-6.6c.5-.3.9-.1.5.2l-8.5 7.7-.3 3.3-1.3-4.1 9.9-7.1-10.8 6.6Z"
+                      />
+                    </svg>
+                  </span>
+                  <svg
+                    v-else
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    aria-hidden="true"
+                  >
                     <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
                   </svg>
                 </button>
@@ -631,6 +692,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useNpcRespawnStore } from '../stores/npcRespawn';
+import type { NpcNotificationMode } from '../stores/npcRespawn';
 import {
   api,
   type NpcRespawnTrackerEntry,
@@ -696,6 +758,10 @@ const loading = computed(() => store.loading);
 const error = computed(() => store.error);
 const npcs = computed(() => store.npcs);
 const canManage = computed(() => store.canManage);
+const creatingDebugRespawnTestNpc = ref(false);
+const showDebugRespawnTools = computed(() => {
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname);
+});
 
 const zones = computed(() => {
   const uniqueZones = new Set(npcs.value.map((n) => n.zoneName ?? 'Unknown').filter(Boolean));
@@ -902,6 +968,20 @@ function isSubscribed(npcId: string, isInstanceVariant: boolean): boolean {
   return store.isVariantSubscribed(npcId, isInstanceVariant);
 }
 
+function getNotificationMode(npcId: string, isInstanceVariant: boolean): NpcNotificationMode {
+  return store.getNotificationMode(npcId, isInstanceVariant);
+}
+
+function getNotificationTitle(mode: NpcNotificationMode): string {
+  const titles: Record<NpcNotificationMode, string> = {
+    none: 'Notifications off. Click to enable browser alerts.',
+    browser: 'Browser alerts enabled. Click to switch to Telegram alerts.',
+    telegram: 'Telegram alerts enabled. Click to enable both browser and Telegram alerts.',
+    both: 'Browser and Telegram alerts enabled. Click to turn notifications off.'
+  };
+  return titles[mode];
+}
+
 async function toggleNotify(npcId: string, isInstanceVariant: boolean) {
   try {
     await store.toggleSubscription(guildId, npcId, isInstanceVariant);
@@ -910,8 +990,46 @@ async function toggleNotify(npcId: string, isInstanceVariant: boolean) {
   }
 }
 
+async function addDebugRespawnTestNpc() {
+  if (creatingDebugRespawnTestNpc.value) return;
+
+  creatingDebugRespawnTestNpc.value = true;
+  try {
+    await store.addDebugRespawnTestNpc(guildId);
+    searchQuery.value = '';
+    activeStatusFilter.value = 'all';
+    activeZoneFilter.value = 'all';
+    activeExpansionFilter.value = 'all';
+    raidOnlyFilter.value = false;
+    activeVariantFilter.value = 'all';
+    currentPage.value = 1;
+  } catch (err) {
+    showErrorFromException(err, 'Failed to add TestNPC respawn test');
+  } finally {
+    creatingDebugRespawnTestNpc.value = false;
+  }
+}
+
+async function removeDebugRespawnTestNpc(npc: NpcRespawnTrackerEntry) {
+  try {
+    await store.removeDebugRespawnTestNpc(guildId, npc.id);
+  } catch (err) {
+    showErrorFromException(err, 'Failed to remove TestNPC respawn test');
+  }
+}
+
+function isDebugRespawnTestNpc(npc: NpcRespawnTrackerEntry): boolean {
+  return store.isDebugRespawnTestNpc(npc);
+}
+
 // Context menu functions
 function openContextMenu(event: MouseEvent, npc: NpcRespawnTrackerEntry) {
+  if (isDebugRespawnTestNpc(npc)) {
+    event.preventDefault();
+    closeContextMenu();
+    return;
+  }
+
   event.preventDefault();
   contextMenuNpc.value = npc;
   contextMenuX.value = event.clientX;
@@ -1278,6 +1396,8 @@ watch(
 .header-actions {
   display: flex;
   gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .error-banner {
@@ -1983,10 +2103,59 @@ watch(
   color: #f87171;
 }
 
+.action-btn--debug-delete {
+  background: rgba(244, 63, 94, 0.16);
+  border-color: rgba(244, 63, 94, 0.38);
+  color: #fda4af;
+}
+
+.action-btn--debug-delete:hover {
+  background: rgba(244, 63, 94, 0.3);
+  border-color: rgba(244, 63, 94, 0.62);
+  color: #fb7185;
+}
+
 .action-btn--notify.action-btn--active {
   background: rgba(250, 204, 21, 0.2);
   border-color: rgba(250, 204, 21, 0.5);
   color: #fde047;
+}
+
+.action-btn--notify-telegram.action-btn--active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #7dd3fc;
+}
+
+.action-btn--notify-both.action-btn--active {
+  background: rgba(34, 197, 94, 0.22);
+  border-color: rgba(34, 197, 94, 0.62);
+  color: #86efac;
+}
+
+.notify-combo-icon {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notify-combo-icon svg:first-child {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  top: 0;
+  left: 0;
+}
+
+.notify-combo-icon svg:last-child {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  right: 0;
+  bottom: 0;
 }
 
 /* Modal styles */
@@ -2164,6 +2333,16 @@ watch(
 .btn--outline:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.15);
   border-color: rgba(59, 130, 246, 0.5);
+}
+
+.btn--debug {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.btn--debug:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.62);
 }
 
 .btn--outline:disabled {

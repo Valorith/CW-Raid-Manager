@@ -1006,6 +1006,8 @@ export interface NpcRespawnSubscription {
   npcDefinitionId: string;
   notifyMinutes: number;
   isEnabled: boolean;
+  browserNotificationsEnabled: boolean;
+  telegramNotificationsEnabled: boolean;
   isInstanceVariant: boolean;
   createdAt: string;
   updatedAt: string;
@@ -1044,7 +1046,21 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+  browserNotificationsEnabled?: boolean;
+  telegramNotificationsEnabled?: boolean;
   isInstanceVariant?: boolean;
+}
+
+export interface NpcRespawnTelegramNotificationInput {
+  npcDefinitionId: string;
+  isInstanceVariant?: boolean;
+}
+
+export interface NpcRespawnTelegramNotificationResult {
+  queued: number;
+  processed: number;
+  deliveryStatus: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | null;
+  lastError: string | null;
 }
 
 // Type for NPC favorites - user preference for prioritizing NPCs in the tracker
@@ -5623,6 +5639,26 @@ export const api = {
   ): Promise<NpcRespawnSubscription> {
     const response = await axios.post(`/api/guilds/${guildId}/npc-subscriptions`, input);
     return response.data.subscription;
+  },
+
+  async queueNpcRespawnTelegramNotification(
+    guildId: string,
+    input: NpcRespawnTelegramNotificationInput
+  ): Promise<NpcRespawnTelegramNotificationResult> {
+    const response = await axios.post(
+      `/api/guilds/${guildId}/npc-subscriptions/telegram-notification`,
+      input
+    );
+    return response.data;
+  },
+
+  async createNpcRespawnDebugTestNpc(guildId: string): Promise<NpcRespawnTrackerEntry> {
+    const response = await axios.post(`/api/guilds/${guildId}/npc-respawn/debug-test-npc`);
+    return response.data.npc;
+  },
+
+  async deleteNpcRespawnDebugTestNpc(guildId: string, npcDefinitionId: string): Promise<void> {
+    await axios.delete(`/api/guilds/${guildId}/npc-respawn/debug-test-npc/${npcDefinitionId}`);
   },
 
   async deleteNpcSubscription(

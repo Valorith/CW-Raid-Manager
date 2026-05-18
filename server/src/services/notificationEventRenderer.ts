@@ -126,7 +126,7 @@ export function renderNotificationEvent(
         };
       }
       return {
-        text: `Respawn window open for ${asString(data.npcName, 'a tracked NPC')} in ${asString(
+        text: `${asString(data.npcName, 'A tracked NPC')} has entered its respawn window for ${asString(
           data.guildName,
           'your guild'
         )}.`

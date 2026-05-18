@@ -3,13 +3,19 @@ import { z } from 'zod';
 
 import { authenticate } from '../middleware/authenticate.js';
 import { emitDiscordWebhookEvent } from '../services/discordWebhookService.js';
-import { resetRespawnNotification } from '../services/npcRespawnNotificationService.js';
+import { processNotificationOutbox } from '../services/notificationOutboxService.js';
+import {
+  queueRespawnTelegramNotificationForUser,
+  resetRespawnNotification
+} from '../services/npcRespawnNotificationService.js';
 import {
   listNpcDefinitions,
   getNpcDefinition,
   createNpcDefinition,
+  createDebugRespawnTestNpc,
   updateNpcDefinition,
   deleteNpcDefinition,
+  deleteDebugRespawnTestNpc,
   listKillRecords,
   listKillRecordsForNpc,
   createKillRecord,
@@ -24,10 +30,33 @@ import {
 } from '../services/npcRespawnService.js';
 import { recordTrackedNpcKillInRecentRaid } from '../services/raidNpcKillService.js';
 import { ensureUserCanViewGuild, roleCanEditRaid } from '../services/raidService.js';
+import { getNotificationProviderUnavailableReason } from '../services/userNotificationService.js';
 import { withPreferredDisplayName } from '../utils/displayName.js';
 import { prisma } from '../utils/prisma.js';
 
 // Schema definitions
+async function getTelegramDeliveryStatus(dedupeKey: string | null) {
+  if (!dedupeKey) {
+    return {
+      deliveryStatus: null,
+      lastError: null
+    };
+  }
+
+  const delivery = await prisma.notificationDelivery.findUnique({
+    where: { dedupeKey },
+    select: {
+      status: true,
+      lastError: true
+    }
+  });
+
+  return {
+    deliveryStatus: delivery?.status ?? null,
+    lastError: delivery?.lastError ?? null
+  };
+}
+
 const npcDefinitionBodySchema = z.object({
   npcName: z.string().trim().min(1, 'NPC name is required').max(191),
   zoneName: z.string().trim().max(191).nullable().optional(),
@@ -60,6 +89,13 @@ const subscriptionBodySchema = z.object({
   npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
   notifyMinutes: z.number().int().min(0).max(1440).optional(),
   isEnabled: z.boolean().optional(),
+  browserNotificationsEnabled: z.boolean().optional(),
+  telegramNotificationsEnabled: z.boolean().optional(),
+  isInstanceVariant: z.boolean().optional()
+});
+
+const telegramNotificationBodySchema = z.object({
+  npcDefinitionId: z.string().min(1, 'NPC definition ID is required'),
   isInstanceVariant: z.boolean().optional()
 });
 
@@ -453,6 +489,98 @@ export async function npcRespawnRoutes(server: FastifyInstance): Promise<void> {
 
     const subscription = await upsertSubscription(request.user.userId, parsedBody.data);
     return { subscription };
+  });
+
+  // Queue a Telegram notification for the current respawn state when this user is subscribed.
+  server.post('/:guildId/npc-subscriptions/telegram-notification', { preHandler: [authenticate] }, async (request, reply) => {
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    await ensureUserCanViewGuild(request.user.userId, guildId);
+
+    const parsedBody = telegramNotificationBodySchema.safeParse(request.body ?? {});
+    if (!parsedBody.success) {
+      return reply.badRequest('Invalid Telegram notification payload: ' + parsedBody.error.message);
+    }
+
+    const unavailableReason = getNotificationProviderUnavailableReason('TELEGRAM');
+    if (unavailableReason) {
+      return {
+        queued: 0,
+        processed: 0,
+        deliveryStatus: null,
+        lastError: unavailableReason
+      };
+    }
+
+    const queueResult = await queueRespawnTelegramNotificationForUser({
+      userId: request.user.userId,
+      guildId,
+      npcDefinitionId: parsedBody.data.npcDefinitionId,
+      isInstanceVariant: parsedBody.data.isInstanceVariant ?? false
+    });
+    const processed = queueResult.queued > 0 ? await processNotificationOutbox(10) : 0;
+    const delivery = await getTelegramDeliveryStatus(queueResult.dedupeKey);
+
+    return { queued: queueResult.queued, processed, ...delivery };
+  });
+
+  // Development-only helper for creating a server-backed TestNPC respawn entry.
+  // It is intentionally non-raid so Discord/webhook notifications are not emitted.
+  server.post('/:guildId/npc-respawn/debug-test-npc', { preHandler: [authenticate] }, async (request, reply) => {
+    if (process.env.NODE_ENV === 'production') {
+      return reply.notFound();
+    }
+
+    const paramsSchema = z.object({ guildId: z.string() });
+    const { guildId } = paramsSchema.parse(request.params);
+
+    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+    if (!roleCanEditRaid(role)) {
+      return reply.forbidden('You do not have permission to create test NPC respawns.');
+    }
+
+    try {
+      const creatorName = await resolveGuildMemberDisplayName(guildId, request.user);
+      const npc = await createDebugRespawnTestNpc(guildId, {
+        userId: request.user.userId,
+        displayName: creatorName
+      });
+      return { npc };
+    } catch (error) {
+      return reply.badRequest(
+        error instanceof Error ? error.message : 'Failed to create TestNPC respawn entry.'
+      );
+    }
+  });
+
+  server.delete('/:guildId/npc-respawn/debug-test-npc/:npcDefinitionId', { preHandler: [authenticate] }, async (request, reply) => {
+    if (process.env.NODE_ENV === 'production') {
+      return reply.notFound();
+    }
+
+    const paramsSchema = z.object({
+      guildId: z.string(),
+      npcDefinitionId: z.string()
+    });
+    const { guildId, npcDefinitionId } = paramsSchema.parse(request.params);
+
+    const role = await ensureUserCanViewGuild(request.user.userId, guildId);
+    if (!roleCanEditRaid(role)) {
+      return reply.forbidden('You do not have permission to delete test NPC respawns.');
+    }
+
+    try {
+      const deleted = await deleteDebugRespawnTestNpc(guildId, npcDefinitionId);
+      if (!deleted) {
+        return reply.notFound('TestNPC respawn entry not found.');
+      }
+      return reply.code(204).send();
+    } catch (error) {
+      return reply.badRequest(
+        error instanceof Error ? error.message : 'Failed to delete TestNPC respawn entry.'
+      );
+    }
   });
 
   // Delete a subscription

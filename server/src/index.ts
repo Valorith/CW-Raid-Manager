@@ -4,6 +4,7 @@ import { buildServer } from './app.js';
 import { appConfig } from './config/appConfig.js';
 import { startMarketSyncScheduler } from './services/marketSyncScheduler.js';
 import { startMoneyTrackerScheduler } from './services/moneyTrackerScheduler.js';
+import { startNpcRespawnNotificationScheduler } from './services/npcRespawnNotificationScheduler.js';
 import { initializeEqDbPool, isEqDbConfigured } from './utils/eqDb.js';
 
 async function start(): Promise<void> {
@@ -18,6 +19,19 @@ async function start(): Promise<void> {
       { port: appConfig.port, env: appConfig.nodeEnv },
       'CW Raid Manager API server started'
     );
+
+    if (appConfig.enableInProcessSchedulers) {
+      startNpcRespawnNotificationScheduler({
+        info: (...args) => server.log.info(args[0]),
+        warn: (...args) => server.log.warn(args[0]),
+        error: (...args) => server.log.error(args[0]),
+        debug: (...args) => server.log.debug(args[0])
+      });
+    } else {
+      server.log.info(
+        '[Schedulers] Skipping in-process NPC respawn notification scheduler; use the cron service instead. Set ENABLE_IN_PROCESS_SCHEDULERS=true for single-service deployments.'
+      );
+    }
 
     if (isEqDbConfigured()) {
       void initializeEqDbPool(server.log).catch((error) => {

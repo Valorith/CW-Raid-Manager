@@ -81,6 +81,17 @@ export interface QueueUserNotificationInput {
   providers?: NotificationProviderKey[];
 }
 
+export function buildNotificationDeliveryDedupeKey(input: {
+  userId: string;
+  scopeType: NotificationScopeTypeKey;
+  scopeId: string;
+  provider: NotificationProviderKey;
+  eventKey: string;
+  dedupeSeed: string;
+}): string {
+  return `${input.eventKey}:${input.provider}:${input.userId}:${input.scopeType}:${input.scopeId}:${input.dedupeSeed}`;
+}
+
 function toIso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
 }
@@ -259,6 +270,20 @@ export function listNotificationProviderAvailability(): NotificationProviderAvai
         : 'WhatsApp notifications are not enabled on this server yet.'
     }
   ];
+}
+
+export function getNotificationProviderUnavailableReason(
+  provider: NotificationProviderKey
+): string | null {
+  if (provider === 'TELEGRAM') {
+    return appConfig.telegram ? null : 'Telegram notifications are not enabled on this server yet.';
+  }
+
+  if (provider === 'WHATSAPP') {
+    return appConfig.whatsapp ? null : 'WhatsApp notifications are not enabled on this server yet.';
+  }
+
+  return 'This notification provider is not enabled on this server yet.';
 }
 
 export async function createTelegramLinkSession(userId: string): Promise<NotificationLinkSession> {
@@ -672,7 +697,11 @@ export async function resolveNotificationTargets(input: {
     ? normalizeProviderTargets(preference.providerTargets)
     : normalizeProviderTargets(DEFAULT_PROVIDER_TARGETS);
 
-  return channels.filter((channel) => providerTargets[channel.provider] !== false);
+  return channels.filter(
+    (channel) =>
+      providerTargets[channel.provider] !== false &&
+      getNotificationProviderUnavailableReason(channel.provider) === null
+  );
 }
 
 export async function queueUserNotification(
@@ -702,7 +731,14 @@ export async function queueUserNotification(
     eventKey: input.eventKey,
     payload: input.payload,
     deliverAt: input.deliverAt ?? new Date(),
-    dedupeKey: `${input.eventKey}:${channel.provider}:${input.userId}:${input.scopeType}:${input.scopeId}:${input.dedupeSeed}`
+    dedupeKey: buildNotificationDeliveryDedupeKey({
+      userId: input.userId,
+      scopeType: input.scopeType,
+      scopeId: input.scopeId,
+      provider: channel.provider,
+      eventKey: input.eventKey,
+      dedupeSeed: input.dedupeSeed
+    })
   }));
 
   const result = await prisma.notificationDelivery.createMany({

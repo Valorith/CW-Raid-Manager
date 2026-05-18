@@ -43,8 +43,15 @@ export interface NpcSubscriptionInput {
   npcDefinitionId: string;
   notifyMinutes?: number;
   isEnabled?: boolean;
+  browserNotificationsEnabled?: boolean;
+  telegramNotificationsEnabled?: boolean;
   isInstanceVariant?: boolean;
 }
+
+export const DEBUG_RESPAWN_TEST_NPC_NAME = 'TestNPC';
+export const DEBUG_RESPAWN_TEST_ZONE = 'Notification Test';
+const DEBUG_RESPAWN_TEST_NOTES =
+  '[CW_NEXUS_DEBUG_RESPAWN_TEST] Temporary server-side notification test entry. Safe to delete.';
 
 // Helper functions
 function normalizeNpcName(name: string) {
@@ -63,6 +70,18 @@ function normalizeAllaLink(input?: string | null) {
   }
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   return withProtocol;
+}
+
+function isDebugRespawnTestDefinition(record: {
+  npcNameNormalized: string;
+  zoneName: string | null;
+  notes: string | null;
+}) {
+  return (
+    record.npcNameNormalized === normalizeNpcName(DEBUG_RESPAWN_TEST_NPC_NAME) &&
+    record.zoneName === DEBUG_RESPAWN_TEST_ZONE &&
+    (record.notes?.includes('[CW_NEXUS_DEBUG_RESPAWN_TEST]') ?? false)
+  );
 }
 
 // Type for formatted NPC definition
@@ -226,6 +245,102 @@ export async function createNpcDefinition(
   });
 
   return formatNpcDefinition(record);
+}
+
+export async function createDebugRespawnTestNpc(
+  guildId: string,
+  creator: { userId: string; displayName: string }
+) {
+  const normalized = normalizeNpcName(DEBUG_RESPAWN_TEST_NPC_NAME);
+  const now = new Date();
+
+  const existing = await prisma.npcDefinition.findFirst({
+    where: {
+      guildId,
+      npcNameNormalized: normalized,
+      zoneName: DEBUG_RESPAWN_TEST_ZONE
+    }
+  });
+
+  if (existing && !isDebugRespawnTestDefinition(existing)) {
+    throw new Error('A non-test NPC named TestNPC already exists in Notification Test.');
+  }
+
+  const definition = existing
+    ? await prisma.npcDefinition.update({
+        where: { id: existing.id },
+        data: {
+          respawnMinMinutes: 1,
+          respawnMaxMinutes: 2,
+          isRaidTarget: false,
+          hasInstanceVersion: false,
+          contentFlag: null,
+          notes: DEBUG_RESPAWN_TEST_NOTES,
+          allaLink: null
+        }
+      })
+    : await prisma.npcDefinition.create({
+        data: {
+          guildId,
+          npcName: DEBUG_RESPAWN_TEST_NPC_NAME,
+          npcNameNormalized: normalized,
+          zoneName: DEBUG_RESPAWN_TEST_ZONE,
+          respawnMinMinutes: 1,
+          respawnMaxMinutes: 2,
+          isRaidTarget: false,
+          hasInstanceVersion: false,
+          contentFlag: null,
+          notes: DEBUG_RESPAWN_TEST_NOTES,
+          allaLink: null,
+          createdById: creator.userId,
+          createdByName: creator.displayName
+        }
+      });
+
+  const killRecord = await prisma.npcKillRecord.create({
+    data: {
+      guildId,
+      npcDefinitionId: definition.id,
+      killedAt: now,
+      killedByName: 'Debug',
+      killedById: creator.userId,
+      notes: DEBUG_RESPAWN_TEST_NOTES.slice(0, 500),
+      isInstance: false
+    }
+  });
+
+  await resetRespawnNotification(definition.id, false, killRecord.id);
+
+  const entries = await getRespawnTrackerData(guildId);
+  const entry = entries.find((npc) => npc.id === definition.id && !npc.isInstanceVariant);
+  if (!entry) {
+    throw new Error('Failed to load TestNPC respawn entry.');
+  }
+
+  return entry;
+}
+
+export async function deleteDebugRespawnTestNpc(
+  guildId: string,
+  npcDefinitionId: string
+): Promise<boolean> {
+  const definition = await prisma.npcDefinition.findFirst({
+    where: { guildId, id: npcDefinitionId }
+  });
+
+  if (!definition) {
+    return false;
+  }
+
+  if (!isDebugRespawnTestDefinition(definition)) {
+    throw new Error('Only temporary TestNPC respawn entries can be removed here.');
+  }
+
+  await prisma.npcDefinition.delete({
+    where: { id: definition.id }
+  });
+
+  return true;
 }
 
 export async function updateNpcDefinition(
@@ -420,6 +535,8 @@ export async function getUserSubscriptions(userId: string, guildId: string) {
     npcDefinitionId: sub.npcDefinitionId,
     notifyMinutes: sub.notifyMinutes,
     isEnabled: sub.isEnabled,
+    browserNotificationsEnabled: sub.browserNotificationsEnabled,
+    telegramNotificationsEnabled: sub.telegramNotificationsEnabled,
     isInstanceVariant: sub.isInstanceVariant,
     createdAt: sub.createdAt,
     updatedAt: sub.updatedAt,
@@ -440,12 +557,21 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
     }
   });
 
+  const browserNotificationsEnabled =
+    input.browserNotificationsEnabled ?? existing?.browserNotificationsEnabled ?? true;
+  const telegramNotificationsEnabled =
+    input.telegramNotificationsEnabled ?? existing?.telegramNotificationsEnabled ?? false;
+  const isEnabled =
+    input.isEnabled ?? (browserNotificationsEnabled || telegramNotificationsEnabled);
+
   if (existing) {
     return prisma.npcRespawnSubscription.update({
       where: { id: existing.id },
       data: {
         notifyMinutes: input.notifyMinutes ?? existing.notifyMinutes,
-        isEnabled: input.isEnabled ?? existing.isEnabled
+        isEnabled,
+        browserNotificationsEnabled,
+        telegramNotificationsEnabled
       }
     });
   }
@@ -455,7 +581,9 @@ export async function upsertSubscription(userId: string, input: NpcSubscriptionI
       npcDefinitionId: input.npcDefinitionId,
       userId,
       notifyMinutes: input.notifyMinutes ?? 5,
-      isEnabled: input.isEnabled ?? true,
+      isEnabled,
+      browserNotificationsEnabled,
+      telegramNotificationsEnabled,
       isInstanceVariant
     }
   });

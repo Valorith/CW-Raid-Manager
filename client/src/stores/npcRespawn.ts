@@ -6,6 +6,7 @@ import {
   type NpcDefinition,
   type NpcKillRecord,
   type NpcRespawnSubscription,
+  type NpcRespawnTelegramNotificationResult,
   type NpcFavorite,
   type NpcDefinitionInput,
   type NpcKillRecordInput,
@@ -14,6 +15,12 @@ import {
   type NpcContentFlag
 } from '../services/api';
 import type { NpcNotification } from '../components/NpcNotificationModal.vue';
+
+export type NpcNotificationMode = 'none' | 'browser' | 'telegram' | 'both';
+
+const DEBUG_RESPAWN_TEST_NPC_NAME_NORMALIZED = 'testnpc';
+const DEBUG_RESPAWN_TEST_ZONE = 'Notification Test';
+const DEBUG_RESPAWN_TEST_MARKER = '[CW_NEXUS_DEBUG_RESPAWN_TEST]';
 
 export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   // State
@@ -35,10 +42,8 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   const dismissedNotificationKeys = ref<Set<string>>(new Set());
   // Currently active notifications to display
   const activeNotifications = ref<NpcNotification[]>([]);
-  // Track which variants are subscribed (since backend only stores per-definition)
-  // Key format: `${npcId}:${isInstanceVariant}`
-  const subscribedVariants = ref<Set<string>>(new Set());
-
+  // Telegram notifications are delivered by the server, so keep client requests idempotent per kill/status.
+  const queuedTelegramNotificationKeys = ref<Set<string>>(new Set());
   // Refresh interval for live updates
   let refreshInterval: number | null = null;
   let serverRefreshInterval: number | null = null;
@@ -52,6 +57,12 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
 
   const sortedNpcs = computed(() => {
     return [...npcs.value].sort((a, b) => {
+      const aIsDebugTest = isDebugRespawnTestNpc(a);
+      const bIsDebugTest = isDebugRespawnTestNpc(b);
+      if (aIsDebugTest !== bIsDebugTest) {
+        return aIsDebugTest ? -1 : 1;
+      }
+
       // Sort by respawn status: down > window > up > unknown
       // This prioritizes NPCs that are actively being tracked (down/window) over those already up
       const statusOrder: Record<string, number> = {
@@ -94,17 +105,118 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   });
 
   const subscribedNpcIds = computed(() => {
-    return new Set(subscriptions.value.filter((s) => s.isEnabled).map((s) => s.npcDefinitionId));
+    return new Set(
+      subscriptions.value
+        .filter((subscription) => getNotificationModeFromSubscription(subscription) !== 'none')
+        .map((subscription) => subscription.npcDefinitionId)
+    );
   });
-
-  // Helper to create a unique key for variant subscriptions
-  function getVariantKey(npcId: string, isInstanceVariant: boolean): string {
-    return `${npcId}:${isInstanceVariant}`;
-  }
 
   // Check if a specific variant is subscribed for notifications
   function isVariantSubscribed(npcId: string, isInstanceVariant: boolean): boolean {
-    return subscribedVariants.value.has(getVariantKey(npcId, isInstanceVariant));
+    return getNotificationMode(npcId, isInstanceVariant) !== 'none';
+  }
+
+  function isDebugRespawnTestNpc(
+    npc: Pick<NpcRespawnTrackerEntry, 'npcNameNormalized' | 'zoneName' | 'notes'>
+  ): boolean {
+    return (
+      npc.npcNameNormalized === DEBUG_RESPAWN_TEST_NPC_NAME_NORMALIZED &&
+      npc.zoneName === DEBUG_RESPAWN_TEST_ZONE &&
+      (npc.notes?.includes(DEBUG_RESPAWN_TEST_MARKER) ?? false)
+    );
+  }
+
+  function clearNotificationKeysForVariant(npcDefinitionId: string, isInstanceVariant: boolean) {
+    const prefix = `${npcDefinitionId}:${isInstanceVariant}:`;
+    for (const key of Array.from(dismissedNotificationKeys.value)) {
+      if (key.startsWith(prefix)) {
+        dismissedNotificationKeys.value.delete(key);
+      }
+    }
+    for (const key of Array.from(queuedTelegramNotificationKeys.value)) {
+      if (key.startsWith(prefix)) {
+        queuedTelegramNotificationKeys.value.delete(key);
+      }
+    }
+    removeActiveNotificationsForVariant(npcDefinitionId, isInstanceVariant);
+  }
+
+  function getSubscription(
+    npcId: string,
+    isInstanceVariant: boolean
+  ): NpcRespawnSubscription | undefined {
+    return subscriptions.value.find(
+      (subscription) =>
+        subscription.npcDefinitionId === npcId &&
+        subscription.isInstanceVariant === isInstanceVariant
+    );
+  }
+
+  function getNotificationModeFromSubscription(
+    subscription: NpcRespawnSubscription | undefined
+  ): NpcNotificationMode {
+    if (!subscription?.isEnabled) {
+      return 'none';
+    }
+
+    const browserEnabled = subscription.browserNotificationsEnabled !== false;
+    const telegramEnabled = subscription.telegramNotificationsEnabled === true;
+
+    if (browserEnabled && telegramEnabled) {
+      return 'both';
+    }
+    if (telegramEnabled) {
+      return 'telegram';
+    }
+    if (browserEnabled) {
+      return 'browser';
+    }
+    return 'none';
+  }
+
+  function getNotificationMode(npcId: string, isInstanceVariant: boolean): NpcNotificationMode {
+    return getNotificationModeFromSubscription(getSubscription(npcId, isInstanceVariant));
+  }
+
+  function isBrowserNotificationEnabled(npcId: string, isInstanceVariant: boolean): boolean {
+    const mode = getNotificationMode(npcId, isInstanceVariant);
+    return mode === 'browser' || mode === 'both';
+  }
+
+  function isTelegramNotificationEnabled(npcId: string, isInstanceVariant: boolean): boolean {
+    const mode = getNotificationMode(npcId, isInstanceVariant);
+    return mode === 'telegram' || mode === 'both';
+  }
+
+  function getNextNotificationMode(mode: NpcNotificationMode): NpcNotificationMode {
+    if (mode === 'none') return 'browser';
+    if (mode === 'browser') return 'telegram';
+    if (mode === 'telegram') return 'both';
+    return 'none';
+  }
+
+  function upsertLocalSubscription(subscription: NpcRespawnSubscription) {
+    const index = subscriptions.value.findIndex(
+      (entry) =>
+        entry.npcDefinitionId === subscription.npcDefinitionId &&
+        entry.isInstanceVariant === subscription.isInstanceVariant
+    );
+    if (index >= 0) {
+      subscriptions.value[index] = subscription;
+    } else {
+      subscriptions.value.push(subscription);
+    }
+  }
+
+  function removeActiveNotificationsForVariant(
+    npcDefinitionId: string,
+    isInstanceVariant: boolean
+  ) {
+    const prefix = `${npcDefinitionId}:${isInstanceVariant}:`;
+    activeNotifications.value = activeNotifications.value.filter(
+      (notification) => !notification.id.startsWith(prefix)
+    );
   }
 
   // Helper to create a unique key for favorites lookup
@@ -151,7 +263,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
       loadedGuildId.value = guildId;
       lastFetchedAt.value = Date.now();
       // Check for notifications after loading fresh data
-      checkForNotifications();
+      checkForNotifications(guildId);
     } catch (err: any) {
       error.value =
         err?.response?.data?.message ?? err?.message ?? 'Failed to load NPC respawn tracker.';
@@ -177,13 +289,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
   async function fetchSubscriptions(guildId: string) {
     try {
       subscriptions.value = await api.fetchNpcSubscriptions(guildId);
-      // Repopulate subscribedVariants from fetched subscriptions
-      subscribedVariants.value.clear();
-      for (const sub of subscriptions.value) {
-        if (sub.isEnabled) {
-          subscribedVariants.value.add(getVariantKey(sub.npcDefinitionId, sub.isInstanceVariant));
-        }
-      }
+      checkForNotifications(guildId);
     } catch (err: any) {
       console.error('[NpcRespawnStore] Error loading subscriptions:', err);
     }
@@ -249,56 +355,68 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     npcDefinitionId: string,
     isInstanceVariant: boolean
   ): Promise<void> {
-    const variantKey = getVariantKey(npcDefinitionId, isInstanceVariant);
-    const isCurrentlySubscribed = subscribedVariants.value.has(variantKey);
+    const currentMode = getNotificationMode(npcDefinitionId, isInstanceVariant);
+    const nextMode = getNextNotificationMode(currentMode);
+    const nextHasBrowser = nextMode === 'browser' || nextMode === 'both';
+    const nextHasTelegram = nextMode === 'telegram' || nextMode === 'both';
 
-    if (isCurrentlySubscribed) {
-      // Unsubscribe this variant
-      subscribedVariants.value.delete(variantKey);
-
-      // Delete the backend subscription for this specific variant
+    if (nextMode === 'none') {
       await api.deleteNpcSubscription(guildId, npcDefinitionId, isInstanceVariant);
       subscriptions.value = subscriptions.value.filter(
         (s) => !(s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant)
       );
+      removeActiveNotificationsForVariant(npcDefinitionId, isInstanceVariant);
     } else {
-      // Subscribe this variant
-      subscribedVariants.value.add(variantKey);
+      const existing = getSubscription(npcDefinitionId, isInstanceVariant);
+      const subscription = await api.upsertNpcSubscription(guildId, {
+        npcDefinitionId,
+        isEnabled: true,
+        notifyMinutes: existing?.notifyMinutes ?? 5,
+        browserNotificationsEnabled: nextHasBrowser,
+        telegramNotificationsEnabled: nextHasTelegram,
+        isInstanceVariant
+      });
+      upsertLocalSubscription(subscription);
 
-      // Create backend subscription for this specific variant
-      const existing = subscriptions.value.find(
-        (s) => s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
-      );
-      if (!existing?.isEnabled) {
-        const subscription = await api.upsertNpcSubscription(guildId, {
-          npcDefinitionId,
-          isEnabled: true,
-          notifyMinutes: 5,
-          isInstanceVariant
-        });
-        if (existing) {
-          const index = subscriptions.value.findIndex(
-            (s) =>
-              s.npcDefinitionId === npcDefinitionId && s.isInstanceVariant === isInstanceVariant
-          );
-          if (index >= 0) {
-            subscriptions.value[index] = subscription;
-          }
-        } else {
-          subscriptions.value.push(subscription);
-        }
+      if (!nextHasBrowser) {
+        removeActiveNotificationsForVariant(npcDefinitionId, isInstanceVariant);
       }
 
-      // If the NPC variant is already in up/window status, mark current state as dismissed
-      // so we don't immediately alarm for an NPC that's already up
+      // If the NPC variant is already in up/window status, skip the current state
+      // so enabling alerts does not immediately alarm for an NPC that's already up.
       const npc = npcs.value.find(
         (n) => n.id === npcDefinitionId && n.isInstanceVariant === isInstanceVariant
       );
       if (npc && (npc.respawnStatus === 'up' || npc.respawnStatus === 'window')) {
         const notificationKey = getNotificationKey(npc, npc.respawnStatus);
-        dismissedNotificationKeys.value.add(notificationKey);
+        if (nextHasBrowser) {
+          dismissedNotificationKeys.value.add(notificationKey);
+        }
+        if (nextHasTelegram) {
+          queuedTelegramNotificationKeys.value.add(notificationKey);
+        }
       }
     }
+  }
+
+  async function addDebugRespawnTestNpc(guildId: string): Promise<void> {
+    const npc = await api.createNpcRespawnDebugTestNpc(guildId);
+    clearNotificationKeysForVariant(npc.id, false);
+    npcs.value = [npc, ...npcs.value.filter((entry) => entry.id !== npc.id)];
+    await fetchSubscriptions(guildId);
+    checkForNotifications(guildId);
+  }
+
+  async function removeDebugRespawnTestNpc(
+    guildId: string,
+    npcDefinitionId: string
+  ): Promise<void> {
+    await api.deleteNpcRespawnDebugTestNpc(guildId, npcDefinitionId);
+    clearNotificationKeysForVariant(npcDefinitionId, false);
+    npcs.value = npcs.value.filter((entry) => entry.id !== npcDefinitionId);
+    subscriptions.value = subscriptions.value.filter(
+      (entry) => entry.npcDefinitionId !== npcDefinitionId
+    );
   }
 
   async function toggleFavorite(
@@ -365,18 +483,82 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     return `${npc.id}:${npc.isInstanceVariant}:${status}:${killId}`;
   }
 
+  function queueTelegramNotificationIfNeeded(guildId: string, npc: NpcRespawnTrackerEntry) {
+    if (!isTelegramNotificationEnabled(npc.id, npc.isInstanceVariant)) return;
+    if (npc.respawnStatus !== 'window' && npc.respawnStatus !== 'up') return;
+
+    const notificationKey = getNotificationKey(npc, npc.respawnStatus);
+    if (queuedTelegramNotificationKeys.value.has(notificationKey)) return;
+
+    queuedTelegramNotificationKeys.value.add(notificationKey);
+    api
+      .queueNpcRespawnTelegramNotification(guildId, {
+        npcDefinitionId: npc.id,
+        isInstanceVariant: npc.isInstanceVariant
+      })
+      .then((result) => handleTelegramNotificationResult(result))
+      .catch((err) => {
+        queuedTelegramNotificationKeys.value.delete(notificationKey);
+        console.error('[NpcRespawnStore] Failed to queue Telegram respawn notification:', err);
+      });
+  }
+
+  function handleTelegramNotificationResult(result: NpcRespawnTelegramNotificationResult) {
+    if (result.lastError) {
+      showNotificationToast({
+        title: 'Telegram notification failed',
+        message: result.lastError,
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (result.deliveryStatus === 'FAILED') {
+      showNotificationToast({
+        title: 'Telegram notification failed',
+        message: result.lastError ?? 'Telegram delivery failed.',
+        variant: 'error'
+      });
+      return;
+    }
+
+    if (result.queued === 0 && result.deliveryStatus === null) {
+      showNotificationToast({
+        title: 'Telegram notification not queued',
+        message: 'Check that Telegram is connected and this notification type is enabled.',
+        variant: 'warning'
+      });
+    }
+  }
+
+  function showNotificationToast(payload: {
+    title: string;
+    message: string;
+    variant: 'warning' | 'error';
+  }) {
+    window.dispatchEvent(
+      new CustomEvent('show-toast', {
+        detail: payload
+      })
+    );
+  }
+
   /**
    * Check subscribed NPCs for status changes and trigger notifications.
    */
-  function checkForNotifications() {
+  function checkForNotifications(guildId?: string | null) {
     const newNotifications: NpcNotification[] = [];
 
     for (const npc of npcs.value) {
-      // Only notify for subscribed variants (not just NPC definition)
-      if (!isVariantSubscribed(npc.id, npc.isInstanceVariant)) continue;
-
       // Only notify for 'window' or 'up' status
       if (npc.respawnStatus !== 'window' && npc.respawnStatus !== 'up') continue;
+
+      if (guildId) {
+        queueTelegramNotificationIfNeeded(guildId, npc);
+      }
+
+      // Only show browser notifications for variants with browser alerts enabled.
+      if (!isBrowserNotificationEnabled(npc.id, npc.isInstanceVariant)) continue;
 
       const notificationKey = getNotificationKey(npc, npc.respawnStatus);
 
@@ -466,7 +648,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     }
 
     // Check for new notifications after updating progress
-    checkForNotifications();
+    checkForNotifications(activeRefreshGuildId);
   }
 
   function clearStore() {
@@ -483,7 +665,7 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     canManage.value = false;
     viewerRole.value = null;
     clearDismissedNotifications();
-    subscribedVariants.value.clear();
+    queuedTelegramNotificationKeys.value.clear();
   }
 
   return {
@@ -519,9 +701,13 @@ export const useNpcRespawnStore = defineStore('npcRespawn', () => {
     updateKillRecord,
     deleteKillRecord,
     toggleSubscription,
+    addDebugRespawnTestNpc,
+    removeDebugRespawnTestNpc,
     toggleFavorite,
     isFavorited,
     isVariantSubscribed,
+    isDebugRespawnTestNpc,
+    getNotificationMode,
     startAutoRefresh,
     stopAutoRefresh,
     clearStore,

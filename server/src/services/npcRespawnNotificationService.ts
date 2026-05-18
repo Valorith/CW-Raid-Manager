@@ -8,7 +8,10 @@
  */
 
 import { emitDiscordWebhookEvent } from './discordWebhookService.js';
-import { queueUserNotification } from './userNotificationService.js';
+import {
+  buildNotificationDeliveryDedupeKey,
+  queueUserNotification
+} from './userNotificationService.js';
 import { prisma } from '../utils/prisma.js';
 
 // Logger for this service
@@ -26,6 +29,7 @@ interface NpcWithRespawnData {
   zoneName: string | null;
   respawnMinMinutes: number | null;
   respawnMaxMinutes: number | null;
+  isRaidTarget: boolean;
   isInstanceVariant: boolean;
   lastKillRecordId: string | null;
   killedAt: Date | null;
@@ -45,6 +49,27 @@ type NpcSubscriptionRecord = {
   isInstanceVariant: boolean;
   notifyMinutes: number;
 };
+
+export type RespawnTelegramQueueResult = {
+  queued: number;
+  dedupeKey: string | null;
+};
+
+function buildTelegramDedupeKey(options: {
+  userId: string;
+  guildId: string;
+  eventKey: 'npc.respawn.window_open' | 'npc.respawn.up';
+  dedupeSeed: string;
+}): string {
+  return buildNotificationDeliveryDedupeKey({
+    userId: options.userId,
+    scopeType: 'GUILD',
+    scopeId: options.guildId,
+    provider: 'TELEGRAM',
+    eventKey: options.eventKey,
+    dedupeSeed: options.dedupeSeed
+  });
+}
 
 /**
  * Calculate respawn status for an NPC based on last kill time and respawn timers.
@@ -84,6 +109,22 @@ function buildNpcVariantKey(npcDefinitionId: string, isInstanceVariant: boolean)
   return `${npcDefinitionId}:${isInstanceVariant}`;
 }
 
+function buildRespawnNotificationDedupeSeed(
+  killRecordId: string,
+  npcDefinitionId: string,
+  isInstanceVariant: boolean
+): string {
+  return `${killRecordId}:${npcDefinitionId}:${isInstanceVariant}`;
+}
+
+function buildWindowEnteredRespawnNotificationDedupeSeed(
+  killRecordId: string,
+  npcDefinitionId: string,
+  isInstanceVariant: boolean
+): string {
+  return `${buildRespawnNotificationDedupeSeed(killRecordId, npcDefinitionId, isInstanceVariant)}:window-entered`;
+}
+
 async function queueRespawnUserNotifications(options: {
   guildId: string;
   guildName: string;
@@ -103,10 +144,7 @@ async function queueRespawnUserNotifications(options: {
     }
 
     for (const subscription of subscriptions) {
-      if (
-        npc.status.respawnMinTime &&
-        (npc.status.respawnStatus === 'down' || npc.status.respawnStatus === 'window')
-      ) {
+      if (npc.status.respawnMinTime && npc.status.respawnStatus === 'down') {
         const thresholdTime = new Date(
           npc.status.respawnMinTime.getTime() - subscription.notifyMinutes * 60 * 1000
         );
@@ -133,9 +171,40 @@ async function queueRespawnUserNotifications(options: {
               respawnMaxTime: npc.status.respawnMaxTime?.toISOString() ?? null,
               minutesUntilWindow
             },
-            dedupeSeed: `${npc.lastKillRecordId}:${npc.npcDefinitionId}:${npc.isInstanceVariant}`
+            dedupeSeed: buildRespawnNotificationDedupeSeed(
+              npc.lastKillRecordId,
+              npc.npcDefinitionId,
+              npc.isInstanceVariant
+            ),
+            providers: ['TELEGRAM']
           });
         }
+      }
+
+      if (npc.status.respawnMinTime && npc.status.respawnStatus === 'window') {
+        await queueUserNotification({
+          userId: subscription.userId,
+          scopeType: 'GUILD',
+          scopeId: guildId,
+          eventKey: 'npc.respawn.window_open',
+          payload: {
+            guildId,
+            guildName,
+            npcName: npc.npcName,
+            zoneName: npc.zoneName,
+            isInstanceVariant: npc.isInstanceVariant,
+            killRecordId: npc.lastKillRecordId,
+            respawnMinTime: npc.status.respawnMinTime.toISOString(),
+            respawnMaxTime: npc.status.respawnMaxTime?.toISOString() ?? null,
+            minutesUntilWindow: 0
+          },
+          dedupeSeed: buildWindowEnteredRespawnNotificationDedupeSeed(
+            npc.lastKillRecordId,
+            npc.npcDefinitionId,
+            npc.isInstanceVariant
+          ),
+          providers: ['TELEGRAM']
+        });
       }
 
       if (npc.status.respawnStatus === 'up') {
@@ -154,30 +223,245 @@ async function queueRespawnUserNotifications(options: {
             upSinceTime:
               (npc.status.respawnMaxTime ?? npc.status.respawnMinTime)?.toISOString() ?? null
           },
-          dedupeSeed: `${npc.lastKillRecordId}:${npc.npcDefinitionId}:${npc.isInstanceVariant}`
+          dedupeSeed: buildRespawnNotificationDedupeSeed(
+            npc.lastKillRecordId,
+            npc.npcDefinitionId,
+            npc.isInstanceVariant
+          ),
+          providers: ['TELEGRAM']
         });
       }
     }
   }
 }
 
+export async function queueRespawnTelegramNotificationForUser(options: {
+  userId: string;
+  guildId: string;
+  npcDefinitionId: string;
+  isInstanceVariant: boolean;
+}): Promise<RespawnTelegramQueueResult> {
+  const subscription = await prisma.npcRespawnSubscription.findUnique({
+    where: {
+      npcDefinitionId_userId_isInstanceVariant: {
+        npcDefinitionId: options.npcDefinitionId,
+        userId: options.userId,
+        isInstanceVariant: options.isInstanceVariant
+      }
+    },
+    select: {
+      userId: true,
+      isEnabled: true,
+      telegramNotificationsEnabled: true,
+      notifyMinutes: true,
+      npcDefinition: {
+        select: {
+          id: true,
+          guildId: true,
+          npcName: true,
+          zoneName: true,
+          respawnMinMinutes: true,
+          respawnMaxMinutes: true,
+          guild: {
+            select: {
+              name: true
+            }
+          },
+          killRecords: {
+            orderBy: { killedAt: 'desc' },
+            take: 10,
+            select: {
+              id: true,
+              killedAt: true,
+              isInstance: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (
+    !subscription?.isEnabled ||
+    !subscription.telegramNotificationsEnabled ||
+    subscription.npcDefinition.guildId !== options.guildId
+  ) {
+    return { queued: 0, dedupeKey: null };
+  }
+
+  const npc = subscription.npcDefinition;
+  const lastKill =
+    npc.killRecords.find((kill) => Boolean(kill.isInstance) === options.isInstanceVariant) ?? null;
+  if (!lastKill || npc.respawnMinMinutes === null) {
+    return { queued: 0, dedupeKey: null };
+  }
+
+  const now = new Date();
+  const status = calculateRespawnStatus(
+    lastKill.killedAt,
+    npc.respawnMinMinutes,
+    npc.respawnMaxMinutes,
+    now
+  );
+
+  if (status.respawnMinTime && status.respawnStatus === 'down') {
+    const thresholdTime = new Date(
+      status.respawnMinTime.getTime() - subscription.notifyMinutes * 60 * 1000
+    );
+
+    if (now < thresholdTime) {
+      return { queued: 0, dedupeKey: null };
+    }
+
+    const minutesUntilWindow = Math.max(
+      0,
+      Math.ceil((status.respawnMinTime.getTime() - now.getTime()) / 60000)
+    );
+
+    const eventKey = 'npc.respawn.window_open';
+    const dedupeSeed = buildRespawnNotificationDedupeSeed(
+      lastKill.id,
+      npc.id,
+      options.isInstanceVariant
+    );
+    const queued = await queueUserNotification({
+      userId: subscription.userId,
+      scopeType: 'GUILD',
+      scopeId: options.guildId,
+      eventKey,
+      payload: {
+        guildId: options.guildId,
+        guildName: npc.guild.name,
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        isInstanceVariant: options.isInstanceVariant,
+        killRecordId: lastKill.id,
+        respawnMinTime: status.respawnMinTime.toISOString(),
+        respawnMaxTime: status.respawnMaxTime?.toISOString() ?? null,
+        minutesUntilWindow
+      },
+      dedupeSeed,
+      providers: ['TELEGRAM']
+    });
+    return {
+      queued,
+      dedupeKey: buildTelegramDedupeKey({
+        userId: subscription.userId,
+        guildId: options.guildId,
+        eventKey,
+        dedupeSeed
+      })
+    };
+  }
+
+  if (status.respawnMinTime && status.respawnStatus === 'window') {
+    const eventKey = 'npc.respawn.window_open';
+    const dedupeSeed = buildWindowEnteredRespawnNotificationDedupeSeed(
+      lastKill.id,
+      npc.id,
+      options.isInstanceVariant
+    );
+    const queued = await queueUserNotification({
+      userId: subscription.userId,
+      scopeType: 'GUILD',
+      scopeId: options.guildId,
+      eventKey,
+      payload: {
+        guildId: options.guildId,
+        guildName: npc.guild.name,
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        isInstanceVariant: options.isInstanceVariant,
+        killRecordId: lastKill.id,
+        respawnMinTime: status.respawnMinTime.toISOString(),
+        respawnMaxTime: status.respawnMaxTime?.toISOString() ?? null,
+        minutesUntilWindow: 0
+      },
+      dedupeSeed,
+      providers: ['TELEGRAM']
+    });
+    return {
+      queued,
+      dedupeKey: buildTelegramDedupeKey({
+        userId: subscription.userId,
+        guildId: options.guildId,
+        eventKey,
+        dedupeSeed
+      })
+    };
+  }
+
+  if (status.respawnStatus === 'up') {
+    const eventKey = 'npc.respawn.up';
+    const dedupeSeed = buildRespawnNotificationDedupeSeed(
+      lastKill.id,
+      npc.id,
+      options.isInstanceVariant
+    );
+    const queued = await queueUserNotification({
+      userId: subscription.userId,
+      scopeType: 'GUILD',
+      scopeId: options.guildId,
+      eventKey,
+      payload: {
+        guildId: options.guildId,
+        guildName: npc.guild.name,
+        npcName: npc.npcName,
+        zoneName: npc.zoneName,
+        isInstanceVariant: options.isInstanceVariant,
+        killRecordId: lastKill.id,
+        upSinceTime: (status.respawnMaxTime ?? status.respawnMinTime)?.toISOString() ?? null
+      },
+      dedupeSeed,
+      providers: ['TELEGRAM']
+    });
+    return {
+      queued,
+      dedupeKey: buildTelegramDedupeKey({
+        userId: subscription.userId,
+        guildId: options.guildId,
+        eventKey,
+        dedupeSeed
+      })
+    };
+  }
+
+  return { queued: 0, dedupeKey: null };
+}
+
 /**
- * Check all guilds for NPC respawn notifications and send webhooks.
+ * Check all guilds for NPC respawn notifications and send webhooks/messenger alerts.
  * This is the main entry point called by the cron job.
  */
 export async function checkAndSendRespawnNotifications(): Promise<void> {
   const now = new Date();
   logger.info(`Starting respawn notification check at ${now.toISOString()}`);
 
-  // Find all guilds that have at least one webhook subscribed to respawn events
-  const guildsWithRespawnWebhooks = await prisma.guild.findMany({
+  const guildsWithRespawnNotifications = await prisma.guild.findMany({
     where: {
-      discordWebhooks: {
-        some: {
-          isEnabled: true,
-          webhookUrl: { not: null }
+      OR: [
+        {
+          discordWebhooks: {
+            some: {
+              isEnabled: true,
+              webhookUrl: { not: null }
+            }
+          }
+        },
+        {
+          npcDefinitions: {
+            some: {
+              respawnMinMinutes: { not: null },
+              subscriptions: {
+                some: {
+                  isEnabled: true,
+                  telegramNotificationsEnabled: true
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     select: {
       id: true,
@@ -190,26 +474,48 @@ export async function checkAndSendRespawnNotifications(): Promise<void> {
         select: {
           eventSubscriptions: true
         }
+      },
+      npcDefinitions: {
+        where: {
+          respawnMinMinutes: { not: null },
+          subscriptions: {
+            some: {
+              isEnabled: true,
+              telegramNotificationsEnabled: true
+            }
+          }
+        },
+        select: {
+          id: true
+        },
+        take: 1
       }
     }
   });
 
-  logger.debug(`Found ${guildsWithRespawnWebhooks.length} guild(s) with enabled webhooks`);
+  logger.debug(
+    `Found ${guildsWithRespawnNotifications.length} guild(s) with respawn notification signals`
+  );
 
-  // Filter to guilds that actually have respawn event subscriptions
-  const guildsToProcess = guildsWithRespawnWebhooks.filter((guild) => {
-    return guild.discordWebhooks.some((webhook) => {
+  const guildsToProcess = guildsWithRespawnNotifications.filter((guild) => {
+    const hasWebhookSubscriptions = guild.discordWebhooks.some((webhook) => {
       const subs = webhook.eventSubscriptions as Record<string, boolean> | null;
-      const hasRespawnSubs = subs?.['respawn.windowOpen'] === true || subs?.['respawn.up'] === true;
-      if (hasRespawnSubs) {
-        logger.debug(`Guild ${guild.name} has respawn webhook subscriptions`);
-      }
-      return hasRespawnSubs;
+      return subs?.['respawn.windowOpen'] === true || subs?.['respawn.up'] === true;
     });
+    const hasUserSubscriptions = guild.npcDefinitions.length > 0;
+
+    if (hasWebhookSubscriptions) {
+      logger.debug(`Guild ${guild.name} has respawn webhook subscriptions`);
+    }
+    if (hasUserSubscriptions) {
+      logger.debug(`Guild ${guild.name} has user respawn subscriptions`);
+    }
+
+    return hasWebhookSubscriptions || hasUserSubscriptions;
   });
 
   if (guildsToProcess.length === 0) {
-    logger.info('No guilds with respawn webhook subscriptions found. Make sure you have enabled "Respawn Window Open" or "NPC Is Up" events in your Discord webhook settings.');
+    logger.info('No guilds with respawn webhook subscriptions or user NPC respawn subscriptions found.');
     return;
   }
 
@@ -234,12 +540,24 @@ async function processGuildRespawnNotifications(
   guildName: string,
   now: Date
 ): Promise<void> {
-  // Get all raid target NPCs with respawn times configured
+  // Get raid target NPCs for Discord plus any personally subscribed NPCs for messenger alerts.
   const npcDefinitions = await prisma.npcDefinition.findMany({
     where: {
       guildId,
-      isRaidTarget: true,
-      respawnMinMinutes: { not: null }
+      respawnMinMinutes: { not: null },
+      OR: [
+        {
+          isRaidTarget: true
+        },
+        {
+          subscriptions: {
+            some: {
+              isEnabled: true,
+              telegramNotificationsEnabled: true
+            }
+          }
+        }
+      ]
     },
     select: {
       id: true,
@@ -247,6 +565,7 @@ async function processGuildRespawnNotifications(
       zoneName: true,
       respawnMinMinutes: true,
       respawnMaxMinutes: true,
+      isRaidTarget: true,
       hasInstanceVersion: true,
       killRecords: {
         orderBy: { killedAt: 'desc' },
@@ -260,10 +579,10 @@ async function processGuildRespawnNotifications(
     }
   });
 
-  logger.debug(`Found ${npcDefinitions.length} raid target NPC(s) with respawn times for guild ${guildName}`);
+  logger.debug(`Found ${npcDefinitions.length} respawn-tracked NPC(s) with notification signals for guild ${guildName}`);
 
   if (npcDefinitions.length === 0) {
-    logger.debug(`No raid target NPCs with respawn times configured for guild ${guildName}`);
+    logger.debug(`No respawn-tracked NPCs with notification signals for guild ${guildName}`);
     return;
   }
 
@@ -283,6 +602,7 @@ async function processGuildRespawnNotifications(
         zoneName: def.zoneName,
         respawnMinMinutes: def.respawnMinMinutes,
         respawnMaxMinutes: def.respawnMaxMinutes,
+        isRaidTarget: def.isRaidTarget,
         isInstanceVariant: false,
         lastKillRecordId: lastOverworldKill?.id ?? null,
         killedAt: lastOverworldKill?.killedAt ?? null,
@@ -297,6 +617,7 @@ async function processGuildRespawnNotifications(
         zoneName: def.zoneName,
         respawnMinMinutes: def.respawnMinMinutes,
         respawnMaxMinutes: def.respawnMaxMinutes,
+        isRaidTarget: def.isRaidTarget,
         isInstanceVariant: true,
         lastKillRecordId: lastInstanceKill?.id ?? null,
         killedAt: lastInstanceKill?.killedAt ?? null,
@@ -312,6 +633,7 @@ async function processGuildRespawnNotifications(
         zoneName: def.zoneName,
         respawnMinMinutes: def.respawnMinMinutes,
         respawnMaxMinutes: def.respawnMaxMinutes,
+        isRaidTarget: def.isRaidTarget,
         isInstanceVariant: false,
         lastKillRecordId: lastKill?.id ?? null,
         killedAt: lastKill?.killedAt ?? null,
@@ -344,7 +666,8 @@ async function processGuildRespawnNotifications(
   const activeSubscriptions = await prisma.npcRespawnSubscription.findMany({
     where: {
       npcDefinitionId: { in: npcsWithKills.map((npc) => npc.npcDefinitionId) },
-      isEnabled: true
+      isEnabled: true,
+      telegramNotificationsEnabled: true
     },
     select: {
       userId: true,
@@ -395,14 +718,14 @@ async function processGuildRespawnNotifications(
       });
     }
 
-    if (status.respawnStatus === 'window') {
+    if (npc.isRaidTarget && status.respawnStatus === 'window') {
       // Check if we should send window notification
       const shouldNotify = !existing || isNewKillCycle || !existing.windowNotifiedAt;
       logger.debug(`NPC ${npc.npcName}: window status - shouldNotify=${shouldNotify}`);
       if (shouldNotify) {
         windowOpenNpcs.push(npc);
       }
-    } else if (status.respawnStatus === 'up') {
+    } else if (npc.isRaidTarget && status.respawnStatus === 'up') {
       // Check if we should send up notification
       const shouldNotify = !existing || isNewKillCycle || !existing.upNotifiedAt;
       logger.debug(`NPC ${npc.npcName}: up status - shouldNotify=${shouldNotify}`);

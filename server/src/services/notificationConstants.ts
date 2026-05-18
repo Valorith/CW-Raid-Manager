@@ -31,7 +31,7 @@ export const GUILD_NOTIFICATION_EVENT_DEFINITIONS: NotificationEventDefinition[]
     label: 'Respawn Window Opens',
     description: 'Alert when a subscribed NPC enters its respawn window.',
     scopeType: 'GUILD',
-    recommended: false
+    recommended: true
   },
   {
     key: 'npc.respawn.up',

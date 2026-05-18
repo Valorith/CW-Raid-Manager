@@ -16,5 +16,13 @@
     "google": {
       "callbackUrl": "http://localhost:4000/api/auth/google/callback"
     }
+  },
+  "notifications": {
+    "telegram": {
+      "botToken": "your-telegram-bot-token",
+      "botUsername": "your_bot_username",
+      "webhookUrl": "http://localhost:4000/api/integrations/telegram/webhook",
+      "webhookSecret": "replace-with-telegram-webhook-secret"
+    }
   }
 }
