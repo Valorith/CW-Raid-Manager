@@ -7,68 +7,117 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
+
+concurrency:
+  group: update-eqemu-oracle-context
+  cancel-in-progress: false
 
 jobs:
   update-context:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout CW-Raid-Manager
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version-file: .node-version
+          cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Regenerate Oracle review index
-        run: npm --workspace server run oracle:context
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm --workspace server run oracle:context; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 20))
+          done
 
       - name: Capture Oracle metadata
         id: oracle
         run: |
           node <<'NODE' >> "$GITHUB_OUTPUT"
+          const { statSync } = require('node:fs');
           const index = require('./server/src/data/eqemuOracleReviewIndex.json');
+          const size = statSync('./server/src/data/eqemuOracleReviewIndex.json').size;
+          if (!Array.isArray(index.records) || index.records.length === 0) {
+            throw new Error('Generated Oracle review index contains no records.');
+          }
+          if (size > 6 * 1024 * 1024) {
+            throw new Error(`Generated Oracle review index is too large: ${size} bytes.`);
+          }
           const sources = index.manifest?.sources ?? {};
           const docs = sources.docs?.source_ref ? sources.docs.source_ref.slice(0, 12) : 'unknown';
           const questApi = sources['quest-api']?.source_ref ? sources['quest-api'].source_ref.slice(0, 12) : 'unknown';
           const schema = sources.schema?.source_ref ? sources.schema.source_ref.slice(0, 12) : 'unknown';
-          console.log(`commit=${index.sourceCommit}`);
+          console.log(`source_commit=${index.sourceCommit}`);
           console.log(`records=${index.records.length}`);
+          console.log(`quest_api_records=${index.counts?.questApi ?? 'unknown'}`);
+          console.log(`schema_records=${index.counts?.schema ?? 'unknown'}`);
+          console.log(`docs_records=${index.counts?.docs ?? 'unknown'}`);
+          console.log(`file_size=${size}`);
+          console.log(`generated_at=${index.generatedAt}`);
           console.log(`docs_ref=${docs}`);
           console.log(`quest_api_ref=${questApi}`);
           console.log(`schema_ref=${schema}`);
           NODE
 
-      - name: Open context update PR
-        id: context_pr
-        continue-on-error: true
-        uses: peter-evans/create-pull-request@v6
-        with:
-          branch: codex/update-eqemu-oracle-context
-          title: Update EQEmu Oracle review context
-          commit-message: "chore: update eqemu oracle review context"
-          body: |
-            Regenerated the compact EQEmu Oracle review index.
+      - name: Detect Oracle context changes
+        id: diff
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- server/src/data/eqemuOracleReviewIndex.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- server/src/data/eqemuOracleReviewIndex.json
+          fi
 
-            - Oracle commit: `${{ steps.oracle.outputs.commit }}`
-            - Records: `${{ steps.oracle.outputs.records }}`
-            - Quest API ref: `${{ steps.oracle.outputs.quest_api_ref }}`
-            - Schema ref: `${{ steps.oracle.outputs.schema_ref }}`
-            - Docs ref: `${{ steps.oracle.outputs.docs_ref }}`
+      - name: Commit updated Oracle context
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add server/src/data/eqemuOracleReviewIndex.json
+          git commit -m "chore: update eqemu oracle review context"
 
-      - name: Report manual PR fallback
-        if: steps.context_pr.outcome == 'failure'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep $((attempt * 20))
+          done
+
+      - name: Write Oracle context summary
+        if: always()
         run: |
           {
-            echo "### Manual PR needed"
-            echo
-            echo "The context update branch was pushed, but repository settings do not allow GitHub Actions to create pull requests."
-            echo
-            echo "Open the PR manually from:"
-            echo "https://github.com/${{ github.repository }}/pull/new/codex/update-eqemu-oracle-context"
+            echo "### EQEmu Oracle context update"
+            echo "- Changed: \`${{ steps.diff.outputs.changed }}\`"
+            echo "- Oracle commit: \`${{ steps.oracle.outputs.source_commit }}\`"
+            echo "- Records: \`${{ steps.oracle.outputs.records }}\`"
+            echo "- Quest API records: \`${{ steps.oracle.outputs.quest_api_records }}\`"
+            echo "- Schema records: \`${{ steps.oracle.outputs.schema_records }}\`"
+            echo "- Docs records: \`${{ steps.oracle.outputs.docs_records }}\`"
+            echo "- File size: \`${{ steps.oracle.outputs.file_size }} bytes\`"
+            echo "- Quest API ref: \`${{ steps.oracle.outputs.quest_api_ref }}\`"
+            echo "- Schema ref: \`${{ steps.oracle.outputs.schema_ref }}\`"
+            echo "- Docs ref: \`${{ steps.oracle.outputs.docs_ref }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::warning::Repository settings do not allow GitHub Actions to create pull requests. Open the context update PR manually from the pushed branch."

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve, join } from 'node:path';
+import { dirname, resolve, join } from 'node:path';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -19,6 +19,26 @@ type OracleReviewRecord = {
   sourceRef?: string;
   relatedDocs?: string[];
   provenance?: unknown;
+};
+
+type OracleReviewIndex = {
+  indexVersion: 1;
+  generatedAt: string;
+  oracleRepo: string;
+  sourceCommit: string;
+  manifest: JsonRecord;
+  counts: {
+    questApi: number;
+    schema: number;
+    docs: number;
+  };
+  limits: {
+    docsSectionLimit: number;
+    docsIncluded: number;
+    docsAvailable: number;
+    maxOutputBytes: number;
+  };
+  records: OracleReviewRecord[];
 };
 
 const DEFAULT_REPO = 'https://github.com/Valorith/eqemu-oracle.git';
@@ -79,6 +99,33 @@ function unique(values: Array<string | undefined>): string[] {
     output.push(normalized);
   }
   return output;
+}
+
+function serializedIndex(index: OracleReviewIndex): string {
+  return `${JSON.stringify(index)}\n`;
+}
+
+function indexSize(index: OracleReviewIndex): number {
+  return Buffer.byteLength(serializedIndex(index), 'utf-8');
+}
+
+function comparableIndexJson(index: OracleReviewIndex): string {
+  const comparable = { ...index, generatedAt: '' };
+  return JSON.stringify(comparable);
+}
+
+function preserveGeneratedAtWhenUnchanged(outputPath: string, nextIndex: OracleReviewIndex): boolean {
+  try {
+    const previousIndex = readJson<OracleReviewIndex>(outputPath);
+    if (!asString(previousIndex.generatedAt)) return false;
+    const comparablePrevious = comparableIndexJson(previousIndex);
+    const comparableNext = comparableIndexJson(nextIndex);
+    if (comparablePrevious !== comparableNext) return false;
+    nextIndex.generatedAt = previousIndex.generatedAt;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function compactProvenance(value: unknown): unknown {
@@ -234,7 +281,61 @@ function isUsefulDocsSection(record: JsonRecord): boolean {
   );
 }
 
-function buildIndex(sourceRoot: string, sourceCommit: string) {
+function makeIndex(
+  generatedAt: string,
+  sourceCommit: string,
+  manifest: JsonRecord,
+  questRecords: OracleReviewRecord[],
+  schemaRecords: OracleReviewRecord[],
+  docsRecords: OracleReviewRecord[],
+  docsAvailable: number
+): OracleReviewIndex {
+  return {
+    indexVersion: 1,
+    generatedAt,
+    oracleRepo: DEFAULT_REPO,
+    sourceCommit,
+    manifest,
+    counts: {
+      questApi: questRecords.length,
+      schema: schemaRecords.length,
+      docs: docsRecords.length
+    },
+    limits: {
+      docsSectionLimit: DOC_SECTION_LIMIT,
+      docsIncluded: docsRecords.length,
+      docsAvailable,
+      maxOutputBytes: MAX_OUTPUT_BYTES
+    },
+    records: [...questRecords, ...schemaRecords, ...docsRecords]
+  };
+}
+
+function fitIndexToBudget(index: OracleReviewIndex, docsRecords: OracleReviewRecord[]): OracleReviewIndex {
+  if (indexSize(index) <= MAX_OUTPUT_BYTES) return index;
+
+  const questRecords = index.records.filter((record) => record.domain === 'quest-api');
+  const schemaRecords = index.records.filter((record) => record.domain === 'schema');
+  let docsLimit = docsRecords.length;
+  let fitted = index;
+
+  while (indexSize(fitted) > MAX_OUTPUT_BYTES && docsLimit > 0) {
+    docsLimit = Math.max(0, docsLimit - Math.max(25, Math.ceil(docsLimit * 0.1)));
+    fitted = makeIndex(
+      index.generatedAt,
+      index.sourceCommit,
+      index.manifest,
+      questRecords,
+      schemaRecords,
+      docsRecords.slice(0, docsLimit),
+      docsRecords.length
+    );
+  }
+
+  return fitted;
+}
+
+function buildIndex(sourceRoot: string, sourceCommit: string): OracleReviewIndex {
   const dataRoot = findDataRoot(sourceRoot);
   const mergedRoot = join(dataRoot, 'merged');
   const manifest = readJson<JsonRecord>(join(dataRoot, 'manifest.json'));
@@ -245,33 +346,33 @@ function buildIndex(sourceRoot: string, sourceCommit: string) {
   const schemaRecords = readJson<JsonRecord[]>(join(mergedRoot, 'schema/index.json'))
     .map(schemaRecord)
     .filter((record): record is OracleReviewRecord => Boolean(record));
-  const docsRecords = readJson<JsonRecord[]>(join(mergedRoot, 'docs/sections.json'))
-    .filter(isUsefulDocsSection)
+  const usefulDocsSections = readJson<JsonRecord[]>(join(mergedRoot, 'docs/sections.json')).filter(
+    isUsefulDocsSection
+  );
+  const docsRecords = usefulDocsSections
     .slice(0, DOC_SECTION_LIMIT)
     .map(docsRecord)
     .filter((record): record is OracleReviewRecord => Boolean(record));
 
-  return {
-    indexVersion: 1,
-    generatedAt: new Date().toISOString(),
-    oracleRepo: DEFAULT_REPO,
+  const index = makeIndex(
+    new Date().toISOString(),
     sourceCommit,
     manifest,
-    counts: {
-      questApi: questRecords.length,
-      schema: schemaRecords.length,
-      docs: docsRecords.length
-    },
-    records: [...questRecords, ...schemaRecords, ...docsRecords]
-  };
+    questRecords,
+    schemaRecords,
+    docsRecords,
+    usefulDocsSections.length
+  );
+  return fitIndexToBudget(index, docsRecords);
 }
 
 const source = resolveSource();
 try {
   const outputPath = resolve(process.cwd(), argValue('--out') ?? process.env.ORACLE_CONTEXT_OUT ?? DEFAULT_OUT);
   const index = buildIndex(source.sourceRoot, source.sourceCommit);
-  mkdirSync(resolve(outputPath, '..'), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(index)}\n`);
+  const preservedGeneratedAt = preserveGeneratedAtWhenUnchanged(outputPath, index);
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, serializedIndex(index));
   const size = statSync(outputPath).size;
   if (size > MAX_OUTPUT_BYTES && !hasArg('--allow-large')) {
     throw new Error(
@@ -281,6 +382,9 @@ try {
   console.log(`Wrote ${outputPath}`);
   console.log(`Oracle commit: ${source.sourceCommit}`);
   console.log(`Records: ${index.records.length}; bytes: ${size}`);
+  if (preservedGeneratedAt) {
+    console.log(`No content changes detected; preserved generatedAt: ${index.generatedAt}`);
+  }
 } finally {
   source.cleanup?.();
 }
