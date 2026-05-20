@@ -106,6 +106,8 @@ const DISCORD_COLORS = {
   danger: 0xff6b55,
   info: 0x9b7dff
 } as const;
+const GITHUB_METADATA_REFRESH_INTERVAL_MS = 2 * 60 * 1000;
+const githubMetadataRefreshes = new Map<string, Promise<void>>();
 
 const DEFAULT_TEST_MANAGER_SETTINGS: TestManagerSettings = {
   schemaVersion: TEST_MANAGER_SETTINGS_SCHEMA_VERSION,
@@ -159,7 +161,9 @@ type GitHubPullRequestReference = {
 type GitHubPullRequestMetadata = {
   available: boolean;
   fetchedAt: string;
+  checkedAt?: string;
   statusMessage?: string;
+  statusCode?: number;
   htmlUrl?: string;
   title?: string;
   state?: string;
@@ -178,6 +182,10 @@ type GitHubPullRequestMetadata = {
   comments?: number | null;
   reviewComments?: number | null;
   labels?: Array<{ name: string; color: string | null }>;
+  etag?: string | null;
+  lastModified?: string | null;
+  issueEtag?: string | null;
+  issueLastModified?: string | null;
 };
 
 type GitHubIssueReference = GitHubPullRequestReference;
@@ -185,7 +193,9 @@ type GitHubIssueReference = GitHubPullRequestReference;
 type GitHubIssueMetadata = {
   available: boolean;
   fetchedAt: string;
+  checkedAt?: string;
   statusMessage?: string;
+  statusCode?: number;
   htmlUrl?: string;
   title?: string;
   state?: string;
@@ -196,6 +206,8 @@ type GitHubIssueMetadata = {
   closedAt?: string | null;
   comments?: number | null;
   labels?: Array<{ name: string; color: string | null }>;
+  etag?: string | null;
+  lastModified?: string | null;
 };
 
 function displayName(user: { displayName: string; nickname: string | null }): string {
@@ -318,20 +330,50 @@ function normalizeGithubIssueUrl(value?: string | null): GitHubIssueReference | 
   return trimmed ? parseGithubIssueUrl(trimmed) : null;
 }
 
+type GithubJsonResponse = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  notModified: boolean;
+  etag: string | null;
+  lastModified: string | null;
+};
+
+type GithubRequestValidators = {
+  etag?: string | null;
+  lastModified?: string | null;
+};
+
 async function fetchGithubJson(
   pathname: string,
-  signal: AbortSignal
-): Promise<{ ok: boolean; status: number; data: unknown }> {
+  signal: AbortSignal,
+  validators: GithubRequestValidators = {}
+): Promise<GithubJsonResponse> {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'CWRaidManager-TestManager'
+  };
+  if (validators.etag) {
+    headers['If-None-Match'] = validators.etag;
+  } else if (validators.lastModified) {
+    headers['If-Modified-Since'] = validators.lastModified;
+  }
+
   const response = await fetch(`https://api.github.com${pathname}`, {
     signal,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'CWRaidManager-TestManager'
-    }
+    headers
   });
-  const data = (await response.json().catch(() => null)) as unknown;
-  return { ok: response.ok, status: response.status, data };
+  const data =
+    response.status === 304 ? null : ((await response.json().catch(() => null)) as unknown);
+  return {
+    ok: response.ok,
+    status: response.status,
+    data,
+    notModified: response.status === 304,
+    etag: response.headers.get('etag'),
+    lastModified: response.headers.get('last-modified')
+  };
 }
 
 function githubString(value: unknown): string | null {
@@ -367,6 +409,118 @@ function githubLabels(value: unknown): Array<{ name: string; color: string | nul
     .slice(0, 6);
 }
 
+function githubStoredValidators(
+  metadata: Record<string, unknown>,
+  prefix = ''
+): GithubRequestValidators {
+  const keyPrefix = prefix ? `${prefix[0].toLowerCase()}${prefix.slice(1)}` : '';
+  const etag =
+    githubString(metadata[`${keyPrefix}etag`]) ?? githubString(metadata[`${keyPrefix}Etag`]);
+  const lastModified =
+    githubString(metadata[`${keyPrefix}lastModified`]) ??
+    githubString(metadata[`${keyPrefix}LastModified`]);
+  return { etag, lastModified };
+}
+
+function githubMetadataCheckedAt(metadata: Prisma.JsonValue | null): string | null {
+  const value = githubObject(metadata);
+  return githubString(value.checkedAt) ?? githubString(value.fetchedAt);
+}
+
+function shouldRefreshGithubMetadata(metadata: Prisma.JsonValue | null): boolean {
+  const checkedAt = githubMetadataCheckedAt(metadata);
+  if (!checkedAt) {
+    return true;
+  }
+
+  const checkedAtMs = Date.parse(checkedAt);
+  return (
+    !Number.isFinite(checkedAtMs) || Date.now() - checkedAtMs >= GITHUB_METADATA_REFRESH_INTERVAL_MS
+  );
+}
+
+function githubFailureIsTransient(status: number | null | undefined): boolean {
+  return !status || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+function markGithubMetadataChecked<T extends GitHubPullRequestMetadata | GitHubIssueMetadata>(
+  metadata: T,
+  checkedAt: string,
+  headers: GithubRequestValidators = {}
+): T {
+  return {
+    ...metadata,
+    checkedAt,
+    fetchedAt: metadata.fetchedAt || checkedAt,
+    ...(headers.etag ? { etag: headers.etag } : {}),
+    ...(headers.lastModified ? { lastModified: headers.lastModified } : {})
+  };
+}
+
+function pullRequestMetadataFromStored(
+  reference: GitHubPullRequestReference,
+  metadata: Prisma.JsonValue | null,
+  fetchedAt: string
+): GitHubPullRequestMetadata {
+  const value = githubObject(metadata);
+  return {
+    available: typeof value.available === 'boolean' ? value.available : false,
+    fetchedAt: githubString(value.fetchedAt) ?? fetchedAt,
+    checkedAt: githubString(value.checkedAt) ?? undefined,
+    statusMessage: githubString(value.statusMessage) ?? undefined,
+    statusCode: githubNumber(value.statusCode) ?? undefined,
+    htmlUrl: githubString(value.htmlUrl) ?? reference.url,
+    title: githubString(value.title) ?? undefined,
+    state: githubString(value.state) ?? undefined,
+    draft: githubBoolean(value.draft) ?? false,
+    merged: githubBoolean(value.merged) ?? false,
+    mergedAt: githubString(value.mergedAt),
+    authorLogin: githubString(value.authorLogin),
+    authorAvatarUrl: githubString(value.authorAvatarUrl),
+    createdAt: githubString(value.createdAt),
+    updatedAt: githubString(value.updatedAt),
+    baseRef: githubString(value.baseRef),
+    headRef: githubString(value.headRef),
+    additions: githubNumber(value.additions),
+    deletions: githubNumber(value.deletions),
+    changedFiles: githubNumber(value.changedFiles),
+    comments: githubNumber(value.comments),
+    reviewComments: githubNumber(value.reviewComments),
+    labels: githubLabels(value.labels),
+    etag: githubString(value.etag),
+    lastModified: githubString(value.lastModified),
+    issueEtag: githubString(value.issueEtag),
+    issueLastModified: githubString(value.issueLastModified)
+  };
+}
+
+function issueMetadataFromStored(
+  reference: GitHubIssueReference,
+  metadata: Prisma.JsonValue | null,
+  fetchedAt: string
+): GitHubIssueMetadata {
+  const value = githubObject(metadata);
+  return {
+    available: typeof value.available === 'boolean' ? value.available : false,
+    fetchedAt: githubString(value.fetchedAt) ?? fetchedAt,
+    checkedAt: githubString(value.checkedAt) ?? undefined,
+    statusMessage: githubString(value.statusMessage) ?? undefined,
+    statusCode: githubNumber(value.statusCode) ?? undefined,
+    htmlUrl: githubString(value.htmlUrl) ?? reference.url,
+    title: githubString(value.title) ?? undefined,
+    state: githubString(value.state) ?? undefined,
+    authorLogin: githubString(value.authorLogin),
+    authorAvatarUrl: githubString(value.authorAvatarUrl),
+    createdAt: githubString(value.createdAt),
+    updatedAt: githubString(value.updatedAt),
+    closedAt: githubString(value.closedAt),
+    comments: githubNumber(value.comments),
+    labels: githubLabels(value.labels),
+    etag: githubString(value.etag),
+    lastModified: githubString(value.lastModified)
+  };
+}
+
 function githubApiErrorMessage(
   status: number,
   data: unknown,
@@ -383,9 +537,12 @@ function githubApiErrorMessage(
 }
 
 async function fetchGithubPullRequestMetadata(
-  reference: GitHubPullRequestReference
+  reference: GitHubPullRequestReference,
+  previousMetadata: Prisma.JsonValue | null = null
 ): Promise<GitHubPullRequestMetadata> {
   const fetchedAt = new Date().toISOString();
+  const previousValue = githubObject(previousMetadata);
+  const previous = pullRequestMetadataFromStored(reference, previousMetadata, fetchedAt);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -394,14 +551,62 @@ async function fetchGithubPullRequestMetadata(
       `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
         reference.repo
       )}/pulls/${reference.number}`,
-      controller.signal
+      controller.signal,
+      githubStoredValidators(previousValue)
     );
 
-    if (!pull.ok) {
-      return {
+    let metadata: GitHubPullRequestMetadata;
+    if (pull.notModified) {
+      metadata = markGithubMetadataChecked(previous, fetchedAt, {
+        etag: pull.etag ?? previous.etag,
+        lastModified: pull.lastModified ?? previous.lastModified
+      });
+    } else if (!pull.ok) {
+      const failure: GitHubPullRequestMetadata = {
         available: false,
         fetchedAt,
+        checkedAt: fetchedAt,
+        statusCode: pull.status,
         statusMessage: githubApiErrorMessage(pull.status, pull.data, 'pull request')
+      };
+      return previous.available && githubFailureIsTransient(pull.status)
+        ? markGithubMetadataChecked(previous, fetchedAt, {
+            etag: pull.etag ?? previous.etag,
+            lastModified: pull.lastModified ?? previous.lastModified
+          })
+        : failure;
+    } else {
+      const pullData = githubObject(pull.data);
+      const user = githubObject(pullData.user);
+      const base = githubObject(pullData.base);
+      const head = githubObject(pullData.head);
+
+      metadata = {
+        available: true,
+        fetchedAt,
+        checkedAt: fetchedAt,
+        htmlUrl: githubString(pullData.html_url) ?? reference.url,
+        title: githubString(pullData.title) ?? `Pull request #${reference.number}`,
+        state: githubString(pullData.state) ?? undefined,
+        draft: githubBoolean(pullData.draft) ?? false,
+        merged: Boolean(githubString(pullData.merged_at)),
+        mergedAt: githubString(pullData.merged_at),
+        authorLogin: githubString(user.login),
+        authorAvatarUrl: githubString(user.avatar_url),
+        createdAt: githubString(pullData.created_at),
+        updatedAt: githubString(pullData.updated_at),
+        baseRef: githubString(base.ref),
+        headRef: githubString(head.ref),
+        additions: githubNumber(pullData.additions),
+        deletions: githubNumber(pullData.deletions),
+        changedFiles: githubNumber(pullData.changed_files),
+        comments: githubNumber(pullData.comments),
+        reviewComments: githubNumber(pullData.review_comments),
+        labels: previous.labels ?? [],
+        etag: pull.etag,
+        lastModified: pull.lastModified,
+        issueEtag: previous.issueEtag,
+        issueLastModified: previous.issueLastModified
       };
     }
 
@@ -409,41 +614,53 @@ async function fetchGithubPullRequestMetadata(
       `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
         reference.repo
       )}/issues/${reference.number}`,
-      controller.signal
-    ).catch(() => ({ ok: false, status: 0, data: null }));
+      controller.signal,
+      githubStoredValidators(previousValue, 'issue')
+    ).catch(
+      (): GithubJsonResponse => ({
+        ok: false,
+        status: 0,
+        data: null,
+        notModified: false,
+        etag: null,
+        lastModified: null
+      })
+    );
 
-    const pullData = githubObject(pull.data);
-    const issueData = issue.ok ? githubObject(issue.data) : {};
-    const user = githubObject(pullData.user);
-    const base = githubObject(pullData.base);
-    const head = githubObject(pullData.head);
+    if (issue.notModified) {
+      return {
+        ...metadata,
+        labels: previous.labels,
+        issueEtag: issue.etag ?? previous.issueEtag,
+        issueLastModified: issue.lastModified ?? previous.issueLastModified
+      };
+    }
+    if (!issue.ok) {
+      return {
+        ...metadata,
+        labels: previous.labels,
+        issueEtag: previous.issueEtag,
+        issueLastModified: previous.issueLastModified
+      };
+    }
 
+    const issueData = githubObject(issue.data);
     return {
-      available: true,
-      fetchedAt,
-      htmlUrl: githubString(pullData.html_url) ?? reference.url,
-      title: githubString(pullData.title) ?? `Pull request #${reference.number}`,
-      state: githubString(pullData.state) ?? undefined,
-      draft: githubBoolean(pullData.draft) ?? false,
-      merged: Boolean(githubString(pullData.merged_at)),
-      mergedAt: githubString(pullData.merged_at),
-      authorLogin: githubString(user.login),
-      authorAvatarUrl: githubString(user.avatar_url),
-      createdAt: githubString(pullData.created_at),
-      updatedAt: githubString(pullData.updated_at),
-      baseRef: githubString(base.ref),
-      headRef: githubString(head.ref),
-      additions: githubNumber(pullData.additions),
-      deletions: githubNumber(pullData.deletions),
-      changedFiles: githubNumber(pullData.changed_files),
-      comments: githubNumber(pullData.comments),
-      reviewComments: githubNumber(pullData.review_comments),
-      labels: githubLabels(issueData.labels)
+      ...metadata,
+      labels: githubLabels(issueData.labels),
+      issueEtag: issue.etag,
+      issueLastModified: issue.lastModified
     };
   } catch (error) {
+    if (previous.available) {
+      return markGithubMetadataChecked(previous, fetchedAt);
+    }
+
     return {
       available: false,
       fetchedAt,
+      checkedAt: fetchedAt,
+      statusCode: 0,
       statusMessage:
         error instanceof Error && error.name === 'AbortError'
           ? 'GitHub metadata refresh timed out.'
@@ -455,9 +672,12 @@ async function fetchGithubPullRequestMetadata(
 }
 
 async function fetchGithubIssueMetadata(
-  reference: GitHubIssueReference
+  reference: GitHubIssueReference,
+  previousMetadata: Prisma.JsonValue | null = null
 ): Promise<GitHubIssueMetadata> {
   const fetchedAt = new Date().toISOString();
+  const previousValue = githubObject(previousMetadata);
+  const previous = issueMetadataFromStored(reference, previousMetadata, fetchedAt);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -466,15 +686,30 @@ async function fetchGithubIssueMetadata(
       `/repos/${encodeURIComponent(reference.owner)}/${encodeURIComponent(
         reference.repo
       )}/issues/${reference.number}`,
-      controller.signal
+      controller.signal,
+      githubStoredValidators(previousValue)
     );
 
+    if (issue.notModified) {
+      return markGithubMetadataChecked(previous, fetchedAt, {
+        etag: issue.etag ?? previous.etag,
+        lastModified: issue.lastModified ?? previous.lastModified
+      });
+    }
     if (!issue.ok) {
-      return {
+      const failure: GitHubIssueMetadata = {
         available: false,
         fetchedAt,
+        checkedAt: fetchedAt,
+        statusCode: issue.status,
         statusMessage: githubApiErrorMessage(issue.status, issue.data, 'issue')
       };
+      return previous.available && githubFailureIsTransient(issue.status)
+        ? markGithubMetadataChecked(previous, fetchedAt, {
+            etag: issue.etag ?? previous.etag,
+            lastModified: issue.lastModified ?? previous.lastModified
+          })
+        : failure;
     }
 
     const issueData = githubObject(issue.data);
@@ -483,6 +718,7 @@ async function fetchGithubIssueMetadata(
     return {
       available: true,
       fetchedAt,
+      checkedAt: fetchedAt,
       htmlUrl: githubString(issueData.html_url) ?? reference.url,
       title: githubString(issueData.title) ?? `Issue #${reference.number}`,
       state: githubString(issueData.state) ?? undefined,
@@ -492,12 +728,20 @@ async function fetchGithubIssueMetadata(
       updatedAt: githubString(issueData.updated_at),
       closedAt: githubString(issueData.closed_at),
       comments: githubNumber(issueData.comments),
-      labels: githubLabels(issueData.labels)
+      labels: githubLabels(issueData.labels),
+      etag: issue.etag,
+      lastModified: issue.lastModified
     };
   } catch (error) {
+    if (previous.available) {
+      return markGithubMetadataChecked(previous, fetchedAt);
+    }
+
     return {
       available: false,
       fetchedAt,
+      checkedAt: fetchedAt,
+      statusCode: 0,
       statusMessage:
         error instanceof Error && error.name === 'AbortError'
           ? 'GitHub metadata refresh timed out.'
@@ -2413,6 +2657,84 @@ export async function getTestChange(changeId: string, userId: string) {
   });
 
   return change ? serializeChange(change, userId) : null;
+}
+
+async function refreshGithubMetadataForChange(changeId: string): Promise<void> {
+  const change = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      githubPrUrl: true,
+      githubPrMetadata: true,
+      githubIssueUrl: true,
+      githubIssueMetadata: true
+    }
+  });
+  if (!change) {
+    return;
+  }
+
+  const data: Prisma.TestChangeUpdateInput = {};
+  if (change.githubPrUrl && shouldRefreshGithubMetadata(change.githubPrMetadata)) {
+    try {
+      const reference = normalizeGithubPullRequestUrl(change.githubPrUrl);
+      if (reference) {
+        data.githubPrMetadata = (await fetchGithubPullRequestMetadata(
+          reference,
+          change.githubPrMetadata
+        )) as Prisma.InputJsonValue;
+      }
+    } catch {
+      // Ignore malformed legacy URLs; create/update validation prevents new invalid values.
+    }
+  }
+
+  if (change.githubIssueUrl && shouldRefreshGithubMetadata(change.githubIssueMetadata)) {
+    try {
+      const reference = normalizeGithubIssueUrl(change.githubIssueUrl);
+      if (reference) {
+        data.githubIssueMetadata = (await fetchGithubIssueMetadata(
+          reference,
+          change.githubIssueMetadata
+        )) as Prisma.InputJsonValue;
+      }
+    } catch {
+      // Ignore malformed legacy URLs; create/update validation prevents new invalid values.
+    }
+  }
+
+  if (Object.keys(data).length > 0) {
+    await prisma.testChange.update({
+      where: { id: change.id },
+      data
+    });
+  }
+}
+
+async function refreshGithubMetadataWithDedupe(changeId: string): Promise<void> {
+  const existingRefresh = githubMetadataRefreshes.get(changeId);
+  if (existingRefresh) {
+    await existingRefresh;
+    return;
+  }
+
+  const refresh = refreshGithubMetadataForChange(changeId).finally(() => {
+    githubMetadataRefreshes.delete(changeId);
+  });
+  githubMetadataRefreshes.set(changeId, refresh);
+  await refresh;
+}
+
+export async function refreshTestChangeGithubMetadata(changeId: string, userId: string) {
+  await ensureSeedData(userId);
+
+  const resolvedChangeId = await resolveTestChangeId(changeId);
+  if (!resolvedChangeId) {
+    return null;
+  }
+
+  await refreshGithubMetadataWithDedupe(resolvedChangeId);
+  return getTestChange(resolvedChangeId, userId);
 }
 
 async function resolveTestChangeId(changeId: string): Promise<string | null> {

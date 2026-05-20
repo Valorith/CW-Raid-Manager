@@ -31,6 +31,7 @@ import {
   listNextPatchChanges,
   listTestChanges,
   listTestManagerUsers,
+  refreshTestChangeGithubMetadata,
   requestTester,
   resetNextPatch,
   retestChange,
@@ -255,6 +256,28 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       }
 
       const change = await getTestChange(parsed.data.changeId, request.user.userId);
+      if (!change) {
+        return reply.notFound('Change not found.');
+      }
+
+      return { change };
+    }
+  );
+
+  server.post(
+    '/changes/:changeId/github-metadata/refresh',
+    { preHandler: [authenticate, requireCanView] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const parsed = paramsSchema.safeParse(request.params);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.message);
+      }
+
+      const change = await refreshTestChangeGithubMetadata(
+        parsed.data.changeId,
+        request.user.userId
+      );
       if (!change) {
         return reply.notFound('Change not found.');
       }

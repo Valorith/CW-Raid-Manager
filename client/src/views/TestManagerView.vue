@@ -5056,6 +5056,22 @@ function getApiErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+async function refreshChangeGithubMetadata(change: TestChange | null) {
+  if (!change?.githubPullRequest && !change?.githubIssue) {
+    return;
+  }
+
+  try {
+    const updated = await api.refreshTestChangeGithubMetadata(change.id);
+    replaceCachedChange(updated);
+    if (activeChange.value?.id === updated.id) {
+      selectedChange.value = updated;
+    }
+  } catch {
+    // The cached GitHub state is still usable when a background refresh fails.
+  }
+}
+
 async function loadChanges() {
   changeUnavailable.value = false;
   const fetchedChanges = await api.fetchTestChanges({
@@ -5081,6 +5097,8 @@ async function loadChanges() {
   } else {
     selectedChange.value = changes.value[0] ?? null;
   }
+
+  void refreshChangeGithubMetadata(selectedChange.value);
 }
 
 async function loadUsers() {

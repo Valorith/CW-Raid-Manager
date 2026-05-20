@@ -3497,6 +3497,12 @@ export const api = {
     const response = await axios.get(`/api/test-manager/changes/${encodeURIComponent(changeId)}`);
     return response.data.change;
   },
+  async refreshTestChangeGithubMetadata(changeId: string): Promise<TestChange> {
+    const response = await axios.post(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/github-metadata/refresh`
+    );
+    return response.data.change;
+  },
   async createTestChange(payload: CreateTestChangePayload): Promise<TestChange> {
     const response = await axios.post('/api/test-manager/changes', payload);
     return response.data.change;
