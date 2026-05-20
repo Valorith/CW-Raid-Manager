@@ -115,6 +115,15 @@ const pendingProcessingTimers = new Map<string, NodeJS.Timeout>();
 // Track auto-merge retry counts to limit retries
 const autoMergeRetryCounts = new Map<string, number>();
 const AUTO_MERGE_MAX_RETRIES = 1;
+const AUTO_CRASH_REVIEW_RETRY_DELAYS_MS = [
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+  20 * 60_000,
+  30 * 60_000
+] as const;
+const AUTO_CRASH_REVIEW_MAX_SCHEDULED_RETRIES = AUTO_CRASH_REVIEW_RETRY_DELAYS_MS.length;
+const scheduledCrashReviewRetries = new Map<string, NodeJS.Timeout>();
 
 // Track webhooks currently being processed to prevent concurrent processing
 const processingWebhooks = new Set<string>();
@@ -194,6 +203,7 @@ interface CrashReviewRunOptions {
   provider?: CrashReviewProvider;
   model?: string;
   relayAfterReview?: boolean;
+  fallbackToDiscordOnFailure?: boolean;
   useEqemuOracleContext?: boolean;
 }
 
@@ -694,7 +704,10 @@ export async function retryCrashReviewForMessage(
       where: { id: messageId },
       data: { status: 'FAILED' }
     });
-    await sendFallbackDiscordAlert(messageId, webhook, message.payload, message.rawBody, error);
+    if (options.fallbackToDiscordOnFailure === false) {
+      throw error;
+    }
+    await sendRawCrashReportFallbackToDiscord(messageId, webhook, message.payload, message.rawBody, error);
   }
 
   await applyLabelAutomationIfComplete(messageId);
@@ -1110,6 +1123,7 @@ async function runInboundWebhookActions(
           await autoLabelMessage(messageId, findings, signature ?? { exception: extracted.exceptionLine }, webhookLabel, crashInput);
         } catch (error) {
           overallStatus = 'FAILED';
+          const shouldRetry = isTransientCrashReviewError(error);
           await prisma.inboundWebhookActionRun.update({
             where: { id: run.id },
             data: {
@@ -1118,6 +1132,11 @@ async function runInboundWebhookActions(
               durationMs: Date.now() - startedAt
             }
           });
+          if (shouldRetry) {
+            summary.push({ actionId: action.id, status: 'PENDING_REVIEW' });
+            scheduleTransientCrashReviewRetry(messageId, error);
+            break;
+          }
           summary.push({ actionId: action.id, status: 'FAILED' });
         }
         continue;
@@ -1307,6 +1326,136 @@ async function reviewCrashReportWithRetry(
   }
 
   throw lastError instanceof Error ? lastError : new Error('Unknown crash review error.');
+}
+
+function scheduleTransientCrashReviewRetry(
+  messageId: string,
+  originalError: unknown,
+  retryAttempt = 1
+): void {
+  if (scheduledCrashReviewRetries.has(messageId)) {
+    debugLog(`[CrashReviewRetry] Retry already scheduled for message ${messageId}`);
+    return;
+  }
+
+  if (retryAttempt > AUTO_CRASH_REVIEW_MAX_SCHEDULED_RETRIES) {
+    void sendRawCrashReportFallbackForMessage(messageId, originalError);
+    return;
+  }
+
+  const delayMs =
+    AUTO_CRASH_REVIEW_RETRY_DELAYS_MS[retryAttempt - 1] ??
+    AUTO_CRASH_REVIEW_RETRY_DELAYS_MS[AUTO_CRASH_REVIEW_RETRY_DELAYS_MS.length - 1];
+  debugLog(
+    `[CrashReviewRetry] Scheduling retry ${retryAttempt}/${AUTO_CRASH_REVIEW_MAX_SCHEDULED_RETRIES} for message ${messageId} in ${delayMs}ms after transient failure: ${getErrorMessage(originalError)}`
+  );
+  void updateLatestCrashReviewSummary(messageId, 'PENDING_REVIEW').catch((error) => {
+    console.error(`[CrashReviewRetry] Failed to mark retry pending for message ${messageId}:`, error);
+  });
+
+  const timer = setTimeout(() => {
+    scheduledCrashReviewRetries.delete(messageId);
+    void (async () => {
+      try {
+        const state = await getCrashReviewRunState(messageId);
+        if (state !== 'needs-review') {
+          debugLog(`[CrashReviewRetry] Skipping retry for message ${messageId}; state=${state}`);
+          return;
+        }
+
+        await retryCrashReviewForMessage(messageId, {
+          relayAfterReview: true,
+          fallbackToDiscordOnFailure: false
+        });
+      } catch (error) {
+        if (isTransientCrashReviewError(error) && retryAttempt < AUTO_CRASH_REVIEW_MAX_SCHEDULED_RETRIES) {
+          scheduleTransientCrashReviewRetry(messageId, error, retryAttempt + 1);
+          return;
+        }
+
+        console.error(
+          `[CrashReviewRetry] Retry ${retryAttempt}/${AUTO_CRASH_REVIEW_MAX_SCHEDULED_RETRIES} failed for message ${messageId}; sending raw crash report fallback:`,
+          error
+        );
+        await sendRawCrashReportFallbackForMessage(messageId, error);
+      }
+    })();
+  }, delayMs);
+  scheduledCrashReviewRetries.set(messageId, timer);
+}
+
+async function updateLatestCrashReviewSummary(
+  messageId: string,
+  status: 'SUCCESS' | 'FAILED' | 'PENDING_REVIEW' | 'SKIPPED'
+): Promise<void> {
+  const run = await prisma.inboundWebhookActionRun.findFirst({
+    where: {
+      messageId,
+      action: { type: 'CRASH_REVIEW' }
+    },
+    select: { actionId: true },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  if (run) {
+    await updateActionSummary(messageId, run.actionId, status);
+  }
+}
+
+async function getCrashReviewRunState(
+  messageId: string
+): Promise<'complete' | 'pending' | 'needs-review'> {
+  const run = await prisma.inboundWebhookActionRun.findFirst({
+    where: {
+      messageId,
+      status: { in: ['SUCCESS', 'PENDING_REVIEW'] },
+      action: { type: 'CRASH_REVIEW' }
+    },
+    select: { status: true },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  if (run?.status === 'SUCCESS') {
+    return 'complete';
+  }
+  if (run?.status === 'PENDING_REVIEW') {
+    return 'pending';
+  }
+  return 'needs-review';
+}
+
+function isTransientCrashReviewError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes('"code":503') ||
+    message.includes('code 503') ||
+    message.includes('status code 503') ||
+    message.includes('"status":"unavailable"') ||
+    message.includes('unavailable') ||
+    message.includes('high demand') ||
+    message.includes('try again later') ||
+    message.includes('resource_exhausted') ||
+    message.includes('rate limit') ||
+    message.includes('429') ||
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('econnreset') ||
+    message.includes('fetch failed')
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Unknown error';
+  }
 }
 
 export function buildCrashReviewInput(
@@ -1625,7 +1774,37 @@ async function sendDiscordRelay(
   }
 }
 
-async function sendFallbackDiscordAlert(
+async function sendRawCrashReportFallbackForMessage(messageId: string, error: unknown): Promise<void> {
+  const message = await prisma.inboundWebhookMessage.findUnique({
+    where: { id: messageId },
+    include: {
+      webhook: {
+        include: { actions: true }
+      }
+    }
+  });
+
+  if (!message?.webhook) {
+    console.error(`[CrashReviewRetry] Could not send raw fallback; message ${messageId} was not found.`);
+    return;
+  }
+
+  await sendRawCrashReportFallbackToDiscord(
+    messageId,
+    message.webhook,
+    message.payload,
+    message.rawBody,
+    error,
+    { retriesExhausted: true }
+  );
+  await prisma.inboundWebhookMessage.update({
+    where: { id: messageId },
+    data: { status: 'FAILED' }
+  });
+  await applyLabelAutomationIfComplete(messageId);
+}
+
+async function sendRawCrashReportFallbackToDiscord(
   messageId: string,
   webhook: {
     id: string;
@@ -1640,7 +1819,8 @@ async function sendFallbackDiscordAlert(
   },
   payload: unknown,
   rawBody: string | null,
-  error: unknown
+  error: unknown,
+  options: { retriesExhausted?: boolean } = {}
 ) {
   const discordAction = webhook.actions.find(
     (action) => action.type === 'DISCORD_RELAY' && action.isEnabled
@@ -1655,63 +1835,22 @@ async function sendFallbackDiscordAlert(
     return;
   }
 
-  const text = buildCrashReviewInput(payload, rawBody, payload);
-  const title = detectQuestError(undefined, '', text)
-    ? 'Script Error Received - AI Review Failed'
-    : 'Crash Report Received - AI Review Failed';
-  const messageUrl = clientBaseUrl
-    ? `${clientBaseUrl}/admin/webhooks?messageId=${encodeURIComponent(messageId)}`
-    : null;
-  const errorMessage = error instanceof Error ? error.message : 'Unknown AI review error';
-
-  const fallbackPayload: DiscordEmbedPayload = {
-    embeds: [
-      {
-        title,
-        description:
-          'A crash/error report was stored, but the AI review did not complete. Manual review is needed.',
-        color: DISCORD_EMBED_COLORS.warning,
-        fields: [
-          {
-            name: 'Webhook',
-            value: webhook.label,
-            inline: true
-          },
-          {
-            name: 'Payload Size',
-            value: `${text.length.toLocaleString()} chars`,
-            inline: true
-          },
-          {
-            name: 'AI Review Error',
-            value: truncateText(errorMessage, 500),
-            inline: false
-          },
-          ...(messageUrl
-            ? [
-                {
-                  name: 'Full Report',
-                  value: `[View in Webhook Inbox](${messageUrl})`,
-                  inline: false
-                }
-              ]
-            : [])
-        ],
-        footer: { text: 'Fallback alert - manual review required' },
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
+  const fallbackPayload = buildRawCrashReportFallbackPayload(payload, rawBody);
 
   const startedAt = Date.now();
   try {
-    await sendDiscordRelay(discordUrl, fallbackPayload, { ...config, discordMode: 'RAW' }, messageId);
+    await sendDiscordRelay(discordUrl, fallbackPayload, config, messageId);
     await prisma.inboundWebhookActionRun.create({
       data: {
         messageId,
         actionId: discordAction.id,
         status: 'SUCCESS',
-        result: { note: 'Fallback Discord alert sent after AI review failure.' },
+        result: {
+          note: options.retriesExhausted
+            ? 'Raw crash report sent to Discord after AI review retries were exhausted.'
+            : 'Raw crash report sent to Discord after AI review failure.',
+          aiReviewError: getErrorMessage(error)
+        },
         durationMs: Date.now() - startedAt
       }
     });
@@ -1728,6 +1867,32 @@ async function sendFallbackDiscordAlert(
     });
     await updateActionSummary(messageId, discordAction.id, 'FAILED');
   }
+}
+
+function buildRawCrashReportFallbackPayload(payload: unknown, rawBody: string | null) {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const record = { ...(payload as Record<string, unknown>) };
+    delete record.crashReview;
+    delete record.crashReviewAttempts;
+
+    if (hasDiscordPayloadShape(record)) {
+      delete record.crashReport;
+    }
+
+    return record;
+  }
+
+  const text = buildCrashReviewInput(payload, rawBody, payload);
+  return text ? { content: truncateText(text, 1900) } : payload;
+}
+
+function hasDiscordPayloadShape(record: Record<string, unknown>): boolean {
+  return (
+    (typeof record.content === 'string' && record.content.trim().length > 0) ||
+    (Array.isArray(record.embeds) && record.embeds.length > 0) ||
+    (Array.isArray(record.files) && record.files.length > 0) ||
+    (Array.isArray(record.attachments) && record.attachments.length > 0)
+  );
 }
 
 function buildDiscordPayload(payload: unknown, config: InboundWebhookActionConfig, messageId?: string) {

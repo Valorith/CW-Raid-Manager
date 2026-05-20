@@ -1472,6 +1472,24 @@
                         View
                       </button>
                       <button
+                        class="icon-button icon-button--copy-link"
+                        type="button"
+                        title="Copy inbox item link"
+                        aria-label="Copy inbox item link"
+                        @click.stop="copyInboxMessageLink(message)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M9.5 14.5 14.5 9.5M8.25 11.25 6.8 12.7a3.35 3.35 0 0 0 4.74 4.74l1.45-1.45M15.75 12.75l1.45-1.45a3.35 3.35 0 0 0-4.74-4.74L11 8"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                          />
+                        </svg>
+                      </button>
+                      <button
                         class="icon-button icon-button--copy-handoff"
                         type="button"
                         title="Copy issue handoff package"
@@ -4600,6 +4618,37 @@ function copyUrl(webhook: InboundWebhook) {
   });
 }
 
+function copyInboxMessageLink(message: InboundWebhookMessage) {
+  const url = getWebhookInboxMessageUrl(message.id);
+  const clipboardWrite = writeClipboardText(url)
+    .then(() => true)
+    .catch(() => false);
+  const copied = copyTextWithSelection(url);
+
+  if (copied) {
+    addToast({
+      title: 'Inbox Link Copied',
+      message: `Copied link for ${message.id}.`
+    });
+    return;
+  }
+
+  void clipboardWrite.then((clipboardCopied) => {
+    if (clipboardCopied) {
+      addToast({
+        title: 'Inbox Link Copied',
+        message: `Copied link for ${message.id}.`
+      });
+      return;
+    }
+
+    addToast({
+      title: 'Copy Failed',
+      message: 'Could not copy the inbox item link to clipboard.'
+    });
+  });
+}
+
 function copyIssueHandoff(message: InboundWebhookMessage) {
   const handoffText = formatIssueHandoff(message);
   const clipboardWrite = writeClipboardText(handoffText)
@@ -4665,6 +4714,7 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
   const labels = sortedLabels(message.labels)
     .map((label) => label.name)
     .join(', ');
+  const inboxLink = getWebhookInboxMessageUrl(message.id);
   const reportText = getCrashReportText(message);
   const reviewText = formatIssueHandoffReview(message);
   const linkedChanges =
@@ -4675,9 +4725,10 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
       : 'None';
 
   return [
-    'Issue handoff package',
+    'Intent: Review and fix this webhook inbox crash/script-error report.',
     '',
-    `Inbox message id: ${message.id}`,
+    `Webhook inbox item: ${inboxLink}`,
+    `Message id: ${message.id}`,
     `Webhook: ${message.webhook?.label || message.webhookId}`,
     `Received: ${formatDate(message.receivedAt)}`,
     `Status: ${message.status}`,
@@ -4694,14 +4745,15 @@ function formatIssueHandoff(message: InboundWebhookMessage) {
     'AI review:',
     reviewText,
     '',
-    'Suggested task:',
-    [
-      'Investigate the referenced crash or script error.',
-      'Use the Oracle plugin to ground the investigation in EQEmu context before proposing or making changes.',
-      'Identify the likely source, make the smallest safe fix, and run targeted validation.',
-      'Use the inbox message id above to verify current data if needed.'
-    ].join(' ')
+    'Codex task:',
+    'Open the inbox item above for current context, ground the investigation in EQEmu/Server code where relevant, then review and fix the issue as appropriate.'
   ].join('\n');
+}
+
+function getWebhookInboxMessageUrl(messageId: string) {
+  const url = new URL('/admin/webhooks', window.location.origin);
+  url.searchParams.set('messageId', messageId);
+  return url.toString();
 }
 
 function formatIssueHandoffReview(message: InboundWebhookMessage) {
@@ -8395,6 +8447,16 @@ input[type='checkbox']:checked::after {
 
 .icon-button--link {
   position: relative;
+}
+
+.icon-button--copy-link {
+  border-color: rgba(251, 191, 36, 0.46);
+  color: #fde68a;
+}
+
+.icon-button--copy-link:hover:not(:disabled) {
+  border-color: rgba(252, 211, 77, 0.72);
+  box-shadow: 0 12px 26px rgba(217, 119, 6, 0.18);
 }
 
 .icon-button--copy-handoff {
