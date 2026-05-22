@@ -2075,15 +2075,12 @@ function ensureChangeAcceptsTesterInput<
 }
 
 function ensureChangeAcceptsTestingNote<
-  T extends { status: TestChangeStatus; readyToTest: boolean }
+  T extends { status: TestChangeStatus }
 >(
   change: T | null
 ): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('Testing notes can only be added while the change is open.');
-  }
-  if (!change.readyToTest) {
-    throw new Error('Testing notes can only be added once this change is ready to test.');
   }
 }
 
@@ -2541,6 +2538,7 @@ export async function listTestChanges(
   const where: Prisma.TestChangeWhereInput = {};
   if (filters.status === 'ACTIVE') {
     where.status = { not: TestChangeStatus.CLOSED };
+    where.readyToTest = true;
   } else if (filters.status) {
     where.status = filters.status;
   }
@@ -3854,7 +3852,7 @@ export async function saveChangeNote(actorUserId: string, changeId: string, cont
   const [change, tester] = await Promise.all([
     prisma.testChange.findUnique({
       where: { id: changeId },
-      select: { status: true, readyToTest: true }
+      select: { status: true }
     }),
     prisma.testChangeTester.findUnique({
       where: { changeId_userId: { changeId, userId: actorUserId } },

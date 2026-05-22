@@ -307,7 +307,7 @@
               <option value="ACTIVE">Active</option>
               <option value="">All Changes</option>
               <option v-for="status in changeStatuses" :key="status" :value="status">
-                {{ statusLabel(status) }}
+                {{ statusFilterLabel(status) }}
               </option>
             </select>
           </div>
@@ -1006,9 +1006,9 @@
                 <span class="tm-tester-status-cell">
                   <StatusPill :status="tester.status" compact />
                   <span
-                    v-if="isTesterNotStarted(tester)"
+                    v-if="isTesterActivelyTesting(tester)"
                     class="tm-status-loader"
-                    aria-label="Awaiting tester start"
+                    aria-label="Tester is actively testing"
                   ></span>
                 </span>
                 <span
@@ -1290,7 +1290,7 @@
             {{
               activeChangeReadyToTest
                 ? 'Result controls unlock when you are actively testing this change. Notes can still be added while the change is open.'
-                : 'Tester input is paused until an admin marks this change ready to test.'
+                : 'Tester results and checklist updates are paused until an admin marks this change ready to test. Notes can still be added while the change is open.'
             }}
           </p>
           <p v-if="feedbackError" class="tm-feedback-error">{{ feedbackError }}</p>
@@ -4268,9 +4268,7 @@ const isActivelyTestingViewer = computed(
 );
 const canUseTesterControls = computed(() => isActivelyTestingViewer.value);
 const canAddTestingNote = computed(() =>
-  Boolean(
-    activeChange.value && activeChangeReadyToTest.value && activeChange.value.status !== 'CLOSED'
-  )
+  Boolean(activeChange.value && activeChange.value.status !== 'CLOSED')
 );
 const canOpenWebhookInbox = computed(() => authStore.user?.isAdmin === true);
 const showClosedNextPatchPrompt = computed(() => {
@@ -4950,6 +4948,10 @@ const recentDashboardItems = computed(() =>
 );
 
 const changeListEmptyMessage = computed(() => {
+  if (changeStatusFilter.value === 'ACTIVE') {
+    return 'No active ready-to-test changes found.';
+  }
+
   if (changeStatusFilter.value === 'CLOSED') {
     return 'No closed changes found.';
   }
@@ -7162,6 +7164,14 @@ function statusLabel(status: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function statusFilterLabel(status: TestChangeStatus) {
+  if (status === 'SUBMITTED') {
+    return 'Submitted';
+  }
+
+  return statusLabel(status);
+}
+
 function assignmentLabel(assignment: string) {
   if (assignment === 'ADMIN_REQUESTED') {
     return 'Requested';
@@ -7169,8 +7179,8 @@ function assignmentLabel(assignment: string) {
   return statusLabel(assignment);
 }
 
-function isTesterNotStarted(tester: TestChange['testers'][number]) {
-  return tester.status === 'NOT_STARTED';
+function isTesterActivelyTesting(tester: TestChange['testers'][number]) {
+  return tester.status === 'TESTING' && !tester.result;
 }
 
 function viewerChangeListStatus(change: TestChange): { label: string; tone: string } {
