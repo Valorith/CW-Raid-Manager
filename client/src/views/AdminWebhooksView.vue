@@ -1043,15 +1043,23 @@
       <article class="crash-window">
         <div class="crash-window__title">Crash Version Analytics</div>
         <header class="crash-window__header">
-          <div class="crash-window__summary">
-            <strong>{{ crashTelemetrySummary?.versions ?? 0 }}</strong>
-            <span>compile versions</span>
-            <strong>{{ crashTelemetrySummary?.totalCrashes ?? 0 }}</strong>
-            <span>total crashes</span>
-            <strong>{{ crashTelemetrySummary?.uniqueCrashes ?? 0 }}</strong>
-            <span>unique fingerprints</span>
-            <strong>{{ crashTelemetrySummary?.reviewedCrashes ?? 0 }}</strong>
-            <span>reviewed</span>
+          <div class="crash-window__summary" aria-label="Crash telemetry totals">
+            <div class="crash-summary-metric">
+              <strong>{{ crashTelemetrySummary?.versions ?? 0 }}</strong>
+              <span>Compile Versions</span>
+            </div>
+            <div class="crash-summary-metric">
+              <strong>{{ crashTelemetrySummary?.totalCrashes ?? 0 }}</strong>
+              <span>Total Crashes</span>
+            </div>
+            <div class="crash-summary-metric">
+              <strong>{{ crashTelemetrySummary?.uniqueCrashes ?? 0 }}</strong>
+              <span>Unique Fingerprints</span>
+            </div>
+            <div class="crash-summary-metric">
+              <strong>{{ crashTelemetrySummary?.reviewedCrashes ?? 0 }}</strong>
+              <span>Reviewed</span>
+            </div>
           </div>
           <button
             class="btn btn--outline btn--small"
@@ -7531,25 +7539,53 @@ function escapeHtml(text: string): string {
 }
 
 .crash-window__summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.28rem 0.48rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(8.75rem, 1fr));
+  gap: 0.45rem;
   flex: 1;
   min-width: 0;
-  color: rgba(203, 213, 225, 0.68);
-  font-size: 0.72rem;
-  line-height: 1.2;
 }
 
-.crash-window__summary span {
+.crash-summary-metric {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid rgba(96, 165, 250, 0.22);
+  border-radius: 0.32rem;
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.36)),
+    rgba(2, 6, 23, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(248, 250, 252, 0.06),
+    0 10px 22px rgba(2, 6, 23, 0.16);
+}
+
+.crash-summary-metric span {
+  min-width: 0;
+  color: rgba(191, 219, 254, 0.86);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.crash-window__summary strong {
+.crash-summary-metric strong {
+  min-width: 2.25rem;
+  padding: 0.12rem 0.38rem;
+  border: 1px solid rgba(96, 165, 250, 0.34);
+  border-radius: 0.26rem;
+  background: rgba(59, 130, 246, 0.16);
   color: #f8fafc;
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
+  line-height: 1.15;
+  text-align: center;
 }
 
 .crash-table-frame {
@@ -7876,6 +7912,10 @@ function escapeHtml(text: string): string {
 }
 
 @media (max-width: 1100px) {
+  .crash-window__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .crash-meta-grid {
     gap: 0.22rem;
   }
@@ -7899,6 +7939,24 @@ function escapeHtml(text: string): string {
   .crash-stack-panel__header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .crash-window__summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .crash-summary-metric {
+    padding: 0.4rem 0.48rem;
+  }
+
+  .crash-summary-metric strong {
+    min-width: 2rem;
+    font-size: 0.84rem;
+  }
+
+  .crash-summary-metric span {
+    font-size: 0.62rem;
   }
 
   .crash-stack-panel__header p {
