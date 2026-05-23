@@ -1,4 +1,9 @@
-import { GuildRole, InboundWebhookActionType, InboundWebhookMessageStatus } from '@prisma/client';
+import {
+  GuildRole,
+  InboundWebhookActionType,
+  InboundWebhookIntakeType,
+  InboundWebhookMessageStatus
+} from '@prisma/client';
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
@@ -59,8 +64,10 @@ import {
   createInboundWebhookMessageForAdmin,
   deleteInboundWebhook,
   deleteInboundWebhookAction,
+  getCrashTelemetrySummary,
   getInboundWebhookMessage,
   listInboundWebhookMessagesEnhanced,
+  listCrashTelemetryReports,
   listInboundWebhooks,
   retryCrashReviewForMessage,
   sendManualDiscordSummaryForMessage,
@@ -1633,6 +1640,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
         label: z.string().min(2).max(120),
         description: z.string().max(500).optional().nullable(),
         isEnabled: z.boolean().optional(),
+        intakeType: z.nativeEnum(InboundWebhookIntakeType).optional(),
         retentionPolicy: retentionPolicySchema.optional().nullable()
       });
 
@@ -1660,6 +1668,7 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
           label: z.string().min(2).max(120).optional(),
           description: z.string().max(500).optional().nullable(),
           isEnabled: z.boolean().optional(),
+          intakeType: z.nativeEnum(InboundWebhookIntakeType).optional(),
           retentionPolicy: retentionPolicySchema.optional().nullable(),
           mergeWindowSeconds: z.number().int().min(1).max(300).optional(),
           autoMerge: z.boolean().optional(),
@@ -1981,6 +1990,50 @@ export async function adminRoutes(server: FastifyInstance): Promise<void> {
     async () => {
       const count = await getPendingActionMessageCount();
       return { count };
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/crashes/summary',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        includeArchived: z.coerce.boolean().optional()
+      });
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      const summary = await getCrashTelemetrySummary({
+        includeArchived: parsed.data.includeArchived
+      });
+      return { summary };
+    }
+  );
+
+  server.get(
+    '/webhook-inbox/crashes',
+    {
+      preHandler: [authenticate, requireAdmin]
+    },
+    async (request, reply) => {
+      const querySchema = z.object({
+        version: z.string().optional(),
+        includeArchived: z.coerce.boolean().optional()
+      });
+      const parsed = querySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.badRequest('Invalid query parameters.');
+      }
+
+      const crashes = await listCrashTelemetryReports({
+        version: parsed.data.version,
+        includeArchived: parsed.data.includeArchived
+      });
+      return { crashes };
     }
   );
 

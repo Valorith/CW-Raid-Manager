@@ -1,6 +1,11 @@
 import { createHash, randomBytes } from 'crypto';
 
-import { Prisma, type InboundWebhookActionType, type InboundWebhookMessageStatus } from '@prisma/client';
+import {
+  Prisma,
+  type InboundWebhookActionType,
+  type InboundWebhookIntakeType,
+  type InboundWebhookMessageStatus
+} from '@prisma/client';
 
 import {
   getEqemuOracleContextForCrashReport,
@@ -20,6 +25,7 @@ const SERVER_ID = process.env.SERVER_ID || 'default';
 const WEBHOOK_DEBUG_LOGS =
   appConfig.nodeEnv === 'development' || process.env.WEBHOOK_DEBUG_LOGS === 'true';
 const OPENAI_ESCALATION_MODEL = 'gpt-5.4-mini';
+const SERVER_CRASH_REPORT_INTAKE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_REPORT';
 
 function debugLog(...args: unknown[]): void {
   if (WEBHOOK_DEBUG_LOGS) {
@@ -211,6 +217,7 @@ export interface CreateInboundWebhookInput {
   label: string;
   description?: string | null;
   isEnabled?: boolean;
+  intakeType?: InboundWebhookIntakeType;
   retentionPolicy?: InboundWebhookRetentionPolicy | null;
 }
 
@@ -218,6 +225,7 @@ export interface UpdateInboundWebhookInput {
   label?: string;
   description?: string | null;
   isEnabled?: boolean;
+  intakeType?: InboundWebhookIntakeType;
   retentionPolicy?: InboundWebhookRetentionPolicy | null;
   mergeWindowSeconds?: number;
   autoMerge?: boolean;
@@ -256,8 +264,77 @@ const RAW_TAIL_CHARS = 25_000;
 const EXTRACT_MAX_CHARS = 120_000;
 const RETENTION_DELETE_BATCH_SIZE = 500;
 
+export interface CrashTelemetryReport {
+  id: string;
+  messageId: string;
+  webhookId: string;
+  webhookLabel: string | null;
+  receivedAt: string;
+  status: InboundWebhookMessageStatus;
+  fingerprint: string;
+  platformName: string | null;
+  crashReport: string;
+  serverVersion: string;
+  compileDate: string | null;
+  compileTime: string | null;
+  serverName: string | null;
+  serverShortName: string | null;
+  uptimeSeconds: number | null;
+  osMachine: string | null;
+  osRelease: string | null;
+  osVersion: string | null;
+  osSysname: string | null;
+  processId: number | null;
+  rssMemoryMb: number | null;
+  cpus: number | null;
+  originationInfo: string | null;
+  lineCount: number;
+  reviewStatus: string | null;
+  reviewSummary: string | null;
+}
+
+export interface CrashTelemetryVersionGroup {
+  serverVersion: string;
+  compileDate: string | null;
+  compileTime: string | null;
+  platformName: string | null;
+  latestServerName: string | null;
+  latestOs: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  totalCrashes: number;
+  uniqueCrashes: number;
+  reviewedCrashes: number;
+  affectedServers: number;
+}
+
+export interface CrashTelemetrySummary {
+  groups: CrashTelemetryVersionGroup[];
+  totalCrashes: number;
+  uniqueCrashes: number;
+  versions: number;
+  reviewedCrashes: number;
+  latestCrashAt: string | null;
+}
+
 export function generateWebhookToken(): string {
   return randomBytes(24).toString('base64url');
+}
+
+function isServerCrashReportIntake(
+  webhook: { intakeType?: InboundWebhookIntakeType | null } | null | undefined
+): boolean {
+  return webhook?.intakeType === SERVER_CRASH_REPORT_INTAKE;
+}
+
+function applyInboxMessageVisibilityFilter(where: Prisma.InboundWebhookMessageWhereInput): void {
+  where.webhook = {
+    is: {
+      intakeType: {
+        not: SERVER_CRASH_REPORT_INTAKE
+      }
+    }
+  };
 }
 
 export function normalizeRetentionPolicy(input?: InboundWebhookRetentionPolicy | null) {
@@ -354,6 +431,7 @@ export async function createInboundWebhook(userId: string, input: CreateInboundW
       label: input.label.trim(),
       description: input.description?.trim() || null,
       isEnabled: input.isEnabled ?? true,
+      intakeType: input.intakeType ?? 'GENERIC',
       token,
       retentionPolicy,
       createdById: userId
@@ -376,6 +454,9 @@ export async function updateInboundWebhook(webhookId: string, input: UpdateInbou
   }
   if (input.isEnabled !== undefined) {
     data.isEnabled = input.isEnabled;
+  }
+  if (input.intakeType !== undefined) {
+    data.intakeType = input.intakeType;
   }
   if (input.retentionPolicy !== undefined) {
     data.retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? null);
@@ -464,6 +545,7 @@ export async function listInboundWebhookMessages(options: {
   if (!includeArchived) {
     where.archivedAt = null;
   }
+  applyInboxMessageVisibilityFilter(where);
 
   const [messages, total] = await Promise.all([
     prisma.inboundWebhookMessage.findMany({
@@ -556,6 +638,80 @@ export async function getInboundWebhookMessage(messageId: string, userId?: strin
     readStatuses: undefined,
     stars: undefined
   };
+}
+
+export async function getCrashTelemetrySummary(options: { includeArchived?: boolean } = {}): Promise<CrashTelemetrySummary> {
+  const reports = await listCrashTelemetryReports(options);
+  const groups = buildCrashTelemetryGroups(reports);
+  const uniqueFingerprints = new Set(reports.map((report) => report.fingerprint));
+
+  return {
+    groups,
+    totalCrashes: reports.length,
+    uniqueCrashes: uniqueFingerprints.size,
+    versions: groups.length,
+    reviewedCrashes: reports.filter((report) => report.reviewStatus === 'SUCCESS').length,
+    latestCrashAt: reports[0]?.receivedAt ?? null
+  };
+}
+
+export async function listCrashTelemetryReports(options: {
+  version?: string;
+  includeArchived?: boolean;
+} = {}): Promise<CrashTelemetryReport[]> {
+  const where: Prisma.InboundWebhookMessageWhereInput = {
+    webhook: {
+      is: {
+        intakeType: SERVER_CRASH_REPORT_INTAKE
+      }
+    }
+  };
+  if (!options.includeArchived) {
+    where.archivedAt = null;
+  }
+
+  const messages = await prisma.inboundWebhookMessage.findMany({
+    where,
+    orderBy: { receivedAt: 'desc' },
+    select: {
+      id: true,
+      webhookId: true,
+      receivedAt: true,
+      payload: true,
+      rawBody: true,
+      status: true,
+      webhook: {
+        select: {
+          id: true,
+          label: true,
+          intakeType: true
+        }
+      },
+      actionRuns: {
+        select: {
+          status: true,
+          result: true,
+          createdAt: true,
+          action: {
+            select: {
+              type: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }
+    }
+  });
+
+  const reports = messages
+    .map((message) => toCrashTelemetryReport(message))
+    .filter((report): report is CrashTelemetryReport => Boolean(report));
+
+  if (!options.version) {
+    return reports;
+  }
+
+  return reports.filter((report) => report.serverVersion === options.version);
 }
 
 export async function retryCrashReviewForMessage(
@@ -860,6 +1016,11 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   }
 
   debugLog(`[WEBHOOK RECEIVE] Webhook found: ${webhook.label}, autoMerge=${webhook.autoMerge}, mergeWindow=${webhook.mergeWindowSeconds}s`);
+  const isServerCrashEndpoint = isServerCrashReportIntake(webhook);
+  if (isServerCrashEndpoint && !hasServerCrashReportPayload(input.payload, input.rawBody ?? null)) {
+    throw new Error('Invalid EQEmu Server crash report payload.');
+  }
+
   const processingEnabled = await isWebhookProcessingEnabled();
 
   // Check if the message has any obvious text content for labels, while still
@@ -898,9 +1059,26 @@ export async function receiveInboundWebhookMessage(input: InboundWebhookMessageI
   if (messageContent) {
     await applyImmediateLabels(message.id, messageContent, webhook.label);
   }
+  if (isServerCrashEndpoint) {
+    await addDefaultLabelsToMessage(message.id, ['CRASH']);
+  }
 
   if (!processingEnabled) {
     debugLog(`[WEBHOOK RECEIVE] Processing DISABLED - stored message ${message.id} without running actions`);
+    debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
+    return message;
+  }
+
+  if (isServerCrashEndpoint) {
+    debugLog(`[WEBHOOK RECEIVE] Message created: ${message.id}, server crash telemetry endpoint - running actions immediately`);
+    await runInboundWebhookActions(
+      message.id,
+      webhook.actions,
+      message.payload,
+      webhook.label,
+      webhook.devMode,
+      { forceCrashReview: true }
+    );
     debugLog(`[WEBHOOK RECEIVE] ========== MESSAGE RECEIVE COMPLETE ==========`);
     return message;
   }
@@ -939,6 +1117,11 @@ export async function createInboundWebhookMessageForAdmin(options: {
     throw new Error('Webhook not found.');
   }
 
+  const isServerCrashEndpoint = isServerCrashReportIntake(webhook);
+  if (isServerCrashEndpoint && !hasServerCrashReportPayload(options.payload, null)) {
+    throw new Error('Invalid EQEmu Server crash report payload.');
+  }
+
   const message = await prisma.inboundWebhookMessage.create({
     data: {
       webhookId: webhook.id,
@@ -960,8 +1143,23 @@ export async function createInboundWebhookMessageForAdmin(options: {
   if (messageContent) {
     await applyImmediateLabels(message.id, messageContent, webhook.label);
   }
+  if (isServerCrashEndpoint) {
+    await addDefaultLabelsToMessage(message.id, ['CRASH']);
+  }
 
   if (options.runActions !== false) {
+    if (isServerCrashEndpoint) {
+      await runInboundWebhookActions(
+        message.id,
+        webhook.actions,
+        message.payload,
+        webhook.label,
+        webhook.devMode,
+        { forceCrashReview: true }
+      );
+      return message;
+    }
+
     if (!shouldUseCrashMergePipeline(options.payload, null, options.payload)) {
       if (messageContent) {
         await applyPassthroughLabels(message.id, messageContent);
@@ -997,7 +1195,8 @@ async function runInboundWebhookActions(
   }>,
   payload: unknown,
   webhookLabel?: string,
-  devMode = false
+  devMode = false,
+  options: { forceCrashReview?: boolean } = {}
 ) {
   let overallStatus: InboundWebhookMessageStatus = 'PROCESSED';
   const summary: Array<{ actionId: string; status: string }> = [];
@@ -1061,7 +1260,7 @@ async function runInboundWebhookActions(
 
         // Check if this message looks like a crash report or script error
         // If not, skip AI review and let it pass through to Discord unchanged
-        if (!looksLikeCrashReport(crashInput)) {
+        if (!options.forceCrashReview && !looksLikeCrashReport(crashInput)) {
           await applyPassthroughLabels(messageId, crashInput);
           await prisma.inboundWebhookActionRun.create({
             data: {
@@ -1231,6 +1430,10 @@ function shouldUseCrashMergePipeline(
   rawBody: string | null | undefined,
   fallbackPayload: unknown
 ): boolean {
+  if (hasServerCrashReportPayload(payload, rawBody)) {
+    return false;
+  }
+
   const crashInput = buildCrashReviewInput(payload, rawBody, fallbackPayload);
   if (looksLikeExplicitPassthroughReport(crashInput)) {
     return false;
@@ -1465,6 +1668,9 @@ export function buildCrashReviewInput(
 ) {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
+    if (typeof record.crash_report === 'string') {
+      return record.crash_report;
+    }
     if (typeof record.crashReportText === 'string') {
       return record.crashReportText;
     }
@@ -1620,6 +1826,218 @@ function buildCrashReportExtract(extracted: {
     rawTail: extracted.rawTail || null,
     hash
   };
+}
+
+type CrashTelemetryMessage = {
+  id: string;
+  webhookId: string;
+  receivedAt: Date;
+  payload: Prisma.JsonValue;
+  rawBody: string | null;
+  status: InboundWebhookMessageStatus;
+  webhook: { id: string; label: string; intakeType: InboundWebhookIntakeType } | null;
+  actionRuns: Array<{
+    status: string;
+    result: Prisma.JsonValue | null;
+    createdAt: Date;
+    action: { type: InboundWebhookActionType } | null;
+  }>;
+};
+
+function buildCrashTelemetryGroups(reports: CrashTelemetryReport[]): CrashTelemetryVersionGroup[] {
+  const groups = new Map<
+    string,
+    {
+      serverVersion: string;
+      compileDate: string | null;
+      compileTime: string | null;
+      platformName: string | null;
+      latestServerName: string | null;
+      latestOs: string | null;
+      firstSeenAt: string;
+      lastSeenAt: string;
+      totalCrashes: number;
+      reviewedCrashes: number;
+      serverNames: Set<string>;
+      fingerprints: Set<string>;
+    }
+  >();
+
+  for (const report of reports) {
+    const group = groups.get(report.serverVersion);
+    const osLabel = formatCrashOs(report);
+    if (!group) {
+      groups.set(report.serverVersion, {
+        serverVersion: report.serverVersion,
+        compileDate: report.compileDate,
+        compileTime: report.compileTime,
+        platformName: report.platformName,
+        latestServerName: report.serverName ?? report.serverShortName,
+        latestOs: osLabel,
+        firstSeenAt: report.receivedAt,
+        lastSeenAt: report.receivedAt,
+        totalCrashes: 1,
+        reviewedCrashes: report.reviewStatus === 'SUCCESS' ? 1 : 0,
+        serverNames: new Set([report.serverName, report.serverShortName].filter(Boolean) as string[]),
+        fingerprints: new Set([report.fingerprint])
+      });
+      continue;
+    }
+
+    group.totalCrashes += 1;
+    if (report.reviewStatus === 'SUCCESS') {
+      group.reviewedCrashes += 1;
+    }
+    group.fingerprints.add(report.fingerprint);
+    if (report.serverName) group.serverNames.add(report.serverName);
+    if (report.serverShortName) group.serverNames.add(report.serverShortName);
+    if (new Date(report.receivedAt).getTime() > new Date(group.lastSeenAt).getTime()) {
+      group.lastSeenAt = report.receivedAt;
+      group.latestServerName = report.serverName ?? report.serverShortName ?? group.latestServerName;
+      group.latestOs = osLabel ?? group.latestOs;
+      group.platformName = report.platformName ?? group.platformName;
+      group.compileDate = report.compileDate ?? group.compileDate;
+      group.compileTime = report.compileTime ?? group.compileTime;
+    }
+    if (new Date(report.receivedAt).getTime() < new Date(group.firstSeenAt).getTime()) {
+      group.firstSeenAt = report.receivedAt;
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      serverVersion: group.serverVersion,
+      compileDate: group.compileDate,
+      compileTime: group.compileTime,
+      platformName: group.platformName,
+      latestServerName: group.latestServerName,
+      latestOs: group.latestOs,
+      firstSeenAt: group.firstSeenAt,
+      lastSeenAt: group.lastSeenAt,
+      totalCrashes: group.totalCrashes,
+      uniqueCrashes: group.fingerprints.size,
+      reviewedCrashes: group.reviewedCrashes,
+      affectedServers: group.serverNames.size
+    }))
+    .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+}
+
+function toCrashTelemetryReport(message: CrashTelemetryMessage): CrashTelemetryReport | null {
+  const payloadRecord = extractPayloadRecord(message.payload, message.rawBody);
+  if (!payloadRecord) {
+    return null;
+  }
+
+  const crashReport = readString(payloadRecord, 'crash_report');
+  if (!crashReport) {
+    return null;
+  }
+
+  const serverVersion = readString(payloadRecord, 'server_version') ?? 'unknown';
+  const latestReviewRun = getLatestCrashReviewRun(message.actionRuns);
+  const latestReview = getLatestCrashReviewResult(message.actionRuns);
+  const reviewSummary =
+    latestReview && typeof latestReview.summary === 'string' ? latestReview.summary.trim() : null;
+
+  return {
+    id: message.id,
+    messageId: message.id,
+    webhookId: message.webhookId,
+    webhookLabel: message.webhook?.label ?? null,
+    receivedAt: message.receivedAt.toISOString(),
+    status: message.status,
+    fingerprint: createCrashFingerprint(crashReport),
+    platformName: readString(payloadRecord, 'platform_name'),
+    crashReport,
+    serverVersion,
+    compileDate: readString(payloadRecord, 'compile_date'),
+    compileTime: readString(payloadRecord, 'compile_time'),
+    serverName: readString(payloadRecord, 'server_name'),
+    serverShortName: readString(payloadRecord, 'server_short_name'),
+    uptimeSeconds: readNumber(payloadRecord, 'uptime'),
+    osMachine: readString(payloadRecord, 'os_machine'),
+    osRelease: readString(payloadRecord, 'os_release'),
+    osVersion: readString(payloadRecord, 'os_version'),
+    osSysname: readString(payloadRecord, 'os_sysname'),
+    processId: readNumber(payloadRecord, 'process_id'),
+    rssMemoryMb: readNumber(payloadRecord, 'rss_memory'),
+    cpus: readNumber(payloadRecord, 'cpus'),
+    originationInfo: readString(payloadRecord, 'origination_info'),
+    lineCount: countLines(crashReport),
+    reviewStatus: latestReviewRun?.status ?? null,
+    reviewSummary
+  };
+}
+
+function getLatestCrashReviewRun(
+  runs: CrashTelemetryMessage['actionRuns']
+): CrashTelemetryMessage['actionRuns'][number] | null {
+  return runs.find((run) => run.action?.type === 'CRASH_REVIEW') ?? null;
+}
+
+function hasServerCrashReportPayload(
+  payload: unknown,
+  rawBody: string | null | undefined
+): boolean {
+  const record = extractPayloadRecord(payload, rawBody ?? null);
+  return Boolean(record && readString(record, 'crash_report'));
+}
+
+function extractPayloadRecord(
+  payload: unknown,
+  rawBody: string | null | undefined
+): Record<string, unknown> | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+
+  if (typeof rawBody !== 'string' || rawBody.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function readString(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readNumber(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function createCrashFingerprint(crashReport: string): string {
+  return createHash('sha256').update(crashReport).digest('hex');
+}
+
+function countLines(value: string): number {
+  return value.split(/\r\n|\r|\n/).length;
+}
+
+function formatCrashOs(report: Pick<CrashTelemetryReport, 'osSysname' | 'osRelease' | 'osMachine'>): string | null {
+  return [report.osSysname, report.osRelease, report.osMachine].filter(Boolean).join(' ') || null;
 }
 
 function enrichPayloadWithCrashReview(
@@ -2266,6 +2684,7 @@ export async function getUnreadCount(userId: string, webhookId?: string) {
   if (webhookId) {
     whereMessage.webhookId = webhookId;
   }
+  applyInboxMessageVisibilityFilter(whereMessage);
 
   return prisma.inboundWebhookMessage.count({
     where: whereMessage
@@ -2276,6 +2695,13 @@ export async function getPendingActionMessageCount() {
   return prisma.inboundWebhookMessage.count({
     where: {
       archivedAt: null,
+      webhook: {
+        is: {
+          intakeType: {
+            not: SERVER_CRASH_REPORT_INTAKE
+          }
+        }
+      },
       actionRuns: {
         some: {
           status: 'PENDING_REVIEW'
@@ -2965,6 +3391,7 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   if (!includeArchived) {
     where.archivedAt = null;
   }
+  applyInboxMessageVisibilityFilter(where);
 
   // Label filter
   if (labelIds && labelIds.length > 0) {
@@ -3016,6 +3443,7 @@ export async function listInboundWebhookMessagesEnhanced(options: {
             label: true,
             description: true,
             isEnabled: true,
+            intakeType: true,
             token: true,
             retentionPolicy: true,
             mergeWindowSeconds: true,
@@ -4037,6 +4465,10 @@ async function processAutoMergeGroup(
 function extractActualMessageContent(payload: unknown, rawBody: string | null): string | null {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
+    // Native EQEmu Server crash telemetry posts the full report in snake_case.
+    if (typeof record.crash_report === 'string' && record.crash_report.trim().length > 0) {
+      return record.crash_report;
+    }
     // Check for crashReportText (primary field for crash reports)
     if (typeof record.crashReportText === 'string' && record.crashReportText.trim().length > 0) {
       return record.crashReportText;
@@ -4083,6 +4515,9 @@ function extractActualMessageContent(payload: unknown, rawBody: string | null): 
 function extractTextForSorting(payload: unknown, rawBody: string | null): string {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const record = payload as Record<string, unknown>;
+    if (typeof record.crash_report === 'string') {
+      return record.crash_report;
+    }
     if (typeof record.crashReportText === 'string') {
       return record.crashReportText;
     }

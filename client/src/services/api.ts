@@ -1569,6 +1569,7 @@ export interface AdminRaidDetail extends AdminRaidSummary {
 
 export type InboundWebhookRetentionMode = 'indefinite' | 'days' | 'maxCount';
 export type InboundWebhookActionType = 'DISCORD_RELAY' | 'CRASH_REVIEW' | 'CLAWDBOT_RELAY';
+export type InboundWebhookIntakeType = 'GENERIC' | 'EQEMU_SERVER_CRASH_REPORT';
 export type InboundWebhookMessageStatus = 'RECEIVED' | 'PENDING_MERGE' | 'PROCESSED' | 'FAILED';
 export type InboundWebhookActionRunStatus = 'SUCCESS' | 'FAILED' | 'SKIPPED' | 'PENDING_REVIEW';
 
@@ -1608,6 +1609,7 @@ export interface InboundWebhook {
   label: string;
   description?: string | null;
   isEnabled: boolean;
+  intakeType: InboundWebhookIntakeType;
   token: string;
   retentionPolicy: InboundWebhookRetentionPolicy;
   mergeWindowSeconds: number;
@@ -1687,6 +1689,59 @@ export interface InboundWebhookMessage {
   linkedTestChanges?: WebhookMessageLinkedTestChange[];
   mergedFromIds?: string[] | null;
   mergedAt?: string | null;
+}
+
+export interface CrashTelemetryReport {
+  id: string;
+  messageId: string;
+  webhookId: string;
+  webhookLabel: string | null;
+  receivedAt: string;
+  status: InboundWebhookMessageStatus;
+  fingerprint: string;
+  platformName: string | null;
+  crashReport: string;
+  serverVersion: string;
+  compileDate: string | null;
+  compileTime: string | null;
+  serverName: string | null;
+  serverShortName: string | null;
+  uptimeSeconds: number | null;
+  osMachine: string | null;
+  osRelease: string | null;
+  osVersion: string | null;
+  osSysname: string | null;
+  processId: number | null;
+  rssMemoryMb: number | null;
+  cpus: number | null;
+  originationInfo: string | null;
+  lineCount: number;
+  reviewStatus: string | null;
+  reviewSummary: string | null;
+}
+
+export interface CrashTelemetryVersionGroup {
+  serverVersion: string;
+  compileDate: string | null;
+  compileTime: string | null;
+  platformName: string | null;
+  latestServerName: string | null;
+  latestOs: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  totalCrashes: number;
+  uniqueCrashes: number;
+  reviewedCrashes: number;
+  affectedServers: number;
+}
+
+export interface CrashTelemetrySummary {
+  groups: CrashTelemetryVersionGroup[];
+  totalCrashes: number;
+  uniqueCrashes: number;
+  versions: number;
+  reviewedCrashes: number;
+  latestCrashAt: string | null;
 }
 
 // Crash Report Inspector Types
@@ -5011,6 +5066,7 @@ export const api = {
     label: string;
     description?: string | null;
     isEnabled?: boolean;
+    intakeType?: InboundWebhookIntakeType;
     retentionPolicy?: InboundWebhookRetentionPolicy | null;
   }): Promise<InboundWebhook> {
     const response = await axios.post('/api/admin/webhooks', payload);
@@ -5023,6 +5079,7 @@ export const api = {
       label?: string;
       description?: string | null;
       isEnabled?: boolean;
+      intakeType?: InboundWebhookIntakeType;
       retentionPolicy?: InboundWebhookRetentionPolicy | null;
       mergeWindowSeconds?: number;
       autoMerge?: boolean;
@@ -5168,6 +5225,37 @@ export const api = {
   async fetchWebhookInboxPendingActionCount(): Promise<number> {
     const response = await axios.get('/api/admin/webhook-inbox/pending-action-count');
     return response.data.count ?? 0;
+  },
+
+  async fetchCrashTelemetrySummary(params?: {
+    includeArchived?: boolean;
+  }): Promise<CrashTelemetrySummary> {
+    const query = new URLSearchParams();
+    if (params?.includeArchived) query.set('includeArchived', 'true');
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await axios.get(`/api/admin/webhook-inbox/crashes/summary${suffix}`);
+    return (
+      response.data.summary ?? {
+        groups: [],
+        totalCrashes: 0,
+        uniqueCrashes: 0,
+        versions: 0,
+        reviewedCrashes: 0,
+        latestCrashAt: null
+      }
+    );
+  },
+
+  async fetchCrashTelemetryReports(params?: {
+    version?: string;
+    includeArchived?: boolean;
+  }): Promise<CrashTelemetryReport[]> {
+    const query = new URLSearchParams();
+    if (params?.version) query.set('version', params.version);
+    if (params?.includeArchived) query.set('includeArchived', 'true');
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await axios.get(`/api/admin/webhook-inbox/crashes${suffix}`);
+    return Array.isArray(response.data.crashes) ? response.data.crashes : [];
   },
 
   /**

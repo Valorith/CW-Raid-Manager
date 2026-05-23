@@ -1,5 +1,5 @@
 <template>
-  <section class="webhook-admin">
+  <section :class="['webhook-admin', { 'webhook-admin--crashes': activeTab === 'crashes' }]">
     <header class="section-header">
       <div class="section-header__titles">
         <h1>Webhook Inbox</h1>
@@ -12,7 +12,7 @@
       </div>
     </header>
 
-    <div class="webhook-stats">
+    <div v-if="activeTab !== 'crashes'" class="webhook-stats">
       <div class="stat-card">
         <span class="stat-card__label">Total Webhooks</span>
         <strong class="stat-card__value">{{ webhooks.length }}</strong>
@@ -44,6 +44,13 @@
         @click="activeTab = 'endpoints'"
       >
         Endpoints
+      </button>
+      <button
+        type="button"
+        :class="['tab', { 'tab--active': activeTab === 'crashes' }]"
+        @click="activeTab = 'crashes'"
+      >
+        Crashes
       </button>
     </div>
 
@@ -89,6 +96,13 @@
                   maxlength="500"
                   placeholder="Optional notes"
                 />
+              </label>
+              <label class="form-field">
+                <span>Endpoint Type</span>
+                <select v-model="createForm.intakeType" class="select">
+                  <option :value="GENERIC_INTAKE_TYPE">Generic Webhook</option>
+                  <option :value="SERVER_CRASH_INTAKE_TYPE">EQEmu Server Crash Report</option>
+                </select>
               </label>
               <div class="endpoint-control-row">
                 <label class="form-field form-field--inline">
@@ -215,6 +229,10 @@
                 <strong>{{ selectedWebhook.actions?.length || 0 }}</strong>
               </div>
               <div>
+                <span class="label">Type</span>
+                <strong>{{ getEndpointTypeLabel(selectedWebhook.intakeType) }}</strong>
+              </div>
+              <div>
                 <span class="label">Retention</span>
                 <strong>{{ selectedWebhook.retentionPolicy.mode }}</strong>
               </div>
@@ -283,7 +301,11 @@
                     getPipelineCardStatusClass(mergePipelineStatus),
                     { 'endpoint-pipeline-card--active': showWebhookSettings }
                   ]"
-                  @click="openWebhookSettings(selectedWebhook.id)"
+                  @click="
+                    isServerCrashWebhook(selectedWebhook)
+                      ? openEndpointDetailsPanel()
+                      : openWebhookSettings(selectedWebhook.id)
+                  "
                 >
                   <span class="endpoint-pipeline-card__step">2</span>
                   <span class="endpoint-pipeline-card__icon" aria-hidden="true">
@@ -294,7 +316,9 @@
                       <path d="m18 4 3 3-3 3" />
                     </svg>
                   </span>
-                  <span class="endpoint-pipeline-card__title">Merge</span>
+                  <span class="endpoint-pipeline-card__title">
+                    {{ isServerCrashWebhook(selectedWebhook) ? 'Crash Intake' : 'Merge' }}
+                  </span>
                   <span
                     class="endpoint-pipeline-card__badge"
                     :class="getPipelineStatusClass(mergePipelineStatus)"
@@ -303,7 +327,11 @@
                     {{ mergePipelineStatus.label }}
                   </span>
                   <span class="endpoint-pipeline-card__copy">
-                    Groups crash-report bursts within {{ selectedWebhook.mergeWindowSeconds }}s.
+                    {{
+                      isServerCrashWebhook(selectedWebhook)
+                        ? 'Stores complete Server crash payloads without inbox routing.'
+                        : `Groups crash-report bursts within ${selectedWebhook.mergeWindowSeconds}s.`
+                    }}
                   </span>
                   <span class="endpoint-pipeline-card__diagnostic">
                     {{ mergePipelineStatus.detail }}
@@ -404,7 +432,7 @@
                     'endpoint-pipeline-card',
                     getPipelineCardStatusClass(inboxPipelineStatus)
                   ]"
-                  @click="openEndpointInbox(selectedWebhook.id)"
+                  @click="openEndpointRecords(selectedWebhook)"
                 >
                   <span class="endpoint-pipeline-card__step">5</span>
                   <span class="endpoint-pipeline-card__icon" aria-hidden="true">
@@ -415,7 +443,9 @@
                       <path d="m9 14 2 2 4-5" />
                     </svg>
                   </span>
-                  <span class="endpoint-pipeline-card__title">Inbox Record</span>
+                  <span class="endpoint-pipeline-card__title">
+                    {{ isServerCrashWebhook(selectedWebhook) ? 'Crash Record' : 'Inbox Record' }}
+                  </span>
                   <span
                     class="endpoint-pipeline-card__badge"
                     :class="getPipelineStatusClass(inboxPipelineStatus)"
@@ -424,12 +454,18 @@
                     {{ inboxPipelineStatus.label }}
                   </span>
                   <span class="endpoint-pipeline-card__copy">
-                    Stores reports for review, assignment, and lifecycle tracking.
+                    {{
+                      isServerCrashWebhook(selectedWebhook)
+                        ? 'Routes reports to the Crashes tab for version analytics.'
+                        : 'Stores reports for review, assignment, and lifecycle tracking.'
+                    }}
                   </span>
                   <span class="endpoint-pipeline-card__diagnostic">
                     {{ inboxPipelineStatus.detail }}
                   </span>
-                  <span class="endpoint-pipeline-card__cta">Open Inbox</span>
+                  <span class="endpoint-pipeline-card__cta">
+                    {{ isServerCrashWebhook(selectedWebhook) ? 'Open Crashes' : 'Open Inbox' }}
+                  </span>
                 </button>
               </div>
             </section>
@@ -526,6 +562,13 @@
                       class="input"
                       maxlength="500"
                     />
+                  </label>
+                  <label class="form-field">
+                    <span>Endpoint Type</span>
+                    <select v-model="webhookDrafts[selectedWebhook.id].intakeType" class="select">
+                      <option :value="GENERIC_INTAKE_TYPE">Generic Webhook</option>
+                      <option :value="SERVER_CRASH_INTAKE_TYPE">EQEmu Server Crash Report</option>
+                    </select>
                   </label>
                   <label class="form-field">
                     <span>Retention Mode</span>
@@ -996,6 +1039,256 @@
       </div>
     </section>
 
+    <section v-if="activeTab === 'crashes'" class="crashes">
+      <article class="crash-window">
+        <div class="crash-window__title">Crash Version Analytics</div>
+        <header class="crash-window__header">
+          <div class="crash-window__summary">
+            <strong>{{ crashTelemetrySummary?.versions ?? 0 }}</strong>
+            <span>compile versions</span>
+            <strong>{{ crashTelemetrySummary?.totalCrashes ?? 0 }}</strong>
+            <span>total crashes</span>
+            <strong>{{ crashTelemetrySummary?.uniqueCrashes ?? 0 }}</strong>
+            <span>unique fingerprints</span>
+            <strong>{{ crashTelemetrySummary?.reviewedCrashes ?? 0 }}</strong>
+            <span>reviewed</span>
+          </div>
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            :disabled="crashTelemetryLoading"
+            @click="refreshCrashTelemetry"
+          >
+            Refresh
+          </button>
+        </header>
+
+        <div v-if="crashTelemetryLoading" class="crash-empty-state">Loading crash telemetry...</div>
+        <div v-else-if="crashTelemetryGroups.length === 0" class="crash-empty-state">
+          No Server crash telemetry has been received yet.
+        </div>
+        <div v-else class="crash-table-frame">
+          <table class="table crash-table crash-table--versions">
+            <thead>
+              <tr>
+                <th class="crash-table__select"></th>
+                <th>
+                  <span class="label-desktop">Compile Version</span>
+                  <span class="label-mobile">Version</span>
+                </th>
+                <th>Compiled</th>
+                <th>Last Seen</th>
+                <th>Platform</th>
+                <th>Server</th>
+                <th class="crash-table__number">
+                  <span class="label-desktop">Unique Crashes</span>
+                  <span class="label-mobile">Unique</span>
+                </th>
+                <th class="crash-table__number">Reviewed</th>
+                <th class="crash-table__number">
+                  <span class="label-desktop">Total Crashes</span>
+                  <span class="label-mobile">Total</span>
+                </th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="group in crashTelemetryGroups"
+                :key="group.serverVersion"
+                :class="{ 'crash-row--selected': selectedCrashVersion === group.serverVersion }"
+                @click="selectCrashVersion(group.serverVersion)"
+              >
+                <td>
+                  <button
+                    class="crash-select-button"
+                    type="button"
+                    :aria-label="`View crashes for ${group.serverVersion}`"
+                    @click.stop="selectCrashVersion(group.serverVersion)"
+                  >
+                    {{ selectedCrashVersion === group.serverVersion ? '-' : '+' }}
+                  </button>
+                </td>
+                <td class="crash-version-cell">{{ group.serverVersion }}</td>
+                <td>{{ formatCompileStamp(group) }}</td>
+                <td>{{ formatRelativeTime(group.lastSeenAt) }}</td>
+                <td>{{ group.platformName || '-' }}</td>
+                <td>{{ group.latestServerName || '-' }}</td>
+                <td class="crash-table__number">{{ group.uniqueCrashes }}</td>
+                <td class="crash-table__number text-success">{{ group.reviewedCrashes }}</td>
+                <td class="crash-table__number">{{ group.totalCrashes }}</td>
+                <td class="crash-table__actions">
+                  <button
+                    class="btn btn--outline btn--tiny"
+                    type="button"
+                    @click.stop="selectCrashVersion(group.serverVersion)"
+                  >
+                    View Crashes ->
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article v-if="selectedCrashVersion" class="crash-window crash-window--detail">
+        <div class="crash-window__title">Compile Version ({{ selectedCrashVersion }})</div>
+        <header class="crash-window__header">
+          <div class="crash-detail-heading">
+            <strong>{{ selectedCrashVersionGroup?.totalCrashes ?? crashReports.length }}</strong>
+            <span class="muted small">crashes</span>
+            <strong>{{ selectedCrashVersionGroup?.uniqueCrashes ?? uniqueSelectedCrashCount }}</strong>
+            <span class="muted small">unique fingerprints</span>
+          </div>
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            :disabled="crashReportsLoading"
+            @click="reloadSelectedCrashVersion"
+          >
+            Reload
+          </button>
+        </header>
+
+        <div v-if="crashReportsLoading" class="crash-empty-state">Loading crashes...</div>
+        <div v-else-if="crashReports.length === 0" class="crash-empty-state">
+          No crashes found for this compile version.
+        </div>
+        <div v-else class="crash-table-frame">
+          <table class="table crash-table crash-table--reports">
+            <thead>
+              <tr>
+                <th class="crash-table__select"></th>
+                <th>ID</th>
+                <th>Fingerprint</th>
+                <th>Compile Time</th>
+                <th>Server Name</th>
+                <th>Process</th>
+                <th>PID</th>
+                <th>OS</th>
+                <th class="crash-table__number">Lines</th>
+                <th>Created</th>
+                <th class="crash-table__delete" aria-label="Delete crash report"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="report in crashReports"
+                :key="report.id"
+                :class="{ 'crash-row--selected': selectedCrashReport?.id === report.id }"
+                @click="selectCrashReport(report)"
+              >
+                <td>
+                  <button
+                    class="crash-select-button"
+                    type="button"
+                    :aria-label="`View crash ${report.id}`"
+                    @click.stop="selectCrashReport(report)"
+                  >
+                    {{ selectedCrashReport?.id === report.id ? '-' : '+' }}
+                  </button>
+                </td>
+                <td class="crash-id-cell">{{ shortId(report.id) }}</td>
+                <td class="crash-fingerprint-cell">{{ shortFingerprint(report.fingerprint) }}</td>
+                <td>{{ report.compileTime || '-' }}</td>
+                <td>{{ report.serverName || report.serverShortName || '-' }}</td>
+                <td>{{ report.platformName || '-' }}</td>
+                <td>{{ report.processId ?? '-' }}</td>
+                <td>{{ formatReportOs(report) }}</td>
+                <td class="crash-table__number">{{ report.lineCount }}</td>
+                <td>{{ formatRelativeTime(report.receivedAt) }}</td>
+                <td class="crash-table__delete">
+                  <button
+                    class="icon-button icon-button--danger crash-delete-button"
+                    type="button"
+                    :aria-label="`Delete crash ${shortId(report.id)}`"
+                    title="Delete crash report"
+                    :disabled="deletingCrashReportId === report.id"
+                    @click.stop="requestDeleteCrashReport(report)"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M3 6h18" />
+                      <path d="M8 6V4h8v2" />
+                      <path d="M19 6l-1 14H6L5 6" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <section v-if="selectedCrashReport" class="crash-stack-panel">
+          <header class="crash-stack-panel__header">
+            <div>
+              <h3>Crash Stack ({{ shortId(selectedCrashReport.id) }})</h3>
+              <p class="muted small">{{ selectedCrashReport.fingerprint }}</p>
+            </div>
+            <div class="crash-stack-panel__actions">
+              <button
+                class="btn btn--outline btn--small"
+                type="button"
+                @click="openCrashInboxMessage(selectedCrashReport)"
+              >
+                Open Record
+              </button>
+              <button
+                class="btn btn--accent btn--small"
+                type="button"
+                @click="openCrashInspectorForReport(selectedCrashReport)"
+              >
+                Inspect
+              </button>
+            </div>
+          </header>
+          <div class="crash-meta-grid">
+            <div><span>Fingerprint:</span> <strong>{{ selectedCrashReport.fingerprint }}</strong></div>
+            <div>
+              <span>OS:</span>
+              <strong>{{ formatReportOs(selectedCrashReport) }}</strong>
+            </div>
+            <div>
+              <span>Origination:</span>
+              <strong>{{ selectedCrashReport.originationInfo || '-' }}</strong>
+            </div>
+            <div>
+              <span>Server:</span>
+              <strong>{{ selectedCrashReport.serverName || selectedCrashReport.serverShortName || '-' }}</strong>
+              <span>Process:</span>
+              <strong>{{ selectedCrashReport.platformName || '-' }}</strong>
+              <span>PID:</span>
+              <strong>{{ selectedCrashReport.processId ?? '-' }}</strong>
+            </div>
+            <div>
+              <span>Uptime:</span>
+              <strong>{{ formatUptime(selectedCrashReport.uptimeSeconds) }}</strong>
+              <span>RSS:</span>
+              <strong>{{ formatMemory(selectedCrashReport.rssMemoryMb) }}</strong>
+              <span>CPUs:</span>
+              <strong>{{ selectedCrashReport.cpus ?? '-' }}</strong>
+              <span>Review:</span>
+              <strong>{{ selectedCrashReport.reviewStatus || 'Not reviewed' }}</strong>
+            </div>
+          </div>
+          <p v-if="selectedCrashReport.reviewSummary" class="crash-review-summary">
+            {{ selectedCrashReport.reviewSummary }}
+          </p>
+          <pre class="crash-stack-pre">{{ selectedCrashReport.crashReport }}</pre>
+        </section>
+      </article>
+    </section>
+
     <section v-if="activeTab === 'inbox'" class="inbox">
       <article class="card inbox-toolbar-card">
         <header class="inbox-toolbar">
@@ -1030,7 +1323,7 @@
               <span>Webhook</span>
               <select v-model="inboxFilters.webhookId" class="select">
                 <option value="">All Webhooks</option>
-                <option v-for="hook in webhooks" :key="hook.id" :value="hook.id">
+                <option v-for="hook in inboxWebhooks" :key="hook.id" :value="hook.id">
                   {{ hook.label }}
                 </option>
               </select>
@@ -2864,6 +3157,90 @@
       </div>
     </div>
 
+    <!-- Crash Report Delete Confirmation Modal -->
+    <div
+      v-if="crashReportPendingDelete"
+      class="modal-backdrop"
+      @click.self="cancelDeleteCrashReport"
+    >
+      <div class="modal modal--crash-delete" role="dialog" aria-modal="true">
+        <header class="modal__header crash-delete-modal__header">
+          <div class="crash-delete-modal__icon" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4h8v2" />
+              <path d="M19 6l-1 14H6L5 6" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+          </div>
+          <div class="modal__titles">
+            <h3>Delete crash report?</h3>
+            <p class="muted small">
+              This removes the stored crash payload from Nexus. It cannot be undone.
+            </p>
+          </div>
+        </header>
+
+        <div class="crash-delete-modal__body">
+          <dl class="crash-delete-modal__meta">
+            <div>
+              <dt>Crash ID</dt>
+              <dd>{{ shortId(crashReportPendingDelete.id) }}</dd>
+            </div>
+            <div>
+              <dt>Compile Version</dt>
+              <dd>{{ crashReportPendingDelete.serverVersion }}</dd>
+            </div>
+            <div>
+              <dt>Server</dt>
+              <dd>
+                {{
+                  crashReportPendingDelete.serverName ||
+                  crashReportPendingDelete.serverShortName ||
+                  '-'
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>Received</dt>
+              <dd>{{ formatDate(crashReportPendingDelete.receivedAt) }}</dd>
+            </div>
+          </dl>
+          <p class="crash-delete-modal__warning">
+            The crash will disappear from this Crashes view and the underlying webhook record will be
+            permanently deleted.
+          </p>
+        </div>
+
+        <footer class="modal__footer crash-delete-modal__footer">
+          <button
+            class="btn btn--outline"
+            type="button"
+            :disabled="!!deletingCrashReportId"
+            @click="cancelDeleteCrashReport"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn--danger"
+            type="button"
+            :disabled="!!deletingCrashReportId"
+            @click="confirmDeleteCrashReport"
+          >
+            {{ deletingCrashReportId ? 'Deleting...' : 'Delete Crash' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
     <!-- Crash Report Inspector Modal -->
     <div v-if="showCrashInspector" class="modal-backdrop" @click.self="closeCrashInspector">
       <div class="modal modal--wide modal--inspector" role="dialog" aria-modal="true">
@@ -3016,6 +3393,7 @@ import {
   api,
   type InboundWebhook,
   type InboundWebhookAction,
+  type InboundWebhookIntakeType,
   type InboundWebhookMessage,
   type InboundWebhookMessageStatus,
   type InboundWebhookRetentionPolicy,
@@ -3023,7 +3401,10 @@ import {
   type TestChange,
   type WebhookMessageLabel,
   type CrashInspectionResult,
-  type CrashSegmentSortResult
+  type CrashSegmentSortResult,
+  type CrashTelemetryReport,
+  type CrashTelemetrySummary,
+  type CrashTelemetryVersionGroup
 } from '../services/api';
 import CodeTemplateEditor from '../components/CodeTemplateEditor.vue';
 import { useToastBus } from '../components/ToastBus';
@@ -3032,7 +3413,7 @@ const route = useRoute();
 
 const loading = ref(true);
 const componentReady = ref(false);
-const activeTab = ref<'endpoints' | 'inbox'>('inbox');
+const activeTab = ref<'endpoints' | 'inbox' | 'crashes'>('inbox');
 const activeEndpointSection = ref<'details' | 'actions' | 'test' | null>(null);
 const pendingMessageId = ref<string | null>(null);
 const { addToast } = useToastBus();
@@ -3057,6 +3438,8 @@ const discordTemplatePlaceholders = ['{{json}}', '{{raw}}'];
 const crashTemplatePlaceholders = ['{{crashReport}}'];
 const ORACLE_LOGO_SRC = '/assets/eqemu-oracle-logo.webp';
 const LABEL_MANAGER_PAGE_SIZE = 6;
+const GENERIC_INTAKE_TYPE: InboundWebhookIntakeType = 'GENERIC';
+const SERVER_CRASH_INTAKE_TYPE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_REPORT';
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
@@ -3169,6 +3552,7 @@ const createForm = reactive({
   label: '',
   description: '',
   isEnabled: true,
+  intakeType: GENERIC_INTAKE_TYPE as InboundWebhookIntakeType,
   retentionMode: 'indefinite',
   retentionDays: 30,
   retentionMaxCount: 5000
@@ -3188,6 +3572,15 @@ const inboxFilters = reactive({
   starred: false,
   labelId: ''
 });
+
+const crashTelemetrySummary = ref<CrashTelemetrySummary | null>(null);
+const crashTelemetryLoading = ref(false);
+const crashReports = ref<CrashTelemetryReport[]>([]);
+const crashReportsLoading = ref(false);
+const selectedCrashVersion = ref<string | null>(null);
+const selectedCrashReport = ref<CrashTelemetryReport | null>(null);
+const crashReportPendingDelete = ref<CrashTelemetryReport | null>(null);
+const deletingCrashReportId = ref<string | null>(null);
 
 const inboxTotalPages = computed(() =>
   Math.max(1, Math.ceil(inboxTotal.value / inboxFilters.pageSize))
@@ -3243,8 +3636,20 @@ const paginatedWebhookLabels = computed(() => {
 const failedCount = computed(
   () => inboxMessages.value.filter((message) => message.status === 'FAILED').length
 );
+const crashTelemetryGroups = computed(() => crashTelemetrySummary.value?.groups ?? []);
+const selectedCrashVersionGroup = computed(
+  () =>
+    crashTelemetryGroups.value.find((group) => group.serverVersion === selectedCrashVersion.value) ??
+    null
+);
+const uniqueSelectedCrashCount = computed(
+  () => new Set(crashReports.value.map((report) => report.fingerprint)).size
+);
 const selectedWebhook = computed(
   () => webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
+);
+const inboxWebhooks = computed(() =>
+  webhooks.value.filter((hook) => !isServerCrashWebhook(hook))
 );
 const selectedCrashReviewAction = computed(
   () => selectedWebhook.value?.actions?.find((action) => action.type === 'CRASH_REVIEW') ?? null
@@ -3264,6 +3669,14 @@ interface PipelineStageStatus {
 
 function isSupportedWebhookAction(action?: InboundWebhookAction | null): boolean {
   return action?.type === 'DISCORD_RELAY' || action?.type === 'CRASH_REVIEW';
+}
+
+function isServerCrashWebhook(webhook?: Pick<InboundWebhook, 'intakeType'> | null): boolean {
+  return webhook?.intakeType === SERVER_CRASH_INTAKE_TYPE;
+}
+
+function getEndpointTypeLabel(type?: InboundWebhookIntakeType | null): string {
+  return type === SERVER_CRASH_INTAKE_TYPE ? 'EQEmu Crash' : 'Generic';
 }
 const isAutoMergeActive = computed(() => {
   // Auto-Merge is a global setting - check if any webhook has it enabled
@@ -3377,6 +3790,16 @@ function getIntakePipelineStatus(webhook?: InboundWebhook | null): PipelineStage
       needsAction: true
     };
   }
+  if (isServerCrashWebhook(webhook)) {
+    return {
+      label: webhook.lastReceivedAt ? 'Crash Intake' : 'Ready',
+      detail: webhook.lastReceivedAt
+        ? `Last crash payload received ${formatRelativeTime(webhook.lastReceivedAt)}.`
+        : 'URL is enabled and waiting for Server crash payloads.',
+      tone: webhook.lastReceivedAt ? 'ready' : 'info',
+      needsAction: false
+    };
+  }
   return {
     label: webhook.lastReceivedAt ? 'Receiving' : 'Ready',
     detail: webhook.lastReceivedAt
@@ -3402,6 +3825,14 @@ function getMergePipelineStatus(webhook?: InboundWebhook | null): PipelineStageS
       detail: 'Merge cannot run while intake is disabled.',
       tone: 'danger',
       needsAction: true
+    };
+  }
+  if (isServerCrashWebhook(webhook)) {
+    return {
+      label: 'Bypassed',
+      detail: 'Server crash reports are complete payloads and do not enter the merge queue.',
+      tone: 'ready',
+      needsAction: false
     };
   }
   if (!webhookProcessingStatus.effectivelyEnabled) {
@@ -3450,7 +3881,10 @@ function getMergePipelineStatus(webhook?: InboundWebhook | null): PipelineStageS
   };
 }
 
-function getAiReviewPipelineStatus(action?: InboundWebhookAction | null): PipelineStageStatus {
+function getAiReviewPipelineStatus(
+  action?: InboundWebhookAction | null,
+  webhook?: InboundWebhook | null
+): PipelineStageStatus {
   if (!webhookProcessingStatus.effectivelyEnabled) {
     return {
       label: 'Paused',
@@ -3460,6 +3894,14 @@ function getAiReviewPipelineStatus(action?: InboundWebhookAction | null): Pipeli
     };
   }
   if (!action) {
+    if (isServerCrashWebhook(webhook)) {
+      return {
+        label: 'Optional',
+        detail: 'Crash reports are recorded even without AI review.',
+        tone: 'info',
+        needsAction: false
+      };
+    }
     return {
       label: 'Missing',
       detail: 'Add an AI review action before the Discord relay.',
@@ -3468,6 +3910,14 @@ function getAiReviewPipelineStatus(action?: InboundWebhookAction | null): Pipeli
     };
   }
   if (!action.isEnabled) {
+    if (isServerCrashWebhook(webhook)) {
+      return {
+        label: 'Disabled',
+        detail: 'Crash reports will still be recorded without AI review.',
+        tone: 'info',
+        needsAction: false
+      };
+    }
     return {
       label: 'Disabled',
       detail: 'The AI action exists but will be skipped during processing.',
@@ -3529,6 +3979,14 @@ function getDiscordPipelineStatus(
     };
   }
   if (!action) {
+    if (isServerCrashWebhook(webhook)) {
+      return {
+        label: 'Optional',
+        detail: 'Crash reports are available in Nexus without Discord relay.',
+        tone: 'info',
+        needsAction: false
+      };
+    }
     return {
       label: 'Missing',
       detail: 'Add a Discord relay action to notify developers.',
@@ -3537,6 +3995,14 @@ function getDiscordPipelineStatus(
     };
   }
   if (!action.isEnabled) {
+    if (isServerCrashWebhook(webhook)) {
+      return {
+        label: 'Disabled',
+        detail: 'Discord relay is disabled; crash analytics will still record reports.',
+        tone: 'info',
+        needsAction: false
+      };
+    }
     return {
       label: 'Disabled',
       detail: 'The Discord action exists but will be skipped.',
@@ -3615,6 +4081,16 @@ function getInboxPipelineStatus(webhook?: InboundWebhook | null): PipelineStageS
       needsAction: true
     };
   }
+  if (isServerCrashWebhook(webhook)) {
+    return {
+      label: webhook.lastReceivedAt ? 'Recording' : 'Ready',
+      detail: webhook.lastReceivedAt
+        ? `Last crash record received ${formatRelativeTime(webhook.lastReceivedAt)}.`
+        : 'Crash storage is ready for the first report.',
+      tone: webhook.lastReceivedAt ? 'ready' : 'info',
+      needsAction: false
+    };
+  }
   if (isSelectedWebhookProcessing.value) {
     return {
       label: 'Updating',
@@ -3644,7 +4120,7 @@ function getInboxPipelineStatus(webhook?: InboundWebhook | null): PipelineStageS
 const intakePipelineStatus = computed(() => getIntakePipelineStatus(selectedWebhook.value));
 const mergePipelineStatus = computed(() => getMergePipelineStatus(selectedWebhook.value));
 const aiReviewPipelineStatus = computed(() =>
-  getAiReviewPipelineStatus(selectedCrashReviewAction.value)
+  getAiReviewPipelineStatus(selectedCrashReviewAction.value, selectedWebhook.value)
 );
 const discordPipelineStatus = computed(() =>
   getDiscordPipelineStatus(
@@ -3807,6 +4283,9 @@ watch(activeTab, () => {
   activeEndpointSection.value = null;
   showTestPanel.value = false;
   showWebhookSettings.value = false;
+  if (activeTab.value === 'crashes' && !crashTelemetrySummary.value) {
+    loadCrashTelemetrySummary();
+  }
 });
 
 watch(showLabelManager, (isOpen) => {
@@ -3968,6 +4447,7 @@ function buildDraft(webhook: InboundWebhook) {
     label: webhook.label,
     description: webhook.description || '',
     isEnabled: webhook.isEnabled,
+    intakeType: webhook.intakeType ?? GENERIC_INTAKE_TYPE,
     retentionMode: webhook.retentionPolicy?.mode || 'indefinite',
     retentionDays: webhook.retentionPolicy?.days ?? 30,
     retentionMaxCount: webhook.retentionPolicy?.maxCount ?? 5000
@@ -3992,9 +4472,39 @@ function buildActionDraft() {
   };
 }
 
-function buildTestDraft() {
+function buildServerCrashTestPayload() {
+  return JSON.stringify(
+    {
+      platform_name: 'zone',
+      crash_report:
+        'Exception: test crash report\\nSymInit: test symbols loaded\\nOS-Version: Windows test\\nzone.exe: test_frame()',
+      server_version: '23.10.3',
+      compile_date: 'May 22 2026',
+      compile_time: '20:50:00',
+      server_name: 'Local Test Server',
+      server_short_name: 'local',
+      uptime: 3600,
+      os_machine: 'x86_64',
+      os_release: '10.0',
+      os_version: 'Windows test',
+      os_sysname: 'Windows',
+      process_id: 4242,
+      rss_memory: 512,
+      cpus: 8,
+      origination_info: 'qeynos2 (North Qeynos) instance_id [0]'
+    },
+    null,
+    2
+  );
+}
+
+function buildGenericTestPayload() {
+  return '{\n  "event": "test",\n  "message": "hello"\n}';
+}
+
+function buildTestDraft(webhook?: InboundWebhook | null) {
   return {
-    payload: '{\n  "event": "test",\n  "message": "hello"\n}',
+    payload: isServerCrashWebhook(webhook) ? buildServerCrashTestPayload() : buildGenericTestPayload(),
     runActions: true,
     repeatCount: 1
   };
@@ -4004,6 +4514,7 @@ async function loadWebhooks() {
   const data = await api.fetchInboundWebhooks();
   webhooks.value = data.map((webhook) => ({
     ...webhook,
+    intakeType: webhook.intakeType ?? GENERIC_INTAKE_TYPE,
     actions: (webhook.actions ?? [])
       .filter(isSupportedWebhookAction)
       .map((action) => ({
@@ -4026,7 +4537,7 @@ async function loadWebhooks() {
   for (const webhook of webhooks.value) {
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
-    testDrafts[webhook.id] = buildTestDraft();
+    testDrafts[webhook.id] = buildTestDraft(webhook);
   }
   if (!webhooks.value.some((webhook) => webhook.id === expandedWebhookId.value)) {
     expandedWebhookId.value = webhooks.value[0]?.id ?? null;
@@ -4064,6 +4575,120 @@ async function loadInbox() {
     selectedMessageIds.value.clear();
   } finally {
     inboxLoading.value = false;
+  }
+}
+
+async function loadCrashTelemetrySummary() {
+  crashTelemetryLoading.value = true;
+  try {
+    crashTelemetrySummary.value = await api.fetchCrashTelemetrySummary();
+    if (
+      selectedCrashVersion.value &&
+      !crashTelemetryGroups.value.some((group) => group.serverVersion === selectedCrashVersion.value)
+    ) {
+      selectedCrashVersion.value = null;
+      selectedCrashReport.value = null;
+      crashReports.value = [];
+    }
+  } catch (error) {
+    console.error('Failed to load crash telemetry summary:', error);
+    addToast({
+      title: 'Crash Telemetry',
+      message: 'Unable to load crash telemetry.',
+      variant: 'error'
+    });
+  } finally {
+    crashTelemetryLoading.value = false;
+  }
+}
+
+async function loadCrashReports(version: string) {
+  crashReportsLoading.value = true;
+  try {
+    crashReports.value = await api.fetchCrashTelemetryReports({ version });
+    selectedCrashReport.value = crashReports.value[0] ?? null;
+  } catch (error) {
+    console.error('Failed to load crash reports:', error);
+    addToast({
+      title: 'Crash Telemetry',
+      message: 'Unable to load crashes for this compile version.',
+      variant: 'error'
+    });
+  } finally {
+    crashReportsLoading.value = false;
+  }
+}
+
+async function refreshCrashTelemetry() {
+  await loadCrashTelemetrySummary();
+  if (selectedCrashVersion.value) {
+    await loadCrashReports(selectedCrashVersion.value);
+  }
+}
+
+async function selectCrashVersion(version: string) {
+  selectedCrashVersion.value = version;
+  await loadCrashReports(version);
+}
+
+async function reloadSelectedCrashVersion() {
+  if (!selectedCrashVersion.value) return;
+  await loadCrashReports(selectedCrashVersion.value);
+}
+
+function selectCrashReport(report: CrashTelemetryReport) {
+  selectedCrashReport.value = report;
+}
+
+function requestDeleteCrashReport(report: CrashTelemetryReport) {
+  crashReportPendingDelete.value = report;
+}
+
+function cancelDeleteCrashReport() {
+  if (deletingCrashReportId.value) return;
+  crashReportPendingDelete.value = null;
+}
+
+async function confirmDeleteCrashReport() {
+  const report = crashReportPendingDelete.value;
+  if (!report || deletingCrashReportId.value) return;
+
+  deletingCrashReportId.value = report.id;
+  try {
+    await api.deleteInboundWebhookMessage(report.messageId);
+    const removedIndex = crashReports.value.findIndex((item) => item.id === report.id);
+    const remainingReports = crashReports.value.filter((item) => item.id !== report.id);
+    crashReports.value = remainingReports;
+
+    if (selectedCrashReport.value?.id === report.id) {
+      selectedCrashReport.value =
+        remainingReports[Math.min(Math.max(removedIndex, 0), remainingReports.length - 1)] ??
+        null;
+    }
+    if (selectedMessage.value?.id === report.messageId) {
+      closeMessage();
+    }
+
+    crashReportPendingDelete.value = null;
+    addToast({
+      title: 'Crash deleted',
+      message: `Removed crash ${shortId(report.id)} from telemetry.`,
+      variant: 'success'
+    });
+
+    await loadCrashTelemetrySummary();
+    if (selectedCrashVersion.value) {
+      await loadCrashReports(selectedCrashVersion.value);
+    }
+  } catch (error) {
+    console.error('Failed to delete crash report:', error);
+    addToast({
+      title: 'Crash delete failed',
+      message: 'Unable to delete that crash report.',
+      variant: 'error'
+    });
+  } finally {
+    deletingCrashReportId.value = null;
   }
 }
 
@@ -4393,7 +5018,8 @@ async function refreshAll() {
       loadAdminUsers(),
       loadLabels(),
       loadUnreadCount(),
-      loadWebhookProcessingStatus()
+      loadWebhookProcessingStatus(),
+      loadCrashTelemetrySummary()
     ]);
     if (shouldPollInbox()) {
       startInboxPolling();
@@ -4446,16 +5072,18 @@ async function createWebhook() {
       label: createForm.label.trim(),
       description: createForm.description.trim() || null,
       isEnabled: createForm.isEnabled,
+      intakeType: createForm.intakeType,
       retentionPolicy: buildRetentionPayload(createForm)
     });
     webhooks.value = [webhook, ...webhooks.value];
     webhookDrafts[webhook.id] = buildDraft(webhook);
     actionDrafts[webhook.id] = buildActionDraft();
-    testDrafts[webhook.id] = buildTestDraft();
+    testDrafts[webhook.id] = buildTestDraft(webhook);
     expandedWebhookId.value = webhook.id;
     activeEndpointSection.value = null;
     createForm.label = '';
     createForm.description = '';
+    createForm.intakeType = GENERIC_INTAKE_TYPE;
     showCreateWebhook.value = false;
   } finally {
     creatingWebhook.value = false;
@@ -4470,12 +5098,14 @@ async function saveWebhook(webhook: InboundWebhook) {
       label: draft.label,
       description: draft.description || null,
       isEnabled: draft.isEnabled,
+      intakeType: draft.intakeType,
       retentionPolicy: buildRetentionPayload(draft)
     });
     const index = webhooks.value.findIndex((item) => item.id === webhook.id);
     if (index >= 0) {
       webhooks.value[index] = updated;
       webhookDrafts[updated.id] = buildDraft(updated);
+      testDrafts[updated.id] = buildTestDraft(updated);
     }
   } finally {
     savingWebhookId.value = null;
@@ -5011,6 +5641,48 @@ function formatRelativeTime(value?: string | null) {
   return formatDate(value);
 }
 
+function formatCompileStamp(group: CrashTelemetryVersionGroup) {
+  if (group.compileDate && group.compileTime) {
+    return `${group.compileDate} ${group.compileTime}`;
+  }
+  return group.compileDate || group.compileTime || '-';
+}
+
+function formatReportOs(report: CrashTelemetryReport) {
+  return [report.osSysname, report.osRelease, report.osMachine].filter(Boolean).join(' ') || '-';
+}
+
+function formatUptime(seconds: number | null | undefined) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds)) {
+    return '-';
+  }
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function formatMemory(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-';
+  }
+  return `${Math.round(value).toLocaleString()} MB`;
+}
+
+function shortFingerprint(value: string) {
+  return value.length > 16 ? `${value.slice(0, 12)}...${value.slice(-4)}` : value;
+}
+
+function shortId(value: string) {
+  return value.length > 10 ? value.slice(0, 8) : value;
+}
+
 function formatAdminName(user?: {
   displayName?: string;
   nickname?: string | null;
@@ -5332,6 +6004,7 @@ function collectCrashReportTextCandidates(
   }
 
   const record = payload as Record<string, unknown>;
+  addCandidate(record.crash_report);
   addCandidate(record.crashReportText);
   addCandidate(extractDiscordPayloadText(record));
   addCandidate(record.message);
@@ -5859,6 +6532,15 @@ function openEndpointInbox(webhookId: string) {
   loadInbox();
 }
 
+function openEndpointRecords(webhook: InboundWebhook) {
+  if (isServerCrashWebhook(webhook)) {
+    activeTab.value = 'crashes';
+    refreshCrashTelemetry();
+    return;
+  }
+  openEndpointInbox(webhook.id);
+}
+
 function onWebhookSettingsSelect() {
   const hook = webhooks.value.find((w) => w.id === webhookSettingsForm.webhookId);
   webhookSettingsForm.mergeWindowSeconds = hook?.mergeWindowSeconds ?? 10;
@@ -6307,6 +6989,26 @@ async function deleteMessage(message: InboundWebhookMessage) {
   inboxTotal.value = Math.max(0, inboxTotal.value - 1);
 }
 
+async function openCrashInboxMessage(report: CrashTelemetryReport) {
+  await loadSelectedMessage(report.messageId);
+  if (selectedMessage.value && getPendingRun(selectedMessage.value)) {
+    startMessagePolling(selectedMessage.value.id);
+  }
+  if (selectedMessage.value && !selectedMessage.value.isRead) {
+    try {
+      await api.markWebhookMessageRead(selectedMessage.value.id, true);
+      selectedMessage.value.isRead = true;
+      const inboxIndex = inboxMessages.value.findIndex((message) => message.id === selectedMessage.value?.id);
+      if (inboxIndex >= 0) {
+        inboxMessages.value[inboxIndex].isRead = true;
+        unreadCount.value = Math.max(0, unreadCount.value - 1);
+      }
+    } catch (error) {
+      console.error('Failed to mark crash webhook message as read:', error);
+    }
+  }
+}
+
 function closeMessage() {
   selectedMessage.value = null;
   showPromptModal.value = false;
@@ -6514,6 +7216,13 @@ function openCrashInspector() {
   showCrashInspector.value = true;
 }
 
+function openCrashInspectorForReport(report: CrashTelemetryReport) {
+  inspectorCrashText.value = report.crashReport;
+  inspectorResult.value = null;
+  inspectorError.value = null;
+  showCrashInspector.value = true;
+}
+
 function closeCrashInspector() {
   showCrashInspector.value = false;
   inspectorResult.value = null;
@@ -6649,6 +7358,14 @@ function escapeHtml(text: string): string {
   padding-bottom: 2rem;
 }
 
+.webhook-admin--crashes {
+  gap: 1rem;
+}
+
+.webhook-admin--crashes .section-header {
+  margin-bottom: 0.15rem;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -6740,6 +7457,546 @@ function escapeHtml(text: string): string {
 .tab--active {
   border-color: rgba(59, 130, 246, 0.6);
   background: rgba(59, 130, 246, 0.18);
+}
+
+.crashes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.crash-window {
+  position: relative;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(8, 13, 23, 0.9)),
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 34%);
+  box-shadow:
+    inset 0 1px 0 rgba(248, 250, 252, 0.08),
+    0 18px 42px rgba(2, 6, 23, 0.36);
+  padding: 1.05rem 0.6rem 0.6rem;
+  min-width: 0;
+}
+
+.crash-window::before,
+.crash-window::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.38);
+  pointer-events: none;
+}
+
+.crash-window::before {
+  left: -1px;
+  border-left: 1px solid rgba(226, 232, 240, 0.38);
+  border-top-left-radius: 0.5rem;
+}
+
+.crash-window::after {
+  right: -1px;
+  border-right: 1px solid rgba(226, 232, 240, 0.38);
+  border-top-right-radius: 0.5rem;
+}
+
+.crash-window__title {
+  position: absolute;
+  top: -0.55rem;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: min(28rem, 62vw);
+  padding: 0.1rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 999px;
+  background: rgba(8, 13, 23, 0.98);
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.crash-window__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 1.8rem;
+  padding: 0 0.15rem 0.45rem;
+}
+
+.crash-window__summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.28rem 0.48rem;
+  flex: 1;
+  min-width: 0;
+  color: rgba(203, 213, 225, 0.68);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.crash-window__summary span {
+  text-transform: uppercase;
+}
+
+.crash-window__summary strong {
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.crash-table-frame {
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(2, 6, 23, 0.22);
+}
+
+.crash-table {
+  min-width: 1120px;
+  font-size: 0.78rem;
+  table-layout: fixed;
+}
+
+.crash-table th,
+.crash-table td {
+  padding: 0.38rem 0.55rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.13);
+  white-space: nowrap;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crash-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(15, 23, 42, 0.96);
+  color: #93c5fd;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.crash-table tbody tr {
+  background: rgba(15, 23, 42, 0.42);
+  cursor: pointer;
+  height: 2.1rem;
+}
+
+.crash-table tbody tr:nth-child(even) {
+  background: rgba(30, 41, 59, 0.38);
+}
+
+.crash-table tbody tr:hover,
+.crash-row--selected {
+  background: rgba(59, 130, 246, 0.16) !important;
+}
+
+.crash-table__select {
+  width: 2.2rem;
+}
+
+.crash-table th:first-child,
+.crash-table td:first-child {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.crash-table--versions th:nth-child(1),
+.crash-table--versions td:nth-child(1),
+.crash-table--reports th:nth-child(1),
+.crash-table--reports td:nth-child(1) {
+  width: 2.6rem;
+}
+
+.crash-table--versions th:nth-child(2),
+.crash-table--versions td:nth-child(2) {
+  width: 9rem;
+}
+
+.crash-table--versions th:nth-child(3),
+.crash-table--versions td:nth-child(3) {
+  width: 12rem;
+}
+
+.crash-table--versions th:nth-child(4),
+.crash-table--versions td:nth-child(4),
+.crash-table--versions th:nth-child(5),
+.crash-table--versions td:nth-child(5),
+.crash-table--versions th:nth-child(6),
+.crash-table--versions td:nth-child(6) {
+  width: 7rem;
+}
+
+.crash-table--versions th:nth-child(7),
+.crash-table--versions td:nth-child(7),
+.crash-table--versions th:nth-child(8),
+.crash-table--versions td:nth-child(8),
+.crash-table--versions th:nth-child(9),
+.crash-table--versions td:nth-child(9) {
+  width: 8rem;
+}
+
+.crash-table--versions th:nth-child(10),
+.crash-table--versions td:nth-child(10) {
+  width: 9rem;
+}
+
+.crash-table--reports th:nth-child(2),
+.crash-table--reports td:nth-child(2) {
+  width: 7rem;
+}
+
+.crash-table--reports th:nth-child(3),
+.crash-table--reports td:nth-child(3) {
+  width: 13rem;
+}
+
+.crash-table--reports th:nth-child(4),
+.crash-table--reports td:nth-child(4),
+.crash-table--reports th:nth-child(5),
+.crash-table--reports td:nth-child(5) {
+  width: 8rem;
+}
+
+.crash-table--reports th:nth-child(6),
+.crash-table--reports td:nth-child(6),
+.crash-table--reports th:nth-child(7),
+.crash-table--reports td:nth-child(7),
+.crash-table--reports th:nth-child(9),
+.crash-table--reports td:nth-child(9) {
+  width: 5rem;
+}
+
+.crash-table--reports th:nth-child(8),
+.crash-table--reports td:nth-child(8) {
+  width: 14rem;
+}
+
+.crash-table--reports th:nth-child(10),
+.crash-table--reports td:nth-child(10) {
+  width: 7rem;
+}
+
+.crash-table--reports th:nth-child(11),
+.crash-table--reports td:nth-child(11) {
+  width: 4rem;
+}
+
+.crash-table__number {
+  text-align: center !important;
+}
+
+.crash-table__actions {
+  text-align: left;
+}
+
+.crash-table__delete {
+  text-align: right !important;
+}
+
+.label-mobile {
+  display: none;
+}
+
+.crash-select-button {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 0.25rem;
+  background: rgba(15, 23, 42, 0.86);
+  color: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.crash-version-cell,
+.crash-id-cell,
+.crash-fingerprint-cell {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.crash-fingerprint-cell {
+  color: #bfdbfe;
+}
+
+.crash-delete-button {
+  width: 1.55rem;
+  height: 1.55rem;
+  min-width: 1.55rem;
+  border-radius: 0.28rem;
+  background: rgba(127, 29, 29, 0.2);
+  box-shadow: none;
+}
+
+.crash-delete-button:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.82);
+  background: rgba(127, 29, 29, 0.38);
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
+}
+
+.crash-delete-button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.crash-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 9rem;
+  border: 1px dashed rgba(148, 163, 184, 0.24);
+  border-radius: 0.5rem;
+  color: rgba(203, 213, 225, 0.72);
+  font-size: 0.9rem;
+}
+
+.crash-detail-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.crash-detail-heading strong {
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+.crash-stack-panel {
+  margin-top: 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(2, 6, 23, 0.36);
+  border-radius: 0.35rem;
+  padding: 0.65rem;
+}
+
+.crash-stack-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.45rem;
+  min-width: 0;
+}
+
+.crash-stack-panel__header > div {
+  min-width: 0;
+}
+
+.crash-stack-panel__header p {
+  overflow-wrap: anywhere;
+}
+
+.crash-stack-panel__header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.crash-stack-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.crash-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  margin-bottom: 0.5rem;
+}
+
+.crash-meta-grid > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.22rem 0.45rem;
+  min-width: 0;
+  color: rgba(226, 232, 240, 0.84);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.crash-meta-grid span {
+  color: rgba(148, 163, 184, 0.82);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.crash-meta-grid strong {
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.crash-review-summary {
+  margin: 0 0 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-left: 2px solid rgba(59, 130, 246, 0.72);
+  background: rgba(59, 130, 246, 0.1);
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.crash-stack-pre {
+  max-height: 30rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.3rem;
+  background: rgba(2, 6, 23, 0.72);
+  color: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.38;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 1100px) {
+  .crash-meta-grid {
+    gap: 0.22rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .webhook-admin--crashes .section-header__titles p {
+    display: none;
+  }
+
+  .crash-window {
+    padding: 1.55rem 0.55rem 0.55rem;
+  }
+
+  .crash-window__title {
+    min-width: min(18rem, 82vw);
+    font-size: 0.66rem;
+  }
+
+  .crash-window__header,
+  .crash-stack-panel__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .crash-stack-panel__header p {
+    display: none;
+  }
+
+  .crash-table {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .crash-table--versions th:nth-child(3),
+  .crash-table--versions td:nth-child(3),
+  .crash-table--versions th:nth-child(5),
+  .crash-table--versions td:nth-child(5),
+  .crash-table--versions th:nth-child(6),
+  .crash-table--versions td:nth-child(6),
+  .crash-table--versions th:nth-child(8),
+  .crash-table--versions td:nth-child(8),
+  .crash-table--versions th:nth-child(10),
+  .crash-table--versions td:nth-child(10),
+  .crash-table--reports th:nth-child(4),
+  .crash-table--reports td:nth-child(4),
+  .crash-table--reports th:nth-child(5),
+  .crash-table--reports td:nth-child(5),
+  .crash-table--reports th:nth-child(6),
+  .crash-table--reports td:nth-child(6),
+  .crash-table--reports th:nth-child(7),
+  .crash-table--reports td:nth-child(7),
+  .crash-table--reports th:nth-child(8),
+  .crash-table--reports td:nth-child(8),
+  .crash-table--reports th:nth-child(9),
+  .crash-table--reports td:nth-child(9) {
+    display: none;
+  }
+
+  .crash-table--versions th:nth-child(1),
+  .crash-table--versions td:nth-child(1),
+  .crash-table--reports th:nth-child(1),
+  .crash-table--reports td:nth-child(1) {
+    width: 10%;
+  }
+
+  .crash-table--versions th:nth-child(2),
+  .crash-table--versions td:nth-child(2) {
+    width: 34%;
+  }
+
+  .crash-table--versions th:nth-child(4),
+  .crash-table--versions td:nth-child(4) {
+    width: 20%;
+  }
+
+  .crash-table--versions th:nth-child(7),
+  .crash-table--versions td:nth-child(7) {
+    width: 18%;
+  }
+
+  .crash-table--versions th:nth-child(9),
+  .crash-table--versions td:nth-child(9) {
+    width: 18%;
+  }
+
+  .crash-table--reports th:nth-child(2),
+  .crash-table--reports td:nth-child(2) {
+    width: 23%;
+  }
+
+  .crash-table--reports th:nth-child(3),
+  .crash-table--reports td:nth-child(3) {
+    width: 42%;
+  }
+
+  .crash-table--reports th:nth-child(10),
+  .crash-table--reports td:nth-child(10) {
+    width: 15%;
+  }
+
+  .crash-table--reports th:nth-child(11),
+  .crash-table--reports td:nth-child(11) {
+    width: 10%;
+  }
+
+  .crash-meta-grid {
+    gap: 0.26rem;
+  }
+
+  .crash-stack-panel__actions {
+    justify-content: stretch;
+  }
+
+  .crash-stack-panel {
+    overflow-x: hidden;
+  }
+
+  .crash-stack-panel__actions .btn {
+    flex: 1 1 8rem;
+  }
 }
 
 .btn {
@@ -6921,6 +8178,30 @@ function escapeHtml(text: string): string {
 .btn--small {
   padding: 0.4rem 0.9rem;
   font-size: 0.75rem;
+}
+
+.btn--tiny {
+  padding: 0.22rem 0.55rem;
+  font-size: 0.68rem;
+}
+
+.crash-table .btn--tiny {
+  padding: 0.15rem 0.42rem;
+  border-radius: 0.22rem;
+  background: rgba(71, 85, 105, 0.76);
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: none;
+  color: #f8fafc;
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  line-height: 1.05;
+  text-transform: none;
+}
+
+.crash-table .btn--tiny:hover:not(:disabled) {
+  background: rgba(100, 116, 139, 0.82);
+  box-shadow: none;
+  transform: none;
 }
 
 .card {
@@ -8370,6 +9651,19 @@ input[type='checkbox']:checked::after {
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
 }
 
+.crash-table th,
+.crash-table td {
+  padding: 0.34rem 0.55rem !important;
+  font-size: 0.74rem;
+  line-height: 1.15;
+  border-bottom-color: rgba(148, 163, 184, 0.15);
+}
+
+.crash-table th {
+  color: #93c5fd;
+  font-size: 0.68rem;
+}
+
 .table--inbox th,
 .table--inbox td {
   min-width: 0;
@@ -8907,6 +10201,96 @@ input[type='checkbox']:checked::after {
 
 .modal--label-manager {
   width: min(640px, 94vw);
+}
+
+.modal--crash-delete {
+  width: min(460px, 94vw);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.58);
+}
+
+.crash-delete-modal__header {
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.crash-delete-modal__icon {
+  width: 2.55rem;
+  height: 2.55rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 0.65rem;
+  background: rgba(127, 29, 29, 0.2);
+  color: #fca5a5;
+}
+
+.crash-delete-modal__icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.crash-delete-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.crash-delete-modal__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.crash-delete-modal__meta div {
+  min-width: 0;
+  padding: 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0.45rem;
+  background: rgba(15, 23, 42, 0.44);
+}
+
+.crash-delete-modal__meta dt {
+  color: rgba(148, 163, 184, 0.84);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+}
+
+.crash-delete-modal__meta dd {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.86rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crash-delete-modal__warning {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  border-radius: 0.5rem;
+  background: rgba(127, 29, 29, 0.16);
+  color: #fecaca;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.crash-delete-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
 }
 
 /* Settings Modal Styles */
@@ -9645,6 +11029,48 @@ input[type='checkbox']:checked::after {
   .merge-group-banner .btn {
     width: 100%;
   }
+
+  .crash-table {
+    display: table;
+  }
+
+  .crash-table thead {
+    display: table-header-group;
+  }
+
+  .crash-table tbody {
+    display: table-row-group;
+  }
+
+  .crash-table tr {
+    display: table-row;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .crash-table th,
+  .crash-table td {
+    display: table-cell;
+    padding: 0.34rem 0.55rem !important;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  }
+
+  .crash-table th:first-child,
+  .crash-table td:first-child {
+    width: 2.25rem;
+    padding-right: 0.35rem !important;
+    padding-left: 0.35rem !important;
+  }
+
+  .label-desktop {
+    display: none;
+  }
+
+  .label-mobile {
+    display: inline;
+  }
 }
 
 @media (max-width: 720px) {
@@ -9702,6 +11128,24 @@ input[type='checkbox']:checked::after {
   .tab {
     flex: 1 1 0;
     text-align: center;
+  }
+
+  .webhook-admin--crashes .tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+  }
+
+  .webhook-admin--crashes .tab {
+    width: auto;
+    min-width: 0;
+    padding: 0.5rem 0.35rem;
+    font-size: 0.78rem;
+    letter-spacing: 0.05em;
+  }
+
+  .webhook-admin--crashes .tab__badge {
+    margin-left: 0.25rem;
   }
 
   .card {
@@ -11549,6 +12993,28 @@ input[type='checkbox']:checked::after {
   .modal__footer .btn,
   .merge-preview-footer .btn {
     width: 100%;
+  }
+
+  .modal--crash-delete {
+    padding: 1.1rem;
+  }
+
+  .crash-delete-modal__header {
+    gap: 0.65rem;
+  }
+
+  .crash-delete-modal__icon {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .crash-delete-modal__meta {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .crash-delete-modal__footer {
+    gap: 0.55rem;
   }
 
   .merge-preview-footer .btn--outline {

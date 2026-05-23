@@ -785,6 +785,11 @@ enum InboundWebhookActionType {
   CLAWDBOT_RELAY
 }
 
+enum InboundWebhookIntakeType {
+  GENERIC
+  EQEMU_SERVER_CRASH_REPORT
+}
+
 enum InboundWebhookMessageStatus {
   RECEIVED
   PENDING_MERGE
@@ -804,6 +809,7 @@ model InboundWebhook {
   label          String                 @db.VarChar(120)
   description    String?                @db.VarChar(500)
   isEnabled      Boolean                @default(true)
+  intakeType     InboundWebhookIntakeType @default(GENERIC)
   token          String                 @db.VarChar(120)
   retentionPolicy Json                 @default(dbgenerated("(json_object())"))
   createdById    String
@@ -819,6 +825,7 @@ model InboundWebhook {
 
   @@index([createdById])
   @@index([createdAt])
+  @@index([intakeType])
 }
 
 model InboundWebhookAction {
