@@ -188,7 +188,33 @@
             <header class="endpoint-hero">
               <div class="endpoint-hero__identity">
                 <span class="endpoint-kicker">Webhook Endpoint</span>
-                <h2>{{ selectedWebhook.label }}</h2>
+                <div class="endpoint-hero__title-row">
+                  <h2>{{ selectedWebhook.label }}</h2>
+                  <button
+                    class="icon-button endpoint-name-edit-button"
+                    type="button"
+                    :aria-label="`Edit endpoint name for ${selectedWebhook.label}`"
+                    @click="openEndpointNameModal(selectedWebhook)"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M4.75 19.25h4.1L18.9 9.2a2.12 2.12 0 0 0 0-3L17.8 5.1a2.12 2.12 0 0 0-3 0L4.75 15.15v4.1Z"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="1.7"
+                      />
+                      <path
+                        d="m13.65 6.25 4.1 4.1"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-linecap="round"
+                        stroke-width="1.7"
+                      />
+                    </svg>
+                  </button>
+                </div>
                 <p class="muted">{{ selectedWebhook.description || 'No description' }}</p>
               </div>
               <div class="endpoint-hero__actions">
@@ -2902,6 +2928,68 @@
       </div>
     </div>
 
+    <!-- Endpoint Name Modal -->
+    <div
+      v-if="endpointNameModalWebhook"
+      class="modal-backdrop"
+      @click.self="closeEndpointNameModal"
+    >
+      <form
+        class="modal modal--endpoint-name"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="endpoint-name-modal-title"
+        @submit.prevent="saveEndpointName"
+      >
+        <header class="modal__header">
+          <div class="modal__titles">
+            <p class="endpoint-name-modal__eyebrow">Webhook Endpoint</p>
+            <h3 id="endpoint-name-modal-title">Edit Endpoint Name</h3>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Close"
+            :disabled="!!savingEndpointNameId"
+            @click="closeEndpointNameModal"
+          >
+            ✕
+          </button>
+        </header>
+
+        <div class="modal__body endpoint-name-modal__body">
+          <label class="form-field" for="endpoint-name-input">
+            <span>Name</span>
+            <input
+              id="endpoint-name-input"
+              v-model="endpointNameDraft"
+              class="input"
+              maxlength="120"
+              autofocus
+            />
+          </label>
+        </div>
+
+        <footer class="modal__footer endpoint-name-modal__footer">
+          <button
+            class="btn btn--outline btn--small"
+            type="button"
+            :disabled="!!savingEndpointNameId"
+            @click="closeEndpointNameModal"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn--accent btn--small"
+            type="submit"
+            :disabled="!canSaveEndpointName || !!savingEndpointNameId"
+          >
+            {{ savingEndpointNameId ? 'Saving...' : 'Save Name' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
     <!-- Webhook Settings Modal -->
     <div
       v-if="showWebhookSettings"
@@ -3451,11 +3539,14 @@ const SERVER_CRASH_INTAKE_TYPE: InboundWebhookIntakeType = 'EQEMU_SERVER_CRASH_R
 
 const creatingWebhook = ref(false);
 const savingWebhookId = ref<string | null>(null);
+const savingEndpointNameId = ref<string | null>(null);
 const creatingActionId = ref<string | null>(null);
 const savingActionId = ref<string | null>(null);
 const sendingTestId = ref<string | null>(null);
 const showCreateWebhook = ref(false);
 const showTestPanel = ref(false);
+const endpointNameModalWebhookId = ref<string | null>(null);
+const endpointNameDraft = ref('');
 const retryingCrashId = ref<string | null>(null);
 const sendingDiscordSummaryIds = ref<Set<string>>(new Set());
 const showPromptModal = ref(false);
@@ -3656,6 +3747,17 @@ const uniqueSelectedCrashCount = computed(
 const selectedWebhook = computed(
   () => webhooks.value.find((hook) => hook.id === expandedWebhookId.value) ?? null
 );
+const endpointNameModalWebhook = computed(
+  () => webhooks.value.find((hook) => hook.id === endpointNameModalWebhookId.value) ?? null
+);
+const trimmedEndpointName = computed(() => endpointNameDraft.value.trim());
+const canSaveEndpointName = computed(() => {
+  const webhook = endpointNameModalWebhook.value;
+  const nextName = trimmedEndpointName.value;
+  return Boolean(
+    webhook && nextName.length >= 2 && nextName.length <= 120 && nextName !== webhook.label
+  );
+});
 const inboxWebhooks = computed(() =>
   webhooks.value.filter((hook) => !isServerCrashWebhook(hook))
 );
@@ -5095,6 +5197,51 @@ async function createWebhook() {
     showCreateWebhook.value = false;
   } finally {
     creatingWebhook.value = false;
+  }
+}
+
+function openEndpointNameModal(webhook: InboundWebhook) {
+  endpointNameModalWebhookId.value = webhook.id;
+  endpointNameDraft.value = webhook.label;
+}
+
+function closeEndpointNameModal() {
+  if (savingEndpointNameId.value) return;
+  endpointNameModalWebhookId.value = null;
+  endpointNameDraft.value = '';
+}
+
+async function saveEndpointName() {
+  const webhook = endpointNameModalWebhook.value;
+  if (!webhook || !canSaveEndpointName.value) return;
+
+  savingEndpointNameId.value = webhook.id;
+  try {
+    const updated = await api.updateInboundWebhook(webhook.id, {
+      label: trimmedEndpointName.value
+    });
+    const index = webhooks.value.findIndex((item) => item.id === webhook.id);
+    if (index >= 0) {
+      webhooks.value[index] = updated;
+      webhookDrafts[updated.id] = buildDraft(updated);
+      testDrafts[updated.id] = buildTestDraft(updated);
+    }
+    addToast({
+      title: 'Endpoint Updated',
+      message: `Renamed endpoint to "${updated.label}".`,
+      variant: 'success'
+    });
+    endpointNameModalWebhookId.value = null;
+    endpointNameDraft.value = '';
+  } catch (error) {
+    console.error('Failed to update endpoint name:', error);
+    addToast({
+      title: 'Endpoint Update Failed',
+      message: 'Unable to save the endpoint name.',
+      variant: 'error'
+    });
+  } finally {
+    savingEndpointNameId.value = null;
   }
 }
 
@@ -8496,6 +8643,41 @@ function escapeHtml(text: string): string {
   letter-spacing: 0;
 }
 
+.endpoint-hero__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.endpoint-hero__title-row h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.endpoint-name-edit-button {
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  border-color: rgba(125, 211, 252, 0.18);
+  border-radius: 0.45rem;
+  background: rgba(14, 165, 233, 0.08);
+  color: rgba(186, 230, 253, 0.88);
+  opacity: 0.82;
+}
+
+.endpoint-name-edit-button:hover:not(:disabled) {
+  border-color: rgba(125, 211, 252, 0.48);
+  background: rgba(14, 165, 233, 0.14);
+  color: #e0f2fe;
+  opacity: 1;
+}
+
+.endpoint-name-edit-button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
 .endpoint-create-panel {
   display: flex;
   flex-direction: column;
@@ -10255,6 +10437,35 @@ input[type='checkbox']:checked::after {
   width: min(980px, 96vw);
   max-height: min(86vh, 760px);
   padding: 1.25rem;
+}
+
+.modal--endpoint-name {
+  width: min(420px, 94vw);
+  padding: 1.15rem;
+  border: 1px solid rgba(125, 211, 252, 0.16);
+  box-shadow: 0 24px 70px rgba(2, 6, 23, 0.52);
+}
+
+.endpoint-name-modal__eyebrow {
+  margin: 0 0 0.2rem;
+  color: #7dd3fc;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.endpoint-name-modal__body {
+  margin-top: 0.9rem;
+}
+
+.endpoint-name-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .modal--label-manager {
@@ -12950,6 +13161,7 @@ input[type='checkbox']:checked::after {
   .modal--wide,
   .modal--payload-view,
   .modal--settings,
+  .modal--endpoint-name,
   .modal--label-manager,
   .modal--link-report,
   .modal--inspector {
@@ -13184,6 +13396,7 @@ input[type='checkbox']:checked::after {
   .modal--wide,
   .modal--payload-view,
   .modal--settings,
+  .modal--endpoint-name,
   .modal--label-manager,
   .modal--link-report,
   .modal--inspector {
