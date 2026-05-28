@@ -1472,6 +1472,18 @@
               </button>
               <div class="tm-next-patch-card__meta">
                 <StatusPill :status="change.status" compact />
+                <span
+                  v-if="!nextPatchViewIsComplete && !isChangeReadyToTest(change)"
+                  class="tm-readiness-badge tm-readiness-badge--not-ready tm-readiness-badge--compact"
+                  title="Tester input is paused until an admin marks this change ready."
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 8v5" />
+                    <path d="M12 17h.01" />
+                    <path d="M10.3 4.4 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.4a2 2 0 0 0-3.4 0Z" />
+                  </svg>
+                  Not Ready To Test
+                </span>
                 <span class="tm-next-patch-card__build">{{
                   change.targetBuild || 'No target build'
                 }}</span>
@@ -11244,6 +11256,19 @@ onBeforeUnmount(() => {
     rgba(217, 164, 95, 0.09);
 }
 
+.tm-readiness-badge--compact {
+  min-height: 1.26rem;
+  padding: 0.12rem 0.42rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.tm-readiness-badge--compact svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
 .tm-detail__header h2 {
   font-size: 1.9rem;
   color: #fff3dd;
@@ -16407,7 +16432,7 @@ onBeforeUnmount(() => {
 
   .tm-next-patch-card {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 0.84rem auto auto auto;
+    grid-template-rows: auto auto 0.84rem auto auto;
     grid-template-areas:
       'main'
       'meta'
