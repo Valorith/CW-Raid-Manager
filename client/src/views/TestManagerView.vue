@@ -6132,12 +6132,19 @@ function openResultConfirm(result: TestResult) {
 
   const notesHtml = notesEditor.value?.getHtml() || '';
   const notesText = getRichTextPlainText(notesHtml);
-  if ((result === 'FAIL' || result === 'BLOCKED') && !notesText) {
+  const hasSavedTestingNote = hasCurrentViewerSavedTestingNote(activeChange.value);
+  const usesSavedTestingNote = !notesText && hasSavedTestingNote;
+  if ((result === 'FAIL' || result === 'BLOCKED') && !notesText && !hasSavedTestingNote) {
     feedbackError.value = 'Tester comments are required for Failed or Blocked feedback.';
     void openNotesModal();
     return;
   }
-  if (result === 'PASS' && authStore.requiresTestManagerPassNote && !notesText) {
+  if (
+    result === 'PASS' &&
+    authStore.requiresTestManagerPassNote &&
+    !notesText &&
+    !hasSavedTestingNote
+  ) {
     feedbackError.value = 'Testing notes are required to pass this change.';
     void openNotesModal();
     return;
@@ -6149,7 +6156,9 @@ function openResultConfirm(result: TestResult) {
       result,
       title: 'Mark this test as passed?',
       body: authStore.requiresTestManagerPassNote
-        ? 'This records your tester input as Passed and attaches your current testing notes for the selected change.'
+        ? usesSavedTestingNote
+          ? 'This records your tester input as Passed and attaches your latest saved testing note for the selected change.'
+          : 'This records your tester input as Passed and attaches your current testing notes for the selected change.'
         : 'This records your tester input as Passed for the selected change and indicates your validation found no blocking issues.',
       confirmLabel: 'Confirm Pass',
       confirmClass: 'tm-btn--success',
@@ -6194,33 +6203,49 @@ async function confirmResultAction() {
   const { result } = resultActionConfirm.value;
   resultActionPending.value = true;
   try {
-    await submitResult(result);
+    const submitted = await submitResult(result);
+    if (!submitted && feedbackError.value) {
+      resultActionConfirm.value = null;
+      return;
+    }
     resultActionConfirm.value = null;
+  } catch (error) {
+    feedbackError.value = getApiErrorMessage(error, 'Unable to submit test result.');
+    resultActionConfirm.value = null;
+    if (/comment|note/i.test(feedbackError.value)) {
+      void openNotesModal();
+    }
   } finally {
     resultActionPending.value = false;
   }
 }
 
-async function submitResult(result: TestResult) {
+async function submitResult(result: TestResult): Promise<boolean> {
   if (!activeChange.value) {
-    return;
+    return false;
   }
   if (!canUseTesterControls.value) {
     feedbackError.value =
       'Tester input is only available while you are actively testing this change.';
-    return;
+    return false;
   }
   const notesHtml = notesEditor.value?.getHtml() || '';
   const notesText = getRichTextPlainText(notesHtml);
-  if ((result === 'FAIL' || result === 'BLOCKED') && !notesText) {
+  const hasSavedTestingNote = hasCurrentViewerSavedTestingNote(activeChange.value);
+  if ((result === 'FAIL' || result === 'BLOCKED') && !notesText && !hasSavedTestingNote) {
     feedbackError.value = 'Tester comments are required for Failed or Blocked feedback.';
     void openNotesModal();
-    return;
+    return false;
   }
-  if (result === 'PASS' && authStore.requiresTestManagerPassNote && !notesText) {
+  if (
+    result === 'PASS' &&
+    authStore.requiresTestManagerPassNote &&
+    !notesText &&
+    !hasSavedTestingNote
+  ) {
     feedbackError.value = 'Testing notes are required to pass this change.';
     void openNotesModal();
-    return;
+    return false;
   }
 
   feedbackError.value = '';
@@ -6230,6 +6255,7 @@ async function submitResult(result: TestResult) {
   });
   notesEditor.value?.clear();
   await loadChanges();
+  return true;
 }
 
 async function saveNote() {
@@ -6256,6 +6282,24 @@ function isDeletingNote(noteId: string) {
 
 function isOwnNote(note: TestChangeNote) {
   return note.canDelete || note.author?.id === authStore.user?.userId;
+}
+
+function hasCurrentViewerSavedTestingNote(change: TestChange | null) {
+  const testerStartedAt = change?.viewerTester?.startedAt;
+  const testerStartedAtTime = testerStartedAt ? Date.parse(testerStartedAt) : null;
+
+  return Boolean(
+    change?.notes.some((note) => {
+      if (note.result || !isOwnNote(note) || !getRichTextPlainText(note.contentHtml)) {
+        return false;
+      }
+      if (testerStartedAtTime === null || Number.isNaN(testerStartedAtTime)) {
+        return true;
+      }
+      const noteCreatedAtTime = Date.parse(note.createdAt);
+      return !Number.isNaN(noteCreatedAtTime) && noteCreatedAtTime >= testerStartedAtTime;
+    })
+  );
 }
 
 function setNoteDeleting(noteId: string, deleting: boolean) {

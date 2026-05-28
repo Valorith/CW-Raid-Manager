@@ -1152,6 +1152,35 @@ function getRichTextPlainText(value: string): string {
     .trim();
 }
 
+async function findLatestSavedTesterNoteForResult(
+  changeId: string,
+  authorId: string,
+  testerId: string,
+  startedAt: Date | null
+) {
+  const where: Prisma.TestChangeNoteWhereInput = {
+    changeId,
+    authorId,
+    result: null,
+    OR: [{ testerId }, { testerId: null }]
+  };
+  if (startedAt) {
+    where.createdAt = { gte: startedAt };
+  }
+
+  const notes = await prisma.testChangeNote.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: {
+      id: true,
+      contentHtml: true
+    }
+  });
+
+  return notes.find((note) => getRichTextPlainText(note.contentHtml)) ?? null;
+}
+
 function cloneDefaultTestManagerSettings(): TestManagerSettings {
   return {
     schemaVersion: DEFAULT_TEST_MANAGER_SETTINGS.schemaVersion,
@@ -3559,18 +3588,37 @@ export async function submitTesterResult(
     }),
     prisma.testChangeTester.findUnique({
       where: { changeId_userId: { changeId, userId: actorUserId } },
-      select: { id: true, status: true, result: true }
+      select: { id: true, status: true, result: true, startedAt: true }
     })
   ]);
   ensureChangeAcceptsTesterInput(change);
   ensureActiveTestingAssignment(existing);
 
-  const sanitizedNotes = sanitizeRichText(input.notesHtml);
-  const notesText = getRichTextPlainText(sanitizedNotes);
+  const actorPermissions = await getTestManagerUserPermissions(actor);
+  const requiresResultNotes =
+    input.result === TestResult.FAIL ||
+    input.result === TestResult.BLOCKED ||
+    (input.result === TestResult.PASS && actorPermissions.includes('noteForPass'));
+  let sanitizedNotes = sanitizeRichText(input.notesHtml);
+  let notesText = getRichTextPlainText(sanitizedNotes);
+  let savedResultNote: { id: string; contentHtml: string } | null = null;
+
+  if (requiresResultNotes && !notesText) {
+    savedResultNote = await findLatestSavedTesterNoteForResult(
+      changeId,
+      actorUserId,
+      existing.id,
+      existing.startedAt
+    );
+    if (savedResultNote) {
+      sanitizedNotes = sanitizeRichText(savedResultNote.contentHtml);
+      notesText = getRichTextPlainText(sanitizedNotes);
+    }
+  }
+
   if ((input.result === TestResult.FAIL || input.result === TestResult.BLOCKED) && !notesText) {
     throw new Error('Tester comments are required when reporting a failed or blocked result.');
   }
-  const actorPermissions = await getTestManagerUserPermissions(actor);
   if (input.result === TestResult.PASS && actorPermissions.includes('noteForPass') && !notesText) {
     throw new Error('Testing notes are required when reporting a passing result.');
   }
@@ -3590,15 +3638,26 @@ export async function submitTesterResult(
     });
 
     if (notesText) {
-      await tx.testChangeNote.create({
-        data: {
-          changeId,
-          testerId: tester.id,
-          authorId: actorUserId,
-          contentHtml: sanitizedNotes,
-          result: input.result
-        }
-      });
+      if (savedResultNote) {
+        await tx.testChangeNote.update({
+          where: { id: savedResultNote.id },
+          data: {
+            testerId: tester.id,
+            contentHtml: sanitizedNotes,
+            result: input.result
+          }
+        });
+      } else {
+        await tx.testChangeNote.create({
+          data: {
+            changeId,
+            testerId: tester.id,
+            authorId: actorUserId,
+            contentHtml: sanitizedNotes,
+            result: input.result
+          }
+        });
+      }
     }
 
     await appendHistory(tx, {
