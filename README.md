@@ -107,12 +107,51 @@ npm run dev:client
 
 ### 5. Useful local checks
 
-- `npm run lint` runs ESLint for both workspaces.
-- `npm run build` builds both workspaces.
+- `npm run lint` runs ESLint for the server, client, and CLI workspaces.
+- `npm test` runs linting plus mocked CLI coverage and server CLI-scope unit tests.
+- `npm run build` builds the server, client, and CLI workspaces.
 - `server/build/` is generated server output and is not tracked in Git.
 - `npm --workspace client run type-check` runs `vue-tsc`.
 - `npm --workspace server run prisma:generate` refreshes Prisma client types after schema edits.
 - `npm --workspace server run cron:snapshot` runs the snapshot cron entrypoint manually.
+
+## Nexus CLI
+
+The repo includes a first-party Nexus CLI in the `cli/` workspace. It authenticates through a
+browser-approved device flow and stores a revocable `nxcli_` session token in the user's local
+config file.
+
+Build and test the CLI without touching the live database:
+
+```bash
+npm --workspace cli run test
+```
+
+Log in to a Nexus deployment:
+
+```bash
+npm --workspace cli run build
+node cli/build/index.js login --url https://your-nexus-host --profile prod
+```
+
+Common Test Manager commands:
+
+```bash
+node cli/build/index.js tm list --status ACTIVE
+node cli/build/index.js tm show 123
+node cli/build/index.js tm create --title "Fix crash" --category Server --subsystem Zone --description "What changed"
+node cli/build/index.js tm note add 123 --text "Verified on current build."
+node cli/build/index.js tm result 123 pass --notes "Smoke test passed."
+node cli/build/index.js tm close 123 --detail "Released."
+```
+
+For non-login commands, use `--nexus-url` if you need to override the active profile's Nexus URL.
+The shorter `--url` flag is reserved for `login` and command-specific URL fields such as
+`tm links add --url`.
+
+High-impact commands such as deleting changes, resetting the next-patch queue, changing tester
+access, or updating Test Manager settings require `--yes`. CLI bearer tokens are scoped to
+Test Manager, `/api/auth/me`, and CLI session-management endpoints.
 
 ## Deploying to Railway
 

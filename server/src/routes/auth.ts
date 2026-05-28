@@ -18,6 +18,7 @@ import {
 import { prisma } from '../utils/prisma.js';
 
 const POST_AUTH_ORIGIN_COOKIE = 'cwraid_post_auth_origin';
+const POST_AUTH_REDIRECT_COOKIE = 'cwraid_post_auth_redirect';
 const GENERIC_OAUTH_LOGIN_ERROR = 'Sign-in could not be completed. Please try again.';
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -45,6 +46,27 @@ function normalizeOrigin(value?: string): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeReturnPath(value?: string): string | null {
+  if (!value || value.length > 2048 || !value.startsWith('/') || value.startsWith('//')) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value, 'http://nexus.local');
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function buildAuthCallbackUrl(postAuthBaseUrl: string, returnPath?: string | null): string {
+  const url = new URL('/auth/callback', postAuthBaseUrl);
+  if (returnPath) {
+    url.searchParams.set('redirect', returnPath);
+  }
+  return url.toString();
 }
 
 function buildOAuthLoginErrorUrl(
@@ -87,20 +109,37 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
   function setPostAuthOriginCookie(request: FastifyRequest, reply: FastifyReply): void {
     const requestedOrigin = getRequestedClientOrigin(request);
+    const requestedReturnPath = normalizeReturnPath(
+      typeof (request.query as { redirect?: unknown })?.redirect === 'string'
+        ? (request.query as { redirect: string }).redirect
+        : undefined
+    );
 
     if (!requestedOrigin || !isAllowedClientOrigin(requestedOrigin)) {
       reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
-      return;
+    } else {
+      reply.setCookie(POST_AUTH_ORIGIN_COOKIE, requestedOrigin, {
+        signed: true,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: appConfig.nodeEnv === 'production',
+        path: '/',
+        maxAge: 60 * 10
+      });
     }
 
-    reply.setCookie(POST_AUTH_ORIGIN_COOKIE, requestedOrigin, {
-      signed: true,
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: appConfig.nodeEnv === 'production',
-      path: '/',
-      maxAge: 60 * 10
-    });
+    if (requestedReturnPath) {
+      reply.setCookie(POST_AUTH_REDIRECT_COOKIE, requestedReturnPath, {
+        signed: true,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: appConfig.nodeEnv === 'production',
+        path: '/',
+        maxAge: 60 * 10
+      });
+    } else {
+      reply.clearCookie(POST_AUTH_REDIRECT_COOKIE, { path: '/' });
+    }
   }
 
   function getPostAuthBaseUrl(reply: FastifyReply, cookieValue?: string): string {
@@ -118,6 +157,19 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     return appConfig.clientUrl;
   }
 
+  function getPostAuthReturnPath(reply: FastifyReply, cookieValue?: string): string | null {
+    if (!cookieValue) {
+      return null;
+    }
+
+    const unsignedCookie = reply.unsignCookie(cookieValue);
+    if (!unsignedCookie.valid || !unsignedCookie.value) {
+      return null;
+    }
+
+    return normalizeReturnPath(unsignedCookie.value);
+  }
+
   if (server.hasDecorator('googleOAuth2') && server.googleOAuth2) {
     server.get('/google', async (request, reply) => {
       setPostAuthOriginCookie(request, reply);
@@ -129,7 +181,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
     server.get('/google/callback', async (request, reply) => {
       try {
         const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+        const postAuthReturnPath = getPostAuthReturnPath(
+          reply,
+          request.cookies[POST_AUTH_REDIRECT_COOKIE]
+        );
         reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+        reply.clearCookie(POST_AUTH_REDIRECT_COOKIE, { path: '/' });
 
         // Check if this is a linking flow (user is linking account, not logging in)
         const linkCookie = request.cookies.cwraid_link_user;
@@ -325,7 +382,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 60 * 60 * 24 * 7
         });
 
-        return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
+        return reply.redirect(buildAuthCallbackUrl(postAuthBaseUrl, postAuthReturnPath));
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         const errStack = error instanceof Error ? error.stack : undefined;
@@ -368,7 +425,12 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
 
     server.get('/discord/callback', async (request, reply) => {
       const postAuthBaseUrl = getPostAuthBaseUrl(reply, request.cookies[POST_AUTH_ORIGIN_COOKIE]);
+      const postAuthReturnPath = getPostAuthReturnPath(
+        reply,
+        request.cookies[POST_AUTH_REDIRECT_COOKIE]
+      );
       reply.clearCookie(POST_AUTH_ORIGIN_COOKIE, { path: '/' });
+      reply.clearCookie(POST_AUTH_REDIRECT_COOKIE, { path: '/' });
 
       // Check if this is a linking flow (user is linking account, not logging in)
       const linkCookie = request.cookies.cwraid_link_user;
@@ -634,7 +696,7 @@ export async function authRoutes(server: FastifyInstance): Promise<void> {
           maxAge: 60 * 60 * 24 * 7
         });
 
-        return reply.redirect(`${postAuthBaseUrl}/auth/callback`);
+        return reply.redirect(buildAuthCallbackUrl(postAuthBaseUrl, postAuthReturnPath));
       } catch (jwtError) {
         captureOAuthException(jwtError, {
           provider: 'discord',

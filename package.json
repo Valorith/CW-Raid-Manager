@@ -8,21 +8,27 @@
   },
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "cli"
   ],
   "scripts": {
     "dev": "node scripts/dev.cjs",
     "dev:server": "npm --workspace server run dev",
     "dev:client": "npm --workspace client run dev",
-    "build": "npm run build:server && npm run build:client",
+    "build": "npm run build:server && npm run build:client && npm run build:cli",
     "build:server": "npm --workspace server run build",
     "build:client": "npm --workspace client run build",
+    "build:cli": "npm --workspace cli run build",
     "start": "npm --workspace server run start",
-    "test": "npm run lint",
-    "lint": "npm run lint:server && npm run lint:client",
+    "test": "npm run lint && npm run test:cli && npm run test:server",
+    "lint": "npm run lint:server && npm run lint:client && npm run lint:cli",
     "lint:server": "npm --workspace server run lint",
     "lint:client": "npm --workspace client run lint",
-    "format": "npm run format:server && npm run format:client"
+    "lint:cli": "npm --workspace cli run lint",
+    "test:cli": "npm --workspace cli run test",
+    "test:server": "npm --workspace server run test",
+    "format": "npm run format:server && npm run format:client && npm run format:cli",
+    "format:cli": "npm --workspace cli run format"
   },
   "devDependencies": {
     "prisma": "^6.19.0"

@@ -62,6 +62,8 @@ model User {
   requestedTests     TestChangeTester[] @relation("TestRequestCreator")
   authoredTestNotes  TestChangeNote[]   @relation("TestChangeNoteAuthor")
   testHistoryEvents  TestChangeHistory[] @relation("TestChangeHistoryActor")
+  cliDeviceLogins    CliDeviceLogin[]   @relation("CliDeviceLoginUser")
+  cliSessions        CliSession[]
 }
 
 model Guild {
@@ -1548,6 +1550,43 @@ model TestChangeHistory {
 
   @@index([changeId, createdAt])
   @@index([actorUserId])
+}
+
+model CliDeviceLogin {
+  id             String   @id @default(cuid())
+  deviceCodeHash String   @unique @db.VarChar(64)
+  userCodeHash   String   @unique @db.VarChar(64)
+  userCode        String   @db.VarChar(16)
+  clientName      String   @db.VarChar(191)
+  requestedScopes Json?
+  approvedById    String?
+  approvedAt      DateTime?
+  deniedAt        DateTime?
+  consumedAt      DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  approvedBy      User?    @relation("CliDeviceLoginUser", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([expiresAt])
+  @@index([approvedById])
+}
+
+model CliSession {
+  id          String    @id @default(cuid())
+  userId      String
+  tokenHash   String    @unique @db.VarChar(64)
+  name        String    @db.VarChar(191)
+  scopes      Json?
+  lastUsedAt  DateTime?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
 }
 
 // Webhook Debug Messages - stores debug webhook messages for cross-process delivery

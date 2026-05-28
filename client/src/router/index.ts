@@ -29,6 +29,12 @@ const router = createRouter({
       component: () => import('../views/AuthCallbackView.vue')
     },
     {
+      path: '/cli/authorize',
+      name: 'CliAuthorize',
+      component: () => import('../views/CliAuthorizeView.vue'),
+      meta: { requiresAuth: true, title: 'Authorize CLI' }
+    },
+    {
       path: '/q/:assignmentId',
       name: 'QuestShare',
       component: () => import('../views/QuestShareRedirectView.vue'),

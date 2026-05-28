@@ -9,6 +9,14 @@
           <RouterLink class="btn btn--secondary" to="/">Return home</RouterLink>
         </div>
       </template>
+      <template v-else-if="needsSignIn">
+        <h1>Sign in to {{ APP_NAME }}</h1>
+        <p>Choose a provider to continue.</p>
+        <div class="actions">
+          <a class="btn btn--primary" :href="googleHref">Sign in with Google</a>
+          <a class="btn btn--secondary" :href="discordHref">Sign in with Discord</a>
+        </div>
+      </template>
       <template v-else>
         <h1>Entering {{ APP_NAME }}...</h1>
         <p>Please wait while we finalize authentication.</p>
@@ -18,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { APP_NAME } from '../constants/branding';
@@ -27,13 +35,26 @@ import { useAuthStore } from '../stores/auth';
 const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
+const needsSignIn = ref(false);
 
 const errorMessage = computed(() =>
   typeof route.query.error === 'string' ? route.query.error : ''
 );
+const redirectPath = computed(() =>
+  typeof route.query.redirect === 'string' &&
+  route.query.redirect.startsWith('/') &&
+  !route.query.redirect.startsWith('//')
+    ? route.query.redirect
+    : ''
+);
+const loginQuery = computed(() =>
+  redirectPath.value ? `?redirect=${encodeURIComponent(redirectPath.value)}` : ''
+);
+const googleHref = computed(() => `/api/auth/google${loginQuery.value}`);
+const discordHref = computed(() => `/api/auth/discord${loginQuery.value}`);
 const retryHref = computed(() => {
   const provider = typeof route.query.provider === 'string' ? route.query.provider : 'google';
-  return provider === 'discord' ? '/api/auth/discord' : '/api/auth/google';
+  return provider === 'discord' ? discordHref.value : googleHref.value;
 });
 
 onMounted(async () => {
@@ -43,10 +64,10 @@ onMounted(async () => {
 
   await authStore.fetchCurrentUser();
   if (authStore.isAuthenticated) {
-    const redirect = (route.query.redirect as string) ?? '/';
+    const redirect = redirectPath.value || '/';
     router.replace(redirect);
   } else {
-    router.replace('/');
+    needsSignIn.value = true;
   }
 });
 </script>

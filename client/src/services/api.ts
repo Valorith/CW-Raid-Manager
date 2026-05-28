@@ -3513,10 +3513,34 @@ export interface GeneratedPatchNote {
   note: string;
 }
 
+export interface CliDeviceLogin {
+  id: string;
+  userCode: string;
+  clientName: string;
+  scopes: string[];
+  status: 'pending' | 'approved' | 'denied' | 'consumed' | 'expired';
+  createdAt: string;
+  expiresAt: string;
+}
+
 export const api = {
   async fetchCurrentUser() {
     const response = await axios.get('/api/auth/me');
     return response.data.user ?? null;
+  },
+  async fetchCliDeviceLogin(userCode: string): Promise<CliDeviceLogin> {
+    const response = await axios.get(`/api/cli/auth/device/${encodeURIComponent(userCode)}`);
+    return response.data.login;
+  },
+  async approveCliDeviceLogin(userCode: string): Promise<CliDeviceLogin> {
+    const response = await axios.post(
+      `/api/cli/auth/device/${encodeURIComponent(userCode)}/approve`
+    );
+    return response.data.login;
+  },
+  async denyCliDeviceLogin(userCode: string): Promise<CliDeviceLogin> {
+    const response = await axios.post(`/api/cli/auth/device/${encodeURIComponent(userCode)}/deny`);
+    return response.data.login;
   },
   async fetchTestManagerDashboard(): Promise<TestManagerDashboard> {
     const response = await axios.get('/api/test-manager/dashboard');
