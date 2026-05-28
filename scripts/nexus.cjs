@@ -47,9 +47,13 @@ if (needsBuild()) {
     ['--workspace', 'cli', 'run', 'build', '--silent'],
     {
       cwd: repoRoot,
+      shell: isWindows,
       stdio: 'inherit'
     }
   );
+  if (build.error) {
+    console.error(`Failed to build Nexus CLI: ${build.error.message}`);
+  }
   if (build.status !== 0) {
     process.exit(build.status ?? 1);
   }

@@ -100,9 +100,13 @@ function runStep(label, args) {
   console.log(`${label}...`);
   const result = spawnSync(resolveCommand('npm'), args, {
     cwd: repoRoot,
+    shell: isWindows,
     stdio: 'inherit'
   });
 
+  if (result.error) {
+    console.error(`Failed to run npm ${args.join(' ')}: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
@@ -137,6 +141,7 @@ function startDetached(name, args, extraEnv = {}) {
     cwd: repoRoot,
     detached: true,
     env: { ...process.env, ...extraEnv },
+    shell: isWindows,
     stdio: ['ignore', logFd, logFd],
     windowsHide: false
   });
