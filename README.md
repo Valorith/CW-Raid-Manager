@@ -126,21 +126,25 @@ automatically when source files changed.
 First-time local setup:
 
 ```bash
-npm run dev
-npm run nexus -- setup
-npm run nexus -- doctor
+npm run nexus:setup
 ```
 
-The setup command uses `http://localhost:4000`, opens the browser authorization flow, and saves a
-`local` profile. If your local API is on a different URL, set `NEXUS_LOCAL_URL` before running setup.
+The setup command applies local migrations, starts any missing local dev processes, waits for the
+API/client to become ready, opens the browser authorization flow, and saves a `local` profile. If
+your local API or client is on a different URL, set `NEXUS_LOCAL_URL` or `NEXUS_LOCAL_CLIENT_URL`
+before running setup.
 
 Useful shortcuts:
 
 ```bash
-npm run nexus:setup
+npm run nexus:setup:fresh
 npm run nexus:doctor
 npm run nexus:local -- tm list --status ACTIVE
+npm run nexus:dev:stop
 ```
+
+Use `nexus:setup:fresh` when you want to remove the existing `local` CLI profile and re-test the
+first-run browser approval flow. Dev process logs are written under `.nexus/logs/`.
 
 Log in to a hosted Nexus deployment:
 

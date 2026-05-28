@@ -2,6 +2,7 @@ node_modules
 dist
 server/build
 cli/build
+.nexus/
 .env
 .env.*
 *.log
