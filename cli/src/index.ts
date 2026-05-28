@@ -46,6 +46,7 @@ const BOOLEAN_FLAGS = new Set([
   "include-in-next-patch",
   "ready-to-test",
   "html",
+  "local",
   "clear-target-build",
   "clear-github-pr",
   "clear-github-issue",
@@ -70,6 +71,7 @@ const ASSIGNMENTS: TestAssignmentKind[] = [
   "VOLUNTEER",
   "ADMIN_REQUESTED",
 ];
+const DEFAULT_LOCAL_API_URL = "http://localhost:4000";
 
 interface ParsedArgv {
   args: string[];
@@ -88,8 +90,14 @@ async function main(): Promise<void> {
   const jsonMode = boolFlag(parsed.flags, "json");
 
   switch (command) {
+    case "setup":
+      await setup(rest, parsed.flags, jsonMode);
+      return;
     case "login":
       await login(parsed.flags, jsonMode);
+      return;
+    case "doctor":
+      await doctor(parsed.flags, jsonMode);
       return;
     case "auth":
       await auth(rest, parsed.flags, jsonMode);
@@ -156,12 +164,18 @@ function setFlag(flags: Flags, name: string, value: string | boolean): void {
 }
 
 async function login(flags: Flags, jsonMode: boolean): Promise<void> {
-  const baseUrl = stringFlag(flags, "url");
+  const localMode = boolFlag(flags, "local");
+  const baseUrl =
+    stringFlag(flags, "url") ??
+    (localMode ? localApiUrl() : process.env.NEXUS_URL);
   if (!baseUrl) {
-    throw new Error("login requires --url <nexus-url>.");
+    throw new Error(
+      "login requires --url <nexus-url>. For local dev, run: npm run nexus -- login --local",
+    );
   }
 
-  const profileName = stringFlag(flags, "profile") ?? "default";
+  const profileName =
+    stringFlag(flags, "profile") ?? (localMode ? "local" : "default");
   const clientName = stringFlag(flags, "name") ?? `Nexus CLI on ${hostname()}`;
   const api = new NexusApi(baseUrl);
   const device = await api.request<{
@@ -217,6 +231,124 @@ async function login(flags: Flags, jsonMode: boolean): Promise<void> {
       `Logged in as ${tokenResult.user.displayName} (${tokenResult.user.email}).`,
     );
     console.log(`Saved profile "${profileName}" to ${CONFIG_PATH}.`);
+  }
+}
+
+async function setup(
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const hasExplicitUrl = Boolean(stringFlag(flags, "url"));
+  const target = args[0] ?? (hasExplicitUrl ? "remote" : "local");
+  if (target === "local") {
+    flags.local = true;
+    await login(flags, jsonMode);
+    return;
+  }
+
+  if (target === "remote" || target === "deployment") {
+    await login(flags, jsonMode);
+    return;
+  }
+
+  throw new Error(
+    'Unknown setup target. Run "npm run nexus -- setup" for local dev or "npm run nexus -- setup --url <nexus-url>" for a deployment.',
+  );
+}
+
+async function doctor(flags: Flags, jsonMode: boolean): Promise<void> {
+  const config = await loadConfig();
+  const localMode = boolFlag(flags, "local");
+  const profileName =
+    stringFlag(flags, "profile") ??
+    (localMode ? "local" : (config.activeProfile ?? "default"));
+  const profile = config.profiles[profileName];
+  const overrideBaseUrl =
+    stringFlag(flags, "nexus-url") ??
+    (localMode ? localOverrideUrl() : process.env.NEXUS_URL);
+  const envToken = process.env.NEXUS_TOKEN;
+  const envOnlyBaseUrl =
+    overrideBaseUrl ?? (localMode && envToken ? localApiUrl() : undefined);
+  const report: {
+    configPath: string;
+    activeProfile: string;
+    checkedProfile: string;
+    profile?: ReturnType<typeof redactProfile>;
+    auth?: { ok: boolean; message: string; user?: unknown };
+    suggestion?: string;
+  } = {
+    configPath: CONFIG_PATH,
+    activeProfile: config.activeProfile,
+    checkedProfile: profileName,
+  };
+
+  if (!profile) {
+    if (envOnlyBaseUrl && envToken) {
+      report.profile = {
+        baseUrl: envOnlyBaseUrl,
+        user: null,
+        hasToken: true,
+      };
+      await checkDoctorAuth(report, envOnlyBaseUrl, envToken);
+    } else {
+      report.suggestion = "Run: npm run nexus -- setup";
+    }
+
+    if (jsonMode) {
+      printJson(report);
+    } else {
+      console.log("Nexus CLI Doctor");
+      console.log(`Config: ${CONFIG_PATH}`);
+      console.log(`Active profile: ${profileName}`);
+      if (report.auth) {
+        console.log(`API: ${report.profile?.baseUrl}`);
+        console.log("Token: configured from NEXUS_TOKEN");
+        console.log(
+          `Auth: ${report.auth.ok ? "OK" : `failed (${report.auth.message})`}`,
+        );
+      } else {
+        console.log("No configured profile found.");
+        console.log(report.suggestion);
+      }
+    }
+    return;
+  }
+
+  const baseUrl = overrideBaseUrl ?? profile.baseUrl;
+  const token = envToken ?? profile.token;
+  report.profile = redactProfile({ ...profile, baseUrl });
+  await checkDoctorAuth(report, baseUrl, token);
+
+  if (jsonMode) {
+    printJson(report);
+    return;
+  }
+
+  console.log("Nexus CLI Doctor");
+  console.log(`Config: ${CONFIG_PATH}`);
+  console.log(`Profile: ${profileName}`);
+  console.log(`API: ${baseUrl}`);
+  console.log(`Token: ${token ? "configured" : "missing"}`);
+  console.log(
+    `Auth: ${report.auth?.ok ? "OK" : `failed (${report.auth?.message})`}`,
+  );
+}
+
+async function checkDoctorAuth(
+  report: { auth?: { ok: boolean; message: string; user?: unknown } },
+  baseUrl: string,
+  token: string,
+): Promise<void> {
+  try {
+    const api = new NexusApi(baseUrl, token);
+    const response = await api.request<{ user: unknown }>("/api/auth/me");
+    report.auth = { ok: true, message: "Authenticated.", user: response.user };
+  } catch (error) {
+    report.auth = {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -1241,11 +1373,23 @@ async function mutateChange(
 }
 
 async function apiFromProfile(flags: Flags): Promise<NexusApi> {
-  const profileName = stringFlag(flags, "profile");
+  const localMode = boolFlag(flags, "local");
+  const profileName =
+    stringFlag(flags, "profile") ?? (localMode ? "local" : undefined);
+  const overrideBaseUrl =
+    stringFlag(flags, "nexus-url") ??
+    (localMode ? localOverrideUrl() : process.env.NEXUS_URL);
+  const envToken = process.env.NEXUS_TOKEN;
+  const envOnlyBaseUrl =
+    overrideBaseUrl ?? (localMode && envToken ? localApiUrl() : undefined);
+  if (envOnlyBaseUrl && envToken && !stringFlag(flags, "profile")) {
+    return new NexusApi(envOnlyBaseUrl, envToken);
+  }
+
   const { profile } = await requireProfile(profileName);
   return new NexusApi(
-    stringFlag(flags, "nexus-url") ?? profile.baseUrl,
-    process.env.NEXUS_TOKEN ?? profile.token,
+    overrideBaseUrl ?? profile.baseUrl,
+    envToken ?? profile.token,
   );
 }
 
@@ -1347,6 +1491,14 @@ function redactConfig(config: NexusCliConfig) {
         },
       ]),
     ),
+  };
+}
+
+function redactProfile(profile: NexusCliConfig["profiles"][string]) {
+  return {
+    baseUrl: profile.baseUrl,
+    user: profile.user ?? null,
+    hasToken: Boolean(profile.token),
   };
 }
 
@@ -1466,6 +1618,9 @@ function flagValues(flags: Flags, name: string): string[] {
 
 function boolFlag(flags: Flags, name: string, defaultValue = false): boolean {
   const value = flags[name];
+  if (Array.isArray(value) && value.length > 0) {
+    return parseBoolean(value[value.length - 1]);
+  }
   if (typeof value === "boolean") {
     return value;
   }
@@ -1485,6 +1640,14 @@ function numberFlag(flags: Flags, name: string): number | undefined {
     throw new Error(`--${name} must be a number.`);
   }
   return number;
+}
+
+function localApiUrl(): string {
+  return process.env.NEXUS_LOCAL_URL ?? DEFAULT_LOCAL_API_URL;
+}
+
+function localOverrideUrl(): string | undefined {
+  return process.env.NEXUS_LOCAL_URL;
 }
 
 function openBrowser(url: string): void {
@@ -1518,8 +1681,17 @@ function delay(ms: number): Promise<void> {
 function printHelp(): void {
   console.log(`Nexus CLI
 
+Quick start from the repo root:
+  npm run nexus -- setup
+  npm run nexus -- doctor
+  npm run nexus -- tm list --local --status ACTIVE
+
 Usage:
+  nexus setup [local]
+  nexus setup --url <nexus-url> [--profile prod]
+  nexus doctor [--profile local]
   nexus login --url <nexus-url> [--profile default]
+  nexus login --local
   nexus auth status | sessions list | sessions revoke <sessionId>
   nexus profiles list | use <profile> | remove <profile>
   nexus tm list [--status ACTIVE|CLOSED] [--search text]
@@ -1543,6 +1715,7 @@ Usage:
 Global flags:
   --profile <name>     Use a configured profile
   --nexus-url <url>    Override the profile Nexus URL
+  --local              Use http://localhost:4000 and the local profile
   --json               Print JSON output
   --html               Treat text/file content as already-sanitized HTML
   --yes                Confirm high-impact commands

@@ -56,6 +56,27 @@ test("tm list sends bearer auth and renders JSON from the configured profile", a
   );
 });
 
+test("tm list --local uses the local profile shortcut", async () => {
+  await withMockServer(
+    async ({ baseUrl, records, configPath }) => {
+      await writeConfig(configPath, baseUrl, "local");
+      const result = await runCli(["tm", "list", "--local", "--json"], {
+        NEXUS_CONFIG_PATH: configPath,
+      });
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(records.length, 1);
+      assert.equal(records[0].method, "GET");
+      assert.equal(records[0].url, "/api/test-manager/changes");
+      assert.equal(records[0].authorization, "Bearer test-token");
+      assert.deepEqual(JSON.parse(result.stdout), { changes: [] });
+    },
+    route({
+      "GET /api/test-manager/changes": () => ({ changes: [] }),
+    }),
+  );
+});
+
 test("tm create posts the expected payload without contacting a real database", async () => {
   await withMockServer(
     async ({ baseUrl, records, configPath }) => {
@@ -234,6 +255,97 @@ test("login stores the approved CLI token in a temp config profile", async () =>
   );
 });
 
+test("setup defaults to the local Nexus profile and URL", async () => {
+  await withMockServer(
+    async ({ baseUrl, records, configPath }) => {
+      const result = await runCli(["setup", "--no-open", "--json"], {
+        NEXUS_CONFIG_PATH: configPath,
+        NEXUS_LOCAL_URL: baseUrl,
+      });
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(records.length, 2);
+      assert.equal(records[0].method, "POST");
+      assert.equal(records[0].url, "/api/cli/auth/device");
+      assert.equal(records[0].authorization, undefined);
+      assert.equal(records[1].method, "POST");
+      assert.equal(records[1].url, "/api/cli/auth/device/token");
+
+      const config = JSON.parse(await readFile(configPath, "utf-8")) as {
+        activeProfile: string;
+        profiles: Record<string, { baseUrl: string; token: string }>;
+      };
+      assert.equal(config.activeProfile, "local");
+      assert.equal(config.profiles.local.baseUrl, baseUrl);
+      assert.equal(config.profiles.local.token, "nxcli_token");
+    },
+    route({
+      "POST /api/cli/auth/device": () => ({
+        deviceCode: "device-code",
+        userCode: "ABCD-1234",
+        verificationUriComplete:
+          "https://example.test/cli/authorize?user_code=ABCD-1234",
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        interval: 0,
+      }),
+      "POST /api/cli/auth/device/token": () => ({
+        status: "approved",
+        token: "nxcli_token",
+        user: {
+          id: "user-1",
+          email: "tester@example.com",
+          displayName: "Tester",
+        },
+        session: { id: "session-1" },
+      }),
+    }),
+  );
+});
+
+test("doctor verifies auth without exposing stored tokens", async () => {
+  await withMockServer(
+    async ({ baseUrl, records, configPath }) => {
+      await writeConfig(configPath, baseUrl, "local");
+      const result = await runCli(["doctor", "--local", "--json"], {
+        NEXUS_CONFIG_PATH: configPath,
+      });
+
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(records.length, 1);
+      assert.equal(records[0].method, "GET");
+      assert.equal(records[0].url, "/api/auth/me");
+      assert.equal(records[0].authorization, "Bearer test-token");
+
+      const output = JSON.parse(result.stdout) as {
+        checkedProfile: string;
+        profile: Record<string, unknown>;
+        auth: Record<string, unknown>;
+      };
+      assert.equal(output.checkedProfile, "local");
+      assert.equal(output.profile.token, undefined);
+      assert.equal(output.profile.hasToken, true);
+      assert.equal(output.auth.ok, true);
+    },
+    route({
+      "GET /api/auth/me": () => ({
+        user: { id: "user-1", email: "tester@example.com" },
+      }),
+    }),
+  );
+});
+
+test("doctor points first-run users at setup when no profile exists", async () => {
+  const tempDir = await mkdtemp(join(tmpdir(), "nexus-cli-test-"));
+  const configPath = join(tempDir, "config.json");
+  const result = await runCli(["doctor", "--json"], {
+    NEXUS_CONFIG_PATH: configPath,
+  });
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout) as { suggestion?: string };
+  assert.equal(output.suggestion, "Run: npm run nexus -- setup");
+});
+
 test("tm command families map to the Test Manager API without a real database", async () => {
   await withMockServer(
     async ({ baseUrl, records, configPath }) => {
@@ -359,7 +471,15 @@ test("tm command families map to the Test Manager API without a real database", 
           ],
         },
         {
-          args: ["tm", "result", "5", "blocked", "--notes", "Need logs", "--json"],
+          args: [
+            "tm",
+            "result",
+            "5",
+            "blocked",
+            "--notes",
+            "Need logs",
+            "--json",
+          ],
           expected: [
             { method: "GET", url: "/api/test-manager/changes/5" },
             {
@@ -397,7 +517,16 @@ test("tm command families map to the Test Manager API without a real database", 
           ],
         },
         {
-          args: ["tm", "checklist", "check", "5", "1", "--notes", "Done", "--json"],
+          args: [
+            "tm",
+            "checklist",
+            "check",
+            "5",
+            "1",
+            "--notes",
+            "Done",
+            "--json",
+          ],
           expected: [
             { method: "GET", url: "/api/test-manager/changes/5" },
             {
@@ -479,8 +608,9 @@ test("tm command families map to the Test Manager API without a real database", 
               method: "PATCH",
               url: "/api/test-manager/changes/change-5/context-links",
               body: (body: unknown) => {
-                const links = (body as { contextLinks?: Array<Record<string, unknown>> })
-                  .contextLinks;
+                const links = (
+                  body as { contextLinks?: Array<Record<string, unknown>> }
+                ).contextLinks;
                 assert.equal(links?.length, 3);
                 assert.match(String(links?.[2]?.id), /^cli-\d+$/);
                 assert.deepEqual(
@@ -592,7 +722,15 @@ test("tm command families map to the Test Manager API without a real database", 
           expected: [{ method: "GET", url: "/api/test-manager/users" }],
         },
         {
-          args: ["tm", "users", "set-tester", "user-2", "true", "--yes", "--json"],
+          args: [
+            "tm",
+            "users",
+            "set-tester",
+            "user-2",
+            "true",
+            "--yes",
+            "--json",
+          ],
           expected: [
             {
               method: "PATCH",
@@ -606,7 +744,15 @@ test("tm command families map to the Test Manager API without a real database", 
           expected: [{ method: "GET", url: "/api/test-manager/settings" }],
         },
         {
-          args: ["tm", "settings", "update", "--file", settingsFile, "--yes", "--json"],
+          args: [
+            "tm",
+            "settings",
+            "update",
+            "--file",
+            settingsFile,
+            "--yes",
+            "--json",
+          ],
           expected: [
             {
               method: "PUT",
@@ -629,7 +775,11 @@ test("tm command families map to the Test Manager API without a real database", 
         const result = await runCli(testCase.args, {
           NEXUS_CONFIG_PATH: configPath,
         });
-        assert.equal(result.code, 0, `${testCase.args.join(" ")}\n${result.stderr}`);
+        assert.equal(
+          result.code,
+          0,
+          `${testCase.args.join(" ")}\n${result.stderr}`,
+        );
         assertRecordedRequests(records, testCase.expected);
       }
     },
@@ -644,9 +794,10 @@ test("tm command families map to the Test Manager API without a real database", 
       "PATCH /api/test-manager/changes/change-5/ready-to-test": () => ({
         change: fixtureCoverageChange(),
       }),
-      "POST /api/test-manager/changes/change-5/github-metadata/refresh": () => ({
-        change: fixtureCoverageChange(),
-      }),
+      "POST /api/test-manager/changes/change-5/github-metadata/refresh":
+        () => ({
+          change: fixtureCoverageChange(),
+        }),
       "POST /api/test-manager/changes/change-5/request": () => ({
         change: fixtureCoverageChange(),
       }),
@@ -683,9 +834,10 @@ test("tm command families map to the Test Manager API without a real database", 
       "POST /api/test-manager/changes/change-5/webhook-reports": () => ({
         change: fixtureCoverageChange(),
       }),
-      "DELETE /api/test-manager/changes/change-5/webhook-reports/message-1": () => ({
-        change: fixtureCoverageChange(),
-      }),
+      "DELETE /api/test-manager/changes/change-5/webhook-reports/message-1":
+        () => ({
+          change: fixtureCoverageChange(),
+        }),
       "PATCH /api/test-manager/changes/change-5/next-patch": () => ({
         change: fixtureCoverageChange(),
       }),
@@ -741,7 +893,11 @@ test("auth session commands use scoped CLI auth endpoints", async () => {
         const result = await runCli(testCase.args, {
           NEXUS_CONFIG_PATH: configPath,
         });
-        assert.equal(result.code, 0, `${testCase.args.join(" ")}\n${result.stderr}`);
+        assert.equal(
+          result.code,
+          0,
+          `${testCase.args.join(" ")}\n${result.stderr}`,
+        );
         assertRecordedRequests(records, testCase.expected);
       }
     },
@@ -931,13 +1087,17 @@ function runCli(args: string[], env: Record<string, string>) {
   );
 }
 
-async function writeConfig(configPath: string, baseUrl: string): Promise<void> {
+async function writeConfig(
+  configPath: string,
+  baseUrl: string,
+  profileName = "default",
+): Promise<void> {
   await writeFile(
     configPath,
     JSON.stringify({
-      activeProfile: "default",
+      activeProfile: profileName,
       profiles: {
-        default: {
+        [profileName]: {
           baseUrl,
           token: "test-token",
         },

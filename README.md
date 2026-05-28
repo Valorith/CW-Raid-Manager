@@ -22,6 +22,7 @@ CW Raid Manager is a full-stack tool for coordinating EverQuest raids. It tracks
 CW Raid Manager/
 ├── client/            # Vue front-end application
 ├── server/            # Fastify + Prisma API
+├── cli/               # Nexus command-line tooling
 ├── config/            # Environment configuration templates
 └── RaidRoster-*.txt   # Sample EverQuest roster export
 ```
@@ -119,7 +120,45 @@ npm run dev:client
 
 The repo includes a first-party Nexus CLI in the `cli/` workspace. It authenticates through a
 browser-approved device flow and stores a revocable `nxcli_` session token in the user's local
-config file.
+config file. From the repo root, use the `npm run nexus -- ...` wrapper; it builds the CLI
+automatically when source files changed.
+
+First-time local setup:
+
+```bash
+npm run dev
+npm run nexus -- setup
+npm run nexus -- doctor
+```
+
+The setup command uses `http://localhost:4000`, opens the browser authorization flow, and saves a
+`local` profile. If your local API is on a different URL, set `NEXUS_LOCAL_URL` before running setup.
+
+Useful shortcuts:
+
+```bash
+npm run nexus:setup
+npm run nexus:doctor
+npm run nexus:local -- tm list --status ACTIVE
+```
+
+Log in to a hosted Nexus deployment:
+
+```bash
+npm run nexus -- setup --url https://your-nexus-host --profile prod
+npm run nexus -- profiles use prod
+```
+
+Common Test Manager commands:
+
+```bash
+npm run nexus -- tm list --status ACTIVE
+npm run nexus -- tm show 123
+npm run nexus -- tm create --title "Fix crash" --category Server --subsystem Zone --description "What changed"
+npm run nexus -- tm note add 123 --text "Verified on current build."
+npm run nexus -- tm result 123 pass --notes "Smoke test passed."
+npm run nexus -- tm close 123 --detail "Released."
+```
 
 Build and test the CLI without touching the live database:
 
@@ -127,27 +166,10 @@ Build and test the CLI without touching the live database:
 npm --workspace cli run test
 ```
 
-Log in to a Nexus deployment:
-
-```bash
-npm --workspace cli run build
-node cli/build/index.js login --url https://your-nexus-host --profile prod
-```
-
-Common Test Manager commands:
-
-```bash
-node cli/build/index.js tm list --status ACTIVE
-node cli/build/index.js tm show 123
-node cli/build/index.js tm create --title "Fix crash" --category Server --subsystem Zone --description "What changed"
-node cli/build/index.js tm note add 123 --text "Verified on current build."
-node cli/build/index.js tm result 123 pass --notes "Smoke test passed."
-node cli/build/index.js tm close 123 --detail "Released."
-```
-
 For non-login commands, use `--nexus-url` if you need to override the active profile's Nexus URL.
 The shorter `--url` flag is reserved for `login` and command-specific URL fields such as
-`tm links add --url`.
+`tm links add --url`. You can also use `--local` with Test Manager commands to select the `local`
+profile directly.
 
 High-impact commands such as deleting changes, resetting the next-patch queue, changing tester
 access, or updating Test Manager settings require `--yes`. CLI bearer tokens are scoped to
