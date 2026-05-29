@@ -98,6 +98,8 @@ type TestManagerSettings = {
 };
 
 const TEST_MANAGER_SETTINGS_KEY = 'testManager.rolePermissions';
+const TEST_MANAGER_CURRENT_VERSION_KEY = 'testManager.currentTestServerVersion';
+const TEST_MANAGER_CURRENT_LIVE_VERSION_KEY = 'testManager.currentLiveServerVersion';
 const TEST_MANAGER_SETTINGS_SCHEMA_VERSION = 2;
 const DISCORD_COLORS = {
   primary: 0x55b7ff,
@@ -870,9 +872,7 @@ function normalizeContextLinks(value: unknown): Array<{
         return null;
       }
 
-      const kind = isTestChangeContextLinkKind(raw.kind)
-        ? raw.kind
-        : inferContextLinkKind(url);
+      const kind = isTestChangeContextLinkKind(raw.kind) ? raw.kind : inferContextLinkKind(url);
       const rawId = trimmedString(raw.id, 64);
       const id = /^[A-Za-z0-9_-]{1,64}$/.test(rawId) ? rawId : `ctx_${randomUUID()}`;
       const label = trimmedString(raw.label, 140) || contextLinkFallbackLabel(kind, url);
@@ -1195,6 +1195,57 @@ function cloneDefaultTestManagerSettings(): TestManagerSettings {
   };
 }
 
+function normalizeTestServerVersion(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function testServerVersionParts(value: string | null | undefined): number[] | null {
+  const parts = normalizeTestServerVersion(value)?.match(/\d+/g);
+  if (!parts?.length) {
+    return null;
+  }
+
+  return parts.map((part) => Number(part));
+}
+
+function compareTestServerVersions(
+  left: string | null | undefined,
+  right: string | null | undefined
+): number | null {
+  const leftParts = testServerVersionParts(left);
+  const rightParts = testServerVersionParts(right);
+  if (!leftParts || !rightParts) {
+    return null;
+  }
+
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] ?? 0;
+    const rightPart = rightParts[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return leftPart - rightPart;
+    }
+  }
+  return 0;
+}
+
+function isTestServerVersionNewerThanCurrent(
+  changeVersion: string | null | undefined,
+  currentVersion: string | null | undefined
+): boolean {
+  const comparison = compareTestServerVersions(changeVersion, currentVersion);
+  return comparison !== null && comparison > 0;
+}
+
+function isTestServerVersionCoveredByCurrent(
+  changeVersion: string | null | undefined,
+  currentVersion: string | null | undefined
+): boolean {
+  const comparison = compareTestServerVersions(changeVersion, currentVersion);
+  return comparison !== null && comparison <= 0;
+}
+
 function isRoleKey(value: unknown): value is TestManagerRoleKey {
   return typeof value === 'string' && TEST_MANAGER_ROLE_KEYS.includes(value as TestManagerRoleKey);
 }
@@ -1314,6 +1365,165 @@ async function appendHistory(
       metadata: input.metadata ?? undefined
     }
   });
+}
+
+async function readCurrentTestServerVersion(
+  client: Pick<Prisma.TransactionClient, 'systemSetting'> = prisma
+): Promise<string | null> {
+  const setting = await client.systemSetting.findUnique({
+    where: { key: TEST_MANAGER_CURRENT_VERSION_KEY }
+  });
+
+  return normalizeTestServerVersion(setting?.value);
+}
+
+async function readCurrentLiveServerVersion(
+  client: Pick<Prisma.TransactionClient, 'systemSetting'> = prisma
+): Promise<string | null> {
+  const setting = await client.systemSetting.findUnique({
+    where: { key: TEST_MANAGER_CURRENT_LIVE_VERSION_KEY }
+  });
+
+  return normalizeTestServerVersion(setting?.value);
+}
+
+function futureVersionDetail(changeVersion: string, currentVersion: string): string {
+  return `This change targets ${changeVersion}, which is newer than the current test server version ${currentVersion}.`;
+}
+
+async function pauseFutureReadyChanges(
+  tx: Prisma.TransactionClient,
+  actorUserId: string | null,
+  currentTestServerVersion: string
+): Promise<number> {
+  const readyChanges = await tx.testChange.findMany({
+    where: {
+      readyToTest: true,
+      testServerVersion: { not: null }
+    },
+    select: {
+      id: true,
+      testServerVersion: true
+    }
+  });
+  const futureChanges = readyChanges.filter(
+    (change) =>
+      change.testServerVersion &&
+      isTestServerVersionNewerThanCurrent(change.testServerVersion, currentTestServerVersion)
+  );
+  if (!futureChanges.length) {
+    return 0;
+  }
+
+  await tx.testChange.updateMany({
+    where: { id: { in: futureChanges.map((change) => change.id) } },
+    data: { readyToTest: false }
+  });
+
+  for (const change of futureChanges) {
+    await appendHistory(tx, {
+      changeId: change.id,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: 'Ready to test disabled',
+      detail: futureVersionDetail(change.testServerVersion ?? '', currentTestServerVersion),
+      metadata: {
+        from: { readyToTest: true, testServerVersion: change.testServerVersion },
+        to: { readyToTest: false, testServerVersion: change.testServerVersion },
+        currentTestServerVersion,
+        reason: 'versionNewerThanCurrent'
+      }
+    });
+  }
+
+  return futureChanges.length;
+}
+
+function historyMetadataReason(metadata: Prisma.JsonValue | null): string | null {
+  const record = jsonObject(metadata);
+  return typeof record?.reason === 'string' ? record.reason : null;
+}
+
+function historyMetadataChangesReadyToTest(metadata: Prisma.JsonValue | null): boolean {
+  const record = jsonObject(metadata);
+  const from = jsonObject(record?.from);
+  const to = jsonObject(record?.to);
+  return (
+    typeof from?.readyToTest === 'boolean' &&
+    typeof to?.readyToTest === 'boolean' &&
+    from.readyToTest !== to.readyToTest
+  );
+}
+
+function wasLatestReadinessChangeVersionPause(
+  history: Array<{ metadata: Prisma.JsonValue | null }>
+): boolean {
+  for (const entry of history) {
+    const reason = historyMetadataReason(entry.metadata);
+    if (reason === 'versionNewerThanCurrent') {
+      return true;
+    }
+    if (historyMetadataChangesReadyToTest(entry.metadata)) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+async function resumeVersionPausedChanges(
+  tx: Prisma.TransactionClient,
+  actorUserId: string | null,
+  currentTestServerVersion: string
+): Promise<number> {
+  const pausedChanges = await tx.testChange.findMany({
+    where: {
+      readyToTest: false,
+      testServerVersion: { not: null }
+    },
+    select: {
+      id: true,
+      testServerVersion: true,
+      history: {
+        where: { eventType: TestHistoryEventType.STATUS_CHANGED },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+        select: { metadata: true }
+      }
+    }
+  });
+  const readyChanges = pausedChanges.filter(
+    (change) =>
+      change.testServerVersion &&
+      isTestServerVersionCoveredByCurrent(change.testServerVersion, currentTestServerVersion) &&
+      wasLatestReadinessChangeVersionPause(change.history)
+  );
+  if (!readyChanges.length) {
+    return 0;
+  }
+
+  await tx.testChange.updateMany({
+    where: { id: { in: readyChanges.map((change) => change.id) } },
+    data: { readyToTest: true }
+  });
+
+  for (const change of readyChanges) {
+    await appendHistory(tx, {
+      changeId: change.id,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: 'Ready to test enabled',
+      detail: `The current test server version ${currentTestServerVersion} now covers this change's active version ${change.testServerVersion}. Tester input was re-enabled automatically.`,
+      metadata: {
+        from: { readyToTest: false, testServerVersion: change.testServerVersion },
+        to: { readyToTest: true, testServerVersion: change.testServerVersion },
+        currentTestServerVersion,
+        reason: 'versionCaughtUpToCurrent'
+      }
+    });
+  }
+
+  return readyChanges.length;
 }
 
 const baseChangeInclude = {
@@ -1720,6 +1930,7 @@ function serializeChange(change: ChangeSerializeRecord, viewerUserId?: string) {
     priority: change.priority,
     status: change.status,
     targetBuild: change.targetBuild ?? null,
+    testServerVersion: change.testServerVersion ?? null,
     githubPullRequest: serializeGithubPullRequest(change.githubPrUrl, change.githubPrMetadata),
     githubIssue: serializeGithubIssue(change.githubIssueUrl, change.githubIssueMetadata),
     contextLinks: normalizeContextLinks(change.contextLinks),
@@ -2092,9 +2303,7 @@ function ensureActiveTestingAssignment<
 
 function ensureChangeAcceptsTesterInput<
   T extends { status: TestChangeStatus; readyToTest: boolean }
->(
-  change: T | null
-): asserts change is T {
+>(change: T | null): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
     throw new Error('You must be actively testing this change to submit tester input.');
   }
@@ -2103,9 +2312,7 @@ function ensureChangeAcceptsTesterInput<
   }
 }
 
-function ensureChangeAcceptsTestingNote<
-  T extends { status: TestChangeStatus }
->(
+function ensureChangeAcceptsTestingNote<T extends { status: TestChangeStatus }>(
   change: T | null
 ): asserts change is T {
   if (!change || change.status === TestChangeStatus.CLOSED) {
@@ -2577,7 +2784,8 @@ export async function listTestChanges(
       { title: { contains: search } },
       { description: { contains: search } },
       { category: { contains: search } },
-      { subsystem: { contains: search } }
+      { subsystem: { contains: search } },
+      { testServerVersion: { contains: search } }
     ];
   }
 
@@ -2653,7 +2861,8 @@ export async function generateNextPatchNotes(userId: string) {
       category: true,
       subsystem: true,
       priority: true,
-      targetBuild: true
+      targetBuild: true,
+      testServerVersion: true
     }
   });
 
@@ -2844,6 +3053,7 @@ export async function createTestChange(
     subsystem: string;
     priority: TestChangePriority;
     targetBuild?: string | null;
+    testServerVersion?: string | null;
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
     contextLinks?: TestChangeContextLinkInput[];
@@ -2857,6 +3067,12 @@ export async function createTestChange(
   await ensureAdmin(actorUserId);
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
+  const currentTestServerVersion = await readCurrentTestServerVersion();
+  const testServerVersion = normalizeTestServerVersion(input.testServerVersion);
+  const readyToTest = !isTestServerVersionNewerThanCurrent(
+    testServerVersion,
+    currentTestServerVersion
+  );
 
   const change = await prisma.$transaction(async (tx) => {
     const created = await tx.testChange.create({
@@ -2867,12 +3083,14 @@ export async function createTestChange(
         subsystem: input.subsystem.trim(),
         priority: input.priority,
         targetBuild: input.targetBuild?.trim() || null,
+        testServerVersion,
         githubPrUrl: githubPullRequest.githubPrUrl,
         githubPrMetadata: githubPullRequest.githubPrMetadata,
         githubIssueUrl: githubIssue.githubIssueUrl,
         githubIssueMetadata: githubIssue.githubIssueMetadata,
         contextLinks: contextLinksJson(input.contextLinks ?? []),
         includeInNextPatch: input.includeInNextPatch ?? true,
+        readyToTest,
         autoClosePassCount: input.autoClosePassCount ?? 0,
         dueAt: input.dueAt ?? null,
         assignedToId: input.assignedToId ?? null,
@@ -2895,6 +3113,22 @@ export async function createTestChange(
       label: 'Change submitted',
       detail: 'Change created by administrator.'
     });
+
+    if (!readyToTest && testServerVersion && currentTestServerVersion) {
+      await appendHistory(tx, {
+        changeId: created.id,
+        actorUserId,
+        eventType: TestHistoryEventType.STATUS_CHANGED,
+        label: 'Ready to test disabled',
+        detail: futureVersionDetail(testServerVersion, currentTestServerVersion),
+        metadata: {
+          from: { readyToTest: true, testServerVersion },
+          to: { readyToTest: false, testServerVersion },
+          currentTestServerVersion,
+          reason: 'versionNewerThanCurrent'
+        }
+      });
+    }
 
     return created;
   });
@@ -2921,6 +3155,7 @@ export async function updateTestChange(
     subsystem: string;
     priority: TestChangePriority;
     targetBuild?: string | null;
+    testServerVersion?: string | null;
     githubPrUrl?: string | null;
     githubIssueUrl?: string | null;
     contextLinks?: TestChangeContextLinkInput[];
@@ -2941,6 +3176,8 @@ export async function updateTestChange(
       subsystem: true,
       priority: true,
       targetBuild: true,
+      testServerVersion: true,
+      readyToTest: true,
       githubPrUrl: true,
       githubIssueUrl: true,
       contextLinks: true,
@@ -2956,6 +3193,11 @@ export async function updateTestChange(
 
   const githubPullRequest = await buildGithubPullRequestFields(input.githubPrUrl);
   const githubIssue = await buildGithubIssueFields(input.githubIssueUrl);
+  const currentTestServerVersion = await readCurrentTestServerVersion();
+  const testServerVersion = normalizeTestServerVersion(input.testServerVersion);
+  const shouldPauseForVersion =
+    existing.readyToTest &&
+    isTestServerVersionNewerThanCurrent(testServerVersion, currentTestServerVersion);
   const nextContextLinks =
     typeof input.contextLinks === 'undefined'
       ? normalizeContextLinks(existing.contextLinks)
@@ -2970,6 +3212,7 @@ export async function updateTestChange(
     subsystem: input.subsystem.trim(),
     priority: input.priority,
     targetBuild: input.targetBuild?.trim() || null,
+    testServerVersion,
     githubPrUrl: githubPullRequest.githubPrUrl,
     githubPrMetadata: githubPullRequest.githubPrMetadata,
     githubIssueUrl: githubIssue.githubIssueUrl,
@@ -2984,7 +3227,8 @@ export async function updateTestChange(
       ? { autoClosePassCount: input.autoClosePassCount }
       : {}),
     dueAt: input.dueAt ?? null,
-    assignedToId: input.assignedToId ?? null
+    assignedToId: input.assignedToId ?? null,
+    ...(shouldPauseForVersion ? { readyToTest: false } : {})
   };
 
   const autoCloseResult = await prisma.$transaction(async (tx) => {
@@ -3006,6 +3250,8 @@ export async function updateTestChange(
           subsystem: existing.subsystem,
           priority: existing.priority,
           targetBuild: existing.targetBuild,
+          testServerVersion: existing.testServerVersion,
+          readyToTest: existing.readyToTest,
           githubPrUrl: existing.githubPrUrl,
           githubIssueUrl: existing.githubIssueUrl,
           contextLinks: normalizeContextLinks(existing.contextLinks),
@@ -3020,6 +3266,8 @@ export async function updateTestChange(
           subsystem: data.subsystem,
           priority: data.priority,
           targetBuild: data.targetBuild,
+          testServerVersion: data.testServerVersion,
+          readyToTest: shouldPauseForVersion ? false : existing.readyToTest,
           githubPrUrl: data.githubPrUrl,
           githubIssueUrl: data.githubIssueUrl,
           contextLinks: nextContextLinks,
@@ -3036,6 +3284,22 @@ export async function updateTestChange(
         }
       }
     });
+
+    if (shouldPauseForVersion && testServerVersion && currentTestServerVersion) {
+      await appendHistory(tx, {
+        changeId,
+        actorUserId,
+        eventType: TestHistoryEventType.STATUS_CHANGED,
+        label: 'Ready to test disabled',
+        detail: futureVersionDetail(testServerVersion, currentTestServerVersion),
+        metadata: {
+          from: { readyToTest: existing.readyToTest, testServerVersion: existing.testServerVersion },
+          to: { readyToTest: false, testServerVersion },
+          currentTestServerVersion,
+          reason: 'versionNewerThanCurrent'
+        }
+      });
+    }
 
     if (shouldEvaluateAutoClose) {
       return maybeAutoCloseChange(tx, changeId);
@@ -3106,6 +3370,79 @@ export async function updateTestChangeContextLinks(
   return getTestChange(changeId, actorUserId);
 }
 
+export async function setTestChangeTestServerVersion(
+  actorUserId: string,
+  changeId: string,
+  value: string | null | undefined
+) {
+  await ensureAdmin(actorUserId);
+
+  const existing = await prisma.testChange.findUnique({
+    where: { id: changeId },
+    select: {
+      id: true,
+      testServerVersion: true,
+      readyToTest: true
+    }
+  });
+  if (!existing) {
+    throw new Error('Change not found.');
+  }
+
+  const currentTestServerVersion = await readCurrentTestServerVersion();
+  const testServerVersion = normalizeTestServerVersion(value);
+  const shouldPauseForVersion =
+    existing.readyToTest &&
+    isTestServerVersionNewerThanCurrent(testServerVersion, currentTestServerVersion);
+  const nextReadyToTest = shouldPauseForVersion ? false : existing.readyToTest;
+
+  if (
+    existing.testServerVersion === testServerVersion &&
+    existing.readyToTest === nextReadyToTest
+  ) {
+    return getTestChange(changeId, actorUserId);
+  }
+
+  const versionDetail = testServerVersion
+    ? `Active version was updated to ${testServerVersion}.`
+    : 'Active version was cleared.';
+
+  await prisma.$transaction(async (tx) => {
+    await tx.testChange.update({
+      where: { id: changeId },
+      data: {
+        testServerVersion,
+        ...(shouldPauseForVersion ? { readyToTest: false } : {})
+      }
+    });
+
+    await appendHistory(tx, {
+      changeId,
+      actorUserId,
+      eventType: TestHistoryEventType.STATUS_CHANGED,
+      label: 'Change version updated',
+      detail:
+        shouldPauseForVersion && testServerVersion && currentTestServerVersion
+          ? `${versionDetail} ${futureVersionDetail(testServerVersion, currentTestServerVersion)}`
+          : versionDetail,
+      metadata: {
+        from: {
+          testServerVersion: existing.testServerVersion,
+          readyToTest: existing.readyToTest
+        },
+        to: {
+          testServerVersion,
+          readyToTest: nextReadyToTest
+        },
+        currentTestServerVersion,
+        ...(shouldPauseForVersion ? { reason: 'versionNewerThanCurrent' } : {})
+      }
+    });
+  });
+
+  return getTestChange(changeId, actorUserId);
+}
+
 export async function setTestChangeNextPatch(
   actorUserId: string,
   changeId: string,
@@ -3160,21 +3497,31 @@ export async function setTestChangeReadyToTest(
     where: { id: changeId },
     select: {
       id: true,
-      readyToTest: true
+      readyToTest: true,
+      testServerVersion: true
     }
   });
   if (!existing) {
     throw new Error('Change not found.');
   }
 
-  if (existing.readyToTest === readyToTest) {
+  const currentTestServerVersion = await readCurrentTestServerVersion();
+  const nextTestServerVersion =
+    readyToTest && currentTestServerVersion
+      ? currentTestServerVersion
+      : existing.testServerVersion;
+  const versionChanged = readyToTest && existing.testServerVersion !== nextTestServerVersion;
+  if (existing.readyToTest === readyToTest && !versionChanged) {
     return getTestChange(changeId, actorUserId);
   }
 
   await prisma.$transaction(async (tx) => {
     await tx.testChange.update({
       where: { id: changeId },
-      data: { readyToTest }
+      data: {
+        readyToTest,
+        ...(readyToTest ? { testServerVersion: nextTestServerVersion } : {})
+      }
     });
 
     await appendHistory(tx, {
@@ -3183,12 +3530,21 @@ export async function setTestChangeReadyToTest(
       eventType: TestHistoryEventType.STATUS_CHANGED,
       label: readyToTest ? 'Ready to test enabled' : 'Ready to test disabled',
       detail: readyToTest
-        ? 'Tester input was enabled for this change.'
+        ? currentTestServerVersion
+          ? `Tester input was enabled and the active version was set to ${currentTestServerVersion}.`
+          : 'Tester input was enabled. Current test server version is not set.'
         : 'Tester input was paused until this change is ready.',
       metadata: {
-        from: existing.readyToTest,
-        to: readyToTest,
-        readyToTest
+        from: {
+          readyToTest: existing.readyToTest,
+          testServerVersion: existing.testServerVersion
+        },
+        to: {
+          readyToTest,
+          testServerVersion: nextTestServerVersion
+        },
+        readyToTest,
+        currentTestServerVersion
       }
     });
   });
@@ -4047,6 +4403,105 @@ export async function getTestManagerSettings(): Promise<TestManagerSettings> {
   } catch {
     return cloneDefaultTestManagerSettings();
   }
+}
+
+export async function getCurrentTestServerVersion(): Promise<{
+  currentTestServerVersion: string | null;
+  currentLiveServerVersion: string | null;
+}> {
+  const [currentTestServerVersion, currentLiveServerVersion] = await Promise.all([
+    readCurrentTestServerVersion(),
+    readCurrentLiveServerVersion()
+  ]);
+  return {
+    currentTestServerVersion,
+    currentLiveServerVersion
+  };
+}
+
+export async function updateCurrentTestServerVersion(
+  actorUserId: string,
+  value: string | null | undefined
+): Promise<{
+  currentTestServerVersion: string | null;
+  currentLiveServerVersion: string | null;
+  futureChangesPaused: number;
+  versionChangesResumed: number;
+}> {
+  await ensureCanManageTestManagerSettings(actorUserId);
+  const currentLiveServerVersion = await readCurrentLiveServerVersion();
+
+  const currentTestServerVersion = normalizeTestServerVersion(value);
+  if (!currentTestServerVersion) {
+    await prisma.systemSetting.deleteMany({
+      where: { key: TEST_MANAGER_CURRENT_VERSION_KEY }
+    });
+    return {
+      currentTestServerVersion: null,
+      currentLiveServerVersion,
+      futureChangesPaused: 0,
+      versionChangesResumed: 0
+    };
+  }
+
+  const { futureChangesPaused, versionChangesResumed } = await prisma.$transaction(async (tx) => {
+    await tx.systemSetting.upsert({
+      where: { key: TEST_MANAGER_CURRENT_VERSION_KEY },
+      create: {
+        key: TEST_MANAGER_CURRENT_VERSION_KEY,
+        value: currentTestServerVersion
+      },
+      update: {
+        value: currentTestServerVersion
+      }
+    });
+
+    const pausedCount = await pauseFutureReadyChanges(tx, actorUserId, currentTestServerVersion);
+    const resumedCount = await resumeVersionPausedChanges(
+      tx,
+      actorUserId,
+      currentTestServerVersion
+    );
+    return {
+      futureChangesPaused: pausedCount,
+      versionChangesResumed: resumedCount
+    };
+  });
+
+  return {
+    currentTestServerVersion,
+    currentLiveServerVersion,
+    futureChangesPaused,
+    versionChangesResumed
+  };
+}
+
+export async function updateCurrentLiveServerVersion(
+  actorUserId: string,
+  value: string | null | undefined
+): Promise<{ currentLiveServerVersion: string | null }> {
+  await ensureCanManageTestManagerSettings(actorUserId);
+
+  const currentLiveServerVersion = normalizeTestServerVersion(value);
+  if (!currentLiveServerVersion) {
+    await prisma.systemSetting.deleteMany({
+      where: { key: TEST_MANAGER_CURRENT_LIVE_VERSION_KEY }
+    });
+    return { currentLiveServerVersion: null };
+  }
+
+  await prisma.systemSetting.upsert({
+    where: { key: TEST_MANAGER_CURRENT_LIVE_VERSION_KEY },
+    create: {
+      key: TEST_MANAGER_CURRENT_LIVE_VERSION_KEY,
+      value: currentLiveServerVersion
+    },
+    update: {
+      value: currentLiveServerVersion
+    }
+  });
+
+  return { currentLiveServerVersion };
 }
 
 export async function updateTestManagerSettings(

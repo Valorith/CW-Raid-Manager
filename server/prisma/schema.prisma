@@ -1429,6 +1429,7 @@ model TestChange {
   priority      TestChangePriority @default(MEDIUM)
   status        TestChangeStatus   @default(SUBMITTED)
   targetBuild   String?            @db.VarChar(120)
+  testServerVersion String?         @db.VarChar(80)
   githubPrUrl   String?            @db.VarChar(500)
   githubPrMetadata Json?
   githubIssueUrl String?           @db.VarChar(500)
