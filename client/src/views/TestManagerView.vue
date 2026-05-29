@@ -208,7 +208,7 @@
                 >
                   <title id="test-state-graph-title">Test Manager state trend</title>
                   <desc id="test-state-graph-desc">
-                    Multi-line chart comparing active changes, awaiting pickup, in-progress tests,
+                    Multi-line chart comparing open changes, awaiting pickup, in-progress tests,
                     and at-risk changes across the last seven days.
                   </desc>
                   <defs>
@@ -5045,7 +5045,7 @@ const testStateGraphRawSeries = computed(() => {
   return [
     {
       key: 'active',
-      label: 'Active changes',
+      label: 'Open changes',
       color: '#55b7ff',
       values: days.map((day) =>
         Math.min(
@@ -5059,7 +5059,7 @@ const testStateGraphRawSeries = computed(() => {
       key: 'awaiting',
       label: 'Awaiting pickup',
       color: '#d9a45f',
-      values: statusValues(['SUBMITTED', 'AWAITING_TEST'], awaitingNow)
+      values: statusValues(['SUBMITTED', 'AWAITING_TEST', 'RENEWED'], awaitingNow)
     },
     {
       key: 'testing',
@@ -5119,7 +5119,7 @@ const testStateGraphStats = computed(() => {
   const metrics = dashboard.value?.metrics;
   return [
     {
-      label: 'Active',
+      label: 'Open',
       value: dashboardGraphChangeCount.value,
       detail: 'open changes'
     },
@@ -5185,7 +5185,7 @@ const testStateGraphInsights = computed(() => {
     {
       label: 'Hot component',
       value: testStateComponentLeader.value.name,
-      detail: `${testStateComponentLeader.value.count} active change${
+      detail: `${testStateComponentLeader.value.count} open change${
         testStateComponentLeader.value.count === 1 ? '' : 's'
       }`
     }

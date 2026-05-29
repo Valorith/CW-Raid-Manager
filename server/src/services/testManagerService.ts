@@ -2716,34 +2716,31 @@ export async function getTestManagerDashboard(userId: string) {
   ]);
 
   const serialized = changes.map((change) => serializeChange(change, userId));
-  const active = serialized.filter((change) => change.status !== TestChangeStatus.CLOSED);
-  const awaiting = serialized.filter((change) => TESTING_READY_STATUSES.includes(change.status));
-  const awaitingTest = serialized.filter(
-    (change) => change.status === TestChangeStatus.AWAITING_TEST
-  );
-  const inProgress = serialized.filter((change) => change.status === TestChangeStatus.TESTING);
-  const passed = serialized.filter((change) => change.status === TestChangeStatus.PASSED);
-  const failed = serialized.filter((change) => change.status === TestChangeStatus.FAILED);
-  const blocked = serialized.filter((change) => change.status === TestChangeStatus.BLOCKED);
+  const open = serialized.filter((change) => change.status !== TestChangeStatus.CLOSED);
+  const awaiting = open.filter((change) => TESTING_READY_STATUSES.includes(change.status));
+  const inProgress = open.filter((change) => change.status === TestChangeStatus.TESTING);
+  const passed = open.filter((change) => change.status === TestChangeStatus.PASSED);
+  const failed = open.filter((change) => change.status === TestChangeStatus.FAILED);
+  const blocked = open.filter((change) => change.status === TestChangeStatus.BLOCKED);
   const covered = inProgress.length + passed.length + failed.length + blocked.length;
 
   return {
     viewer: serializeUser(viewer),
     metrics: {
-      activeChanges: active.length,
-      priorityOne: active.filter(
+      activeChanges: open.length,
+      priorityOne: open.filter(
         (change) =>
           change.priority === TestChangePriority.CRITICAL ||
           change.priority === TestChangePriority.HIGH
       ).length,
-      awaitingTest: awaitingTest.length,
+      awaitingTest: awaiting.length,
       inProgress: inProgress.length,
       passed: passed.length,
       failed: failed.length,
       blocked: blocked.length,
-      coverage: active.length > 0 ? Math.round((covered / active.length) * 100) : 0
+      coverage: open.length > 0 ? Math.round((covered / open.length) * 100) : 0
     },
-    activeChanges: active.slice(0, 12),
+    activeChanges: open.slice(0, 12),
     testerActivity: serialized
       .flatMap((change) =>
         change.testers
@@ -2754,11 +2751,11 @@ export async function getTestManagerDashboard(userId: string) {
       .slice(0, 8),
     attentionItems: {
       awaitingAssignment: awaiting.length,
-      viewerAssignments: serialized.filter(
+      viewerAssignments: open.filter(
         (change) => change.viewerTester && change.viewerTester.status !== TestRunStatus.DONE
       ).length,
-      failingTests: serialized.filter((change) => change.summary.failCount > 0).length,
-      blockedTests: serialized.filter(
+      failingTests: open.filter((change) => change.summary.failCount > 0).length,
+      blockedTests: open.filter(
         (change) => change.summary.blockedCount > 0 || change.status === TestChangeStatus.BLOCKED
       ).length
     }
