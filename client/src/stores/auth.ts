@@ -3,6 +3,8 @@ import { defineStore } from 'pinia';
 
 import type { GuildRole } from '../services/types';
 
+let currentUserRequest: Promise<void> | null = null;
+
 export interface AuthenticatedUser {
   userId: string;
   email: string;
@@ -60,37 +62,46 @@ export const useAuthStore = defineStore('auth', {
   },
   actions: {
     async fetchCurrentUser() {
-      this.loading = true;
-      try {
-        const response = await axios.get('/api/auth/me', {
-          validateStatus: (status) => status === 200 || status === 401
-        });
-
-        if (response.status === 401 || !response.data?.user) {
-          this.user = null;
-        } else {
-          this.user = {
-            userId: response.data.user.userId,
-            email: response.data.user.email,
-            displayName: response.data.user.displayName,
-            nickname: response.data.user.nickname ?? null,
-            defaultLogFileName: response.data.user.defaultLogFileName ?? null,
-            isAdmin: Boolean(response.data.user.isAdmin),
-            isGuide: Boolean(response.data.user.isGuide),
-            isTester: Boolean(response.data.user.isTester),
-            testManagerPermissions: Array.isArray(response.data.user.testManagerPermissions)
-              ? response.data.user.testManagerPermissions
-              : [],
-            guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
-            pendingApplication: response.data.user.pendingApplication ?? null
-          };
-        }
-      } catch (error) {
-        this.user = null;
-        console.error('Failed to fetch current user', error);
-      } finally {
-        this.loading = false;
+      if (currentUserRequest) {
+        return currentUserRequest;
       }
+
+      this.loading = true;
+      currentUserRequest = (async () => {
+        try {
+          const response = await axios.get('/api/auth/me', {
+            validateStatus: (status) => status === 200 || status === 401
+          });
+
+          if (response.status === 401 || !response.data?.user) {
+            this.user = null;
+          } else {
+            this.user = {
+              userId: response.data.user.userId,
+              email: response.data.user.email,
+              displayName: response.data.user.displayName,
+              nickname: response.data.user.nickname ?? null,
+              defaultLogFileName: response.data.user.defaultLogFileName ?? null,
+              isAdmin: Boolean(response.data.user.isAdmin),
+              isGuide: Boolean(response.data.user.isGuide),
+              isTester: Boolean(response.data.user.isTester),
+              testManagerPermissions: Array.isArray(response.data.user.testManagerPermissions)
+                ? response.data.user.testManagerPermissions
+                : [],
+              guilds: Array.isArray(response.data.user.guilds) ? response.data.user.guilds : [],
+              pendingApplication: response.data.user.pendingApplication ?? null
+            };
+          }
+        } catch (error) {
+          this.user = null;
+          console.error('Failed to fetch current user', error);
+        } finally {
+          this.loading = false;
+          currentUserRequest = null;
+        }
+      })();
+
+      return currentUserRequest;
     },
     async logout() {
       try {

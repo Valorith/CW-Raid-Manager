@@ -111,7 +111,7 @@ async function completePasskeySignIn(useBrowserAutofill: boolean) {
     });
     await authStore.fetchCurrentUser();
     if (authStore.isAuthenticated) {
-      router.replace(redirectPath.value || '/');
+      router.replace(redirectPath.value || '/dashboard');
     }
   } catch (error) {
     if (!isPasskeyCancel(error)) {
@@ -143,7 +143,7 @@ onMounted(async () => {
 
   await authStore.fetchCurrentUser();
   if (authStore.isAuthenticated) {
-    const redirect = redirectPath.value || '/';
+    const redirect = redirectPath.value || '/dashboard';
     router.replace(redirect);
   } else {
     needsSignIn.value = true;

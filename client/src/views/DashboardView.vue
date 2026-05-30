@@ -1,5 +1,6 @@
 <template>
   <section class="dashboard" :class="{ 'dashboard--compact': dashboardCompact }">
+    <GlobalLoadingSpinner v-if="showDashboardLoadingOverlay" />
     <header class="page-head">
       <div>
         <div class="page-head__line">Command Center · {{ pageGuildName }}</div>
@@ -26,7 +27,12 @@
         </header>
 
         <p v-if="characterError" class="character-error">{{ characterError }}</p>
-        <GlobalLoadingSpinner v-if="showLoadingCharacters" />
+        <p
+          v-if="showLoadingCharacters && !showDashboardLoadingOverlay"
+          class="dashboard-card-loading"
+        >
+          Loading characters...
+        </p>
         <p v-else-if="characters.length === 0" class="muted">
           You have not registered any characters yet.
         </p>
@@ -139,7 +145,12 @@
           </button>
         </header>
 
-        <GlobalLoadingSpinner v-if="showLoadingAttendance" />
+        <p
+          v-if="showLoadingAttendance && !showDashboardLoadingOverlay"
+          class="dashboard-card-loading"
+        >
+          Loading attendance...
+        </p>
         <p v-else-if="attendanceError" class="error">{{ attendanceError }}</p>
         <template v-else>
           <div
@@ -249,7 +260,9 @@
           </button>
         </header>
 
-        <GlobalLoadingSpinner v-if="showLoadingLoot" />
+        <p v-if="showLoadingLoot && !showDashboardLoadingOverlay" class="dashboard-card-loading">
+          Loading recent loot...
+        </p>
         <p v-else-if="lootError" class="error">{{ lootError }}</p>
         <p v-else-if="characters.length === 0" class="muted">
           Add a character to start tracking loot history.
@@ -335,7 +348,12 @@
           </button>
         </header>
 
-        <GlobalLoadingSpinner v-if="showLoadingUpcomingRaids" />
+        <p
+          v-if="showLoadingUpcomingRaids && !showDashboardLoadingOverlay"
+          class="dashboard-card-loading"
+        >
+          Loading upcoming raids...
+        </p>
         <p v-else-if="upcomingRaidsError" class="error">{{ upcomingRaidsError }}</p>
         <p v-else-if="upcomingRaidPreview.length === 0" class="muted">
           No raids are scheduled yet for {{ pageGuildName }}.
@@ -394,7 +412,12 @@
           </button>
         </header>
 
-        <GlobalLoadingSpinner v-if="showLoadingBisEntries" />
+        <p
+          v-if="showLoadingBisEntries && !showDashboardLoadingOverlay"
+          class="dashboard-card-loading"
+        >
+          Loading BiS progress...
+        </p>
         <p v-else-if="bisError" class="error">{{ bisError }}</p>
         <p v-else-if="dashboardBisEntries.length === 0" class="muted">
           Mark a main character to surface class board progress here.
@@ -549,7 +572,12 @@
           </button>
         </header>
 
-        <GlobalLoadingSpinner v-if="showLoadingMarketCard" />
+        <p
+          v-if="showLoadingMarketCard && !showDashboardLoadingOverlay"
+          class="dashboard-card-loading"
+        >
+          Loading market data...
+        </p>
         <p v-else-if="marketError" class="error">{{ marketError }}</p>
         <div v-else ref="marketGridRef" class="market-grid">
           <section ref="marketRecentSectionRef" class="market-col">
@@ -804,6 +832,7 @@ const characters = ref<UserCharacter[]>([]);
 const guilds = ref<GuildSummary[]>([]);
 const loadingCharacters = ref(false);
 const showLoadingCharacters = useMinimumLoading(loadingCharacters);
+const dashboardInitialLoading = ref(true);
 const showCharacterForm = ref(false);
 const editingCharacter = ref<EditableCharacter | null>(null);
 const updatingCharacterId = ref<string | null>(null);
@@ -914,6 +943,16 @@ const dashboardMarketSellerNames = computed(() => {
   return traderNames.length > 0 ? traderNames : trackedMarketSellerNames.value;
 });
 const usingSavedTraderListings = computed(() => marketFavoriteTraders.value.length > 0);
+const showDashboardLoadingOverlay = computed(
+  () =>
+    dashboardInitialLoading.value &&
+    (showLoadingCharacters.value ||
+      showLoadingAttendance.value ||
+      showLoadingLoot.value ||
+      showLoadingUpcomingRaids.value ||
+      showLoadingBisEntries.value ||
+      showLoadingMarketCard.value)
+);
 
 const dashboardCharacters = computed<DashboardCharacterEntry[]>(() =>
   characters.value.map((character) => {
@@ -1327,6 +1366,7 @@ watch(
       return;
     }
     await nextTick();
+    dashboardInitialLoading.value = false;
     waitForGlobalLoadingOverlayToClear(() => {
       runAttendanceIntroAnimation();
       runLootIntroAnimation();
@@ -4089,6 +4129,16 @@ onBeforeUnmount(() => {
 .muted {
   margin: 0;
   line-height: 1.5;
+}
+
+.dashboard-card-loading {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  text-transform: uppercase;
 }
 
 @media (max-width: 1280px) {

@@ -19,6 +19,11 @@ import { prisma } from '../utils/prisma.js';
 
 const PASSKEY_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SUPPORTED_ALGORITHM_IDS = [-7, -257];
+const LOCAL_DEVICE_PASSKEY_HINTS: NonNullable<PublicKeyCredentialRequestOptionsJSON['hints']> = [
+  'client-device',
+  'hybrid',
+  'security-key'
+];
 const TRANSPORTS = new Set<AuthenticatorTransportFuture>([
   'ble',
   'cable',
@@ -198,10 +203,12 @@ export async function generatePasskeyRegistrationOptions(
       transports: normalizeTransports(passkey.transports)
     })),
     authenticatorSelection: {
+      authenticatorAttachment: 'platform',
       residentKey: 'required',
       requireResidentKey: true,
       userVerification: 'required'
     },
+    preferredAuthenticatorType: 'localDevice',
     supportedAlgorithmIDs: SUPPORTED_ALGORITHM_IDS
   });
 
@@ -260,10 +267,10 @@ export async function verifyPasskeyRegistration(
 export async function generatePasskeyAuthenticationOptions(): Promise<PublicKeyCredentialRequestOptionsJSON> {
   const options = await generateAuthenticationOptions({
     rpID: appConfig.passkeys.rpId,
-    allowCredentials: [],
     timeout: 60_000,
     userVerification: 'required'
   });
+  options.hints = [...LOCAL_DEVICE_PASSKEY_HINTS];
 
   await storeChallenge('AUTHENTICATION', options.challenge);
   return options;
