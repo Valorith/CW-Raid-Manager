@@ -14,17 +14,33 @@
         <p>Use a passkey for the fastest sign-in, or choose a linked provider.</p>
         <input
           ref="passkeyAutofillInputRef"
-          class="passkey-input"
+          class="passkey-autofill-input"
           autocomplete="username webauthn"
-          placeholder="Passkey"
-          aria-label="Passkey sign-in"
+          aria-hidden="true"
+          tabindex="-1"
         />
-        <div class="actions">
-          <button class="btn btn--primary" :disabled="passkeyBusy" @click="handlePasskeySignIn">
-            {{ passkeyBusy ? 'Checking...' : 'Sign in with passkey' }}
+        <div class="actions actions--auth">
+          <button
+            class="btn btn--primary btn--passkey"
+            :disabled="passkeySignInBusy"
+            @click="handlePasskeySignIn"
+          >
+            <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="8" cy="15" r="4" stroke-width="2" />
+              <path d="M11 12 21 2" stroke-width="2" stroke-linecap="round" />
+              <path
+                d="m16 7 2 2 3-3"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            {{ passkeySignInBusy ? 'Opening passkey...' : 'Sign in with passkey' }}
           </button>
-          <a class="btn btn--primary" :href="googleHref">Sign in with Google</a>
-          <a class="btn btn--secondary" :href="discordHref">Sign in with Discord</a>
+          <div class="provider-actions">
+            <a class="btn btn--secondary" :href="googleHref">Sign in with Google</a>
+            <a class="btn btn--secondary" :href="discordHref">Sign in with Discord</a>
+          </div>
         </div>
         <p v-if="passkeyMessage" class="passkey-message">{{ passkeyMessage }}</p>
       </template>
@@ -55,7 +71,7 @@ const authStore = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 const needsSignIn = ref(false);
-const passkeyBusy = ref(false);
+const passkeySignInBusy = ref(false);
 const passkeyMessage = ref('');
 const passkeyAutofillInputRef = ref<HTMLInputElement | null>(null);
 
@@ -80,11 +96,13 @@ const retryHref = computed(() => {
 });
 
 async function completePasskeySignIn(useBrowserAutofill: boolean) {
-  if (passkeyBusy.value || !supportsPasskeys()) {
+  if ((!useBrowserAutofill && passkeySignInBusy.value) || !supportsPasskeys()) {
     return;
   }
 
-  passkeyBusy.value = true;
+  if (!useBrowserAutofill) {
+    passkeySignInBusy.value = true;
+  }
   passkeyMessage.value = '';
   try {
     await authenticateWithPasskey({
@@ -100,7 +118,9 @@ async function completePasskeySignIn(useBrowserAutofill: boolean) {
       passkeyMessage.value = getPasskeyErrorMessage(error, 'Unable to sign in with passkey.');
     }
   } finally {
-    passkeyBusy.value = false;
+    if (!useBrowserAutofill) {
+      passkeySignInBusy.value = false;
+    }
   }
 }
 
@@ -161,14 +181,24 @@ onBeforeUnmount(() => {
   margin-top: 1.5rem;
 }
 
-.passkey-input {
-  width: min(100%, 24rem);
-  margin: 0 auto 1rem;
-  background: rgba(15, 23, 42, 0.86);
-  border: 1px solid rgba(45, 212, 191, 0.45);
-  border-radius: 0.75rem;
-  color: #f8fafc;
-  padding: 0.75rem 0.9rem;
+.actions--auth {
+  flex-direction: column;
+  align-items: center;
+}
+
+.provider-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.passkey-autofill-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .passkey-message {
@@ -177,10 +207,14 @@ onBeforeUnmount(() => {
 }
 
 .btn {
+  align-items: center;
   border: 0;
   border-radius: 8px;
   color: #f8fafc;
   cursor: pointer;
+  display: inline-flex;
+  gap: 0.5rem;
+  justify-content: center;
   font-weight: 700;
   line-height: 1;
   padding: 0.75rem 1rem;
@@ -191,7 +225,17 @@ onBeforeUnmount(() => {
   background: #2563eb;
 }
 
+.btn--passkey {
+  min-width: min(100%, 18rem);
+}
+
 .btn--secondary {
   background: rgba(51, 65, 85, 0.9);
+}
+
+.btn__icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
 }
 </style>
