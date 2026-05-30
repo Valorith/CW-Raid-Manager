@@ -3393,11 +3393,14 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   }
   applyInboxMessageVisibilityFilter(where);
 
-  // Label filter
+  // Avoid Prisma relation-filter joins here because older webhook label migrations
+  // created assignment columns with a different MySQL collation than message IDs.
   if (labelIds && labelIds.length > 0) {
-    where.labelAssignments = {
-      some: { labelId: { in: labelIds } }
-    };
+    const matchingMessageIds = await getMessageIdsForWebhookLabelFilter(labelIds);
+    if (matchingMessageIds.length === 0) {
+      return { messages: [], total: 0 };
+    }
+    where.id = { in: matchingMessageIds };
   }
 
   // Starred filter
@@ -3539,6 +3542,18 @@ export async function listInboundWebhookMessagesEnhanced(options: {
   }));
 
   return { messages: enhancedMessages, total };
+}
+
+async function getMessageIdsForWebhookLabelFilter(labelIds: string[]): Promise<string[]> {
+  const labelIdSql = Prisma.join(
+    labelIds.map((labelId) => Prisma.sql`${labelId} COLLATE utf8mb4_unicode_ci`)
+  );
+  const rows = await prisma.$queryRaw<Array<{ messageId: string }>>`
+    SELECT DISTINCT \`messageId\`
+    FROM \`WebhookMessageLabelAssignment\`
+    WHERE \`labelId\` COLLATE utf8mb4_unicode_ci IN (${labelIdSql})
+  `;
+  return rows.map((row) => row.messageId);
 }
 
 export async function enforceInboundWebhookRetention(now = new Date()) {
