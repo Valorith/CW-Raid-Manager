@@ -77,6 +77,21 @@ type TestChangeContextLinkInput = {
   description?: string | null;
 };
 
+type TestChangeChecklistInput = {
+  id?: string | null;
+  title: string;
+  details?: string | null;
+  category?: string | null;
+};
+
+type NormalizedTestChangeChecklistInput = {
+  id?: string;
+  title: string;
+  details: string | null;
+  category: string | null;
+  sortOrder: number;
+};
+
 const ADMIN_TEST_MANAGER_PERMISSIONS: TestManagerPermissionKey[] = [
   ...TEST_MANAGER_PERMISSION_KEYS
 ].filter((permission) => permission !== 'noteForPass');
@@ -895,6 +910,35 @@ function normalizeContextLinks(value: unknown): Array<{
 
 function contextLinksJson(value: unknown): Prisma.InputJsonValue {
   return normalizeContextLinks(value) as Prisma.InputJsonValue;
+}
+
+function normalizeChecklistInput(
+  checklist: TestChangeChecklistInput[]
+): NormalizedTestChangeChecklistInput[] {
+  const seenIds = new Set<string>();
+
+  return checklist.map((item, index) => {
+    const id = item.id?.trim() || undefined;
+    if (id) {
+      if (seenIds.has(id)) {
+        throw new Error('Duplicate checklist item in update payload.');
+      }
+      seenIds.add(id);
+    }
+
+    const title = item.title.trim();
+    if (!title) {
+      throw new Error('Checklist item title is required.');
+    }
+
+    return {
+      id,
+      title,
+      details: item.details?.trim() || null,
+      category: item.category?.trim() || null,
+      sortOrder: index
+    };
+  });
 }
 
 function serializeGithubPullRequest(url: string | null, metadata: Prisma.JsonValue | null) {
@@ -3160,6 +3204,7 @@ export async function updateTestChange(
     autoClosePassCount?: number;
     dueAt?: Date | null;
     assignedToId?: string | null;
+    checklist?: TestChangeChecklistInput[];
   }
 ) {
   await ensureAdmin(actorUserId);
@@ -3199,6 +3244,8 @@ export async function updateTestChange(
     typeof input.contextLinks === 'undefined'
       ? normalizeContextLinks(existing.contextLinks)
       : normalizeContextLinks(input.contextLinks);
+  const checklistInput =
+    typeof input.checklist === 'undefined' ? null : normalizeChecklistInput(input.checklist);
   const shouldEvaluateAutoClose =
     typeof input.autoClosePassCount === 'number' &&
     input.autoClosePassCount !== existing.autoClosePassCount;
@@ -3233,6 +3280,123 @@ export async function updateTestChange(
       where: { id: changeId },
       data
     });
+
+    let checklistChanges: {
+      created: Array<{ id: string; title: string; sortOrder: number }>;
+      updated: Array<{
+        id: string;
+        from: { title: string; details: string | null; category: string | null; sortOrder: number };
+        to: { title: string; details: string | null; category: string | null; sortOrder: number };
+      }>;
+      deleted: Array<{ id: string; title: string; sortOrder: number }>;
+    } | null = null;
+
+    if (checklistInput) {
+      const existingChecklist = await tx.testChangeChecklistItem.findMany({
+        where: { changeId },
+        orderBy: { sortOrder: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          details: true,
+          category: true,
+          sortOrder: true
+        }
+      });
+      const existingById = new Map(existingChecklist.map((item) => [item.id, item]));
+      const unknownItem = checklistInput.find((item) => item.id && !existingById.has(item.id));
+      if (unknownItem?.id) {
+        throw new Error('Checklist item not found for this change.');
+      }
+
+      const nextIds = new Set(
+        checklistInput.map((item) => item.id).filter((id): id is string => Boolean(id))
+      );
+      const deletedItems = existingChecklist.filter((item) => !nextIds.has(item.id));
+      const createdItems: Array<{ id: string; title: string; sortOrder: number }> = [];
+      const updatedItems: Array<{
+        id: string;
+        from: { title: string; details: string | null; category: string | null; sortOrder: number };
+        to: { title: string; details: string | null; category: string | null; sortOrder: number };
+      }> = [];
+
+      if (deletedItems.length) {
+        await tx.testChangeChecklistItem.deleteMany({
+          where: {
+            changeId,
+            id: { in: deletedItems.map((item) => item.id) }
+          }
+        });
+      }
+
+      for (const item of checklistInput) {
+        if (!item.id) {
+          const created = await tx.testChangeChecklistItem.create({
+            data: {
+              changeId,
+              title: item.title,
+              details: item.details,
+              category: item.category,
+              sortOrder: item.sortOrder
+            },
+            select: { id: true, title: true, sortOrder: true }
+          });
+          createdItems.push(created);
+          continue;
+        }
+
+        const current = existingById.get(item.id);
+        if (!current) {
+          continue;
+        }
+
+        const hasChanged =
+          current.title !== item.title ||
+          (current.details ?? null) !== item.details ||
+          (current.category ?? null) !== item.category ||
+          current.sortOrder !== item.sortOrder;
+        if (!hasChanged) {
+          continue;
+        }
+
+        await tx.testChangeChecklistItem.update({
+          where: { id: item.id },
+          data: {
+            title: item.title,
+            details: item.details,
+            category: item.category,
+            sortOrder: item.sortOrder
+          }
+        });
+        updatedItems.push({
+          id: item.id,
+          from: {
+            title: current.title,
+            details: current.details ?? null,
+            category: current.category ?? null,
+            sortOrder: current.sortOrder
+          },
+          to: {
+            title: item.title,
+            details: item.details,
+            category: item.category,
+            sortOrder: item.sortOrder
+          }
+        });
+      }
+
+      if (createdItems.length || updatedItems.length || deletedItems.length) {
+        checklistChanges = {
+          created: createdItems,
+          updated: updatedItems,
+          deleted: deletedItems.map((item) => ({
+            id: item.id,
+            title: item.title,
+            sortOrder: item.sortOrder
+          }))
+        };
+      }
+    }
 
     await appendHistory(tx, {
       changeId,
@@ -3281,6 +3445,22 @@ export async function updateTestChange(
         }
       }
     });
+
+    if (checklistChanges) {
+      const detailParts = [
+        checklistChanges.created.length ? `${checklistChanges.created.length} added` : '',
+        checklistChanges.updated.length ? `${checklistChanges.updated.length} updated` : '',
+        checklistChanges.deleted.length ? `${checklistChanges.deleted.length} removed` : ''
+      ].filter(Boolean);
+      await appendHistory(tx, {
+        changeId,
+        actorUserId,
+        eventType: TestHistoryEventType.CHECKLIST_UPDATED,
+        label: 'Checklist items updated',
+        detail: `Checklist items were updated by an administrator (${detailParts.join(', ')}).`,
+        metadata: checklistChanges
+      });
+    }
 
     if (shouldPauseForVersion && testServerVersion && currentTestServerVersion) {
       await appendHistory(tx, {

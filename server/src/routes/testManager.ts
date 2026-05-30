@@ -369,7 +369,18 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         includeInNextPatch: z.boolean().optional(),
         autoClosePassCount: z.number().int().min(0).max(99).optional(),
         dueAt: z.string().datetime().nullable().optional(),
-        assignedToId: z.string().nullable().optional()
+        assignedToId: z.string().nullable().optional(),
+        checklist: z
+          .array(
+            z.object({
+              id: z.string().trim().min(1).optional(),
+              title: z.string().trim().min(1).max(191),
+              details: z.string().trim().max(1000).nullable().optional(),
+              category: z.string().trim().max(80).nullable().optional()
+            })
+          )
+          .max(30)
+          .optional()
       });
       const params = paramsSchema.safeParse(request.params);
       const body = bodySchema.safeParse(request.body ?? {});

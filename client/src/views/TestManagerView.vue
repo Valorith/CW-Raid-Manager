@@ -2604,6 +2604,8 @@
                     class="tm-input"
                     list="tm-edit-category-options"
                     required
+                    @blur="syncEditChecklistCategories"
+                    @change="syncEditChecklistCategories"
                   />
                   <span aria-hidden="true">⌄</span>
                 </div>
@@ -2751,6 +2753,73 @@
                 class="tm-create-description"
                 placeholder="Summarize what changed, where testers should look, and any known risks."
               />
+            </div>
+          </section>
+
+          <section class="tm-create-section tm-create-section--checklist">
+            <div class="tm-create-section__title">
+              <span aria-hidden="true">✓</span>
+              <div>
+                <h3>Testing checklist</h3>
+                <p>
+                  {{ editForm.checklist.length }} checklist item{{
+                    editForm.checklist.length === 1 ? '' : 's'
+                  }}
+                </p>
+              </div>
+            </div>
+            <div class="tm-checklist-builder">
+              <div
+                v-for="(item, index) in editForm.checklist"
+                :key="item.id ?? `new-${index}`"
+                class="tm-checklist-builder__row"
+              >
+                <span class="tm-checklist-builder__index">{{ index + 1 }}</span>
+                <label class="tm-field">
+                  <span>Checklist item</span>
+                  <input
+                    v-model="item.title"
+                    class="tm-input"
+                    placeholder="Verify trainer availability"
+                  />
+                </label>
+                <label class="tm-field tm-combo-field">
+                  <span>Category <small>optional</small></span>
+                  <div class="tm-combo-field__control">
+                    <input
+                      v-model="item.category"
+                      class="tm-input"
+                      list="tm-edit-category-options"
+                      :placeholder="editForm.category || 'Use change category'"
+                    />
+                    <span aria-hidden="true">⌄</span>
+                  </div>
+                </label>
+                <label class="tm-field tm-field--full">
+                  <span>Tester notes</span>
+                  <input
+                    v-model="item.details"
+                    class="tm-input"
+                    placeholder="What should testers confirm?"
+                  />
+                </label>
+                <button
+                  type="button"
+                  class="tm-checklist-builder__remove"
+                  :aria-label="`Remove checklist item ${item.title || index + 1}`"
+                  @click="removeEditChecklistItem(index)"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M9 3h6l1 2h4v2H4V5h4l1-2Z" />
+                    <path d="M6.5 9h11l-.7 11H7.2L6.5 9Z" />
+                    <path d="M10 11.5v6M14 11.5v6" />
+                  </svg>
+                </button>
+              </div>
+              <button type="button" class="tm-btn tm-btn--ghost" @click="addEditChecklistItem">
+                <span aria-hidden="true">＋</span>
+                Add Checklist Item
+              </button>
             </div>
           </section>
         </div>
@@ -4315,6 +4384,10 @@ const nextPatchViewOptions: Array<{ key: NextPatchChangeView; label: string }> =
   { key: 'incomplete', label: 'Incomplete' }
 ];
 type CreateChecklistDraft = CreateTestChangePayload['checklist'][number];
+type EditChecklistDraft = NonNullable<UpdateTestChangePayload['checklist']>[number];
+type EditChangeForm = Omit<UpdateTestChangePayload, 'checklist'> & {
+  checklist: EditChecklistDraft[];
+};
 type ChecklistAddTemplate = CreateChecklistDraft & {
   group: string;
   key: string;
@@ -4452,6 +4525,19 @@ function createChecklistItem(category = ''): CreateChecklistDraft {
   return { title: '', details: '', category };
 }
 
+function createEditChecklistItem(category = ''): EditChecklistDraft {
+  return { title: '', details: '', category };
+}
+
+function toEditChecklistItem(item: TestChange['checklist'][number]): EditChecklistDraft {
+  return {
+    id: item.id,
+    title: item.title,
+    details: item.details ?? '',
+    category: item.category ?? ''
+  };
+}
+
 function createContextLink(kind: TestChangeContextLinkKind = 'DISCORD'): TestChangeContextLink {
   const id =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -4504,7 +4590,7 @@ const createForm = ref<CreateTestChangePayload>({
 });
 const checklistAddForm = ref<CreateChecklistDraft>(createChecklistItem());
 
-const editForm = ref<UpdateTestChangePayload>({
+const editForm = ref<EditChangeForm>({
   title: '',
   description: '',
   category: '',
@@ -4517,7 +4603,8 @@ const editForm = ref<UpdateTestChangePayload>({
   includeInNextPatch: true,
   autoClosePassCount: 0,
   dueAt: null,
-  assignedToId: null
+  assignedToId: null,
+  checklist: []
 });
 
 const requestForm = ref<{ userId: string; assignment: Exclude<TestAssignmentKind, 'VOLUNTEER'> }>({
@@ -6501,7 +6588,8 @@ function openEditChange() {
     includeInNextPatch: activeChange.value.includeInNextPatch,
     autoClosePassCount: activeChange.value.autoClosePassCount,
     dueAt: toLocalDateTimeInput(activeChange.value.dueAt),
-    assignedToId: activeChange.value.assignedTo?.id ?? null
+    assignedToId: activeChange.value.assignedTo?.id ?? null,
+    checklist: activeChange.value.checklist.map(toEditChecklistItem)
   };
   editOpen.value = true;
 }
@@ -6525,6 +6613,14 @@ function removeCreateChecklistItem(index: number) {
   createForm.value.checklist.splice(index, 1);
 }
 
+function addEditChecklistItem() {
+  editForm.value.checklist.push(createEditChecklistItem(editForm.value.category));
+}
+
+function removeEditChecklistItem(index: number) {
+  editForm.value.checklist.splice(index, 1);
+}
+
 function applyChecklistTemplate(items: CreateChecklistDraft[]) {
   createForm.value.checklist = items.map((item) => ({
     ...item,
@@ -6544,6 +6640,14 @@ function syncChecklistCategories() {
   createForm.value.checklist.forEach((item) => {
     if (!item.category) {
       item.category = createForm.value.category;
+    }
+  });
+}
+
+function syncEditChecklistCategories() {
+  editForm.value.checklist.forEach((item) => {
+    if (!item.category) {
+      item.category = editForm.value.category;
     }
   });
 }
@@ -6579,7 +6683,8 @@ function resetEditForm() {
     includeInNextPatch: true,
     autoClosePassCount: 0,
     dueAt: null,
-    assignedToId: null
+    assignedToId: null,
+    checklist: []
   };
 }
 
@@ -6706,6 +6811,37 @@ async function saveEditChange() {
     return;
   }
 
+  const checklistDrafts = editForm.value.checklist.filter((item) => item.id || item.title.trim());
+  if (checklistDrafts.some((item) => !item.title.trim())) {
+    addToast({
+      variant: 'warning',
+      title: 'Checklist item title required',
+      message: 'Enter a title for every existing checklist item before saving.'
+    });
+    return;
+  }
+
+  const checklist = checklistDrafts.map((item) => ({
+    id: item.id,
+    title: item.title.trim(),
+    details: item.details?.trim() || null,
+    category: item.category?.trim() || null
+  }));
+  const checklistIds = new Set(checklist.map((item) => item.id).filter(Boolean));
+  const removedChecklistItems = activeChange.value.checklist.filter(
+    (item) => !checklistIds.has(item.id)
+  );
+  if (
+    removedChecklistItems.length &&
+    !window.confirm(
+      `Remove ${removedChecklistItems.length} checklist item${
+        removedChecklistItems.length === 1 ? '' : 's'
+      }? This removes progress for every tester.`
+    )
+  ) {
+    return;
+  }
+
   editSaving.value = true;
   try {
     const dueAt = editForm.value.dueAt?.trim()
@@ -6720,7 +6856,8 @@ async function saveEditChange() {
       githubIssueUrl: editForm.value.githubIssueUrl?.trim() || null,
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
       autoClosePassCount: normalizeAutoClosePassCount(editForm.value.autoClosePassCount),
-      dueAt
+      dueAt,
+      checklist
     });
     replaceCachedChange(updated);
     selectedChange.value = updated;
@@ -16916,7 +17053,7 @@ button.tm-version-badge {
 }
 
 .tm-edit-modal {
-  width: min(58rem, 100%);
+  width: min(76rem, 100%);
 }
 
 .tm-create-modal__header,

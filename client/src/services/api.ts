@@ -3523,7 +3523,16 @@ export interface AddTestChangeChecklistItemPayload {
   category?: string | null;
 }
 
-export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'>;
+export interface UpdateTestChangeChecklistItemPayload {
+  id?: string;
+  title: string;
+  details?: string | null;
+  category?: string | null;
+}
+
+export type UpdateTestChangePayload = Omit<CreateTestChangePayload, 'checklist'> & {
+  checklist?: UpdateTestChangeChecklistItemPayload[];
+};
 export type NextPatchChangeView = 'complete' | 'incomplete';
 export interface TestManagerNextPatchCounts {
   count: number;
