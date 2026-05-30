@@ -916,6 +916,487 @@ test("tm command families map to the Test Manager API without a real database", 
   );
 });
 
+test("webhook inbox command families map to the admin webhook API", async () => {
+  await withMockServer(
+    async ({ baseUrl, records, configPath }) => {
+      await writeConfig(configPath, baseUrl);
+      const tempDir = dirname(configPath);
+      const payloadFile = join(tempDir, "payload.json");
+      const combinedFile = join(tempDir, "combined.txt");
+      const crashFile = join(tempDir, "crash.txt");
+      const segmentsFile = join(tempDir, "segments.json");
+      await writeFile(payloadFile, JSON.stringify({ event: "cli-test" }), "utf-8");
+      await writeFile(combinedFile, "Combined crash report", "utf-8");
+      await writeFile(crashFile, "Crash report with enough detail", "utf-8");
+      await writeFile(
+        segmentsFile,
+        JSON.stringify([
+          { id: "a", text: "second" },
+          { id: "b", text: "first" },
+        ]),
+        "utf-8",
+      );
+
+      const cases: Array<{ args: string[]; expected: ExpectedRequest[] }> = [
+        {
+          args: [
+            "inbox",
+            "list",
+            "--json",
+            "--status",
+            "failed",
+            "--include-archived",
+            "--read-status",
+            "unread",
+            "--starred",
+            "--label-id",
+            "label-1",
+            "--page-size",
+            "50",
+          ],
+          expected: [
+            {
+              method: "GET",
+              url: "/api/admin/webhook-inbox?pageSize=50&status=FAILED&includeArchived=true&readStatus=unread&starred=true&labelIds=label-1",
+            },
+          ],
+        },
+        {
+          args: ["wi", "show", "message-1", "--json"],
+          expected: [{ method: "GET", url: "/api/admin/webhook-inbox/message-1" }],
+        },
+        {
+          args: ["webhook-inbox", "link", "message-1", "--json"],
+          expected: [],
+        },
+        {
+          args: ["inbox", "assign", "message-1", "me", "--json"],
+          expected: [
+            { method: "GET", url: "/api/auth/me" },
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/assign",
+              body: { adminId: "user-1" },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "unassign", "message-1", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/assign",
+              body: { adminId: null },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "archive", "message-1", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/archive",
+              body: { archived: true },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "unarchive", "message-1", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/archive",
+              body: { archived: false },
+            },
+          ],
+        },
+        {
+          args: [
+            "inbox",
+            "review",
+            "message-1",
+            "--provider",
+            "openai",
+            "--use-eqemu-oracle-context",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/message-1/retry-crash-review",
+              body: { provider: "openai", useEqemuOracleContext: true },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "discord-summary", "message-1", "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/message-1/send-discord-summary",
+            },
+          ],
+        },
+        {
+          args: ["inbox", "read", "message-1", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/read",
+              body: { read: true },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "unstar", "message-1", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/star",
+              body: { starred: false },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "unread-count", "--webhook-id", "hook-1"],
+          expected: [
+            {
+              method: "GET",
+              url: "/api/admin/webhook-inbox/unread-count?webhookId=hook-1",
+            },
+          ],
+        },
+        {
+          args: ["inbox", "pending-count"],
+          expected: [
+            { method: "GET", url: "/api/admin/webhook-inbox/pending-action-count" },
+          ],
+        },
+        {
+          args: ["inbox", "labels", "list", "--json"],
+          expected: [{ method: "GET", url: "/api/admin/webhook-labels" }],
+        },
+        {
+          args: [
+            "inbox",
+            "labels",
+            "create",
+            "Crash",
+            "--color",
+            "#ff0000",
+            "--auto-archive",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-labels",
+              body: {
+                name: "Crash",
+                color: "#ff0000",
+                autoArchive: true,
+                autoDelete: false,
+              },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "labels", "find", "Crash", "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-labels/find-or-create",
+              body: { name: "Crash" },
+            },
+          ],
+        },
+        {
+          args: [
+            "inbox",
+            "labels",
+            "update",
+            "label-1",
+            "--name",
+            "Script",
+            "--sort-order",
+            "2",
+            "--no-auto-delete",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-labels/label-1",
+              body: { name: "Script", sortOrder: 2, autoDelete: false },
+            },
+          ],
+        },
+        {
+          args: [
+            "inbox",
+            "labels",
+            "set",
+            "message-1",
+            "label-1",
+            "--label-id",
+            "label-2",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/admin/webhook-inbox/message-1/labels",
+              body: { labelIds: ["label-1", "label-2"] },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "bulk", "archive", "message-1", "message-2", "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/bulk",
+              body: {
+                messageIds: ["message-1", "message-2"],
+                action: "archive",
+              },
+            },
+          ],
+        },
+        {
+          args: [
+            "inbox",
+            "bulk",
+            "set-labels",
+            "message-1",
+            "--label-id",
+            "label-1",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/bulk",
+              body: {
+                messageIds: ["message-1"],
+                action: "setLabels",
+                labelIds: ["label-1"],
+              },
+            },
+          ],
+        },
+        {
+          args: [
+            "inbox",
+            "merge",
+            "message-1",
+            "message-2",
+            "--combined-file",
+            combinedFile,
+            "--json",
+          ],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/merge",
+              body: {
+                messageIds: ["message-1", "message-2"],
+                combinedText: "Combined crash report",
+              },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "dismiss-merge", "message-1", "message-2", "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/dismiss-merge",
+              body: { messageIds: ["message-1", "message-2"] },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "crashes", "summary", "--include-archived", "--json"],
+          expected: [
+            {
+              method: "GET",
+              url: "/api/admin/webhook-inbox/crashes/summary?includeArchived=true",
+            },
+          ],
+        },
+        {
+          args: ["inbox", "crashes", "list", "--version", "2026.05.29", "--json"],
+          expected: [
+            {
+              method: "GET",
+              url: "/api/admin/webhook-inbox/crashes?version=2026.05.29",
+            },
+          ],
+        },
+        {
+          args: ["inbox", "inspect-crash", "--file", crashFile, "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/inspect-crash-report",
+              body: { crashReportText: "Crash report with enough detail" },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "sort-crash", "--segments-file", segmentsFile],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhook-inbox/sort-crash-segments",
+              body: {
+                segments: [
+                  { id: "a", text: "second" },
+                  { id: "b", text: "first" },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "groups", "list", "--json"],
+          expected: [{ method: "GET", url: "/api/admin/webhooks/pending-merge-groups" }],
+        },
+        {
+          args: ["inbox", "groups", "process", "hook-1", "group-1", "--json"],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhooks/hook-1/process-group-now",
+              body: { groupKey: "group-1" },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "hooks", "list", "--json"],
+          expected: [{ method: "GET", url: "/api/admin/webhooks" }],
+        },
+        {
+          args: [
+            "inbox",
+            "hooks",
+            "test",
+            "hook-1",
+            "--payload-file",
+            payloadFile,
+            "--run-actions",
+            "--json",
+          ],
+          expected: [
+            {
+              method: "POST",
+              url: "/api/admin/webhooks/hook-1/test",
+              body: { payload: { event: "cli-test" }, runActions: true },
+            },
+          ],
+        },
+        {
+          args: ["inbox", "hooks", "processing-status"],
+          expected: [{ method: "GET", url: "/api/admin/webhooks/processing-status" }],
+        },
+        {
+          args: ["inbox", "delete", "message-1", "--yes", "--json"],
+          expected: [
+            { method: "DELETE", url: "/api/admin/webhook-inbox/message-1" },
+          ],
+        },
+        {
+          args: ["inbox", "labels", "delete", "label-1", "--yes", "--json"],
+          expected: [{ method: "DELETE", url: "/api/admin/webhook-labels/label-1" }],
+        },
+      ];
+
+      for (const testCase of cases) {
+        records.length = 0;
+        const result = await runCli(testCase.args, {
+          NEXUS_CONFIG_PATH: configPath,
+        });
+        assert.equal(
+          result.code,
+          0,
+          `${testCase.args.join(" ")}\n${result.stderr}`,
+        );
+        assertRecordedRequests(records, testCase.expected);
+      }
+    },
+    route({
+      "GET /api/admin/webhook-inbox": () => ({
+        messages: [fixtureWebhookMessage()],
+        total: 1,
+      }),
+      "GET /api/admin/webhook-inbox/message-1": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "GET /api/auth/me": () => ({ user: { id: "user-1" } }),
+      "PUT /api/admin/webhook-inbox/message-1/assign": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "PUT /api/admin/webhook-inbox/message-1/archive": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "DELETE /api/admin/webhook-inbox/message-1": () => ({ statusCode: 204 }),
+      "POST /api/admin/webhook-inbox/message-1/retry-crash-review": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "POST /api/admin/webhook-inbox/message-1/send-discord-summary": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "PUT /api/admin/webhook-inbox/message-1/read": () => ({ statusCode: 204 }),
+      "PUT /api/admin/webhook-inbox/message-1/star": () => ({ statusCode: 204 }),
+      "GET /api/admin/webhook-inbox/unread-count": () => ({ count: 3 }),
+      "GET /api/admin/webhook-inbox/pending-action-count": () => ({ count: 2 }),
+      "GET /api/admin/webhook-labels": () => ({ labels: [fixtureWebhookLabel()] }),
+      "POST /api/admin/webhook-labels": () => ({ label: fixtureWebhookLabel() }),
+      "POST /api/admin/webhook-labels/find-or-create": () => ({
+        label: fixtureWebhookLabel(),
+      }),
+      "PUT /api/admin/webhook-labels/label-1": () => ({
+        label: fixtureWebhookLabel(),
+      }),
+      "DELETE /api/admin/webhook-labels/label-1": () => ({ statusCode: 204 }),
+      "PUT /api/admin/webhook-inbox/message-1/labels": () => ({ statusCode: 204 }),
+      "POST /api/admin/webhook-inbox/bulk": () => ({ success: 2, failed: 0 }),
+      "POST /api/admin/webhook-inbox/merge": () => ({
+        message: fixtureWebhookMessage({ id: "message-merged" }),
+      }),
+      "POST /api/admin/webhook-inbox/dismiss-merge": () => ({
+        success: true,
+        processedCount: 2,
+      }),
+      "GET /api/admin/webhook-inbox/crashes/summary": () => ({
+        summary: fixtureCrashSummary(),
+      }),
+      "GET /api/admin/webhook-inbox/crashes": () => ({
+        crashes: [fixtureCrashReport()],
+      }),
+      "POST /api/admin/webhook-inbox/inspect-crash-report": () => ({
+        summary: "inspected",
+      }),
+      "POST /api/admin/webhook-inbox/sort-crash-segments": () => ({
+        order: ["b", "a"],
+      }),
+      "GET /api/admin/webhooks/pending-merge-groups": () => ({ groups: [] }),
+      "POST /api/admin/webhooks/hook-1/process-group-now": () => ({
+        success: true,
+      }),
+      "GET /api/admin/webhooks": () => ({ webhooks: [fixtureWebhook()] }),
+      "POST /api/admin/webhooks/hook-1/test": () => ({
+        message: fixtureWebhookMessage(),
+      }),
+      "GET /api/admin/webhooks/processing-status": () => ({
+        pendingWebhookIds: [],
+        hasPendingProcessing: false,
+      }),
+    }),
+  );
+});
+
 test("auth session commands use scoped CLI auth endpoints", async () => {
   await withMockServer(
     async ({ baseUrl, records, configPath }) => {
@@ -1009,6 +1490,9 @@ test("high-impact commands require explicit confirmation before making requests"
       ["tm", "delete", "5"],
       ["tm", "users", "set-tester", "user-1", "true"],
       ["tm", "settings", "update", "--file", settingsFile],
+      ["inbox", "delete", "message-1"],
+      ["inbox", "labels", "delete", "label-1"],
+      ["inbox", "bulk", "delete", "message-1"],
     ];
 
     for (const command of commands) {
@@ -1280,6 +1764,114 @@ function fixtureCoverageChange(): TestChangeFixture {
       },
     ],
   });
+}
+
+function fixtureWebhookMessage(
+  overrides: Partial<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    id: "message-1",
+    webhookId: "hook-1",
+    receivedAt: "2026-01-01T00:00:00.000Z",
+    sourceIp: "127.0.0.1",
+    headers: {},
+    payload: { event: "crash" },
+    rawBody: "crash payload",
+    status: "FAILED",
+    actionSummary: null,
+    assignedAdminId: null,
+    assignedAt: null,
+    archivedAt: null,
+    assignedAdmin: null,
+    webhook: fixtureWebhook(),
+    actionRuns: [],
+    isRead: false,
+    isStarred: false,
+    labels: [fixtureWebhookLabel()],
+    linkedTestChanges: [],
+    mergedFromIds: null,
+    mergedAt: null,
+    ...overrides,
+  };
+}
+
+function fixtureWebhookLabel(
+  overrides: Partial<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    id: "label-1",
+    name: "Crash",
+    color: "#ff0000",
+    sortOrder: 0,
+    autoArchive: false,
+    autoDelete: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function fixtureWebhook(
+  overrides: Partial<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    id: "hook-1",
+    label: "Server crash",
+    description: null,
+    isEnabled: true,
+    intakeType: "EQEMU_SERVER_CRASH_REPORT",
+    retentionPolicy: { mode: "indefinite" },
+    mergeWindowSeconds: 30,
+    autoMerge: false,
+    devMode: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    lastReceivedAt: "2026-01-01T00:00:00.000Z",
+    actions: [],
+    ...overrides,
+  };
+}
+
+function fixtureCrashSummary(): Record<string, unknown> {
+  return {
+    groups: [],
+    totalCrashes: 1,
+    uniqueCrashes: 1,
+    versions: 1,
+    reviewedCrashes: 0,
+    latestCrashAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function fixtureCrashReport(): Record<string, unknown> {
+  return {
+    id: "crash-1",
+    messageId: "message-1",
+    webhookId: "hook-1",
+    webhookLabel: "Server crash",
+    receivedAt: "2026-01-01T00:00:00.000Z",
+    status: "FAILED",
+    fingerprint: "fingerprint",
+    platformName: null,
+    crashReport: "crash",
+    serverVersion: "2026.05.29",
+    compileDate: null,
+    compileTime: null,
+    serverName: null,
+    serverShortName: null,
+    uptimeSeconds: null,
+    osMachine: null,
+    osRelease: null,
+    osVersion: null,
+    osSysname: null,
+    processId: null,
+    rssMemoryMb: null,
+    cpus: null,
+    originationInfo: null,
+    lineCount: 1,
+    reviewStatus: null,
+    reviewSummary: null,
+  };
 }
 
 type TestChangeFixture = Record<string, unknown>;

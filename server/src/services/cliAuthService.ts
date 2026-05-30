@@ -11,7 +11,7 @@ const CLI_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const POLL_INTERVAL_SECONDS = 5;
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const USER_CODE_LENGTH = 8;
-const DEFAULT_SCOPES = ['test-manager'] as const;
+const DEFAULT_SCOPES = ['test-manager', 'webhook-inbox'] as const;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');

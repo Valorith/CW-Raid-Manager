@@ -14,16 +14,28 @@ import {
   saveProfile,
 } from "./config.js";
 import {
+  printCrashTelemetryReports,
+  printCrashTelemetrySummary,
   printChange,
   printChangeList,
+  printInboundWebhooks,
   printJson,
   printNotes,
   printServerVersion,
   printTable,
   printTesters,
+  printWebhookInboxList,
+  printWebhookLabels,
+  printWebhookMessage,
   textToHtml,
 } from "./format.js";
 import type {
+  CrashReviewProvider,
+  CrashTelemetryReport,
+  CrashTelemetrySummary,
+  InboundWebhookMessageStatus,
+  InboundWebhookMessage,
+  InboundWebhooksResponse,
   TestAssignmentKind,
   TestChange,
   TestChangeChecklistItem,
@@ -34,6 +46,12 @@ import type {
   TestChangeStatus,
   TestManagerServerVersion,
   TestResult,
+  WebhookInboxBulkAction,
+  WebhookInboxBulkResponse,
+  WebhookInboxMessageResponse,
+  WebhookInboxResponse,
+  WebhookLabelResponse,
+  WebhookLabelsResponse,
 } from "./types.js";
 
 type FlagValue = string | boolean | string[];
@@ -55,6 +73,15 @@ const BOOLEAN_FLAGS = new Set([
   "clear-github-issue",
   "clear-due",
   "clear-assignee",
+  "me",
+  "clear",
+  "include-archived",
+  "starred",
+  "run-actions",
+  "auto-archive",
+  "auto-delete",
+  "use-eqemu-oracle-context",
+  "oracle",
 ]);
 const STATUSES: TestChangeStatus[] = [
   "SUBMITTED",
@@ -74,7 +101,26 @@ const ASSIGNMENTS: TestAssignmentKind[] = [
   "VOLUNTEER",
   "ADMIN_REQUESTED",
 ];
+const WEBHOOK_MESSAGE_STATUSES: InboundWebhookMessageStatus[] = [
+  "RECEIVED",
+  "PENDING_MERGE",
+  "PROCESSED",
+  "FAILED",
+];
+const CRASH_REVIEW_PROVIDERS: CrashReviewProvider[] = ["gemini", "openai"];
+const WEBHOOK_BULK_ACTIONS: WebhookInboxBulkAction[] = [
+  "markRead",
+  "markUnread",
+  "archive",
+  "unarchive",
+  "delete",
+  "star",
+  "unstar",
+  "rerunCrashReview",
+  "setLabels",
+];
 const DEFAULT_LOCAL_API_URL = "http://localhost:4000";
+const DEFAULT_LOCAL_APP_URL = "http://localhost:5173";
 
 interface ParsedArgv {
   args: string[];
@@ -114,6 +160,11 @@ async function main(): Promise<void> {
     case "tm":
     case "test-manager":
       await testManager(rest, parsed.flags, jsonMode);
+      return;
+    case "inbox":
+    case "webhook-inbox":
+    case "wi":
+      await webhookInbox(rest, parsed.flags, jsonMode);
       return;
     default:
       throw new Error(`Unknown command "${command}". Run nexus --help.`);
@@ -1412,6 +1463,749 @@ async function settings(
   throw new Error(`Unknown settings command "${action}".`);
 }
 
+async function webhookInbox(
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const command = args[0] ?? "list";
+  const api = await apiFromProfile(flags);
+
+  switch (command) {
+    case "list":
+      await listWebhookInbox(api, flags, jsonMode);
+      return;
+    case "show":
+    case "get":
+      await showWebhookMessage(api, requireArg(args, 1, "messageId"), jsonMode);
+      return;
+    case "link":
+    case "url":
+      printWebhookMessageLink(api, requireArg(args, 1, "messageId"), flags, jsonMode);
+      return;
+    case "assign":
+      await assignWebhookMessage(
+        api,
+        requireArg(args, 1, "messageId"),
+        args[2],
+        flags,
+        jsonMode,
+      );
+      return;
+    case "unassign":
+      await setWebhookMessageAssignment(
+        api,
+        requireArg(args, 1, "messageId"),
+        null,
+        jsonMode,
+      );
+      return;
+    case "archive":
+      await setWebhookMessageArchived(
+        api,
+        requireArg(args, 1, "messageId"),
+        true,
+        jsonMode,
+      );
+      return;
+    case "unarchive":
+      await setWebhookMessageArchived(
+        api,
+        requireArg(args, 1, "messageId"),
+        false,
+        jsonMode,
+      );
+      return;
+    case "delete":
+      await deleteWebhookMessage(api, requireArg(args, 1, "messageId"), flags, jsonMode);
+      return;
+    case "review":
+    case "ai-review":
+    case "retry-crash-review":
+      await retryWebhookCrashReview(
+        api,
+        requireArg(args, 1, "messageId"),
+        args[2],
+        flags,
+        jsonMode,
+      );
+      return;
+    case "discord-summary":
+    case "send-discord-summary":
+      await sendWebhookDiscordSummary(api, requireArg(args, 1, "messageId"), jsonMode);
+      return;
+    case "read":
+      await setWebhookMessageRead(api, requireArg(args, 1, "messageId"), true, jsonMode);
+      return;
+    case "unread":
+      await setWebhookMessageRead(api, requireArg(args, 1, "messageId"), false, jsonMode);
+      return;
+    case "star":
+      await setWebhookMessageStar(api, requireArg(args, 1, "messageId"), true, jsonMode);
+      return;
+    case "unstar":
+      await setWebhookMessageStar(api, requireArg(args, 1, "messageId"), false, jsonMode);
+      return;
+    case "unread-count":
+      await getWebhookUnreadCount(api, flags);
+      return;
+    case "pending-count":
+    case "pending-action-count":
+      await getWebhookPendingActionCount(api);
+      return;
+    case "label":
+    case "labels":
+      await webhookLabels(api, args.slice(1), flags, jsonMode);
+      return;
+    case "bulk":
+      await bulkWebhookInbox(api, args.slice(1), flags, jsonMode);
+      return;
+    case "merge":
+      await mergeWebhookInboxMessages(api, args.slice(1), flags, jsonMode);
+      return;
+    case "dismiss-merge":
+      await dismissWebhookInboxMerge(api, args.slice(1), flags, jsonMode);
+      return;
+    case "crash":
+    case "crashes":
+      await webhookCrashes(api, args.slice(1), flags, jsonMode);
+      return;
+    case "inspect-crash":
+    case "inspect-crash-report":
+      await inspectWebhookCrashReport(api, flags, jsonMode);
+      return;
+    case "sort-crash":
+    case "sort-crash-segments":
+      await sortWebhookCrashSegments(api, flags);
+      return;
+    case "group":
+    case "groups":
+    case "pending-groups":
+      await webhookPendingGroups(api, args.slice(1), jsonMode);
+      return;
+    case "hook":
+    case "hooks":
+    case "webhook":
+    case "webhooks":
+    case "endpoints":
+      await webhookEndpoints(api, args.slice(1), flags, jsonMode);
+      return;
+    default:
+      throw new Error(`Unknown webhook inbox command "${command}".`);
+  }
+}
+
+async function listWebhookInbox(
+  api: NexusApi,
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const status = stringFlag(flags, "status")
+    ? normalizeEnum(requiredFlag(flags, "status"), WEBHOOK_MESSAGE_STATUSES)
+    : undefined;
+  const readStatus = stringFlag(flags, "read-status")
+    ? normalizeChoice(requiredFlag(flags, "read-status"), [
+        "read",
+        "unread",
+        "all",
+      ] as const)
+    : undefined;
+  const labelIds = webhookLabelIds(flags);
+  const response = await api.request<WebhookInboxResponse>(
+    "/api/admin/webhook-inbox",
+    {
+      query: {
+        page: numberFlag(flags, "page"),
+        pageSize: numberFlag(flags, "page-size") ?? numberFlag(flags, "pageSize"),
+        webhookId: stringFlag(flags, "webhook-id") ?? stringFlag(flags, "webhookId"),
+        status,
+        includeArchived: boolFlag(flags, "include-archived") ? true : undefined,
+        readStatus: readStatus === "all" ? undefined : readStatus,
+        starred: boolFlag(flags, "starred") ? true : undefined,
+        labelIds: labelIds.length ? labelIds.join(",") : undefined,
+      },
+    },
+  );
+
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookInboxList(response);
+  }
+}
+
+async function showWebhookMessage(
+  api: NexusApi,
+  messageId: string,
+  jsonMode: boolean,
+): Promise<InboundWebhookMessage> {
+  const response = await api.request<WebhookInboxMessageResponse>(
+    `/api/admin/webhook-inbox/${encodeURIComponent(messageId)}`,
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+  return response.message;
+}
+
+function printWebhookMessageLink(
+  api: NexusApi,
+  messageId: string,
+  flags: Flags,
+  jsonMode: boolean,
+): void {
+  const url = webhookMessageUrl(api, messageId, flags);
+  if (boolFlag(flags, "open")) {
+    openBrowser(url);
+  }
+  if (jsonMode) {
+    printJson({ messageId, url });
+  } else {
+    console.log(url);
+  }
+}
+
+async function assignWebhookMessage(
+  api: NexusApi,
+  messageId: string,
+  adminRef: string | undefined,
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  let adminId: string | null;
+  if (boolFlag(flags, "clear")) {
+    adminId = null;
+  } else if (boolFlag(flags, "me") || adminRef?.toLowerCase() === "me") {
+    adminId = await currentUserId(api);
+  } else {
+    adminId = adminRef ?? requiredFlag(flags, "admin-id");
+  }
+  await setWebhookMessageAssignment(api, messageId, adminId, jsonMode);
+}
+
+async function setWebhookMessageAssignment(
+  api: NexusApi,
+  messageId: string,
+  adminId: string | null,
+  jsonMode: boolean,
+): Promise<void> {
+  const response = await api.request<WebhookInboxMessageResponse>(
+    `/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/assign`,
+    { method: "PUT", body: { adminId } },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+}
+
+async function setWebhookMessageArchived(
+  api: NexusApi,
+  messageId: string,
+  archived: boolean,
+  jsonMode: boolean,
+): Promise<void> {
+  const response = await api.request<WebhookInboxMessageResponse>(
+    `/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/archive`,
+    { method: "PUT", body: { archived } },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+}
+
+async function deleteWebhookMessage(
+  api: NexusApi,
+  messageId: string,
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  requireYes(flags, "Deleting a webhook inbox message");
+  await api.request(`/api/admin/webhook-inbox/${encodeURIComponent(messageId)}`, {
+    method: "DELETE",
+  });
+  if (jsonMode) {
+    printJson({ deleted: true, messageId });
+  } else {
+    console.log(`Deleted webhook message ${messageId}.`);
+  }
+}
+
+async function retryWebhookCrashReview(
+  api: NexusApi,
+  messageId: string,
+  providerArg: string | undefined,
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const provider = normalizeChoice(
+    stringFlag(flags, "provider") ?? providerArg ?? "gemini",
+    CRASH_REVIEW_PROVIDERS,
+  );
+  const response = await api.request<WebhookInboxMessageResponse>(
+    `/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/retry-crash-review`,
+    {
+      method: "POST",
+      body: {
+        provider,
+        useEqemuOracleContext: eqemuOracleFlag(flags),
+      },
+    },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+}
+
+async function sendWebhookDiscordSummary(
+  api: NexusApi,
+  messageId: string,
+  jsonMode: boolean,
+): Promise<void> {
+  const response = await api.request<WebhookInboxMessageResponse>(
+    `/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/send-discord-summary`,
+    { method: "POST" },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+}
+
+async function setWebhookMessageRead(
+  api: NexusApi,
+  messageId: string,
+  read: boolean,
+  jsonMode: boolean,
+): Promise<void> {
+  await api.request(`/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/read`, {
+    method: "PUT",
+    body: { read },
+  });
+  if (jsonMode) {
+    printJson({ messageId, read });
+  } else {
+    console.log(`Marked webhook message ${messageId} as ${read ? "read" : "unread"}.`);
+  }
+}
+
+async function setWebhookMessageStar(
+  api: NexusApi,
+  messageId: string,
+  starred: boolean,
+  jsonMode: boolean,
+): Promise<void> {
+  await api.request(`/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/star`, {
+    method: "PUT",
+    body: { starred },
+  });
+  if (jsonMode) {
+    printJson({ messageId, starred });
+  } else {
+    console.log(`${starred ? "Starred" : "Unstarred"} webhook message ${messageId}.`);
+  }
+}
+
+async function getWebhookUnreadCount(api: NexusApi, flags: Flags): Promise<void> {
+  const response = await api.request<{ count: number }>(
+    "/api/admin/webhook-inbox/unread-count",
+    {
+      query: {
+        webhookId: stringFlag(flags, "webhook-id") ?? stringFlag(flags, "webhookId"),
+      },
+    },
+  );
+  printJson(response);
+}
+
+async function getWebhookPendingActionCount(api: NexusApi): Promise<void> {
+  const response = await api.request<{ count: number }>(
+    "/api/admin/webhook-inbox/pending-action-count",
+  );
+  printJson(response);
+}
+
+async function webhookLabels(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const action = args[0] ?? "list";
+  if (action === "list") {
+    const response = await api.request<WebhookLabelsResponse>(
+      "/api/admin/webhook-labels",
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printWebhookLabels(response.labels);
+    }
+    return;
+  }
+
+  if (action === "create") {
+    const response = await api.request<WebhookLabelResponse>(
+      "/api/admin/webhook-labels",
+      {
+        method: "POST",
+        body: {
+          name: stringFlag(flags, "name") ?? requireArg(args, 1, "name"),
+          color: requiredFlag(flags, "color"),
+          autoArchive: boolFlag(flags, "auto-archive"),
+          autoDelete: boolFlag(flags, "auto-delete"),
+        },
+      },
+    );
+    printLabelResult(response, jsonMode);
+    return;
+  }
+
+  if (action === "find" || action === "find-or-create") {
+    const response = await api.request<WebhookLabelResponse>(
+      "/api/admin/webhook-labels/find-or-create",
+      {
+        method: "POST",
+        body: { name: stringFlag(flags, "name") ?? requireArg(args, 1, "name") },
+      },
+    );
+    printLabelResult(response, jsonMode);
+    return;
+  }
+
+  if (action === "update") {
+    const labelId = requireArg(args, 1, "labelId");
+    const body: Record<string, unknown> = {};
+    assignIfDefined(body, "name", stringFlag(flags, "name"));
+    assignIfDefined(body, "color", stringFlag(flags, "color"));
+    assignIfDefined(body, "sortOrder", numberFlag(flags, "sort-order"));
+    if (flagProvided(flags, "auto-archive")) {
+      body.autoArchive = boolFlag(flags, "auto-archive");
+    }
+    if (flagProvided(flags, "auto-delete")) {
+      body.autoDelete = boolFlag(flags, "auto-delete");
+    }
+    const response = await api.request<WebhookLabelResponse>(
+      `/api/admin/webhook-labels/${encodeURIComponent(labelId)}`,
+      { method: "PUT", body },
+    );
+    printLabelResult(response, jsonMode);
+    return;
+  }
+
+  if (action === "delete") {
+    requireYes(flags, "Deleting a webhook label");
+    const labelId = requireArg(args, 1, "labelId");
+    await api.request(`/api/admin/webhook-labels/${encodeURIComponent(labelId)}`, {
+      method: "DELETE",
+    });
+    if (jsonMode) {
+      printJson({ deleted: true, labelId });
+    } else {
+      console.log(`Deleted webhook label ${labelId}.`);
+    }
+    return;
+  }
+
+  if (action === "set") {
+    const messageId = requireArg(args, 1, "messageId");
+    const labelIds = [...args.slice(2), ...webhookLabelIds(flags)];
+    await setWebhookMessageLabels(api, messageId, labelIds, jsonMode);
+    return;
+  }
+
+  throw new Error(`Unknown webhook label command "${action}".`);
+}
+
+async function setWebhookMessageLabels(
+  api: NexusApi,
+  messageId: string,
+  labelIds: string[],
+  jsonMode: boolean,
+): Promise<void> {
+  await api.request(`/api/admin/webhook-inbox/${encodeURIComponent(messageId)}/labels`, {
+    method: "PUT",
+    body: { labelIds },
+  });
+  if (jsonMode) {
+    printJson({ messageId, labelIds });
+  } else {
+    console.log(`Set ${labelIds.length} label(s) on webhook message ${messageId}.`);
+  }
+}
+
+async function bulkWebhookInbox(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const action = normalizeWebhookBulkAction(requireArg(args, 0, "action"));
+  if (action === "delete") {
+    requireYes(flags, "Bulk deleting webhook inbox messages");
+  }
+  const messageIds = [...args.slice(1), ...webhookMessageIds(flags)];
+  if (!messageIds.length) {
+    throw new Error("Bulk webhook inbox actions require at least one message id.");
+  }
+  const labelIds = webhookLabelIds(flags);
+  const response = await api.request<WebhookInboxBulkResponse>(
+    "/api/admin/webhook-inbox/bulk",
+    {
+      method: "POST",
+      body: {
+        messageIds,
+        action,
+        labelIds: labelIds.length ? labelIds : undefined,
+      },
+    },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    console.log(`Bulk action ${action}: ${response.success} succeeded, ${response.failed} failed.`);
+  }
+}
+
+async function mergeWebhookInboxMessages(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const messageIds = [...args, ...webhookMessageIds(flags)];
+  if (messageIds.length < 2) {
+    throw new Error("Merging webhook inbox messages requires at least two message ids.");
+  }
+  const combinedText = await readContent(
+    flags,
+    ["combined-text"],
+    ["combined-file"],
+  );
+  if (!combinedText) {
+    throw new Error("Merging webhook inbox messages requires --combined-text or --combined-file.");
+  }
+  const response = await api.request<WebhookInboxMessageResponse>(
+    "/api/admin/webhook-inbox/merge",
+    { method: "POST", body: { messageIds, combinedText } },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookMessage(response.message);
+  }
+}
+
+async function dismissWebhookInboxMerge(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const messageIds = [...args, ...webhookMessageIds(flags)];
+  if (!messageIds.length) {
+    throw new Error("Dismissing a webhook merge requires at least one message id.");
+  }
+  const response = await api.request<{ success: boolean; processedCount: number }>(
+    "/api/admin/webhook-inbox/dismiss-merge",
+    { method: "POST", body: { messageIds } },
+  );
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    console.log(`Processed ${response.processedCount} dismissed merge message(s).`);
+  }
+}
+
+async function webhookCrashes(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const action = args[0] ?? "summary";
+  if (action === "summary") {
+    const response = await api.request<{ summary: CrashTelemetrySummary }>(
+      "/api/admin/webhook-inbox/crashes/summary",
+      {
+        query: {
+          includeArchived: boolFlag(flags, "include-archived") ? true : undefined,
+        },
+      },
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printCrashTelemetrySummary(response.summary);
+    }
+    return;
+  }
+
+  if (action === "list" || action === "reports") {
+    const response = await api.request<{ crashes: CrashTelemetryReport[] }>(
+      "/api/admin/webhook-inbox/crashes",
+      {
+        query: {
+          version: stringFlag(flags, "version"),
+          includeArchived: boolFlag(flags, "include-archived") ? true : undefined,
+        },
+      },
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printCrashTelemetryReports(response.crashes);
+    }
+    return;
+  }
+
+  throw new Error(`Unknown webhook crash command "${action}".`);
+}
+
+async function inspectWebhookCrashReport(
+  api: NexusApi,
+  flags: Flags,
+  _jsonMode: boolean,
+): Promise<void> {
+  const crashReportText = await readContent(
+    flags,
+    ["text", "crash-report"],
+    ["file", "crash-report-file"],
+  );
+  if (!crashReportText) {
+    throw new Error("Crash report inspection requires --text or --file.");
+  }
+  const response = await api.request<unknown>(
+    "/api/admin/webhook-inbox/inspect-crash-report",
+    { method: "POST", body: { crashReportText } },
+  );
+  printJson(response);
+}
+
+async function sortWebhookCrashSegments(api: NexusApi, flags: Flags): Promise<void> {
+  const raw = await readContent(flags, ["segments"], ["segments-file"]);
+  if (!raw) {
+    throw new Error("Crash segment sorting requires --segments-file or --segments JSON.");
+  }
+  const segments = JSON.parse(raw) as Array<{ id: string; text: string }>;
+  const response = await api.request<unknown>(
+    "/api/admin/webhook-inbox/sort-crash-segments",
+    { method: "POST", body: { segments } },
+  );
+  printJson(response);
+}
+
+async function webhookPendingGroups(
+  api: NexusApi,
+  args: string[],
+  jsonMode: boolean,
+): Promise<void> {
+  const action = args[0] ?? "list";
+  if (action === "list") {
+    const response = await api.request<{
+      groups: Array<{
+        compositeKey: string;
+        groupKey: string;
+        webhookId: string;
+        messageCount: number;
+        messageIds: string[];
+        firstMessageAt: string;
+        expiresAt: string;
+        remainingSeconds: number;
+        status: "pending" | "processing";
+      }>;
+    }>("/api/admin/webhooks/pending-merge-groups");
+    if (jsonMode) {
+      printJson(response);
+    } else if (!response.groups.length) {
+      console.log("No pending webhook merge groups.");
+    } else {
+      printTable(
+        ["Webhook", "Group", "Messages", "Status", "Remaining"],
+        response.groups.map((group) => [
+          group.webhookId,
+          group.groupKey,
+          String(group.messageCount),
+          group.status,
+          `${group.remainingSeconds}s`,
+        ]),
+      );
+    }
+    return;
+  }
+
+  if (action === "process" || action === "process-now") {
+    const response = await api.request<{ success: boolean }>(
+      `/api/admin/webhooks/${encodeURIComponent(requireArg(args, 1, "webhookId"))}/process-group-now`,
+      { method: "POST", body: { groupKey: requireArg(args, 2, "groupKey") } },
+    );
+    printJson(response);
+    return;
+  }
+
+  throw new Error(`Unknown webhook pending group command "${action}".`);
+}
+
+async function webhookEndpoints(
+  api: NexusApi,
+  args: string[],
+  flags: Flags,
+  jsonMode: boolean,
+): Promise<void> {
+  const action = args[0] ?? "list";
+  if (action === "list") {
+    const response = await api.request<InboundWebhooksResponse>(
+      "/api/admin/webhooks",
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printInboundWebhooks(response.webhooks);
+    }
+    return;
+  }
+
+  if (action === "processing-status") {
+    printJson(await api.request<unknown>("/api/admin/webhooks/processing-status"));
+    return;
+  }
+
+  if (action === "test") {
+    const payload = await readWebhookPayload(flags, {
+      event: "test",
+      message: "Hello from Nexus CLI.",
+    });
+    const response = await api.request<WebhookInboxMessageResponse>(
+      `/api/admin/webhooks/${encodeURIComponent(requireArg(args, 1, "webhookId"))}/test`,
+      {
+        method: "POST",
+        body: {
+          payload,
+          runActions: flagProvided(flags, "run-actions")
+            ? boolFlag(flags, "run-actions")
+            : undefined,
+        },
+      },
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printWebhookMessage(response.message);
+    }
+    return;
+  }
+
+  throw new Error(`Unknown webhook endpoint command "${action}".`);
+}
+
 async function fetchChange(
   api: NexusApi,
   changeRef: string,
@@ -1492,6 +2286,146 @@ async function apiFromProfile(flags: Flags): Promise<NexusApi> {
     overrideBaseUrl ?? profile.baseUrl,
     envToken ?? profile.token,
   );
+}
+
+async function currentUserId(api: NexusApi): Promise<string> {
+  const response = await api.request<{ user?: { id?: string }; id?: string }>(
+    "/api/auth/me",
+  );
+  const userId = response.user?.id ?? response.id;
+  if (!userId) {
+    throw new Error("Unable to determine the current user id.");
+  }
+  return userId;
+}
+
+function printLabelResult(
+  response: WebhookLabelResponse,
+  jsonMode: boolean,
+): void {
+  if (jsonMode) {
+    printJson(response);
+  } else {
+    printWebhookLabels([response.label]);
+  }
+}
+
+function webhookMessageUrl(api: NexusApi, messageId: string, flags: Flags): string {
+  const url = new URL("/admin/webhooks", appBaseUrl(api, flags));
+  url.searchParams.set("messageId", messageId);
+  return url.toString();
+}
+
+function appBaseUrl(api: NexusApi, flags: Flags): string {
+  const explicit =
+    stringFlag(flags, "app-url") ??
+    process.env.NEXUS_APP_URL ??
+    (boolFlag(flags, "local") ? process.env.NEXUS_LOCAL_CLIENT_URL : undefined);
+  if (explicit) {
+    return trimTrailingSlash(explicit);
+  }
+
+  const apiUrl = new URL(api.baseUrl);
+  if (
+    (apiUrl.hostname === "localhost" || apiUrl.hostname === "127.0.0.1") &&
+    apiUrl.port === "4000"
+  ) {
+    return DEFAULT_LOCAL_APP_URL;
+  }
+  return apiUrl.origin;
+}
+
+function webhookMessageIds(flags: Flags): string[] {
+  return [
+    ...flagValues(flags, "message-id"),
+    ...splitCsv(stringFlag(flags, "message-ids")),
+  ].filter(Boolean);
+}
+
+function webhookLabelIds(flags: Flags): string[] {
+  return [
+    ...flagValues(flags, "label-id"),
+    ...splitCsv(stringFlag(flags, "label-ids")),
+  ].filter(Boolean);
+}
+
+function normalizeWebhookBulkAction(value: string): WebhookInboxBulkAction {
+  const normalized = value.trim().replace(/[-_]/g, "").toLowerCase();
+  const match = WEBHOOK_BULK_ACTIONS.find(
+    (action) => action.toLowerCase() === normalized,
+  );
+  if (!match) {
+    throw new Error(
+      `Invalid bulk action "${value}". Expected one of: ${WEBHOOK_BULK_ACTIONS.join(", ")}.`,
+    );
+  }
+  return match;
+}
+
+function normalizeChoice<T extends string>(
+  value: string,
+  allowed: readonly T[],
+): T {
+  const normalized = value.trim().replace(/-/g, "_").toLowerCase();
+  const match = allowed.find((item) => item.toLowerCase() === normalized);
+  if (!match) {
+    throw new Error(
+      `Invalid value "${value}". Expected one of: ${allowed.join(", ")}.`,
+    );
+  }
+  return match;
+}
+
+function eqemuOracleFlag(flags: Flags): boolean | undefined {
+  if (flagProvided(flags, "use-eqemu-oracle-context")) {
+    return boolFlag(flags, "use-eqemu-oracle-context");
+  }
+  if (flagProvided(flags, "oracle")) {
+    return boolFlag(flags, "oracle");
+  }
+  return undefined;
+}
+
+async function readWebhookPayload(
+  flags: Flags,
+  fallback: unknown,
+): Promise<unknown> {
+  const raw = await readContent(flags, ["payload"], ["payload-file"]);
+  if (raw === null) {
+    return fallback;
+  }
+  return parseJsonOrString(raw);
+}
+
+function parseJsonOrString(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function assignIfDefined(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (typeof value !== "undefined") {
+    target[key] = value;
+  }
+}
+
+function splitCsv(value: string | undefined): string[] {
+  return value
+    ? value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function flagProvided(flags: Flags, name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(flags, name);
 }
 
 function resolveChecklistItem(
@@ -1751,6 +2685,10 @@ function localOverrideUrl(): string | undefined {
   return process.env.NEXUS_LOCAL_URL;
 }
 
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
 function openBrowser(url: string): void {
   const currentPlatform = platform();
   const command =
@@ -1813,11 +2751,25 @@ Usage:
   nexus tm server-version get | set-test <version> | set-live <version> | clear-test | clear-live
   nexus tm users list | set-tester <userId> true|false --yes
   nexus tm settings get | update --file settings.json --yes
+  nexus inbox list [--status RECEIVED|PENDING_MERGE|PROCESSED|FAILED] [--include-archived]
+  nexus inbox show <messageId>
+  nexus inbox link <messageId> [--app-url url] [--open]
+  nexus inbox assign <messageId> <adminId|me> | unassign <messageId>
+  nexus inbox archive|unarchive|delete <messageId>
+  nexus inbox review <messageId> [--provider gemini|openai] [--use-eqemu-oracle-context]
+  nexus inbox read|unread|star|unstar <messageId>
+  nexus inbox labels list|create|find|update|delete|set ...
+  nexus inbox bulk <action> <messageId...>
+  nexus inbox merge <messageId...> --combined-file path
+  nexus inbox crashes summary|list
+  nexus inbox groups list|process <webhookId> <groupKey>
+  nexus inbox hooks list|test|processing-status
 
 Global flags:
   --profile <name>     Use a configured profile
   --nexus-url <url>    Override the profile Nexus URL
   --local              Use http://localhost:4000 and the local profile
+  --app-url <url>      Override the web app URL for generated inbox links
   --json               Print JSON output
   --html               Treat text/file content as already-sanitized HTML
   --yes                Confirm high-impact commands

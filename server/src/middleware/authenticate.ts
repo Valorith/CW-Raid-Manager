@@ -10,7 +10,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   if (bearerMatch) {
     const cliUser = await authenticateCliBearerToken(bearerMatch[1]);
     if (cliUser) {
-      if (!cliTokenCanAccessPath(request.url, cliUser.cliScopes)) {
+      if (!cliTokenCanAccessPath(request.url, cliUser.cliScopes, request.method)) {
         reply.forbidden('CLI session is not authorized for this API.');
         return;
       }

@@ -1,8 +1,14 @@
 import type {
+  CrashTelemetryReport,
+  CrashTelemetrySummary,
+  InboundWebhook,
+  InboundWebhookMessage,
   TestChange,
   TestChangeNote,
   TestChangeTester,
   TestManagerServerVersion,
+  WebhookInboxResponse,
+  WebhookMessageLabel,
 } from "./types.js";
 
 export function printJson(value: unknown): void {
@@ -126,6 +132,158 @@ export function printTesters(testers: TestChangeTester[]): void {
   );
 }
 
+export function printWebhookInboxList(response: WebhookInboxResponse): void {
+  if (!response.messages.length) {
+    console.log("No webhook inbox messages found.");
+    return;
+  }
+
+  printTable(
+    ["ID", "Received", "Webhook", "Status", "Assigned", "Labels", "Summary"],
+    response.messages.map((message) => [
+      message.id,
+      formatDate(message.receivedAt),
+      message.webhook?.label ?? message.webhookId,
+      `${message.status}${message.archivedAt ? " archived" : ""}`,
+      message.assignedAdmin?.displayName ?? message.assignedAdminId ?? "",
+      message.labels?.map((label) => label.name).join(", ") ?? "",
+      summarizeWebhookMessage(message, 80),
+    ]),
+  );
+  console.log(`Total: ${response.total}`);
+}
+
+export function printWebhookMessage(message: InboundWebhookMessage): void {
+  console.log(`Webhook message ${message.id}`);
+  console.log(`Status: ${message.status}${message.archivedAt ? " archived" : ""}`);
+  console.log(`Received: ${formatDate(message.receivedAt)}`);
+  console.log(`Webhook: ${message.webhook?.label ?? message.webhookId}`);
+  if (message.sourceIp) {
+    console.log(`Source IP: ${message.sourceIp}`);
+  }
+  console.log(
+    `Read: ${message.isRead ? "yes" : "no"}  Starred: ${message.isStarred ? "yes" : "no"}`,
+  );
+  console.log(
+    `Assigned: ${message.assignedAdmin?.displayName ?? message.assignedAdminId ?? "unassigned"}`,
+  );
+  if (message.labels?.length) {
+    console.log(`Labels: ${message.labels.map((label) => label.name).join(", ")}`);
+  }
+  if (message.mergedFromIds?.length) {
+    console.log(`Merged from: ${message.mergedFromIds.join(", ")}`);
+  }
+  if (message.linkedTestChanges?.length) {
+    console.log(
+      `Linked changes: ${message.linkedTestChanges
+        .map((change) => `#${change.publicId} ${change.title}`)
+        .join("; ")}`,
+    );
+  }
+
+  if (message.actionRuns?.length) {
+    console.log("\nAction runs:");
+    printTable(
+      ["ID", "Action", "Status", "Duration", "Error"],
+      message.actionRuns.map((run) => [
+        run.id,
+        run.action?.name ?? run.actionId,
+        run.status,
+        typeof run.durationMs === "number" ? `${run.durationMs}ms` : "",
+        run.error ?? "",
+      ]),
+    );
+  }
+
+  const body = webhookBodyText(message);
+  if (body) {
+    console.log("\nBody:");
+    console.log(truncate(body, 4000));
+  }
+}
+
+export function printWebhookLabels(labels: WebhookMessageLabel[]): void {
+  if (!labels.length) {
+    console.log("No webhook labels found.");
+    return;
+  }
+
+  printTable(
+    ["ID", "Name", "Color", "Auto Archive", "Auto Delete"],
+    labels.map((label) => [
+      label.id,
+      label.name,
+      label.color,
+      label.autoArchive ? "yes" : "no",
+      label.autoDelete ? "yes" : "no",
+    ]),
+  );
+}
+
+export function printInboundWebhooks(webhooks: InboundWebhook[]): void {
+  if (!webhooks.length) {
+    console.log("No inbound webhooks found.");
+    return;
+  }
+
+  printTable(
+    ["ID", "Label", "Enabled", "Type", "Actions", "Last Received"],
+    webhooks.map((webhook) => [
+      webhook.id,
+      webhook.label,
+      webhook.isEnabled ? "yes" : "no",
+      webhook.intakeType,
+      String(webhook.actions?.length ?? 0),
+      webhook.lastReceivedAt ? formatDate(webhook.lastReceivedAt) : "",
+    ]),
+  );
+}
+
+export function printCrashTelemetrySummary(summary: CrashTelemetrySummary): void {
+  console.log(
+    `Crashes: ${summary.totalCrashes} total, ${summary.uniqueCrashes} unique, ${summary.reviewedCrashes} reviewed`,
+  );
+  console.log(`Versions: ${summary.versions}`);
+  if (summary.latestCrashAt) {
+    console.log(`Latest: ${formatDate(summary.latestCrashAt)}`);
+  }
+  if (!summary.groups.length) {
+    return;
+  }
+  console.log("");
+  printTable(
+    ["Version", "Total", "Unique", "Reviewed", "Servers", "Last Seen"],
+    summary.groups.map((group) => [
+      group.serverVersion,
+      String(group.totalCrashes),
+      String(group.uniqueCrashes),
+      String(group.reviewedCrashes),
+      String(group.affectedServers),
+      formatDate(group.lastSeenAt),
+    ]),
+  );
+}
+
+export function printCrashTelemetryReports(reports: CrashTelemetryReport[]): void {
+  if (!reports.length) {
+    console.log("No crash telemetry reports found.");
+    return;
+  }
+
+  printTable(
+    ["ID", "Message", "Version", "Status", "Review", "Received", "Summary"],
+    reports.map((report) => [
+      report.id,
+      report.messageId,
+      report.serverVersion,
+      report.status,
+      report.reviewStatus ?? "",
+      formatDate(report.receivedAt),
+      report.reviewSummary ?? "",
+    ]),
+  );
+}
+
 export function printTable(headers: string[], rows: string[][]): void {
   const widths = headers.map((header, column) =>
     Math.max(
@@ -151,4 +309,36 @@ function formatDate(value: string): string {
     return value;
   }
   return date.toLocaleString();
+}
+
+function summarizeWebhookMessage(
+  message: InboundWebhookMessage,
+  maxLength: number,
+): string {
+  const body = webhookBodyText(message).replace(/\s+/g, " ").trim();
+  return truncate(body, maxLength);
+}
+
+function webhookBodyText(message: InboundWebhookMessage): string {
+  if (typeof message.rawBody === "string" && message.rawBody.trim()) {
+    return message.rawBody.trim();
+  }
+  if (typeof message.payload === "string") {
+    return message.payload.trim();
+  }
+  if (typeof message.payload === "undefined" || message.payload === null) {
+    return "";
+  }
+  try {
+    return JSON.stringify(message.payload, null, 2);
+  } catch {
+    return String(message.payload);
+  }
+}
+
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
 }
