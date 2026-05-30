@@ -3261,6 +3261,13 @@ export interface TestManagerSettings {
   discordNotifications: TestManagerDiscordNotificationSettings;
 }
 
+export interface TestManagerServerVersion {
+  currentTestServerVersion: string | null;
+  currentLiveServerVersion: string | null;
+  futureChangesPaused?: number;
+  versionChangesResumed?: number;
+}
+
 export interface TestChangeChecklistItem {
   id: string;
   title: string;
@@ -3417,6 +3424,7 @@ export interface TestChange {
   priority: TestChangePriority;
   status: TestChangeStatus;
   targetBuild: string | null;
+  testServerVersion: string | null;
   githubPullRequest: TestChangePullRequest | null;
   githubIssue: TestChangeIssue | null;
   contextLinks: TestChangeContextLink[];
@@ -3479,6 +3487,7 @@ export interface CreateTestChangePayload {
   subsystem: string;
   priority: TestChangePriority;
   targetBuild?: string | null;
+  testServerVersion?: string | null;
   githubPrUrl?: string | null;
   githubIssueUrl?: string | null;
   contextLinks?: TestChangeContextLink[];
@@ -3546,6 +3555,26 @@ export const api = {
     const response = await axios.get('/api/test-manager/dashboard');
     return response.data;
   },
+  async fetchTestManagerServerVersion(): Promise<TestManagerServerVersion> {
+    const response = await axios.get('/api/test-manager/server-version');
+    return response.data;
+  },
+  async updateTestManagerServerVersion(
+    currentTestServerVersion: string | null
+  ): Promise<TestManagerServerVersion> {
+    const response = await axios.put('/api/test-manager/server-version', {
+      currentTestServerVersion
+    });
+    return response.data;
+  },
+  async updateTestManagerLiveServerVersion(
+    currentLiveServerVersion: string | null
+  ): Promise<{ currentLiveServerVersion: string | null }> {
+    const response = await axios.put('/api/test-manager/live-server-version', {
+      currentLiveServerVersion
+    });
+    return response.data;
+  },
   async fetchTestManagerNextPatch(view: NextPatchChangeView = 'complete'): Promise<TestChange[]> {
     const response = await axios.get('/api/test-manager/next-patch', {
       params: { view }
@@ -3600,6 +3629,16 @@ export const api = {
     const response = await axios.patch(
       `/api/test-manager/changes/${encodeURIComponent(changeId)}/context-links`,
       { contextLinks }
+    );
+    return response.data.change;
+  },
+  async updateTestChangeVersion(
+    changeId: string,
+    testServerVersion: string | null
+  ): Promise<TestChange> {
+    const response = await axios.patch(
+      `/api/test-manager/changes/${encodeURIComponent(changeId)}/test-server-version`,
+      { testServerVersion }
     );
     return response.data.change;
   },

@@ -18,6 +18,143 @@
       </div>
     </section>
 
+    <section class="tm-version-bar" aria-label="Current test server version">
+      <button
+        v-if="canManageCurrentTestServerVersion && !currentTestServerVersionEditing"
+        type="button"
+        class="tm-current-version-badge"
+        :class="{ 'tm-current-version-badge--unset': !currentTestServerVersion }"
+        aria-label="Edit current test server version"
+        @click="openCurrentTestServerVersionEditor"
+      >
+        <span class="tm-current-version-badge__signal" aria-hidden="true"></span>
+        <span class="tm-current-version-badge__copy">
+          <span>Current Test Server</span>
+          <strong>{{ currentTestServerVersionLabel }}</strong>
+        </span>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m14.2 5.8 4 4" />
+          <path d="M4 20h4.4L19 9.4a2.8 2.8 0 0 0-4-4L4.4 16 4 20Z" />
+        </svg>
+      </button>
+      <span
+        v-else-if="!currentTestServerVersionEditing"
+        class="tm-current-version-badge"
+        :class="{ 'tm-current-version-badge--unset': !currentTestServerVersion }"
+      >
+        <span class="tm-current-version-badge__signal" aria-hidden="true"></span>
+        <span class="tm-current-version-badge__copy">
+          <span>Current Test Server</span>
+          <strong>{{ currentTestServerVersionLabel }}</strong>
+        </span>
+      </span>
+      <form
+        v-else
+        class="tm-current-version-editor"
+        aria-label="Set current test server version"
+        @submit.prevent="saveCurrentTestServerVersion"
+      >
+        <label class="tm-current-version-editor__field">
+          <span>Current Test Server</span>
+          <input
+            v-model.trim="currentTestServerVersionDraft"
+            class="tm-input"
+            maxlength="80"
+            placeholder="1.2.3"
+            autocomplete="off"
+            :disabled="currentTestServerVersionSaving"
+          />
+        </label>
+        <button
+          type="submit"
+          class="tm-icon-btn tm-current-version-editor__save"
+          aria-label="Save current test server version"
+          :disabled="currentTestServerVersionSaving"
+        >
+          ✓
+        </button>
+        <button
+          type="button"
+          class="tm-icon-btn"
+          aria-label="Cancel current test server version edit"
+          :disabled="currentTestServerVersionSaving"
+          @click="cancelCurrentTestServerVersionEditor"
+        >
+          ×
+        </button>
+      </form>
+      <p v-if="currentTestServerVersionError" class="tm-version-bar__error">
+        {{ currentTestServerVersionError }}
+      </p>
+      <button
+        v-if="canManageCurrentLiveServerVersion && !currentLiveServerVersionEditing"
+        type="button"
+        class="tm-current-version-badge tm-current-version-badge--live"
+        :class="{ 'tm-current-version-badge--unset': !currentLiveServerVersion }"
+        aria-label="Edit current live server version"
+        @click="openCurrentLiveServerVersionEditor"
+      >
+        <span class="tm-current-version-badge__signal" aria-hidden="true"></span>
+        <span class="tm-current-version-badge__copy">
+          <span>Current Live Server</span>
+          <strong>{{ currentLiveServerVersionLabel }}</strong>
+        </span>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m14.2 5.8 4 4" />
+          <path d="M4 20h4.4L19 9.4a2.8 2.8 0 0 0-4-4L4.4 16 4 20Z" />
+        </svg>
+      </button>
+      <span
+        v-else-if="!currentLiveServerVersionEditing"
+        class="tm-current-version-badge tm-current-version-badge--live"
+        :class="{ 'tm-current-version-badge--unset': !currentLiveServerVersion }"
+      >
+        <span class="tm-current-version-badge__signal" aria-hidden="true"></span>
+        <span class="tm-current-version-badge__copy">
+          <span>Current Live Server</span>
+          <strong>{{ currentLiveServerVersionLabel }}</strong>
+        </span>
+      </span>
+      <form
+        v-else
+        class="tm-current-version-editor tm-current-version-editor--live"
+        aria-label="Set current live server version"
+        @submit.prevent="saveCurrentLiveServerVersion"
+      >
+        <label class="tm-current-version-editor__field">
+          <span>Current Live Server</span>
+          <input
+            v-model.trim="currentLiveServerVersionDraft"
+            class="tm-input"
+            maxlength="80"
+            placeholder="1.2.3"
+            autocomplete="off"
+            :disabled="currentLiveServerVersionSaving"
+          />
+        </label>
+        <button
+          type="submit"
+          class="tm-icon-btn tm-current-version-editor__save tm-current-version-editor__save--live"
+          aria-label="Save current live server version"
+          :disabled="currentLiveServerVersionSaving"
+        >
+          ✓
+        </button>
+        <button
+          type="button"
+          class="tm-icon-btn"
+          aria-label="Cancel current live server version edit"
+          :disabled="currentLiveServerVersionSaving"
+          @click="cancelCurrentLiveServerVersionEditor"
+        >
+          ×
+        </button>
+      </form>
+      <p v-if="currentLiveServerVersionError" class="tm-version-bar__error">
+        {{ currentLiveServerVersionError }}
+      </p>
+    </section>
+
     <nav class="tm-subnav" aria-label="Test Manager navigation">
       <RouterLink
         v-for="item in visibleSubnavItems"
@@ -71,7 +208,7 @@
                 >
                   <title id="test-state-graph-title">Test Manager state trend</title>
                   <desc id="test-state-graph-desc">
-                    Multi-line chart comparing active changes, awaiting pickup, in-progress tests,
+                    Multi-line chart comparing open changes, awaiting pickup, in-progress tests,
                     and at-risk changes across the last seven days.
                   </desc>
                   <defs>
@@ -342,6 +479,32 @@
                 >
                   {{ viewerChangeListStatus(change).label }}
                 </span>
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-version-badge tm-version-badge--compact"
+                  :class="[
+                    `tm-version-badge--${changeVersionTone(change)}`,
+                    'tm-version-badge--editable'
+                  ]"
+                  :title="changeVersionTitle(change, true)"
+                  :aria-label="changeVersionEditLabel(change)"
+                  @click.stop="openChangeVersionEditor(change)"
+                  @keydown.enter.stop
+                  @keydown.space.stop
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(change) }}
+                </button>
+                <span
+                  v-else
+                  class="tm-version-badge tm-version-badge--compact"
+                  :class="`tm-version-badge--${changeVersionTone(change)}`"
+                  :title="changeVersionTitle(change)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(change) }}
+                </span>
               </span>
             </div>
             <div class="tm-change-status-counters" aria-hidden="true">
@@ -437,10 +600,34 @@
               <div class="tm-detail__kicker">
                 <p class="tm-id">Change #{{ activeChange.publicId }}</p>
                 <StatusPill :status="activeChange.status" compact />
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-version-badge"
+                  :class="[
+                    `tm-version-badge--${changeVersionTone(activeChange)}`,
+                    'tm-version-badge--editable'
+                  ]"
+                  :title="changeVersionTitle(activeChange, true)"
+                  :aria-label="changeVersionEditLabel(activeChange)"
+                  @click.stop="openChangeVersionEditor(activeChange)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(activeChange) }}
+                </button>
+                <span
+                  v-else
+                  class="tm-version-badge"
+                  :class="`tm-version-badge--${changeVersionTone(activeChange)}`"
+                  :title="changeVersionTitle(activeChange)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(activeChange) }}
+                </span>
                 <span
                   v-if="!isChangeReadyToTest(activeChange)"
                   class="tm-readiness-badge tm-readiness-badge--not-ready"
-                  title="Tester input is paused until an admin marks this change ready."
+                  :title="changeReadinessTitle(activeChange)"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M12 8v5" />
@@ -1475,7 +1662,7 @@
                 <span
                   v-if="!nextPatchViewIsComplete && !isChangeReadyToTest(change)"
                   class="tm-readiness-badge tm-readiness-badge--not-ready tm-readiness-badge--compact"
-                  title="Tester input is paused until an admin marks this change ready."
+                  :title="changeReadinessTitle(change)"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M12 8v5" />
@@ -1487,6 +1674,30 @@
                 <span class="tm-next-patch-card__build">{{
                   change.targetBuild || 'No target build'
                 }}</span>
+                <button
+                  v-if="authStore.isAdmin"
+                  type="button"
+                  class="tm-version-badge tm-version-badge--compact"
+                  :class="[
+                    `tm-version-badge--${changeVersionTone(change)}`,
+                    'tm-version-badge--editable'
+                  ]"
+                  :title="changeVersionTitle(change, true)"
+                  :aria-label="changeVersionEditLabel(change)"
+                  @click="openChangeVersionEditor(change)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(change) }}
+                </button>
+                <span
+                  v-else
+                  class="tm-version-badge tm-version-badge--compact"
+                  :class="`tm-version-badge--${changeVersionTone(change)}`"
+                  :title="changeVersionTitle(change)"
+                >
+                  <span aria-hidden="true">v</span>
+                  {{ changeVersionLabel(change) }}
+                </span>
                 <span class="tm-next-patch-card__time">{{
                   change.closedAt
                     ? `Closed ${relativeTime(change.closedAt)}`
@@ -1915,6 +2126,10 @@
           <dd>{{ statusLabel(changeTooltip.change.status) }}</dd>
         </div>
         <div>
+          <dt>Version</dt>
+          <dd>{{ changeVersionLabel(changeTooltip.change) }}</dd>
+        </div>
+        <div>
           <dt>Author</dt>
           <dd>{{ changeTooltip.change.createdBy?.displayName ?? 'Unknown' }}</dd>
         </div>
@@ -1927,6 +2142,101 @@
           <dd>{{ changeTooltip.change.summary.testerCount }}</dd>
         </div>
       </dl>
+    </div>
+
+    <div
+      v-if="versionEditorChange"
+      class="tm-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tm-version-editor-title"
+    >
+      <form class="tm-modal__panel tm-version-editor-modal" @submit.prevent="saveChangeVersion">
+        <header class="tm-version-editor-modal__header">
+          <div>
+            <p class="tm-modal-eyebrow">Change version</p>
+            <h2 id="tm-version-editor-title">Edit Active Version</h2>
+            <p>
+              #{{ versionEditorChange.publicId }}
+              {{ versionEditorChange.title }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="tm-icon-btn"
+            aria-label="Close version editor"
+            :disabled="versionEditorSaving"
+            @click="closeChangeVersionEditor"
+          >
+            ×
+          </button>
+        </header>
+
+        <datalist id="tm-change-version-editor-options">
+          <option v-if="currentTestServerVersion" :value="currentTestServerVersion"></option>
+        </datalist>
+
+        <div class="tm-version-editor-modal__body">
+          <label class="tm-field tm-combo-field">
+            <span>Active version <small>optional</small></span>
+            <div class="tm-combo-field__control">
+              <input
+                v-model.trim="versionEditorDraft"
+                class="tm-input"
+                list="tm-change-version-editor-options"
+                maxlength="80"
+                placeholder="1.2.3"
+                autocomplete="off"
+                :disabled="versionEditorSaving"
+              />
+              <span aria-hidden="true">v</span>
+            </div>
+          </label>
+
+          <div class="tm-version-editor-modal__quick-actions">
+            <button
+              type="button"
+              class="tm-version-editor-modal__quick-action"
+              :disabled="!currentTestServerVersion || versionEditorSaving"
+              @click="useCurrentVersionForChangeEditor"
+            >
+              Use current
+            </button>
+            <button
+              type="button"
+              class="tm-version-editor-modal__quick-action"
+              :disabled="versionEditorSaving"
+              @click="clearChangeVersionEditor"
+            >
+              Clear
+            </button>
+          </div>
+
+          <p
+            class="tm-version-editor-modal__preview"
+            :class="`tm-version-editor-modal__preview--${versionEditorTone}`"
+          >
+            {{ versionEditorPreview }}
+          </p>
+          <p v-if="versionEditorError" class="tm-version-editor-modal__error">
+            {{ versionEditorError }}
+          </p>
+        </div>
+
+        <footer class="tm-version-editor-modal__footer">
+          <button
+            type="button"
+            class="tm-btn tm-btn--ghost"
+            :disabled="versionEditorSaving"
+            @click="closeChangeVersionEditor"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="tm-btn tm-btn--primary" :disabled="versionEditorSaving">
+            Save Version
+          </button>
+        </footer>
+      </form>
     </div>
 
     <div
@@ -1966,6 +2276,9 @@
         </datalist>
         <datalist id="tm-create-build-options">
           <option v-for="option in createTargetBuildOptions" :key="option" :value="option"></option>
+        </datalist>
+        <datalist id="tm-create-version-options">
+          <option v-if="currentTestServerVersion" :value="currentTestServerVersion"></option>
         </datalist>
 
         <div class="tm-create-modal__body">
@@ -2044,6 +2357,19 @@
                       placeholder="No target, hotfix, custom build..."
                     />
                     <span aria-hidden="true">⌄</span>
+                  </div>
+                </label>
+                <label class="tm-field tm-combo-field">
+                  <span>Active version <small>optional</small></span>
+                  <div class="tm-combo-field__control">
+                    <input
+                      v-model="createForm.testServerVersion"
+                      class="tm-input"
+                      list="tm-create-version-options"
+                      maxlength="80"
+                      placeholder="1.2.3"
+                    />
+                    <span aria-hidden="true">v</span>
                   </div>
                 </label>
                 <div class="tm-github-fields tm-field--full">
@@ -2252,6 +2578,9 @@
         <datalist id="tm-edit-build-options">
           <option v-for="option in createTargetBuildOptions" :key="option" :value="option"></option>
         </datalist>
+        <datalist id="tm-edit-version-options">
+          <option v-if="currentTestServerVersion" :value="currentTestServerVersion"></option>
+        </datalist>
 
         <div class="tm-edit-modal__body">
           <section class="tm-create-section">
@@ -2300,6 +2629,19 @@
                     list="tm-edit-build-options"
                   />
                   <span aria-hidden="true">⌄</span>
+                </div>
+              </label>
+              <label class="tm-field tm-combo-field">
+                <span>Active version <small>optional</small></span>
+                <div class="tm-combo-field__control">
+                  <input
+                    v-model="editForm.testServerVersion"
+                    class="tm-input"
+                    list="tm-edit-version-options"
+                    maxlength="80"
+                    placeholder="1.2.3"
+                  />
+                  <span aria-hidden="true">v</span>
                 </div>
               </label>
               <label class="tm-field">
@@ -3628,6 +3970,7 @@ import {
   type TestManagerDiscordEventKey,
   type TestManagerDashboard,
   type TestManagerNextPatchCounts,
+  type TestManagerServerVersion,
   type TestManagerSettings,
   type TestManagerUserSummary,
   type UpdateTestChangePayload,
@@ -3660,6 +4003,7 @@ interface ChangeTooltipState {
   top: number;
   left: number;
 }
+type VersionBadgeTone = 'current' | 'future' | 'unset';
 interface PatchNoteDraft {
   changeId: string;
   publicId: number;
@@ -3701,6 +4045,20 @@ const settings = ref<TestManagerSettings | null>(null);
 const savedSettings = ref<TestManagerSettings | null>(null);
 const settingsSaving = ref(false);
 const settingsMessage = ref('');
+const currentTestServerVersion = ref<string | null>(null);
+const currentTestServerVersionDraft = ref('');
+const currentTestServerVersionEditing = ref(false);
+const currentTestServerVersionSaving = ref(false);
+const currentTestServerVersionError = ref('');
+const currentLiveServerVersion = ref<string | null>(null);
+const currentLiveServerVersionDraft = ref('');
+const currentLiveServerVersionEditing = ref(false);
+const currentLiveServerVersionSaving = ref(false);
+const currentLiveServerVersionError = ref('');
+const versionEditorChange = ref<TestChange | null>(null);
+const versionEditorDraft = ref('');
+const versionEditorSaving = ref(false);
+const versionEditorError = ref('');
 const changesGrid = ref<HTMLElement | null>(null);
 const changeLayout = ref<ChangeLayoutWidths>(loadChangeLayoutPreference());
 const activeChangeLayoutDrag = ref<ChangeLayoutPane | null>(null);
@@ -4137,6 +4495,7 @@ const createForm = ref<CreateTestChangePayload>({
   subsystem: '',
   priority: 'MEDIUM',
   targetBuild: '',
+  testServerVersion: '',
   githubPrUrl: '',
   githubIssueUrl: '',
   includeInNextPatch: true,
@@ -4152,6 +4511,7 @@ const editForm = ref<UpdateTestChangePayload>({
   subsystem: '',
   priority: 'MEDIUM',
   targetBuild: '',
+  testServerVersion: '',
   githubPrUrl: '',
   githubIssueUrl: '',
   includeInNextPatch: true,
@@ -4349,7 +4709,10 @@ const createSummary = computed(() => {
   const category = createForm.value.category.trim() || 'Unrouted';
   const subsystem = createForm.value.subsystem.trim() || 'No subsystem';
   const build = createForm.value.targetBuild?.trim() || 'No target build';
-  return `${category} / ${subsystem} · ${build}`;
+  const version = createForm.value.testServerVersion?.trim()
+    ? versionDisplayValue(createForm.value.testServerVersion)
+    : 'No version';
+  return `${category} / ${subsystem} · ${build} · ${version}`;
 });
 const createAutoCloseDetail = computed(() => {
   const target = normalizeAutoClosePassCount(createForm.value.autoClosePassCount);
@@ -4393,6 +4756,44 @@ const editAutoCloseProgress = computed(() => {
 const settingsDirty = computed(
   () => JSON.stringify(settings.value) !== JSON.stringify(savedSettings.value)
 );
+const canManageCurrentTestServerVersion = computed(() => authStore.canManageTestManagerSettings);
+const canManageCurrentLiveServerVersion = computed(() => authStore.canManageTestManagerSettings);
+const currentTestServerVersionLabel = computed(() =>
+  currentTestServerVersion.value ? versionDisplayValue(currentTestServerVersion.value) : 'Not Set'
+);
+const currentLiveServerVersionLabel = computed(() =>
+  currentLiveServerVersion.value ? versionDisplayValue(currentLiveServerVersion.value) : 'Not Set'
+);
+const versionEditorTone = computed<VersionBadgeTone>(() => {
+  const changeVersion = normalizeVersionText(versionEditorDraft.value);
+  const currentVersion = normalizeVersionText(currentTestServerVersion.value);
+  if (!changeVersion || !currentVersion) {
+    return 'unset';
+  }
+  const comparison = compareVersionValues(changeVersion, currentVersion);
+  if (comparison === null) {
+    return 'unset';
+  }
+  return comparison > 0 ? 'future' : 'current';
+});
+const versionEditorPreview = computed(() => {
+  const changeVersion = normalizeVersionText(versionEditorDraft.value);
+  const currentVersion = normalizeVersionText(currentTestServerVersion.value);
+  if (!changeVersion) {
+    return 'No active version is set for this change.';
+  }
+  if (!currentVersion) {
+    return `Active in ${versionDisplayValue(changeVersion)}. Current test server version is not set.`;
+  }
+
+  const comparison = compareVersionValues(changeVersion, currentVersion);
+  if (comparison === null) {
+    return `Active in ${versionDisplayValue(changeVersion)}. Current test server version is ${versionDisplayValue(currentVersion)}.`;
+  }
+  return comparison > 0
+    ? `Newer than current test server ${versionDisplayValue(currentVersion)}. Tester input will pause.`
+    : `Current or older than test server ${versionDisplayValue(currentVersion)}.`;
+});
 
 const nextPatchViewIsComplete = computed(() => nextPatchView.value === 'complete');
 const canUsePatchNotesGenerator = computed(
@@ -4644,7 +5045,7 @@ const testStateGraphRawSeries = computed(() => {
   return [
     {
       key: 'active',
-      label: 'Active changes',
+      label: 'Open changes',
       color: '#55b7ff',
       values: days.map((day) =>
         Math.min(
@@ -4658,7 +5059,7 @@ const testStateGraphRawSeries = computed(() => {
       key: 'awaiting',
       label: 'Awaiting pickup',
       color: '#d9a45f',
-      values: statusValues(['SUBMITTED', 'AWAITING_TEST'], awaitingNow)
+      values: statusValues(['SUBMITTED', 'AWAITING_TEST', 'RENEWED'], awaitingNow)
     },
     {
       key: 'testing',
@@ -4718,7 +5119,7 @@ const testStateGraphStats = computed(() => {
   const metrics = dashboard.value?.metrics;
   return [
     {
-      label: 'Active',
+      label: 'Open',
       value: dashboardGraphChangeCount.value,
       detail: 'open changes'
     },
@@ -4784,7 +5185,7 @@ const testStateGraphInsights = computed(() => {
     {
       label: 'Hot component',
       value: testStateComponentLeader.value.name,
-      detail: `${testStateComponentLeader.value.count} active change${
+      detail: `${testStateComponentLeader.value.count} open change${
         testStateComponentLeader.value.count === 1 ? '' : 's'
       }`
     }
@@ -5131,6 +5532,240 @@ async function loadSettings() {
   settingsMessage.value = '';
 }
 
+async function loadCurrentTestServerVersion() {
+  try {
+    const result = await api.fetchTestManagerServerVersion();
+    currentTestServerVersion.value = result.currentTestServerVersion;
+    currentLiveServerVersion.value = result.currentLiveServerVersion;
+    currentTestServerVersionError.value = '';
+    currentLiveServerVersionError.value = '';
+  } catch (error) {
+    const message = getApiErrorMessage(error, 'Unable to load current server versions.');
+    currentTestServerVersionError.value = message;
+    currentLiveServerVersionError.value = message;
+  }
+}
+
+function openCurrentTestServerVersionEditor() {
+  if (!canManageCurrentTestServerVersion.value || currentTestServerVersionSaving.value) {
+    return;
+  }
+
+  currentTestServerVersionDraft.value = currentTestServerVersion.value ?? '';
+  currentTestServerVersionError.value = '';
+  currentTestServerVersionEditing.value = true;
+}
+
+function cancelCurrentTestServerVersionEditor() {
+  if (currentTestServerVersionSaving.value) {
+    return;
+  }
+
+  currentTestServerVersionDraft.value = '';
+  currentTestServerVersionError.value = '';
+  currentTestServerVersionEditing.value = false;
+}
+
+function openCurrentLiveServerVersionEditor() {
+  if (!canManageCurrentLiveServerVersion.value || currentLiveServerVersionSaving.value) {
+    return;
+  }
+
+  currentLiveServerVersionDraft.value = currentLiveServerVersion.value ?? '';
+  currentLiveServerVersionError.value = '';
+  currentLiveServerVersionEditing.value = true;
+}
+
+function cancelCurrentLiveServerVersionEditor() {
+  if (currentLiveServerVersionSaving.value) {
+    return;
+  }
+
+  currentLiveServerVersionDraft.value = '';
+  currentLiveServerVersionError.value = '';
+  currentLiveServerVersionEditing.value = false;
+}
+
+function testServerVersionUpdateMessage(result: TestManagerServerVersion) {
+  if (!result.currentTestServerVersion) {
+    return 'Current test server version was cleared.';
+  }
+
+  const messageParts = [
+    `Current version is now ${versionDisplayValue(result.currentTestServerVersion)}.`
+  ];
+  const pausedCount = result.futureChangesPaused ?? 0;
+  const resumedCount = result.versionChangesResumed ?? 0;
+  if (pausedCount > 0) {
+    messageParts.push(
+      `${pausedCount} future-version change${pausedCount === 1 ? '' : 's'} ${pausedCount === 1 ? 'was' : 'were'} paused.`
+    );
+  }
+  if (resumedCount > 0) {
+    messageParts.push(
+      `${resumedCount} version-ready change${resumedCount === 1 ? '' : 's'} ${resumedCount === 1 ? 'was' : 'were'} re-enabled.`
+    );
+  }
+
+  return messageParts.join(' ');
+}
+
+async function saveCurrentTestServerVersion() {
+  if (!canManageCurrentTestServerVersion.value || currentTestServerVersionSaving.value) {
+    return;
+  }
+
+  currentTestServerVersionSaving.value = true;
+  currentTestServerVersionError.value = '';
+  try {
+    const result = await api.updateTestManagerServerVersion(
+      currentTestServerVersionDraft.value.trim() || null
+    );
+    currentTestServerVersion.value = result.currentTestServerVersion;
+    currentTestServerVersionEditing.value = false;
+    await refreshVersionSensitiveTestManagerData();
+    addToast({
+      title: 'Test Server Version Updated',
+      message: testServerVersionUpdateMessage(result),
+      variant: 'success'
+    });
+  } catch (error) {
+    currentTestServerVersionError.value = getApiErrorMessage(
+      error,
+      'Unable to update test server version.'
+    );
+  } finally {
+    currentTestServerVersionSaving.value = false;
+  }
+}
+
+async function saveCurrentLiveServerVersion() {
+  if (!canManageCurrentLiveServerVersion.value || currentLiveServerVersionSaving.value) {
+    return;
+  }
+
+  currentLiveServerVersionSaving.value = true;
+  currentLiveServerVersionError.value = '';
+  try {
+    const result = await api.updateTestManagerLiveServerVersion(
+      currentLiveServerVersionDraft.value.trim() || null
+    );
+    currentLiveServerVersion.value = result.currentLiveServerVersion;
+    currentLiveServerVersionEditing.value = false;
+    addToast({
+      title: 'Live Server Version Updated',
+      message: result.currentLiveServerVersion
+        ? `Current live version is now ${versionDisplayValue(result.currentLiveServerVersion)}.`
+        : 'Current live server version was cleared.',
+      variant: 'success'
+    });
+  } catch (error) {
+    currentLiveServerVersionError.value = getApiErrorMessage(
+      error,
+      'Unable to update live server version.'
+    );
+  } finally {
+    currentLiveServerVersionSaving.value = false;
+  }
+}
+
+function openChangeVersionEditor(change: TestChange) {
+  if (!authStore.isAdmin || versionEditorSaving.value) {
+    return;
+  }
+
+  hideChangeTooltip();
+  versionEditorChange.value = change;
+  versionEditorDraft.value = change.testServerVersion ?? '';
+  versionEditorError.value = '';
+}
+
+function closeChangeVersionEditor() {
+  if (versionEditorSaving.value) {
+    return;
+  }
+
+  versionEditorChange.value = null;
+  versionEditorDraft.value = '';
+  versionEditorError.value = '';
+}
+
+function useCurrentVersionForChangeEditor() {
+  if (!currentTestServerVersion.value || versionEditorSaving.value) {
+    return;
+  }
+
+  versionEditorDraft.value = currentTestServerVersion.value;
+}
+
+function clearChangeVersionEditor() {
+  if (versionEditorSaving.value) {
+    return;
+  }
+
+  versionEditorDraft.value = '';
+}
+
+async function refreshAfterChangeVersionUpdate(updated: TestChange) {
+  replaceCachedChange(updated);
+  clearNextPatchCache();
+
+  if (currentSection.value === 'dashboard') {
+    await loadDashboard();
+  } else if (currentSection.value === 'changes') {
+    await loadChanges();
+  } else if (currentSection.value === 'next-patch') {
+    await loadNextPatch();
+  }
+
+  await loadNextPatchCount();
+}
+
+async function saveChangeVersion() {
+  const change = versionEditorChange.value;
+  if (!authStore.isAdmin || !change || versionEditorSaving.value) {
+    return;
+  }
+
+  versionEditorSaving.value = true;
+  versionEditorError.value = '';
+  try {
+    const updated = await api.updateTestChangeVersion(
+      change.id,
+      versionEditorDraft.value.trim() || null
+    );
+    await refreshAfterChangeVersionUpdate(updated);
+    versionEditorChange.value = null;
+    versionEditorDraft.value = '';
+    addToast({
+      title: 'Change Version Updated',
+      message: updated.testServerVersion
+        ? `#${updated.publicId} is now tied to ${versionDisplayValue(updated.testServerVersion)}${isChangeVersionNewerThanCurrent(updated) ? ' and tester input is paused.' : '.'}`
+        : `#${updated.publicId} no longer has an active version.`,
+      variant: 'success'
+    });
+  } catch (error) {
+    versionEditorError.value = getApiErrorMessage(error, 'Unable to update change version.');
+  } finally {
+    versionEditorSaving.value = false;
+  }
+}
+
+async function refreshVersionSensitiveTestManagerData() {
+  clearNextPatchCache();
+  if (currentSection.value === 'dashboard') {
+    await loadDashboard();
+  } else if (currentSection.value === 'changes') {
+    await loadChanges();
+  } else if (currentSection.value === 'next-patch') {
+    await loadNextPatch();
+  }
+
+  if (currentSection.value !== 'next-patch') {
+    await loadNextPatchCount();
+  }
+}
+
 function hasRolePermission(roleKey: string, permissionKey: TestManagerPermissionKey): boolean {
   if (isRolePermissionLocked(roleKey, permissionKey)) {
     return true;
@@ -5256,6 +5891,7 @@ async function loadCurrentSection() {
     loading.value = true;
   }
   try {
+    const versionLoad = loadCurrentTestServerVersion();
     syncRequestedDetailTab();
     if (section === 'dashboard') {
       await loadDashboard();
@@ -5274,6 +5910,7 @@ async function loadCurrentSection() {
     if (section !== 'next-patch') {
       await loadNextPatchCount();
     }
+    await versionLoad;
   } finally {
     loadedSection.value = section;
     if (shouldShowGlobalLoading) {
@@ -5858,6 +6495,7 @@ function openEditChange() {
     subsystem: activeChange.value.subsystem,
     priority: activeChange.value.priority,
     targetBuild: activeChange.value.targetBuild ?? '',
+    testServerVersion: activeChange.value.testServerVersion ?? '',
     githubPrUrl: activeChange.value.githubPullRequest?.url ?? '',
     githubIssueUrl: activeChange.value.githubIssue?.url ?? '',
     includeInNextPatch: activeChange.value.includeInNextPatch,
@@ -5918,6 +6556,7 @@ function resetCreateForm() {
     subsystem: '',
     priority: 'MEDIUM',
     targetBuild: '',
+    testServerVersion: currentTestServerVersion.value ?? '',
     githubPrUrl: '',
     githubIssueUrl: '',
     includeInNextPatch: true,
@@ -5934,6 +6573,7 @@ function resetEditForm() {
     subsystem: '',
     priority: 'MEDIUM',
     targetBuild: '',
+    testServerVersion: '',
     githubPrUrl: '',
     githubIssueUrl: '',
     includeInNextPatch: true,
@@ -6041,6 +6681,7 @@ async function createChange() {
   const payload: CreateTestChangePayload = {
     ...createForm.value,
     description: normalizeRichTextHtml(createForm.value.description),
+    testServerVersion: createForm.value.testServerVersion?.trim() || null,
     githubPrUrl: createForm.value.githubPrUrl?.trim() || null,
     githubIssueUrl: createForm.value.githubIssueUrl?.trim() || null,
     includeInNextPatch: createForm.value.includeInNextPatch ?? true,
@@ -6074,6 +6715,7 @@ async function saveEditChange() {
       ...editForm.value,
       description: normalizeRichTextHtml(editForm.value.description),
       targetBuild: editForm.value.targetBuild?.trim() || null,
+      testServerVersion: editForm.value.testServerVersion?.trim() || null,
       githubPrUrl: editForm.value.githubPrUrl?.trim() || null,
       githubIssueUrl: editForm.value.githubIssueUrl?.trim() || null,
       includeInNextPatch: editForm.value.includeInNextPatch ?? true,
@@ -6676,7 +7318,9 @@ async function setChangeReadyToTest(change: TestChange, readyToTest: boolean) {
     await loadChanges();
     addToast({
       title: readyToTest ? 'Ready To Test' : 'Tester Input Paused',
-      message: `#${updated.publicId} ${readyToTest ? 'can now receive tester input' : 'is no longer accepting tester input'}.`,
+      message: readyToTest
+        ? `#${updated.publicId} can now receive tester input${updated.testServerVersion ? ` on ${versionDisplayValue(updated.testServerVersion)}` : ''}.`
+        : `#${updated.publicId} is no longer accepting tester input.`,
       variant: 'success'
     });
   } catch (error) {
@@ -7167,7 +7811,110 @@ function canEditViewerChecklist(change: TestChange) {
 }
 
 function isChangeReadyToTest(change: TestChange) {
-  return change.readyToTest !== false;
+  return change.readyToTest !== false && !isChangeVersionNewerThanCurrent(change);
+}
+
+function normalizeVersionText(value: string | null | undefined) {
+  return value?.trim() ?? '';
+}
+
+function versionDisplayValue(value: string | null | undefined) {
+  const version = normalizeVersionText(value);
+  if (!version) {
+    return 'Not Set';
+  }
+  if (/^v\d/i.test(version) || !/^\d/.test(version)) {
+    return version;
+  }
+  return `v${version}`;
+}
+
+function versionBadgeValue(value: string | null | undefined) {
+  const version = normalizeVersionText(value);
+  return version.replace(/^v(?=\d)/i, '');
+}
+
+function versionNumberParts(value: string | null | undefined): number[] | null {
+  const parts = normalizeVersionText(value).match(/\d+/g);
+  if (!parts?.length) {
+    return null;
+  }
+  return parts.map((part) => Number(part));
+}
+
+function compareVersionValues(left: string | null | undefined, right: string | null | undefined) {
+  const leftParts = versionNumberParts(left);
+  const rightParts = versionNumberParts(right);
+  if (!leftParts || !rightParts) {
+    return null;
+  }
+
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] ?? 0;
+    const rightPart = rightParts[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return leftPart - rightPart;
+    }
+  }
+  return 0;
+}
+
+function isChangeVersionNewerThanCurrent(change: TestChange) {
+  if (!normalizeVersionText(change.testServerVersion) || !currentTestServerVersion.value) {
+    return false;
+  }
+
+  const comparison = compareVersionValues(change.testServerVersion, currentTestServerVersion.value);
+  return comparison !== null && comparison > 0;
+}
+
+function changeVersionLabel(change: TestChange) {
+  return versionBadgeValue(change.testServerVersion) || 'No version';
+}
+
+function changeVersionTone(change: TestChange): VersionBadgeTone {
+  if (!normalizeVersionText(change.testServerVersion) || !currentTestServerVersion.value) {
+    return 'unset';
+  }
+
+  const comparison = compareVersionValues(change.testServerVersion, currentTestServerVersion.value);
+  if (comparison === null) {
+    return 'unset';
+  }
+  return comparison > 0 ? 'future' : 'current';
+}
+
+function changeReadinessTitle(change: TestChange) {
+  if (isChangeVersionNewerThanCurrent(change)) {
+    return `${changeVersionTitle(change)} Marking it ready will update the change to the current test server version.`;
+  }
+  return 'Tester input is paused until an admin marks this change ready.';
+}
+
+function changeVersionEditLabel(change: TestChange) {
+  return `Edit active version for change #${change.publicId}`;
+}
+
+function changeVersionTitle(change: TestChange, includeEditHint = false) {
+  const changeVersion = normalizeVersionText(change.testServerVersion);
+  const currentVersion = normalizeVersionText(currentTestServerVersion.value);
+  const editHint = includeEditHint ? ' Click to edit.' : '';
+  if (!changeVersion) {
+    return `No active version is set for this change.${editHint}`;
+  }
+  if (!currentVersion) {
+    return `Active in ${versionDisplayValue(changeVersion)}. Current test server version is not set.${editHint}`;
+  }
+
+  const comparison = compareVersionValues(changeVersion, currentVersion);
+  if (comparison === null) {
+    return `Active in ${versionDisplayValue(changeVersion)}. Current test server version is ${versionDisplayValue(currentVersion)}.${editHint}`;
+  }
+
+  return comparison > 0
+    ? `Active in ${versionDisplayValue(changeVersion)}. Newer than current test server ${versionDisplayValue(currentVersion)}.${editHint}`
+    : `Active in ${versionDisplayValue(changeVersion)}. Current or older than test server ${versionDisplayValue(currentVersion)}.${editHint}`;
 }
 
 function priorityLabel(priority: TestChangePriority) {
@@ -8134,6 +8881,7 @@ onBeforeUnmount(() => {
 }
 
 .tm-hero,
+.tm-version-bar,
 .tm-subnav,
 .tm-grid,
 .tm-dashboard,
@@ -8202,6 +8950,212 @@ onBeforeUnmount(() => {
   text-shadow:
     0 1px 0 #3c2412,
     0 0 14px rgba(217, 164, 95, 0.22);
+}
+
+.tm-version-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.tm-current-version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.62rem;
+  min-height: 2.35rem;
+  max-width: min(100%, 34rem);
+  padding: 0.34rem 0.7rem 0.34rem 0.54rem;
+  border: 1px solid rgba(114, 214, 111, 0.42);
+  border-radius: 999px;
+  color: #eaffea;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 78%),
+    linear-gradient(90deg, rgba(114, 214, 111, 0.16), rgba(85, 183, 255, 0.08)),
+    rgba(5, 12, 12, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 8px 20px rgba(0, 0, 0, 0.2),
+    0 0 18px rgba(114, 214, 111, 0.1);
+  font: inherit;
+  text-align: left;
+}
+
+button.tm-current-version-badge {
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+button.tm-current-version-badge:hover,
+button.tm-current-version-badge:focus-visible {
+  border-color: rgba(114, 214, 111, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.24),
+    0 0 22px rgba(114, 214, 111, 0.16);
+  transform: translateY(-1px);
+}
+
+button.tm-current-version-badge:focus-visible {
+  outline: 2px solid rgba(119, 201, 255, 0.62);
+  outline-offset: 3px;
+}
+
+.tm-current-version-badge--unset {
+  color: #f2dcc0;
+  border-color: rgba(217, 164, 95, 0.4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 78%),
+    linear-gradient(90deg, rgba(217, 164, 95, 0.16), rgba(85, 183, 255, 0.06)),
+    rgba(5, 12, 12, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 8px 20px rgba(0, 0, 0, 0.2),
+    0 0 16px rgba(217, 164, 95, 0.08);
+}
+
+.tm-current-version-badge--live:not(.tm-current-version-badge--unset) {
+  color: #e5f4ff;
+  border-color: rgba(85, 183, 255, 0.44);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 78%),
+    linear-gradient(90deg, rgba(85, 183, 255, 0.17), rgba(122, 222, 208, 0.08)),
+    rgba(5, 12, 12, 0.84);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 8px 20px rgba(0, 0, 0, 0.2),
+    0 0 18px rgba(85, 183, 255, 0.1);
+}
+
+button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):hover,
+button.tm-current-version-badge--live:not(.tm-current-version-badge--unset):focus-visible {
+  border-color: rgba(85, 183, 255, 0.78);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.24),
+    0 0 22px rgba(85, 183, 255, 0.16);
+}
+
+.tm-current-version-badge__signal {
+  width: 1.12rem;
+  height: 1.12rem;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  background: radial-gradient(circle, #c6ffbf 0 34%, rgba(114, 214, 111, 0.22) 36% 100%);
+  box-shadow: 0 0 14px rgba(114, 214, 111, 0.36);
+}
+
+.tm-current-version-badge--unset .tm-current-version-badge__signal {
+  background: radial-gradient(circle, #f2c46f 0 34%, rgba(217, 164, 95, 0.18) 36% 100%);
+  box-shadow: 0 0 12px rgba(217, 164, 95, 0.22);
+}
+
+.tm-current-version-badge--live:not(.tm-current-version-badge--unset)
+  .tm-current-version-badge__signal {
+  background: radial-gradient(circle, #b9e6ff 0 34%, rgba(85, 183, 255, 0.22) 36% 100%);
+  box-shadow: 0 0 14px rgba(85, 183, 255, 0.36);
+}
+
+.tm-current-version-badge__copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.02rem;
+  text-align: left;
+}
+
+.tm-current-version-badge__copy > span {
+  color: rgba(235, 226, 211, 0.7);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-current-version-badge__copy strong {
+  overflow: hidden;
+  color: #fff6df;
+  font-size: 0.95rem;
+  font-weight: 900;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-current-version-badge svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.78;
+}
+
+.tm-current-version-editor {
+  display: inline-grid;
+  grid-template-columns: minmax(13rem, 19rem) auto auto;
+  align-items: end;
+  gap: 0.45rem;
+  max-width: 100%;
+  padding: 0.42rem;
+  border: 1px solid rgba(85, 183, 255, 0.32);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 78%),
+    rgba(5, 12, 12, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+.tm-current-version-editor__field {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.tm-current-version-editor__field span {
+  padding-left: 0.35rem;
+  color: var(--tm-muted);
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.tm-current-version-editor .tm-input {
+  min-height: 2rem;
+  border-radius: 999px;
+}
+
+.tm-current-version-editor__save {
+  border-color: rgba(114, 214, 111, 0.52);
+  color: #dfffdc;
+  background: rgba(29, 94, 42, 0.28);
+}
+
+.tm-current-version-editor__save--live {
+  border-color: rgba(85, 183, 255, 0.52);
+  color: #dff4ff;
+  background: rgba(14, 72, 120, 0.34);
+}
+
+.tm-version-bar__error {
+  margin: 0;
+  color: #ffb1a4;
+  font-size: 0.76rem;
+  font-weight: 800;
 }
 
 .tm-subnav {
@@ -11267,6 +12221,110 @@ onBeforeUnmount(() => {
 .tm-readiness-badge--compact svg {
   width: 0.72rem;
   height: 0.72rem;
+}
+
+.tm-version-badge {
+  --version-accent: var(--tm-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.32rem;
+  width: fit-content;
+  min-width: 0;
+  min-height: 1.5rem;
+  max-width: 100%;
+  padding: 0.18rem 0.52rem 0.18rem 0.28rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--version-accent) 36%, transparent);
+  border-radius: 999px;
+  color: var(--version-accent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 76%),
+    color-mix(in srgb, var(--version-accent) 11%, rgba(255, 255, 255, 0.025));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 0 12px color-mix(in srgb, var(--version-accent) 12%, transparent);
+  font-size: 0.66rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-version-badge > span {
+  width: 1.02rem;
+  height: 1.02rem;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, currentColor 38%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-size: 0.58rem;
+  font-weight: 950;
+  line-height: 1;
+  text-transform: lowercase;
+}
+
+.tm-version-badge--current {
+  --version-accent: #a8efa2;
+  color: #c8ffc3;
+}
+
+.tm-version-badge--future {
+  --version-accent: #ff8c79;
+  color: #ffb1a4;
+}
+
+.tm-version-badge--unset {
+  --version-accent: rgba(188, 178, 164, 0.72);
+  color: rgba(218, 207, 190, 0.78);
+}
+
+.tm-version-badge--compact {
+  min-height: 1.28rem;
+  padding: 0.13rem 0.42rem 0.13rem 0.22rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+}
+
+.tm-version-badge--compact > span {
+  width: 0.86rem;
+  height: 0.86rem;
+  font-size: 0.5rem;
+}
+
+button.tm-version-badge {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tm-version-badge--editable {
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    background 0.14s ease,
+    box-shadow 0.14s ease,
+    color 0.14s ease;
+}
+
+.tm-version-badge--editable:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--version-accent) 66%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 76%),
+    color-mix(in srgb, var(--version-accent) 17%, rgba(255, 255, 255, 0.035));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    0 0 18px color-mix(in srgb, var(--version-accent) 22%, transparent);
+}
+
+.tm-version-badge--editable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--version-accent) 62%, transparent);
+  outline-offset: 3px;
 }
 
 .tm-detail__header h2 {
@@ -15716,6 +16774,130 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 18px rgba(87, 199, 189, 0.14);
 }
 
+.tm-version-editor-modal {
+  width: min(31rem, 100%);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  border-color: rgba(217, 164, 95, 0.42);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(85, 183, 255, 0.14), transparent 18rem),
+    linear-gradient(180deg, rgba(10, 16, 17, 0.98), rgba(4, 7, 8, 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 231, 190, 0.055),
+    0 24px 70px rgba(0, 0, 0, 0.55);
+}
+
+.tm-version-editor-modal__header,
+.tm-version-editor-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  background:
+    linear-gradient(90deg, rgba(217, 164, 95, 0.13), transparent 46%), rgba(6, 10, 11, 0.82);
+}
+
+.tm-version-editor-modal__header {
+  border-bottom: 1px solid var(--tm-border);
+}
+
+.tm-version-editor-modal__header h2 {
+  margin: 0.1rem 0 0.18rem;
+  color: #fff3dd;
+  font-size: 1.65rem;
+  line-height: 1;
+}
+
+.tm-version-editor-modal__header p:last-child {
+  max-width: 22rem;
+  margin: 0;
+  overflow: hidden;
+  color: var(--tm-muted);
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tm-version-editor-modal__body {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.05rem 1.1rem;
+}
+
+.tm-version-editor-modal__quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.tm-version-editor-modal__quick-action {
+  min-height: 2rem;
+  padding: 0.42rem 0.68rem;
+  border: 1px solid rgba(85, 183, 255, 0.34);
+  border-radius: var(--tm-control-radius);
+  background: rgba(14, 72, 120, 0.24);
+  color: #d8efff;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.tm-version-editor-modal__quick-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(85, 183, 255, 0.58);
+  background: rgba(14, 72, 120, 0.38);
+}
+
+.tm-version-editor-modal__quick-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.tm-version-editor-modal__preview {
+  margin: 0;
+  padding: 0.75rem 0.82rem;
+  border: 1px solid color-mix(in srgb, var(--version-accent, var(--tm-muted)) 32%, transparent);
+  border-radius: var(--tm-control-radius);
+  background: color-mix(
+    in srgb,
+    var(--version-accent, var(--tm-muted)) 10%,
+    rgba(3, 7, 8, 0.62)
+  );
+  color: color-mix(in srgb, var(--version-accent, var(--tm-muted)) 82%, #fff 18%);
+  font-size: 0.86rem;
+  line-height: 1.42;
+}
+
+.tm-version-editor-modal__preview--current {
+  --version-accent: #a8efa2;
+}
+
+.tm-version-editor-modal__preview--future {
+  --version-accent: #ff8c79;
+}
+
+.tm-version-editor-modal__preview--unset {
+  --version-accent: rgba(188, 178, 164, 0.72);
+}
+
+.tm-version-editor-modal__error {
+  margin: 0;
+  color: #ffb1a4;
+  font-weight: 800;
+}
+
+.tm-version-editor-modal__footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--tm-border-soft);
+}
+
 .tm-create-modal {
   width: min(76rem, 100%);
   max-height: min(92dvh, 60rem);
@@ -16523,6 +17705,7 @@ onBeforeUnmount(() => {
   }
 
   .tm-hero,
+  .tm-version-bar,
   .tm-subnav,
   .tm-grid,
   .tm-dashboard,
@@ -16534,6 +17717,21 @@ onBeforeUnmount(() => {
 
   .tm-hero {
     gap: 0.75rem;
+  }
+
+  .tm-version-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tm-current-version-badge,
+  .tm-current-version-editor {
+    width: 100%;
+  }
+
+  .tm-current-version-editor {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    border-radius: 6px;
   }
 
   .tm-hero h1 {

@@ -23,6 +23,7 @@ import {
   ensureCanManageTestManagerSettings,
   ensureCanManageTestManagerTesters,
   ensureCanViewTestManager,
+  getCurrentTestServerVersion,
   getTestChange,
   getTestManagerDashboard,
   getTestManagerSettings,
@@ -40,8 +41,11 @@ import {
   setTestChangeNextPatch,
   setTestChangeReadyToTest,
   setTestChangeStatus,
+  setTestChangeTestServerVersion,
   submitTesterResult,
   unlinkWebhookReportFromTestChange,
+  updateCurrentLiveServerVersion,
+  updateCurrentTestServerVersion,
   updateTestChange,
   updateTestChangeContextLinks,
   updateTesterChecklistProgress,
@@ -100,7 +104,10 @@ async function requireCanManageSettings(
   try {
     await ensureCanManageTestManagerSettings(request.user.userId);
   } catch (error) {
-    request.log.warn({ error }, 'User attempted to access Test Manager settings without permission.');
+    request.log.warn(
+      { error },
+      'User attempted to access Test Manager settings without permission.'
+    );
     return reply.forbidden('Test Manager settings permission required.');
   }
 }
@@ -118,6 +125,8 @@ async function requireCanManageTesters(
 }
 
 const richTextSchema = z.string().max(50000);
+const currentServerVersionSchema = z.string().trim().max(80).nullable();
+const testServerVersionSchema = currentServerVersionSchema.optional();
 const contextLinkSchema = z.object({
   id: z.string().trim().max(64).optional(),
   kind: z.enum(['DISCORD', 'GITHUB', 'DOCUMENT', 'OTHER']).optional(),
@@ -133,6 +142,60 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
   server.get('/dashboard', { preHandler: [authenticate, requireCanView] }, async (request) => {
     return getTestManagerDashboard(request.user.userId);
   });
+
+  server.get('/server-version', { preHandler: [authenticate, requireCanView] }, async () => {
+    return getCurrentTestServerVersion();
+  });
+
+  server.put(
+    '/server-version',
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        currentTestServerVersion: currentServerVersionSchema
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid test server version payload.');
+      }
+
+      try {
+        return await updateCurrentTestServerVersion(
+          request.user.userId,
+          parsed.data.currentTestServerVersion
+        );
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update test server version.'
+        );
+      }
+    }
+  );
+
+  server.put(
+    '/live-server-version',
+    { preHandler: [authenticate, requireCanView, requireCanManageSettings] },
+    async (request, reply) => {
+      const bodySchema = z.object({
+        currentLiveServerVersion: currentServerVersionSchema
+      });
+      const parsed = bodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest('Invalid live server version payload.');
+      }
+
+      try {
+        return await updateCurrentLiveServerVersion(
+          request.user.userId,
+          parsed.data.currentLiveServerVersion
+        );
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update live server version.'
+        );
+      }
+    }
+  );
 
   server.get(
     '/next-patch',
@@ -207,6 +270,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         subsystem: z.string().trim().min(1).max(80),
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
+        testServerVersion: testServerVersionSchema,
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         contextLinks: z.array(contextLinkSchema).max(20).optional().default([]),
@@ -298,6 +362,7 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
         subsystem: z.string().trim().min(1).max(80),
         priority: z.nativeEnum(TestChangePriority).default(TestChangePriority.MEDIUM),
         targetBuild: z.string().trim().max(120).nullable().optional(),
+        testServerVersion: testServerVersionSchema,
         githubPrUrl: z.string().trim().max(500).nullable().optional(),
         githubIssueUrl: z.string().trim().max(500).nullable().optional(),
         contextLinks: z.array(contextLinkSchema).max(20).optional(),
@@ -350,6 +415,33 @@ export async function testManagerRoutes(server: FastifyInstance): Promise<void> 
       } catch (error) {
         return reply.badRequest(
           error instanceof Error ? error.message : 'Unable to update context links.'
+        );
+      }
+    }
+  );
+
+  server.patch(
+    '/changes/:changeId/test-server-version',
+    { preHandler: [authenticate, requireCanView, requireAdmin] },
+    async (request, reply) => {
+      const paramsSchema = z.object({ changeId: z.string().min(1) });
+      const bodySchema = z.object({ testServerVersion: testServerVersionSchema });
+      const params = paramsSchema.safeParse(request.params);
+      const body = bodySchema.safeParse(request.body ?? {});
+      if (!params.success || !body.success) {
+        return reply.badRequest('Invalid version update payload.');
+      }
+
+      try {
+        const change = await setTestChangeTestServerVersion(
+          request.user.userId,
+          params.data.changeId,
+          body.data.testServerVersion
+        );
+        return { change };
+      } catch (error) {
+        return reply.badRequest(
+          error instanceof Error ? error.message : 'Unable to update change version.'
         );
       }
     }
