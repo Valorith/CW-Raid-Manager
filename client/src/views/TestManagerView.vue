@@ -2768,6 +2768,17 @@
                 </p>
               </div>
             </div>
+            <div class="tm-checklist-templates" aria-label="Checklist templates">
+              <button
+                v-for="template in createChecklistTemplates"
+                :key="template.label"
+                type="button"
+                @click="applyEditChecklistTemplate(template.items)"
+              >
+                <strong>{{ template.label }}</strong>
+                <span>Add {{ template.items.length }} checks</span>
+              </button>
+            </div>
             <div class="tm-checklist-builder">
               <div
                 v-for="(item, index) in editForm.checklist"
@@ -6626,6 +6637,38 @@ function applyChecklistTemplate(items: CreateChecklistDraft[]) {
     ...item,
     category: item.category || createForm.value.category
   }));
+}
+
+function checklistTemplateKey(item: Pick<CreateChecklistDraft, 'title' | 'category'>) {
+  return `${item.title.trim().toLocaleLowerCase()}::${(item.category ?? '')
+    .trim()
+    .toLocaleLowerCase()}`;
+}
+
+function applyEditChecklistTemplate(items: CreateChecklistDraft[]) {
+  const existingKeys = new Set(
+    editForm.value.checklist
+      .filter((item) => item.title.trim())
+      .map((item) => checklistTemplateKey(item))
+  );
+  const additions = items
+    .filter((item) => !existingKeys.has(checklistTemplateKey(item)))
+    .map<EditChecklistDraft>((item) => ({
+      title: item.title,
+      details: item.details ?? '',
+      category: item.category || editForm.value.category
+    }));
+
+  if (!additions.length) {
+    addToast({
+      title: 'Template already applied',
+      message: 'Those checklist items are already on this change.',
+      variant: 'info'
+    });
+    return;
+  }
+
+  editForm.value.checklist.push(...additions);
 }
 
 function applyChecklistAddTemplate(template: ChecklistAddTemplate) {
