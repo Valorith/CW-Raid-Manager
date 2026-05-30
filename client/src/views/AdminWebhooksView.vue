@@ -2026,6 +2026,21 @@
               <button class="btn btn--outline btn--small" type="button" @click="copyReport">
                 Copy Report
               </button>
+              <a
+                v-if="selectedMessageGitHubScriptLink"
+                class="btn btn--outline btn--small btn--github-source"
+                :href="selectedMessageGitHubScriptLink.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="`Open ${selectedMessageGitHubScriptLink.repository}/${selectedMessageGitHubScriptLink.path}:${selectedMessageGitHubScriptLink.line}`"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M12 .5a12 12 0 0 0-3.79 23.39c.6.11.82-.26.82-.58v-2.24c-3.34.73-4.04-1.42-4.04-1.42-.55-1.39-1.33-1.76-1.33-1.76-1.09-.75.08-.73.08-.73 1.2.08 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.49.99.11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.3-1.23 3.3-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"
+                  />
+                </svg>
+                <span>View on GitHub</span>
+              </a>
               <button
                 class="btn btn--accent btn--small"
                 type="button"
@@ -3670,6 +3685,23 @@ const inboxFilters = reactive({
   readStatus: '' as '' | 'read' | 'unread',
   starred: false,
   labelId: ''
+});
+
+interface ScriptGitHubLink {
+  url: string;
+  repository: 'cw-plugins' | 'cw-quests';
+  path: string;
+  line: number;
+}
+
+const SCRIPT_GITHUB_REPOS = {
+  plugins: 'https://github.com/Isaaru/cw-plugins',
+  quests: 'https://github.com/Isaaru/cw-quests'
+} as const;
+
+const selectedMessageGitHubScriptLink = computed<ScriptGitHubLink | null>(() => {
+  if (!selectedMessage.value) return null;
+  return getScriptGitHubLink(getCrashReportText(selectedMessage.value));
 });
 
 const crashTelemetrySummary = ref<CrashTelemetrySummary | null>(null);
@@ -6149,6 +6181,116 @@ function getCrashReportText(message: InboundWebhookMessage) {
   return '';
 }
 
+function getScriptGitHubLink(reportText: string): ScriptGitHubLink | null {
+  if (!looksLikeScriptErrorText(reportText)) return null;
+
+  const location = extractScriptErrorLocation(reportText);
+  if (!location) return null;
+
+  return buildScriptGitHubLink(location.path, location.line);
+}
+
+function looksLikeScriptErrorText(reportText: string) {
+  const normalized = reportText.replace(/\*\*/g, '').replace(/__/g, '').toLowerCase();
+  return (
+    normalized.includes('[questerrors]') ||
+    normalized.includes('[scripterror]') ||
+    normalized.includes('[script error]') ||
+    normalized.includes('script error |') ||
+    normalized.includes('perl runtime error') ||
+    normalized.includes('lua runtime error')
+  );
+}
+
+function extractScriptErrorLocation(reportText: string): { path: string; line: number } | null {
+  const scriptPathPattern =
+    String.raw`((?:[A-Za-z]:)?(?:\.{1,2}[\\/])?(?:[A-Za-z0-9_@.-]+[\\/])*[A-Za-z0-9_@.-]+\.(?:pl|lua))`;
+  const patterns = [
+    new RegExp(String.raw`\bat\s+${scriptPathPattern}\s+line\s+(\d+)`, 'i'),
+    new RegExp(String.raw`\b(?:file|script)\s*[:=]?\s*\[?${scriptPathPattern}\]?[^0-9\r\n]{0,40}\bline\s*[:=]?\s*(\d+)`, 'i'),
+    new RegExp(String.raw`\[string\s+["']${scriptPathPattern}["']\]:(\d+)`, 'i'),
+    new RegExp(String.raw`${scriptPathPattern}\s+line\s+(\d+)`, 'i'),
+    new RegExp(String.raw`${scriptPathPattern}:(\d+)\b`, 'i')
+  ];
+
+  for (const pattern of patterns) {
+    const match = reportText.match(pattern);
+    if (!match) continue;
+
+    const path = match[1];
+    const line = Number.parseInt(match[2] ?? '', 10);
+    if (path && Number.isSafeInteger(line) && line > 0) {
+      return { path, line };
+    }
+  }
+
+  return null;
+}
+
+function buildScriptGitHubLink(rawPath: string, line: number): ScriptGitHubLink | null {
+  const normalizedPath = rawPath
+    .trim()
+    .replace(/^["'`(<[]+/, '')
+    .replace(/[>"'`)\].,;:]+$/, '')
+    .replace(/\\/g, '/');
+  const isAbsolutePath = normalizedPath.startsWith('/') || /^[A-Za-z]:\//.test(normalizedPath);
+  const segments = normalizedPath.split('/').filter(Boolean);
+  const lowerSegments = segments.map((segment) => segment.toLowerCase());
+  const pluginSegmentIndex = lowerSegments.lastIndexOf('plugins');
+  const questSegmentIndex = lowerSegments.lastIndexOf('quests');
+  const isPluginScript = pluginSegmentIndex >= 0;
+  const rootSegmentIndex = isPluginScript ? pluginSegmentIndex : questSegmentIndex;
+
+  if (isAbsolutePath && rootSegmentIndex < 0) {
+    return null;
+  }
+
+  const repoPathSegments =
+    rootSegmentIndex >= 0 ? segments.slice(rootSegmentIndex + 1) : stripRelativePathSegments(segments);
+
+  if (!isSafeRepositoryPath(repoPathSegments)) {
+    return null;
+  }
+
+  const repository = isPluginScript ? 'cw-plugins' : 'cw-quests';
+  const path = repoPathSegments.join('/');
+  const encodedPath = repoPathSegments.map((segment) => encodeURIComponent(segment)).join('/');
+  const repoBase = isPluginScript ? SCRIPT_GITHUB_REPOS.plugins : SCRIPT_GITHUB_REPOS.quests;
+
+  return {
+    url: `${repoBase}/blob/HEAD/${encodedPath}#L${line}`,
+    repository,
+    path,
+    line
+  };
+}
+
+function stripRelativePathSegments(segments: string[]) {
+  const stripped = [...segments];
+  while (stripped[0] === '.' || stripped[0] === '..') {
+    stripped.shift();
+  }
+  return stripped;
+}
+
+function isSafeRepositoryPath(segments: string[]) {
+  if (segments.length === 0) return false;
+  return segments.every(
+    (segment) =>
+      segment.length > 0 &&
+      segment !== '.' &&
+      segment !== '..' &&
+      !hasControlCharacter(segment)
+  );
+}
+
+function hasControlCharacter(value: string) {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0);
+    return codePoint !== undefined && (codePoint < 32 || codePoint === 127);
+  });
+}
+
 function collectCrashReportTextCandidates(
   payload: unknown,
   addCandidate: (value: unknown) => void
@@ -8247,6 +8389,49 @@ function escapeHtml(text: string): string {
   background: rgba(15, 23, 42, 0.65);
   border-color: rgba(148, 163, 184, 0.5);
   color: #e2e8f0;
+}
+
+.btn--github-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.42rem;
+  min-height: 2rem;
+  padding-inline: 0.78rem 0.9rem;
+  border-color: rgba(125, 211, 252, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 74%),
+    rgba(36, 41, 47, 0.86);
+  color: #f0f6fc;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 22px rgba(2, 6, 23, 0.3);
+}
+
+.btn--github-source svg {
+  flex: 0 0 auto;
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}
+
+.btn--github-source span {
+  line-height: 1;
+}
+
+.btn--github-source:hover:not(:disabled),
+.btn--github-source:focus-visible {
+  border-color: rgba(125, 211, 252, 0.7);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 74%),
+    rgba(36, 41, 47, 0.96);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 12px 26px rgba(2, 6, 23, 0.34),
+    0 0 0 1px rgba(125, 211, 252, 0.16);
 }
 
 .btn--openai {
