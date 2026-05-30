@@ -9,6 +9,9 @@ import {
 
 import { api, type UserPasskey } from '../services/api';
 
+const PASSKEY_RESET_DELAY_MS = 150;
+const PENDING_REQUEST_MARKERS = ['already pending', 'request is already pending'];
+
 export function supportsPasskeys(): boolean {
   return browserSupportsWebAuthn();
 }
@@ -33,6 +36,56 @@ export function isPasskeyCancel(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotAllowedError';
 }
 
+function getSearchableErrorText(error: unknown): string {
+  const parts: string[] = [];
+
+  if (error instanceof Error) {
+    parts.push(error.name, error.message);
+
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause instanceof Error) {
+      parts.push(cause.name, cause.message);
+    } else if (typeof cause === 'string') {
+      parts.push(cause);
+    }
+  } else if (typeof error === 'string') {
+    parts.push(error);
+  }
+
+  return parts.join(' ').toLowerCase();
+}
+
+function isPendingPasskeyRequest(error: unknown): boolean {
+  const searchableText = getSearchableErrorText(error);
+  return PENDING_REQUEST_MARKERS.some((marker) => searchableText.includes(marker));
+}
+
+function waitForPasskeyAbort(): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, PASSKEY_RESET_DELAY_MS);
+  });
+}
+
+async function resetPasskeyCeremony(): Promise<void> {
+  WebAuthnAbortService.cancelCeremony();
+  await waitForPasskeyAbort();
+}
+
+async function withFreshPasskeyCeremony<T>(operation: () => Promise<T>): Promise<T> {
+  await resetPasskeyCeremony();
+
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isPendingPasskeyRequest(error)) {
+      throw error;
+    }
+
+    await resetPasskeyCeremony();
+    return operation();
+  }
+}
+
 export function getPasskeyErrorMessage(error: unknown, fallback: string): string {
   if (isPasskeyCancel(error)) {
     return 'Passkey prompt canceled.';
@@ -47,6 +100,10 @@ export function getPasskeyErrorMessage(error: unknown, fallback: string): string
     }
   }
 
+  if (isPendingPasskeyRequest(error)) {
+    return fallback;
+  }
+
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -59,9 +116,11 @@ export async function registerCurrentDevicePasskey(): Promise<UserPasskey> {
     throw new Error('This browser does not support passkeys.');
   }
 
-  const optionsJSON = await api.fetchPasskeyRegistrationOptions();
-  const response = await startRegistration({ optionsJSON });
-  return api.verifyPasskeyRegistration(response);
+  return withFreshPasskeyCeremony(async () => {
+    const optionsJSON = await api.fetchPasskeyRegistrationOptions();
+    const response = await startRegistration({ optionsJSON });
+    return api.verifyPasskeyRegistration(response);
+  });
 }
 
 export async function authenticateWithPasskey(options?: {
@@ -72,13 +131,24 @@ export async function authenticateWithPasskey(options?: {
     throw new Error('This browser does not support passkeys.');
   }
 
-  const optionsJSON = await api.fetchPasskeyAuthenticationOptions();
-  const response = await startAuthentication({
-    optionsJSON,
-    useBrowserAutofill: options?.useBrowserAutofill ?? false,
-    verifyBrowserAutofillInput: options?.verifyBrowserAutofillInput ?? true
-  });
-  await api.verifyPasskeyAuthentication(response);
+  const useBrowserAutofill = options?.useBrowserAutofill ?? false;
+  const verifyBrowserAutofillInput = options?.verifyBrowserAutofillInput ?? true;
+  const authenticate = async () => {
+    const optionsJSON = await api.fetchPasskeyAuthenticationOptions();
+    const response = await startAuthentication({
+      optionsJSON,
+      useBrowserAutofill,
+      verifyBrowserAutofillInput
+    });
+    await api.verifyPasskeyAuthentication(response);
+  };
+
+  if (useBrowserAutofill) {
+    await authenticate();
+    return;
+  }
+
+  await withFreshPasskeyCeremony(authenticate);
 }
 
 export function cancelActivePasskeyPrompt(): void {
