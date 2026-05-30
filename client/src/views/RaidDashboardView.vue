@@ -208,6 +208,7 @@
                     role="button"
                     tabindex="0"
                     @click="openRaid(raid.id)"
+                    @contextmenu.prevent.stop="handleRaidContextMenu(raid, day.date, $event)"
                     @keydown.enter.prevent="openRaid(raid.id)"
                     @keydown.space.prevent="openRaid(raid.id)"
                   >
@@ -376,6 +377,7 @@
                     role="button"
                     tabindex="0"
                     @click="openRaid(raid.id)"
+                    @contextmenu.prevent.stop="handleRaidContextMenu(raid, day.date, $event)"
                     @keydown.enter.prevent="openRaid(raid.id)"
                     @keydown.space.prevent="openRaid(raid.id)"
                   >
@@ -503,29 +505,6 @@
                     {{ getDayAvailabilitySummary(day.key)?.unavailableCount }}
                   </button>
                 </div>
-                <div
-                  v-if="dayContextMenu.visible"
-                  class="raid-calendar-context"
-                  :style="{ top: `${dayContextMenu.y}px`, left: `${dayContextMenu.x}px` }"
-                >
-                  <p class="raid-calendar-context__label">
-                    Plan new raid on {{ contextMenuDateLabel }}
-                  </p>
-                  <button
-                    type="button"
-                    class="raid-calendar-context__action"
-                    @click="scheduleContextRaid"
-                  >
-                    Create raid
-                  </button>
-                  <button
-                    type="button"
-                    class="raid-calendar-context__close"
-                    @click="hideDayContextMenu"
-                  >
-                    Cancel
-                  </button>
-                </div>
               </div>
             </div>
             <!-- Mobile calendar grid for availability mode -->
@@ -567,6 +546,7 @@
             v-if="dayContextMenu.visible"
             class="raid-calendar-context"
             :style="{ top: `${dayContextMenu.y}px`, left: `${dayContextMenu.x}px` }"
+            @contextmenu.prevent.stop
           >
             <p class="raid-calendar-context__label">Plan new raid on {{ contextMenuDateLabel }}</p>
             <button
@@ -576,7 +556,50 @@
             >
               Create raid
             </button>
-            <button type="button" class="raid-calendar-context__close" @click="hideDayContextMenu">
+            <button
+              type="button"
+              class="raid-calendar-context__close"
+              @click="hideCalendarContextMenus"
+            >
+              Cancel
+            </button>
+          </div>
+          <div
+            v-if="raidContextMenu.visible && contextMenuRaid"
+            class="raid-calendar-context raid-calendar-context--raid"
+            :style="{ top: `${raidContextMenu.y}px`, left: `${raidContextMenu.x}px` }"
+            @contextmenu.prevent.stop
+          >
+            <div class="raid-calendar-context__summary">
+              <p class="raid-calendar-context__label">{{ contextMenuRaid.name }}</p>
+              <p class="raid-calendar-context__meta">
+                {{ formatDate(contextMenuRaid.startTime) }} ·
+                {{ getRaidStatus(contextMenuRaid.id).label }}
+              </p>
+            </div>
+            <button
+              v-for="action in raidContextMenuActions"
+              :key="action.key"
+              type="button"
+              :class="[
+                'raid-calendar-context__action',
+                {
+                  'raid-calendar-context__action--primary': action.variant === 'primary',
+                  'raid-calendar-context__action--success': action.variant === 'success',
+                  'raid-calendar-context__action--danger': action.variant === 'danger',
+                  'raid-calendar-context__action--secondary': action.variant === 'secondary'
+                }
+              ]"
+              :disabled="action.disabled"
+              @click="handleRaidContextMenuAction(action.key)"
+            >
+              {{ action.label }}
+            </button>
+            <button
+              type="button"
+              class="raid-calendar-context__close"
+              @click="hideCalendarContextMenus"
+            >
               Cancel
             </button>
           </div>
@@ -789,6 +812,8 @@ import { useRoute, useRouter } from 'vue-router';
 
 import GlobalLoadingSpinner from '../components/GlobalLoadingSpinner.vue';
 import RaidModal from '../components/RaidModal.vue';
+import { useToastBus } from '../components/ToastBus';
+import { useErrorModal } from '../composables/useErrorModal';
 import { useMinimumLoading } from '../composables/useMinimumLoading';
 
 import {
@@ -810,6 +835,34 @@ import {
 
 type RaidStatusVariant = 'badge--neutral' | 'badge--positive' | 'badge--negative';
 type RaidStatusBadge = { label: string; variant: RaidStatusVariant };
+type RaidContextMenuActionKey =
+  | 'open'
+  | 'start'
+  | 'stop'
+  | 'restart'
+  | 'cancel'
+  | 'restore'
+  | 'share'
+  | 'copy'
+  | 'create';
+type RaidLifecycleActionKey = Extract<
+  RaidContextMenuActionKey,
+  'start' | 'stop' | 'restart' | 'cancel' | 'restore'
+>;
+type RaidContextMenuActionVariant = 'primary' | 'success' | 'danger' | 'secondary';
+type RaidContextMenuAction = {
+  key: RaidContextMenuActionKey;
+  label: string;
+  variant: RaidContextMenuActionVariant;
+  disabled?: boolean;
+};
+type RaidLifecycleActionDefinition = {
+  canRun: (raid: RaidEventSummary) => boolean;
+  run: (raidId: string) => Promise<unknown>;
+  successTitle: string;
+  successMessage: (raidName: string) => string;
+  errorMessage: string;
+};
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const todayKey = easternDateKey(new Date());
@@ -865,6 +918,8 @@ const raidStatus = computed(() => {
 });
 
 const authStore = useAuthStore();
+const { addToast } = useToastBus();
+const { showError } = useErrorModal();
 const selectedGuildId = ref('');
 const loadingRaids = ref(false);
 const showLoadingRaids = useMinimumLoading(loadingRaids);
@@ -884,6 +939,21 @@ const dayContextMenu = reactive<{ visible: boolean; x: number; y: number; date: 
   y: 0,
   date: null
 });
+const raidContextMenu = reactive<{
+  visible: boolean;
+  x: number;
+  y: number;
+  raidId: string | null;
+  date: Date | null;
+}>({
+  visible: false,
+  x: 0,
+  y: 0,
+  raidId: null,
+  date: null
+});
+const raidActionInFlightId = ref<string | null>(null);
+let calendarContextMenuOpenedAt = 0;
 const guildTimingDefaults = ref<
   Record<string, { start: string | null; end: string | null; voice: string | null }>
 >({});
@@ -1193,6 +1263,97 @@ function formatModalDate(dateKey: string | null): string {
 
 const canCreateRaid = computed(() => Boolean(selectedGuildPermissions.value?.canManage));
 const hasGuildMembership = computed(() => (authStore.user?.guilds?.length ?? 0) > 0);
+const contextMenuRaid = computed(() => {
+  if (!raidContextMenu.raidId) {
+    return null;
+  }
+  return raids.value.find((raid) => raid.id === raidContextMenu.raidId) ?? null;
+});
+const raidContextMenuActions = computed<RaidContextMenuAction[]>(() => {
+  const raid = contextMenuRaid.value;
+  if (!raid) {
+    return [];
+  }
+
+  const isBusy = raidActionInFlightId.value === raid.id;
+  const actions: RaidContextMenuAction[] = [
+    { key: 'open', label: 'Open Raid', variant: 'secondary', disabled: isBusy }
+  ];
+
+  if (canManageRaidEvent(raid)) {
+    if (canStartRaidEvent(raid)) {
+      actions.push({
+        key: 'start',
+        label: isBusy ? 'Starting...' : 'Start Raid',
+        variant: 'success',
+        disabled: isBusy
+      });
+    }
+
+    if (canStopRaidEvent(raid)) {
+      actions.push({
+        key: 'stop',
+        label: isBusy ? 'Stopping...' : 'Stop Raid',
+        variant: 'danger',
+        disabled: isBusy
+      });
+    }
+
+    if (canRestartRaidEvent(raid)) {
+      actions.push({
+        key: 'restart',
+        label: isBusy ? 'Restarting...' : 'Restart Raid',
+        variant: 'success',
+        disabled: isBusy
+      });
+    }
+
+    if (canCancelRaidEvent(raid)) {
+      actions.push({
+        key: 'cancel',
+        label: isBusy ? 'Canceling...' : 'Cancel Raid',
+        variant: 'danger',
+        disabled: isBusy
+      });
+    }
+
+    if (canRestoreRaidEvent(raid)) {
+      actions.push({
+        key: 'restore',
+        label: isBusy ? 'Restoring...' : 'Restore Raid',
+        variant: 'success',
+        disabled: isBusy
+      });
+    }
+  }
+
+  actions.push({
+    key: 'share',
+    label: sharingRaidId.value === raid.id ? 'Copying Link...' : 'Copy Link',
+    variant: 'secondary',
+    disabled: isBusy || sharingRaidId.value === raid.id
+  });
+
+  if (canCopyRaid(raid)) {
+    actions.push({
+      key: 'copy',
+      label: copyingRaidId.value === raid.id ? 'Copying Raid...' : 'Copy Raid',
+      variant: 'secondary',
+      disabled: isBusy || copyingRaidId.value === raid.id
+    });
+  }
+
+  if (canCreateRaid.value && raidContextMenu.date) {
+    actions.push({
+      key: 'create',
+      label: 'Create Raid on This Day',
+      variant: 'secondary',
+      disabled: isBusy
+    });
+  }
+
+  return actions;
+});
 
 const historyRaids = computed(() =>
   raids.value
@@ -1273,6 +1434,7 @@ const calendarAgendaDays = computed(() =>
     .filter((day) => day.raids.length && day.isCurrentMonth)
     .map((day) => ({
       key: day.key,
+      date: day.date,
       dateLabel: day.date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }),
       weekday: WEEKDAY_LABELS[day.date.getDay()],
       raids: day.raids
@@ -1299,7 +1461,7 @@ function openRaidModal(prefillDate?: Date | null) {
   } else {
     scheduledStartDate.value = null;
   }
-  hideDayContextMenu();
+  hideCalendarContextMenus();
   showRaidModal.value = true;
 }
 
@@ -1320,6 +1482,7 @@ function getRaidStatus(raidId: string) {
 }
 
 function openRaid(raidId: string) {
+  hideCalendarContextMenus();
   router.push({ name: 'RaidDetail', params: { raidId } });
 }
 
@@ -1384,10 +1547,7 @@ async function ensureGuildDefaults(guildId: string) {
 }
 
 function canCopyRaid(raid: RaidEventSummary) {
-  if (typeof raid.permissions?.canManage === 'boolean') {
-    return raid.permissions.canManage;
-  }
-  return Boolean(selectedGuildPermissions.value?.canManage);
+  return canManageRaidEvent(raid);
 }
 
 async function shareRaid(raid: RaidEventSummary) {
@@ -1492,6 +1652,38 @@ function raidHasCanceled(raid: RaidEventSummary) {
   return new Date(raid.canceledAt).getTime() <= Date.now();
 }
 
+function canManageRaidEvent(raid: RaidEventSummary) {
+  if (typeof raid.permissions?.canManage === 'boolean') {
+    return raid.permissions.canManage;
+  }
+  return Boolean(selectedGuildPermissions.value?.canManage);
+}
+
+function canStartRaidEvent(raid: RaidEventSummary) {
+  return canManageRaidEvent(raid) && !raidHasCanceled(raid) && !raidHasStarted(raid);
+}
+
+function canStopRaidEvent(raid: RaidEventSummary) {
+  return (
+    canManageRaidEvent(raid) &&
+    raidHasStarted(raid) &&
+    !raidHasEnded(raid) &&
+    !raidHasCanceled(raid)
+  );
+}
+
+function canRestartRaidEvent(raid: RaidEventSummary) {
+  return canManageRaidEvent(raid) && raidHasEnded(raid) && !raidHasCanceled(raid);
+}
+
+function canCancelRaidEvent(raid: RaidEventSummary) {
+  return canManageRaidEvent(raid) && !raidHasCanceled(raid);
+}
+
+function canRestoreRaidEvent(raid: RaidEventSummary) {
+  return canManageRaidEvent(raid) && raidHasCanceled(raid);
+}
+
 function isHistoryRaid(raid: RaidEventSummary) {
   if (raidHasEnded(raid)) {
     return true;
@@ -1537,22 +1729,87 @@ function buildRaidStartDateTime(date: Date) {
   return `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
+function getCalendarContextMenuPosition(event: MouseEvent) {
+  const bounds = calendarViewRef.value?.getBoundingClientRect();
+  return {
+    x: bounds ? event.clientX - bounds.left : event.clientX,
+    y: bounds ? event.clientY - bounds.top : event.clientY
+  };
+}
+
 function handleCalendarDayContextMenu(day: { date: Date }, event: MouseEvent) {
   if (!canCreateRaid.value) {
     return;
   }
-  const bounds = calendarViewRef.value?.getBoundingClientRect();
-  const offsetX = bounds ? event.clientX - bounds.left : event.clientX;
-  const offsetY = bounds ? event.clientY - bounds.top : event.clientY;
+  const { x, y } = getCalendarContextMenuPosition(event);
+  calendarContextMenuOpenedAt = window.performance.now();
+  hideRaidContextMenu();
   dayContextMenu.visible = true;
-  dayContextMenu.x = offsetX;
-  dayContextMenu.y = offsetY;
+  dayContextMenu.x = x;
+  dayContextMenu.y = y;
   dayContextMenu.date = day.date;
+}
+
+function handleRaidContextMenu(raid: RaidEventSummary, date: Date, event: MouseEvent) {
+  if (availabilityMode.value) {
+    return;
+  }
+  const { x, y } = getCalendarContextMenuPosition(event);
+  calendarContextMenuOpenedAt = window.performance.now();
+  hideDayContextMenu();
+  raidContextMenu.visible = true;
+  raidContextMenu.x = x;
+  raidContextMenu.y = y;
+  raidContextMenu.raidId = raid.id;
+  raidContextMenu.date = date;
 }
 
 function hideDayContextMenu() {
   dayContextMenu.visible = false;
   dayContextMenu.date = null;
+}
+
+function hideRaidContextMenu() {
+  raidContextMenu.visible = false;
+  raidContextMenu.raidId = null;
+  raidContextMenu.date = null;
+}
+
+function hideCalendarContextMenus() {
+  hideDayContextMenu();
+  hideRaidContextMenu();
+}
+
+function eventTargetWithinCalendarContextMenu(event: Event) {
+  return (
+    event.target instanceof Element && Boolean(event.target.closest('.raid-calendar-context'))
+  );
+}
+
+function handleGlobalCalendarContextMenuDismiss(event: Event) {
+  if (eventTargetWithinCalendarContextMenu(event)) {
+    return;
+  }
+
+  const openedRecently = window.performance.now() - calendarContextMenuOpenedAt < 250;
+  if (openedRecently) {
+    return;
+  }
+
+  hideCalendarContextMenus();
+}
+
+function handleGlobalCalendarContextMenuContextMenu(event: Event) {
+  if (
+    event.target instanceof Element &&
+    (event.target.closest('.raid-calendar-event') ||
+      event.target.closest('.raid-calendar__day') ||
+      event.target.closest('.raid-calendar-context'))
+  ) {
+    return;
+  }
+
+  hideCalendarContextMenus();
 }
 
 function scheduleContextRaid() {
@@ -1564,6 +1821,150 @@ function scheduleContextRaid() {
 
 function scheduleRaidOnDate(date: Date) {
   openRaidModal(date);
+}
+
+async function handleRaidContextMenuAction(action: RaidContextMenuActionKey) {
+  const raid = contextMenuRaid.value;
+  const menuDate = raidContextMenu.date ? new Date(raidContextMenu.date) : null;
+  if (!raid) {
+    hideCalendarContextMenus();
+    return;
+  }
+
+  if (action === 'open') {
+    openRaid(raid.id);
+    return;
+  }
+
+  if (action === 'share') {
+    hideCalendarContextMenus();
+    await shareRaid(raid);
+    return;
+  }
+
+  if (action === 'copy') {
+    hideCalendarContextMenus();
+    await copyRaid(raid);
+    return;
+  }
+
+  if (action === 'create') {
+    if (menuDate) {
+      scheduleRaidOnDate(menuDate);
+    } else {
+      hideCalendarContextMenus();
+    }
+    return;
+  }
+
+  hideCalendarContextMenus();
+  await runRaidLifecycleAction(raid, action);
+}
+
+async function runRaidLifecycleAction(raid: RaidEventSummary, action: RaidLifecycleActionKey) {
+  if (raidActionInFlightId.value) {
+    return;
+  }
+
+  const definition = getRaidLifecycleActionDefinition(action);
+  if (!definition.canRun(raid)) {
+    addToast({
+      title: 'Raid Action Unavailable',
+      message: 'That raid action is no longer available. Refreshing the calendar.',
+      variant: 'warning'
+    });
+    await loadRaids();
+    return;
+  }
+
+  raidActionInFlightId.value = raid.id;
+  try {
+    await definition.run(raid.id);
+    await loadRaids();
+    window.dispatchEvent(new CustomEvent('active-raid-updated'));
+    addToast({
+      title: definition.successTitle,
+      message: definition.successMessage(raid.name),
+      variant: 'success'
+    });
+  } catch (error) {
+    showError(extractErrorMessage(error, definition.errorMessage), 'Raid Action Failed');
+  } finally {
+    raidActionInFlightId.value = null;
+  }
+}
+
+function getRaidLifecycleActionDefinition(
+  action: RaidLifecycleActionKey
+): RaidLifecycleActionDefinition {
+  switch (action) {
+    case 'start':
+      return {
+        canRun: canStartRaidEvent,
+        run: (raidId: string) => api.startRaid(raidId),
+        successTitle: 'Raid Started',
+        successMessage: (raidName: string) => `${raidName} is now marked as started.`,
+        errorMessage: 'Unable to start raid. Please try again.'
+      };
+    case 'stop':
+      return {
+        canRun: canStopRaidEvent,
+        run: (raidId: string) => api.endRaid(raidId),
+        successTitle: 'Raid Stopped',
+        successMessage: (raidName: string) => `${raidName} is now marked as stopped.`,
+        errorMessage: 'Unable to stop raid. Please try again.'
+      };
+    case 'restart':
+      return {
+        canRun: canRestartRaidEvent,
+        run: (raidId: string) => api.restartRaid(raidId),
+        successTitle: 'Raid Restarted',
+        successMessage: (raidName: string) => `${raidName} is now marked as restarted.`,
+        errorMessage: 'Unable to restart raid. Please try again.'
+      };
+    case 'cancel':
+      return {
+        canRun: canCancelRaidEvent,
+        run: (raidId: string) => api.cancelRaid(raidId),
+        successTitle: 'Raid Canceled',
+        successMessage: (raidName: string) => `${raidName} was canceled.`,
+        errorMessage: 'Unable to cancel raid. Please try again.'
+      };
+    case 'restore':
+      return {
+        canRun: canRestoreRaidEvent,
+        run: (raidId: string) => api.uncancelRaid(raidId),
+        successTitle: 'Raid Restored',
+        successMessage: (raidName: string) => `${raidName} was restored.`,
+        errorMessage: 'Unable to restore raid. Please try again.'
+      };
+  }
+
+  throw new Error(`Unsupported raid action: ${action}`);
+}
+
+function extractErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === 'object' && error && 'response' in error) {
+    const response = (error as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (data && typeof data === 'object') {
+      const message =
+        'message' in data && typeof (data as { message?: unknown }).message === 'string'
+          ? (data as { message: string }).message
+          : 'error' in data && typeof (data as { error?: unknown }).error === 'string'
+            ? (data as { error: string }).error
+            : null;
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 watch(
@@ -1614,7 +2015,7 @@ watch(calendarViewDate, () => {
 });
 
 watch(activeTab, () => {
-  hideDayContextMenu();
+  hideCalendarContextMenus();
 });
 
 watch(historyRaids, (nextHistory) => {
@@ -1642,17 +2043,17 @@ function handleVisibilityChange() {
 }
 
 onUnmounted(() => {
-  window.removeEventListener('click', hideDayContextMenu);
-  window.removeEventListener('scroll', hideDayContextMenu, true);
-  window.removeEventListener('contextmenu', hideDayContextMenu);
+  window.removeEventListener('click', handleGlobalCalendarContextMenuDismiss);
+  window.removeEventListener('scroll', hideCalendarContextMenus, true);
+  window.removeEventListener('contextmenu', handleGlobalCalendarContextMenuContextMenu);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   stopRaidsRefreshPolling();
 });
 
 onMounted(() => {
-  window.addEventListener('click', hideDayContextMenu);
-  window.addEventListener('scroll', hideDayContextMenu, true);
-  window.addEventListener('contextmenu', hideDayContextMenu);
+  window.addEventListener('click', handleGlobalCalendarContextMenuDismiss);
+  window.addEventListener('scroll', hideCalendarContextMenus, true);
+  window.addEventListener('contextmenu', handleGlobalCalendarContextMenuContextMenu);
   document.addEventListener('visibilitychange', handleVisibilityChange);
 });
 
@@ -2105,6 +2506,7 @@ function parseDateKey(dateKey: string): Date {
   position: absolute;
   z-index: 10;
   min-width: 220px;
+  max-width: min(320px, calc(100vw - 2rem));
   border-radius: 0.75rem;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.95);
@@ -2115,10 +2517,31 @@ function parseDateKey(dateKey: string): Date {
   gap: 0.5rem;
 }
 
+.raid-calendar-context--raid {
+  min-width: 260px;
+}
+
+.raid-calendar-context__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
 .raid-calendar-context__label {
   margin: 0;
   font-size: 0.85rem;
   color: #e2e8f0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.raid-calendar-context__meta {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #94a3b8;
 }
 
 .raid-calendar-context__action,
@@ -2131,8 +2554,52 @@ function parseDateKey(dateKey: string): Date {
 }
 
 .raid-calendar-context__action {
+  background: rgba(30, 41, 59, 0.95);
+  color: #e2e8f0;
+  text-align: left;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.raid-calendar-context__action:hover:not(:disabled),
+.raid-calendar-context__action:focus-visible:not(:disabled) {
+  background: rgba(51, 65, 85, 0.95);
+  color: #ffffff;
+  outline: none;
+}
+
+.raid-calendar-context__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.raid-calendar-context__action--primary {
   background: linear-gradient(135deg, #38bdf8, #6366f1);
   color: #0f172a;
+}
+
+.raid-calendar-context__action--success {
+  background: rgba(34, 197, 94, 0.18);
+  color: #86efac;
+}
+
+.raid-calendar-context__action--success:hover:not(:disabled),
+.raid-calendar-context__action--success:focus-visible:not(:disabled) {
+  background: rgba(34, 197, 94, 0.28);
+  color: #bbf7d0;
+}
+
+.raid-calendar-context__action--danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+.raid-calendar-context__action--danger:hover:not(:disabled),
+.raid-calendar-context__action--danger:focus-visible:not(:disabled) {
+  background: rgba(239, 68, 68, 0.26);
+  color: #fecaca;
 }
 
 .raid-calendar-context__close {

@@ -724,34 +724,54 @@ export async function cancelRaidEvent(raidId: string, userId: string) {
 
   await ensureCanManageRaid(userId, existing.guildId);
 
-  const updated = await prisma.raidEvent.update({
-    where: { id: raidId },
-    data: {
-      canceledAt: new Date(),
-      isActive: false
-    },
-    include: {
-      recurrenceSeries: {
-        select: recurrenceSelection
+  const transactionResult = await prisma.$transaction(async (tx) => {
+    const updatedRaid = await tx.raidEvent.update({
+      where: { id: raidId },
+      data: {
+        canceledAt: new Date(),
+        isActive: false
+      },
+      include: {
+        recurrenceSeries: {
+          select: recurrenceSelection
+        }
       }
-    }
+    });
+
+    const nextRaid = await maybeCreateNextRecurringRaid(tx, updatedRaid, userId);
+
+    // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
+    // since they're no longer needed after the raid is canceled
+    await tx.pendingNpcKillClarification.deleteMany({
+      where: { raidId }
+    });
+
+    return { updatedRaid, nextRaid };
   });
 
-  // Clean up all pending NPC kill clarifications for this raid (both resolved and unresolved)
-  // since they're no longer needed after the raid is canceled
-  await prisma.pendingNpcKillClarification.deleteMany({
-    where: { raidId }
-  });
+  const { updatedRaid, nextRaid } = transactionResult;
 
   emitDiscordWebhookEvent(existing.guildId, 'raid.canceled', {
     guildName: existing.guild.name,
     raidId,
     raidName: existing.name,
-    canceledAt: updated.canceledAt ?? new Date()
+    canceledAt: updatedRaid.canceledAt ?? new Date()
   });
   await queueRaidCanceledNotifications(raidId);
 
-  const formatted = formatRaidWithRecurrence(updated);
+  if (nextRaid) {
+    emitDiscordWebhookEvent(nextRaid.guildId, 'raid.created', {
+      guildName: nextRaid.guild.name,
+      raidId: nextRaid.id,
+      raidName: nextRaid.name,
+      startTime: nextRaid.startTime,
+      targetZones: normalizeStringArray(nextRaid.targetZones),
+      targetBosses: normalizeStringArray(nextRaid.targetBosses),
+      createdByName: withPreferredDisplayName(nextRaid.createdBy).displayName
+    });
+  }
+
+  const formatted = formatRaidWithRecurrence(updatedRaid);
   return {
     ...formatted,
     hasUnassignedLoot: await raidHasUnassignedLoot(raidId)
