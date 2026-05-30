@@ -1,4 +1,9 @@
-import type { TestChange, TestChangeNote, TestChangeTester } from "./types.js";
+import type {
+  TestChange,
+  TestChangeNote,
+  TestChangeTester,
+  TestManagerServerVersion,
+} from "./types.js";
 
 export function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
@@ -35,11 +40,12 @@ export function printChangeList(changes: TestChange[]): void {
   }
 
   printTable(
-    ["ID", "Status", "Priority", "Title", "Updated"],
+    ["ID", "Status", "Priority", "Version", "Title", "Updated"],
     changes.map((change) => [
       `#${change.publicId}`,
       change.status,
       change.priority,
+      change.testServerVersion ?? "",
       change.title,
       formatDate(change.updatedAt),
     ]),
@@ -52,6 +58,9 @@ export function printChange(change: TestChange): void {
   console.log(`Category: ${change.category}  Subsystem: ${change.subsystem}`);
   if (change.targetBuild) {
     console.log(`Target build: ${change.targetBuild}`);
+  }
+  if (change.testServerVersion) {
+    console.log(`Test server version: ${change.testServerVersion}`);
   }
   if (change.assignedTo) {
     console.log(`Assigned to: ${change.assignedTo.displayName}`);
@@ -66,6 +75,21 @@ export function printChange(change: TestChange): void {
   if (description) {
     console.log("\nDescription:");
     console.log(description);
+  }
+}
+
+export function printServerVersion(version: TestManagerServerVersion): void {
+  console.log(
+    `Current test server: ${version.currentTestServerVersion ?? "Not set"}`,
+  );
+  console.log(
+    `Current live server: ${version.currentLiveServerVersion ?? "Not set"}`,
+  );
+  if (typeof version.futureChangesPaused === "number") {
+    console.log(`Future changes paused: ${version.futureChangesPaused}`);
+  }
+  if (typeof version.versionChangesResumed === "number") {
+    console.log(`Version changes resumed: ${version.versionChangesResumed}`);
   }
 }
 

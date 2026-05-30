@@ -96,6 +96,8 @@ test("tm create posts the expected payload without contacting a real database", 
           "high",
           "--description",
           "Line one\n\nLine two",
+          "--test-server-version",
+          "2026.05.29",
           "--checklist",
           "Boot zone|Confirm startup|Smoke",
         ],
@@ -113,6 +115,7 @@ test("tm create posts the expected payload without contacting a real database", 
         subsystem: "Zone",
         priority: "HIGH",
         targetBuild: null,
+        testServerVersion: "2026.05.29",
         githubPrUrl: null,
         githubIssueUrl: null,
         contextLinks: [],
@@ -164,6 +167,7 @@ test("tm update resolves public ids and sends a merged full update payload", asy
         subsystem: "Deploy",
         priority: "MEDIUM",
         targetBuild: null,
+        testServerVersion: "2026.05.29",
         githubPrUrl: "https://github.com/example/repo/pull/5",
         githubIssueUrl: null,
         contextLinks: [],
@@ -180,6 +184,7 @@ test("tm update resolves public ids and sends a merged full update payload", asy
           id: "change-55",
           publicId: 55,
           targetBuild: "prod",
+          testServerVersion: "2026.05.29",
           githubPullRequest: { url: "https://github.com/example/repo/pull/5" },
         }),
       }),
@@ -718,6 +723,42 @@ test("tm command families map to the Test Manager API without a real database", 
           ],
         },
         {
+          args: ["tm", "server-version", "get", "--json"],
+          expected: [
+            { method: "GET", url: "/api/test-manager/server-version" },
+          ],
+        },
+        {
+          args: ["tm", "server-version", "set-test", "2026.05.29", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/test-manager/server-version",
+              body: { currentTestServerVersion: "2026.05.29" },
+            },
+          ],
+        },
+        {
+          args: ["tm", "server-version", "clear-test", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/test-manager/server-version",
+              body: { currentTestServerVersion: null },
+            },
+          ],
+        },
+        {
+          args: ["tm", "server-version", "set-live", "2026.05.28", "--json"],
+          expected: [
+            {
+              method: "PUT",
+              url: "/api/test-manager/live-server-version",
+              body: { currentLiveServerVersion: "2026.05.28" },
+            },
+          ],
+        },
+        {
           args: ["tm", "users", "list", "--json"],
           expected: [{ method: "GET", url: "/api/test-manager/users" }],
         },
@@ -843,6 +884,23 @@ test("tm command families map to the Test Manager API without a real database", 
       }),
       "POST /api/test-manager/next-patch/reset": () => ({ resetCount: 2 }),
       "POST /api/test-manager/next-patch/patch-notes": () => ({ notes: [] }),
+      "GET /api/test-manager/server-version": () => ({
+        currentTestServerVersion: "2026.05.29",
+        currentLiveServerVersion: "2026.05.28",
+      }),
+      "PUT /api/test-manager/server-version": (_request, body) => ({
+        currentTestServerVersion: (
+          body as { currentTestServerVersion: string | null }
+        ).currentTestServerVersion,
+        currentLiveServerVersion: "2026.05.28",
+        futureChangesPaused: 0,
+        versionChangesResumed: 1,
+      }),
+      "PUT /api/test-manager/live-server-version": (_request, body) => ({
+        currentLiveServerVersion: (
+          body as { currentLiveServerVersion: string | null }
+        ).currentLiveServerVersion,
+      }),
       "GET /api/test-manager/users": () => ({ users: [] }),
       "PATCH /api/test-manager/users/user-2": () => ({ success: true }),
       "GET /api/test-manager/settings": () => ({
@@ -1138,6 +1196,7 @@ function fixtureChange(
     priority: "MEDIUM",
     status: "SUBMITTED",
     targetBuild: null,
+    testServerVersion: null,
     githubPullRequest: null,
     githubIssue: null,
     contextLinks: [],

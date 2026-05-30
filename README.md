@@ -158,7 +158,10 @@ Common Test Manager commands:
 ```bash
 npm run nexus -- tm list --status ACTIVE
 npm run nexus -- tm show 123
-npm run nexus -- tm create --title "Fix crash" --category Server --subsystem Zone --description "What changed"
+npm run nexus -- tm create --title "Fix crash" --category Server --subsystem Zone --description "What changed" --test-server-version 2026.05.29
+npm run nexus -- tm update 123 --test-server-version 2026.05.29
+npm run nexus -- tm server-version set-test 2026.05.29
+npm run nexus -- tm server-version set-live 2026.05.28
 npm run nexus -- tm note add 123 --text "Verified on current build."
 npm run nexus -- tm result 123 pass --notes "Smoke test passed."
 npm run nexus -- tm close 123 --detail "Released."

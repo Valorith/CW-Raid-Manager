@@ -78,6 +78,7 @@ export interface TestChange {
   priority: TestChangePriority;
   status: TestChangeStatus;
   targetBuild: string | null;
+  testServerVersion: string | null;
   githubPrUrl?: string | null;
   githubIssueUrl?: string | null;
   githubPullRequest?: { url: string } | null;
@@ -110,4 +111,11 @@ export interface TestChangeResponse {
 
 export interface TestChangesResponse {
   changes: TestChange[];
+}
+
+export interface TestManagerServerVersion {
+  currentTestServerVersion: string | null;
+  currentLiveServerVersion: string | null;
+  futureChangesPaused?: number;
+  versionChangesResumed?: number;
 }

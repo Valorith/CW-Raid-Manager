@@ -18,6 +18,7 @@ import {
   printChangeList,
   printJson,
   printNotes,
+  printServerVersion,
   printTable,
   printTesters,
   textToHtml,
@@ -31,6 +32,7 @@ import type {
   TestChangeResponse,
   TestChangesResponse,
   TestChangeStatus,
+  TestManagerServerVersion,
   TestResult,
 } from "./types.js";
 
@@ -48,6 +50,7 @@ const BOOLEAN_FLAGS = new Set([
   "html",
   "local",
   "clear-target-build",
+  "clear-test-server-version",
   "clear-github-pr",
   "clear-github-issue",
   "clear-due",
@@ -619,6 +622,12 @@ async function testManager(
     case "next-patch":
       await nextPatch(api, args.slice(1), flags, jsonMode);
       return;
+    case "server-version":
+    case "server-versions":
+    case "version":
+    case "versions":
+      await serverVersion(api, args.slice(1), jsonMode);
+      return;
     case "users":
       await users(api, args.slice(1), flags, jsonMode);
       return;
@@ -693,6 +702,7 @@ async function createChange(
           PRIORITIES,
         ),
         targetBuild: stringFlag(flags, "target-build") ?? null,
+        testServerVersion: stringFlag(flags, "test-server-version") ?? null,
         githubPrUrl: stringFlag(flags, "github-pr-url") ?? null,
         githubIssueUrl: stringFlag(flags, "github-issue-url") ?? null,
         contextLinks: [],
@@ -738,6 +748,10 @@ async function updateChange(
     targetBuild: boolFlag(flags, "clear-target-build")
       ? null
       : (stringFlag(flags, "target-build") ?? existing.targetBuild),
+    testServerVersion: boolFlag(flags, "clear-test-server-version")
+      ? null
+      : (stringFlag(flags, "test-server-version") ??
+        existing.testServerVersion),
     githubPrUrl: boolFlag(flags, "clear-github-pr")
       ? null
       : (stringFlag(flags, "github-pr-url") ??
@@ -1248,6 +1262,93 @@ async function nextPatch(
   throw new Error(`Unknown next-patch command "${action}".`);
 }
 
+async function serverVersion(
+  api: NexusApi,
+  args: string[],
+  jsonMode: boolean,
+): Promise<void> {
+  const action = args[0] ?? "get";
+  if (["get", "list", "status"].includes(action)) {
+    const response = await api.request<TestManagerServerVersion>(
+      "/api/test-manager/server-version",
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printServerVersion(response);
+    }
+    return;
+  }
+
+  if (action === "set-test" || action === "test") {
+    const response = await api.request<TestManagerServerVersion>(
+      "/api/test-manager/server-version",
+      {
+        method: "PUT",
+        body: { currentTestServerVersion: requireArg(args, 1, "version") },
+      },
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printServerVersion(response);
+    }
+    return;
+  }
+
+  if (action === "clear-test") {
+    const response = await api.request<TestManagerServerVersion>(
+      "/api/test-manager/server-version",
+      {
+        method: "PUT",
+        body: { currentTestServerVersion: null },
+      },
+    );
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      printServerVersion(response);
+    }
+    return;
+  }
+
+  if (action === "set-live" || action === "live") {
+    const response = await api.request<
+      Pick<TestManagerServerVersion, "currentLiveServerVersion">
+    >("/api/test-manager/live-server-version", {
+      method: "PUT",
+      body: { currentLiveServerVersion: requireArg(args, 1, "version") },
+    });
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      console.log(
+        `Current live server: ${response.currentLiveServerVersion ?? "Not set"}`,
+      );
+    }
+    return;
+  }
+
+  if (action === "clear-live") {
+    const response = await api.request<
+      Pick<TestManagerServerVersion, "currentLiveServerVersion">
+    >("/api/test-manager/live-server-version", {
+      method: "PUT",
+      body: { currentLiveServerVersion: null },
+    });
+    if (jsonMode) {
+      printJson(response);
+    } else {
+      console.log(
+        `Current live server: ${response.currentLiveServerVersion ?? "Not set"}`,
+      );
+    }
+    return;
+  }
+
+  throw new Error(`Unknown server-version command "${action}".`);
+}
+
 async function users(
   api: NexusApi,
   args: string[],
@@ -1697,8 +1798,8 @@ Usage:
   nexus tm list [--status ACTIVE|CLOSED] [--search text]
   nexus tm dashboard
   nexus tm show <change>
-  nexus tm create --title <title> --category <category> --subsystem <subsystem> [--description text] [--checklist "title|details|category"]
-  nexus tm update <change> [--title title] [--description text] [--priority high] [--clear-assignee]
+  nexus tm create --title <title> --category <category> --subsystem <subsystem> [--description text] [--test-server-version version]
+  nexus tm update <change> [--title title] [--description text] [--test-server-version version] [--clear-test-server-version]
   nexus tm status <change> <status> [--detail text]
   nexus tm close <change>
   nexus tm note list|add|delete <change> [noteId] [--text text] [--file path]
@@ -1709,6 +1810,7 @@ Usage:
   nexus tm result <change> pass|fail|blocked --notes <text>
   nexus tm ready <change> true|false
   nexus tm next-patch list|count|include|exclude|reset|patch-notes [change]
+  nexus tm server-version get | set-test <version> | set-live <version> | clear-test | clear-live
   nexus tm users list | set-tester <userId> true|false --yes
   nexus tm settings get | update --file settings.json --yes
 
