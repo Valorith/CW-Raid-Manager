@@ -20,9 +20,7 @@ import { prisma } from '../utils/prisma.js';
 const PASSKEY_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const SUPPORTED_ALGORITHM_IDS = [-7, -257];
 const LOCAL_DEVICE_PASSKEY_HINTS: NonNullable<PublicKeyCredentialRequestOptionsJSON['hints']> = [
-  'client-device',
-  'hybrid',
-  'security-key'
+  'client-device'
 ];
 const TRANSPORTS = new Set<AuthenticatorTransportFuture>([
   'ble',
